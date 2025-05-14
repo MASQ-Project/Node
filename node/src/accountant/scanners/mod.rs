@@ -55,7 +55,7 @@ use crate::db_config::persistent_configuration::{PersistentConfiguration, Persis
 // Leave the individual scanner objects private!
 pub struct Scanners {
     payable: Box<dyn MultistageDualPayableScanner>,
-    unresolved_pending_payable: bool,
+    aware_of_unresolved_pending_payable: bool,
     pending_payable: Box<
         dyn PrivateScanner<
             ScanForPendingPayables,
@@ -109,7 +109,7 @@ impl Scanners {
 
         Scanners {
             payable,
-            unresolved_pending_payable: false,
+            aware_of_unresolved_pending_payable: false,
             pending_payable,
             receivable,
         }
@@ -121,14 +121,14 @@ impl Scanners {
         timestamp: SystemTime,
         response_skeleton_opt: Option<ResponseSkeleton>,
         logger: &Logger,
-        pending_payable_sequence_in_process: bool,
+        automatic_scans_enabled: bool,
     ) -> Result<QualifiedPayablesMessage, BeginScanError> {
         let triggered_manually = response_skeleton_opt.is_some();
         // Under normal circumstances, it is guaranteed that the new-payable scanner will never
         // overlap with the execution of the pending payable scanner, as they are safely
         // and automatically scheduled to run sequentially. However, since we allow for unexpected,
         // manually triggered scans, a conflict is possible and must be handled.
-        if triggered_manually && pending_payable_sequence_in_process {
+        if triggered_manually && automatic_scans_enabled {
             todo!() // ManualTriggerError
         }
 
@@ -182,15 +182,16 @@ impl Scanners {
         timestamp: SystemTime,
         response_skeleton_opt: Option<ResponseSkeleton>,
         logger: &Logger,
-        pending_payable_sequence_in_process: bool,
+        automatic_scans_enabled: bool,
     ) -> Result<RequestTransactionReceipts, BeginScanError> {
         let triggered_manually = response_skeleton_opt.is_some();
-        if triggered_manually && pending_payable_sequence_in_process {
-            todo!() // ManualTriggerError
-        }
 
-        if triggered_manually && !self.unresolved_pending_payable {
-            todo!() //ManualTriggerError
+        if triggered_manually && automatic_scans_enabled  {
+            todo!("forbidden")
+        } else if triggered_manually && !self.aware_of_unresolved_pending_payable {
+            todo!("useless")
+        } else if !self.aware_of_unresolved_pending_payable {
+            todo!("unreachable")
         }
 
         match (
@@ -198,12 +199,12 @@ impl Scanners {
             self.payable.scan_started_at(),
         ) {
             (Some(pp_timestamp), Some(p_timestamp)) =>
-            // If you're wondering, then yes, this should be sacre in the relationship between
-            // Pending Payable and New Payable.
+            // If you're wondering, then yes, this should be the sacre truth between 
+            // PendingPayableScanner and NewPayableScanner.
             {
                 unreachable!(
-                    "Both payable scanners should never be allowed to run in parallel. \
-                Scan for pending payables started at: {}, scan for payables started at: {}",
+                    "Both payable scanners should never be allowed to run in parallel. Scan for \
+                    pending payables started at: {}, scan for payables started at: {}",
                     BeginScanError::timestamp_as_string(pp_timestamp),
                     BeginScanError::timestamp_as_string(p_timestamp)
                 )
@@ -250,7 +251,7 @@ impl Scanners {
     ) -> Option<NodeToUiMessage> {
         let scan_result = self.payable.finish_scan(msg, logger);
         match scan_result.result {
-            OperationOutcome::NewPendingPayable => self.unresolved_pending_payable = true,
+            OperationOutcome::NewPendingPayable => self.aware_of_unresolved_pending_payable = true,
             OperationOutcome::Failure => (),
         };
         scan_result.ui_response_opt
@@ -273,7 +274,7 @@ impl Scanners {
     }
 
     pub fn scan_error_scan_reset(&self, error: &ScanError) {
-        todo!()
+        todo!("test me locally")
     }
 
     pub fn try_skipping_payable_adjustment(
@@ -1789,7 +1790,7 @@ mod tests {
             &payment_thresholds
         );
         assert_eq!(payable_scanner.common.initiated_at_opt.is_some(), false);
-        assert_eq!(scanners.unresolved_pending_payable, false);
+        assert_eq!(scanners.aware_of_unresolved_pending_payable, false);
         assert_eq!(
             pending_payable_scanner.when_pending_too_long_sec,
             when_pending_too_long_sec
@@ -2147,16 +2148,16 @@ mod tests {
         payable_scanner.mark_as_started(SystemTime::now());
         let mut subject = make_dull_subject();
         subject.payable = Box::new(payable_scanner);
-        let unresolved_pending_payable_before = subject.unresolved_pending_payable;
+        let aware_of_unresolved_pending_payable_before = subject.aware_of_unresolved_pending_payable;
 
         let node_to_ui_msg = subject.finish_payable_scan(sent_payable, &logger);
 
         let is_scan_running = subject.scan_started_at(ScanType::Payables).is_some();
-        let unresolved_pending_payable_after = subject.unresolved_pending_payable;
+        let aware_of_unresolved_pending_payable_after = subject.aware_of_unresolved_pending_payable;
         assert_eq!(node_to_ui_msg, None);
         assert_eq!(is_scan_running, false);
-        assert_eq!(unresolved_pending_payable_before, false);
-        assert_eq!(unresolved_pending_payable_after, true);
+        assert_eq!(aware_of_unresolved_pending_payable_before, false);
+        assert_eq!(aware_of_unresolved_pending_payable_after, true);
         let fingerprints_rowids_params = fingerprints_rowids_params_arc.lock().unwrap();
         assert_eq!(
             *fingerprints_rowids_params,
@@ -2537,16 +2538,16 @@ mod tests {
         };
         let mut subject = make_dull_subject();
         subject.payable = Box::new(payable_scanner);
-        let unresolved_pending_payable_before = subject.unresolved_pending_payable;
+        let aware_of_unresolved_pending_payable_before = subject.aware_of_unresolved_pending_payable;
 
         let node_to_ui_msg_opt = subject.finish_payable_scan(sent_payable, &logger);
 
-        let unresolved_pending_payable_after = subject.unresolved_pending_payable;
+        let aware_of_unresolved_pending_payable_after = subject.aware_of_unresolved_pending_payable;
         System::current().stop();
         system.run();
         assert_eq!(node_to_ui_msg_opt, None);
-        assert_eq!(unresolved_pending_payable_before, false);
-        assert_eq!(unresolved_pending_payable_after, false);
+        assert_eq!(aware_of_unresolved_pending_payable_before, false);
+        assert_eq!(aware_of_unresolved_pending_payable_after, false);
         let fingerprints_rowids_params = fingerprints_rowids_params_arc.lock().unwrap();
         assert_eq!(
             *fingerprints_rowids_params,
@@ -2583,13 +2584,13 @@ mod tests {
         let payable_scanner = PayableScannerBuilder::new().build();
         let mut subject = make_dull_subject();
         subject.payable = Box::new(payable_scanner);
-        let unresolved_pending_payable_before = subject.unresolved_pending_payable;
+        let aware_of_unresolved_pending_payable_before = subject.aware_of_unresolved_pending_payable;
 
         subject.finish_payable_scan(sent_payable, &Logger::new(test_name));
 
-        let unresolved_pending_payable_after = subject.unresolved_pending_payable;
-        assert_eq!(unresolved_pending_payable_before, false);
-        assert_eq!(unresolved_pending_payable_after, false);
+        let aware_of_unresolved_pending_payable_after = subject.aware_of_unresolved_pending_payable;
+        assert_eq!(aware_of_unresolved_pending_payable_before, false);
+        assert_eq!(aware_of_unresolved_pending_payable_after, false);
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!(
             "DEBUG: {test_name}: Got 0 properly sent payables of an unknown number of attempts"
@@ -4332,7 +4333,7 @@ mod tests {
     fn make_dull_subject() -> Scanners {
         Scanners {
             payable: Box::new(NullScanner::new()),
-            unresolved_pending_payable: false,
+            aware_of_unresolved_pending_payable: false,
             pending_payable: Box::new(NullScanner::new()),
             receivable: Box::new(NullScanner::new()),
         }

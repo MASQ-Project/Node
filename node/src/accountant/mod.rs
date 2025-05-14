@@ -219,6 +219,10 @@ impl Handler<ScanForPendingPayables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ScanForPendingPayables, ctx: &mut Self::Context) -> Self::Result {
+        // By this time we know it is an automatic scanner, which may or may not be rescheduled. 
+        // It depends on the findings: if it finds failed transactions, then it will launch 
+        // the RetryPayableScanner, which finishes, and the PendingPayablesScanner is scheduled 
+        // to run again. Therefore, not from here. 
         let response_skeleton_opt = msg.response_skeleton_opt;
         self.handle_request_of_scan_for_pending_payable(response_skeleton_opt)
     }
@@ -228,6 +232,11 @@ impl Handler<ScanForNewPayables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ScanForNewPayables, ctx: &mut Self::Context) -> Self::Result {
+        // We know this must be a scheduled scanner, but we don't if we are going to reschedule it 
+        // from here or elsewhere. If the scan finds no payables that qualify for a payment, we do
+        // it right away. If some new pending payables are produced, the next scheduling is going to
+        // be determined by the PendingPayableScanner, evaluating if it has seen all pending 
+        // payables complete. That opens up an opportunity for another run of the NewPayableScanner.  
         let response_skeleton = msg.response_skeleton_opt;
         if self.handle_request_of_scan_for_new_payable(response_skeleton)
             == ScanScheduleHint::Schedule
@@ -243,6 +252,8 @@ impl Handler<ScanForRetryPayables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ScanForRetryPayables, _ctx: &mut Self::Context) -> Self::Result {
+        // RetryPayableScanner is scheduled only when the PendingPayableScanner finishes finding out 
+        // that there have been some failed pending payables. That means not from here.    
         let response_skeleton = msg.response_skeleton_opt;
         self.handle_request_of_scan_for_retry_payable(response_skeleton);
     }
@@ -252,11 +263,10 @@ impl Handler<ScanForReceivables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ScanForReceivables, ctx: &mut Self::Context) -> Self::Result {
-        if self.handle_request_of_scan_for_receivable(msg.response_skeleton_opt)
-            == ScanScheduleHint::Schedule
-        {
-            todo!()
-        }
+        // By this time we know it is an automatic scanner, which is always rescheduled right away, 
+        // no matter what its outcome is.  
+        self.handle_request_of_scan_for_receivable(msg.response_skeleton_opt);
+        todo!("receivable scanner periodical")
     }
 }
 
@@ -273,11 +283,11 @@ impl Handler<ReportTransactionReceipts> for Accountant {
                         .expect("UIGateway is not bound")
                         .try_send(node_to_ui_msg)
                         .expect("UIGateway is dead");
-                    todo!();
-                    // Externally triggered scans are not allowed to unwind beyond their own scope;
-                    // only the very action of the specified scan is performed.
+                    todo!("Finishing PendingPayable scan. Non-automatic.");
+                    // Externally triggered scan is not allowed to be a spark for a procedure that 
+                    // would involve payables with fresh nonces. The job is done. 
                 } else {
-                    todo!();
+                    todo!("Finishing PendingPayable scan. Automatic scanning.");
                     self.scan_schedulers
                         .payable
                         .schedule_for_new_payable(ctx, response_skeleton_opt)
@@ -309,28 +319,24 @@ impl Handler<SentPayables> for Accountant {
     fn handle(&mut self, msg: SentPayables, ctx: &mut Self::Context) -> Self::Result {
         match self.scanners.finish_payable_scan(msg, &self.logger) {
             None => {
-                todo!() //self.scan_schedulers.pending_payable.schedule(ctx, None)
+                todo!("Finishing automatic payable scan") //self.scan_schedulers.pending_payable.schedule(ctx, None)
             }
-            // TODO merge after tested in and out
-            Some(node_to_ui_msg) if self.scan_schedulers.automatic_scans_enabled => {
-                todo!();
-                self.ui_message_sub_opt
-                    .as_ref()
-                    .expect("UIGateway is not bound")
-                    .try_send(node_to_ui_msg)
-                    .expect("UIGateway is dead");
-            }
-
+            // TODO Might be worth a consideration with GH-635
+            // Some(node_to_ui_msg) if self.scan_schedulers.automatic_scans_enabled => {
+            //     todo!();
+            // }
             Some(node_to_ui_msg) => {
-                todo!("Test externally triggered msgs don't chain it up...if not...");
+                todo!("Externally triggered payable scan is finishing");
                 self.ui_message_sub_opt
                     .as_ref()
                     .expect("UIGateway is not bound")
                     .try_send(node_to_ui_msg)
                     .expect("UIGateway is dead");
 
-                // Externally triggered scans should not provoke a sequence spread by intervals, that is
-                // exclusive to automatic (scheduled respectively) scanning processes.
+                // When automatic scans are suppressed, the external triggers are not allowed to 
+                // provoke a scan sequence spread across intervals. The only exception is 
+                // the PendingPayableScanner and RetryPayableScanner, which are meant to run in 
+                // tandem.
             }
         }
     }
@@ -897,7 +903,6 @@ impl Accountant {
                     SystemTime::now(),
                     response_skeleton_opt,
                     &self.logger,
-                    self.scan_schedulers.pending_payable_sequence_in_process,
                 ),
                 None => Err(BeginScanError::NoConsumingWalletFound),
             };
@@ -1005,7 +1010,7 @@ impl Accountant {
     fn handle_request_of_scan_for_receivable(
         &mut self,
         response_skeleton_opt: Option<ResponseSkeleton>,
-    ) -> ScanScheduleHint {
+    ) {
         let result: Result<RetrieveTransactions, BeginScanError> =
             self.scanners.start_receivable_scan_guarded(
                 &self.earning_wallet,
@@ -1029,12 +1034,6 @@ impl Accountant {
                 );
             }
         }
-
-        if response_skeleton_opt.is_none() {
-            todo!("schedule")
-        } else {
-            todo!()
-        }
     }
 
     fn handle_externally_triggered_scan(
@@ -1043,6 +1042,8 @@ impl Accountant {
         scan_type: ScanType,
         response_skeleton: ResponseSkeleton,
     ) {
+        // Each of these scans runs only once per request, they do not go on into a sequence under 
+        // any circumstances
         match scan_type {
             ScanType::Payables => {
                 self.handle_request_of_scan_for_new_payable(Some(response_skeleton));
@@ -1841,12 +1842,6 @@ mod tests {
             test_name
         ));
         assert_eq!(blockchain_bridge_recording.len(), 1);
-    }
-
-    #[test]
-    fn externally_triggered_scan_for_payables_is_prevented_by_ongoing_pending_payable_scan_sequence(
-    ) {
-        todo!("write me up")
     }
 
     #[test]
