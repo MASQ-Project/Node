@@ -57,14 +57,14 @@ use itertools::Either;
 use itertools::Itertools;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
-use masq_lib::messages::{ScanType, UiFinancialsResponse};
+use masq_lib::messages::{ScanType, UiFinancialsResponse, UiScanResponse};
 use masq_lib::messages::{FromMessageBody, ToMessageBody, UiFinancialsRequest};
 use masq_lib::messages::{
     QueryResults, UiFinancialStatistics, UiPayableAccount, UiReceivableAccount,
     UiScanRequest,
 };
 use masq_lib::ui_gateway::MessageTarget::ClientId;
-use masq_lib::ui_gateway::{MessageBody, MessagePath};
+use masq_lib::ui_gateway::{MessageBody, MessagePath, MessageTarget};
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::ExpectValue;
 use std::any::type_name;
@@ -903,7 +903,7 @@ impl Accountant {
                     SystemTime::now(),
                     response_skeleton_opt,
                     &self.logger,
-                    self.scan_schedulers.automatic_scans_enabled
+                    self.scan_schedulers.automatic_scans_enabled,
                 ),
                 None => Err(BeginScanError::NoConsumingWalletFound),
             };
@@ -919,17 +919,27 @@ impl Accountant {
                 // ScanScheduleHint::DoNotSchedule
             }
             Err(e) => {
-                e.handle_error(
+                e.log_error(
                     &self.logger,
                     ScanType::Payables,
                     response_skeleton_opt.is_some(),
                 );
 
-                //TODO simplify after having been properly tested
-                if e == BeginScanError::NothingToProcess && response_skeleton_opt.is_none() {
+                response_skeleton_opt.map(|skeleton| {
+                    self.ui_message_sub_opt
+                        .as_ref()
+                        .expect("UiGateway is unbound")
+                        .try_send(NodeToUiMessage {
+                            target: MessageTarget::ClientId(skeleton.client_id),
+                            body: UiScanResponse {}.tmb(skeleton.context_id),
+                        })
+                        .expect("UiGateway is dead");
+                });
+
+                if e == BeginScanError::NothingToProcess {
                     ScanScheduleHint::Schedule
                 } else {
-                    todo!("Just hit me up")
+                    ScanScheduleHint::DoNotSchedule
                 }
             }
         }
@@ -958,12 +968,14 @@ impl Accountant {
                     .try_send(scan_message)
                     .expect("BlockchainBridge is dead");
             }
-            Err(e) => todo!("the same test here pls!!!")
-                // e.handle_error(
-                // &self.logger,
-                // ScanType::Payables,
-                // response_skeleton_opt.is_some(),
-            //),
+            Err(e) => todo!("the same test here pls!!!"), // e.log_error(
+                                                          // &self.logger,
+                                                          // ScanType::Payables,
+                                                          // response_skeleton_opt.is_some(),
+                                                          //),
+                                                          // response_skeleton_opt.map(|skeleton|{
+                                                          //                           self.ui_message_sub_opt.as_ref().expect("UiGateway is unbound").try_send(NodeToUiMessage{ target: MessageTarget::ClientId(skeleton.client_id), body: UiScanResponse{}.tmb(skeleton.context_id) }).expect("UiGateway is dead");
+                                                          //                           });
         }
     }
 
@@ -992,11 +1004,22 @@ impl Accountant {
                     .expect("BlockchainBridge is dead");
             }
             Err(e) => {
-                e.handle_error(
+                e.log_error(
                     &self.logger,
                     ScanType::PendingPayables,
                     response_skeleton_opt.is_some(),
                 );
+
+                response_skeleton_opt.map(|skeleton| {
+                    self.ui_message_sub_opt
+                        .as_ref()
+                        .expect("UiGateway is unbound")
+                        .try_send(NodeToUiMessage {
+                            target: MessageTarget::ClientId(skeleton.client_id),
+                            body: UiScanResponse {}.tmb(skeleton.context_id),
+                        })
+                        .expect("UiGateway is dead");
+                });
             }
         }
     }
@@ -1011,6 +1034,7 @@ impl Accountant {
                 SystemTime::now(),
                 response_skeleton_opt,
                 &self.logger,
+                self.scan_schedulers.automatic_scans_enabled,
             );
 
         match result {
@@ -1021,11 +1045,22 @@ impl Accountant {
                 .try_send(scan_message)
                 .expect("BlockchainBridge is dead"),
             Err(e) => {
-                e.handle_error(
+                e.log_error(
                     &self.logger,
                     ScanType::Receivables,
                     response_skeleton_opt.is_some(),
                 );
+
+                response_skeleton_opt.map(|skeleton| {
+                    self.ui_message_sub_opt
+                        .as_ref()
+                        .expect("UiGateway is unbound")
+                        .try_send(NodeToUiMessage {
+                            target: MessageTarget::ClientId(skeleton.client_id),
+                            body: UiScanResponse {}.tmb(skeleton.context_id),
+                        })
+                        .expect("UiGateway is dead");
+                });
             }
         }
     }
@@ -1182,7 +1217,7 @@ mod tests {
     use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
     use crate::sub_lib::neighborhood::ConfigChange;
     use crate::sub_lib::neighborhood::{Hops, WalletPair};
-    use crate::test_utils::recorder::{make_recorder, SetUpCounterMsgs};
+    use crate::test_utils::recorder::{make_recorder, PeerActorsBuilder, SetUpCounterMsgs};
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder_stop_conditions::{MsgIdentification, StopConditions};
@@ -1812,10 +1847,12 @@ mod tests {
             .pending_payable_daos(vec![ForPendingPayableScanner(pending_payable_dao)])
             .build();
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let subject_addr = subject.start();
         let system = System::new(test_name);
         let peer_actors = peer_actors_builder()
             .blockchain_bridge(blockchain_bridge)
+            .ui_gateway(ui_gateway)
             .build();
         let first_message = NodeFromUiMessage {
             client_id: 1234,
@@ -1838,22 +1875,72 @@ mod tests {
             test_name
         ));
         assert_eq!(blockchain_bridge_recording.len(), 1);
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        let msg = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
+        assert_eq!(msg.body, UiScanResponse {}.tmb(4321));
     }
 
-    #[test]
-    fn externally_triggered_scan_for_new_payables_is_prevented_if_automatic_scans_are_enabled(
+    fn test_externally_triggered_scan_is_prevented_if_automatic_scans_are_enabled(
+        test_name: &str,
+        scan_type: ScanType,
     ) {
-        todo!("write me up...new payables")
+        init_test_logging();
+        let (blockchain_bridge, _, blockchain_bridge_recorder_arc) = make_recorder();
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let ui_gateway =
+            ui_gateway.system_stop_conditions(match_lazily_every_type_id!(NodeToUiMessage));
+        let subject = AccountantBuilder::default()
+            .logger(Logger::new(test_name))
+            .consuming_wallet(make_wallet("abc"))
+            .build();
+        let subject_addr = subject.start();
+        let system = System::new(test_name);
+        let peer_actors = PeerActorsBuilder::default()
+            .ui_gateway(ui_gateway)
+            .blockchain_bridge(blockchain_bridge)
+            .build();
+        let ui_message = NodeFromUiMessage {
+            client_id: 1234,
+            body: UiScanRequest { scan_type }.tmb(6789),
+        };
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr.try_send(ui_message).unwrap();
+
+        assert_eq!(system.run(), 0);
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        let msg = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
+        assert_eq!(msg.body, UiScanResponse {}.tmb(6789));
+        assert_eq!(ui_gateway_recording.len(), 1);
+        let blockchain_bridge_recorder = blockchain_bridge_recorder_arc.lock().unwrap();
+        assert_eq!(blockchain_bridge_recorder.len(), 0);
+        TestLogHandler::new().exists_log_containing(
+            format!(
+                "WARN: {test_name}: Manual {:?} scan \
+        was denied. Automatic scanning setup prevents manual triggers.",
+                scan_type
+            )
+            .as_str(),
+        );
     }
 
     #[test]
-    fn externally_triggered_scan_for_pending_payables_is_prevented_if_automatic_scans_are_enabled() {
-        todo!("write me up...pending payables")
+    fn externally_triggered_scan_for_new_payables_is_prevented_if_automatic_scans_are_enabled() {
+        test_externally_triggered_scan_is_prevented_if_automatic_scans_are_enabled("externally_triggered_scan_for_new_payables_is_prevented_if_automatic_scans_are_enabled", ScanType::Payables)
+    }
+
+    #[test]
+    fn externally_triggered_scan_for_pending_payables_is_prevented_if_automatic_scans_are_enabled()
+    {
+        test_externally_triggered_scan_is_prevented_if_automatic_scans_are_enabled("externally_triggered_scan_for_pending_payables_is_prevented_if_automatic_scans_are_enabled", ScanType::PendingPayables)
     }
 
     #[test]
     fn externally_triggered_scan_for_receivables_is_prevented_if_automatic_scans_are_enabled() {
-        todo!("write me up...receivables")
+        test_externally_triggered_scan_is_prevented_if_automatic_scans_are_enabled(
+            "externally_triggered_scan_for_receivables_is_prevented_if_automatic_scans_are_enabled",
+            ScanType::Receivables,
+        )
     }
 
     #[test]

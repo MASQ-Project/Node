@@ -300,7 +300,7 @@ impl Recorder {
     {
         let counter_msg_opt = self.check_on_counter_msg(&msg);
 
-        let kill_system = if let Some(stop_conditions) = &mut self.stop_conditions_opt {
+        let stop_system = if let Some(stop_conditions) = &mut self.stop_conditions_opt {
             stop_conditions.resolve_stop_conditions::<M>(&msg)
         } else {
             false
@@ -312,7 +312,7 @@ impl Recorder {
             sendable_msgs.into_iter().for_each(|msg| msg.try_send())
         }
 
-        if kill_system {
+        if stop_system {
             System::current().stop()
         }
     }

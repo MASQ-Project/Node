@@ -28,7 +28,7 @@ use crate::sub_lib::accountant::{
 };
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use crate::sub_lib::wallet::Wallet;
-use actix::{Message};
+use actix::{Message, Recipient};
 use itertools::{Either, Itertools};
 use masq_lib::logger::Logger;
 use masq_lib::logger::TIME_FORMATTING_STRING;
@@ -125,7 +125,9 @@ impl Scanners {
     ) -> Result<QualifiedPayablesMessage, BeginScanError> {
         let triggered_manually = response_skeleton_opt.is_some();
         if triggered_manually && automatic_scans_enabled {
-            todo!() // ManualTriggerError
+            return Err(BeginScanError::ManualTriggerError(
+                MTError::AutomaticScanConflict,
+            ));
         }
 
         if let Some(started_at) = self.payable.scan_started_at() {
@@ -182,8 +184,10 @@ impl Scanners {
     ) -> Result<RequestTransactionReceipts, BeginScanError> {
         let triggered_manually = response_skeleton_opt.is_some();
 
-        if triggered_manually && automatic_scans_enabled  {
-            todo!("forbidden")
+        if triggered_manually && automatic_scans_enabled {
+            return Err(BeginScanError::ManualTriggerError(
+                MTError::AutomaticScanConflict,
+            ));
         } else if triggered_manually && !self.aware_of_unresolved_pending_payable {
             todo!("useless")
         } else if !self.aware_of_unresolved_pending_payable {
@@ -229,7 +233,15 @@ impl Scanners {
         timestamp: SystemTime,
         response_skeleton_opt: Option<ResponseSkeleton>,
         logger: &Logger,
+        automatic_scans_enabled: bool,
     ) -> Result<RetrieveTransactions, BeginScanError> {
+        let triggered_manually = response_skeleton_opt.is_some();
+
+        if triggered_manually && automatic_scans_enabled {
+            return Err(BeginScanError::ManualTriggerError(
+                MTError::AutomaticScanConflict,
+            ));
+        }
         if let Some(started_at) = self.receivable.scan_started_at() {
             return Err(BeginScanError::ScanAlreadyRunning {
                 pertinent_scanner: ScanType::Receivables,
@@ -1250,43 +1262,58 @@ pub enum BeginScanError {
         started_at: SystemTime,
     },
     CalledFromNullScanner, // Exclusive for tests
-    ManualTriggerError(String),
+    ManualTriggerError(MTError),
 }
 
 impl BeginScanError {
-    pub fn handle_error(
-        &self,
-        logger: &Logger,
-        scan_type: ScanType,
-        is_externally_triggered: bool,
-    ) {
-        let log_message_opt = match self {
-            BeginScanError::NothingToProcess => Some(format!(
+    pub fn log_error(&self, logger: &Logger, scan_type: ScanType, is_externally_triggered: bool) {
+        enum ErrorType {
+            Temporary(String),
+            Permanent(String),
+        }
+
+        let log_message = match self {
+            BeginScanError::NothingToProcess => ErrorType::Temporary(format!(
                 "There was nothing to process during {:?} scan.",
                 scan_type
             )),
             BeginScanError::ScanAlreadyRunning {
                 pertinent_scanner,
                 started_at,
-            } => Some(Self::scan_already_running_msg(
+            } => ErrorType::Temporary(Self::scan_already_running_msg(
                 *pertinent_scanner,
                 *started_at,
             )),
-            BeginScanError::NoConsumingWalletFound => Some(format!(
+            BeginScanError::NoConsumingWalletFound => ErrorType::Permanent(format!(
                 "Cannot initiate {:?} scan because no consuming wallet was found.",
                 scan_type
             )),
             BeginScanError::CalledFromNullScanner => match cfg!(test) {
-                true => None,
+                true => todo!(), //None,
                 false => panic!("Null Scanner shouldn't be running inside production code."),
             },
-            BeginScanError::ManualTriggerError(msg) => todo!(),
+            BeginScanError::ManualTriggerError(e) => ErrorType::Permanent(format!(
+                "Manual {:?} scan was denied. {}",
+                scan_type,
+                match e {
+                    MTError::AutomaticScanConflict =>
+                        "Automatic scanning setup prevents manual triggers.",
+                    MTError::PointlessRequest => todo!(),
+                }
+            )),
         };
 
-        if let Some(log_message) = log_message_opt {
-            match is_externally_triggered {
-                true => info!(logger, "{}", log_message),
-                false => debug!(logger, "{}", log_message),
+        match is_externally_triggered {
+            true => match log_message {
+                ErrorType::Temporary(msg) => info!(logger, "{}", msg),
+                ErrorType::Permanent(msg) => warning!(logger, "{}", msg),
+            },
+
+            false => {
+                match log_message {
+                    ErrorType::Temporary(msg) => todo!(), //debug!(logger, "{}", log_message),
+                    ErrorType::Permanent(msg) => todo!(),
+                }
             }
         }
     }
@@ -1311,6 +1338,12 @@ impl BeginScanError {
             BeginScanError::timestamp_as_string(error_pertinent_scanner_started)
         )
     }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum MTError {
+    AutomaticScanConflict,
+    PointlessRequest,
 }
 
 // Note that this location was chosen because the following mocks need to implement a private trait
@@ -2144,7 +2177,8 @@ mod tests {
         payable_scanner.mark_as_started(SystemTime::now());
         let mut subject = make_dull_subject();
         subject.payable = Box::new(payable_scanner);
-        let aware_of_unresolved_pending_payable_before = subject.aware_of_unresolved_pending_payable;
+        let aware_of_unresolved_pending_payable_before =
+            subject.aware_of_unresolved_pending_payable;
 
         let node_to_ui_msg = subject.finish_payable_scan(sent_payable, &logger);
 
@@ -2534,7 +2568,8 @@ mod tests {
         };
         let mut subject = make_dull_subject();
         subject.payable = Box::new(payable_scanner);
-        let aware_of_unresolved_pending_payable_before = subject.aware_of_unresolved_pending_payable;
+        let aware_of_unresolved_pending_payable_before =
+            subject.aware_of_unresolved_pending_payable;
 
         let node_to_ui_msg_opt = subject.finish_payable_scan(sent_payable, &logger);
 
@@ -2580,7 +2615,8 @@ mod tests {
         let payable_scanner = PayableScannerBuilder::new().build();
         let mut subject = make_dull_subject();
         subject.payable = Box::new(payable_scanner);
-        let aware_of_unresolved_pending_payable_before = subject.aware_of_unresolved_pending_payable;
+        let aware_of_unresolved_pending_payable_before =
+            subject.aware_of_unresolved_pending_payable;
 
         subject.finish_payable_scan(sent_payable, &Logger::new(test_name));
 
@@ -3826,6 +3862,7 @@ mod tests {
             now,
             None,
             &Logger::new(test_name),
+            true,
         );
 
         let is_scan_running = subject.receivable.scan_started_at().is_some();
@@ -3854,14 +3891,20 @@ mod tests {
             .receivable_dao(receivable_dao)
             .build();
         subject.receivable = Box::new(receivable_scanner);
-        let _ =
-            subject.start_receivable_scan_guarded(&earning_wallet, now, None, &Logger::new("test"));
+        let _ = subject.start_receivable_scan_guarded(
+            &earning_wallet,
+            now,
+            None,
+            &Logger::new("test"),
+            true,
+        );
 
         let result = subject.start_receivable_scan_guarded(
             &earning_wallet,
             SystemTime::now(),
             None,
             &Logger::new("test"),
+            true,
         );
 
         let is_scan_running = subject.receivable.scan_started_at().is_some();
