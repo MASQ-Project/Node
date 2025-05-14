@@ -195,7 +195,7 @@ impl Scanners {
             self.payable.scan_started_at(),
         ) {
             (Some(pp_timestamp), Some(p_timestamp)) =>
-            // If you're wondering, then yes, this should be the sacre truth between 
+            // If you're wondering, then yes, this should be the sacre truth between
             // PendingPayableScanner and NewPayableScanner.
             {
                 unreachable!(
