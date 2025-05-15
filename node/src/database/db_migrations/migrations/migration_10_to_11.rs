@@ -18,8 +18,7 @@ impl DatabaseMigration for Migrate_10_to_11 {
                 timestamp integer not null,
                 gas_price_wei integer not null,
                 nonce integer not null,
-                status text not null,
-                retried integer not null
+                status text not null
             )";
 
         declaration_utils.execute_upon_transaction(&[&sql_statement])

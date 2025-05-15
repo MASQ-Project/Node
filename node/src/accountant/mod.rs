@@ -1043,7 +1043,7 @@ mod tests {
         PendingPayable, PendingPayableDaoError, TransactionHashes,
     };
     use crate::accountant::db_access_objects::receivable_dao::ReceivableAccount;
-    use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
+    use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp, CustomQuery};
     use crate::accountant::payment_adjuster::Adjustment;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
     use crate::accountant::scanners::test_utils::protect_payables_in_test;
@@ -2126,7 +2126,8 @@ mod tests {
         assert!(new_delinquencies_params.is_empty());
         assert!(
             captured_timestamp < SystemTime::now()
-                && captured_timestamp >= from_time_t(to_time_t(SystemTime::now()) - 5)
+                && captured_timestamp
+                    >= from_unix_timestamp(to_unix_timestamp(SystemTime::now()) - 5)
         );
         assert_eq!(captured_curves, PaymentThresholds::default());
         assert_eq!(paid_delinquencies_params.len(), 1);
@@ -2517,13 +2518,13 @@ mod tests {
             unban_below_gwei: 10_000_000,
         };
         let config = bc_from_earning_wallet(make_wallet("mine"));
-        let now = to_time_t(SystemTime::now());
+        let now = to_unix_timestamp(SystemTime::now());
         let accounts = vec![
             // below minimum balance, to the right of time intersection (inside buffer zone)
             PayableAccount {
                 wallet: make_wallet("wallet0"),
                 balance_wei: gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei - 1),
-                last_paid_timestamp: from_time_t(
+                last_paid_timestamp: from_unix_timestamp(
                     now - checked_conversion::<u64, i64>(
                         payment_thresholds.threshold_interval_sec + 10,
                     ),
@@ -2534,7 +2535,7 @@ mod tests {
             PayableAccount {
                 wallet: make_wallet("wallet1"),
                 balance_wei: gwei_to_wei(payment_thresholds.debt_threshold_gwei + 1),
-                last_paid_timestamp: from_time_t(
+                last_paid_timestamp: from_unix_timestamp(
                     now - checked_conversion::<u64, i64>(
                         payment_thresholds.maturity_threshold_sec - 10,
                     ),
@@ -2545,7 +2546,7 @@ mod tests {
             PayableAccount {
                 wallet: make_wallet("wallet2"),
                 balance_wei: gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei + 55),
-                last_paid_timestamp: from_time_t(
+                last_paid_timestamp: from_unix_timestamp(
                     now - checked_conversion::<u64, i64>(
                         payment_thresholds.maturity_threshold_sec + 15,
                     ),
@@ -2592,7 +2593,7 @@ mod tests {
             payable_scan_interval: Duration::from_secs(50_000),
             receivable_scan_interval: Duration::from_secs(50_000),
         });
-        let now = to_time_t(SystemTime::now());
+        let now = to_unix_timestamp(SystemTime::now());
         let qualified_payables = vec![
             // slightly above minimum balance, to the right of the curve (time intersection)
             PayableAccount {
@@ -2600,7 +2601,7 @@ mod tests {
                 balance_wei: gwei_to_wei(
                     DEFAULT_PAYMENT_THRESHOLDS.permanent_debt_allowed_gwei + 1,
                 ),
-                last_paid_timestamp: from_time_t(
+                last_paid_timestamp: from_unix_timestamp(
                     now - checked_conversion::<u64, i64>(
                         DEFAULT_PAYMENT_THRESHOLDS.threshold_interval_sec
                             + DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec
@@ -2613,7 +2614,7 @@ mod tests {
             PayableAccount {
                 wallet: make_wallet("wallet1"),
                 balance_wei: gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 1),
-                last_paid_timestamp: from_time_t(
+                last_paid_timestamp: from_unix_timestamp(
                     now - checked_conversion::<u64, i64>(
                         DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec + 10,
                     ),
@@ -2670,13 +2671,13 @@ mod tests {
             ))
             .start();
         let pps_for_blockchain_bridge_sub = blockchain_bridge_addr.clone().recipient();
-        let last_paid_timestamp = to_time_t(SystemTime::now())
+        let last_paid_timestamp = to_unix_timestamp(SystemTime::now())
             - DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec as i64
             - 1;
         let payable_account = PayableAccount {
             wallet: make_wallet("scan_for_payables"),
             balance_wei: gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 1),
-            last_paid_timestamp: from_time_t(last_paid_timestamp),
+            last_paid_timestamp: from_unix_timestamp(last_paid_timestamp),
             pending_payable_opt: None,
         };
         let payable_dao = payable_dao
@@ -2753,7 +2754,7 @@ mod tests {
             .start();
         let payable_fingerprint_1 = PendingPayableFingerprint {
             rowid: 555,
-            timestamp: from_time_t(210_000_000),
+            timestamp: from_unix_timestamp(210_000_000),
             hash: make_tx_hash(45678),
             attempt: 1,
             amount: 4444,
@@ -2761,7 +2762,7 @@ mod tests {
         };
         let payable_fingerprint_2 = PendingPayableFingerprint {
             rowid: 550,
-            timestamp: from_time_t(210_000_100),
+            timestamp: from_unix_timestamp(210_000_100),
             hash: make_tx_hash(112233),
             attempt: 2,
             amount: 7999,
@@ -3806,7 +3807,7 @@ mod tests {
         };
         let fingerprint_1 = PendingPayableFingerprint {
             rowid: 5,
-            timestamp: from_time_t(200_000_000),
+            timestamp: from_unix_timestamp(200_000_000),
             hash: transaction_hash_1,
             attempt: 2,
             amount: 444,
@@ -3822,7 +3823,7 @@ mod tests {
         };
         let fingerprint_2 = PendingPayableFingerprint {
             rowid: 10,
-            timestamp: from_time_t(199_780_000),
+            timestamp: from_unix_timestamp(199_780_000),
             hash: Default::default(),
             attempt: 15,
             amount: 1212,

@@ -81,7 +81,7 @@ impl DbMigratorReal {
             &Migrate_7_to_8,
             &Migrate_8_to_9,
             &Migrate_9_to_10,
-            &Migrate_10_to_11,
+            &Migrate_10_to_11, // TODO: GH-598: Make this one as null migration and yours as 12
         ]
     }
 

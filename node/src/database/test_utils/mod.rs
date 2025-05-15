@@ -22,7 +22,6 @@ pub const SQL_ATTRIBUTES_FOR_CREATING_SENT_PAYABLE: &[&[&str]] = &[
     &["gas_price_wei", "integer", "not", "null"],
     &["nonce", "integer", "not", "null"],
     &["status", "text", "not", "null"],
-    &["retried", "integer", "not", "null"],
 ];
 
 #[derive(Debug, Default)]
@@ -146,7 +145,6 @@ mod tests {
                 &["gas_price_wei", "integer", "not", "null"],
                 &["nonce", "integer", "not", "null"],
                 &["status", "text", "not", "null"],
-                &["retried", "integer", "not", "null"]
             ]
         );
     }
