@@ -403,10 +403,10 @@ mod tests {
         setup_conn
             .execute("CREATE TABLE example (id integer)", [])
             .unwrap();
-        let pre_insert_stmt = setup_conn.prepare("SELECT id FROM example").unwrap();
+        let get_tx_identifiers_stmt = setup_conn.prepare("SELECT id FROM example").unwrap();
         let faulty_insert_stmt = { setup_conn.prepare("SELECT id FROM example").unwrap() };
         let wrapped_conn = ConnectionWrapperMock::default()
-            .prepare_result(Ok(pre_insert_stmt))
+            .prepare_result(Ok(get_tx_identifiers_stmt))
             .prepare_result(Ok(faulty_insert_stmt));
         let tx = TxBuilder::default().build();
         let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
@@ -534,7 +534,6 @@ mod tests {
 
         let result = subject.retrieve_txs(None);
 
-        assert_eq!(result.len(), 5);
         assert_eq!(result, vec![tx1, tx2, tx3, tx4, tx5]);
     }
 
@@ -596,6 +595,7 @@ mod tests {
                 block_number: Default::default(),
             }))
             .build();
+        // TODO: GH-631: Instead of fetching it from SentPayables, fetch it from the FailedPayables table
         let tx3 = TxBuilder::default() // this should be picked for retry
             .hash(H256::from_low_u64_le(5))
             .timestamp(old_timestamp)
