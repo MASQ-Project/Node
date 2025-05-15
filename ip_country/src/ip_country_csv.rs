@@ -570,7 +570,7 @@ BOOGA,BOOGA,BOOGA
     }
 
     fn test_countries() -> Countries {
-        Countries::old_new(vec![
+        Countries::from(vec![
             Country::new(0, "ZZ", "Sentinel"),
             Country::new(1, "AS", "American Samoa"),
             Country::new(2, "VN", "Vietnam"),

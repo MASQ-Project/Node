@@ -714,7 +714,7 @@ mod tests {
         static ref ANDORRA: Country = Country::new(1, "AD", "Andorra");
         static ref ANGOLA: Country = Country::new(2, "AO", "Angola");
         static ref AMERICAN_SAMOA: Country = Country::new(3, "AS", "American Samoa");
-        static ref TEST_COUNTRIES: Countries = Countries::old_new(vec![
+        static ref TEST_COUNTRIES: Countries = Countries::from(vec![
             SENTINEL.clone(),
             ANDORRA.clone(),
             ANGOLA.clone(),

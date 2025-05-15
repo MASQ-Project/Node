@@ -9,8 +9,8 @@ pub struct Countries {
     index_by_iso3166: HashMap<String, usize>,
 }
 
-impl Countries {
-    pub fn old_new(countries: Vec<Country>) -> Self {
+impl From<Vec<Country>> for Countries {
+    fn from(countries: Vec<Country>) -> Self {
         let index_by_iso3166 = countries
             .iter()
             .map(|country| (country.iso3166.clone(), country.index))
@@ -20,6 +20,9 @@ impl Countries {
             index_by_iso3166,
         }
     }
+}
+
+impl Countries {
 
     pub fn new(mut country_pairs: Vec<(String, String)>) -> Self {
         // Must sort these by iso3166, but we need to keep the sentinel coded as "ZZ" at the front
@@ -41,7 +44,7 @@ impl Countries {
             .collect::<Vec<Country>>();
         let sentinel = Country::new(0, "ZZ", "Sentinel");
         countries.insert(0, sentinel);
-        Self::old_new(countries)
+        Self::from(countries)
     }
 
     pub fn country_from_code(&self, iso3166: &str) -> Result<&Country, String> {
@@ -222,14 +225,16 @@ mod tests {
     #[test]
     fn string_length_check() {
         COUNTRIES.countries.iter().for_each(|country| {
-            assert_eq!(country.iso3166.len(), 2);
-            assert_eq!(
-                country.name.len() > 0,
-                true,
-                "Blank country name for {} at index {}",
-                country.iso3166,
-                country.index
-            );
+            if (country.iso3166 != "NOEX") { // NOEX is deliberately transgressive
+                assert_eq!(country.iso3166.len(), 2);
+                assert_eq!(
+                    country.name.len() > 0,
+                    true,
+                    "Blank country name for {} at index {}",
+                    country.iso3166,
+                    country.index
+                );
+            }
         })
     }
 

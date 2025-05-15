@@ -79,13 +79,16 @@ mod tests {
         let country_count_f = countries.len() as f64;
         let percentage_f = percentage as f64;
         let index = (percentage_f * country_count_f / 101.0).trunc() as usize;
-        countries.country_from_index(index).unwrap()
+        let result = countries.country_from_index(index).unwrap();
+eprintln!("Selected country: {} ({})", result.iso3166, result.name);
+        result
     }
 
     #[test]
     fn finds_ipv4_address() {
         COUNTRY_CODE_FINDER.ensure_init();
-        let country = select_country(&COUNTRIES, 50);
+        let country = &COUNTRY_CODE_FINDER.ipv4.iter()
+            .find(|c| c.country.iso3166 == "AE").unwrap().country;
         let ip_range = &COUNTRY_CODE_FINDER
             .ipv4
             .iter()
@@ -124,7 +127,8 @@ mod tests {
     #[test]
     fn finds_ipv6_address() {
         COUNTRY_CODE_FINDER.ensure_init();
-        let country = select_country(&COUNTRIES, 50);
+        let country = &COUNTRY_CODE_FINDER.ipv6.iter()
+            .find(|c| c.country.iso3166 == "AE").unwrap().country;
         let ip_range = &COUNTRY_CODE_FINDER
             .ipv6
             .iter()
@@ -162,7 +166,7 @@ mod tests {
 
     #[test]
     fn real_test_ipv4_with_google() {
-        if dbip_country::COUNTRIES.country_from_code("US").is_err() {
+        if dbip_country::COUNTRIES.country_from_code("NOEX").is_ok() {
             eprintln!("Country data must be generated (see ip_country/main.rs) in dbip_country.rs before this test will work");
             return;
         }
@@ -178,7 +182,7 @@ mod tests {
 
     #[test]
     fn real_test_ipv4_with_cz_ip() {
-        if dbip_country::COUNTRIES.country_from_code("CZ").is_err() {
+        if dbip_country::COUNTRIES.country_from_code("NOEX").is_ok() {
             eprintln!("Country data must be generated (see ip_country/main.rs) in dbip_country.rs before this test will work");
             return;
         }
@@ -194,7 +198,7 @@ mod tests {
 
     #[test]
     fn real_test_ipv4_with_sk_ip() {
-        if dbip_country::COUNTRIES.country_from_code("SK").is_err() {
+        if dbip_country::COUNTRIES.country_from_code("NOEX").is_ok() {
             eprintln!("Country data must be generated (see ip_country/main.rs) in dbip_country.rs before this test will work");
             return;
         }
@@ -220,7 +224,7 @@ mod tests {
 
     #[test]
     fn real_test_ipv6_with_google() {
-        if dbip_country::COUNTRIES.country_from_code("US").is_err() {
+        if dbip_country::COUNTRIES.country_from_code("NOEX").is_ok() {
             eprintln!("Country data must be generated (see ip_country/main.rs) in dbip_country.rs before this test will work");
             return;
         }

@@ -264,6 +264,12 @@ lazy_static! {
     );
 }
 
+// Country: ZZ (Sentinel) - IP Range: V4(0.0.0.0, 1.2.3.3)
+// Country: AD (Andorra) - IP Range: V4(1.2.3.4, 1.2.3.5)
+// Country: AE (United Arab Emirates) - IP Range: V4(1.2.3.6, 6.7.8.9)
+// Country: ZZ (Sentinel) - IP Range: V4(6.7.8.10, 10.11.12.12)
+// Country: AF (Afghanistan) - IP Range: V4(10.11.12.13, 11.11.12.13)
+// Country: ZZ (Sentinel) - IP Range: V4(11.11.12.14, 255.255.255.255)
 pub fn ipv4_country_data() -> (Vec<u64>, usize) {
     (
         vec![
@@ -277,6 +283,12 @@ pub fn ipv4_country_block_count() -> usize {
     6
 }
 
+// Country: ZZ (Sentinel) - IP Range: V6(::, 1:2:3:4:5:6:7:7)
+// Country: AD (Andorra) - IP Range: V6(1:2:3:4:5:6:7:8, 1:2:3:4:5:6:7:9)
+// Country: AE (United Arab Emirates) - IP Range: V6(1:2:3:4:5:6:7:a, b:c:d:e:f:10:11:12)
+// Country: ZZ (Sentinel) - IP Range: V6(b:c:d:e:f:10:11:13, 13:14:15:16:17:18:19:19)
+// Country: AF (Afghanistan) - IP Range: V6(13:14:15:16:17:18:19:1a, 14:14:15:16:17:18:19:1a)
+// Country: ZZ (Sentinel) - IP Range: V6(14:14:15:16:17:18:19:1b, ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff)
 pub fn ipv6_country_data() -> (Vec<u64>, usize) {
     (
         vec![
