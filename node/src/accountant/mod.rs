@@ -1884,15 +1884,42 @@ mod tests {
         test_name: &str,
         scan_type: ScanType,
     ) {
+        let expected_log_msg = format!(
+            "WARN: {test_name}: Manual {:?} scan was denied. Automatic scanning setup prevents \
+           manual triggers.",
+            scan_type
+        );
+
+        test_externally_triggered_scan_is_prevented_if(
+            true,
+            true,
+            test_name,
+            scan_type,
+            &expected_log_msg,
+        )
+    }
+
+    fn test_externally_triggered_scan_is_prevented_if(
+        automatic_scans_enabled: bool,
+        aware_of_unresolved_pending_payables: bool,
+        test_name: &str,
+        scan_type: ScanType,
+        expected_log_message: &str,
+    ) {
         init_test_logging();
         let (blockchain_bridge, _, blockchain_bridge_recorder_arc) = make_recorder();
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let ui_gateway =
             ui_gateway.system_stop_conditions(match_lazily_every_type_id!(NodeToUiMessage));
-        let subject = AccountantBuilder::default()
+        let mut subject = AccountantBuilder::default()
             .logger(Logger::new(test_name))
             .consuming_wallet(make_wallet("abc"))
             .build();
+        subject.scan_schedulers.automatic_scans_enabled = automatic_scans_enabled;
+        subject
+            .scanners
+            .set_aware_of_unresolved_pending_payables(aware_of_unresolved_pending_payables);
+        subject.scanners.set_initial_scan(false);
         let subject_addr = subject.start();
         let system = System::new(test_name);
         let peer_actors = PeerActorsBuilder::default()
@@ -1914,14 +1941,7 @@ mod tests {
         assert_eq!(ui_gateway_recording.len(), 1);
         let blockchain_bridge_recorder = blockchain_bridge_recorder_arc.lock().unwrap();
         assert_eq!(blockchain_bridge_recorder.len(), 0);
-        TestLogHandler::new().exists_log_containing(
-            format!(
-                "WARN: {test_name}: Manual {:?} scan \
-        was denied. Automatic scanning setup prevents manual triggers.",
-                scan_type
-            )
-            .as_str(),
-        );
+        TestLogHandler::new().exists_log_containing(expected_log_message);
     }
 
     #[test]
@@ -1946,7 +1966,19 @@ mod tests {
     #[test]
     fn externally_triggered_scan_for_pending_payables_is_prevented_if_all_payments_already_complete(
     ) {
-        todo!("write me up")
+        let test_name = "externally_triggered_scan_for_pending_payables_is_prevented_if_all_payments_already_complete";
+        let expected_log_msg = format!(
+            "INFO: {test_name}: Manual PendingPayables scan was \
+        denied for a predictable zero effect. Run the Payable scanner first."
+        );
+
+        test_externally_triggered_scan_is_prevented_if(
+            false,
+            false,
+            test_name,
+            ScanType::PendingPayables,
+            &expected_log_msg,
+        )
     }
 
     #[test]

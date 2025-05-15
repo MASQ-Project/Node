@@ -56,6 +56,7 @@ use crate::db_config::persistent_configuration::{PersistentConfiguration, Persis
 pub struct Scanners {
     payable: Box<dyn MultistageDualPayableScanner>,
     aware_of_unresolved_pending_payable: bool,
+    initial_scan: bool,
     pending_payable: Box<
         dyn PrivateScanner<
             ScanForPendingPayables,
@@ -110,6 +111,7 @@ impl Scanners {
         Scanners {
             payable,
             aware_of_unresolved_pending_payable: false,
+            initial_scan: true,
             pending_payable,
             receivable,
         }
@@ -183,17 +185,10 @@ impl Scanners {
         automatic_scans_enabled: bool,
     ) -> Result<RequestTransactionReceipts, BeginScanError> {
         let triggered_manually = response_skeleton_opt.is_some();
-
-        if triggered_manually && automatic_scans_enabled {
-            return Err(BeginScanError::ManualTriggerError(
-                MTError::AutomaticScanConflict,
-            ));
-        } else if triggered_manually && !self.aware_of_unresolved_pending_payable {
-            todo!("useless")
-        } else if !self.aware_of_unresolved_pending_payable {
-            todo!("unreachable")
-        }
-
+        self.check_general_conditions_for_pending_payable_scan(
+            triggered_manually,
+            automatic_scans_enabled,
+        )?;
         match (
             self.pending_payable.scan_started_at(),
             self.payable.scan_started_at(),
@@ -317,6 +312,33 @@ impl Scanners {
             TriggerMessage,
             QualifiedPayablesMessage,
         >>::start_scan(scanner, wallet, timestamp, response_skeleton_opt, logger)
+    }
+
+    fn check_general_conditions_for_pending_payable_scan(
+        &mut self,
+        triggered_manually: bool,
+        automatic_scans_enabled: bool,
+    ) -> Result<(), BeginScanError> {
+        if triggered_manually && automatic_scans_enabled {
+            Err(BeginScanError::ManualTriggerError(
+                MTError::AutomaticScanConflict,
+            ))
+        } else if self.initial_scan {
+            todo!("other conditions forgiven")
+        } else if triggered_manually && !self.aware_of_unresolved_pending_payable {
+            Err(BeginScanError::ManualTriggerError(
+                MTError::UnnecessaryRequest {
+                    hint_opt: Some("Run the Payable scanner first.".to_string()),
+                },
+            ))
+        } else if !self.aware_of_unresolved_pending_payable {
+            unreachable!(
+                "Automatic pending payable scan should never start if there are no pending \
+                payables to process."
+            )
+        } else {
+            todo!()
+        }
     }
 }
 
@@ -1292,15 +1314,21 @@ impl BeginScanError {
                 true => todo!(), //None,
                 false => panic!("Null Scanner shouldn't be running inside production code."),
             },
-            BeginScanError::ManualTriggerError(e) => ErrorType::Permanent(format!(
-                "Manual {:?} scan was denied. {}",
-                scan_type,
-                match e {
-                    MTError::AutomaticScanConflict =>
-                        "Automatic scanning setup prevents manual triggers.",
-                    MTError::PointlessRequest => todo!(),
-                }
-            )),
+            BeginScanError::ManualTriggerError(e) => match e {
+                MTError::AutomaticScanConflict => ErrorType::Permanent(format!(
+                    "Manual {:?} scan was denied. Automatic scanning setup prevents manual \
+                            triggers.",
+                    scan_type
+                )),
+                MTError::UnnecessaryRequest { hint_opt } => ErrorType::Temporary(format!(
+                    "Manual {:?} scan was denied for a predictable zero effect.{}",
+                    scan_type,
+                    match hint_opt {
+                        Some(hint) => format!(" {}", hint),
+                        None => todo!(),
+                    }
+                )),
+            },
         };
 
         match is_externally_triggered {
@@ -1343,7 +1371,7 @@ impl BeginScanError {
 #[derive(Debug, PartialEq, Eq)]
 pub enum MTError {
     AutomaticScanConflict,
-    PointlessRequest,
+    UnnecessaryRequest { hint_opt: Option<String> },
 }
 
 // Note that this location was chosen because the following mocks need to implement a private trait
@@ -1739,6 +1767,14 @@ mod tests {
             }
         }
 
+        pub fn set_aware_of_unresolved_pending_payables(&mut self, value: bool) {
+            self.aware_of_unresolved_pending_payable = value
+        }
+
+        pub fn set_initial_scan(&mut self, value: bool) {
+            self.initial_scan = value
+        }
+
         fn simple_scanner_timestamp_treatment<Scanner, EndMessage, ScanResult>(
             scanner: &mut Scanner,
             value: MarkScanner,
@@ -1820,6 +1856,7 @@ mod tests {
         );
         assert_eq!(payable_scanner.common.initiated_at_opt.is_some(), false);
         assert_eq!(scanners.aware_of_unresolved_pending_payable, false);
+        assert_eq!(scanners.initial_scan, true);
         assert_eq!(
             pending_payable_scanner.when_pending_too_long_sec,
             when_pending_too_long_sec
@@ -3045,7 +3082,7 @@ mod tests {
             now,
             None,
             &Logger::new(test_name),
-            false,
+            true,
         );
 
         let no_of_pending_payables = fingerprints.len();
@@ -3080,20 +3117,15 @@ mod tests {
         let payable_scanner = PayableScannerBuilder::new().build();
         subject.payable = Box::new(payable_scanner);
         let logger = Logger::new("test");
-        let _ = subject.start_pending_payable_scan_guarded(
-            &consuming_wallet,
-            now,
-            None,
-            &logger,
-            false,
-        );
+        let _ =
+            subject.start_pending_payable_scan_guarded(&consuming_wallet, now, None, &logger, true);
 
         let result = subject.start_pending_payable_scan_guarded(
             &consuming_wallet,
             SystemTime::now(),
             None,
             &logger,
-            false,
+            true,
         );
 
         let is_scan_running = subject.pending_payable.scan_started_at().is_some();
@@ -3124,7 +3156,7 @@ mod tests {
             SystemTime::now(),
             None,
             &logger,
-            false,
+            true,
         );
 
         let is_scan_running = subject.pending_payable.scan_started_at().is_some();
@@ -3163,7 +3195,7 @@ mod tests {
                 SystemTime::now(),
                 None,
                 &Logger::new("test"),
-                false,
+                true,
             );
         }))
         .unwrap_err();
@@ -3199,6 +3231,27 @@ mod tests {
             pseudo_timestamp_for_payable_start,
             PseudoTimestamp::from(timestamp_payable_scanner_start)
         )
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "internal error: entered unreachable code: Automatic pending payable \
+    scan should never start if there are no pending payables to process."
+    )]
+    fn pending_payable_scanner_bumps_into_zero_pending_payable_awareness_in_the_automatic_mode() {
+        let consuming_wallet = make_paying_wallet(b"consuming");
+        let mut subject = make_dull_subject();
+        let mut pending_payable_scanner = PendingPayableScannerBuilder::new().build();
+        subject.pending_payable = Box::new(pending_payable_scanner);
+        subject.aware_of_unresolved_pending_payable = false;
+
+        let _ = subject.start_pending_payable_scan_guarded(
+            &consuming_wallet,
+            SystemTime::now(),
+            None,
+            &Logger::new("test"),
+            true,
+        );
     }
 
     #[test]
@@ -4373,6 +4426,7 @@ mod tests {
         Scanners {
             payable: Box::new(NullScanner::new()),
             aware_of_unresolved_pending_payable: false,
+            initial_scan: false,
             pending_payable: Box::new(NullScanner::new()),
             receivable: Box::new(NullScanner::new()),
         }
