@@ -1,7 +1,7 @@
 use std::env;
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use super::accountant::Accountant;
-use super::bootstrapper::{main_cryptde_ref, set_main_cryptde, Bootstrapper, BootstrapperConfig};
+use super::bootstrapper::{main_cryptde_ref, Bootstrapper, BootstrapperConfig, STATIC_CRYPTDE_PAIR};
 use super::dispatcher::Dispatcher;
 use super::hopper::Hopper;
 use super::neighborhood::Neighborhood;
@@ -117,11 +117,11 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
     ) -> StreamHandlerPoolSubs {
         let db_initializer = DbInitializerReal::default();
         let (dispatcher_subs, pool_bind_sub) = actor_factory.make_and_start_dispatcher(&config);
-        let proxy_server_subs = actor_factory.make_and_start_proxy_server(cryptdes, &config);
+        let proxy_server_subs = actor_factory.make_and_start_proxy_server(cryptdes.clone(), &config);
         let proxy_client_subs_opt = if !config.neighborhood_config.mode.is_consume_only() {
             Some(
                 actor_factory.make_and_start_proxy_client(ProxyClientConfig {
-                    cryptde: cryptdes.main,
+                    cryptde: cryptdes.main().dup(),
                     dns_servers: config.dns_servers.clone(),
                     exit_service_rate: config
                         .neighborhood_config
@@ -137,7 +137,7 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
             None
         };
         let hopper_subs = actor_factory.make_and_start_hopper(HopperConfig {
-            cryptdes,
+            cryptdes: cryptdes.clone(),
             per_routing_service: config
                 .neighborhood_config
                 .mode
@@ -153,7 +153,7 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
         });
         let blockchain_bridge_subs = actor_factory
             .make_and_start_blockchain_bridge(&config, &BlockchainBridgeSubsFactoryReal {});
-        let neighborhood_subs = actor_factory.make_and_start_neighborhood(cryptdes.main, &config);
+        let neighborhood_subs = actor_factory.make_and_start_neighborhood(cryptdes.main().as_ref(), &config);
         let accountant_subs = actor_factory.make_and_start_accountant(
             config.clone(),
             &db_initializer,
@@ -234,14 +234,14 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
         // obviously running a test, and there's no reason to store test data in the database.
         {
             let cryptde_pair = CryptDEPair::default();
-            if cryptde_pair.main.as_any().downcast_ref::<CryptDENull>().is_some() || cryptde_pair.alias.as_any().downcast_ref::<CryptDENull>().is_some() {
+            if cryptde_pair.main().as_any().downcast_ref::<CryptDENull>().is_some() || cryptde_pair.alias().as_any().downcast_ref::<CryptDENull>().is_some() {
                 return cryptde_pair
             }
         }
         if let Some(db_password) = db_password_opt {
             match persistent_config.cryptde(db_password) {
                 Ok(last_main_cryptde) => {
-                    set_main_cryptde(last_main_cryptde.as_ref());
+                    STATIC_CRYPTDE_PAIR.set_main_cryptde(last_main_cryptde);
                 },
                 Err(PersistentConfigError::NotPresent) => {
                     persistent_config.set_cryptde(main_cryptde_ref().as_ref(), db_password)
@@ -383,7 +383,7 @@ pub trait ActorFactory {
     fn make_and_start_hopper(&self, config: HopperConfig) -> HopperSubs;
     fn make_and_start_neighborhood(
         &self,
-        cryptde: &'static dyn CryptDE,
+        cryptde: &dyn CryptDE,
         config: &BootstrapperConfig,
     ) -> NeighborhoodSubs;
     fn make_and_start_accountant(
@@ -463,8 +463,8 @@ impl ActorFactory for ActorFactoryReal {
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<ProxyServer> = arbiter.start(move |_| {
             ProxyServer::new(
-                cryptdes.main,
-                cryptdes.alias,
+                cryptdes.main().as_ref(),
+                cryptdes.alias().as_ref(),
                 is_decentralized,
                 consuming_wallet_balance,
                 crashable,
@@ -482,13 +482,14 @@ impl ActorFactory for ActorFactoryReal {
 
     fn make_and_start_neighborhood(
         &self,
-        cryptde: &'static dyn CryptDE,
+        cryptde: & dyn CryptDE,
         config: &BootstrapperConfig,
     ) -> NeighborhoodSubs {
         let config_clone = config.clone();
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
+        let cryptde_dup = cryptde.dup();
         let addr: Addr<Neighborhood> =
-            arbiter.start(move |_| Neighborhood::new(cryptde, &config_clone));
+            arbiter.start(move |_| Neighborhood::new(cryptde_dup, &config_clone));
         Neighborhood::make_subs_from(&addr)
     }
 
@@ -671,13 +672,13 @@ mod tests {
     use super::*;
     use crate::accountant::exportable_test_parts::test_accountant_is_constructed_with_upgraded_db_connection_recognizing_our_extra_sqlite_functions;
     use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
-    use crate::bootstrapper::{alias_cryptde_ref, initialize_cryptdes, main_cryptde_ref, Bootstrapper, RealUser};
+    use crate::bootstrapper::{alias_cryptde_ref, main_cryptde_ref, Bootstrapper, RealUser};
     use crate::node_test_utils::{
         make_stream_handler_pool_subs_from_recorder, start_recorder_refcell_opt,
     };
     use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
     use crate::sub_lib::blockchain_bridge::BlockchainBridgeConfig;
-    use crate::sub_lib::cryptde::{PlainData, PublicKey};
+    use crate::sub_lib::cryptde::{PlainData, PublicKey, NULL_CRYPTDE};
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::{InboundClientData, StreamShutdownMsg};
     use crate::sub_lib::neighborhood::{Hops, NeighborhoodMode};
@@ -778,8 +779,8 @@ mod tests {
             actor_factory: Box<dyn ActorFactory>,
         ) -> StreamHandlerPoolSubs {
             self.prepare_initial_messages_params.lock().unwrap().push((
-                Box::new(<&CryptDENull>::from(cryptdes.main).clone()),
-                Box::new(<&CryptDENull>::from(cryptdes.alias).clone()),
+                cryptdes.main().as_ref().dup(),
+                cryptdes.alias().as_ref().dup(),
                 config,
                 actor_factory,
                 persistent_config,
@@ -845,7 +846,7 @@ mod tests {
         }
     }
 
-    struct ActorFactoryMock<'a> {
+    struct ActorFactoryMock {
         dispatcher: RefCell<Option<Recorder>>,
         proxy_client: RefCell<Option<Recorder>>,
         proxy_server: RefCell<Option<Recorder>>,
@@ -857,10 +858,10 @@ mod tests {
         blockchain_bridge: RefCell<Option<Recorder>>,
         configurator: RefCell<Option<Recorder>>,
 
-        parameters: Parameters<'a>,
+        parameters: Parameters,
     }
 
-    impl<'a> ActorFactory for ActorFactoryMock<'a> {
+    impl ActorFactory for ActorFactoryMock {
         fn make_and_start_dispatcher(
             &self,
             config: &BootstrapperConfig,
@@ -908,14 +909,14 @@ mod tests {
 
         fn make_and_start_neighborhood(
             &self,
-            cryptde: &'a dyn CryptDE,
+            cryptde: &dyn CryptDE,
             config: &BootstrapperConfig,
         ) -> NeighborhoodSubs {
             self.parameters
                 .neighborhood_params
                 .lock()
                 .unwrap()
-                .get_or_insert((cryptde, config.clone()));
+                .get_or_insert((cryptde.dup(), config.clone()));
             let addr: Addr<Recorder> = start_recorder_refcell_opt(&self.neighborhood);
             make_neighborhood_subs_from_recorder(&addr)
         }
@@ -1002,21 +1003,36 @@ mod tests {
         configurator: Arc<Mutex<Recording>>,
     }
 
-    #[derive(Clone)]
-    struct Parameters<'a> {
+    struct Parameters {
         dispatcher_params: Arc<Mutex<Option<BootstrapperConfig>>>,
         proxy_client_params: Arc<Mutex<Option<ProxyClientConfig>>>,
         proxy_server_params: Arc<Mutex<Option<(CryptDEPair, BootstrapperConfig)>>>,
         hopper_params: Arc<Mutex<Option<HopperConfig>>>,
-        neighborhood_params: Arc<Mutex<Option<(&'a dyn CryptDE, BootstrapperConfig)>>>,
+        neighborhood_params: Arc<Mutex<Option<(Box<dyn CryptDE>, BootstrapperConfig)>>>,
         accountant_params: Arc<Mutex<Option<BootstrapperConfig>>>,
         ui_gateway_params: Arc<Mutex<Option<UiGatewayConfig>>>,
         blockchain_bridge_params: Arc<Mutex<Option<BootstrapperConfig>>>,
         configurator_params: Arc<Mutex<Option<BootstrapperConfig>>>,
     }
 
-    impl<'a> Parameters<'a> {
-        pub fn new() -> Parameters<'a> {
+    impl Clone for Parameters {
+        fn clone(&self) -> Self {
+            Parameters {
+                dispatcher_params: self.dispatcher_params.clone(),
+                proxy_client_params: self.proxy_client_params.clone(),
+                proxy_server_params: self.proxy_server_params.clone(),
+                hopper_params: self.hopper_params.clone(),
+                neighborhood_params: self.neighborhood_params.clone(),
+                accountant_params: self.accountant_params.clone(),
+                ui_gateway_params: self.ui_gateway_params.clone(),
+                blockchain_bridge_params: self.blockchain_bridge_params.clone(),
+                configurator_params: self.configurator_params.clone(),
+            }
+        }
+    }
+
+    impl Parameters {
+        pub fn new() -> Parameters {
             Parameters {
                 dispatcher_params: Arc::new(Mutex::new(None)),
                 proxy_client_params: Arc::new(Mutex::new(None)),
@@ -1036,8 +1052,8 @@ mod tests {
         }
     }
 
-    impl<'a> ActorFactoryMock<'a> {
-        pub fn new() -> ActorFactoryMock<'a> {
+    impl ActorFactoryMock {
+        pub fn new() -> ActorFactoryMock {
             ActorFactoryMock {
                 dispatcher: RefCell::new(Some(Recorder::new())),
                 proxy_client: RefCell::new(Some(Recorder::new())),
@@ -1079,7 +1095,7 @@ mod tests {
             }
         }
 
-        pub fn make_parameters(&self) -> Parameters<'a> {
+        pub fn make_parameters(&self) -> Parameters {
             self.parameters.clone()
         }
 
@@ -1093,14 +1109,14 @@ mod tests {
         let validate_database_chain_params_arc = Arc::new(Mutex::new(vec![]));
         let prepare_initial_messages_params_arc = Arc::new(Mutex::new(vec![]));
         let (stream_handler_pool, _, stream_handler_pool_recording_arc) = make_recorder();
-        let main_cryptde = main_cryptde().as_ref();
-        let alias_cryptde = alias_cryptde().as_ref();
-        let cryptde_pair = CryptDEPair {
-            main: main_cryptde,
-            alias: alias_cryptde,
-        };
-        let main_cryptde_public_key_expected = pk_from_cryptde_null(main_cryptde);
-        let alias_cryptde_public_key_expected = pk_from_cryptde_null(alias_cryptde);
+        let main_cryptde_r = main_cryptde().dup();
+        let alias_cryptde_r = alias_cryptde().dup();
+        let cryptde_pair = CryptDEPair::new(
+            main_cryptde().dup(),
+            alias_cryptde().dup(),
+        );
+        let main_cryptde_public_key_expected = pk_from_cryptde_null(main_cryptde_r.as_ref());
+        let alias_cryptde_public_key_expected = pk_from_cryptde_null(alias_cryptde_r.as_ref());
         let actor_factory = Box::new(ActorFactoryReal::new());
         let actor_factory_raw_address_expected = addr_of!(*actor_factory);
         let persistent_config_expected_arbitrary_id = ArbitraryIdStamp::new();
@@ -1232,8 +1248,8 @@ mod tests {
             .chain_name_result("base-sepolia".to_string())
             .set_min_hops_result(Ok(()));
         Bootstrapper::pub_initialize_cryptdes_for_testing(
-            &Some(main_cryptde().as_ref()),
-            &Some(alias_cryptde().as_ref()),
+            CryptDENull::new(Chain::BaseSepolia),
+            CryptDENull::new(Chain::BaseSepolia)
         );
         let mut tools = make_subject_with_null_setter();
         tools.automap_control_factory = Box::new(
@@ -1345,22 +1361,22 @@ mod tests {
         );
         check_start_message(&recordings.neighborhood, 2);
         let hopper_config = Parameters::get(parameters.hopper_params);
-        check_cryptde(hopper_config.cryptdes.main);
+        check_cryptde(hopper_config.cryptdes.main().as_ref());
         assert_eq!(hopper_config.per_routing_service, 300);
         assert_eq!(hopper_config.per_routing_byte, 101);
         let proxy_client_config = Parameters::get(parameters.proxy_client_params);
-        check_cryptde(proxy_client_config.cryptde);
+        check_cryptde(proxy_client_config.cryptde.as_ref());
         assert_eq!(proxy_client_config.exit_service_rate, 500);
         assert_eq!(proxy_client_config.exit_byte_rate, 103);
         assert_eq!(proxy_client_config.dns_servers, config.dns_servers);
         assert_eq!(proxy_client_config.is_decentralized, true);
         let (actual_cryptde_pair, bootstrapper_config) =
             Parameters::get(parameters.proxy_server_params);
-        check_cryptde(actual_cryptde_pair.main);
-        check_cryptde(actual_cryptde_pair.alias);
+        check_cryptde(actual_cryptde_pair.main().as_ref());
+        check_cryptde(actual_cryptde_pair.alias().as_ref());
         assert_ne!(
-            actual_cryptde_pair.main.public_key(),
-            actual_cryptde_pair.alias.public_key()
+            actual_cryptde_pair.main().as_ref().public_key(),
+            actual_cryptde_pair.alias().as_ref().public_key()
         );
         assert_eq!(
             bootstrapper_config
@@ -1373,8 +1389,10 @@ mod tests {
             bootstrapper_config.consuming_wallet_opt,
             Some(make_wallet("consuming"))
         );
-        let (cryptde, neighborhood_config) = Parameters::get(parameters.neighborhood_params);
-        check_cryptde(cryptde);
+        let call = parameters.neighborhood_params.lock().unwrap();
+        let (cryptde, neighborhood_config) =
+            call.as_ref().unwrap();
+        check_cryptde(cryptde.as_ref());
         assert_eq!(
             neighborhood_config.neighborhood_config,
             config.neighborhood_config
@@ -1412,10 +1430,9 @@ mod tests {
         let _guard = EnvironmentGuard::new();
         let main_null = CryptDENull::new(TEST_DEFAULT_CHAIN);
         let alias_null = CryptDENull::new(TEST_DEFAULT_CHAIN);
-        initialize_cryptdes(
-            &Some(&main_null),
-            &Some(&alias_null),
-            TEST_DEFAULT_CHAIN,
+        STATIC_CRYPTDE_PAIR.initialize_cryptdes(
+            main_null.dup(),
+            alias_null.dup(),
         );
         let set_cryptde_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_config = PersistentConfigurationMock::new()
@@ -1424,8 +1441,8 @@ mod tests {
 
         let result = subject.cryptdes(&mut persistent_config, Some("db_password"));
 
-        assert_eq!(result.main.public_key(), main_null.public_key());
-        assert_eq!(result.alias.public_key(), alias_null.public_key());
+        assert_eq!(result.main().public_key(), main_null.public_key());
+        assert_eq!(result.alias().public_key(), alias_null.public_key());
         let set_cryptde_params = set_cryptde_params_arc.lock().unwrap();
         assert_eq!(*set_cryptde_params, vec![]);
     }
@@ -1433,7 +1450,7 @@ mod tests {
     #[test]
     fn cryptdes_handles_missing_password() {
         let _guard = EnvironmentGuard::new();
-        initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
+        STATIC_CRYPTDE_PAIR.initialize_cryptdes(NULL_CRYPTDE.dup(), NULL_CRYPTDE.dup());
         let main_cryptde_box = main_cryptde_ref().dup();
         let alias_cryptde_box = alias_cryptde_ref().dup();
         let mut persistent_config = PersistentConfigurationMock::new();
@@ -1441,14 +1458,14 @@ mod tests {
 
         let result = subject.cryptdes(&mut persistent_config, None);
 
-        assert_eq!(result.main.public_key(), main_cryptde_box.public_key());
-        assert_eq!(result.alias.public_key(), alias_cryptde_box.public_key());
+        assert_eq!(result.main().public_key(), main_cryptde_box.public_key());
+        assert_eq!(result.alias().public_key(), alias_cryptde_box.public_key());
     }
 
     #[test]
     fn cryptdes_handles_empty_database() {
         let _guard = EnvironmentGuard::new();
-        initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
+        STATIC_CRYPTDE_PAIR.initialize_cryptdes(NULL_CRYPTDE.dup(), NULL_CRYPTDE.dup());
         let main_cryptde_box = main_cryptde_ref().dup();
         let alias_cryptde_box = alias_cryptde_ref().dup();
         let cryptde_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1462,9 +1479,9 @@ mod tests {
 
         let result = subject.cryptdes(&mut persistent_config, Some("db_password"));
 
-        assert_eq!(result.main.public_key(), main_cryptde_box.public_key());
-        assert_eq!(result.alias.public_key(), alias_cryptde_box.public_key());
-        let returned_main_public_key = result.main.public_key().clone();
+        assert_eq!(result.main().public_key(), main_cryptde_box.public_key());
+        assert_eq!(result.alias().public_key(), alias_cryptde_box.public_key());
+        let returned_main_public_key = result.main().public_key().clone();
         let cryptde_params = cryptde_params_arc.lock().unwrap();
         assert_eq!(*cryptde_params, vec!["db_password".to_string()]);
         let set_cryptde_params = set_cryptde_params_arc.lock().unwrap();
@@ -1475,7 +1492,7 @@ mod tests {
     #[should_panic(expected = "Could not read last_cryptde from database: DatabaseError(\"tummyache\")")]
     fn cryptdes_panics_if_database_throws_error_other_than_not_present() {
         let _guard = EnvironmentGuard::new();
-        initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
+        STATIC_CRYPTDE_PAIR.initialize_cryptdes(NULL_CRYPTDE.dup(), NULL_CRYPTDE.dup());
         let cryptde_params_arc = Arc::new(Mutex::new(vec![]));
         let set_cryptde_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_config = PersistentConfigurationMock::new()
@@ -1491,7 +1508,7 @@ mod tests {
     #[test]
     fn cryptdes_handles_populated_database() {
         let _guard = EnvironmentGuard::new();
-        initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
+        STATIC_CRYPTDE_PAIR.initialize_cryptdes(NULL_CRYPTDE.dup(), NULL_CRYPTDE.dup());
         let original_main_cryptde_box = main_cryptde_ref().dup();
         let stored_main_cryptde_box = Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN));
         assert_ne!(
@@ -1507,9 +1524,9 @@ mod tests {
 
         let result = subject.cryptdes(&mut persistent_config, Some("db_password"));
 
-        assert_eq!(result.main.public_key(), stored_main_cryptde_box.public_key());
-        assert_eq!(result.alias.public_key(), original_alias_cryptde_box.public_key());
-        let returned_main_public_key = result.main.public_key().clone();
+        assert_eq!(result.main().public_key(), stored_main_cryptde_box.public_key());
+        assert_eq!(result.alias().public_key(), original_alias_cryptde_box.public_key());
+        let returned_main_public_key = result.main().public_key().clone();
         let cryptde_params = cryptde_params_arc.lock().unwrap();
         assert_eq!(*cryptde_params, vec!["db_password".to_string()]);
     }
@@ -1932,7 +1949,7 @@ mod tests {
     fn proxy_client_drags_down_the_whole_system_due_to_local_panic() {
         let closure = || {
             let proxy_cl_config = ProxyClientConfig {
-                cryptde: main_cryptde().as_ref(),
+                cryptde: main_cryptde().dup(),
                 dns_servers: vec![SocketAddr::V4(
                     SocketAddrV4::from_str("1.1.1.1:45").unwrap(),
                 )],
@@ -2100,8 +2117,8 @@ mod tests {
         let persistent_config =
             PersistentConfigurationMock::default().chain_name_result("eth-mainnet".to_string());
         Bootstrapper::pub_initialize_cryptdes_for_testing(
-            &Some(main_cryptde().dup().as_ref()),
-            &Some(alias_cryptde().dup().as_ref()),
+            CryptDENull::new(TEST_DEFAULT_CHAIN),
+            CryptDENull::new(TEST_DEFAULT_CHAIN)
         );
         let subject = ActorSystemFactoryReal::new(Box::new(ActorSystemFactoryToolsReal::new()));
 

@@ -41,7 +41,7 @@ impl NeighborhoodDatabase {
         public_key: &PublicKey,
         neighborhood_mode: NeighborhoodMode,
         earning_wallet: Wallet,
-        cryptde: &dyn CryptDE,
+        cryptde: Box<dyn CryptDE>,
     ) -> NeighborhoodDatabase {
         let mut result = NeighborhoodDatabase {
             this_node: public_key.clone(),
@@ -57,14 +57,14 @@ impl NeighborhoodDatabase {
             neighborhood_mode.accepts_connections(),
             neighborhood_mode.routes_data(),
             0,
-            cryptde,
+            cryptde.as_ref(),
         );
         if let Some(node_addr) = neighborhood_mode.node_addr_opt() {
             node_record
                 .set_node_addr(&node_addr)
                 .expect("NodeAddr suddenly appeared out of nowhere");
         }
-        node_record.regenerate_signed_gossip(cryptde);
+        node_record.regenerate_signed_gossip(cryptde.as_ref());
         result.add_arbitrary_node(node_record);
         result
     }
@@ -412,7 +412,7 @@ mod tests {
             this_node.public_key(),
             (&this_node).into(),
             this_node.earning_wallet(),
-            &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN),
+            Box::new(CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN)),
         );
 
         assert_eq!(subject.this_node, this_node.public_key().clone());
@@ -480,7 +480,7 @@ mod tests {
             this_node.public_key(),
             (&this_node).into(),
             Wallet::from_str("0x546900db8d6e0937497133d1ae6fdf5f4b75bcd0").unwrap(),
-            &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN),
+            Box::new(CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN)),
         );
 
         subject.add_node(one_node.clone()).unwrap();
@@ -534,7 +534,7 @@ mod tests {
             this_node.public_key(),
             (&this_node).into(),
             Wallet::from_str("0x0000000000000000000000000000000000001234").unwrap(),
-            &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN),
+            Box::new(CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN)),
         );
         subject.add_node(one_node.clone()).unwrap();
         subject.add_node(another_node.clone()).unwrap();
@@ -662,7 +662,7 @@ mod tests {
             this_node.public_key(),
             (&this_node).into(),
             Wallet::from_str("0x0000000000000000000000000000000000001234").unwrap(),
-            &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN),
+            Box::new(CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN)),
         );
         subject.add_node(other_node.clone()).unwrap();
         subject.root_mut().metadata.last_update = time_t_timestamp() - 2;
@@ -788,7 +788,7 @@ mod tests {
             this_node.public_key(),
             (&this_node).into(),
             this_node.earning_wallet(),
-            &CryptDENull::from(this_node.public_key(), DEFAULT_CHAIN),
+            Box::new(CryptDENull::from(this_node.public_key(), DEFAULT_CHAIN)),
         );
         let new_public_ip = IpAddr::from_str("4.3.2.1").unwrap();
 
@@ -812,7 +812,7 @@ mod tests {
             this_node.public_key(),
             (&this_node).into(),
             Wallet::from_str("0x0000000000000000000000000000000000000123").unwrap(),
-            &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN),
+            Box::new(CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN)),
         );
         let nonexistent_key = &PublicKey::new(b"nonexistent");
 
@@ -858,7 +858,7 @@ mod tests {
             this_node.public_key(),
             (&this_node).into(),
             Wallet::from_str("0x0000000000000000000000000000000000000123").unwrap(),
-            &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN),
+            Box::new(CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN)),
         );
         let neighborless_node = make_node_record(2345, true);
         subject.add_node(neighborless_node.clone()).unwrap();

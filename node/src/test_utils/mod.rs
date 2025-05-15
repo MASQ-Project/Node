@@ -79,10 +79,10 @@ pub fn alias_cryptde() -> RwLockReadGuard<'static, Box<dyn CryptDE>> {
 }
 
 pub fn make_cryptde_pair() -> CryptDEPair {
-    CryptDEPair {
-        main: main_cryptde().as_ref(),
-        alias: alias_cryptde().as_ref(),
-    }
+    CryptDEPair::new(
+        main_cryptde().dup(),
+        alias_cryptde().dup(),
+    )
 }
 
 pub struct ArgsBuilder {

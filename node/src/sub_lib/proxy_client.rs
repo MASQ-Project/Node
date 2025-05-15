@@ -19,14 +19,26 @@ pub fn error_socket_addr() -> SocketAddr {
     SocketAddr::from(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0))
 }
 
-#[derive(Clone)]
 pub struct ProxyClientConfig {
-    pub cryptde: &'static dyn CryptDE,
+    pub cryptde: Box<dyn CryptDE>,
     pub dns_servers: Vec<SocketAddr>,
     pub exit_service_rate: u64,
     pub exit_byte_rate: u64,
     pub is_decentralized: bool,
     pub crashable: bool,
+}
+
+impl Clone for ProxyClientConfig {
+    fn clone(&self) -> Self {
+        Self {
+            cryptde: self.cryptde.dup(),
+            dns_servers: self.dns_servers.clone(),
+            exit_service_rate: self.exit_service_rate,
+            exit_byte_rate: self.exit_byte_rate,
+            is_decentralized: self.is_decentralized,
+            crashable: self.crashable,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]

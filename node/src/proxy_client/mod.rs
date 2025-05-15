@@ -52,7 +52,7 @@ pub struct ProxyClient {
     dns_servers: Vec<SocketAddr>,
     resolver_wrapper_factory: Box<dyn ResolverWrapperFactory>,
     stream_handler_pool_factory: Box<dyn StreamHandlerPoolFactory>,
-    cryptde: &'static dyn CryptDE,
+    cryptde: Box<dyn CryptDE>,
     to_hopper: Option<Recipient<IncipientCoresPackage>>,
     to_accountant: Option<Recipient<ReportExitServiceProvidedMessage>>,
     pool: Option<Box<dyn StreamHandlerPool>>,
@@ -89,7 +89,7 @@ impl Handler<BindMessage> for ProxyClient {
         let resolver = self.resolver_wrapper_factory.make(config, opts);
         self.pool = Some(self.stream_handler_pool_factory.make(
             resolver,
-            self.cryptde,
+            self.cryptde.as_ref(),
             self.to_accountant.clone().expect("Accountant is unbound"),
             msg.peer_actors.proxy_client_opt.unwrap(),
             self.exit_service_rate,
@@ -180,7 +180,7 @@ impl Handler<DnsResolveFailure_0v1> for ProxyClient {
         match stream_context_opt {
             Some(stream_context) => {
                 let package = IncipientCoresPackage::new(
-                    self.cryptde,
+                    self.cryptde.as_ref(),
                     stream_context.return_route.clone(),
                     MessageType::DnsResolveFailed(VersionedData::new(
                         &crate::sub_lib::migrations::dns_resolve_failure::MIGRATIONS,
@@ -225,7 +225,7 @@ impl ProxyClient {
             dns_servers: config.dns_servers,
             resolver_wrapper_factory: Box::new(ResolverWrapperFactoryReal {}),
             stream_handler_pool_factory: Box::new(StreamHandlerPoolFactoryReal {}),
-            cryptde: config.cryptde,
+            cryptde: config.cryptde.dup(),
             to_hopper: None,
             to_accountant: None,
             pool: None,
@@ -276,7 +276,7 @@ impl ProxyClient {
             msg_data_len
         );
         let icp = match IncipientCoresPackage::new(
-            self.cryptde,
+            self.cryptde.as_ref(),
             stream_context.return_route.clone(),
             payload,
             &stream_context.payload_destination_key,
@@ -486,7 +486,7 @@ mod tests {
     #[test]
     fn is_decentralized_flag_is_passed_through_constructor() {
         let config_factory = |is_decentralized: bool| ProxyClientConfig {
-            cryptde: main_cryptde().as_ref(),
+            cryptde: main_cryptde().dup(),
             dns_servers: vec![SocketAddr::V4(
                 SocketAddrV4::from_str("1.2.3.4:4560").unwrap(),
             )],
@@ -509,7 +509,7 @@ mod tests {
     )]
     fn proxy_client_can_be_crashed_properly_but_not_improperly() {
         let proxy_client = ProxyClient::new(ProxyClientConfig {
-            cryptde: main_cryptde().as_ref(),
+            cryptde: main_cryptde().dup(),
             dns_servers: vec![SocketAddr::V4(
                 SocketAddrV4::from_str("1.2.3.4:4560").unwrap(),
             )],
@@ -528,7 +528,7 @@ mod tests {
     )]
     fn at_least_one_dns_server_must_be_provided() {
         ProxyClient::new(ProxyClientConfig {
-            cryptde: main_cryptde().as_ref(),
+            cryptde: main_cryptde().dup(),
             dns_servers: vec![],
             exit_service_rate: 100,
             exit_byte_rate: 200,
@@ -554,7 +554,7 @@ mod tests {
             .make_result(Box::new(pool));
         let peer_actors = peer_actors_builder().build();
         let mut subject = ProxyClient::new(ProxyClientConfig {
-            cryptde: main_cryptde().as_ref(),
+            cryptde: main_cryptde().dup(),
             dns_servers: vec![
                 SocketAddr::from_str("4.3.2.1:4321").unwrap(),
                 SocketAddr::from_str("5.4.3.2:5432").unwrap(),
@@ -622,7 +622,7 @@ mod tests {
         );
         let system = System::new("panics_if_hopper_is_unbound");
         let subject = ProxyClient::new(ProxyClientConfig {
-            cryptde,
+            cryptde: cryptde.dup(),
             dns_servers: dnss(),
             exit_service_rate: 100,
             exit_byte_rate: 200,
@@ -646,7 +646,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("logs_nonexistent_stream_key_during_dns_resolution_failure");
             let subject = ProxyClient::new(ProxyClientConfig {
-                cryptde,
+                cryptde: cryptde.dup(),
                 dns_servers: vec![SocketAddr::from_str("1.1.1.1:53").unwrap()],
                 exit_service_rate: 0,
                 exit_byte_rate: 0,
@@ -687,7 +687,7 @@ mod tests {
             let system = System::new("forwards_dns_resolve_failed_to_hopper");
             let peer_actors = peer_actors_builder().hopper(hopper).build();
             let mut subject = ProxyClient::new(ProxyClientConfig {
-                cryptde,
+                cryptde: cryptde.dup(),
                 dns_servers: vec![SocketAddr::from_str("1.1.1.1:53").unwrap()],
                 exit_service_rate: 0,
                 exit_byte_rate: 0,
@@ -779,7 +779,7 @@ mod tests {
             .lookup_ip_success(vec![IpAddr::from_str("4.3.2.1").unwrap()]);
         let resolver_factory = ResolverWrapperFactoryMock::new().new_result(Box::new(resolver));
         let mut subject = ProxyClient::new(ProxyClientConfig {
-            cryptde,
+            cryptde: cryptde.dup(),
             dns_servers: dnss(),
             exit_service_rate: 100,
             exit_byte_rate: 200,
@@ -836,7 +836,7 @@ mod tests {
             .lookup_ip_success(vec![IpAddr::from_str("4.3.2.1").unwrap()]);
         let resolver_factory = ResolverWrapperFactoryMock::new().new_result(Box::new(resolver));
         let mut subject = ProxyClient::new(ProxyClientConfig {
-            cryptde,
+            cryptde: cryptde.dup(),
             dns_servers: dnss(),
             exit_service_rate: rate_pack_exit(100),
             exit_byte_rate: rate_pack_exit_byte(100),
@@ -903,7 +903,7 @@ mod tests {
             .lookup_ip_success(vec![IpAddr::from_str("4.3.2.1").unwrap()]);
         let resolver_factory = ResolverWrapperFactoryMock::new().new_result(Box::new(resolver));
         let mut subject = ProxyClient::new(ProxyClientConfig {
-            cryptde: main_cryptde,
+            cryptde: main_cryptde.dup(),
             dns_servers: dnss(),
             exit_service_rate: rate_pack_exit(100),
             exit_byte_rate: rate_pack_exit_byte(100),
@@ -934,7 +934,7 @@ mod tests {
         let system = System::new(test_name);
         let route = make_meaningless_route();
         let mut subject = ProxyClient::new(ProxyClientConfig {
-            cryptde: main_cryptde().as_ref(),
+            cryptde: main_cryptde().dup(),
             dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
             exit_service_rate: 100,
             exit_byte_rate: 200,
@@ -1083,7 +1083,7 @@ mod tests {
         let system =
             System::new("inbound_server_data_without_paying_wallet_does_not_report_exit_service");
         let mut subject = ProxyClient::new(ProxyClientConfig {
-            cryptde: main_cryptde().as_ref(),
+            cryptde: main_cryptde().dup(),
             dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
             exit_service_rate: 100,
             exit_byte_rate: 200,
@@ -1135,7 +1135,7 @@ mod tests {
         let data: &[u8] = b"An honest politician is one who, when he is bought, will stay bought.";
         let system = System::new("error_creating_incipient_cores_package_is_logged_and_dropped");
         let mut subject = ProxyClient::new(ProxyClientConfig {
-            cryptde: main_cryptde().as_ref(),
+            cryptde: main_cryptde().dup(),
             dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
             exit_service_rate: 100,
             exit_byte_rate: 200,
@@ -1185,7 +1185,7 @@ mod tests {
         let data: &[u8] = b"An honest politician is one who, when he is bought, will stay bought.";
         let system = System::new("new_return_route_overwrites_existing_return_route");
         let mut subject = ProxyClient::new(ProxyClientConfig {
-            cryptde,
+            cryptde: cryptde.dup(),
             dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
             exit_service_rate: 100,
             exit_byte_rate: 200,

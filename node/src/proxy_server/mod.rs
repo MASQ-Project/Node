@@ -250,8 +250,8 @@ where
 
 impl ProxyServer {
     pub fn new(
-        main_cryptde: &'static dyn CryptDE,
-        alias_cryptde: &'static dyn CryptDE,
+        main_cryptde: &dyn CryptDE,
+        alias_cryptde: &dyn CryptDE,
         is_decentralized: bool,
         consuming_wallet_balance: Option<i64>,
         crashable: bool,

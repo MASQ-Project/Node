@@ -531,7 +531,7 @@ pub enum CryptdecError {
 }
 
 #[allow(clippy::upper_case_acronyms)]
-pub trait CryptDE: Send + Sync + Any {
+pub trait CryptDE: Send + Sync {
     fn encode(&self, public_key: &PublicKey, data: &PlainData) -> Result<CryptData, CryptdecError>;
     fn decode(&self, data: &CryptData) -> Result<PlainData, CryptdecError>;
     fn encode_sym(&self, key: &SymmetricKey, data: &PlainData) -> Result<CryptData, CryptdecError>;

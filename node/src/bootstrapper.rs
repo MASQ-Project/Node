@@ -56,33 +56,41 @@ use std::fmt::{Debug, Display, Error, Formatter};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard};
+use std::sync::{Arc, Mutex};
 use std::vec::Vec;
 use tokio::prelude::stream::futures_unordered::FuturesUnordered;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
 use tokio::prelude::Stream;
 use lazy_static::lazy_static;
+use parking_lot::{RwLock, RwLockReadGuard};
 
 lazy_static! {
-    pub static ref CDE: &'static SynchronizedCryptDEPair = unsafe {&CDE_WRT};
+    pub static ref STATIC_CRYPTDE_PAIR: SynchronizedCryptDEPair = SynchronizedCryptDEPair::new();
 }
 
-static mut CDE_WRT: SynchronizedCryptDEPair = SynchronizedCryptDEPair::new();
-
-struct CryptDERef {
-    delegate: Arc<RwLock<Box<dyn CryptDE>>>
+pub struct CryptDERef<'a> {
+    guard: RwLockReadGuard<'a, Box<dyn CryptDE + 'a>>,
 }
 
-impl Deref for CryptDERef {
-    type Target = RwLockReadGuard<dyn CryptDE>;
+impl<'a> Deref for CryptDERef<'a> {
+    type Target = Box<dyn CryptDE + 'a>;
 
-    fn deref(&self) -> &RwLockReadGuard<dyn CryptDE> {
-        &*self.delegate.read().expect("CryptDE poisoned")
+    fn deref(&self) -> &Self::Target {
+        self.guard.deref()
     }
 }
 
-struct SynchronizedCryptDEPair {
+impl<'a> CryptDERef<'a> {
+    fn new(lock: &'a RwLock<Box<dyn CryptDE>>) -> Self {
+        Self {
+            guard: lock.read(),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct SynchronizedCryptDEPair {
     main_cryptde: Arc<RwLock<Box<dyn CryptDE>>>,
     alias_cryptde: Arc<RwLock<Box<dyn CryptDE>>>,
 }
@@ -90,105 +98,86 @@ struct SynchronizedCryptDEPair {
 impl SynchronizedCryptDEPair {
     fn new() -> Self {
         Self {
-            main_cryptde: RwLock::new(NULL_CRYPTDE.dup()),
-            alias_cryptde: RwLock::new(NULL_CRYPTDE.dup()),
+            main_cryptde: Arc::new(RwLock::new(NULL_CRYPTDE.dup())),
+            alias_cryptde: Arc::new(RwLock::new(NULL_CRYPTDE.dup())),
         }
     }
 
-    pub fn initialize_cryptdes(&mut self,
-        main_cryptde_opt: &Option<&dyn CryptDE>,
-        alias_cryptde_opt: &Option<&dyn CryptDE>,
-        chain: Chain,
+    pub fn initialize_cryptdes(&self,
+        main_cryptde: Box<dyn CryptDE>,
+        alias_cryptde: Box<dyn CryptDE>,
     ) {
-        let defaulter = |input: &Option<&dyn CryptDE>| {
-            match input {
-                Some(cryptde) => {
-                    cryptde.dup()
-                }
-                None => {
-                    Box::new(CryptDEReal::new(chain)) as Box<dyn CryptDE>
-                }
-            }
-        };
-        let main = defaulter(main_cryptde_opt);
-        self.set_main_cryptde(main.as_ref());
-        let alias = defaulter(alias_cryptde_opt);
-        self.set_alias_cryptde(alias.as_ref());
+        self.set_main_cryptde(main_cryptde);
+        self.set_alias_cryptde(alias_cryptde);
     }
 
-    pub fn set_main_cryptde(&mut self, cryptde: &dyn CryptDE) {
-        let mut write_lock = self.main_cryptde.write()
-            .expect("Main CryptDE poisoned");
-        *write_lock = cryptde.dup();
+    pub fn set_main_cryptde(&self, cryptde: Box<dyn CryptDE>) {
+        let _ = std::mem::replace(
+            &mut *self.main_cryptde.write(),
+            cryptde.dup()
+        );
     }
 
-    pub fn set_alias_cryptde(&mut self, cryptde: &dyn CryptDE) {
-        let mut write_lock = self.alias_cryptde.write()
-            .expect("Alias CryptDE poisoned");
-        *write_lock = cryptde.dup();
+    pub fn set_alias_cryptde(&self, cryptde: Box<dyn CryptDE>) {
+        let _ = std::mem::replace(
+            &mut *self.alias_cryptde.write(),
+            cryptde.dup()
+        );
     }
 
-    pub fn main_cryptde_ref(&self) -> RwLockReadGuard<Box<dyn CryptDE>> {
-        self.main_cryptde.read().expect("Main CryptDE poisoned")
+    pub fn main_cryptde_ref(&self) -> CryptDERef {
+        CryptDERef::new(&self.main_cryptde)
     }
 
-    pub fn alias_cryptde_ref(&self) -> RwLockReadGuard<Box<dyn CryptDE>> {
-        self.alias_cryptde.read().expect("Main CryptDE poisoned")
+    pub fn alias_cryptde_ref(&self) -> CryptDERef {
+        CryptDERef::new(&self.alias_cryptde)
     }
 }
 
-pub fn main_cryptde_ref() -> RwLockReadGuard<'static, Box<dyn CryptDE>> {
-    CDE.main_cryptde_ref()
+pub fn main_cryptde_ref() -> CryptDERef<'static> {
+    STATIC_CRYPTDE_PAIR.main_cryptde_ref()
 }
 
-pub fn alias_cryptde_ref() -> RwLockReadGuard<'static, Box<dyn CryptDE>> {
-    CDE.alias_cryptde_ref()
+pub fn alias_cryptde_ref() -> CryptDERef<'static> {
+    STATIC_CRYPTDE_PAIR.alias_cryptde_ref()
 }
 
-pub fn initialize_cryptdes(
-    main_cryptde_opt: &Option<&dyn CryptDE>,
-    alias_cryptde_opt: &Option<&dyn CryptDE>,
-    chain: Chain,
-) -> CryptDEPair {
-    unsafe {
-        CDE_WRT.initialize_cryptdes(main_cryptde_opt, alias_cryptde_opt, chain);
-    }
-    CryptDEPair::default()
+#[derive(Clone)]
+pub struct CryptDEPair {
+    pair: SynchronizedCryptDEPair,
 }
 
-pub fn set_main_cryptde(cryptde: &dyn CryptDE) {
-    unsafe {
-        CDE_WRT.set_main_cryptde(cryptde);
-    }
-}
-
-impl Clone for CryptDEPair {
-    fn clone(&self) -> Self {
+impl Default for CryptDEPair {
+    fn default() -> Self {
         Self {
-            main: self.main,
-            alias: self.alias,
+            pair: STATIC_CRYPTDE_PAIR.clone()
         }
     }
 }
 
-#[derive(Copy)]
-pub struct CryptDEPair {
+impl CryptDEPair {
+    pub fn new(main: Box<dyn CryptDE>, alias: Box<dyn CryptDE>) -> Self {
+        let pair = SynchronizedCryptDEPair {
+            main_cryptde: Arc::new(RwLock::new(main)),
+            alias_cryptde: Arc::new(RwLock::new(alias)),
+        };
+        Self {
+            pair,
+        }
+    }
+
     // This has the public key by which this Node is known to other Nodes on the network
-    pub main: &'static dyn CryptDE,
+    pub fn main(&self) -> CryptDERef {
+        self.pair.main_cryptde_ref()
+    }
+
     // pub main: RwLockReadGuard<'static, Box<(dyn CryptDE)>>,
     // This has the public key with which this Node instructs exit Nodes to encrypt responses.
     // In production, it is unrelated to the main public key to prevent the exit Node from
     // identifying the originating Node. In tests using --fake-public-key, the alias public key
     // is the main public key reversed.
-    pub alias: &'static dyn CryptDE,
-}
-
-impl Default for CryptDEPair {
-    fn default() -> Self {
-        CryptDEPair {
-            main: main_cryptde_ref().as_ref(),
-            alias: alias_cryptde_ref().as_ref(),
-        }
+    pub fn alias(&self) -> CryptDERef {
+        self.pair.alias_cryptde_ref()
     }
 }
 
@@ -580,14 +569,14 @@ impl ConfiguredByPrivilege for Bootstrapper {
             NodeConfiguratorStandardUnprivileged::new(&self.config).configure(multi_config)?;
         self.config.merge_unprivileged(unprivileged_config);
         let _ = self.set_up_clandestine_port();
-        let (alias_cryptde_null_opt, main_cryptde_null_opt) = self.null_cryptdes_as_trait_objects();
-        let cryptdes = initialize_cryptdes(
-            &main_cryptde_null_opt,
-            &alias_cryptde_null_opt,
-            self.config.blockchain_bridge_config.chain,
+        let (alias_cryptde_null, main_cryptde_null) = self.null_cryptdes_as_trait_objects();
+        STATIC_CRYPTDE_PAIR.initialize_cryptdes(
+            main_cryptde_null,
+            alias_cryptde_null,
         );
+        let cryptdes = CryptDEPair::default();
         let node_descriptor = Bootstrapper::make_local_descriptor(
-            cryptdes.main,
+            STATIC_CRYPTDE_PAIR.main_cryptde_ref().as_ref(),
             self.config.neighborhood_config.mode.node_addr_opt(),
             self.config.blockchain_bridge_config.chain,
         );
@@ -598,7 +587,10 @@ impl ConfiguredByPrivilege for Bootstrapper {
         match &self.config.neighborhood_config.mode {
             NeighborhoodMode::Standard(node_addr, _, _)
                 if node_addr.ip_addr() == Ipv4Addr::new(0, 0, 0, 0) => {} // node_addr still coming
-            _ => Bootstrapper::report_local_descriptor(cryptdes.main, &self.config.node_descriptor), // here or not coming
+            _ => Bootstrapper::report_local_descriptor(
+                STATIC_CRYPTDE_PAIR.main_cryptde_ref().as_ref(),
+                &self.config.node_descriptor
+            ), // here or not coming
         }
         let stream_handler_pool_subs = self.start_actors_and_return_shp_subs();
         self.listener_handlers
@@ -624,14 +616,14 @@ impl Bootstrapper {
 
     #[cfg(test)] // The real ones are private, but ActorSystemFactory needs to use them for testing
     pub fn pub_initialize_cryptdes_for_testing(
-        main_cryptde_null_opt: &Option<&dyn CryptDE>,
-        alias_cryptde_null_opt: &Option<&dyn CryptDE>,
+        main_cryptde_null: CryptDENull,
+        alias_cryptde_null: CryptDENull,
     ) -> CryptDEPair {
-        initialize_cryptdes(
-            main_cryptde_null_opt,
-            alias_cryptde_null_opt,
-            masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN,
-        )
+        STATIC_CRYPTDE_PAIR.initialize_cryptdes(
+            Box::new(main_cryptde_null),
+            Box::new(alias_cryptde_null),
+        );
+        CryptDEPair::default()
     }
 
     fn make_local_descriptor(
@@ -741,16 +733,16 @@ impl Bootstrapper {
         }
     }
 
-    fn null_cryptdes_as_trait_objects(&self) -> (Option<&dyn CryptDE>, Option<&dyn CryptDE>) {
+    fn null_cryptdes_as_trait_objects(&self) -> (Box<dyn CryptDE>, Box<dyn CryptDE>) {
         (
-            self.config
-                .alias_cryptde_null_opt
+            self.config.main_cryptde_null_opt
                 .as_ref()
-                .map(|cryptde_null| cryptde_null as &dyn CryptDE),
-            self.config
-                .main_cryptde_null_opt
+                .map(|cryptde_null| cryptde_null.dup())
+                .expect("Main CryptDENull is empty"),
+            self.config.alias_cryptde_null_opt
                 .as_ref()
-                .map(|cryptde_null| cryptde_null as &dyn CryptDE),
+                .map(|cryptde_null| cryptde_null.dup())
+                .expect("Alias CryptDENull is empty"),
         )
     }
 }
@@ -780,7 +772,7 @@ mod tests {
     use crate::stream_handler_pool::StreamHandlerPoolSubs;
     use crate::stream_messages::AddStreamMsg;
     use crate::sub_lib::accountant::ScanIntervals;
-    use crate::sub_lib::cryptde::PublicKey;
+    use crate::sub_lib::cryptde::{NullCryptDE, PublicKey};
     use crate::sub_lib::cryptde::{CryptDE, PlainData};
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::neighborhood::{
@@ -826,6 +818,7 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
+    use regex::internal::EmptyLook::StartText;
     use tokio;
     use tokio::executor::current_thread::CurrentThread;
     use tokio::prelude::stream::FuturesUnordered;
@@ -1006,16 +999,29 @@ mod tests {
     }
 
     #[test]
-    fn can_set_and_read_cryptdes() {
-        let main = CryptDEReal::new(Chain::EthMainnet);
-        let alias = CryptDEReal::new(Chain::EthMainnet);
+    fn setting_and_getting_cryptdes_works() {
+        let main_cryptde = CryptDEReal::new(Chain::EthMainnet);
+        let alias_cryptde = CryptDEReal::new(Chain::EthMainnet);
         let mut subject = SynchronizedCryptDEPair::new();
+        subject.set_main_cryptde(main_cryptde.dup());
+        subject.set_alias_cryptde(alias_cryptde.dup());
 
-        subject.set_main_cryptde(&main);
-        subject.set_alias_cryptde(&alias);
+        let main_result = subject.main_cryptde_ref();
+        let alias_result = subject.alias_cryptde_ref();
 
-        assert_eq!(subject.main_cryptde_ref().public_key(), main.public_key());
-        assert_eq!(subject.alias_cryptde_ref().public_key(), alias.public_key());
+        assert_eq!(main_result.public_key(), main_cryptde.public_key());
+        assert_eq!(alias_result.public_key(), alias_cryptde.public_key());
+    }
+
+    #[test]
+    fn cryptde_pair_new_works() {
+        let main_cryptde = CryptDEReal::new(Chain::EthMainnet);
+        let alias_cryptde = CryptDEReal::new(Chain::EthMainnet);
+
+        let subject = CryptDEPair::new(main_cryptde.dup(), alias_cryptde.dup());
+
+        assert_eq!(subject.main().public_key(), main_cryptde.public_key());
+        assert_eq!(subject.alias().public_key(), alias_cryptde.public_key());
     }
 
     #[test]
@@ -1608,25 +1614,32 @@ mod tests {
     #[test]
     fn initialize_cryptde_without_cryptde_null_uses_cryptde_real() {
         let _lock = INITIALIZATION.lock();
-        let cryptdes = initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
+        STATIC_CRYPTDE_PAIR.initialize_cryptdes(
+            Box::new(NullCryptDE{}),
+            Box::new(NullCryptDE{}),
+        );
+        let cryptdes = CryptDEPair::default();
 
-        assert_eq!(main_cryptde_ref().public_key(), cryptdes.main.public_key());
+        assert_eq!(main_cryptde_ref().public_key(), cryptdes.main().public_key());
         // Brittle assertion: this may not be true forever
         let cryptde_null = main_cryptde();
-        assert!(cryptdes.main.public_key().len() > cryptde_null.public_key().len());
+        assert!(cryptdes.main().public_key().len() > cryptde_null.public_key().len());
     }
 
     #[test]
     fn initialize_cryptde_with_cryptde_null_uses_cryptde_null() {
         let _lock = INITIALIZATION.lock();
-        let cryptde_null = main_cryptde().as_ref().clone();
+        let cryptde_null = main_cryptde_ref().dup();
         let cryptde_null_public_key = cryptde_null.public_key().clone();
 
-        let cryptdes =
-            initialize_cryptdes(&Some(cryptde_null), &None, TEST_DEFAULT_CHAIN);
+        STATIC_CRYPTDE_PAIR.initialize_cryptdes(
+            cryptde_null,
+            Box::new(NullCryptDE{}),
+        );
+        let cryptdes = CryptDEPair::default();
 
-        assert_eq!(cryptdes.main.public_key(), &cryptde_null_public_key);
-        assert_eq!(main_cryptde_ref().public_key(), cryptdes.main.public_key());
+        assert_eq!(cryptdes.main().public_key(), &cryptde_null_public_key);
+        assert_eq!(main_cryptde_ref().public_key(), cryptdes.main().public_key());
     }
 
     #[test]
@@ -1638,15 +1651,19 @@ mod tests {
             &[3456u16, 4567u16],
         );
         let cryptde_ref = {
-            let cryptdes = initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
+            STATIC_CRYPTDE_PAIR.initialize_cryptdes(
+                Box::new(NullCryptDE{}),
+                Box::new(NullCryptDE{}),
+            );
+            let cryptdes = CryptDEPair::default();
             let descriptor = Bootstrapper::make_local_descriptor(
-                cryptdes.main,
+                cryptdes.main().as_ref(),
                 Some(node_addr),
                 TEST_DEFAULT_CHAIN,
             );
-            Bootstrapper::report_local_descriptor(cryptdes.main, &descriptor);
+            Bootstrapper::report_local_descriptor(cryptdes.main().as_ref(), &descriptor);
 
-            cryptdes.main
+            cryptdes.main().dup()
         };
         let expected_descriptor = format!(
             "masq://base-sepolia:{}@2.3.4.5:3456/4567",
@@ -1681,18 +1698,21 @@ mod tests {
         let _lock = INITIALIZATION.lock();
         init_test_logging();
         let cryptdes = {
-            let cryptdes = initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
+            STATIC_CRYPTDE_PAIR.initialize_cryptdes(
+                Box::new(NullCryptDE{}), Box::new(NullCryptDE{})
+            );
+            let cryptdes = CryptDEPair::default();
             let descriptor =
-                Bootstrapper::make_local_descriptor(cryptdes.main, None, TEST_DEFAULT_CHAIN);
-            Bootstrapper::report_local_descriptor(cryptdes.main, &descriptor);
+                Bootstrapper::make_local_descriptor(cryptdes.main().as_ref(), None, TEST_DEFAULT_CHAIN);
+            Bootstrapper::report_local_descriptor(cryptdes.main().as_ref(), &descriptor);
 
-            cryptdes
+            CryptDEPair::default()
         };
         let expected_descriptor = format!(
             "masq://base-sepolia:{}@:",
             cryptdes
-                .main
-                .public_key_to_descriptor_fragment(cryptdes.main.public_key())
+                .main()
+                .public_key_to_descriptor_fragment(cryptdes.main().public_key())
         );
         TestLogHandler::new().exists_log_containing(
             format!(
@@ -1718,8 +1738,8 @@ mod tests {
             ));
             assert_eq!(decrypted_data, expected_data)
         };
-        assert_round_trip(cryptdes.main);
-        assert_round_trip(cryptdes.alias);
+        assert_round_trip(cryptdes.main().as_ref());
+        assert_round_trip(cryptdes.alias().as_ref());
     }
 
     #[test]

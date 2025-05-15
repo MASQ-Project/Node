@@ -44,7 +44,7 @@ impl Handler<BindMessage> for Hopper {
     fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) -> Self::Result {
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.consuming_service = Some(ConsumingService::new(
-            self.cryptdes.main,
+            self.cryptdes.main().as_ref(),
             msg.peer_actors.dispatcher.from_dispatcher_client.clone(),
             msg.peer_actors.hopper.from_dispatcher.clone(),
         ));
@@ -198,10 +198,10 @@ mod tests {
         };
         let system = System::new("panics_if_routing_service_is_unbound");
         let subject = Hopper::new(HopperConfig {
-            cryptdes: CryptDEPair {
-                main: main_cryptde,
-                alias: alias_cryptde,
-            },
+            cryptdes: CryptDEPair::new(
+                main_cryptde.dup(),
+                alias_cryptde.dup()
+            ),
             per_routing_service: 100,
             per_routing_byte: 200,
             is_decentralized: false,
@@ -241,10 +241,10 @@ mod tests {
         .unwrap();
         let system = System::new("panics_if_consuming_service_is_unbound");
         let subject = Hopper::new(HopperConfig {
-            cryptdes: CryptDEPair {
-                main: main_cryptde,
-                alias: alias_cryptde,
-            },
+            cryptdes: CryptDEPair::new(
+                main_cryptde.dup(),
+                alias_cryptde.dup()
+            ),
             per_routing_service: 100,
             per_routing_byte: 200,
             is_decentralized: false,
