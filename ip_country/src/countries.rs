@@ -2,6 +2,7 @@
 
 use crate::country_block_stream::Country;
 use std::collections::HashMap;
+use crate::dbip_country::COUNTRIES;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Countries {
@@ -82,33 +83,36 @@ impl Countries {
     }
 }
 
-// impl TryFrom<&str> for Country {
-//     type Error = String;
-//
-//     fn try_from(iso3166: &str) -> Result<Self, Self::Error> {
-//         let index = match INDEX_BY_ISO3166.get(&iso3166.to_ascii_uppercase()) {
-//             None => return Err(format!("'{}' is not a valid ISO3166 country code", iso3166)),
-//             Some(index) => *index,
-//         };
-//         let country = Country::try_from(index).unwrap_or_else(|_| {
-//             panic!(
-//                 "Data error: ISO3166 {} maps to index {}, but there is no such Country",
-//                 iso3166, index
-//             )
-//         });
-//         Ok(country)
-//     }
-// }
+impl TryFrom<usize> for Country {
+    type Error = String;
+
+    fn try_from(index: usize) -> Result<Self, Self::Error> {
+        COUNTRIES.country_from_index(index).map(|country| country.clone())
+    }
+}
 //
 // impl From<usize> for Country {
 //     fn from(index: usize) -> Self {
-//         match COUNTRIES.get(index) {
-//             None => panic!(
-//                 "There are only {} Countries; no Country is at index {}",
-//                 COUNTRIES.len(),
-//                 index
-//             ),
-//             Some(country) => country.clone(),
+//         match COUNTRIES.country_from_index(index) {
+//             Err(e) => panic!("{}", e),
+//             Ok(country) => country.clone(),
+//         }
+//     }
+// }
+
+impl TryFrom<&str> for Country {
+    type Error = String;
+
+    fn try_from(iso3166: &str) -> Result<Self, Self::Error> {
+        COUNTRIES.country_from_code(iso3166).map(|country| country.clone())
+    }
+}
+//
+// impl From<&str> for Country {
+//     fn from(iso3166: &str) -> Self {
+//         match COUNTRIES.country_from_code(iso3166) {
+//             Err(e) => panic!("{}", e),
+//             Ok(country) => country.clone(),
 //         }
 //     }
 // }
@@ -239,7 +243,7 @@ mod tests {
     }
 
     #[test]
-    fn try_from_str_happy_path() {
+    fn country_from_code_happy_path() {
         for country in COUNTRIES.countries.iter() {
             let result = COUNTRIES
                 .country_from_code(country.iso3166.as_str())
@@ -250,7 +254,7 @@ mod tests {
     }
 
     #[test]
-    fn try_from_str_wrong_case() {
+    fn country_from_code_wrong_case() {
         for country in COUNTRIES.countries.iter() {
             let result = COUNTRIES
                 .country_from_code(country.iso3166.to_lowercase().as_str())
@@ -261,7 +265,7 @@ mod tests {
     }
 
     #[test]
-    fn try_from_str_bad_iso3166() {
+    fn country_from_code_bad_iso3166() {
         let result = COUNTRIES.country_from_code("Booga");
 
         assert_eq!(
@@ -271,7 +275,7 @@ mod tests {
     }
 
     #[test]
-    fn from_index_happy_path() {
+    fn country_from_index_happy_path() {
         for country in COUNTRIES.countries.iter() {
             let result = COUNTRIES.country_from_index(country.index).unwrap();
 
@@ -280,7 +284,80 @@ mod tests {
     }
 
     #[test]
-    fn try_from_index_bad_index() {
+    fn try_from_index_happy_path() {
+        for country in COUNTRIES.countries.iter() {
+            let result = Country::try_from(country.index).unwrap();
+
+            assert_eq!(result, *country);
+        }
+    }
+
+    #[test]
+    fn try_from_index_sad_path() {
+        let result = Country::try_from(usize::MAX).err().unwrap();
+
+        assert_eq!(
+            result,
+            format!(
+                "There are only {} Countries; no Country is at index {}",
+                COUNTRIES.countries.len(),
+                usize::MAX
+            )
+        );
+    }
+
+    #[test]
+    fn try_from_iso3166_happy_path() {
+        for country in COUNTRIES.countries.iter() {
+            let result = Country::try_from(country.iso3166.as_str()).unwrap();
+
+            assert_eq!(result, *country);
+        }
+    }
+
+    #[test]
+    fn try_from_iso3166_sad_path() {
+        let result = Country::try_from("Booga").err().unwrap();
+
+        assert_eq!(result, "'Booga' is not a valid ISO3166 country code");
+    }
+    //
+    // #[test]
+    // fn from_index_happy_path() {
+    //     for country in COUNTRIES.countries.iter() {
+    //         let result = Country::from(country.index);
+    //
+    //         assert_eq!(result, *country);
+    //     }
+    // }
+    //
+    // #[test]
+    // #[should_panic(
+    //     expected = "no Country is at index"
+    // )]
+    // fn from_index_sad_path() {
+    //     let _ = Country::from(usize::MAX);
+    // }
+    //
+    // #[test]
+    // fn from_iso3166_happy_path() {
+    //     for country in COUNTRIES.countries.iter() {
+    //         let result = Country::from(country.iso3166.as_str());
+    //
+    //         assert_eq!(result, *country);
+    //     }
+    // }
+    //
+    // #[test]
+    // #[should_panic(
+    //     expected = "'Booga' is not a valid ISO3166 country code"
+    // )]
+    // fn from_iso3166_sad_path() {
+    //     let _ = Country::from("Booga");
+    // }
+
+    #[test]
+    fn country_from_index_bad_index() {
         let count = COUNTRIES.len();
 
         let result = COUNTRIES.country_from_index(4096usize).err().unwrap();
