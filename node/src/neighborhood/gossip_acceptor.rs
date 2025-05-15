@@ -1419,11 +1419,8 @@ mod tests {
     use super::*;
     use crate::neighborhood::gossip_producer::GossipProducer;
     use crate::neighborhood::gossip_producer::GossipProducerReal;
-    use crate::neighborhood::node_location::get_node_location;
     use crate::neighborhood::node_record::NodeRecord;
-    use crate::neighborhood::{
-        FallbackPreference, UserExitPreferences, UNREACHABLE_COUNTRY_PENALTY,
-    };
+    use crate::neighborhood::{FallbackPreference, UserExitPreferences, COUNTRY_UNDESIRABILITY_FACTOR, UNREACHABLE_COUNTRY_PENALTY};
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ConnectionProgressMessage};
     use crate::sub_lib::utils::time_t_timestamp;
@@ -1444,6 +1441,7 @@ mod tests {
     use std::ops::{Add, Sub};
     use std::str::FromStr;
     use std::time::Duration;
+    use ip_country_lib::dbip_country::COUNTRIES;
 
     #[test]
     fn constants_have_correct_values() {
@@ -2069,15 +2067,18 @@ mod tests {
         let cryptde = CryptDENull::from(dest_db.root().public_key(), TEST_DEFAULT_CHAIN);
         let subject = IntroductionHandler::new(Logger::new("test"));
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
+        let mut expected_introducer = NodeRecord::from(&agrs[0]);
+        expected_introducer.metadata.country_undesirability = COUNTRY_UNDESIRABILITY_FACTOR;
+        let cc = expected_introducer.inner.country_code_opt.clone().unwrap();
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
         neighborhood_metadata.user_exit_preferences_opt = Some(UserExitPreferences {
-            exit_countries: vec!["FR".to_string()],
+            exit_countries: vec![cc.clone()],
             fallback_preference: FallbackPreference::ExitCountryNoFallback,
             locations_opt: Some(vec![ExitLocation {
-                country_codes: vec!["FR".to_string()],
-                priority: 1,
+                country_codes: vec![cc.clone()],
+                priority: 2,
             }]),
-            db_countries: vec!["FR".to_string()],
+            db_countries: vec![cc.clone()],
         });
 
         let qualifies_result = subject.qualifies(&dest_db, &agrs, gossip_source);
@@ -2101,10 +2102,8 @@ mod tests {
             ),
             handle_result
         );
-
         let result_introducer: &NodeRecord =
             dest_db.node_by_key(&agrs[0].inner.public_key).unwrap();
-        let expected_introducer = NodeRecord::from(&agrs[0]);
         assert_eq!(result_introducer, &expected_introducer);
         assert_eq!(
             dest_db
@@ -2439,17 +2438,12 @@ mod tests {
         let mut src_db = db_from_node(&src_root);
         let node_a = make_node_record(5678, true);
         let country_zero = node_a.inner.country_code_opt.clone().unwrap();
-        let mut cc = country_zero.clone();
-        let mut iterator = 1111;
-        while cc == country_zero {
-            iterator += 1111;
-            let ip = IpAddr::V4(Ipv4Addr::from(iterator));
-            cc = match get_node_location(Some(ip)) {
-                Some(nl) => nl.country_code,
-                None => cc,
-            }
-        }
-        let node_b = make_node_record_cc(iterator as u16, true, cc.as_ref());
+        let exclude = vec![country_zero.as_ref(), "NOEX", "ZZ"];
+        let countries = COUNTRIES.iter().filter(|c| {
+            !exclude.contains(&c.iso3166.as_str())
+        }).collect_vec();
+        let cc = countries[0].iso3166.as_str();
+        let node_b = make_node_record_cc(7777u16, true, cc);
         let mut dest_db = db_from_node(&dest_root);
         dest_db.add_node(src_root.clone()).unwrap();
         dest_db.add_arbitrary_full_neighbor(dest_root.public_key(), src_root.public_key());
