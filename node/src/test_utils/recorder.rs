@@ -28,6 +28,7 @@ use crate::sub_lib::hopper::{HopperSubs, MessageType};
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
 use crate::sub_lib::neighborhood::{ConfigChangeMsg, ConnectionProgressMessage};
 
+use crate::proxy_server::ProxyServer;
 use crate::sub_lib::configurator::ConfiguratorSubs;
 use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
@@ -638,8 +639,9 @@ impl PeerActorsBuilder {
         self
     }
 
-    // This must be called after System.new and before System.run
-    pub fn build(self) -> PeerActors {
+    // This must be called after System.new and before System.run.
+    // These addresses may be helpful for setting up the Counter Messages.
+    pub fn build_and_provide_addresses(self) -> (PeerActors, PeerActorAddrs) {
         let proxy_server_addr = self.proxy_server.start();
         let dispatcher_addr = self.dispatcher.start();
         let hopper_addr = self.hopper.start();
@@ -650,18 +652,51 @@ impl PeerActorsBuilder {
         let blockchain_bridge_addr = self.blockchain_bridge.start();
         let configurator_addr = self.configurator.start();
 
-        PeerActors {
-            proxy_server: make_proxy_server_subs_from_recorder(&proxy_server_addr),
-            dispatcher: make_dispatcher_subs_from_recorder(&dispatcher_addr),
-            hopper: make_hopper_subs_from_recorder(&hopper_addr),
-            proxy_client_opt: Some(make_proxy_client_subs_from_recorder(&proxy_client_addr)),
-            neighborhood: make_neighborhood_subs_from_recorder(&neighborhood_addr),
-            accountant: make_accountant_subs_from_recorder(&accountant_addr),
-            ui_gateway: make_ui_gateway_subs_from_recorder(&ui_gateway_addr),
-            blockchain_bridge: make_blockchain_bridge_subs_from_recorder(&blockchain_bridge_addr),
-            configurator: make_configurator_subs_from_recorder(&configurator_addr),
-        }
+        (
+            PeerActors {
+                proxy_server: make_proxy_server_subs_from_recorder(&proxy_server_addr),
+                dispatcher: make_dispatcher_subs_from_recorder(&dispatcher_addr),
+                hopper: make_hopper_subs_from_recorder(&hopper_addr),
+                proxy_client_opt: Some(make_proxy_client_subs_from_recorder(&proxy_client_addr)),
+                neighborhood: make_neighborhood_subs_from_recorder(&neighborhood_addr),
+                accountant: make_accountant_subs_from_recorder(&accountant_addr),
+                ui_gateway: make_ui_gateway_subs_from_recorder(&ui_gateway_addr),
+                blockchain_bridge: make_blockchain_bridge_subs_from_recorder(
+                    &blockchain_bridge_addr,
+                ),
+                configurator: make_configurator_subs_from_recorder(&configurator_addr),
+            },
+            PeerActorAddrs {
+                proxy_server_addr,
+                dispatcher_addr,
+                hopper_addr,
+                proxy_client_addr,
+                neighborhood_addr,
+                accountant_addr,
+                ui_gateway_addr,
+                blockchain_bridge_addr,
+                configurator_addr,
+            },
+        )
     }
+
+    // This must be called after System.new and before System.run
+    pub fn build(self) -> PeerActors {
+        let (peer_actors, _) = self.build_and_provide_addresses();
+        peer_actors
+    }
+}
+
+pub struct PeerActorAddrs {
+    pub proxy_server_addr: Addr<Recorder>,
+    pub dispatcher_addr: Addr<Recorder>,
+    pub hopper_addr: Addr<Recorder>,
+    pub proxy_client_addr: Addr<Recorder>,
+    pub neighborhood_addr: Addr<Recorder>,
+    pub accountant_addr: Addr<Recorder>,
+    pub ui_gateway_addr: Addr<Recorder>,
+    pub blockchain_bridge_addr: Addr<Recorder>,
+    pub configurator_addr: Addr<Recorder>,
 }
 
 #[cfg(test)]

@@ -16,9 +16,9 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub struct ScanSchedulers {
-    pub payable: PayableScanScheduler<Accountant>,
-    pub pending_payable: SimplePeriodicalScanScheduler<ScanForPendingPayables, Accountant>,
-    pub receivable: SimplePeriodicalScanScheduler<ScanForReceivables, Accountant>,
+    pub payable: PayableScanScheduler,
+    pub pending_payable: SimplePeriodicalScanScheduler<ScanForPendingPayables>,
+    pub receivable: SimplePeriodicalScanScheduler<ScanForReceivables>,
     pub automatic_scans_enabled: bool,
 }
 
@@ -46,21 +46,22 @@ pub enum ScanScheduleHint {
     DoNotSchedule,
 }
 
-pub struct PayableScanScheduler<Actor> {
-    pub new_payable_notify_later: Box<dyn NotifyLaterHandle<ScanForNewPayables, Actor>>,
+pub enum HintableScanners {
+    NewPayables,
+    RetryPayables,
+    PendingPayables,
+}
+
+pub struct PayableScanScheduler {
+    pub new_payable_notify_later: Box<dyn NotifyLaterHandle<ScanForNewPayables, Accountant>>,
     pub dyn_interval_computer: Box<dyn NewPayableScanDynIntervalComputer>,
     pub inner: Arc<Mutex<PayableScanSchedulerInner>>,
     pub nominal_interval: Duration,
-    pub new_payable_notify: Box<dyn NotifyHandle<ScanForNewPayables, Actor>>,
-    pub retry_payable_notify: Box<dyn NotifyHandle<ScanForRetryPayables, Actor>>,
+    pub new_payable_notify: Box<dyn NotifyHandle<ScanForNewPayables, Accountant>>,
+    pub retry_payable_notify: Box<dyn NotifyHandle<ScanForRetryPayables, Accountant>>,
 }
 
-impl<ActorType> PayableScanScheduler<ActorType>
-where
-    ActorType: Actor<Context = Context<ActorType>>
-        + Handler<ScanForNewPayables>
-        + Handler<ScanForRetryPayables>,
-{
+impl PayableScanScheduler {
     fn new(nominal_interval: Duration) -> Self {
         Self {
             new_payable_notify_later: Box::new(NotifyLaterHandleReal::default()),
@@ -72,11 +73,7 @@ where
         }
     }
 
-    pub fn schedule_for_new_payable(
-        &self,
-        ctx: &mut Context<ActorType>,
-        response_skeleton_opt: Option<ResponseSkeleton>,
-    ) {
+    pub fn schedule_for_new_payable(&self, ctx: &mut Context<Accountant>) {
         let inner = self.inner.lock().expect("couldn't acquire inner");
         let last_new_payable_timestamp = inner.last_new_payable_scan_timestamp;
         let nominal_interval = self.nominal_interval;
@@ -108,7 +105,7 @@ where
     // the Accountant's mailbox with no delay
     pub fn schedule_for_retry_payable(
         &self,
-        ctx: &mut Context<ActorType>,
+        ctx: &mut Context<Accountant>,
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) {
         self.retry_payable_notify.notify(
@@ -132,32 +129,6 @@ impl Default for PayableScanSchedulerInner {
             next_new_payable_scan_already_scheduled: false,
         }
     }
-}
-
-pub trait AutomaticSchedulingAwareScanner<ScannerSpecification> {
-    fn is_currently_automatically_scheduled(&self, spec: ScannerSpecification) -> bool;
-    fn mark_as_automatically_scheduled(&self, spec: ScannerSpecification);
-    fn mark_as_already_automatically_utilized(&self, spec: ScannerSpecification);
-}
-
-impl AutomaticSchedulingAwareScanner<PayableScannerMode> for PayableScanScheduler<Accountant> {
-    fn is_currently_automatically_scheduled(&self, spec: PayableScannerMode) -> bool {
-        todo!()
-    }
-
-    fn mark_as_automatically_scheduled(&self, spec: PayableScannerMode) {
-        todo!()
-    }
-
-    fn mark_as_already_automatically_utilized(&self, spec: PayableScannerMode) {
-        todo!()
-    }
-}
-
-#[derive(Clone, Copy)]
-pub enum PayableScannerMode {
-    Retry,
-    NewPayable,
 }
 
 pub trait NewPayableScanDynIntervalComputer {
@@ -195,73 +166,40 @@ impl NewPayableScanDynIntervalComputer for NewPayableScanDynIntervalComputerReal
     }
 }
 
-pub struct SimplePeriodicalScanScheduler<Message: Default, ActorType> {
-    phantom: PhantomData<ActorType>,
+pub struct SimplePeriodicalScanScheduler<Message: Default> {
     pub is_currently_automatically_scheduled: RefCell<bool>,
-    pub handle: Box<dyn NotifyLaterHandle<Message, ActorType>>,
+    pub handle: Box<dyn NotifyLaterHandle<Message, Accountant>>,
     pub interval: Duration,
 }
 
-impl<Message, ActorType> SimplePeriodicalScanScheduler<Message, ActorType>
+impl<Message> SimplePeriodicalScanScheduler<Message>
 where
     Message: actix::Message + Default + 'static + Send,
-    ActorType: Actor<Context = Context<ActorType>> + Handler<Message>,
+    Accountant: Actor + Handler<Message>,
 {
     fn new(interval: Duration) -> Self {
         Self {
-            phantom: PhantomData::default(),
             is_currently_automatically_scheduled: RefCell::new(false),
             handle: Box::new(NotifyLaterHandleReal::default()),
             interval,
         }
     }
-    pub fn schedule(
-        &self,
-        ctx: &mut Context<ActorType>,
-        response_skeleton_opt: Option<ResponseSkeleton>,
-    ) {
+    pub fn schedule(&self, ctx: &mut Context<Accountant>) {
         // The default of the message implies response_skeleton_opt to be None because scheduled
         // scans don't respond
         let _ = self
             .handle
             .notify_later(Message::default(), self.interval, ctx);
-
-        if response_skeleton_opt == None {
-            self.mark_as_automatically_scheduled(())
-        }
-    }
-}
-
-impl<M: Default, A> AutomaticSchedulingAwareScanner<()> for SimplePeriodicalScanScheduler<M, A> {
-    fn is_currently_automatically_scheduled(&self, _spec: ()) -> bool {
-        *self.is_currently_automatically_scheduled.borrow()
-    }
-
-    fn mark_as_automatically_scheduled(&self, _spec: ()) {
-        self.is_currently_automatically_scheduled.replace(true);
-    }
-
-    fn mark_as_already_automatically_utilized(&self, _spec: ()) {
-        self.is_currently_automatically_scheduled.replace(false);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::accountant::scanners::scan_schedulers::{
-        AutomaticSchedulingAwareScanner, NewPayableScanDynIntervalComputer,
-        NewPayableScanDynIntervalComputerReal, PayableScanScheduler, PayableScanSchedulerError,
-        PayableScanSchedulerInner, PayableScannerMode, ScanSchedulers,
-        SimplePeriodicalScanScheduler,
-    };
-    use crate::accountant::{
-        ResponseSkeleton, ScanForNewPayables, ScanForPendingPayables, ScanForReceivables,
-        ScanForRetryPayables, SkeletonOptHolder,
+        NewPayableScanDynIntervalComputer, NewPayableScanDynIntervalComputerReal,
+        ScanSchedulers,
     };
     use crate::sub_lib::accountant::ScanIntervals;
-    use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
-    use actix::{Actor, Context, Handler, Message, System};
-    use std::marker::PhantomData;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     #[test]
@@ -418,154 +356,5 @@ mod tests {
             now,
             Duration::from_secs(32),
         );
-    }
-
-    #[derive(Message)]
-    struct TestSetupCarrierMsg<MessageToSchedule, Scheduler, ScheduleScanner, ScannerSpecs> {
-        scheduler: Scheduler,
-        automated_message: MessageToSchedule,
-        user_triggered_message: MessageToSchedule,
-        schedule_scanner: ScheduleScanner,
-        scan_specs: ScannerSpecs,
-    }
-
-    struct ActixContextProvidingActor {}
-
-    impl Actor for ActixContextProvidingActor {
-        type Context = Context<Self>;
-    }
-
-    impl Handler<ScanForNewPayables> for ActixContextProvidingActor {
-        type Result = ();
-
-        fn handle(&mut self, _msg: ScanForNewPayables, _ctx: &mut Self::Context) -> Self::Result {
-            intentionally_blank!()
-        }
-    }
-
-    impl Handler<ScanForRetryPayables> for ActixContextProvidingActor {
-        type Result = ();
-
-        fn handle(&mut self, _msg: ScanForRetryPayables, _ctx: &mut Self::Context) -> Self::Result {
-            intentionally_blank!()
-        }
-    }
-
-    impl Handler<ScanForReceivables> for ActixContextProvidingActor {
-        type Result = ();
-
-        fn handle(&mut self, _msg: ScanForReceivables, _ctx: &mut Self::Context) -> Self::Result {
-            intentionally_blank!()
-        }
-    }
-
-    impl<MessageToSchedule, Scheduler, ScheduleScanner, ScannerSpecs>
-        Handler<TestSetupCarrierMsg<MessageToSchedule, Scheduler, ScheduleScanner, ScannerSpecs>>
-        for ActixContextProvidingActor
-    where
-        ScheduleScanner: Fn(&Scheduler, MessageToSchedule, &mut Self::Context),
-        Scheduler: AutomaticSchedulingAwareScanner<ScannerSpecs>,
-        ScannerSpecs: Copy,
-    {
-        type Result = ();
-
-        fn handle(
-            &mut self,
-            msg: TestSetupCarrierMsg<MessageToSchedule, Scheduler, ScheduleScanner, ScannerSpecs>,
-            ctx: &mut Self::Context,
-        ) -> Self::Result {
-            let scheduler = msg.scheduler;
-            let scan_specs = msg.scan_specs;
-
-            let first_state = scheduler.is_currently_automatically_scheduled(scan_specs);
-            scheduler.mark_as_automatically_scheduled(scan_specs);
-            let second_state = scheduler.is_currently_automatically_scheduled(scan_specs);
-            scheduler.mark_as_already_automatically_utilized(scan_specs);
-            let third_state = scheduler.is_currently_automatically_scheduled(scan_specs);
-            (&msg.schedule_scanner)(&scheduler, msg.automated_message, ctx);
-            let fourth_state = scheduler.is_currently_automatically_scheduled(scan_specs);
-            scheduler.mark_as_already_automatically_utilized(scan_specs);
-            let fifth_state = scheduler.is_currently_automatically_scheduled(scan_specs);
-            (&msg.schedule_scanner)(&scheduler, msg.user_triggered_message, ctx);
-            let sixth_state = scheduler.is_currently_automatically_scheduled(scan_specs);
-
-            assert_eq!(first_state, false);
-            assert_eq!(second_state, true);
-            assert_eq!(third_state, false);
-            assert_eq!(fourth_state, true);
-            assert_eq!(fifth_state, false);
-            assert_eq!(sixth_state, false);
-            System::current().stop();
-        }
-    }
-
-    #[test]
-    fn scheduling_registration_on_simple_periodical_scanner_works() {
-        let system = System::new("test");
-        let system_killer = SystemKillerActor::new(Duration::from_secs(10));
-        system_killer.start();
-        let test_performer_addr = ActixContextProvidingActor {}.start();
-        let duration = Duration::from_secs(1000);
-        let scheduler = SimplePeriodicalScanScheduler::new(duration);
-        let automated_message = ScanForReceivables {
-            response_skeleton_opt: None,
-        };
-        let user_triggered_message = ScanForReceivables {
-            response_skeleton_opt: Some(ResponseSkeleton {
-                client_id: 12,
-                context_id: 7,
-            }),
-        };
-        let schedule_scanner =
-            |scheduler: &SimplePeriodicalScanScheduler<
-                ScanForReceivables,
-                ActixContextProvidingActor,
-            >,
-             msg: ScanForReceivables,
-             ctx: &mut Context<ActixContextProvidingActor>| {
-                scheduler.schedule(ctx, msg.response_skeleton_opt);
-            };
-        let scan_specs = ();
-        let msg = TestSetupCarrierMsg {
-            scheduler,
-            automated_message,
-            user_triggered_message,
-            schedule_scanner,
-            scan_specs,
-        };
-
-        test_performer_addr.try_send(msg).unwrap();
-
-        assert_eq!(system.run(), 0)
-    }
-
-    #[test]
-    fn scheduling_registration_for_new_payable_on_notify_later_handle_works_in_complex_scheduler() {
-        todo!(
-            "maybe now first consider where it's gonna help you to know the current schedule state"
-        )
-        // let system = System::new("test");
-        // let system_killer = SystemKillerActor::new(Duration::from_secs(10));
-        // system_killer.start();
-        // let test_performer_addr = ActixContextProvidingActor {}.start();
-        // let duration = Duration::from_secs(1000);
-        // let scheduler = PayableScanScheduler::new(duration);
-        // let automated_message = ScanForNewPayables{ response_skeleton_opt: None };
-        // let user_triggered_message = ScanForNewPayables{response_skeleton_opt: Some(ResponseSkeleton{ client_id: 12, context_id: 7 })};
-        // let schedule_scanner = |scheduler: &PayableScanScheduler<ActixContextProvidingActor>, msg: ScanForReceivables, ctx: &mut Context<ActixContextProvidingActor>|{
-        //     scheduler.schedule_for_new_payable(ctx, msg.response_skeleton_opt);
-        // };
-        // let scan_specs = PayableScannerMode::NewPayable;
-        // let msg = TestSetupCarrierMsg {
-        //     scheduler,
-        //     automated_message,
-        //     user_triggered_message,
-        //     schedule_scanner,
-        //     scan_specs,
-        // };
-        //
-        // test_performer_addr.try_send(msg).unwrap();
-        //
-        // assert_eq!(system.run(), 0)
     }
 }

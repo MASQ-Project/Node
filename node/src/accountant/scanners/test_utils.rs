@@ -50,7 +50,7 @@ impl NewPayableScanDynIntervalComputerMock {
         self
     }
 
-    pub fn compute_interval_results(self, result: Option<Duration>) -> Self {
+    pub fn compute_interval_result(self, result: Option<Duration>) -> Self {
         self.compute_interval_results.borrow_mut().push(result);
         self
     }
