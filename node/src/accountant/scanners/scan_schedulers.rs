@@ -242,47 +242,63 @@ impl ScanScheduleHintErrorResolver for ScanScheduleHintErrorResolverReal {
 }
 
 impl ScanScheduleHintErrorResolverReal {
-    fn resolve_new_payables(e: &StartScanError, is_externally_triggered: bool) -> ScanScheduleHint {
-        if is_externally_triggered {
-            todo!("do not schedule")
-        } else if matches!(e, StartScanError::ScanAlreadyRunning { .. }) {
-            todo!("unreachable")
-        } else {
-            todo!("schedule NewPayable")
-        }
-    }
-
-    // This looks paradoxical, but this scanner should be shielded by the scanner positioned before
-    // it, which should not request this one if there was already something wrong at the beginning.
-    // We can be strict.
-    fn resolve_retry_payables(
-        e: &StartScanError,
+    fn resolve_new_payables(
+        err: &StartScanError,
         is_externally_triggered: bool,
     ) -> ScanScheduleHint {
         if is_externally_triggered {
-            todo!("do not schedule")
+            ScanScheduleHint::DoNotSchedule
+        } else if matches!(err, StartScanError::ScanAlreadyRunning { .. }) {
+            unreachable!(
+                "an automatic scan of NewPayableScanner should never interfere with \
+            itself {:?}",
+                err
+            )
         } else {
-            todo!("unreachable") //Severe but true
+            ScanScheduleHint::Schedule(ScanType::Payables)
+        }
+    }
+
+    // This looks paradoxical, but this scanner is meant to be shielded by the scanner right before
+    // it. That should ensure this scanner will not be requested if there was already something
+    // fishy. We can go strict.
+    fn resolve_retry_payables(
+        err: &StartScanError,
+        is_externally_triggered: bool,
+    ) -> ScanScheduleHint {
+        if is_externally_triggered {
+            ScanScheduleHint::DoNotSchedule
+        } else {
+            unreachable!(
+                "{:?} is not acceptable for an automatic scan of RetryPayablesScanner",
+                err
+            )
         }
     }
 
     fn resolve_pending_payables(
-        e: &StartScanError,
+        err: &StartScanError,
         initial_pending_payable_scan: bool,
         is_externally_triggered: bool,
     ) -> ScanScheduleHint {
         if is_externally_triggered {
-            todo!("do not schedule")
-        } else if e == &StartScanError::NothingToProcess {
+            ScanScheduleHint::DoNotSchedule
+        } else if err == &StartScanError::NothingToProcess {
             if initial_pending_payable_scan {
-                todo!("schedule NewPayable")
+                ScanScheduleHint::Schedule(ScanType::Payables)
             } else {
-                todo!("unreachable")
+                unreachable!(
+                    "the automatic pending payable scan should always be requested only in need, \
+                    which contradicts the current StartScanError::NothingToProcess"
+                )
             }
-        } else if e == &StartScanError::NoConsumingWalletFound {
-            todo!("schedule NewPayable")
+        } else if err == &StartScanError::NoConsumingWalletFound {
+            ScanScheduleHint::Schedule(ScanType::Payables)
         } else {
-            todo!("unreachable") //TODO Severe, but it stands true (make sure the test has the enum variant check)
+            unreachable!(
+                "{:?} is not acceptable for an automatic scan of PendingPayableScanner",
+                err
+            )
         }
     }
 }
@@ -441,8 +457,8 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Unexpected now (SystemTime { tv_sec: 999999, tv_nsec: 0 }) earlier \
-    than past timestamp (SystemTime { tv_sec: 1000000, tv_nsec: 0 })"
+        expected = "Unexpected now (SystemTime { tv_sec: 999999, tv_nsec: 0 }) earlier than past \
+        timestamp (SystemTime { tv_sec: 1000000, tv_nsec: 0 })"
     )]
     fn scan_dyn_interval_computer_panics() {
         let now = UNIX_EPOCH
@@ -477,7 +493,8 @@ mod tests {
             });
             // Making sure we didn't count in one variant multiple times
             check_vec.dedup();
-            assert_eq!(check_vec.len(), StartScanError::VARIANT_COUNT, "Check on variant exhaustiveness failed.");
+            assert_eq!(check_vec.len(), StartScanError::VARIANT_COUNT, "Check on variant \
+            exhaustiveness failed.");
             candidates
         };
     }
@@ -599,7 +616,9 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "internal error: entered unreachable code: an automatic pending payable scan should always be scheduled only if needed, which contradicts StartScanError::NothingToProcess"
+        expected = "internal error: entered unreachable code: the automatic pending payable scan \
+        should always be requested only in need, which contradicts the current \
+        StartScanError::NothingToProcess"
     )]
     fn resolve_error_for_pending_payables_if_nothing_to_process_and_initial_pending_payable_scan_false(
     ) {
@@ -662,20 +681,30 @@ mod tests {
             inputs: &AllStartScanErrorsAdjustable,
             initial_pending_payable_scan: bool,
         ) {
-            inputs.errors.iter().for_each(|error|{
-                let panic = catch_unwind(AssertUnwindSafe(|| subject
-                    .scan_schedule_hint_from_error_resolver
-                    .resolve_hint_from_error(HintableScanner::PendingPayables {initial_pending_payable_scan},*error, false))).unwrap_err();
+            inputs.errors.iter().for_each(|error| {
+                let panic = catch_unwind(AssertUnwindSafe(|| {
+                    subject
+                        .scan_schedule_hint_from_error_resolver
+                        .resolve_hint_from_error(
+                            HintableScanner::PendingPayables {
+                                initial_pending_payable_scan,
+                            },
+                            *error,
+                            false,
+                        )
+                }))
+                .unwrap_err();
 
                 let panic_msg = panic.downcast_ref::<String>().unwrap();
-                let expected_msg = format!("internal error: entered unreachable code: {:?} is not acceptable given an automatic scan of the PendingPayableScanner", error);
+                let expected_msg = format!(
+                    "internal error: entered unreachable code: {:?} is not acceptable for \
+                    an automatic scan of PendingPayableScanner",
+                    error
+                );
                 assert_eq!(
-                    panic_msg,
-                    &expected_msg,
+                    panic_msg, &expected_msg,
                     "We expected '{}' but got '{}' for initial_pending_payable_scan = {}",
-                    expected_msg,
-                    panic_msg,
-                    initial_pending_payable_scan
+                    expected_msg, panic_msg, initial_pending_payable_scan
                 )
             })
         }
@@ -690,52 +719,89 @@ mod tests {
         test_forbidden_states(&subject, &inputs, false);
         test_forbidden_states(&subject, &inputs, true);
     }
+
+    #[test]
+    fn resolve_hint_from_error_works_for_retry_payables_if_externally_triggered() {
+        let subject = ScanSchedulers::new(ScanIntervals::default(), true);
+
+        test_what_if_externally_triggered(&subject, HintableScanner::RetryPayables {});
+    }
+
+    #[test]
+    fn any_automatic_scan_with_start_scan_error_is_fatal_for_retry_payables() {
+        let subject = ScanSchedulers::new(ScanIntervals::default(), true);
+
+        ALL_START_SCAN_ERRORS.iter().for_each(|error| {
+            let panic = catch_unwind(AssertUnwindSafe(|| {
+                subject
+                    .scan_schedule_hint_from_error_resolver
+                    .resolve_hint_from_error(HintableScanner::RetryPayables, error, false)
+            }))
+            .unwrap_err();
+
+            let panic_msg = panic.downcast_ref::<String>().unwrap();
+            let expected_msg = format!(
+                "internal error: entered unreachable code: {:?} is not acceptable for an automatic \
+                scan of RetryPayablesScanner",
+                error
+            );
+            assert_eq!(
+                panic_msg, &expected_msg,
+                "We expected '{}' but got '{}'",
+                expected_msg, panic_msg,
+            )
+        })
+    }
+
+    #[test]
+    fn resolve_hint_from_error_works_for_new_payables_if_externally_triggered() {
+        let subject = ScanSchedulers::new(ScanIntervals::default(), true);
+
+        test_what_if_externally_triggered(&subject, HintableScanner::NewPayables {});
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "internal error: entered unreachable code: an automatic scan of NewPayableScanner \
+        should never interfere with itself ScanAlreadyRunning { pertinent_scanner: Payables, started_at:"
+    )]
+    fn resolve_hint_for_new_payables_if_scan_is_already_running_err_and_is_automatic_scan() {
+        let subject = ScanSchedulers::new(ScanIntervals::default(), true);
+
+        let _ = subject
+            .scan_schedule_hint_from_error_resolver
+            .resolve_hint_from_error(
+                HintableScanner::NewPayables,
+                &StartScanError::ScanAlreadyRunning {
+                    pertinent_scanner: ScanType::Payables,
+                    started_at: SystemTime::now(),
+                },
+                false,
+            );
+    }
+
+    #[test]
+    fn resolve_hint_for_new_payables_with_those_cases_that_result_in_future_rescheduling() {
+        let inputs =
+            AllStartScanErrorsAdjustable::default().eliminate_already_tested_variants(vec![
+                StartScanError::ScanAlreadyRunning {
+                    pertinent_scanner: ScanType::Payables,
+                    started_at: SystemTime::now(),
+                },
+            ]);
+        let subject = ScanSchedulers::new(ScanIntervals::default(), true);
+
+        inputs.errors.iter().for_each(|error| {
+            let result = subject
+                .scan_schedule_hint_from_error_resolver
+                .resolve_hint_from_error(HintableScanner::NewPayables, *error, false);
+
+            assert_eq!(
+                result,
+                ScanScheduleHint::Schedule(ScanType::Payables),
+                "We expected Schedule(Payables) but got '{:?}'",
+                result,
+            )
+        })
+    }
 }
-
-//
-//     fn resolve_pending_payables(
-//         e: StartScanError,
-//         initial_pending_payable_scan: bool,
-//         is_externally_triggered: bool,
-//     ) -> ScanScheduleHint {
-//         if is_externally_triggered {
-//             todo!("do not schedule")
-//         } else if e == StartScanError::NothingToProcess {
-//             if initial_pending_payable_scan {
-//                 todo!("schedule NewPayable")
-//             } else {
-//                 todo!("unreachable")
-//             }
-//         } else if e == StartScanError::NoConsumingWalletFound {
-//             todo!("schedule NewPayable")
-//         } else {
-//             todo!("unreachable") //TODO Severe, but it stands true (make sure the test has the enum variant check)
-//         }
-//     }
-// }
-
-//
-// impl ScanScheduleHintErrorResolverReal {
-//     fn resolve_new_payables(e: StartScanError, is_externally_triggered: bool) -> ScanScheduleHint {
-//         if is_externally_triggered {
-//             todo!("do not schedule")
-//         } else if matches!(e, StartScanError::ScanAlreadyRunning { .. }) {
-//             todo!("unreachable")
-//         } else {
-//             todo!("schedule NewPayable")
-//         }
-//     }
-//
-//     // This looks paradoxical, but this scanner should be shielded by the scanner positioned before
-//     // it, which should not request this one if there was already something wrong at the beginning.
-//     // We can be strict.
-//     fn resolve_retry_payables(
-//         e: StartScanError,
-//         is_externally_triggered: bool,
-//     ) -> ScanScheduleHint {
-//         if is_externally_triggered {
-//             todo!("do not schedule")
-//         } else {
-//             todo!("unreachable") //Severe but true
-//         }
-//     }
