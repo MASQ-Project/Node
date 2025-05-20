@@ -488,7 +488,7 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
 
 pub mod common_validators {
     use crate::constants::LOWEST_USABLE_INSECURE_PORT;
-    use ip_country_lib::countries::INDEX_BY_ISO3166;
+    use ip_country_lib::dbip_country::COUNTRIES;
     use regex::Regex;
     use std::net::IpAddr;
     use std::str::FromStr;
@@ -526,7 +526,7 @@ pub mod common_validators {
     }
 
     pub fn validate_country_code(country_code: &str) -> Result<(), String> {
-        match INDEX_BY_ISO3166.contains_key(country_code) {
+        match COUNTRIES.country_from_code(country_code).is_ok() {
             true => Ok(()),
             false => Err(format!(
                 "'{}' is not a valid ISO3166 country code",
@@ -980,7 +980,7 @@ mod tests {
 
     #[test]
     fn validate_exit_key_fails_on_not_valid_country_code() {
-        let result = common_validators::validate_exit_locations(String::from("CZ|SK,RR,XP"));
+        let result = common_validators::validate_exit_locations(String::from("AD|AO,RR,XP"));
 
         assert_eq!(
             result,
@@ -990,7 +990,7 @@ mod tests {
 
     #[test]
     fn validate_exit_key_success() {
-        let result = common_validators::validate_exit_locations(String::from("CZ|SK"));
+        let result = common_validators::validate_exit_locations(String::from("AD|AS"));
 
         assert_eq!(result, Ok(()));
     }
