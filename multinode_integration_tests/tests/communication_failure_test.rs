@@ -12,9 +12,9 @@ use multinode_integration_tests_lib::masq_real_node::{
 };
 use multinode_integration_tests_lib::neighborhood_constructor::construct_neighborhood;
 use node_lib::json_masquerader::JsonMasquerader;
+use node_lib::neighborhood::gossip::AccessibleGossipRecord;
 use node_lib::neighborhood::neighborhood_database::NeighborhoodDatabase;
 use node_lib::neighborhood::node_record::NodeRecord;
-use node_lib::neighborhood::AccessibleGossipRecord;
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::hopper::{
@@ -177,6 +177,7 @@ fn dns_resolution_failure_first_automatic_retry_succeeds() {
         .wait_for_specific_package(
             MessageTypeLite::ClientRequest,
             originating_node.socket_addr(PortSelector::First),
+            None,
         )
         .unwrap();
     let dns_fail_pkg = make_package_for_client(
@@ -199,6 +200,7 @@ fn dns_resolution_failure_first_automatic_retry_succeeds() {
         .wait_for_specific_package(
             MessageTypeLite::ClientRequest,
             originating_node.socket_addr(PortSelector::First),
+            None,
         )
         .unwrap();
     let sequenced_packet = SequencedPacket::new(EXAMPLE_HTML_RESPONSE.as_bytes().to_vec(), 0, true);
@@ -366,6 +368,7 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
             .wait_for_specific_package(
                 MessageTypeLite::ClientRequest,
                 originating_node_socket_address,
+                None,
             )
             .unwrap();
         let dns_fail_pkg = make_package_for_client(
@@ -408,6 +411,7 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
         .wait_for_specific_package(
             MessageTypeLite::ClientRequest,
             originating_node_socket_address,
+            None,
         )
         .unwrap();
     assert_eq!(

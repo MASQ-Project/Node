@@ -3,7 +3,7 @@
 use crate::neighborhood::gossip::Gossip_0v1;
 use crate::neighborhood::node_record::NodeRecord;
 use crate::neighborhood::overall_connection_status::ConnectionProgress;
-use crate::neighborhood::Neighborhood;
+use crate::neighborhood::{Neighborhood, UserExitPreferences};
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
@@ -244,7 +244,7 @@ impl NodeDescriptor {
             CHAIN_IDENTIFIER_DELIMITER,
             contact_public_key_string,
             CENTRAL_DELIMITER,
-            node_addr_string
+            node_addr_string,
         )
     }
 
@@ -598,6 +598,7 @@ pub struct NeighborhoodMetadata {
     pub connection_progress_peers: Vec<IpAddr>,
     pub cpm_recipient: Recipient<ConnectionProgressMessage>,
     pub db_patch_size: u8,
+    pub user_exit_preferences_opt: Option<UserExitPreferences>,
 }
 
 pub struct NeighborhoodTools {
@@ -1060,7 +1061,7 @@ mod tests {
                 target_component: Component::ProxyClient,
                 return_component_opt: Some(Component::ProxyServer),
                 payload_size: 7500,
-                hostname_opt: None
+                hostname_opt: None,
             }
         );
     }

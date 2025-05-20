@@ -102,14 +102,16 @@ impl GossipProducerReal {
 mod tests {
     use super::super::gossip::GossipNodeRecord;
     use super::*;
+    use crate::neighborhood::gossip::AccessibleGossipRecord;
     use crate::neighborhood::neighborhood_database::ISOLATED_NODE_GRACE_PERIOD_SECS;
     use crate::neighborhood::node_record::{NodeRecord, NodeRecordInner_0v1};
-    use crate::neighborhood::AccessibleGossipRecord;
     use crate::sub_lib::cryptde::CryptDE;
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::utils::time_t_timestamp;
     use crate::test_utils::assert_contains;
-    use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
+    use crate::test_utils::neighborhood_test_utils::{
+        db_from_node, make_node_record, make_node_record_cc,
+    };
     use itertools::Itertools;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::collections::btree_set::BTreeSet;
@@ -363,7 +365,7 @@ mod tests {
 
     #[test]
     fn produce_debut_creates_a_gossip_to_a_target_about_ourselves_when_not_accepting_connections() {
-        let mut our_node_record: NodeRecord = make_node_record(7771, true);
+        let mut our_node_record: NodeRecord = make_node_record_cc(7771, true, "US");
         our_node_record.inner.accepts_connections = false;
         let db = db_from_node(&our_node_record);
         let subject = GossipProducerReal::new();

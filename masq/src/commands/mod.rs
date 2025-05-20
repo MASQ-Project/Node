@@ -7,6 +7,7 @@ pub mod configuration_command;
 pub mod connection_status_command;
 pub mod crash_command;
 pub mod descriptor_command;
+pub mod exit_location_command;
 pub mod financials_command;
 pub mod generate_wallets_command;
 pub mod recover_wallets_command;

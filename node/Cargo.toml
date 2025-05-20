@@ -7,7 +7,7 @@ description = "MASQ Node is the foundation of MASQ Network, an open-source netwo
 edition = "2021"
 
 [workspace]
-members = ["../multinode_integration_tests", "../masq_lib", "../masq"]
+members = ["../multinode_integration_tests", "../masq_lib", "../masq", "../ip_country", "../test_utilities"]
 
 [dependencies]
 actix = "0.7.9"
@@ -29,6 +29,7 @@ futures = "0.1.31"
 heck = "0.3.3"
 http = "0.2.5"
 indoc = "1.0.3"
+ip_country = { path = "../ip_country"}
 itertools = "0.10.1"
 lazy_static = "1.4.0"
 libc = "0.2.107"
@@ -85,6 +86,7 @@ native-tls = {version = "0.2.8", features = ["vendored"]}
 simple-server = "0.4.0"
 serial_test_derive = "0.5.1"
 serial_test = "0.5.1"
+test_utilities = { path = "../test_utilities"}
 trust-dns-proto = "0.8.0"
 
 [[bin]]
