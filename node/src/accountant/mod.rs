@@ -943,8 +943,8 @@ impl Accountant {
                 });
 
                 self.scan_schedulers
-                    .scan_schedule_hint_from_error_resolver
-                    .resolve_hint_from_error(todo!(), &e, response_skeleton_opt.is_some())
+                    .schedule_hint_on_error_resolver
+                    .resolve_hint_for_given_error(todo!(), &e, response_skeleton_opt.is_some())
             }
         }
     }
@@ -993,8 +993,8 @@ impl Accountant {
                 // });
 
                 self.scan_schedulers
-                    .scan_schedule_hint_from_error_resolver
-                    .resolve_hint_from_error(todo!(), &e, response_skeleton_opt.is_some())
+                    .schedule_hint_on_error_resolver
+                    .resolve_hint_for_given_error(todo!(), &e, response_skeleton_opt.is_some())
             }
         }
     }
@@ -1043,8 +1043,8 @@ impl Accountant {
                 });
 
                 self.scan_schedulers
-                    .scan_schedule_hint_from_error_resolver
-                    .resolve_hint_from_error(todo!(), &e, response_skeleton_opt.is_some())
+                    .schedule_hint_on_error_resolver
+                    .resolve_hint_for_given_error(todo!(), &e, response_skeleton_opt.is_some())
             }
         };
 
