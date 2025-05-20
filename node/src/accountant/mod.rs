@@ -225,8 +225,8 @@ impl Handler<ScanForPendingPayables> for Accountant {
         // the RetryPayableScanner, which finishes, and the PendingPayablesScanner is scheduled
         // to run again. Therefore, not from here.
         let response_skeleton_opt = msg.response_skeleton_opt;
-        if self.handle_request_of_scan_for_pending_payable(response_skeleton_opt)
-            == ScanScheduleHint::Schedule
+        if let ScanScheduleHint::Schedule(ScanType::Payables) =
+            self.handle_request_of_scan_for_pending_payable(response_skeleton_opt)
         {
             todo!()
             // self.scan_schedulers
@@ -240,15 +240,17 @@ impl Handler<ScanForNewPayables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ScanForNewPayables, ctx: &mut Self::Context) -> Self::Result {
+        // TODO recheck these descriptions
         // We know this must be a scheduled scanner, but we don't if we are going to reschedule it
         // from here or elsewhere. If the scan finds no payables that qualify for a payment, we do
         // it right away. If some new pending payables are produced, the next scheduling is going to
         // be determined by the PendingPayableScanner, evaluating if it has seen all pending
         // payables complete. That opens up an opportunity for another run of the NewPayableScanner.
         let response_skeleton = msg.response_skeleton_opt;
-        if self.handle_request_of_scan_for_new_payable(response_skeleton)
-            == ScanScheduleHint::Schedule
+        if let ScanScheduleHint::Schedule(ScanType::Payables) =
+            self.handle_request_of_scan_for_new_payable(response_skeleton)
         {
+            todo!("make sure we've been here before, and if not, schedule");
             self.scan_schedulers.payable.schedule_for_new_payable(ctx)
         }
     }
@@ -261,7 +263,7 @@ impl Handler<ScanForRetryPayables> for Accountant {
         // RetryPayableScanner is scheduled only when the PendingPayableScanner finishes finding out
         // that there have been some failed pending payables. That means not from here.
         let response_skeleton = msg.response_skeleton_opt;
-        self.handle_request_of_scan_for_retry_payable(response_skeleton);
+        let _ = self.handle_request_of_scan_for_retry_payable(response_skeleton);
     }
 }
 
@@ -940,18 +942,9 @@ impl Accountant {
                         .expect("UiGateway is dead");
                 });
 
-                // TODO is this comment correct?
-                // At scanners with scheduling usually happening at their ultimate end, we must be
-                // thorough with evaluating errors because an inadequate reaction could disrupt
-                // the whole scan chain. Scheduling must often be done despite the error.
-                if e == StartScanError::NothingToProcess {
-                    todo!("Shouldn't we schedule with every error????");
-                    ScanScheduleHint::Schedule
-                } else if e == StartScanError::NoConsumingWalletFound {
-                    todo!("schedule")
-                } else {
-                    ScanScheduleHint::DoNotSchedule
-                }
+                self.scan_schedulers
+                    .scan_schedule_hint_from_error_resolver
+                    .resolve_hint_from_error(todo!(), &e, response_skeleton_opt.is_some())
             }
         }
     }
@@ -999,17 +992,9 @@ impl Accountant {
                 //         .expect("UiGateway is dead");
                 // });
 
-                // TODO is this comment correct?
-                // At scanners with scheduling usually happening at their ultimate end, we must be
-                // thorough with evaluating errors because an inadequate reaction could disrupt
-                // the whole scan chain. Scheduling must often be done despite the error.
-                if e == StartScanError::NothingToProcess {
-                    todo!("unreachable");
-                } else if response_skeleton_opt.is_some() {
-                    todo!("do not schedule")
-                } else {
-                    ScanScheduleHint::Schedule
-                }
+                self.scan_schedulers
+                    .scan_schedule_hint_from_error_resolver
+                    .resolve_hint_from_error(todo!(), &e, response_skeleton_opt.is_some())
             }
         }
     }
@@ -1056,46 +1041,10 @@ impl Accountant {
                         })
                         .expect("UiGateway is dead");
                 });
-                // // TODO is this comment correct?
-                // // At scanners with scheduling usually happening at their ultimate end, we must be
-                // // thorough with evaluating errors because an inadequate reaction could disrupt
-                // // the whole scan chain. Scheduling must often be done despite the error.
-                // if response_skeleton_opt.is_some() {
-                //     todo!("do not schedule")
-                // }
-                //
-                // if e == StartScanError::NothingToProcess {
-                //     if !self.scanners.initial_pending_payable_scan() {
-                //         todo!("unreachable")
-                //     }
-                // }
-                //
-                // if matches!(e, StartScanError::ScanAlreadyRunning{..}) {
-                //     todo!("nope")
-                // }
-                //
-                // // StartScanError::ManualTriggerError should be included in the condition for
-                // // externally triggered scans as this error implies only a single way it can occur.
-                //
-                // todo!("schedule for the rest")//ScanScheduleHint::Schedule
 
-                // TODO is this comment correct?
-                // At scanners with scheduling usually happening at their ultimate end, we must be
-                // thorough with evaluating errors because an inadequate reaction could disrupt
-                // the whole scan chain. Scheduling must often be done despite the error.
-                if e == StartScanError::NothingToProcess && response_skeleton_opt.is_none() {
-                    if self.scanners.initial_pending_payable_scan() {
-                        todo!("schedule")
-                    } else {
-                        todo!("unreachable")
-                    }
-                } else if e == StartScanError::NothingToProcess {
-                    todo!("unreachable")
-                } else if e == StartScanError::NoConsumingWalletFound {
-                    todo!("schedule")
-                } else {
-                    todo!("do not schedule")
-                }
+                self.scan_schedulers
+                    .scan_schedule_hint_from_error_resolver
+                    .resolve_hint_from_error(todo!(), &e, response_skeleton_opt.is_some())
             }
         };
 
@@ -1146,15 +1095,6 @@ impl Accountant {
                 });
             }
         }
-    }
-
-    fn derive_scan_schedule_hint_from_error(
-        &self,
-        scan_type: ScanType,
-        e: StartScanError,
-        response_skeleton_opt: Option<ResponseSkeleton>,
-    ) -> ScanScheduleHint {
-        todo!()
     }
 
     fn handle_externally_triggered_scan(
@@ -1923,21 +1863,13 @@ mod tests {
             "externally_triggered_scan_is_not_handled_in_case_the_scan_is_already_running";
         let mut config = bc_from_earning_wallet(make_wallet("some_wallet_address"));
         config.automatic_scans_enabled = false;
-        let fingerprint = PendingPayableFingerprint {
-            rowid: 1234,
-            timestamp: SystemTime::now(),
-            hash: Default::default(),
-            attempt: 1,
-            amount: 1_000_000,
-            process_error: None,
-        };
-        let pending_payable_dao = PendingPayableDaoMock::default()
-            .return_all_errorless_fingerprints_result(vec![fingerprint]);
+        let payable_dao =
+            PayableDaoMock::default().non_pending_payables_result(vec![make_payable_account(123)]);
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .consuming_wallet(make_paying_wallet(b"consuming"))
             .logger(Logger::new(test_name))
-            .pending_payable_daos(vec![ForPendingPayableScanner(pending_payable_dao)])
+            .payable_daos(vec![ForPayableScanner(payable_dao)])
             .build();
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
@@ -1964,7 +1896,7 @@ mod tests {
         system.run();
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
         TestLogHandler::new().exists_log_containing(&format!(
-            "INFO: {}: PendingPayables scan was already initiated",
+            "INFO: {}: Payables scan was already initiated",
             test_name
         ));
         assert_eq!(blockchain_bridge_recording.len(), 1);
@@ -2715,7 +2647,7 @@ mod tests {
     }
 
     #[test]
-    fn initial_pending_payable_scan_if_potent() {
+    fn initial_pending_payable_scan_if_some_payables_found() {
         let pending_payable_dao = PendingPayableDaoMock::default()
             .return_all_errorless_fingerprints_result(vec![make_pending_payable_fingerprint()]);
         let mut subject = AccountantBuilder::default()
@@ -2733,7 +2665,7 @@ mod tests {
     }
 
     #[test]
-    fn initial_pending_payable_scan_if_impotent() {
+    fn initial_pending_payable_scan_if_no_payables_found() {
         let pending_payable_dao =
             PendingPayableDaoMock::default().return_all_errorless_fingerprints_result(vec![]);
         let mut subject = AccountantBuilder::default()
@@ -2744,7 +2676,7 @@ mod tests {
         let hint = subject.handle_request_of_scan_for_pending_payable(None);
 
         let flag_after = subject.scanners.initial_pending_payable_scan();
-        assert_eq!(hint, ScanScheduleHint::Schedule);
+        assert_eq!(hint, ScanScheduleHint::Schedule(ScanType::Payables));
         assert_eq!(flag_before, true);
         assert_eq!(flag_after, false);
     }

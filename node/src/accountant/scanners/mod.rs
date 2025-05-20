@@ -44,6 +44,7 @@ use std::time::{SystemTime};
 use futures::future::result;
 use time::format_description::parse;
 use time::OffsetDateTime;
+use variant_count::VariantCount;
 use web3::types::H256;
 use crate::accountant::scanners::payable_scanner_extension::{MultistageDualPayableScanner, PreparedAdjustment, SolvencySensitivePaymentInstructor};
 use crate::accountant::scanners::payable_scanner_extension::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage};
@@ -1284,7 +1285,7 @@ impl ReceivableScanner {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, VariantCount)]
 pub enum StartScanError {
     NothingToProcess,
     NoConsumingWalletFound,
@@ -1374,7 +1375,7 @@ impl StartScanError {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum MTError {
     AutomaticScanConflict,
     UnnecessaryRequest { hint_opt: Option<String> },
