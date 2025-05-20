@@ -370,9 +370,9 @@ where
     SingleIntegerIPRep: From<IP> + PartialOrd,
     IP: Display + Copy,
 {
-    if SingleIntegerIPRep::from(start) > SingleIntegerIPRep::from(end) {
+    if SingleIntegerIPRep::from(start) >= SingleIntegerIPRep::from(end) {
         Err(format!(
-            "Ending address {} is less than starting address {}",
+            "Ending address {} is not greater than starting address {}",
             end, start
         ))
     } else {
@@ -515,17 +515,12 @@ BOOGA,BOOGA,BOOGA
         let (ipv4_bit_queue, ipv6_bit_queue, countries) = subject.parse(&mut stdin, &mut errors);
 
         assert_eq!(countries, HARD_CODED_COUNTRIES.clone());
-        assert_eq!(ipv4_bit_queue.bit_queue.len(), 239);
-        assert_eq!(ipv4_bit_queue.block_count, 9);
+        assert_eq!(ipv4_bit_queue.bit_queue.len(), 187);
+        assert_eq!(ipv4_bit_queue.block_count, 7);
         let ipv4_compressed: Vec<u64> = ipv4_bit_queue.into();
         assert_eq!(
             ipv4_compressed,
-            vec![
-                9259400846767034371,
-                10385300779421407238,
-                12351125828770205212,
-                1616904448
-            ]
+            vec![9259400846767034371, 11538222284028254214, 6622840621750]
         );
         assert_eq!(ipv6_bit_queue.bit_queue.len(), 1513);
         assert_eq!(ipv6_bit_queue.block_count, 20);
@@ -564,7 +559,8 @@ BOOGA,BOOGA,BOOGA
             "Line 4: CSV format error: Error(UnequalLengths { pos: Some(Position { byte: 80, line: 5, record: 4 }), expected_len: 3, len: 2 })",
             "Line 5: CSV format error: Error(UnequalLengths { pos: Some(Position { byte: 99, line: 6, record: 5 }), expected_len: 3, len: 4 })",
             "Line 6: Invalid (AddrParseError(Ip)) IP address in CSV record: 'BOOGA'",
-            "Line 7: Ending address 1.0.32.0 is less than starting address 1.0.63.255",
+            "Line 7: Ending address 1.0.32.0 is not greater than starting address 1.0.63.255",
+            "Line 8: Ending address 1.0.64.0 is not greater than starting address 1.0.64.0",
             "Line 17: Invalid (AddrParseError(Ip)) IP address in CSV record: 'BOOGA'",
         ]);
     }
@@ -682,7 +678,19 @@ BOOGA,BOOGA,BOOGA
 
         assert_eq!(
             result,
-            Err("Ending address 1.2.3.3 is less than starting address 1.2.3.4".to_string())
+            Err("Ending address 1.2.3.3 is not greater than starting address 1.2.3.4".to_string())
+        );
+    }
+
+    #[test]
+    fn try_from_fails_for_equal_ipv4_addresses() {
+        let string_record = StringRecord::from(vec!["1.2.3.4", "1.2.3.4", "ZZ"]);
+
+        let result = CountryBlock::try_from((&test_countries(), string_record));
+
+        assert_eq!(
+            result,
+            Err("Ending address 1.2.3.4 is not greater than starting address 1.2.3.4".to_string())
         );
     }
 
@@ -695,7 +703,7 @@ BOOGA,BOOGA,BOOGA
         assert_eq!(
             result,
             Err(
-                "Ending address 1:2:3:4:5:6:7:7 is less than starting address 1:2:3:4:5:6:7:8"
+                "Ending address 1:2:3:4:5:6:7:7 is not greater than starting address 1:2:3:4:5:6:7:8"
                     .to_string()
             )
         );

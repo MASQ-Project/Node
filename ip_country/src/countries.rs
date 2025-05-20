@@ -1,8 +1,8 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::country_block_stream::Country;
-use std::collections::HashMap;
 use crate::dbip_country::COUNTRIES;
+use std::collections::HashMap;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Countries {
@@ -24,7 +24,6 @@ impl From<Vec<Country>> for Countries {
 }
 
 impl Countries {
-
     pub fn new(mut country_pairs: Vec<(String, String)>) -> Self {
         // Must sort these by iso3166, but we need to keep the sentinel coded as "ZZ" at the front
         // --or add one at the front, if there isn't already one. (We assume there isn't already
@@ -87,35 +86,21 @@ impl TryFrom<usize> for Country {
     type Error = String;
 
     fn try_from(index: usize) -> Result<Self, Self::Error> {
-        COUNTRIES.country_from_index(index).map(|country| country.clone())
+        COUNTRIES
+            .country_from_index(index)
+            .map(|country| country.clone())
     }
 }
-//
-// impl From<usize> for Country {
-//     fn from(index: usize) -> Self {
-//         match COUNTRIES.country_from_index(index) {
-//             Err(e) => panic!("{}", e),
-//             Ok(country) => country.clone(),
-//         }
-//     }
-// }
 
 impl TryFrom<&str> for Country {
     type Error = String;
 
     fn try_from(iso3166: &str) -> Result<Self, Self::Error> {
-        COUNTRIES.country_from_code(iso3166).map(|country| country.clone())
+        COUNTRIES
+            .country_from_code(iso3166)
+            .map(|country| country.clone())
     }
 }
-//
-// impl From<&str> for Country {
-//     fn from(iso3166: &str) -> Self {
-//         match COUNTRIES.country_from_code(iso3166) {
-//             Err(e) => panic!("{}", e),
-//             Ok(country) => country.clone(),
-//         }
-//     }
-// }
 
 #[cfg(test)]
 mod tests {
@@ -229,7 +214,8 @@ mod tests {
     #[test]
     fn string_length_check() {
         COUNTRIES.countries.iter().for_each(|country| {
-            if (country.iso3166 != "NOEX") { // NOEX is deliberately transgressive
+            if country.iso3166 != "NOEX" {
+                // NOEX is deliberately transgressive
                 assert_eq!(country.iso3166.len(), 2);
                 assert_eq!(
                     country.name.len() > 0,

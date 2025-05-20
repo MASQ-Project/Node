@@ -70,25 +70,18 @@ mod tests {
     use crate::country_block_serde::{Ipv4CountryBlockDeserializer, Ipv6CountryBlockDeserializer};
     use crate::country_block_stream::IpRange;
     use crate::dbip_country;
-    use crate::dbip_country::COUNTRIES;
     use std::str::FromStr;
     use std::time::SystemTime;
-
-    fn select_country(countries: &Countries, percentage: u8) -> &Country {
-        // 0% is the first country; 100% is the last country
-        let country_count_f = countries.len() as f64;
-        let percentage_f = percentage as f64;
-        let index = (percentage_f * country_count_f / 101.0).trunc() as usize;
-        let result = countries.country_from_index(index).unwrap();
-eprintln!("Selected country: {} ({})", result.iso3166, result.name);
-        result
-    }
 
     #[test]
     fn finds_ipv4_address() {
         COUNTRY_CODE_FINDER.ensure_init();
-        let country = &COUNTRY_CODE_FINDER.ipv4.iter()
-            .find(|c| c.country.iso3166 == "AE").unwrap().country;
+        let country = &COUNTRY_CODE_FINDER
+            .ipv4
+            .iter()
+            .find(|c| c.country.iso3166 == "AE")
+            .unwrap()
+            .country;
         let ip_range = &COUNTRY_CODE_FINDER
             .ipv4
             .iter()
@@ -127,8 +120,12 @@ eprintln!("Selected country: {} ({})", result.iso3166, result.name);
     #[test]
     fn finds_ipv6_address() {
         COUNTRY_CODE_FINDER.ensure_init();
-        let country = &COUNTRY_CODE_FINDER.ipv6.iter()
-            .find(|c| c.country.iso3166 == "AE").unwrap().country;
+        let country = &COUNTRY_CODE_FINDER
+            .ipv6
+            .iter()
+            .find(|c| c.country.iso3166 == "AE")
+            .unwrap()
+            .country;
         let ip_range = &COUNTRY_CODE_FINDER
             .ipv6
             .iter()

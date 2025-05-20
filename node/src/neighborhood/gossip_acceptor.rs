@@ -1420,7 +1420,10 @@ mod tests {
     use crate::neighborhood::gossip_producer::GossipProducer;
     use crate::neighborhood::gossip_producer::GossipProducerReal;
     use crate::neighborhood::node_record::NodeRecord;
-    use crate::neighborhood::{FallbackPreference, UserExitPreferences, COUNTRY_UNDESIRABILITY_FACTOR, UNREACHABLE_COUNTRY_PENALTY};
+    use crate::neighborhood::{
+        FallbackPreference, UserExitPreferences, COUNTRY_UNDESIRABILITY_FACTOR,
+        UNREACHABLE_COUNTRY_PENALTY,
+    };
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ConnectionProgressMessage};
     use crate::sub_lib::utils::time_t_timestamp;
@@ -1432,6 +1435,7 @@ mod tests {
     use crate::test_utils::unshared_test_utils::make_cpm_recipient;
     use crate::test_utils::{assert_contains, main_cryptde, vec_to_set};
     use actix::System;
+    use ip_country_lib::dbip_country::COUNTRIES;
     use itertools::Itertools;
     use masq_lib::messages::ExitLocation;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
@@ -1441,7 +1445,6 @@ mod tests {
     use std::ops::{Add, Sub};
     use std::str::FromStr;
     use std::time::Duration;
-    use ip_country_lib::dbip_country::COUNTRIES;
 
     #[test]
     fn constants_have_correct_values() {
@@ -2439,9 +2442,10 @@ mod tests {
         let node_a = make_node_record(5678, true);
         let country_zero = node_a.inner.country_code_opt.clone().unwrap();
         let exclude = vec![country_zero.as_ref(), "NOEX", "ZZ"];
-        let countries = COUNTRIES.iter().filter(|c| {
-            !exclude.contains(&c.iso3166.as_str())
-        }).collect_vec();
+        let countries = COUNTRIES
+            .iter()
+            .filter(|c| !exclude.contains(&c.iso3166.as_str()))
+            .collect_vec();
         let cc = countries[0].iso3166.as_str();
         let node_b = make_node_record_cc(7777u16, true, cc);
         let mut dest_db = db_from_node(&dest_root);
