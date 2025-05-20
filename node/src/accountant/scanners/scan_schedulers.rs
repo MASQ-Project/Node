@@ -258,7 +258,7 @@ impl ScheduleHintOnErrorResolverReal {
             ScanScheduleHint::DoNotSchedule
         } else if matches!(err, StartScanError::ScanAlreadyRunning { .. }) {
             unreachable!(
-                "an automatic scan of NewPayableScanner should never interfere with itself {:?}", 
+                "an automatic scan of NewPayableScanner should never interfere with itself {:?}",
                 err
             )
         } else {
