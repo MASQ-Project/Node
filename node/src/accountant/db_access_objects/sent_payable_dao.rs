@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use ethereum_types::H256;
+use rusqlite::OptionalExtension;
 use web3::types::Address;
 use masq_lib::utils::ExpectValue;
 use crate::accountant::{checked_conversion, comma_joined_stringifiable};
@@ -20,27 +21,28 @@ pub enum SentPayableDaoError {
     SqlExecutionFailed(String),
 }
 
-type TxHash = H256;
+type Hash = H256;
 type RowId = u64;
 
-type TxIdentifiers = HashMap<TxHash, RowId>;
-type TxUpdates = HashMap<TxHash, TxStatus>;
+type TxIdentifiers = HashMap<Hash, RowId>;
+type TxUpdates = HashMap<Hash, TxStatus>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Tx {
-    pub hash: TxHash,
+    pub hash: Hash,
     pub receiver_address: Address,
     pub amount: u128,
     pub timestamp: i64,
-    pub gas_price_wei: u64,
-    pub nonce: u32,
-    pub status: TxStatus,
+    pub gas_price_wei: u128,
+    pub nonce: u64,
+    pub block_hash_opt: Option<Hash>,
+    pub block_number_opt: Option<u64>,
 }
 
 pub enum RetrieveCondition {
     IsPending,
     ToRetry,
-    ByHash(Vec<TxHash>),
+    ByHash(Vec<Hash>),
 }
 
 impl Display for RetrieveCondition {
@@ -64,11 +66,11 @@ impl Display for RetrieveCondition {
 }
 
 pub trait SentPayableDao {
-    fn get_tx_identifiers(&self, hashes: &HashSet<TxHash>) -> TxIdentifiers;
+    fn get_tx_identifiers(&self, hashes: &HashSet<Hash>) -> TxIdentifiers;
     fn insert_new_records(&self, txs: &[Tx]) -> Result<(), SentPayableDaoError>;
     fn retrieve_txs(&self, condition: Option<RetrieveCondition>) -> Vec<Tx>;
     fn change_statuses(&self, hash_map: &TxUpdates) -> Result<(), SentPayableDaoError>;
-    fn delete_records(&self, hashes: &HashSet<TxHash>) -> Result<(), SentPayableDaoError>;
+    fn delete_records(&self, hashes: &HashSet<Hash>) -> Result<(), SentPayableDaoError>;
 }
 
 #[derive(Debug)]
@@ -83,8 +85,8 @@ impl<'a> SentPayableDaoReal<'a> {
 }
 
 impl SentPayableDao for SentPayableDaoReal<'_> {
-    fn get_tx_identifiers(&self, hashes: &HashSet<TxHash>) -> TxIdentifiers {
-        let hashes_vec: Vec<TxHash> = hashes.iter().copied().collect();
+    fn get_tx_identifiers(&self, hashes: &HashSet<Hash>) -> TxIdentifiers {
+        let hashes_vec: Vec<Hash> = hashes.iter().copied().collect();
         let sql = format!(
             "SELECT tx_hash, rowid FROM sent_payable WHERE tx_hash IN ({})",
             comma_joined_stringifiable(&hashes_vec, |hash| format!("'{:?}'", hash))
@@ -112,7 +114,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
             return Err(SentPayableDaoError::EmptyInput);
         }
 
-        let unique_hashes: HashSet<TxHash> = txs.iter().map(|tx| tx.hash).collect();
+        let unique_hashes: HashSet<Hash> = txs.iter().map(|tx| tx.hash).collect();
         if unique_hashes.len() != txs.len() {
             return Err(SentPayableDaoError::InvalidInput(
                 "Duplicate hashes found in the input".to_string(),
@@ -127,22 +129,42 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
 
         let sql = format!(
             "INSERT INTO sent_payable (\
-             tx_hash, receiver_address, amount_high_b, amount_low_b, \
-             timestamp, gas_price_wei, nonce, status
+             tx_hash, \
+             receiver_address, \
+             amount_high_b, \
+             amount_low_b, \
+             timestamp, \
+             gas_price_wei_high_b, \
+             gas_price_wei_low_b, \
+             nonce, \
+             status
              ) VALUES {}",
             comma_joined_stringifiable(txs, |tx| {
                 let amount_checked = checked_conversion::<u128, i128>(tx.amount);
-                let (high_bytes, low_bytes) = BigIntDivider::deconstruct(amount_checked);
+                let gas_price_wei_checked = checked_conversion::<u128, i128>(tx.gas_price_wei);
+                let (amount_high_b, amount_low_b) = BigIntDivider::deconstruct(amount_checked);
+                let (gas_price_wei_high_b, gas_price_wei_low_b) =
+                    BigIntDivider::deconstruct(gas_price_wei_checked);
+                let block_hash = match tx.block_hash_opt {
+                    Some(h) => format!("'{:?}'", h),
+                    None => "NULL".to_string(),
+                };
+                let block_number = match tx.block_number_opt {
+                    Some(n) => format!("{}", n),
+                    None => "NULL".to_string(),
+                };
                 format!(
-                    "('{:?}', '{:?}', {}, {}, {}, {}, {}, '{}')",
+                    "('{:?}', '{:?}', {}, {}, {}, {}, {}, {}, {}, {})",
                     tx.hash,
                     tx.receiver_address,
-                    high_bytes,
-                    low_bytes,
+                    amount_high_b,
+                    amount_low_b,
                     tx.timestamp,
-                    tx.gas_price_wei,
+                    gas_price_wei_high_b,
+                    gas_price_wei_low_b,
                     tx.nonce,
-                    tx.status
+                    block_hash,
+                    block_number
                 )
             })
         );
@@ -187,10 +209,17 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
             let amount_low_b = row.get(3).expectv("amount_low_b");
             let amount = BigIntDivider::reconstitute(amount_high_b, amount_low_b) as u128;
             let timestamp = row.get(4).expectv("timestamp");
-            let gas_price_wei = row.get(5).expectv("gas_price_wei");
-            let nonce = row.get(6).expectv("nonce");
-            let status_str: String = row.get(7).expectv("status");
-            let status = TxStatus::from_str(&status_str).expect("Failed to parse TxStatus");
+            let gas_price_wei_high_b = row.get(5).expectv("gas_price_wei_high_b");
+            let gas_price_wei_low_b = row.get(6).expectv("gas_price_wei_low_b");
+            let gas_price_wei =
+                BigIntDivider::reconstitute(gas_price_wei_high_b, gas_price_wei_low_b) as u128;
+            let nonce = row.get(7).expectv("nonce");
+            let block_hash_str: String = row.get(8).expectv("block_hash");
+            let block_hash_opt = match block_hash_str.as_str() {
+                "NULL" => None,
+                _ => Some(H256::from_str(&block_hash_str[2..]).expect("Failed to parse H256")),
+            };
+            let block_number_opt: Option<u64> = row.get(9).optional().expectv("block_number");
 
             Ok(Tx {
                 hash,
@@ -199,7 +228,8 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
                 timestamp,
                 gas_price_wei,
                 nonce,
-                status,
+                block_hash_opt,
+                block_number_opt,
             })
         })
         .expect("Failed to execute query")
@@ -238,12 +268,12 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
         Ok(())
     }
 
-    fn delete_records(&self, hashes: &HashSet<TxHash>) -> Result<(), SentPayableDaoError> {
+    fn delete_records(&self, hashes: &HashSet<Hash>) -> Result<(), SentPayableDaoError> {
         if hashes.is_empty() {
             return Err(SentPayableDaoError::EmptyInput);
         }
 
-        let hashes_vec: Vec<TxHash> = hashes.iter().cloned().collect();
+        let hashes_vec: Vec<Hash> = hashes.iter().cloned().collect();
         let sql = format!(
             "DELETE FROM sent_payable WHERE tx_hash IN ({})",
             comma_joined_stringifiable(&hashes_vec, |hash| { format!("'{:?}'", hash) })
@@ -292,29 +322,19 @@ mod tests {
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let tx1 = TxBuilder::default()
-            .hash(H256::from_low_u64_le(1))
-            .status(TxStatus::Pending)
-            .build();
+        let tx1 = TxBuilder::default().hash(H256::from_low_u64_le(1)).build();
         let tx2 = TxBuilder::default()
             .hash(H256::from_low_u64_le(2))
-            .status(TxStatus::Failed)
-            .build();
-        let tx3 = TxBuilder::default()
-            .hash(H256::from_low_u64_le(3))
-            .status(TxStatus::Succeeded(TransactionBlock {
-                block_hash: Default::default(),
-                block_number: Default::default(),
-            }))
+            .block_status(Default::default(), Default::default())
             .build();
         let subject = SentPayableDaoReal::new(wrapped_conn);
-        let txs = vec![tx1, tx2, tx3];
+        let txs = vec![tx1, tx2];
 
         let result = subject.insert_new_records(&txs);
 
         let retrieved_txs = subject.retrieve_txs(None);
         assert_eq!(result, Ok(()));
-        assert_eq!(retrieved_txs.len(), 3);
+        assert_eq!(retrieved_txs.len(), 2);
         assert_eq!(retrieved_txs, txs);
     }
 

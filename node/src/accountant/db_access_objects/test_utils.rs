@@ -12,9 +12,9 @@ pub struct TxBuilder {
     receiver_address_opt: Option<Address>,
     amount_opt: Option<u128>,
     timestamp_opt: Option<i64>,
-    gas_price_wei_opt: Option<u64>,
-    nonce_opt: Option<u32>,
-    status_opt: Option<TxStatus>,
+    gas_price_wei_opt: Option<u128>,
+    nonce_opt: Option<u64>,
+    block_status_opt: Option<(H256, u64)>,
 }
 
 impl TxBuilder {
@@ -32,8 +32,8 @@ impl TxBuilder {
         self
     }
 
-    pub fn status(mut self, status: TxStatus) -> Self {
-        self.status_opt = Some(status);
+    pub fn block_status(mut self, block_hash: H256, block_number: u64) -> Self {
+        self.block_status_opt = Some((block_hash, block_number));
         self
     }
 
@@ -45,7 +45,8 @@ impl TxBuilder {
             timestamp: self.timestamp_opt.unwrap_or_else(current_unix_timestamp),
             gas_price_wei: self.gas_price_wei_opt.unwrap_or_default(),
             nonce: self.nonce_opt.unwrap_or_default(),
-            status: self.status_opt.unwrap_or(TxStatus::Pending),
+            block_hash_opt: None,
+            block_number_opt: None,
         }
     }
 }

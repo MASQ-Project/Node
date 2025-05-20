@@ -19,7 +19,8 @@ impl DatabaseMigration for Migrate_10_to_11 {
                 gas_price_wei_high_b integer not null,
                 gas_price_wei_low_b integer not null,
                 nonce integer not null,
-                status text not null
+                block_hash text null,
+                block_number integer null
             )";
 
         declaration_utils.execute_upon_transaction(&[&sql_statement])
