@@ -3,11 +3,11 @@
 CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
 export ARGV_1="$1"
 
-ci/format.sh
+#ci/format.sh
 
 export RUST_BACKTRACE=1
 #if github checkout fails, you can download csv database from db-ip.com and convert it locally by cargo run ip_country
-if [[ $GITHUB_ACTIONS -eq true || "$ARGV_1" == "dbip" ]]; then
+if [[ $GITHUB_ACTIONS || "$ARGV_1" == "dbip" ]]; then
   ls
   git remote add experiment https://github.com/MASQ-Project/DBIP-Experiment.git
   git fetch experiment
@@ -15,6 +15,7 @@ if [[ $GITHUB_ACTIONS -eq true || "$ARGV_1" == "dbip" ]]; then
   git remote remove experiment
   echo "chekout $ARGV_1"
 fi
+exit
 if [[ -z "${GITHUB_ACTIONS}" ]]; then
   bash ./install-hooks.sh
 fi
