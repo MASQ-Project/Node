@@ -37,6 +37,7 @@ use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
 use masq_lib::utils::ExpectValue;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::rc::Rc;
 use std::sync::{Arc, RwLock};
@@ -248,17 +249,13 @@ impl Scanners {
             .start_scan(wallet, timestamp, response_skeleton_opt, logger)
     }
 
-    pub fn finish_payable_scan(
-        &mut self,
-        msg: SentPayables,
-        logger: &Logger,
-    ) -> Option<NodeToUiMessage> {
+    pub fn finish_payable_scan(&mut self, msg: SentPayables, logger: &Logger) -> PayableScanResult {
         let scan_result = self.payable.finish_scan(msg, logger);
         match scan_result.result {
             OperationOutcome::NewPendingPayable => self.aware_of_unresolved_pending_payable = true,
             OperationOutcome::Failure => (),
         };
-        scan_result.ui_response_opt
+        scan_result
     }
 
     pub fn finish_pending_payable_scan(
@@ -333,7 +330,6 @@ impl Scanners {
                 MTError::AutomaticScanConflict,
             ))
         } else if self.initial_pending_payable_scan {
-            self.initial_pending_payable_scan = false;
             Ok(())
         } else if triggered_manually && !self.aware_of_unresolved_pending_payable {
             Err(StartScanError::ManualTriggerError(
@@ -1130,26 +1126,6 @@ impl StartableScanner<ScanForReceivables, RetrieveTransactions> for ReceivableSc
 }
 
 impl Scanner<ReceivedPayments, Option<NodeToUiMessage>> for ReceivableScanner {
-    // fn start_scan(
-    //     &mut self,
-    //     earning_wallet: Wallet,
-    //     timestamp: SystemTime,
-    //     response_skeleton_opt: Option<ResponseSkeleton>,
-    //     logger: &Logger,
-    // ) -> Result<RetrieveTransactions, StartScanError> {
-    //     if let Some(timestamp) = self.scan_started_at() {
-    //         return Err(StartScanError::ScanAlreadyRunning(timestamp));
-    //     }
-    //     self.mark_as_started(timestamp);
-    //     info!(logger, "Scanning for receivables to {}", earning_wallet);
-    //     self.scan_for_delinquencies(timestamp, logger);
-    //
-    //     Ok(RetrieveTransactions {
-    //         recipient: earning_wallet,
-    //         response_skeleton_opt,
-    //     })
-    // }
-
     fn finish_scan(&mut self, msg: ReceivedPayments, logger: &Logger) -> Option<NodeToUiMessage> {
         self.handle_new_received_payments(&msg, logger);
         self.mark_as_ended(logger);
@@ -1400,8 +1376,6 @@ pub mod local_test_utils {
     use actix::{Message, System};
     use itertools::Either;
     use masq_lib::logger::Logger;
-    use masq_lib::ui_gateway::NodeToUiMessage;
-    use rand::distributions::Standard;
     use std::any::type_name;
     use std::cell::RefCell;
     use std::sync::{Arc, Mutex};
@@ -2227,11 +2201,17 @@ mod tests {
         let aware_of_unresolved_pending_payable_before =
             subject.aware_of_unresolved_pending_payable;
 
-        let node_to_ui_msg = subject.finish_payable_scan(sent_payable, &logger);
+        let payable_scan_result = subject.finish_payable_scan(sent_payable, &logger);
 
         let is_scan_running = subject.scan_started_at(ScanType::Payables).is_some();
         let aware_of_unresolved_pending_payable_after = subject.aware_of_unresolved_pending_payable;
-        assert_eq!(node_to_ui_msg, None);
+        assert_eq!(
+            payable_scan_result,
+            PayableScanResult {
+                ui_response_opt: None,
+                result: OperationOutcome::NewPendingPayable
+            }
+        );
         assert_eq!(is_scan_running, false);
         assert_eq!(aware_of_unresolved_pending_payable_before, false);
         assert_eq!(aware_of_unresolved_pending_payable_after, true);
@@ -2618,12 +2598,18 @@ mod tests {
         let aware_of_unresolved_pending_payable_before =
             subject.aware_of_unresolved_pending_payable;
 
-        let node_to_ui_msg_opt = subject.finish_payable_scan(sent_payable, &logger);
+        let payable_scan_result = subject.finish_payable_scan(sent_payable, &logger);
 
         let aware_of_unresolved_pending_payable_after = subject.aware_of_unresolved_pending_payable;
         System::current().stop();
         system.run();
-        assert_eq!(node_to_ui_msg_opt, None);
+        assert_eq!(
+            payable_scan_result,
+            PayableScanResult {
+                ui_response_opt: None,
+                result: OperationOutcome::Failure
+            }
+        );
         assert_eq!(aware_of_unresolved_pending_payable_before, false);
         assert_eq!(aware_of_unresolved_pending_payable_after, false);
         let fingerprints_rowids_params = fingerprints_rowids_params_arc.lock().unwrap();

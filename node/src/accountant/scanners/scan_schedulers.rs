@@ -31,9 +31,7 @@ impl ScanSchedulers {
                 scan_intervals.pending_payable_scan_interval,
             ),
             receivable: SimplePeriodicalScanScheduler::new(scan_intervals.receivable_scan_interval),
-            schedule_hint_on_error_resolver: Box::new(
-                ScheduleHintOnErrorResolverReal::default(),
-            ),
+            schedule_hint_on_error_resolver: Box::new(ScheduleHintOnErrorResolverReal::default()),
             automatic_scans_enabled,
         }
     }
@@ -55,6 +53,16 @@ pub enum HintableScanner {
     NewPayables,
     RetryPayables,
     PendingPayables { initial_pending_payable_scan: bool },
+}
+
+impl From<HintableScanner> for ScanType {
+    fn from(hintable_scanner: HintableScanner) -> Self {
+        match hintable_scanner {
+            HintableScanner::NewPayables => ScanType::Payables,
+            HintableScanner::RetryPayables => ScanType::Payables,
+            HintableScanner::PendingPayables { .. } => ScanType::PendingPayables,
+        }
+    }
 }
 
 pub struct PayableScanScheduler {
@@ -250,8 +258,7 @@ impl ScheduleHintOnErrorResolverReal {
             ScanScheduleHint::DoNotSchedule
         } else if matches!(err, StartScanError::ScanAlreadyRunning { .. }) {
             unreachable!(
-                "an automatic scan of NewPayableScanner should never interfere with \
-            itself {:?}",
+                "an automatic scan of NewPayableScanner should never interfere with itself {:?}", 
                 err
             )
         } else {
@@ -803,5 +810,29 @@ mod tests {
                 result,
             )
         })
+    }
+
+    #[test]
+    fn conversion_between_hintable_scanner_and_scan_type_works() {
+        assert_eq!(
+            ScanType::from(HintableScanner::NewPayables),
+            ScanType::Payables
+        );
+        assert_eq!(
+            ScanType::from(HintableScanner::RetryPayables),
+            ScanType::Payables
+        );
+        assert_eq!(
+            ScanType::from(HintableScanner::PendingPayables {
+                initial_pending_payable_scan: false
+            }),
+            ScanType::PendingPayables
+        );
+        assert_eq!(
+            ScanType::from(HintableScanner::PendingPayables {
+                initial_pending_payable_scan: true
+            }),
+            ScanType::PendingPayables
+        );
     }
 }

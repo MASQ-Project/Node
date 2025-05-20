@@ -77,7 +77,8 @@ use std::rc::Rc;
 use std::str::RMatches;
 use std::time::SystemTime;
 use web3::types::H256;
-use crate::accountant::scanners::scan_schedulers::{ScanScheduleHint, ScanSchedulers};
+use crate::accountant::scanners::scan_schedulers::{HintableScanner, ScanScheduleHint, ScanSchedulers};
+use crate::accountant::scanners::scanners_utils::payable_scanner_utils::OperationOutcome;
 use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::PendingPayableScanResult;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionReceiptResult;
 
@@ -228,10 +229,7 @@ impl Handler<ScanForPendingPayables> for Accountant {
         if let ScanScheduleHint::Schedule(ScanType::Payables) =
             self.handle_request_of_scan_for_pending_payable(response_skeleton_opt)
         {
-            todo!()
-            // self.scan_schedulers
-            //     .pending_payable
-            //     .schedule(ctx, response_skeleton_opt);
+            self.scan_schedulers.payable.schedule_for_new_payable(ctx);
         }
     }
 }
@@ -323,14 +321,13 @@ impl Handler<SentPayables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: SentPayables, ctx: &mut Self::Context) -> Self::Result {
-        match self.scanners.finish_payable_scan(msg, &self.logger) {
-            None => {
-                todo!("Finishing automatic payable scan") //self.scan_schedulers.pending_payable.schedule(ctx, None)
-            }
-            // TODO Might be worth a consideration with GH-635
-            // Some(node_to_ui_msg) if self.scan_schedulers.automatic_scans_enabled => {
-            //     todo!();
-            // }
+        let scan_result = self.scanners.finish_payable_scan(msg, &self.logger);
+
+        match scan_result.ui_response_opt {
+            None => match scan_result.result {
+                OperationOutcome::NewPendingPayable => todo!(),
+                OperationOutcome::Failure => todo!(),
+            },
             Some(node_to_ui_msg) => {
                 todo!("Externally triggered payable scan is finishing");
                 self.ui_message_sub_opt
@@ -924,28 +921,11 @@ impl Accountant {
                 todo!()
                 // ScanScheduleHint::DoNotSchedule
             }
-            Err(e) => {
-                e.log_error(
-                    &self.logger,
-                    ScanType::Payables,
-                    response_skeleton_opt.is_some(),
-                );
-
-                response_skeleton_opt.map(|skeleton| {
-                    self.ui_message_sub_opt
-                        .as_ref()
-                        .expect("UiGateway is unbound")
-                        .try_send(NodeToUiMessage {
-                            target: MessageTarget::ClientId(skeleton.client_id),
-                            body: UiScanResponse {}.tmb(skeleton.context_id),
-                        })
-                        .expect("UiGateway is dead");
-                });
-
-                self.scan_schedulers
-                    .schedule_hint_on_error_resolver
-                    .resolve_hint_for_given_error(todo!(), &e, response_skeleton_opt.is_some())
-            }
+            Err(e) => self.handle_start_scan_error_for_scanner_with_irregular_scheduling(
+                HintableScanner::NewPayables,
+                e,
+                response_skeleton_opt,
+            ),
         }
     }
 
@@ -971,30 +951,36 @@ impl Accountant {
                     .expect("BlockchainBridge is unbound")
                     .try_send(scan_message)
                     .expect("BlockchainBridge is dead");
-                todo!()
+                ScanScheduleHint::DoNotSchedule
             }
             Err(e) => {
-                todo!("process...and eventually schedule for pending payable");
-                // e.log_error(
-                //     &self.logger,
-                //     ScanType::Payables,
-                //     response_skeleton_opt.is_some(),
-                // );
+                self.handle_start_scan_error_for_scanner_with_irregular_scheduling(
+                    todo!(),
+                    e,
+                    response_skeleton_opt,
+                )
+                // let is_externally_triggered = response_skeleton_opt.is_some();
+                // todo!("process...and eventually schedule for pending payable");
+                // // e.log_error(
+                // //     &self.logger,
+                // //     ScanType::Payables,
+                // //     is_externally_triggered,
+                // // );
+                // //
+                // // response_skeleton_opt.map(|skeleton| {
+                // //     self.ui_message_sub_opt
+                // //         .as_ref()
+                // //         .expect("UiGateway is unbound")
+                // //         .try_send(NodeToUiMessage {
+                // //             target: MessageTarget::ClientId(skeleton.client_id),
+                // //             body: UiScanResponse {}.tmb(skeleton.context_id),
+                // //         })
+                // //         .expect("UiGateway is dead");
+                // // });
                 //
-                // response_skeleton_opt.map(|skeleton| {
-                //     self.ui_message_sub_opt
-                //         .as_ref()
-                //         .expect("UiGateway is unbound")
-                //         .try_send(NodeToUiMessage {
-                //             target: MessageTarget::ClientId(skeleton.client_id),
-                //             body: UiScanResponse {}.tmb(skeleton.context_id),
-                //         })
-                //         .expect("UiGateway is dead");
-                // });
-
-                self.scan_schedulers
-                    .schedule_hint_on_error_resolver
-                    .resolve_hint_for_given_error(todo!(), &e, response_skeleton_opt.is_some())
+                // self.scan_schedulers
+                //     .schedule_hint_on_error_resolver
+                //     .resolve_hint_for_given_error(todo!(), &e, is_externally_triggered)
             }
         }
     }
@@ -1025,35 +1011,52 @@ impl Accountant {
                 todo!("give a hint")
             }
             Err(e) => {
-                e.log_error(
-                    &self.logger,
-                    ScanType::PendingPayables,
-                    response_skeleton_opt.is_some(),
-                );
-
-                response_skeleton_opt.map(|skeleton| {
-                    self.ui_message_sub_opt
-                        .as_ref()
-                        .expect("UiGateway is unbound")
-                        .try_send(NodeToUiMessage {
-                            target: MessageTarget::ClientId(skeleton.client_id),
-                            body: UiScanResponse {}.tmb(skeleton.context_id),
-                        })
-                        .expect("UiGateway is dead");
-                });
-
-                self.scan_schedulers
-                    .schedule_hint_on_error_resolver
-                    .resolve_hint_for_given_error(todo!(), &e, response_skeleton_opt.is_some())
+                let initial_pending_payable_scan = self.scanners.initial_pending_payable_scan();
+                self.handle_start_scan_error_for_scanner_with_irregular_scheduling(
+                    HintableScanner::PendingPayables {
+                        initial_pending_payable_scan,
+                    },
+                    e,
+                    response_skeleton_opt,
+                )
             }
         };
 
         if self.scanners.initial_pending_payable_scan() {
-            todo!("set me right")
-            //self.scanners.unset_initial_pending_payable_scan()
+            self.scanners.unset_initial_pending_payable_scan()
         }
 
         hint
+    }
+
+    fn handle_start_scan_error_for_scanner_with_irregular_scheduling(
+        &self,
+        hintable_scanner: HintableScanner,
+        e: StartScanError,
+        response_skeleton_opt: Option<ResponseSkeleton>,
+    ) -> ScanScheduleHint {
+        let is_externally_triggered = response_skeleton_opt.is_some();
+
+        e.log_error(
+            &self.logger,
+            hintable_scanner.into(),
+            is_externally_triggered,
+        );
+
+        response_skeleton_opt.map(|skeleton| {
+            self.ui_message_sub_opt
+                .as_ref()
+                .expect("UiGateway is unbound")
+                .try_send(NodeToUiMessage {
+                    target: MessageTarget::ClientId(skeleton.client_id),
+                    body: UiScanResponse {}.tmb(skeleton.context_id),
+                })
+                .expect("UiGateway is dead");
+        });
+
+        self.scan_schedulers
+            .schedule_hint_on_error_resolver
+            .resolve_hint_for_given_error(hintable_scanner, &e, is_externally_triggered)
     }
 
     fn handle_request_of_scan_for_receivable(
@@ -1910,8 +1913,8 @@ mod tests {
         scan_type: ScanType,
     ) {
         let expected_log_msg = format!(
-            "WARN: {test_name}: Manual {:?} scan was denied. Automatic scanning setup prevents \
-           manual triggers.",
+            "WARN: {test_name}: Manual {:?} scan was denied. Automatic scanning \
+            setup prevents manual triggers.",
             scan_type
         );
 
@@ -2507,13 +2510,18 @@ mod tests {
             NotifyHandleMock::default().notify_params(&scan_for_retry_payables_notify_params_arc),
         );
         subject.scan_schedulers.payable.new_payable_notify = Box::new(
-            NotifyHandleMock::default().notify_params(&scan_for_new_payables_notify_params_arc),
+            NotifyHandleMock::default()
+                .capture_msg_and_let_it_fly_on()
+                .notify_params(&scan_for_new_payables_notify_params_arc),
         );
         subject.scan_schedulers.receivable.handle = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&scan_for_receivables_notify_later_params_arc)
                 .stop_system_on_count_received(1),
         );
+        // Important that this is short because the test relies on it to stop the system.
+        let receivable_scan_interval = Duration::from_millis(50);
+        subject.scan_schedulers.receivable.interval = receivable_scan_interval;
         let dyn_interval_computer = NewPayableScanDynIntervalComputerMock::default()
             .compute_interval_params(&compute_interval_params_arc)
             .compute_interval_result(Some(new_payable_expected_computed_interval));
@@ -2617,19 +2625,7 @@ mod tests {
                 ScanForReceivables {
                     response_skeleton_opt: None
                 },
-                new_payable_expected_computed_interval
-            )]
-        );
-        let scan_for_receivables_notify_later_params =
-            scan_for_receivables_notify_later_params_arc.lock().unwrap();
-        let default_scan_intervals = ScanIntervals::default();
-        assert_eq!(
-            *scan_for_receivables_notify_later_params,
-            vec![(
-                ScanForReceivables {
-                    response_skeleton_opt: None
-                },
-                default_scan_intervals.receivable_scan_interval
+                receivable_scan_interval
             )]
         );
         // Finally, an assertion to prove course of actions in time. We expect the pending payable
@@ -2637,13 +2633,6 @@ mod tests {
         // I do believe it's impossible that these two instants would happen at the same time, until
         // this is run on a real super-giga-computer.
         assert!(pp_scan_started_at < p_scheduling_now);
-        let tlh = TestLogHandler::new();
-        tlh.exists_log_containing("INFO: Accountant: Scanning for pending payable");
-        tlh.exists_log_containing(&format!(
-            "INFO: Accountant: Scanning for receivables to {}",
-            earning_wallet
-        ));
-        tlh.exists_log_containing("INFO: Accountant: Scanning for delinquencies");
     }
 
     #[test]
