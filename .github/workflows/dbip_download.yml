@@ -2,7 +2,7 @@ name: Download DBIP data and generate dbip_country.rs
 
 on:
   schedule:
-    - cron: "0 0 3 * *" # Runs at midnight on the 3rd of every month
+    - cron: "0 0 * * *" # Runs at midnight on the 3rd of every month
 
 env:
   TEMP_DIR: '/tmp'
