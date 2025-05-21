@@ -872,11 +872,14 @@ pub mod unshared_test_utils {
 
     pub mod notify_handlers {
         use super::*;
+        use std::fmt::Debug;
 
         pub struct NotifyLaterHandleMock<M> {
             notify_later_params: Arc<Mutex<Vec<(M, Duration)>>>,
             stop_system_on_count_received_opt: RefCell<Option<usize>>,
             send_message_out: bool,
+            // To prove that no msg was tried to be scheduled
+            panic_on_schedule_attempt: bool,
         }
 
         impl<M: Message> Default for NotifyLaterHandleMock<M> {
@@ -885,6 +888,7 @@ pub mod unshared_test_utils {
                     notify_later_params: Arc::new(Mutex::new(vec![])),
                     stop_system_on_count_received_opt: RefCell::new(None),
                     send_message_out: false,
+                    panic_on_schedule_attempt: false,
                 }
             }
         }
@@ -909,11 +913,16 @@ pub mod unshared_test_utils {
                 self.send_message_out = true;
                 self
             }
+
+            pub fn panic_on_schedule_attempt(mut self) -> Self {
+                self.panic_on_schedule_attempt = true;
+                self
+            }
         }
 
         impl<M, A> NotifyLaterHandle<M, A> for NotifyLaterHandleMock<M>
         where
-            M: Message + 'static + Clone + Send,
+            M: Message + Clone + Debug + Send + 'static,
             A: Actor<Context = Context<A>> + Handler<M>,
         {
             fn notify_later<'a>(
@@ -922,6 +931,14 @@ pub mod unshared_test_utils {
                 interval: Duration,
                 ctx: &'a mut Context<A>,
             ) -> Box<dyn NLSpawnHandleHolder> {
+                if self.panic_on_schedule_attempt {
+                    panic!(
+                        "Message scheduling request for {:?} and interval {}ms, thought not \
+                    expected",
+                        msg,
+                        interval.as_millis()
+                    );
+                }
                 self.notify_later_params
                     .lock()
                     .unwrap()

@@ -504,8 +504,9 @@ fn configure_accountant_config(
         |pc: &dyn PersistentConfiguration| pc.scan_intervals(),
         |pc: &mut dyn PersistentConfiguration, intervals| pc.set_scan_intervals(intervals),
     )?;
+
     let automatic_scans_enabled =
-        value_m!(multi_config, "scans", String).unwrap_or_else(|| "on".to_string()) == *"off";
+        value_m!(multi_config, "scans", String).unwrap_or_else(|| "on".to_string()) == "on";
 
     config.payment_thresholds_opt = Some(payment_thresholds);
     config.scan_intervals_opt = Some(scan_intervals);

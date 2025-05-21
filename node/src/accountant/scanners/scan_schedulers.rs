@@ -10,8 +10,10 @@ use crate::sub_lib::utils::{
     NotifyHandle, NotifyHandleReal, NotifyLaterHandle, NotifyLaterHandleReal,
 };
 use actix::{Actor, Context, Handler};
+use masq_lib::logger::Logger;
 use masq_lib::messages::ScanType;
 use std::cell::RefCell;
+use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -19,7 +21,7 @@ pub struct ScanSchedulers {
     pub payable: PayableScanScheduler,
     pub pending_payable: SimplePeriodicalScanScheduler<ScanForPendingPayables>,
     pub receivable: SimplePeriodicalScanScheduler<ScanForReceivables>,
-    pub schedule_hint_on_error_resolver: Box<dyn ScheduleHintOnErrorResolver>,
+    pub reschedule_on_error_resolver: Box<dyn RescheduleScanOnErrorResolver>,
     pub automatic_scans_enabled: bool,
 }
 
@@ -31,7 +33,7 @@ impl ScanSchedulers {
                 scan_intervals.pending_payable_scan_interval,
             ),
             receivable: SimplePeriodicalScanScheduler::new(scan_intervals.receivable_scan_interval),
-            schedule_hint_on_error_resolver: Box::new(ScheduleHintOnErrorResolverReal::default()),
+            reschedule_on_error_resolver: Box::new(RescheduleScanOnErrorResolverReal::default()),
             automatic_scans_enabled,
         }
     }
@@ -43,7 +45,7 @@ pub enum PayableScanSchedulerError {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum ScanScheduleHint {
+pub enum SchedulingAfterHaltedScan {
     Schedule(ScanType),
     DoNotSchedule,
 }
@@ -86,7 +88,7 @@ impl PayableScanScheduler {
         }
     }
 
-    pub fn schedule_for_new_payable(&self, ctx: &mut Context<Accountant>) {
+    pub fn schedule_for_new_payable(&self, ctx: &mut Context<Accountant>, logger: &Logger) {
         let inner = self.inner.lock().expect("couldn't acquire inner");
         let last_new_payable_timestamp = inner.last_new_payable_scan_timestamp;
         let nominal_interval = self.nominal_interval;
@@ -96,6 +98,12 @@ impl PayableScanScheduler {
             last_new_payable_timestamp,
             nominal_interval,
         ) {
+            debug!(
+                logger,
+                "Scheduling a new-payable scan in {}ms",
+                interval.as_millis()
+            );
+
             let _ = self.new_payable_notify_later.notify_later(
                 ScanForNewPayables {
                     response_skeleton_opt: None,
@@ -104,6 +112,8 @@ impl PayableScanScheduler {
                 ctx,
             );
         } else {
+            debug!(logger, "Scheduling a new-payable scan asap");
+
             let _ = self.new_payable_notify.notify(
                 ScanForNewPayables {
                     response_skeleton_opt: None,
@@ -120,7 +130,10 @@ impl PayableScanScheduler {
         &self,
         ctx: &mut Context<Accountant>,
         response_skeleton_opt: Option<ResponseSkeleton>,
+        logger: &Logger,
     ) {
+        debug!(logger, "Scheduling a retry-payable scan asap");
+
         self.retry_payable_notify.notify(
             ScanForRetryPayables {
                 response_skeleton_opt,
@@ -180,29 +193,34 @@ impl NewPayableScanDynIntervalComputer for NewPayableScanDynIntervalComputerReal
 }
 
 pub struct SimplePeriodicalScanScheduler<Message: Default> {
-    pub is_currently_automatically_scheduled: RefCell<bool>,
     pub handle: Box<dyn NotifyLaterHandle<Message, Accountant>>,
     pub interval: Duration,
 }
 
 impl<Message> SimplePeriodicalScanScheduler<Message>
 where
-    Message: actix::Message + Default + 'static + Send,
+    Message: actix::Message + Default + Debug + Send + 'static,
     Accountant: Actor + Handler<Message>,
 {
     fn new(interval: Duration) -> Self {
         Self {
-            is_currently_automatically_scheduled: RefCell::new(false),
             handle: Box::new(NotifyLaterHandleReal::default()),
             interval,
         }
     }
-    pub fn schedule(&self, ctx: &mut Context<Accountant>) {
+    pub fn schedule(&self, ctx: &mut Context<Accountant>, logger: &Logger) {
         // The default of the message implies response_skeleton_opt to be None because scheduled
         // scans don't respond
-        let _ = self
-            .handle
-            .notify_later(Message::default(), self.interval, ctx);
+        let msg = Message::default();
+
+        debug!(
+            logger,
+            "Scheduling a scan with {:?} in {}ms",
+            msg,
+            self.interval.as_millis()
+        );
+
+        let _ = self.handle.notify_later(msg, self.interval, ctx);
     }
 }
 
@@ -212,25 +230,25 @@ where
 // repetition of the erroneous scan) to prevent a full panic, while ensuring no unresolved issues
 // are left for future scans. A panic is justified only if the error is deemed impossible by design
 // within the broader context of that location.
-pub trait ScheduleHintOnErrorResolver {
-    fn resolve_hint_for_given_error(
+pub trait RescheduleScanOnErrorResolver {
+    fn resolve_rescheduling_for_given_error(
         &self,
         hintable_scanner: HintableScanner,
         error: &StartScanError,
         is_externally_triggered: bool,
-    ) -> ScanScheduleHint;
+    ) -> SchedulingAfterHaltedScan;
 }
 
 #[derive(Default)]
-pub struct ScheduleHintOnErrorResolverReal {}
+pub struct RescheduleScanOnErrorResolverReal {}
 
-impl ScheduleHintOnErrorResolver for ScheduleHintOnErrorResolverReal {
-    fn resolve_hint_for_given_error(
+impl RescheduleScanOnErrorResolver for RescheduleScanOnErrorResolverReal {
+    fn resolve_rescheduling_for_given_error(
         &self,
         hintable_scanner: HintableScanner,
         error: &StartScanError,
         is_externally_triggered: bool,
-    ) -> ScanScheduleHint {
+    ) -> SchedulingAfterHaltedScan {
         match hintable_scanner {
             HintableScanner::NewPayables => {
                 Self::resolve_new_payables(error, is_externally_triggered)
@@ -249,20 +267,20 @@ impl ScheduleHintOnErrorResolver for ScheduleHintOnErrorResolverReal {
     }
 }
 
-impl ScheduleHintOnErrorResolverReal {
+impl RescheduleScanOnErrorResolverReal {
     fn resolve_new_payables(
         err: &StartScanError,
         is_externally_triggered: bool,
-    ) -> ScanScheduleHint {
+    ) -> SchedulingAfterHaltedScan {
         if is_externally_triggered {
-            ScanScheduleHint::DoNotSchedule
+            SchedulingAfterHaltedScan::DoNotSchedule
         } else if matches!(err, StartScanError::ScanAlreadyRunning { .. }) {
             unreachable!(
                 "an automatic scan of NewPayableScanner should never interfere with itself {:?}",
                 err
             )
         } else {
-            ScanScheduleHint::Schedule(ScanType::Payables)
+            SchedulingAfterHaltedScan::Schedule(ScanType::Payables)
         }
     }
 
@@ -272,9 +290,9 @@ impl ScheduleHintOnErrorResolverReal {
     fn resolve_retry_payables(
         err: &StartScanError,
         is_externally_triggered: bool,
-    ) -> ScanScheduleHint {
+    ) -> SchedulingAfterHaltedScan {
         if is_externally_triggered {
-            ScanScheduleHint::DoNotSchedule
+            SchedulingAfterHaltedScan::DoNotSchedule
         } else {
             unreachable!(
                 "{:?} is not acceptable for an automatic scan of RetryPayablesScanner",
@@ -287,12 +305,12 @@ impl ScheduleHintOnErrorResolverReal {
         err: &StartScanError,
         initial_pending_payable_scan: bool,
         is_externally_triggered: bool,
-    ) -> ScanScheduleHint {
+    ) -> SchedulingAfterHaltedScan {
         if is_externally_triggered {
-            ScanScheduleHint::DoNotSchedule
+            SchedulingAfterHaltedScan::DoNotSchedule
         } else if err == &StartScanError::NothingToProcess {
             if initial_pending_payable_scan {
-                ScanScheduleHint::Schedule(ScanType::Payables)
+                SchedulingAfterHaltedScan::Schedule(ScanType::Payables)
             } else {
                 unreachable!(
                     "the automatic pending payable scan should always be requested only in need, \
@@ -300,7 +318,7 @@ impl ScheduleHintOnErrorResolverReal {
                 )
             }
         } else if err == &StartScanError::NoConsumingWalletFound {
-            ScanScheduleHint::Schedule(ScanType::Payables)
+            SchedulingAfterHaltedScan::Schedule(ScanType::Payables)
         } else {
             unreachable!(
                 "{:?} is not acceptable for an automatic scan of PendingPayableScanner",
@@ -314,7 +332,7 @@ impl ScheduleHintOnErrorResolverReal {
 mod tests {
     use crate::accountant::scanners::scan_schedulers::{
         HintableScanner, NewPayableScanDynIntervalComputer, NewPayableScanDynIntervalComputerReal,
-        ScanScheduleHint, ScanSchedulers,
+        ScanSchedulers, SchedulingAfterHaltedScan,
     };
     use crate::accountant::scanners::{MTError, StartScanError};
     use crate::sub_lib::accountant::ScanIntervals;
@@ -353,22 +371,8 @@ mod tests {
             scan_intervals.pending_payable_scan_interval
         );
         assert_eq!(
-            *schedulers
-                .pending_payable
-                .is_currently_automatically_scheduled
-                .borrow(),
-            false
-        );
-        assert_eq!(
             schedulers.receivable.interval,
             scan_intervals.receivable_scan_interval
-        );
-        assert_eq!(
-            *schedulers
-                .receivable
-                .is_currently_automatically_scheduled
-                .borrow(),
-            false
         );
         assert_eq!(schedulers.automatic_scans_enabled, true)
     }
@@ -558,7 +562,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_hint_for_given_error_works_for_pending_payables_if_externally_triggered() {
+    fn resolve_rescheduling_for_given_error_works_for_pending_payables_if_externally_triggered() {
         let subject = ScanSchedulers::new(ScanIntervals::default(), true);
 
         test_what_if_externally_triggered(
@@ -584,12 +588,12 @@ mod tests {
             .enumerate()
             .for_each(|(idx, (error))| {
                 let result = subject
-                    .schedule_hint_on_error_resolver
-                    .resolve_hint_for_given_error(hintable_scanner, error, true);
+                    .reschedule_on_error_resolver
+                    .resolve_rescheduling_for_given_error(hintable_scanner, error, true);
 
                 assert_eq!(
                     result,
-                    ScanScheduleHint::DoNotSchedule,
+                    SchedulingAfterHaltedScan::DoNotSchedule,
                     "We expected DoNotSchedule but got {:?} at idx {} for {:?}",
                     result,
                     idx,
@@ -604,8 +608,8 @@ mod tests {
         let subject = ScanSchedulers::new(ScanIntervals::default(), true);
 
         let result = subject
-            .schedule_hint_on_error_resolver
-            .resolve_hint_for_given_error(
+            .reschedule_on_error_resolver
+            .resolve_rescheduling_for_given_error(
                 HintableScanner::PendingPayables {
                     initial_pending_payable_scan: true,
                 },
@@ -615,7 +619,7 @@ mod tests {
 
         assert_eq!(
             result,
-            ScanScheduleHint::Schedule(ScanType::Payables),
+            SchedulingAfterHaltedScan::Schedule(ScanType::Payables),
             "We expected Schedule(Payables) but got {:?}",
             result,
         );
@@ -632,8 +636,8 @@ mod tests {
         let subject = ScanSchedulers::new(ScanIntervals::default(), true);
 
         let _ = subject
-            .schedule_hint_on_error_resolver
-            .resolve_hint_for_given_error(
+            .reschedule_on_error_resolver
+            .resolve_rescheduling_for_given_error(
                 HintableScanner::PendingPayables {
                     initial_pending_payable_scan: false,
                 },
@@ -649,8 +653,8 @@ mod tests {
             hintable_scanner: HintableScanner,
         ) {
             let result = subject
-                .schedule_hint_on_error_resolver
-                .resolve_hint_for_given_error(
+                .reschedule_on_error_resolver
+                .resolve_rescheduling_for_given_error(
                     hintable_scanner,
                     &StartScanError::NoConsumingWalletFound,
                     false,
@@ -658,7 +662,7 @@ mod tests {
 
             assert_eq!(
                 result,
-                ScanScheduleHint::Schedule(ScanType::Payables),
+                SchedulingAfterHaltedScan::Schedule(ScanType::Payables),
                 "We expected Schedule(Payables) but got {:?} for {:?}",
                 result,
                 hintable_scanner
@@ -691,8 +695,8 @@ mod tests {
             inputs.errors.iter().for_each(|error| {
                 let panic = catch_unwind(AssertUnwindSafe(|| {
                     subject
-                        .schedule_hint_on_error_resolver
-                        .resolve_hint_for_given_error(
+                        .reschedule_on_error_resolver
+                        .resolve_rescheduling_for_given_error(
                             HintableScanner::PendingPayables {
                                 initial_pending_payable_scan,
                             },
@@ -728,7 +732,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_hint_for_given_error_works_for_retry_payables_if_externally_triggered() {
+    fn resolve_rescheduling_for_given_error_works_for_retry_payables_if_externally_triggered() {
         let subject = ScanSchedulers::new(ScanIntervals::default(), true);
 
         test_what_if_externally_triggered(&subject, HintableScanner::RetryPayables {});
@@ -741,8 +745,12 @@ mod tests {
         ALL_START_SCAN_ERRORS.iter().for_each(|error| {
             let panic = catch_unwind(AssertUnwindSafe(|| {
                 subject
-                    .schedule_hint_on_error_resolver
-                    .resolve_hint_for_given_error(HintableScanner::RetryPayables, error, false)
+                    .reschedule_on_error_resolver
+                    .resolve_rescheduling_for_given_error(
+                        HintableScanner::RetryPayables,
+                        error,
+                        false,
+                    )
             }))
             .unwrap_err();
 
@@ -761,7 +769,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_hint_for_given_error_works_for_new_payables_if_externally_triggered() {
+    fn resolve_rescheduling_for_given_error_works_for_new_payables_if_externally_triggered() {
         let subject = ScanSchedulers::new(ScanIntervals::default(), true);
 
         test_what_if_externally_triggered(&subject, HintableScanner::NewPayables {});
@@ -776,8 +784,8 @@ mod tests {
         let subject = ScanSchedulers::new(ScanIntervals::default(), true);
 
         let _ = subject
-            .schedule_hint_on_error_resolver
-            .resolve_hint_for_given_error(
+            .reschedule_on_error_resolver
+            .resolve_rescheduling_for_given_error(
                 HintableScanner::NewPayables,
                 &StartScanError::ScanAlreadyRunning {
                     pertinent_scanner: ScanType::Payables,
@@ -800,12 +808,12 @@ mod tests {
 
         inputs.errors.iter().for_each(|error| {
             let result = subject
-                .schedule_hint_on_error_resolver
-                .resolve_hint_for_given_error(HintableScanner::NewPayables, *error, false);
+                .reschedule_on_error_resolver
+                .resolve_rescheduling_for_given_error(HintableScanner::NewPayables, *error, false);
 
             assert_eq!(
                 result,
-                ScanScheduleHint::Schedule(ScanType::Payables),
+                SchedulingAfterHaltedScan::Schedule(ScanType::Payables),
                 "We expected Schedule(Payables) but got '{:?}'",
                 result,
             )

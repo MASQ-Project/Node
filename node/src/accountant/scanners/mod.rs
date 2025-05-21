@@ -343,7 +343,7 @@ impl Scanners {
                 payables to process."
             )
         } else {
-            todo!()
+            Ok(())
         }
     }
 }
@@ -1736,7 +1736,7 @@ mod tests {
                     self.receivable = Box::new(scanner)
                 }
                 ScannerReplacement::Receivable(ReplacementType::Null) => {
-                    self.pending_payable = Box::new(NullScanner::default())
+                    self.receivable = Box::new(NullScanner::default())
                 }
             }
         }
@@ -3069,6 +3069,8 @@ mod tests {
         let pending_payable_scanner = PendingPayableScannerBuilder::new()
             .pending_payable_dao(pending_payable_dao)
             .build();
+        // Important
+        subject.aware_of_unresolved_pending_payable = true;
         subject.pending_payable = Box::new(pending_payable_scanner);
         let payable_scanner = PayableScannerBuilder::new().build();
         subject.payable = Box::new(payable_scanner);
@@ -3109,6 +3111,8 @@ mod tests {
         let pending_payable_scanner = PendingPayableScannerBuilder::new()
             .pending_payable_dao(pending_payable_dao)
             .build();
+        // Important
+        subject.aware_of_unresolved_pending_payable = true;
         subject.pending_payable = Box::new(pending_payable_scanner);
         let payable_scanner = PayableScannerBuilder::new().build();
         subject.payable = Box::new(payable_scanner);
@@ -3141,6 +3145,8 @@ mod tests {
         let mut subject = make_dull_subject();
         let pending_payable_scanner = PendingPayableScannerBuilder::new().build();
         let payable_scanner = PayableScannerBuilder::new().build();
+        // Important
+        subject.aware_of_unresolved_pending_payable = true;
         subject.pending_payable = Box::new(pending_payable_scanner);
         subject.payable = Box::new(payable_scanner);
         let logger = Logger::new("test");
@@ -3178,6 +3184,7 @@ mod tests {
             .checked_sub(Duration::from_millis(12))
             .unwrap();
         let timestamp_payable_scanner_start = SystemTime::now();
+        subject.aware_of_unresolved_pending_payable = true;
         subject
             .pending_payable
             .mark_as_started(timestamp_pending_payable_start);
@@ -3237,7 +3244,7 @@ mod tests {
     fn pending_payable_scanner_bumps_into_zero_pending_payable_awareness_in_the_automatic_mode() {
         let consuming_wallet = make_paying_wallet(b"consuming");
         let mut subject = make_dull_subject();
-        let mut pending_payable_scanner = PendingPayableScannerBuilder::new().build();
+        let pending_payable_scanner = PendingPayableScannerBuilder::new().build();
         subject.pending_payable = Box::new(pending_payable_scanner);
         subject.aware_of_unresolved_pending_payable = false;
 
