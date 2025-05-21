@@ -978,11 +978,10 @@ mod tests {
 
     #[test]
     fn node_descriptor_from_key_node_addr_and_mainnet_flag_works() {
-        let cryptde: &dyn CryptDE = main_cryptde().as_ref();
         let public_key = PublicKey::new(&[1, 2, 3, 4, 5, 6, 7, 8]);
         let node_addr = NodeAddr::new(&IpAddr::from_str("123.45.67.89").unwrap(), &[2345, 3456]);
 
-        let result = NodeDescriptor::from((&public_key, &node_addr, Chain::EthMainnet, cryptde));
+        let result = NodeDescriptor::from((&public_key, &node_addr, Chain::EthMainnet, main_cryptde().as_ref()));
 
         assert_eq!(
             result,
@@ -996,12 +995,11 @@ mod tests {
 
     #[test]
     fn node_descriptor_to_string_works_for_mainnet() {
-        let cryptde: &dyn CryptDE = main_cryptde().as_ref();
         let public_key = PublicKey::new(&[1, 2, 3, 4, 5, 6, 7, 8]);
         let node_addr = NodeAddr::new(&IpAddr::from_str("123.45.67.89").unwrap(), &[2345, 3456]);
-        let subject = NodeDescriptor::from((&public_key, &node_addr, Chain::EthMainnet, cryptde));
+        let subject = NodeDescriptor::from((&public_key, &node_addr, Chain::EthMainnet, main_cryptde().as_ref()));
 
-        let result = subject.to_string(cryptde);
+        let result = subject.to_string(main_cryptde().as_ref());
 
         assert_eq!(
             result,
@@ -1011,12 +1009,11 @@ mod tests {
 
     #[test]
     fn node_descriptor_to_string_works_for_not_mainnet() {
-        let cryptde: &dyn CryptDE = main_cryptde().as_ref();
         let public_key = PublicKey::new(&[1, 2, 3, 4, 5, 6, 7, 8]);
         let node_addr = NodeAddr::new(&IpAddr::from_str("123.45.67.89").unwrap(), &[2345, 3456]);
-        let subject = NodeDescriptor::from((&public_key, &node_addr, Chain::EthRopsten, cryptde));
+        let subject = NodeDescriptor::from((&public_key, &node_addr, Chain::EthRopsten, main_cryptde().as_ref()));
 
-        let result = subject.to_string(cryptde);
+        let result = subject.to_string(main_cryptde().as_ref());
 
         assert_eq!(
             result,
@@ -1026,7 +1023,6 @@ mod tests {
 
     #[test]
     fn first_part_of_node_descriptor_must_not_be_longer_than_required() {
-        let cryptde: &dyn CryptDE = main_cryptde().as_ref();
         let public_key = PublicKey::new(&[
             1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 1, 2, 3, 4, 5, 6, 7, 8,
             9, 10, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
@@ -1034,8 +1030,8 @@ mod tests {
         let node_addr = NodeAddr::new(&IpAddr::from_str("123.45.67.89").unwrap(), &[2345, 3456]);
         let required_number_of_characters = 43;
         let descriptor =
-            NodeDescriptor::from((&public_key, &node_addr, Chain::EthMainnet, cryptde));
-        let string_descriptor = descriptor.to_string(cryptde);
+            NodeDescriptor::from((&public_key, &node_addr, Chain::EthMainnet, main_cryptde().as_ref()));
+        let string_descriptor = descriptor.to_string(main_cryptde().as_ref());
 
         let result = string_descriptor
             .strip_prefix(MASQ_URL_PREFIX)

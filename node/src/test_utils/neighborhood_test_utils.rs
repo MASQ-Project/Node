@@ -86,8 +86,7 @@ pub fn neighborhood_from_nodes(
     root: &NodeRecord,
     neighbor_opt: Option<&NodeRecord>,
 ) -> Neighborhood {
-    let cryptde: &dyn CryptDE = main_cryptde().as_ref();
-    if root.public_key() != cryptde.public_key() {
+    if root.public_key() != main_cryptde().public_key() {
         panic!("Neighborhood must be built on root node with public key from cryptde()");
     }
     let mut config = BootstrapperConfig::new();
@@ -95,7 +94,7 @@ pub fn neighborhood_from_nodes(
         Some(neighbor) => NeighborhoodConfig {
             mode: NeighborhoodMode::Standard(
                 root.node_addr_opt().unwrap(),
-                vec![NodeDescriptor::from((neighbor, Chain::EthRopsten, cryptde))],
+                vec![NodeDescriptor::from((neighbor, Chain::EthRopsten, main_cryptde().as_ref()))],
                 *root.rate_pack(),
             ),
             min_hops: MIN_HOPS_FOR_TEST,
@@ -108,7 +107,7 @@ pub fn neighborhood_from_nodes(
     config.earning_wallet = root.earning_wallet();
     config.consuming_wallet_opt = Some(make_paying_wallet(b"consuming"));
     config.db_password_opt = Some("password".to_string());
-    Neighborhood::new(cryptde.dup(), &config)
+    Neighborhood::new(main_cryptde().dup(), &config)
 }
 
 impl From<&NodeRecord> for NeighborhoodMode {

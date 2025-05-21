@@ -109,14 +109,13 @@ mod tests {
     #[test]
     fn live_cores_package_can_be_constructed_from_scratch() {
         let payload = CryptData::new(&[5, 6]);
-        let cryptde = main_cryptde().as_ref();
         let paying_wallet = make_paying_wallet(b"wallet");
         let route = Route::one_way(
             RouteSegment::new(
                 vec![&PublicKey::new(&[1, 2]), &PublicKey::new(&[3, 4])],
                 Component::Neighborhood,
             ),
-            cryptde,
+            main_cryptde().as_ref(),
             Some(paying_wallet),
             Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
@@ -134,15 +133,14 @@ mod tests {
         let destination_cryptde = CryptDENull::from(&destination_key, TEST_DEFAULT_CHAIN);
         let relay_key = PublicKey::new(&[1, 2]);
         let relay_cryptde = CryptDENull::from(&relay_key, TEST_DEFAULT_CHAIN);
-        let cryptde = main_cryptde().as_ref();
         let serialized_payload = serde_cbor::ser::to_vec(&make_meaningless_message_type()).unwrap();
-        let encrypted_payload = cryptde
+        let encrypted_payload = main_cryptde()
             .encode(&destination_key, &PlainData::new(&serialized_payload))
             .unwrap();
         let paying_wallet = make_paying_wallet(b"wallet");
         let route = Route::one_way(
             RouteSegment::new(vec![&relay_key, &destination_key], Component::Neighborhood),
-            cryptde,
+            main_cryptde().as_ref(),
             Some(paying_wallet.clone()),
             Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
@@ -194,32 +192,30 @@ mod tests {
 
     #[test]
     fn live_cores_package_can_be_constructed_from_no_lookup_incipient_cores_package() {
-        let cryptde = main_cryptde().as_ref();
         let key34 = PublicKey::new(&[3, 4]);
         let node_addr34 = NodeAddr::new(&IpAddr::from_str("3.4.3.4").unwrap(), &[1234]);
-        let mut route = Route::single_hop(&key34, cryptde).unwrap();
+        let mut route = Route::single_hop(&key34, main_cryptde().as_ref()).unwrap();
         let payload = make_meaningless_message_type();
 
         let incipient =
-            NoLookupIncipientCoresPackage::new(cryptde, &key34, &node_addr34, payload.clone())
+            NoLookupIncipientCoresPackage::new(main_cryptde().as_ref(), &key34, &node_addr34, payload.clone())
                 .unwrap();
         let (subject, next_stop) =
-            LiveCoresPackage::from_no_lookup_incipient(incipient, cryptde).unwrap();
+            LiveCoresPackage::from_no_lookup_incipient(incipient, main_cryptde().as_ref()).unwrap();
 
         assert_eq!(key34, next_stop);
-        route.shift(cryptde).unwrap();
+        route.shift(main_cryptde().as_ref()).unwrap();
         assert_eq!(route, subject.route);
-        assert_eq!(encodex(cryptde, &key34, &payload).unwrap(), subject.payload,);
+        assert_eq!(encodex(main_cryptde().as_ref(), &key34, &payload).unwrap(), subject.payload,);
     }
 
     #[test]
     fn from_no_lookup_incipient_relays_errors() {
-        let cryptde = main_cryptde().as_ref();
         let blank_key = PublicKey::new(&[]);
         let node_addr34 = NodeAddr::new(&IpAddr::from_str("3.4.3.4").unwrap(), &[1234]);
 
         let result = NoLookupIncipientCoresPackage::new(
-            cryptde,
+            main_cryptde().as_ref(),
             &blank_key,
             &node_addr34,
             make_meaningless_message_type(),
@@ -235,15 +231,14 @@ mod tests {
 
     #[test]
     fn live_cores_package_can_be_constructed_from_incipient_cores_package() {
-        let cryptde = main_cryptde().as_ref();
         let paying_wallet = make_paying_wallet(b"wallet");
-        let key12 = cryptde.public_key();
+        let key12 = main_cryptde().public_key().clone();
         let key34 = PublicKey::new(&[3, 4]);
         let key56 = PublicKey::new(&[5, 6]);
         let contract_address = TEST_DEFAULT_CHAIN.rec().contract;
         let mut route = Route::one_way(
             RouteSegment::new(vec![&key12, &key34, &key56], Component::Neighborhood),
-            cryptde,
+            main_cryptde().as_ref(),
             Some(paying_wallet.clone()),
             Some(contract_address),
         )
@@ -251,8 +246,8 @@ mod tests {
         let payload = make_meaningless_message_type();
 
         let incipient =
-            IncipientCoresPackage::new(cryptde, route.clone(), payload.clone(), &key56).unwrap();
-        let (subject, next_stop) = LiveCoresPackage::from_incipient(incipient, cryptde).unwrap();
+            IncipientCoresPackage::new(main_cryptde().as_ref(), route.clone(), payload.clone(), &key56).unwrap();
+        let (subject, next_stop) = LiveCoresPackage::from_incipient(incipient, main_cryptde().as_ref()).unwrap();
 
         assert_eq!(
             LiveHop {
@@ -262,23 +257,22 @@ mod tests {
             },
             next_stop
         );
-        route.shift(cryptde).unwrap();
+        route.shift(main_cryptde().as_ref()).unwrap();
 
         assert_eq!(route, subject.route);
-        assert_eq!(encodex(cryptde, &key56, &payload).unwrap(), subject.payload,);
+        assert_eq!(encodex(main_cryptde().as_ref(), &key56, &payload).unwrap(), subject.payload,);
     }
 
     #[test]
     fn from_incipient_complains_about_problems_decrypting_next_hop() {
-        let cryptde = main_cryptde().as_ref();
         let incipient = IncipientCoresPackage::new(
-            cryptde,
+            main_cryptde().as_ref(),
             Route { hops: vec![] },
             make_meaningless_message_type(),
             &PublicKey::new(&[3, 4]),
         )
         .unwrap();
-        let result = LiveCoresPackage::from_incipient(incipient, cryptde);
+        let result = LiveCoresPackage::from_incipient(incipient, main_cryptde().as_ref());
 
         assert_eq!(
             result,
@@ -298,8 +292,7 @@ mod tests {
         let relay_cryptde = CryptDENull::from(&relay_key, TEST_DEFAULT_CHAIN);
         let second_stop_key = PublicKey::new(&[5, 6]);
         let second_stop_cryptde = CryptDENull::from(&second_stop_key, TEST_DEFAULT_CHAIN);
-        let cryptde = main_cryptde().as_ref();
-        let encrypted_payload = encodex(cryptde, &first_stop_key, &payload).unwrap();
+        let encrypted_payload = encodex(main_cryptde().as_ref(), &first_stop_key, &payload).unwrap();
         let paying_wallet = make_paying_wallet(b"wallet");
         let contract_address = TEST_DEFAULT_CHAIN.rec().contract;
         let mut route = Route::round_trip(
@@ -308,7 +301,7 @@ mod tests {
                 vec![&first_stop_key, &relay_key, &second_stop_key],
                 Component::ProxyServer,
             ),
-            cryptde,
+            main_cryptde().as_ref(),
             Some(paying_wallet.clone()),
             1234,
             Some(contract_address),
@@ -371,7 +364,7 @@ mod tests {
         );
         assert_eq!(
             route.hops[0],
-            crate::test_utils::encrypt_return_route_id(1234, cryptde),
+            crate::test_utils::encrypt_return_route_id(1234, main_cryptde().as_ref()),
         );
         route.hops.remove(0);
         assert_eq!(

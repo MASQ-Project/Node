@@ -70,7 +70,7 @@ lazy_static! {
 }
 
 pub struct CryptDERef<'a> {
-    guard: RwLockReadGuard<'a, Box<dyn CryptDE + 'a>>,
+    guard: RwLockReadGuard<'a, Box<dyn CryptDE>>,
 }
 
 impl<'a> Deref for CryptDERef<'a> {
@@ -132,14 +132,6 @@ impl SynchronizedCryptDEPair {
     pub fn alias_cryptde_ref(&self) -> CryptDERef {
         CryptDERef::new(&self.alias_cryptde)
     }
-}
-
-pub fn main_cryptde_ref() -> CryptDERef<'static> {
-    STATIC_CRYPTDE_PAIR.main_cryptde_ref()
-}
-
-pub fn alias_cryptde_ref() -> CryptDERef<'static> {
-    STATIC_CRYPTDE_PAIR.alias_cryptde_ref()
 }
 
 #[derive(Clone)]
@@ -569,12 +561,13 @@ impl ConfiguredByPrivilege for Bootstrapper {
             NodeConfiguratorStandardUnprivileged::new(&self.config).configure(multi_config)?;
         self.config.merge_unprivileged(unprivileged_config);
         let _ = self.set_up_clandestine_port();
-        let (alias_cryptde_null, main_cryptde_null) = self.null_cryptdes_as_trait_objects();
+        ***
+        // TODO: This is uncool. Before we start passing this around, we need to either generate
+        // real CryptDEs or read them from the database.
         STATIC_CRYPTDE_PAIR.initialize_cryptdes(
-            main_cryptde_null,
-            alias_cryptde_null,
+            Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN)),
+            Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN)),
         );
-        let cryptdes = CryptDEPair::default();
         let node_descriptor = Bootstrapper::make_local_descriptor(
             STATIC_CRYPTDE_PAIR.main_cryptde_ref().as_ref(),
             self.config.neighborhood_config.mode.node_addr_opt(),
@@ -753,7 +746,7 @@ mod tests {
     use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
     use crate::actor_system_factory::{ActorFactory, ActorSystemFactory};
     use crate::bootstrapper::{
-        main_cryptde_ref, Bootstrapper, BootstrapperConfig, EnvironmentWrapper, PortConfiguration,
+        Bootstrapper, BootstrapperConfig, EnvironmentWrapper, PortConfiguration,
         RealUser,
     };
     use crate::database::db_initializer::DbInitializationConfig;
@@ -1288,10 +1281,10 @@ mod tests {
         assert_eq!(
             config.node_descriptor,
             NodeDescriptor::from((
-                main_cryptde_ref().public_key(),
+                STATIC_CRYPTDE_PAIR.main_cryptde_ref().public_key(),
                 &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[5123]),
                 Chain::BaseSepolia,
-                main_cryptde_ref().as_ref()
+                STATIC_CRYPTDE_PAIR.main_cryptde_ref().as_ref()
             ))
         );
         TestLogHandler::new().exists_log_matching("INFO: Bootstrapper: MASQ Node local descriptor: masq://base-sepolia:.+@1\\.2\\.3\\.4:5123");
@@ -1404,10 +1397,10 @@ mod tests {
         assert_eq!(
             config.node_descriptor,
             NodeDescriptor::from((
-                main_cryptde_ref().public_key(),
+                STATIC_CRYPTDE_PAIR.main_cryptde_ref().public_key(),
                 &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[5123]),
                 Chain::BaseSepolia,
-                main_cryptde_ref().as_ref()
+                STATIC_CRYPTDE_PAIR.main_cryptde_ref().as_ref()
             ))
         );
         TestLogHandler::new().exists_log_matching("INFO: Bootstrapper: MASQ Node local descriptor: masq://base-sepolia:.+@1\\.2\\.3\\.4:5123");
@@ -1620,7 +1613,7 @@ mod tests {
         );
         let cryptdes = CryptDEPair::default();
 
-        assert_eq!(main_cryptde_ref().public_key(), cryptdes.main().public_key());
+        assert_eq!(STATIC_CRYPTDE_PAIR.main_cryptde_ref().public_key(), cryptdes.main().public_key());
         // Brittle assertion: this may not be true forever
         let cryptde_null = main_cryptde();
         assert!(cryptdes.main().public_key().len() > cryptde_null.public_key().len());
@@ -1629,7 +1622,7 @@ mod tests {
     #[test]
     fn initialize_cryptde_with_cryptde_null_uses_cryptde_null() {
         let _lock = INITIALIZATION.lock();
-        let cryptde_null = main_cryptde_ref().dup();
+        let cryptde_null = STATIC_CRYPTDE_PAIR.main_cryptde_ref().dup();
         let cryptde_null_public_key = cryptde_null.public_key().clone();
 
         STATIC_CRYPTDE_PAIR.initialize_cryptdes(
@@ -1639,7 +1632,7 @@ mod tests {
         let cryptdes = CryptDEPair::default();
 
         assert_eq!(cryptdes.main().public_key(), &cryptde_null_public_key);
-        assert_eq!(main_cryptde_ref().public_key(), cryptdes.main().public_key());
+        assert_eq!(STATIC_CRYPTDE_PAIR.main_cryptde_ref().public_key(), cryptdes.main().public_key());
     }
 
     #[test]
@@ -1652,8 +1645,8 @@ mod tests {
         );
         let cryptde_ref = {
             STATIC_CRYPTDE_PAIR.initialize_cryptdes(
-                Box::new(NullCryptDE{}),
-                Box::new(NullCryptDE{}),
+                Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN)),
+                Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN)),
             );
             let cryptdes = CryptDEPair::default();
             let descriptor = Bootstrapper::make_local_descriptor(
@@ -1663,7 +1656,7 @@ mod tests {
             );
             Bootstrapper::report_local_descriptor(cryptdes.main().as_ref(), &descriptor);
 
-            cryptdes.main().dup()
+            STATIC_CRYPTDE_PAIR.main_cryptde_ref().dup()
         };
         let expected_descriptor = format!(
             "masq://base-sepolia:{}@2.3.4.5:3456/4567",

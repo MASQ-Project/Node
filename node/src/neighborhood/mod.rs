@@ -75,6 +75,7 @@ use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
+use crate::test_utils::main_cryptde;
 
 pub const CRASH_KEY: &str = "NEIGHBORHOOD";
 pub const DEFAULT_MIN_HOPS: Hops = Hops::ThreeHops;
@@ -417,7 +418,7 @@ impl Neighborhood {
             cryptde.public_key(),
             neighborhood_mode.clone(),
             config.earning_wallet.clone(),
-            cryptde,
+            cryptde.dup(),
         );
         let is_mainnet = config.blockchain_bridge_config.chain.is_mainnet();
         let initial_neighbors: Vec<NodeDescriptor> = neighbor_configs
@@ -438,12 +439,12 @@ impl Neighborhood {
         let overall_connection_status = OverallConnectionStatus::new(initial_neighbors);
 
         Neighborhood {
-            cryptde,
+            cryptde: main_cryptde().dup(),
             hopper_opt: None,
             hopper_no_lookup_opt: None,
             connected_signal_opt: None,
             node_to_ui_recipient_opt: None,
-            gossip_acceptor: Box::new(GossipAcceptorReal::new(cryptde.as_ref())),
+            gossip_acceptor: Box::new(GossipAcceptorReal::new(main_cryptde().dup())),
             gossip_producer: Box::new(GossipProducerReal::new()),
             neighborhood_database,
             consuming_wallet_opt: config.consuming_wallet_opt.clone(),
@@ -1783,12 +1784,11 @@ mod tests {
         expected = "Neighbor masq://eth-mainnet:AQIDBA@1.2.3.4:1234 is on the mainnet blockchain"
     )]
     fn cant_create_non_mainnet_neighborhood_with_mainnet_neighbors() {
-        let cryptde = main_cryptde().as_ref();
         let earning_wallet = make_wallet("earning");
         let mut bc = bc_from_nc_plus(
             NeighborhoodConfig {
                 mode: NeighborhoodMode::ConsumeOnly(vec![NodeDescriptor::try_from((
-                    cryptde,
+                    main_cryptde().as_ref(),
                     "masq://eth-mainnet:AQIDBA@1.2.3.4:1234",
                 ))
                 .unwrap()]),
@@ -1800,16 +1800,15 @@ mod tests {
         );
         bc.blockchain_bridge_config.chain = TEST_DEFAULT_CHAIN;
 
-        let _ = Neighborhood::new(cryptde.dup(), &bc);
+        let _ = Neighborhood::new(main_cryptde().dup(), &bc);
     }
 
     #[test]
     fn node_with_zero_hop_config_creates_single_node_database() {
-        let cryptde = main_cryptde().as_ref();
         let earning_wallet = make_wallet("earning");
 
         let subject = Neighborhood::new(
-            cryptde.dup(),
+            main_cryptde().dup(),
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::ZeroHop,
@@ -1823,23 +1822,22 @@ mod tests {
 
         let root_node_record_ref = subject.neighborhood_database.root();
 
-        assert_eq!(root_node_record_ref.public_key(), cryptde.public_key());
+        assert_eq!(root_node_record_ref.public_key(), main_cryptde().public_key());
         assert_eq!(root_node_record_ref.node_addr_opt(), None);
         assert_eq!(root_node_record_ref.half_neighbor_keys().len(), 0);
     }
 
     #[test]
     fn node_with_originate_only_config_is_decentralized_with_neighbor_but_not_ip() {
-        let cryptde: &dyn CryptDE = main_cryptde().as_ref();
         let neighbor: NodeRecord = make_node_record(1234, true);
         let earning_wallet = make_wallet("earning");
 
         let subject = Neighborhood::new(
-            cryptde.dup(),
+            main_cryptde().dup(),
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::OriginateOnly(
-                        vec![neighbor.node_descriptor(TEST_DEFAULT_CHAIN, cryptde)],
+                        vec![neighbor.node_descriptor(TEST_DEFAULT_CHAIN, main_cryptde().as_ref())],
                         DEFAULT_RATE_PACK.clone(),
                     ),
                     min_hops: MIN_HOPS_FOR_TEST,
@@ -1852,7 +1850,7 @@ mod tests {
 
         let root_node_record_ref = subject.neighborhood_database.root();
 
-        assert_eq!(root_node_record_ref.public_key(), cryptde.public_key());
+        assert_eq!(root_node_record_ref.public_key(), main_cryptde().public_key());
         assert_eq!(root_node_record_ref.accepts_connections(), false);
         assert_eq!(root_node_record_ref.routes_data(), true);
         assert_eq!(root_node_record_ref.node_addr_opt(), None);
@@ -1871,13 +1869,12 @@ mod tests {
                 .initialize(&data_dir, DbInitializationConfig::test_default())
                 .unwrap();
         }
-        let cryptde = main_cryptde().as_ref();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let system =
             System::new("node_with_no_neighbor_configs_ignores_bootstrap_neighborhood_now_message");
         let mut subject = Neighborhood::new(
-            cryptde.dup(),
+            main_cryptde().dup(),
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::ZeroHop,
@@ -1910,7 +1907,6 @@ mod tests {
 
     #[test]
     fn neighborhood_adds_nodes_and_links() {
-        let cryptde: &dyn CryptDE = main_cryptde().as_ref();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let one_neighbor_node = make_node_record(3456, true);
@@ -1918,17 +1914,17 @@ mod tests {
         let this_node_addr = NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]);
 
         let subject = Neighborhood::new(
-            cryptde.dup(),
+            main_cryptde().dup(),
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::Standard(
                         this_node_addr.clone(),
                         vec![
-                            NodeDescriptor::from((&one_neighbor_node, Chain::EthRopsten, cryptde)),
+                            NodeDescriptor::from((&one_neighbor_node, Chain::EthRopsten, main_cryptde().as_ref())),
                             NodeDescriptor::from((
                                 &another_neighbor_node,
                                 Chain::EthRopsten,
-                                cryptde,
+                                main_cryptde().as_ref(),
                             )),
                         ],
                         rate_pack(100),
@@ -1959,8 +1955,8 @@ mod tests {
         assert_eq!(
             subject.overall_connection_status,
             OverallConnectionStatus::new(vec![
-                NodeDescriptor::from((&one_neighbor_node, Chain::EthRopsten, cryptde,)),
-                NodeDescriptor::from((&another_neighbor_node, Chain::EthRopsten, cryptde,))
+                NodeDescriptor::from((&one_neighbor_node, Chain::EthRopsten, main_cryptde().as_ref())),
+                NodeDescriptor::from((&another_neighbor_node, Chain::EthRopsten, main_cryptde().as_ref()))
             ])
         );
     }
@@ -2537,24 +2533,23 @@ mod tests {
     #[test]
     fn gossip_failures_eventually_stop_the_neighborhood() {
         init_test_logging();
-        let cryptde: &dyn CryptDE = main_cryptde().as_ref();
         let earning_wallet = make_wallet("earning");
         let one_neighbor_node: NodeRecord = make_node_record(3456, true);
         let another_neighbor_node: NodeRecord = make_node_record(4567, true);
         let this_node_addr = NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]);
 
         let subject = Neighborhood::new(
-            cryptde.dup(),
+            main_cryptde().dup(),
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::Standard(
                         this_node_addr.clone(),
                         vec![
-                            NodeDescriptor::from((&one_neighbor_node, Chain::EthRopsten, cryptde)),
+                            NodeDescriptor::from((&one_neighbor_node, Chain::EthRopsten, main_cryptde().as_ref())),
                             NodeDescriptor::from((
                                 &another_neighbor_node,
                                 Chain::EthRopsten,
-                                cryptde,
+                                main_cryptde().as_ref(),
                             )),
                         ],
                         rate_pack(100),
@@ -2629,7 +2624,6 @@ mod tests {
 
     #[test]
     fn route_query_works_when_node_is_set_for_one_hop_and_no_consuming_wallet() {
-        let cryptde = main_cryptde().as_ref();
         let earning_wallet = make_wallet("earning");
         let system =
             System::new("route_query_works_when_node_is_set_for_one_hop_and_no_consuming_wallet");
@@ -2682,7 +2676,7 @@ mod tests {
                     vec![&desirable_exit_node, originating_node],
                     Component::ProxyServer,
                 ),
-                cryptde,
+                main_cryptde().as_ref(),
                 None,
                 0,
                 None,
@@ -2731,7 +2725,6 @@ mod tests {
 
     #[test]
     fn route_query_responds_with_standard_zero_hop_route_when_requested() {
-        let cryptde = main_cryptde().as_ref();
         let system = System::new("responds_with_standard_zero_hop_route_when_requested");
         let mut subject = make_standard_subject();
         subject.mode = NeighborhoodModeLight::ZeroHop;
@@ -2748,14 +2741,14 @@ mod tests {
         let expected_response = RouteQueryResponse {
             route: Route::round_trip(
                 RouteSegment::new(
-                    vec![&cryptde.public_key(), &cryptde.public_key()],
+                    vec![&main_cryptde().public_key(), &main_cryptde().public_key()],
                     Component::ProxyClient,
                 ),
                 RouteSegment::new(
-                    vec![&cryptde.public_key(), &cryptde.public_key()],
+                    vec![&main_cryptde().public_key(), &main_cryptde().public_key()],
                     Component::ProxyServer,
                 ),
-                cryptde,
+                main_cryptde().as_ref(),
                 None,
                 0,
                 None,
@@ -2802,7 +2795,6 @@ mod tests {
 
     #[test]
     fn route_query_messages() {
-        let cryptde = main_cryptde().as_ref();
         let earning_wallet = make_wallet("earning");
         let system = System::new("route_query_messages");
         let mut subject = make_standard_subject();
@@ -2846,7 +2838,7 @@ mod tests {
             route: Route::round_trip(
                 segment(&[p, q, r], &Component::ProxyClient),
                 segment(&[r, q, p], &Component::ProxyServer),
-                cryptde,
+                main_cryptde().as_ref(),
                 consuming_wallet_opt,
                 0,
                 Some(contract_address),
@@ -3518,11 +3510,10 @@ mod tests {
     #[test]
     fn gossips_after_removing_a_neighbor() {
         let (hopper, hopper_awaiter, hopper_recording) = make_recorder();
-        let cryptde = main_cryptde().as_ref();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let this_node = NodeRecord::new_for_tests(
-            &cryptde.public_key(),
+            &main_cryptde().public_key(),
             Some(&NodeAddr::new(
                 &IpAddr::from_str("5.4.3.2").unwrap(),
                 &[1234],
@@ -3540,7 +3531,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("gossips_after_removing_a_neighbor");
             let mut subject = Neighborhood::new(
-                cryptde.dup(),
+                main_cryptde().dup(),
                 &bc_from_nc_plus(
                     NeighborhoodConfig {
                         mode: NeighborhoodMode::Standard(
@@ -3560,11 +3551,11 @@ mod tests {
             db.add_node(removed_neighbor_inside.clone()).unwrap();
             db.add_node(other_neighbor_inside.clone()).unwrap();
             db.add_arbitrary_full_neighbor(
-                &cryptde.public_key(),
+                &main_cryptde().public_key(),
                 removed_neighbor_inside.public_key(),
             );
             db.add_arbitrary_full_neighbor(
-                &cryptde.public_key(),
+                &main_cryptde().public_key(),
                 other_neighbor_inside.public_key(),
             );
             db.add_arbitrary_full_neighbor(
@@ -4097,7 +4088,6 @@ mod tests {
 
     #[test]
     fn neighborhood_updates_past_neighbors_when_neighbor_list_changes() {
-        let cryptde: &dyn CryptDE = main_cryptde().as_ref();
         let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
         let old_neighbor = make_node_record(1111, true);
         let new_neighbor = make_node_record(2222, true);
@@ -4130,11 +4120,11 @@ mod tests {
         let neighbors = neighbors_opt.unwrap();
         assert_contains(
             &neighbors,
-            &NodeDescriptor::from((&old_neighbor, TEST_DEFAULT_CHAIN, cryptde)),
+            &NodeDescriptor::from((&old_neighbor, TEST_DEFAULT_CHAIN, main_cryptde().as_ref())),
         );
         assert_contains(
             &neighbors,
-            &NodeDescriptor::from((&new_neighbor, TEST_DEFAULT_CHAIN, cryptde)),
+            &NodeDescriptor::from((&new_neighbor, TEST_DEFAULT_CHAIN, main_cryptde().as_ref())),
         );
         assert_eq!(neighbors.len(), 2);
         assert_eq!(db_password, "password".to_string());
@@ -4627,9 +4617,8 @@ mod tests {
     #[test]
     fn neighborhood_logs_received_gossip_in_dot_graph_format() {
         init_test_logging();
-        let cryptde = main_cryptde().as_ref();
         let this_node = NodeRecord::new_for_tests(
-            &cryptde.public_key(),
+            &main_cryptde().public_key(),
             Some(&NodeAddr::new(
                 &IpAddr::from_str("5.4.3.2").unwrap(),
                 &[1234],
@@ -4669,7 +4658,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("");
             let subject = Neighborhood::new(
-                cryptde.dup(),
+                main_cryptde().dup(),
                 &bc_from_nc_plus(
                     NeighborhoodConfig {
                         mode: NeighborhoodMode::Standard(
@@ -4704,10 +4693,10 @@ mod tests {
         tlh.exists_log_containing("\"AQMCBA\" [label=\"AR v0\\nAQMCBA\"];");
         tlh.exists_log_containing(&format!(
             "\"{}\" [label=\"{}\"] [shape=none];",
-            cryptde.public_key(),
-            &format!("{}", cryptde.public_key())[..8]
+            main_cryptde().public_key(),
+            &format!("{}", main_cryptde().public_key())[..8]
         ));
-        tlh.exists_log_containing(&format!("\"BAYFBw\" -> \"{}\";", cryptde.public_key()));
+        tlh.exists_log_containing(&format!("\"BAYFBw\" -> \"{}\";", main_cryptde().public_key()));
         tlh.exists_log_containing("\"AQMCBA\" -> \"BAYFBw\";");
         tlh.exists_log_containing("\"BAYFBw\" -> \"AQMCBA\";");
     }
@@ -4724,7 +4713,6 @@ mod tests {
                 .initialize(&data_dir, DbInitializationConfig::test_default())
                 .unwrap();
         }
-        let cryptde: &dyn CryptDE = main_cryptde().as_ref();
         let debut_target = NodeDescriptor::try_from((
             main_cryptde().as_ref(), // Used to provide default cryptde
             "masq://eth-ropsten:AQIDBA@1.2.3.4:1234",
@@ -4732,7 +4720,7 @@ mod tests {
         .unwrap();
         let (hopper, _, hopper_recording) = make_recorder();
         let mut subject = Neighborhood::new(
-            cryptde.dup(),
+            main_cryptde().dup(),
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::Standard(
@@ -4742,8 +4730,8 @@ mod tests {
                     ),
                     min_hops: MIN_HOPS_FOR_TEST,
                 },
-                NodeRecord::earning_wallet_from_key(&cryptde.public_key()),
-                NodeRecord::consuming_wallet_from_key(&cryptde.public_key()),
+                NodeRecord::earning_wallet_from_key(&main_cryptde().public_key()),
+                NodeRecord::consuming_wallet_from_key(&main_cryptde().public_key()),
                 "node_gossips_to_neighbors_on_startup",
             ),
         );
@@ -4957,13 +4945,11 @@ mod tests {
     }
 
     fn node_record_to_neighbor_config(node_record_ref: &NodeRecord) -> NodeDescriptor {
-        let cryptde: &dyn CryptDE = main_cryptde().as_ref();
-        NodeDescriptor::from((node_record_ref, Chain::EthRopsten, cryptde))
+        NodeDescriptor::from((node_record_ref, Chain::EthRopsten, main_cryptde().as_ref()))
     }
 
     #[test]
     fn neighborhood_sends_node_query_response_with_none_when_initially_configured_with_no_data() {
-        let cryptde = main_cryptde().as_ref();
         let (recorder, awaiter, recording_arc) = make_recorder();
         thread::spawn(move || {
             let system = System::new("responds_with_none_when_initially_configured_with_no_data");
@@ -4980,7 +4966,7 @@ mod tests {
             sub.try_send(DispatcherNodeQueryMessage {
                 query: NodeQueryMessage::PublicKey(PublicKey::new(&b"booga"[..])),
                 context: TransmitDataMsg {
-                    endpoint: Endpoint::Key(cryptde.public_key().clone()),
+                    endpoint: Endpoint::Key(main_cryptde().public_key().clone()),
                     last_data: false,
                     sequence_number: None,
                     data: Vec::new(),
@@ -5002,7 +4988,6 @@ mod tests {
     #[test]
     fn neighborhood_sends_node_query_response_with_none_when_key_query_matches_no_configured_data()
     {
-        let cryptde: &dyn CryptDE = main_cryptde().as_ref();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let (recorder, awaiter, recording_arc) = make_recorder();
@@ -5013,7 +4998,7 @@ mod tests {
                 addr.recipient::<DispatcherNodeQueryResponse>();
 
             let subject = Neighborhood::new(
-                cryptde.dup(),
+                main_cryptde().dup(),
                 &bc_from_nc_plus(
                     NeighborhoodConfig {
                         mode: NeighborhoodMode::Standard(
@@ -5025,7 +5010,7 @@ mod tests {
                                     &[1234, 2345],
                                 ),
                                 Chain::EthRopsten,
-                                cryptde,
+                                main_cryptde().as_ref(),
                             ))],
                             rate_pack(100),
                         ),
@@ -5043,7 +5028,7 @@ mod tests {
             sub.try_send(DispatcherNodeQueryMessage {
                 query: NodeQueryMessage::PublicKey(PublicKey::new(&b"blah"[..])),
                 context: TransmitDataMsg {
-                    endpoint: Endpoint::Key(cryptde.public_key().clone()),
+                    endpoint: Endpoint::Key(main_cryptde().public_key().clone()),
                     last_data: false,
                     sequence_number: None,
                     data: Vec::new(),
@@ -5064,7 +5049,6 @@ mod tests {
 
     #[test]
     fn neighborhood_sends_node_query_response_with_result_when_key_query_matches_configured_data() {
-        let cryptde = main_cryptde().as_ref();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let (recorder, awaiter, recording_arc) = make_recorder();
@@ -5072,7 +5056,7 @@ mod tests {
         let another_neighbor = make_node_record(3456, true);
         let another_neighbor_a = another_neighbor.clone();
         let context = TransmitDataMsg {
-            endpoint: Endpoint::Key(cryptde.public_key().clone()),
+            endpoint: Endpoint::Key(main_cryptde().public_key().clone()),
             last_data: false,
             sequence_number: None,
             data: Vec::new(),
@@ -5083,7 +5067,7 @@ mod tests {
             let addr: Addr<Recorder> = recorder.start();
             let recipient = addr.recipient::<DispatcherNodeQueryResponse>();
             let mut subject = Neighborhood::new(
-                cryptde.dup(),
+                main_cryptde().dup(),
                 &bc_from_nc_plus(
                     NeighborhoodConfig {
                         mode: NeighborhoodMode::Standard(
@@ -5132,7 +5116,6 @@ mod tests {
     #[test]
     fn neighborhood_sends_node_query_response_with_none_when_ip_address_query_matches_no_configured_data(
     ) {
-        let cryptde: &dyn CryptDE = main_cryptde().as_ref();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let (recorder, awaiter, recording_arc) = make_recorder();
@@ -5142,7 +5125,7 @@ mod tests {
             let recipient: Recipient<DispatcherNodeQueryResponse> =
                 addr.recipient::<DispatcherNodeQueryResponse>();
             let subject = Neighborhood::new(
-                cryptde.dup(),
+                main_cryptde().dup(),
                 &bc_from_nc_plus(
                     NeighborhoodConfig {
                         mode: NeighborhoodMode::Standard(
@@ -5154,7 +5137,7 @@ mod tests {
                                     &[1234, 2345],
                                 ),
                                 Chain::EthRopsten,
-                                cryptde,
+                                main_cryptde().as_ref(),
                             ))],
                             rate_pack(100),
                         ),
@@ -5172,7 +5155,7 @@ mod tests {
             sub.try_send(DispatcherNodeQueryMessage {
                 query: NodeQueryMessage::IpAddress(IpAddr::from_str("2.3.4.5").unwrap()),
                 context: TransmitDataMsg {
-                    endpoint: Endpoint::Key(cryptde.public_key().clone()),
+                    endpoint: Endpoint::Key(main_cryptde().public_key().clone()),
                     last_data: false,
                     sequence_number: None,
                     data: Vec::new(),
@@ -5194,13 +5177,12 @@ mod tests {
     #[test]
     fn neighborhood_sends_node_query_response_with_result_when_ip_address_query_matches_configured_data(
     ) {
-        let cryptde: &dyn CryptDE = main_cryptde().as_ref();
         let (recorder, awaiter, recording_arc) = make_recorder();
         let node_record = make_node_record(1234, true);
         let another_node_record = make_node_record(2345, true);
         let another_node_record_a = another_node_record.clone();
         let context = TransmitDataMsg {
-            endpoint: Endpoint::Key(cryptde.public_key().clone()),
+            endpoint: Endpoint::Key(main_cryptde().public_key().clone()),
             last_data: false,
             sequence_number: None,
             data: Vec::new(),
@@ -5218,7 +5200,7 @@ mod tests {
                         vec![NodeDescriptor::from((
                             &node_record,
                             Chain::EthRopsten,
-                            cryptde,
+                            main_cryptde().as_ref(),
                         ))],
                         rate_pack(100),
                     ),
@@ -5228,7 +5210,7 @@ mod tests {
                 None,
                 "neighborhood_sends_node_query_response_with_result_when_ip_address_query_matches_configured_data",
             );
-            let mut subject = Neighborhood::new(cryptde.dup(), &config);
+            let mut subject = Neighborhood::new(main_cryptde().dup(), &config);
             subject
                 .neighborhood_database
                 .add_node(another_node_record_a)

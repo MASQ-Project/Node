@@ -70,10 +70,9 @@ mod tests {
 
     #[test]
     fn decode_can_handle_errors() {
-        let cryptde = main_cryptde().as_ref();
         let encrypted = CryptData::new(&[0]);
 
-        let result = LiveHop::decode(cryptde, &encrypted);
+        let result = LiveHop::decode(main_cryptde().as_ref(), &encrypted);
 
         assert_eq!(
             format!("{:?}", result).contains("DecryptionError(InvalidKey("),
@@ -85,9 +84,8 @@ mod tests {
 
     #[test]
     fn encode_decode() {
-        let cryptde = main_cryptde().as_ref();
         let paying_wallet = make_paying_wallet(b"wallet");
-        let encode_key = cryptde.public_key();
+        let encode_key = main_cryptde().public_key().clone();
         let contract_address = &TEST_DEFAULT_CHAIN.rec().contract.clone();
         let hopper_hop = LiveHop::new(
             &PublicKey::new(&[4, 3, 2, 1]),
@@ -120,30 +118,30 @@ mod tests {
             Component::Hopper,
         );
 
-        let hopper_hop_encoded = hopper_hop.encode(&encode_key, cryptde).unwrap();
-        let neighborhood_hop_encoded = neighborhood_hop.encode(&encode_key, cryptde).unwrap();
-        let proxy_server_hop_encoded = proxy_server_hop.encode(&encode_key, cryptde).unwrap();
-        let proxy_client_hop_encoded = proxy_client_hop.encode(&encode_key, cryptde).unwrap();
-        let none_hop_encoded = relay_hop.encode(&encode_key, cryptde).unwrap();
+        let hopper_hop_encoded = hopper_hop.encode(&encode_key, main_cryptde().as_ref()).unwrap();
+        let neighborhood_hop_encoded = neighborhood_hop.encode(&encode_key, main_cryptde().as_ref()).unwrap();
+        let proxy_server_hop_encoded = proxy_server_hop.encode(&encode_key, main_cryptde().as_ref()).unwrap();
+        let proxy_client_hop_encoded = proxy_client_hop.encode(&encode_key, main_cryptde().as_ref()).unwrap();
+        let none_hop_encoded = relay_hop.encode(&encode_key, main_cryptde().as_ref()).unwrap();
 
         assert_eq!(
-            LiveHop::decode(cryptde, &hopper_hop_encoded).unwrap(),
+            LiveHop::decode(main_cryptde().as_ref(), &hopper_hop_encoded).unwrap(),
             hopper_hop
         );
         assert_eq!(
-            LiveHop::decode(cryptde, &neighborhood_hop_encoded).unwrap(),
+            LiveHop::decode(main_cryptde().as_ref(), &neighborhood_hop_encoded).unwrap(),
             neighborhood_hop
         );
         assert_eq!(
-            LiveHop::decode(cryptde, &proxy_server_hop_encoded).unwrap(),
+            LiveHop::decode(main_cryptde().as_ref(), &proxy_server_hop_encoded).unwrap(),
             proxy_server_hop
         );
         assert_eq!(
-            LiveHop::decode(cryptde, &proxy_client_hop_encoded).unwrap(),
+            LiveHop::decode(main_cryptde().as_ref(), &proxy_client_hop_encoded).unwrap(),
             proxy_client_hop
         );
         assert_eq!(
-            LiveHop::decode(cryptde, &none_hop_encoded).unwrap(),
+            LiveHop::decode(main_cryptde().as_ref(), &none_hop_encoded).unwrap(),
             relay_hop
         );
     }

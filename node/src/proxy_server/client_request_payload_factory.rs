@@ -92,12 +92,11 @@ mod tests {
             is_clandestine: false,
             data: data.clone().into(),
         };
-        let cryptde = main_cryptde().as_ref();
         let stream_key = StreamKey::make_meaningless_stream_key();
         let logger = Logger::new("test");
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
-        let result = subject.make(&ibcd, stream_key, cryptde, &logger);
+        let result = subject.make(&ibcd, stream_key, main_cryptde().as_ref(), &logger);
 
         assert_eq!(
             result,
@@ -111,7 +110,7 @@ mod tests {
                 target_hostname: Some(String::from("borkoed.com")),
                 target_port: 2345,
                 protocol: ProxyProtocol::HTTP,
-                originator_public_key: cryptde.public_key().clone(),
+                originator_public_key: main_cryptde().public_key().clone(),
             })
         );
     }
@@ -129,12 +128,11 @@ mod tests {
             is_clandestine: false,
             data: data.clone().into(),
         };
-        let cryptde = main_cryptde().as_ref();
         let logger = Logger::new(test_name);
         let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
-        let result = subject.make(&ibcd, stream_key, cryptde, &logger);
+        let result = subject.make(&ibcd, stream_key, main_cryptde().as_ref(), &logger);
 
         assert_eq!(
             result,
@@ -148,7 +146,7 @@ mod tests {
                 target_hostname: Some(String::from("borkoed.com")),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
-                originator_public_key: cryptde.public_key().clone(),
+                originator_public_key: main_cryptde().public_key().clone(),
             })
         );
     }
@@ -185,11 +183,10 @@ mod tests {
             data: data.clone().into(),
         };
         let stream_key = StreamKey::make_meaningless_stream_key();
-        let cryptde = main_cryptde().as_ref();
         let logger = Logger::new("test");
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
-        let result = subject.make(&ibcd, stream_key, cryptde, &logger);
+        let result = subject.make(&ibcd, stream_key, main_cryptde().as_ref(), &logger);
 
         assert_eq!(
             result,
@@ -203,7 +200,7 @@ mod tests {
                 target_hostname: Some(String::from("server.com")),
                 target_port: 443,
                 protocol: ProxyProtocol::TLS,
-                originator_public_key: cryptde.public_key().clone(),
+                originator_public_key: main_cryptde().public_key().clone(),
             })
         );
     }
@@ -234,12 +231,11 @@ mod tests {
             sequence_number: Some(0),
             data: data.clone().into(),
         };
-        let cryptde = main_cryptde().as_ref();
         let logger = Logger::new(test_name);
         let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
-        let result = subject.make(&ibcd, stream_key, cryptde, &logger);
+        let result = subject.make(&ibcd, stream_key, main_cryptde().as_ref(), &logger);
 
         assert_eq!(
             result,
@@ -253,7 +249,7 @@ mod tests {
                 target_hostname: None,
                 target_port: 443,
                 protocol: ProxyProtocol::TLS,
-                originator_public_key: cryptde.public_key().clone(),
+                originator_public_key: main_cryptde().public_key().clone(),
             })
         );
     }
@@ -271,12 +267,11 @@ mod tests {
             is_clandestine: false,
             data: vec![0x10, 0x11, 0x12],
         };
-        let cryptde = main_cryptde().as_ref();
         let logger = Logger::new(test_name);
         let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
-        let result = subject.make(&ibcd, stream_key, cryptde, &logger);
+        let result = subject.make(&ibcd, stream_key, main_cryptde().as_ref(), &logger);
 
         assert_eq!(result, None);
         TestLogHandler::new().exists_log_containing(
@@ -297,12 +292,11 @@ mod tests {
             is_clandestine: true,
             data: vec![0x10, 0x11, 0x12],
         };
-        let cryptde = main_cryptde().as_ref();
         let logger = Logger::new(test_name);
         let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
-        let result = subject.make(&ibcd, stream_key, cryptde, &logger);
+        let result = subject.make(&ibcd, stream_key, main_cryptde().as_ref(), &logger);
 
         assert_eq!(result, None);
         TestLogHandler::new().exists_log_containing(&format!("ERROR: {test_name}: No protocol associated with origin port 1234 for 3-byte non-clandestine packet: [16, 17, 18]"));
@@ -319,7 +313,6 @@ mod tests {
             data: vec![0x10, 0x11, 0x12],
             is_clandestine: false,
         };
-        let cryptde = main_cryptde().as_ref();
         let logger = Logger::new("test");
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
@@ -327,7 +320,7 @@ mod tests {
             .make(
                 &ibcd,
                 StreamKey::make_meaningless_stream_key(),
-                cryptde,
+                main_cryptde().as_ref(),
                 &logger,
             )
             .unwrap();
@@ -348,12 +341,11 @@ mod tests {
             sequence_number: None,
             data: vec![1, 3, 5, 7],
         };
-        let cryptde = main_cryptde().as_ref();
         let logger = Logger::new(test_name);
         let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
-        let result = subject.make(&ibcd, stream_key, cryptde, &logger);
+        let result = subject.make(&ibcd, stream_key, main_cryptde().as_ref(), &logger);
 
         assert_eq!(result, None);
         TestLogHandler::new().exists_log_containing(&format!(

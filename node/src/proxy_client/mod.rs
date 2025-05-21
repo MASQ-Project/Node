@@ -414,7 +414,7 @@ mod tests {
             Mutex<
                 Vec<(
                     Box<dyn ResolverWrapper>,
-                    &'static dyn CryptDE,
+                    Box<dyn CryptDE>,
                     Recipient<ReportExitServiceProvidedMessage>,
                     ProxyClientSubs,
                     u64,
@@ -429,7 +429,7 @@ mod tests {
         fn make(
             &self,
             resolver: Box<dyn ResolverWrapper>,
-            cryptde: &'static dyn CryptDE,
+            cryptde: &dyn CryptDE,
             accountant_sub: Recipient<ReportExitServiceProvidedMessage>,
             proxy_client_subs: ProxyClientSubs,
             exit_service_rate: u64,
@@ -437,7 +437,7 @@ mod tests {
         ) -> Box<dyn StreamHandlerPool> {
             self.make_parameters.lock().unwrap().push((
                 resolver,
-                cryptde,
+                cryptde.dup(),
                 accountant_sub,
                 proxy_client_subs,
                 exit_service_rate,
@@ -461,7 +461,7 @@ mod tests {
                 Mutex<
                     Vec<(
                         Box<dyn ResolverWrapper>,
-                        &'static dyn CryptDE,
+                        Box<dyn CryptDE>,
                         Recipient<ReportExitServiceProvidedMessage>,
                         ProxyClientSubs,
                         u64,
@@ -612,17 +612,16 @@ mod tests {
             protocol: ProxyProtocol::HTTP,
             originator_public_key: PublicKey::new(&b"originator_public_key"[..]),
         };
-        let cryptde = main_cryptde().as_ref();
         let package = ExpiredCoresPackage::new(
             SocketAddr::from_str("1.2.3.4:1234").unwrap(),
             Some(make_wallet("consuming")),
-            route_to_proxy_client(&cryptde.public_key(), cryptde),
+            route_to_proxy_client(&main_cryptde().public_key(), main_cryptde().as_ref()),
             request,
             0,
         );
         let system = System::new("panics_if_hopper_is_unbound");
         let subject = ProxyClient::new(ProxyClientConfig {
-            cryptde: cryptde.dup(),
+            cryptde: main_cryptde().dup(),
             dns_servers: dnss(),
             exit_service_rate: 100,
             exit_byte_rate: 200,
@@ -640,13 +639,12 @@ mod tests {
     #[test]
     fn logs_nonexistent_stream_key_during_dns_resolution_failure() {
         init_test_logging();
-        let cryptde = main_cryptde().as_ref();
         let stream_key = StreamKey::make_meaningless_stream_key();
         let stream_key_inner = stream_key.clone();
         thread::spawn(move || {
             let system = System::new("logs_nonexistent_stream_key_during_dns_resolution_failure");
             let subject = ProxyClient::new(ProxyClientConfig {
-                cryptde: cryptde.dup(),
+                cryptde: main_cryptde().dup(),
                 dns_servers: vec![SocketAddr::from_str("1.1.1.1:53").unwrap()],
                 exit_service_rate: 0,
                 exit_byte_rate: 0,
@@ -675,7 +673,6 @@ mod tests {
     #[test]
     fn forwards_dns_resolve_failed_to_hopper() {
         init_test_logging();
-        let cryptde = main_cryptde().as_ref();
         let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
         let stream_key = StreamKey::make_meaningless_stream_key();
         let return_route = make_meaningless_route();
@@ -687,7 +684,7 @@ mod tests {
             let system = System::new("forwards_dns_resolve_failed_to_hopper");
             let peer_actors = peer_actors_builder().hopper(hopper).build();
             let mut subject = ProxyClient::new(ProxyClientConfig {
-                cryptde: cryptde.dup(),
+                cryptde: main_cryptde().dup(),
                 dns_servers: vec![SocketAddr::from_str("1.1.1.1:53").unwrap()],
                 exit_service_rate: 0,
                 exit_byte_rate: 0,
@@ -724,7 +721,7 @@ mod tests {
 
         let message_type: MessageType = DnsResolveFailure_0v1::new(stream_key).into();
         assert_eq!(
-            &IncipientCoresPackage::new(cryptde, return_route, message_type, &originator_key)
+            &IncipientCoresPackage::new(main_cryptde().as_ref(), return_route, message_type, &originator_key)
                 .unwrap(),
             hopper_recording_arc
                 .lock()
@@ -742,7 +739,6 @@ mod tests {
 
     #[test]
     fn data_from_hopper_is_relayed_to_stream_handler_pool() {
-        let cryptde = main_cryptde().as_ref();
         let request = ClientRequestPayload_0v1 {
             stream_key: StreamKey::make_meaningless_stream_key(),
             sequenced_packet: SequencedPacket {
@@ -779,7 +775,7 @@ mod tests {
             .lookup_ip_success(vec![IpAddr::from_str("4.3.2.1").unwrap()]);
         let resolver_factory = ResolverWrapperFactoryMock::new().new_result(Box::new(resolver));
         let mut subject = ProxyClient::new(ProxyClientConfig {
-            cryptde: cryptde.dup(),
+            cryptde: main_cryptde().dup(),
             dns_servers: dnss(),
             exit_service_rate: 100,
             exit_byte_rate: 200,
@@ -802,7 +798,6 @@ mod tests {
     #[test]
     fn refuse_to_provide_exit_services_with_no_paying_wallet() {
         init_test_logging();
-        let cryptde = main_cryptde().as_ref();
         let request = ClientRequestPayload_0v1 {
             stream_key: StreamKey::make_meaningless_stream_key(),
             sequenced_packet: SequencedPacket {
@@ -836,7 +831,7 @@ mod tests {
             .lookup_ip_success(vec![IpAddr::from_str("4.3.2.1").unwrap()]);
         let resolver_factory = ResolverWrapperFactoryMock::new().new_result(Box::new(resolver));
         let mut subject = ProxyClient::new(ProxyClientConfig {
-            cryptde: cryptde.dup(),
+            cryptde: main_cryptde().dup(),
             dns_servers: dnss(),
             exit_service_rate: rate_pack_exit(100),
             exit_byte_rate: rate_pack_exit_byte(100),
@@ -858,8 +853,6 @@ mod tests {
 
     #[test]
     fn does_provide_zero_hop_exit_services_with_no_paying_wallet() {
-        let main_cryptde = main_cryptde().as_ref();
-        let alias_cryptde = alias_cryptde().as_ref();
         let request = ClientRequestPayload_0v1 {
             stream_key: StreamKey::make_meaningless_stream_key(),
             sequenced_packet: SequencedPacket {
@@ -870,14 +863,14 @@ mod tests {
             target_hostname: None,
             target_port: 0,
             protocol: ProxyProtocol::HTTP,
-            originator_public_key: alias_cryptde.public_key().clone(),
+            originator_public_key: alias_cryptde().public_key().clone(),
         };
         let zero_hop_remaining_route = Route::one_way(
             RouteSegment::new(
-                vec![main_cryptde.public_key(), main_cryptde.public_key()],
+                vec![main_cryptde().public_key(), main_cryptde().public_key()],
                 Component::ProxyServer,
             ),
-            main_cryptde,
+            main_cryptde().as_ref(),
             None,
             Some(Chain::EthRopsten.rec().contract),
         )
@@ -903,7 +896,7 @@ mod tests {
             .lookup_ip_success(vec![IpAddr::from_str("4.3.2.1").unwrap()]);
         let resolver_factory = ResolverWrapperFactoryMock::new().new_result(Box::new(resolver));
         let mut subject = ProxyClient::new(ProxyClientConfig {
-            cryptde: main_cryptde.dup(),
+            cryptde: main_cryptde().dup(),
             dns_servers: dnss(),
             exit_service_rate: rate_pack_exit(100),
             exit_byte_rate: rate_pack_exit_byte(100),
@@ -1178,14 +1171,13 @@ mod tests {
 
     #[test]
     fn new_return_route_overwrites_existing_return_route() {
-        let cryptde = main_cryptde().as_ref();
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let stream_key = StreamKey::make_meaningless_stream_key();
         let data: &[u8] = b"An honest politician is one who, when he is bought, will stay bought.";
         let system = System::new("new_return_route_overwrites_existing_return_route");
         let mut subject = ProxyClient::new(ProxyClientConfig {
-            cryptde: cryptde.dup(),
+            cryptde: main_cryptde().dup(),
             dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
             exit_service_rate: 100,
             exit_byte_rate: 200,
@@ -1258,7 +1250,7 @@ mod tests {
         assert_eq!(paying_wallet_opt, Some(make_wallet("gnimusnoc")));
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let expected_icp = IncipientCoresPackage::new(
-            cryptde,
+            main_cryptde().as_ref(),
             new_return_route,
             MessageType::ClientResponse(VersionedData::new(
                 &crate::sub_lib::migrations::client_response_payload::MIGRATIONS,

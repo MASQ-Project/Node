@@ -396,14 +396,13 @@ mod tests {
 
     #[test]
     fn node_descriptor_works_when_node_addr_is_present() {
-        let cryptde: &dyn CryptDE = main_cryptde().as_ref();
         let mut subject = make_node_record(1234, true);
         subject.metadata.node_addr_opt = Some(NodeAddr::new(
             &subject.metadata.node_addr_opt.unwrap().ip_addr(),
             &[1234, 2345],
         ));
 
-        let result = subject.node_descriptor(TEST_DEFAULT_CHAIN, cryptde);
+        let result = subject.node_descriptor(TEST_DEFAULT_CHAIN, main_cryptde().as_ref());
 
         assert_eq!(
             result,
@@ -417,10 +416,9 @@ mod tests {
 
     #[test]
     fn node_descriptor_works_when_node_addr_is_not_present() {
-        let cryptde: &dyn CryptDE = main_cryptde().as_ref();
         let subject: NodeRecord = make_node_record(1234, false);
 
-        let result = subject.node_descriptor(TEST_DEFAULT_CHAIN, cryptde);
+        let result = subject.node_descriptor(TEST_DEFAULT_CHAIN, main_cryptde().as_ref());
 
         assert_eq!(
             result,

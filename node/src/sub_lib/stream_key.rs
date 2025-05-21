@@ -137,7 +137,7 @@ mod tests {
 
     #[test]
     fn stream_keys_with_different_host_names_are_different() {
-        let public_key = main_cryptde().public_key();
+        let public_key = main_cryptde().public_key().clone();
         let stream_key_count = 100;
         let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
         let client_addrs = (0..stream_key_count).map(|i| SocketAddr::new(ip_addr, 1024 + i as u16));
@@ -167,13 +167,13 @@ mod tests {
 
     #[test]
     fn stream_keys_are_salted() {
-        let public_key = main_cryptde().public_key();
+        let public_key = main_cryptde().public_key().clone();
         let client_addr = SocketAddr::new(IpAddr::from_str("1.2.3.4").unwrap(), 1024);
 
         let result = StreamKey::new(&public_key, client_addr);
 
         let mut hash = sha1::Sha1::new();
-        hash.update(public_key.as_ref());
+        hash.update(&public_key.as_ref());
         hash = add_socket_addr_to_hash(hash, client_addr);
         let attack = StreamKey {
             hash: hash.digest().bytes(),

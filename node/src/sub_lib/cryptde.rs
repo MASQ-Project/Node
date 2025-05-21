@@ -1105,23 +1105,21 @@ mod tests {
 
     #[test]
     fn encodex_and_decodex_communicate() {
-        let cryptde = main_cryptde().as_ref();
         let start = TestStruct::make();
 
-        let intermediate = encodex(cryptde, &cryptde.public_key(), &start).unwrap();
-        let end = decodex::<TestStruct>(cryptde, &intermediate).unwrap();
+        let intermediate = encodex(main_cryptde().as_ref(), &main_cryptde().public_key(), &start).unwrap();
+        let end = decodex::<TestStruct>(main_cryptde().as_ref(), &intermediate).unwrap();
 
         assert_eq!(end, start);
     }
 
     #[test]
     fn encodex_produces_expected_data() {
-        let cryptde = main_cryptde().as_ref();
         let start = TestStruct::make();
 
-        let intermediate = super::encodex(cryptde, &cryptde.public_key(), &start).unwrap();
+        let intermediate = super::encodex(main_cryptde().as_ref(), &main_cryptde().public_key(), &start).unwrap();
 
-        let decrypted = cryptde.decode(&intermediate).unwrap();
+        let decrypted = main_cryptde().decode(&intermediate).unwrap();
         let deserialized: TestStruct = serde_cbor::de::from_slice(decrypted.as_slice()).unwrap();
 
         assert_eq!(deserialized, start);
@@ -1129,23 +1127,21 @@ mod tests {
 
     #[test]
     fn decodex_produces_expected_structure() {
-        let cryptde = main_cryptde().as_ref();
         let serialized = serde_cbor::ser::to_vec(&TestStruct::make()).unwrap();
-        let encrypted = cryptde
-            .encode(&cryptde.public_key(), &PlainData::from(serialized))
+        let encrypted = main_cryptde()
+            .encode(&main_cryptde().public_key(), &PlainData::from(serialized))
             .unwrap();
 
-        let end = super::decodex::<TestStruct>(cryptde, &encrypted).unwrap();
+        let end = super::decodex::<TestStruct>(main_cryptde().as_ref(), &encrypted).unwrap();
 
         assert_eq!(end, TestStruct::make());
     }
 
     #[test]
     fn encodex_handles_encryption_error() {
-        let cryptde = main_cryptde().as_ref();
         let item = TestStruct::make();
 
-        let result = encodex(cryptde, &PublicKey::new(&[]), &item);
+        let result = encodex(main_cryptde().as_ref(), &PublicKey::new(&[]), &item);
 
         assert_eq!(
             format!("{:?}", result),
@@ -1190,10 +1186,9 @@ mod tests {
 
     #[test]
     fn encodex_handles_serialization_error() {
-        let cryptde = main_cryptde().as_ref();
         let item = BadSerStruct { flag: true };
 
-        let result = encodex(cryptde, &cryptde.public_key(), &item);
+        let result = encodex(main_cryptde().as_ref(), &main_cryptde().public_key(), &item);
 
         assert_eq!(
             format!("{:?}", result),
@@ -1204,12 +1199,11 @@ mod tests {
 
     #[test]
     fn decodex_handles_deserialization_error() {
-        let cryptde = main_cryptde().as_ref();
-        let data = cryptde
-            .encode(&cryptde.public_key(), &PlainData::new(b"whompem"))
+        let data = main_cryptde()
+            .encode(&main_cryptde().public_key(), &PlainData::new(b"whompem"))
             .unwrap();
 
-        let result = decodex::<BadSerStruct>(cryptde, &data);
+        let result = decodex::<BadSerStruct>(main_cryptde().as_ref(), &data);
 
         assert_eq!(
             format!("{:?}", result),

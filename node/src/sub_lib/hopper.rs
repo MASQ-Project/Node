@@ -197,19 +197,18 @@ mod tests {
 
     #[test]
     fn no_lookup_incipient_cores_package_is_created_correctly() {
-        let cryptde = main_cryptde().as_ref();
         let public_key = PublicKey::new(&[1, 2]);
         let node_addr = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1, 2, 3, 4]);
         let payload = make_meaningless_message_type();
 
         let result =
-            NoLookupIncipientCoresPackage::new(cryptde, &public_key, &node_addr, payload.clone());
+            NoLookupIncipientCoresPackage::new(main_cryptde().as_ref(), &public_key, &node_addr, payload.clone());
         let subject = result.unwrap();
 
         assert_eq!(public_key, subject.public_key);
         assert_eq!(node_addr, subject.node_addr);
         assert_eq!(
-            cryptde
+            main_cryptde()
                 .encode(
                     &public_key,
                     &PlainData::new(&serde_cbor::ser::to_vec(&payload).unwrap())
@@ -221,9 +220,8 @@ mod tests {
 
     #[test]
     fn no_lookup_incipient_cores_package_new_complains_about_problems_encrypting_payload() {
-        let cryptde = main_cryptde().as_ref();
         let result = NoLookupIncipientCoresPackage::new(
-            cryptde,
+            main_cryptde().as_ref(),
             &PublicKey::new(&[]),
             &NodeAddr::new(&IpAddr::from_str("1.1.1.1").unwrap(), &[]),
             make_meaningless_message_type(),
@@ -238,27 +236,26 @@ mod tests {
 
     #[test]
     fn incipient_cores_package_is_created_correctly() {
-        let cryptde = main_cryptde().as_ref();
         let paying_wallet = make_paying_wallet(b"wallet");
-        let key12 = cryptde.public_key();
+        let key12 = main_cryptde().public_key().clone();
         let key34 = PublicKey::new(&[3, 4]);
         let key56 = PublicKey::new(&[5, 6]);
         let route = Route::one_way(
             RouteSegment::new(vec![&key12, &key34, &key56], Component::ProxyClient),
-            cryptde,
+            main_cryptde().as_ref(),
             Some(paying_wallet),
             Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
         let payload = make_meaningless_message_type();
 
-        let result = IncipientCoresPackage::new(cryptde, route.clone(), payload.clone(), &key56);
+        let result = IncipientCoresPackage::new(main_cryptde().as_ref(), route.clone(), payload.clone(), &key56);
         let subject = result.unwrap();
 
         assert_eq!(subject.route, route);
         assert_eq!(
             subject.payload,
-            cryptde
+            main_cryptde()
                 .encode(
                     &key56,
                     &PlainData::new(&serde_cbor::ser::to_vec(&payload).unwrap()),
@@ -269,9 +266,8 @@ mod tests {
 
     #[test]
     fn incipient_cores_package_new_complains_about_problems_encrypting_payload() {
-        let cryptde = main_cryptde().as_ref();
         let result = IncipientCoresPackage::new(
-            cryptde,
+            main_cryptde().as_ref(),
             Route { hops: vec![] },
             make_meaningless_message_type(),
             &PublicKey::new(&[]),
@@ -290,11 +286,10 @@ mod tests {
         let immediate_neighbor = SocketAddr::from_str("1.2.3.4:1234").unwrap();
         let a_key = PublicKey::new(&[65, 65, 65]);
         let b_key = PublicKey::new(&[66, 66, 66]);
-        let cryptde = main_cryptde().as_ref();
         let paying_wallet = make_paying_wallet(b"wallet");
         let route = Route::one_way(
             RouteSegment::new(vec![&a_key, &b_key], Component::Neighborhood),
-            cryptde,
+            main_cryptde().as_ref(),
             Some(paying_wallet.clone()),
             Some(TEST_DEFAULT_CHAIN.rec().contract),
         )

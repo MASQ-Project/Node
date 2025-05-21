@@ -1243,24 +1243,23 @@ mod tests {
 
     #[test]
     fn characterize_zero_hop_route() {
-        let cryptde = main_cryptde().as_ref();
-        let key = cryptde.public_key();
+        let key = main_cryptde().public_key().clone();
 
-        let subject = zero_hop_route_response(&key, cryptde);
+        let subject = zero_hop_route_response(&key, main_cryptde().as_ref());
 
         assert_eq!(
             subject.route.hops,
             vec!(
                 LiveHop::new(&key, None, Component::Hopper)
-                    .encode(&key, cryptde)
+                    .encode(&key, main_cryptde().as_ref())
                     .unwrap(),
                 LiveHop::new(&key, None, Component::ProxyClient)
-                    .encode(&key, cryptde)
+                    .encode(&key, main_cryptde().as_ref())
                     .unwrap(),
                 LiveHop::new(&PublicKey::new(b""), None, Component::ProxyServer)
-                    .encode(&key, cryptde)
+                    .encode(&key, main_cryptde().as_ref())
                     .unwrap(),
-                encrypt_return_route_id(0, cryptde),
+                encrypt_return_route_id(0, main_cryptde().as_ref()),
             )
         );
         assert_eq!(
@@ -1275,23 +1274,22 @@ mod tests {
 
     #[test]
     fn characterize_route_to_proxy_client() {
-        let cryptde = main_cryptde().as_ref();
-        let key = cryptde.public_key();
+        let key = main_cryptde().public_key().clone();
 
-        let subject = route_to_proxy_client(&key, cryptde);
+        let subject = route_to_proxy_client(&key, main_cryptde().as_ref());
 
         let mut garbage_can: Vec<u8> = iter::repeat(0u8).take(96).collect();
-        cryptde.random(&mut garbage_can[..]);
+        main_cryptde().random(&mut garbage_can[..]);
         assert_eq!(
             subject.hops,
             vec!(
                 LiveHop::new(&key, None, Component::ProxyClient)
-                    .encode(&key, cryptde)
+                    .encode(&key, main_cryptde().as_ref())
                     .unwrap(),
                 LiveHop::new(&PublicKey::new(b""), None, Component::ProxyServer)
-                    .encode(&key, cryptde)
+                    .encode(&key, main_cryptde().as_ref())
                     .unwrap(),
-                encrypt_return_route_id(0, cryptde),
+                encrypt_return_route_id(0, main_cryptde().as_ref()),
                 CryptData::new(&garbage_can[..])
             )
         );
@@ -1299,23 +1297,22 @@ mod tests {
 
     #[test]
     fn characterize_route_from_proxy_client() {
-        let cryptde = main_cryptde().as_ref();
-        let key = cryptde.public_key();
+        let key = main_cryptde().public_key().clone();
 
-        let subject = route_from_proxy_client(&key, cryptde);
+        let subject = route_from_proxy_client(&key, main_cryptde().as_ref());
 
         let mut garbage_can: Vec<u8> = iter::repeat(0u8).take(96).collect();
-        cryptde.random(&mut garbage_can[..]);
+        main_cryptde().random(&mut garbage_can[..]);
         assert_eq!(
             subject.hops,
             vec!(
                 LiveHop::new(&key, None, Component::ProxyClient)
-                    .encode(&key, cryptde)
+                    .encode(&key, main_cryptde().as_ref())
                     .unwrap(),
                 LiveHop::new(&PublicKey::new(b""), None, Component::ProxyServer)
-                    .encode(&key, cryptde)
+                    .encode(&key, main_cryptde().as_ref())
                     .unwrap(),
-                encrypt_return_route_id(0, cryptde),
+                encrypt_return_route_id(0, main_cryptde().as_ref()),
                 CryptData::new(&garbage_can[..])
             )
         );
@@ -1323,22 +1320,21 @@ mod tests {
 
     #[test]
     fn characterize_route_to_proxy_server() {
-        let cryptde = main_cryptde().as_ref();
-        let key = cryptde.public_key();
+        let key = main_cryptde().public_key().clone();
 
-        let subject = route_to_proxy_server(&key, cryptde);
+        let subject = route_to_proxy_server(&key, main_cryptde().as_ref());
 
         let mut first_garbage_can: Vec<u8> = iter::repeat(0u8).take(96).collect();
         let mut second_garbage_can: Vec<u8> = iter::repeat(0u8).take(96).collect();
-        cryptde.random(&mut first_garbage_can[..]);
-        cryptde.random(&mut second_garbage_can[..]);
+        main_cryptde().random(&mut first_garbage_can[..]);
+        main_cryptde().random(&mut second_garbage_can[..]);
         assert_eq!(
             subject.hops,
             vec!(
                 LiveHop::new(&PublicKey::new(b""), None, Component::ProxyServer)
-                    .encode(&key, cryptde)
+                    .encode(&key, main_cryptde().as_ref())
                     .unwrap(),
-                encrypt_return_route_id(0, cryptde),
+                encrypt_return_route_id(0, main_cryptde().as_ref()),
                 CryptData::new(&first_garbage_can[..]),
                 CryptData::new(&second_garbage_can[..]),
             )

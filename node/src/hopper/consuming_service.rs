@@ -13,7 +13,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::SystemTime;
 
 pub struct ConsumingService {
-    cryptde: &'static dyn CryptDE,
+    cryptde: Box<dyn CryptDE>,
     to_dispatcher: Recipient<TransmitDataMsg>,
     to_hopper: Recipient<InboundClientData>,
     logger: Logger,
@@ -21,7 +21,7 @@ pub struct ConsumingService {
 
 impl ConsumingService {
     pub fn new(
-        cryptde: &'static dyn CryptDE,
+        cryptde: Box<dyn CryptDE>,
         to_dispatcher: Recipient<TransmitDataMsg>,
         to_hopper: Recipient<InboundClientData>,
     ) -> Self {
@@ -41,9 +41,9 @@ impl ConsumingService {
         );
         let target_key = incipient_cores_package.public_key.clone();
         let target_node_addr = incipient_cores_package.node_addr.clone();
-        match LiveCoresPackage::from_no_lookup_incipient(incipient_cores_package, self.cryptde) {
+        match LiveCoresPackage::from_no_lookup_incipient(incipient_cores_package, self.cryptde.as_ref()) {
             Ok((live_package, _)) => {
-                let encrypted_package = match encodex(self.cryptde, &target_key, &live_package) {
+                let encrypted_package = match encodex(self.cryptde.as_ref(), &target_key, &live_package) {
                     Ok(p) => p,
                     Err(e) => {
                         error!(
@@ -75,7 +75,7 @@ impl ConsumingService {
         match LiveCoresPackage::from_incipient(incipient_cores_package, self.cryptde.borrow()) {
             Ok((live_package, next_hop)) => {
                 let encrypted_package =
-                    match encodex(self.cryptde, &next_hop.public_key, &live_package) {
+                    match encodex(self.cryptde.as_ref(), &next_hop.public_key, &live_package) {
                         Ok(p) => p,
                         Err(e) => {
                             error!(self.logger, "Couldn't encode package: {:?}", e);
@@ -164,7 +164,7 @@ mod tests {
         let system = System::new("");
         let peer_actors = peer_actors_builder().dispatcher(dispatcher).build();
         let subject = ConsumingService::new(
-            main_cryptde().as_ref(),
+            main_cryptde().dup(),
             peer_actors.dispatcher.from_dispatcher_client,
             peer_actors.hopper.from_dispatcher,
         );
@@ -200,7 +200,7 @@ mod tests {
         let system = System::new("");
         let peer_actors = peer_actors_builder().build();
         let subject = ConsumingService::new(
-            main_cryptde().as_ref(),
+            main_cryptde().dup(),
             peer_actors.dispatcher.from_dispatcher_client,
             peer_actors.hopper.from_dispatcher,
         );
@@ -214,27 +214,26 @@ mod tests {
 
     #[test]
     fn consume_converts_incipient_message_to_live_and_sends_to_dispatcher() {
-        let cryptde = main_cryptde().as_ref();
         let paying_wallet = make_paying_wallet(b"wallet");
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
         let destination_key = PublicKey::new(&[65, 65, 65]);
         let route = Route::one_way(
             RouteSegment::new(
-                vec![cryptde.public_key(), &destination_key.clone()],
+                vec![main_cryptde().public_key(), &destination_key.clone()],
                 Component::Neighborhood,
             ),
-            cryptde,
+            main_cryptde().as_ref(),
             Some(paying_wallet),
             Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
         let payload = make_meaningless_message_type();
         let incipient_cores_package =
-            IncipientCoresPackage::new(cryptde, route.clone(), payload, &destination_key).unwrap();
+            IncipientCoresPackage::new(main_cryptde().as_ref(), route.clone(), payload, &destination_key).unwrap();
         let system = System::new("converts_incipient_message_to_live_and_sends_to_dispatcher");
         let peer_actors = peer_actors_builder().dispatcher(dispatcher).build();
         let subject = ConsumingService::new(
-            cryptde,
+            main_cryptde().dup(),
             peer_actors.dispatcher.from_dispatcher_client,
             peer_actors.hopper.from_dispatcher,
         );
@@ -246,8 +245,8 @@ mod tests {
         let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
         let record = dispatcher_recording.get_record::<TransmitDataMsg>(0);
         let (expected_lcp, _) =
-            LiveCoresPackage::from_incipient(incipient_cores_package, cryptde).unwrap();
-        let expected_lcp_enc = encodex(cryptde, &destination_key, &expected_lcp).unwrap();
+            LiveCoresPackage::from_incipient(incipient_cores_package, main_cryptde().as_ref()).unwrap();
+        let expected_lcp_enc = encodex(main_cryptde().as_ref(), &destination_key, &expected_lcp).unwrap();
         assert_eq!(
             TransmitDataMsg {
                 endpoint: Endpoint::Key(destination_key.clone()),
@@ -261,27 +260,26 @@ mod tests {
 
     #[test]
     fn consume_sends_zero_hop_incipient_directly_to_hopper() {
-        let cryptde = main_cryptde().as_ref();
         let paying_wallet = make_paying_wallet(b"wallet");
         let (hopper, _, hopper_recording_arc) = make_recorder();
-        let destination_key = cryptde.public_key();
+        let destination_key = main_cryptde().public_key().clone();
         let route = Route::one_way(
             RouteSegment::new(
-                vec![cryptde.public_key(), &destination_key.clone()],
+                vec![main_cryptde().public_key(), &destination_key.clone()],
                 Component::Neighborhood,
             ),
-            cryptde,
+            main_cryptde().as_ref(),
             Some(paying_wallet),
             Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
         let payload = make_meaningless_message_type();
         let incipient_cores_package =
-            IncipientCoresPackage::new(cryptde, route.clone(), payload, &destination_key).unwrap();
+            IncipientCoresPackage::new(main_cryptde().as_ref(), route.clone(), payload, &destination_key).unwrap();
         let system = System::new("consume_sends_zero_hop_incipient_directly_to_hopper");
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         let subject = ConsumingService::new(
-            cryptde,
+            main_cryptde().dup(),
             peer_actors.dispatcher.from_dispatcher_client,
             peer_actors.hopper.from_dispatcher,
         );
@@ -296,8 +294,8 @@ mod tests {
         let record = hopper_recording.get_record::<InboundClientData>(0);
         check_timestamp(before, record.timestamp, after);
         let (expected_lcp, _) =
-            LiveCoresPackage::from_incipient(incipient_cores_package, cryptde).unwrap();
-        let expected_lcp_enc = encodex(cryptde, &destination_key, &expected_lcp).unwrap();
+            LiveCoresPackage::from_incipient(incipient_cores_package, main_cryptde().as_ref()).unwrap();
+        let expected_lcp_enc = encodex(main_cryptde().as_ref(), &destination_key, &expected_lcp).unwrap();
         assert_eq!(
             *record,
             InboundClientData {
@@ -320,7 +318,7 @@ mod tests {
         let to_dispatcher = peer_actors.dispatcher.from_dispatcher_client;
         let to_hopper = peer_actors.hopper.from_dispatcher;
 
-        let subject = ConsumingService::new(main_cryptde().as_ref(), to_dispatcher, to_hopper);
+        let subject = ConsumingService::new(main_cryptde().dup(), to_dispatcher, to_hopper);
 
         subject.consume(
             IncipientCoresPackage::new(
