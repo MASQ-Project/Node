@@ -91,6 +91,7 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
             &self.logger,
         )?;
         configure_database(&unprivileged_config, persistent_config.as_mut())?;
+        configure_cryptdes(&unprivileged_config, persistent_config.as_mut())?;
         Ok(unprivileged_config)
     }
 }
@@ -221,7 +222,7 @@ pub fn server_initializer_collected_params<'a>(
             Box::new(CommandLineVcl::new(commandline_vcl.args())),
         ],
     )
-    .expect("expexted MultiConfig");
+    .expect("expected MultiConfig");
     let specified_vec = extract_values_vcl_fill_multiconfig_vec(
         multiconfig_for_values_extraction,
         initialization_data,
@@ -352,6 +353,13 @@ fn configure_database(
         return Err(pce.into_configurator_error("gas-price"));
     }
     Ok(())
+}
+
+fn configure_cryptdes(
+    config: &BootstrapperConfig,
+    persistent_config: &mut dyn PersistentConfiguration,
+) -> Result<(), ConfiguratorError> {
+    todo!()
 }
 
 #[cfg(test)]
@@ -686,7 +694,7 @@ mod tests {
         assert_eq!(
             config.neighborhood_config,
             NeighborhoodConfig {
-                mode: NeighborhoodMode::ZeroHop, // not populated on the privileged side
+                mode: ZeroHop, // not populated on the privileged side
                 min_hops: Hops::ThreeHops,
             }
         );

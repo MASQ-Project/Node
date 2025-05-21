@@ -100,6 +100,7 @@ impl Clone for PersistentConfigurationMock {
             clandestine_port_results: self.clandestine_port_results.clone(),
             set_clandestine_port_params: self.set_clandestine_port_params.clone(),
             set_clandestine_port_results: self.set_clandestine_port_results.clone(),
+            cryptde_params: self.cryptde_params.clone(),
             cryptde_results: RefCell::new(self.cryptde_results.borrow().iter().map(|x| {
                 x.as_ref()
                     .map(|cryptde| cryptde.dup())
