@@ -1937,8 +1937,8 @@ mod tests {
         scan_type: ScanType,
     ) {
         let expected_log_msg = format!(
-            "WARN: {test_name}: Manual {:?} scan was denied. Automatic scanning \
-            setup prevents manual triggers.",
+            "WARN: {test_name}: Manual {:?} scan was denied. Automatic mode \
+            prevents manual triggers.",
             scan_type
         );
 
@@ -2701,22 +2701,22 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "internal error: entered unreachable code: Initial scan for pending payable unexpected error: bluh"
+        expected = "internal error: entered unreachable code: ScanAlreadyRunning { \
+        pertinent_scanner: PendingPayables, started_at: SystemTime { tv_sec: 0, tv_nsec: 0 } } \
+        should be impossible with PendingPayableScanner in automatic mode"
     )]
     fn initial_pending_payable_scan_hits_unexpected_error() {
         init_test_logging();
-        let mut subject = AccountantBuilder::default().build();
+        let mut subject = AccountantBuilder::default()
+            .consuming_wallet(make_wallet("abc"))
+            .build();
         let pending_payable_scanner =
-            ScannerMock::default().start_scan_result(Err(StartScanError::ScanAlreadyRunning {
-                pertinent_scanner: ScanType::Payables,
-                started_at: SystemTime::now(),
-            }));
+            ScannerMock::default().scan_started_at_result(Some(UNIX_EPOCH));
         subject
             .scanners
             .replace_scanner(ScannerReplacement::PendingPayable(ReplacementType::Mock(
                 pending_payable_scanner,
             )));
-        let flag_before = subject.scanners.initial_pending_payable_scan();
 
         let _ = subject.handle_request_of_scan_for_pending_payable(None);
     }

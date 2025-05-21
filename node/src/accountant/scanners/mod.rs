@@ -283,7 +283,7 @@ impl Scanners {
         msg: BlockchainAgentWithContextMessage,
         logger: &Logger,
     ) -> Result<Either<OutboundPaymentsInstructions, PreparedAdjustment>, String> {
-        todo!()
+        self.payable.try_skipping_payment_adjustment(msg, logger)
     }
 
     pub fn perform_payable_adjustment(
@@ -291,7 +291,7 @@ impl Scanners {
         setup: PreparedAdjustment,
         logger: &Logger,
     ) -> OutboundPaymentsInstructions {
-        todo!()
+        self.payable.perform_payment_adjustment(setup, logger)
     }
 
     pub fn initial_pending_payable_scan(&self) -> bool {
@@ -1302,8 +1302,7 @@ impl StartScanError {
             },
             StartScanError::ManualTriggerError(e) => match e {
                 MTError::AutomaticScanConflict => ErrorType::Permanent(format!(
-                    "Manual {:?} scan was denied. Automatic scanning setup prevents manual \
-                            triggers.",
+                    "Manual {:?} scan was denied. Automatic mode prevents manual triggers.",
                     scan_type
                 )),
                 MTError::UnnecessaryRequest { hint_opt } => ErrorType::Temporary(format!(

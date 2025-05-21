@@ -295,7 +295,7 @@ impl RescheduleScanOnErrorResolverReal {
             SchedulingAfterHaltedScan::DoNotSchedule
         } else {
             unreachable!(
-                "{:?} is not acceptable for an automatic scan of RetryPayablesScanner",
+                "{:?} should be impossible with RetryPayableScanner in automatic mode",
                 err
             )
         }
@@ -321,7 +321,7 @@ impl RescheduleScanOnErrorResolverReal {
             SchedulingAfterHaltedScan::Schedule(ScanType::Payables)
         } else {
             unreachable!(
-                "{:?} is not acceptable for an automatic scan of PendingPayableScanner",
+                "{:?} should be impossible with PendingPayableScanner in automatic mode",
                 err
             )
         }
@@ -708,8 +708,8 @@ mod tests {
 
                 let panic_msg = panic.downcast_ref::<String>().unwrap();
                 let expected_msg = format!(
-                    "internal error: entered unreachable code: {:?} is not acceptable for \
-                    an automatic scan of PendingPayableScanner",
+                    "internal error: entered unreachable code: {:?} should be impossible with \
+                    PendingPayableScanner in automatic mode",
                     error
                 );
                 assert_eq!(
@@ -756,8 +756,8 @@ mod tests {
 
             let panic_msg = panic.downcast_ref::<String>().unwrap();
             let expected_msg = format!(
-                "internal error: entered unreachable code: {:?} is not acceptable for an automatic \
-                scan of RetryPayablesScanner",
+                "internal error: entered unreachable code: {:?} should be impossible \
+                with RetryPayablesScanner in automatic mode.",
                 error
             );
             assert_eq!(
