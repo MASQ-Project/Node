@@ -561,13 +561,6 @@ impl ConfiguredByPrivilege for Bootstrapper {
             NodeConfiguratorStandardUnprivileged::new(&self.config).configure(multi_config)?;
         self.config.merge_unprivileged(unprivileged_config);
         let _ = self.set_up_clandestine_port();
-        ***
-        // TODO: This is uncool. Before we start passing this around, we need to either generate
-        // real CryptDEs or read them from the database.
-        STATIC_CRYPTDE_PAIR.initialize_cryptdes(
-            Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN)),
-            Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN)),
-        );
         let node_descriptor = Bootstrapper::make_local_descriptor(
             STATIC_CRYPTDE_PAIR.main_cryptde_ref().as_ref(),
             self.config.neighborhood_config.mode.node_addr_opt(),
@@ -796,7 +789,7 @@ mod tests {
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::logger::Logger;
     use masq_lib::logger::TEST_LOG_RECIPIENT_GUARD;
-    use masq_lib::test_utils::environment_guard::ClapGuard;
+    use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::logging::{init_test_logging, TestLog, TestLogHandler};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};

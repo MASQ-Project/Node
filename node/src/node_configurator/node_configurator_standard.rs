@@ -91,6 +91,7 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
             &self.logger,
         )?;
         configure_database(&unprivileged_config, persistent_config.as_mut())?;
+        configure_cryptdes(&unprivileged_config, persistent_config.as_mut())?;
         Ok(unprivileged_config)
     }
 }
@@ -354,18 +355,25 @@ fn configure_database(
     Ok(())
 }
 
+fn configure_cryptdes(
+    config: &BootstrapperConfig,
+    persistent_config: &mut dyn PersistentConfiguration,
+) -> Result<(), ConfiguratorError> {
+    todo!()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
-    use crate::bootstrapper::{BootstrapperConfig, RealUser};
+    use crate::bootstrapper::{BootstrapperConfig, RealUser, STATIC_CRYPTDE_PAIR};
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::db_config::config_dao::ConfigDaoReal;
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
     use crate::node_configurator::unprivileged_parse_args_configuration::UnprivilegedParseArgsConfigurationDaoNull;
     use crate::node_test_utils::DirsWrapperMock;
-    use crate::sub_lib::cryptde::CryptDE;
+    use crate::sub_lib::cryptde::{CryptDE, NULL_CRYPTDE};
     use crate::sub_lib::neighborhood::NeighborhoodMode::ZeroHop;
     use crate::sub_lib::neighborhood::{
         Hops, NeighborhoodConfig, NeighborhoodMode, NodeDescriptor,
@@ -391,6 +399,7 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
     use std::vec;
+    use crate::sub_lib::cryptde_real::CryptDEReal;
 
     #[test]
     fn node_configurator_standard_unprivileged_uses_parse_args_configurator_dao_real() {
@@ -525,6 +534,120 @@ mod tests {
             Err(PersistentConfigError::TransactionError.into_configurator_error("min-hops"))
         )
     }
+
+    /////////////////////////////////////////////////////////////////////////
+    /////////////////////////////////////////////////////////////////////////
+    /////////////////////////////////////////////////////////////////////////
+
+    #[test]
+    fn configure_cryptdes_handles_existing_null_cryptdes() {
+        let _guard = EnvironmentGuard::new();
+        let main_null = CryptDENull::new(TEST_DEFAULT_CHAIN);
+        let alias_null = CryptDENull::new(TEST_DEFAULT_CHAIN);
+        STATIC_CRYPTDE_PAIR.initialize_cryptdes(
+            main_null.dup(),
+            alias_null.dup(),
+        );
+        let set_cryptde_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .set_cryptde_params(&set_cryptde_params_arc);
+        let subject = crate::actor_system_factory::tests::make_subject_with_null_setter();
+
+        let result = subject.cryptdes(&mut persistent_config, Some("db_password"));
+
+        assert_eq!(result.main().public_key(), main_null.public_key());
+        assert_eq!(result.alias().public_key(), alias_null.public_key());
+        let set_cryptde_params = set_cryptde_params_arc.lock().unwrap();
+        assert_eq!(*set_cryptde_params, vec![]);
+    }
+
+    #[test]
+    fn configure_cryptdes_handles_missing_password() {
+        let _guard = EnvironmentGuard::new();
+        crate::actor_system_factory::tests::initialize_static_cryptdes();
+        let main_cryptde_box = STATIC_CRYPTDE_PAIR.main_cryptde_ref().dup();
+        let alias_cryptde_box = STATIC_CRYPTDE_PAIR.alias_cryptde_ref().dup();
+        let mut persistent_config = PersistentConfigurationMock::new();
+        let subject = crate::actor_system_factory::tests::make_subject_with_null_setter();
+
+        let result = subject.cryptdes(&mut persistent_config, None);
+
+        assert_eq!(result.main().public_key(), main_cryptde_box.public_key());
+        assert_eq!(result.alias().public_key(), alias_cryptde_box.public_key());
+    }
+
+    #[test]
+    fn configure_cryptdes_handles_empty_database() {
+        let _guard = EnvironmentGuard::new();
+        crate::actor_system_factory::tests::initialize_static_cryptdes();
+        let main_cryptde_box = STATIC_CRYPTDE_PAIR.main_cryptde_ref().dup();
+        let alias_cryptde_box = STATIC_CRYPTDE_PAIR.alias_cryptde_ref().dup();
+        let cryptde_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_cryptde_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .cryptde_params(&cryptde_params_arc)
+            .cryptde_result(Err(PersistentConfigError::NotPresent))
+            .set_cryptde_params(&set_cryptde_params_arc)
+            .set_cryptde_result(Ok(()));
+        let subject = crate::actor_system_factory::tests::make_subject_with_null_setter();
+
+        let result = subject.cryptdes(&mut persistent_config, Some("db_password"));
+
+        assert_eq!(result.main().public_key(), main_cryptde_box.public_key());
+        assert_eq!(result.alias().public_key(), alias_cryptde_box.public_key());
+        let returned_main_public_key = result.main().public_key().clone();
+        let cryptde_params = cryptde_params_arc.lock().unwrap();
+        assert_eq!(*cryptde_params, vec!["db_password".to_string()]);
+        let set_cryptde_params = set_cryptde_params_arc.lock().unwrap();
+        assert_eq!(*set_cryptde_params, vec![(returned_main_public_key, "db_password".to_string())]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Could not read last_cryptde from database: DatabaseError(\"tummyache\")")]
+    fn configure_cryptdes_panics_if_database_throws_error_other_than_not_present() {
+        let _guard = EnvironmentGuard::new();
+        STATIC_CRYPTDE_PAIR.initialize_cryptdes(NULL_CRYPTDE.dup(), NULL_CRYPTDE.dup());
+        let cryptde_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_cryptde_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .cryptde_params(&cryptde_params_arc)
+            .cryptde_result(Err(PersistentConfigError::DatabaseError("tummyache".to_string())))
+            .set_cryptde_params(&set_cryptde_params_arc)
+            .set_cryptde_result(Ok(()));
+        let subject = crate::actor_system_factory::tests::make_subject_with_null_setter();
+
+        let _ = subject.cryptdes(&mut persistent_config, Some("db_password"));
+    }
+
+    #[test]
+    fn configure_cryptdes_handles_populated_database() {
+        let _guard = EnvironmentGuard::new();
+        crate::actor_system_factory::tests::initialize_static_cryptdes();
+        let original_main_cryptde_box = STATIC_CRYPTDE_PAIR.main_cryptde_ref().dup();
+        let stored_main_cryptde_box = Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN));
+        assert_ne!(
+            original_main_cryptde_box.public_key(),
+            stored_main_cryptde_box.public_key()
+        );
+        let original_alias_cryptde_box = STATIC_CRYPTDE_PAIR.alias_cryptde_ref().dup();
+        let cryptde_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .cryptde_params(&cryptde_params_arc)
+            .cryptde_result(Ok(stored_main_cryptde_box.dup()));
+        let subject = crate::actor_system_factory::tests::make_subject_with_null_setter();
+
+        let result = subject.cryptdes(&mut persistent_config, Some("db_password"));
+
+        assert_eq!(result.main().public_key(), stored_main_cryptde_box.public_key());
+        assert_eq!(result.alias().public_key(), original_alias_cryptde_box.public_key());
+        let returned_main_public_key = result.main().public_key().clone();
+        let cryptde_params = cryptde_params_arc.lock().unwrap();
+        assert_eq!(*cryptde_params, vec!["db_password".to_string()]);
+    }
+
+    /////////////////////////////////////////////////////////////////////////
+    /////////////////////////////////////////////////////////////////////////
+    /////////////////////////////////////////////////////////////////////////
 
     fn make_default_cli_params() -> ArgsBuilder {
         ArgsBuilder::new().param("--ip", "1.2.3.4")
