@@ -19,9 +19,11 @@ pub const SQL_ATTRIBUTES_FOR_CREATING_SENT_PAYABLE: &[&[&str]] = &[
     &["amount_high_b", "integer", "not", "null"],
     &["amount_low_b", "integer", "not", "null"],
     &["timestamp", "integer", "not", "null"],
-    &["gas_price_wei", "integer", "not", "null"],
+    &["gas_price_wei_high_b", "integer", "not", "null"],
+    &["gas_price_wei_low_b", "integer", "not", "null"],
     &["nonce", "integer", "not", "null"],
-    &["status", "text", "not", "null"],
+    &["block_hash", "text", "null"],
+    &["block_number", "integer", "null"],
 ];
 
 #[derive(Debug, Default)]
