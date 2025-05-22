@@ -365,13 +365,10 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let hash = H256::from_low_u64_be(1234567890);
-        let tx1 = TxBuilder::default()
-            .hash(hash)
-            .status(TxStatus::Pending)
-            .build();
+        let tx1 = TxBuilder::default().hash(hash).build();
         let tx2 = TxBuilder::default()
             .hash(hash)
-            .status(TxStatus::Failed)
+            .block_status(Default::default(), Default::default())
             .build();
         let subject = SentPayableDaoReal::new(wrapped_conn);
 
@@ -395,13 +392,10 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let hash = H256::from_low_u64_be(1234567890);
-        let tx1 = TxBuilder::default()
-            .hash(hash)
-            .status(TxStatus::Pending)
-            .build();
+        let tx1 = TxBuilder::default().hash(hash).build();
         let tx2 = TxBuilder::default()
             .hash(hash)
-            .status(TxStatus::Failed)
+            .block_status(Default::default(), Default::default())
             .build();
         let subject = SentPayableDaoReal::new(wrapped_conn);
         let initial_insertion_result = subject.insert_new_records(&vec![tx1]);
@@ -522,39 +516,20 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = SentPayableDaoReal::new(wrapped_conn);
-        let tx1 = TxBuilder::default()
-            .hash(H256::from_low_u64_le(1))
-            .status(TxStatus::Pending)
-            .build();
+        let tx1 = TxBuilder::default().hash(H256::from_low_u64_le(1)).build();
         let tx2 = TxBuilder::default()
             .hash(H256::from_low_u64_le(2))
-            .status(TxStatus::Failed)
+            .block_status(Default::default(), Default::default())
             .build();
-        let tx3 = TxBuilder::default()
-            .hash(H256::from_low_u64_le(3))
-            .status(TxStatus::Succeeded(TransactionBlock {
-                block_hash: Default::default(),
-                block_number: Default::default(),
-            }))
-            .build();
-        let tx4 = TxBuilder::default()
-            .hash(H256::from_low_u64_le(4))
-            .status(TxStatus::Pending)
-            .build();
-        let tx5 = TxBuilder::default()
-            .hash(H256::from_low_u64_le(5))
-            .status(TxStatus::Failed)
-            .build();
+        let tx3 = TxBuilder::default().hash(H256::from_low_u64_le(3)).build();
         subject
-            .insert_new_records(&vec![tx1.clone(), tx2.clone(), tx3.clone()])
+            .insert_new_records(&vec![tx1.clone(), tx2.clone()])
             .unwrap();
-        subject
-            .insert_new_records(&vec![tx4.clone(), tx5.clone()])
-            .unwrap();
+        subject.insert_new_records(&vec![tx3.clone()]).unwrap();
 
         let result = subject.retrieve_txs(None);
 
-        assert_eq!(result, vec![tx1, tx2, tx3, tx4, tx5]);
+        assert_eq!(result, vec![tx1, tx2, tx3]);
     }
 
     #[test]
@@ -565,27 +540,14 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = SentPayableDaoReal::new(wrapped_conn);
-        let tx1 = TxBuilder::default()
-            .hash(H256::from_low_u64_le(1))
-            .status(TxStatus::Pending)
-            .build();
-        let tx2 = TxBuilder::default()
-            .hash(H256::from_low_u64_le(2))
-            .status(TxStatus::Pending)
-            .build();
+        let tx1 = TxBuilder::default().hash(H256::from_low_u64_le(1)).build();
+        let tx2 = TxBuilder::default().hash(H256::from_low_u64_le(2)).build();
         let tx3 = TxBuilder::default()
             .hash(H256::from_low_u64_le(3))
-            .status(TxStatus::Failed)
-            .build();
-        let tx4 = TxBuilder::default()
-            .hash(H256::from_low_u64_le(4))
-            .status(TxStatus::Succeeded(TransactionBlock {
-                block_hash: Default::default(),
-                block_number: Default::default(),
-            }))
+            .block_status(Default::default(), Default::default())
             .build();
         subject
-            .insert_new_records(&vec![tx1.clone(), tx2.clone(), tx3, tx4])
+            .insert_new_records(&vec![tx1.clone(), tx2.clone(), tx3.clone()])
             .unwrap();
 
         let result = subject.retrieve_txs(Some(RetrieveCondition::IsPending));
@@ -595,48 +557,49 @@ mod tests {
 
     #[test]
     fn can_retrieve_txs_to_retry() {
-        let home_dir =
-            ensure_node_home_directory_exists("sent_payable_dao", "can_retrieve_txs_to_retry");
-        let wrapped_conn = DbInitializerReal::default()
-            .initialize(&home_dir, DbInitializationConfig::test_default())
-            .unwrap();
-        let subject = SentPayableDaoReal::new(wrapped_conn);
-        let old_timestamp = current_unix_timestamp() - 60; // 1 minute old
-        let tx1 = TxBuilder::default()
-            .hash(H256::from_low_u64_le(3))
-            .timestamp(old_timestamp)
-            .status(TxStatus::Pending)
-            .build();
-        let tx2 = TxBuilder::default()
-            .hash(H256::from_low_u64_le(4))
-            .timestamp(old_timestamp)
-            .status(TxStatus::Succeeded(TransactionBlock {
-                block_hash: Default::default(),
-                block_number: Default::default(),
-            }))
-            .build();
-        // TODO: GH-631: Instead of fetching it from SentPayables, fetch it from the FailedPayables table
-        let tx3 = TxBuilder::default() // this should be picked for retry
-            .hash(H256::from_low_u64_le(5))
-            .timestamp(old_timestamp)
-            .status(TxStatus::Failed)
-            .build();
-        let tx4 = TxBuilder::default() // this should be picked for retry
-            .hash(H256::from_low_u64_le(6))
-            .status(TxStatus::Failed)
-            .build();
-        let tx5 = TxBuilder::default()
-            .hash(H256::from_low_u64_le(7))
-            .timestamp(old_timestamp)
-            .status(TxStatus::Pending)
-            .build();
-        subject
-            .insert_new_records(&vec![tx1, tx2, tx3.clone(), tx4.clone(), tx5])
-            .unwrap();
-
-        let result = subject.retrieve_txs(Some(RetrieveCondition::ToRetry));
-
-        assert_eq!(result, vec![tx3, tx4]);
+        todo!("This test needs rework");
+        // let home_dir =
+        //     ensure_node_home_directory_exists("sent_payable_dao", "can_retrieve_txs_to_retry");
+        // let wrapped_conn = DbInitializerReal::default()
+        //     .initialize(&home_dir, DbInitializationConfig::test_default())
+        //     .unwrap();
+        // let subject = SentPayableDaoReal::new(wrapped_conn);
+        // let old_timestamp = current_unix_timestamp() - 60; // 1 minute old
+        // let tx1 = TxBuilder::default()
+        //     .hash(H256::from_low_u64_le(3))
+        //     .timestamp(old_timestamp)
+        //     .status(TxStatus::Pending)
+        //     .build();
+        // let tx2 = TxBuilder::default()
+        //     .hash(H256::from_low_u64_le(4))
+        //     .timestamp(old_timestamp)
+        //     .status(TxStatus::Succeeded(TransactionBlock {
+        //         block_hash: Default::default(),
+        //         block_number: Default::default(),
+        //     }))
+        //     .build();
+        // // TODO: GH-631: Instead of fetching it from SentPayables, fetch it from the FailedPayables table
+        // let tx3 = TxBuilder::default() // this should be picked for retry
+        //     .hash(H256::from_low_u64_le(5))
+        //     .timestamp(old_timestamp)
+        //     .status(TxStatus::Failed)
+        //     .build();
+        // let tx4 = TxBuilder::default() // this should be picked for retry
+        //     .hash(H256::from_low_u64_le(6))
+        //     .status(TxStatus::Failed)
+        //     .build();
+        // let tx5 = TxBuilder::default()
+        //     .hash(H256::from_low_u64_le(7))
+        //     .timestamp(old_timestamp)
+        //     .status(TxStatus::Pending)
+        //     .build();
+        // subject
+        //     .insert_new_records(&vec![tx1, tx2, tx3.clone(), tx4.clone(), tx5])
+        //     .unwrap();
+        //
+        // let result = subject.retrieve_txs(Some(RetrieveCondition::ToRetry));
+        //
+        // assert_eq!(result, vec![tx3, tx4]);
     }
 
     #[test]
@@ -647,14 +610,8 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = SentPayableDaoReal::new(wrapped_conn);
-        let tx1 = TxBuilder::default()
-            .hash(H256::from_low_u64_le(1))
-            .status(TxStatus::Pending)
-            .build();
-        let tx2 = TxBuilder::default()
-            .hash(H256::from_low_u64_le(2))
-            .status(TxStatus::Failed)
-            .build();
+        let tx1 = TxBuilder::default().hash(H256::from_low_u64_le(1)).build();
+        let tx2 = TxBuilder::default().hash(H256::from_low_u64_le(2)).build();
         subject
             .insert_new_records(&vec![tx1.clone(), tx2.clone()])
             .unwrap();
@@ -666,46 +623,47 @@ mod tests {
 
     #[test]
     fn change_statuses_works() {
-        let home_dir =
-            ensure_node_home_directory_exists("sent_payable_dao", "change_statuses_works");
-        let wrapped_conn = DbInitializerReal::default()
-            .initialize(&home_dir, DbInitializationConfig::test_default())
-            .unwrap();
-        let subject = SentPayableDaoReal::new(wrapped_conn);
-        let tx1 = TxBuilder::default()
-            .hash(H256::from_low_u64_le(1))
-            .status(TxStatus::Pending)
-            .build();
-        let tx2 = TxBuilder::default()
-            .hash(H256::from_low_u64_le(2))
-            .status(TxStatus::Pending)
-            .build();
-        subject
-            .insert_new_records(&vec![tx1.clone(), tx2.clone()])
-            .unwrap();
-        let hash_map = HashMap::from([
-            (tx1.hash, TxStatus::Failed),
-            (
-                tx2.hash,
-                TxStatus::Succeeded(TransactionBlock {
-                    block_hash: H256::from_low_u64_le(3),
-                    block_number: U64::from(1),
-                }),
-            ),
-        ]);
-
-        let result = subject.change_statuses(&hash_map);
-
-        let updated_txs = subject.retrieve_txs(Some(ByHash(vec![tx1.hash, tx2.hash])));
-        assert_eq!(result, Ok(()));
-        assert_eq!(updated_txs[0].status, TxStatus::Failed);
-        assert_eq!(
-            updated_txs[1].status,
-            TxStatus::Succeeded(TransactionBlock {
-                block_hash: H256::from_low_u64_le(3),
-                block_number: U64::from(1),
-            })
-        )
+        todo!("This test needs rework");
+        // let home_dir =
+        //     ensure_node_home_directory_exists("sent_payable_dao", "change_statuses_works");
+        // let wrapped_conn = DbInitializerReal::default()
+        //     .initialize(&home_dir, DbInitializationConfig::test_default())
+        //     .unwrap();
+        // let subject = SentPayableDaoReal::new(wrapped_conn);
+        // let tx1 = TxBuilder::default()
+        //     .hash(H256::from_low_u64_le(1))
+        //     .status(TxStatus::Pending)
+        //     .build();
+        // let tx2 = TxBuilder::default()
+        //     .hash(H256::from_low_u64_le(2))
+        //     .status(TxStatus::Pending)
+        //     .build();
+        // subject
+        //     .insert_new_records(&vec![tx1.clone(), tx2.clone()])
+        //     .unwrap();
+        // let hash_map = HashMap::from([
+        //     (tx1.hash, TxStatus::Failed),
+        //     (
+        //         tx2.hash,
+        //         TxStatus::Succeeded(TransactionBlock {
+        //             block_hash: H256::from_low_u64_le(3),
+        //             block_number: U64::from(1),
+        //         }),
+        //     ),
+        // ]);
+        //
+        // let result = subject.change_statuses(&hash_map);
+        //
+        // let updated_txs = subject.retrieve_txs(Some(ByHash(vec![tx1.hash, tx2.hash])));
+        // assert_eq!(result, Ok(()));
+        // assert_eq!(updated_txs[0].status, TxStatus::Failed);
+        // assert_eq!(
+        //     updated_txs[1].status,
+        //     TxStatus::Succeeded(TransactionBlock {
+        //         block_hash: H256::from_low_u64_le(3),
+        //         block_number: U64::from(1),
+        //     })
+        // )
     }
 
     #[test]
@@ -719,10 +677,7 @@ mod tests {
             .unwrap();
         let subject = SentPayableDaoReal::new(wrapped_conn);
         let existent_hash = H256::from_low_u64_le(1);
-        let tx = TxBuilder::default()
-            .hash(existent_hash)
-            .status(TxStatus::Pending)
-            .build();
+        let tx = TxBuilder::default().hash(existent_hash).build();
         subject.insert_new_records(&vec![tx]).unwrap();
         let hash_map = HashMap::new();
 
@@ -733,35 +688,36 @@ mod tests {
 
     #[test]
     fn change_statuses_returns_error_during_partial_execution() {
-        let home_dir = ensure_node_home_directory_exists(
-            "sent_payable_dao",
-            "change_statuses_returns_error_during_partial_execution",
-        );
-        let wrapped_conn = DbInitializerReal::default()
-            .initialize(&home_dir, DbInitializationConfig::test_default())
-            .unwrap();
-        let subject = SentPayableDaoReal::new(wrapped_conn);
-        let existent_hash = H256::from_low_u64_le(1);
-        let non_existent_hash = H256::from_low_u64_le(999);
-        let tx = TxBuilder::default()
-            .hash(existent_hash)
-            .status(TxStatus::Pending)
-            .build();
-        subject.insert_new_records(&vec![tx]).unwrap();
-        let hash_map = HashMap::from([
-            (existent_hash, TxStatus::Failed),
-            (non_existent_hash, TxStatus::Failed),
-        ]);
-
-        let result = subject.change_statuses(&hash_map);
-
-        assert_eq!(
-            result,
-            Err(SentPayableDaoError::PartialExecution(format!(
-                "Failed to update status for hash {:?}",
-                non_existent_hash
-            )))
-        );
+        todo!("this needs rework");
+        // let home_dir = ensure_node_home_directory_exists(
+        //     "sent_payable_dao",
+        //     "change_statuses_returns_error_during_partial_execution",
+        // );
+        // let wrapped_conn = DbInitializerReal::default()
+        //     .initialize(&home_dir, DbInitializationConfig::test_default())
+        //     .unwrap();
+        // let subject = SentPayableDaoReal::new(wrapped_conn);
+        // let existent_hash = H256::from_low_u64_le(1);
+        // let non_existent_hash = H256::from_low_u64_le(999);
+        // let tx = TxBuilder::default()
+        //     .hash(existent_hash)
+        //     .status(TxStatus::Pending)
+        //     .build();
+        // subject.insert_new_records(&vec![tx]).unwrap();
+        // let hash_map = HashMap::from([
+        //     (existent_hash, TxStatus::Failed),
+        //     (non_existent_hash, TxStatus::Failed),
+        // ]);
+        //
+        // let result = subject.change_statuses(&hash_map);
+        //
+        // assert_eq!(
+        //     result,
+        //     Err(SentPayableDaoError::PartialExecution(format!(
+        //         "Failed to update status for hash {:?}",
+        //         non_existent_hash
+        //     )))
+        // );
     }
 
     #[test]
@@ -802,24 +758,12 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = SentPayableDaoReal::new(wrapped_conn);
-        let tx1 = TxBuilder::default()
-            .hash(H256::from_low_u64_le(1))
-            .status(TxStatus::Pending)
-            .build();
-        let tx2 = TxBuilder::default()
-            .hash(H256::from_low_u64_le(2))
-            .status(TxStatus::Pending)
-            .build();
-        let tx3 = TxBuilder::default()
-            .hash(H256::from_low_u64_le(3))
-            .status(TxStatus::Failed)
-            .build();
+        let tx1 = TxBuilder::default().hash(H256::from_low_u64_le(1)).build();
+        let tx2 = TxBuilder::default().hash(H256::from_low_u64_le(2)).build();
+        let tx3 = TxBuilder::default().hash(H256::from_low_u64_le(3)).build();
         let tx4 = TxBuilder::default()
             .hash(H256::from_low_u64_le(4))
-            .status(TxStatus::Succeeded(TransactionBlock {
-                block_hash: Default::default(),
-                block_number: Default::default(),
-            }))
+            .block_status(Default::default(), Default::default())
             .build();
         subject
             .insert_new_records(&vec![tx1.clone(), tx2.clone(), tx3.clone(), tx4.clone()])
@@ -879,10 +823,7 @@ mod tests {
         let subject = SentPayableDaoReal::new(wrapped_conn);
         let present_hash = H256::from_low_u64_le(1);
         let absent_hash = H256::from_low_u64_le(2);
-        let tx = TxBuilder::default()
-            .hash(present_hash)
-            .status(TxStatus::Failed)
-            .build();
+        let tx = TxBuilder::default().hash(present_hash).build();
         subject.insert_new_records(&vec![tx]).unwrap();
         let hashset = HashSet::from([present_hash, absent_hash]);
 
