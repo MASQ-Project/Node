@@ -46,8 +46,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -B generated-source
           git rm -rf .
-          mkdir ip_country
-          mkdir ip_country/src
+          mkdir -p ip_country/src
           mv "${TEMP_DIR}"/dbip_country.rs ip_country/src/dbip_country.rs
           git add ip_country/src/dbip_country.rs
           git commit -m "Update generated dbip_country ${YEAR_MONTH} Rust source file"
