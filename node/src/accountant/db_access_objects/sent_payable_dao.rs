@@ -137,7 +137,8 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
              gas_price_wei_high_b, \
              gas_price_wei_low_b, \
              nonce, \
-             status
+             block_hash, \
+             block_number
              ) VALUES {}",
             comma_joined_stringifiable(txs, |tx| {
                 let amount_checked = checked_conversion::<u128, i128>(tx.amount);
@@ -147,11 +148,11 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
                     BigIntDivider::deconstruct(gas_price_wei_checked);
                 let block_hash = match tx.block_hash_opt {
                     Some(h) => format!("'{:?}'", h),
-                    None => "NULL".to_string(),
+                    None => "null".to_string(),
                 };
                 let block_number = match tx.block_number_opt {
                     Some(n) => format!("{}", n),
-                    None => "NULL".to_string(),
+                    None => "null".to_string(),
                 };
                 format!(
                     "('{:?}', '{:?}', {}, {}, {}, {}, {}, {}, {}, {})",
@@ -187,7 +188,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
 
     fn retrieve_txs(&self, condition_opt: Option<RetrieveCondition>) -> Vec<Tx> {
         let raw_sql = "SELECT tx_hash, receiver_address, amount_high_b, amount_low_b, \
-            timestamp, gas_price_wei, nonce, status FROM sent_payable"
+            timestamp, gas_price_wei_high_b, gas_price_wei_low_b, nonce, block_hash, block_number FROM sent_payable"
             .to_string();
         let sql = match condition_opt {
             None => raw_sql,
@@ -214,12 +215,21 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
             let gas_price_wei =
                 BigIntDivider::reconstitute(gas_price_wei_high_b, gas_price_wei_low_b) as u128;
             let nonce = row.get(7).expectv("nonce");
-            let block_hash_str: String = row.get(8).expectv("block_hash");
-            let block_hash_opt = match block_hash_str.as_str() {
-                "NULL" => None,
-                _ => Some(H256::from_str(&block_hash_str[2..]).expect("Failed to parse H256")),
+            let block_number_opt: Option<u64> = {
+                let block_number_i64_opt: Option<i64> = row.get(9).expectv("block_number");
+                block_number_i64_opt.map(|v| u64::try_from(v).expect("Failed to parse u64"))
             };
-            let block_number_opt: Option<u64> = row.get(9).optional().expectv("block_number");
+            let block_hash_str_opt: Option<String> = row.get(8).expectv("block_hash");
+            eprintln!("{:?}", block_hash_str_opt);
+            let block_hash_opt = match block_hash_str_opt {
+                None => None,
+                Some(string) => Some(H256::from_str(&string[2..]).expect("Failed to parse H256")),
+            };
+            // eprintln!("{:?}", block_hash_str);
+            // let block_hash_opt = match block_hash_str.as_str() {
+            //     "NULL" => None,
+            //     _ => Some(H256::from_str(&block_hash_str[2..]).expect("Failed to parse H256")),
+            // };
 
             Ok(Tx {
                 hash,
