@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::db_access_objects::utils::{
-    from_time_t, to_time_t, DaoFactoryReal, VigilantRusqliteFlatten,
+    from_unix_timestamp, to_unix_timestamp, DaoFactoryReal, VigilantRusqliteFlatten,
 };
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::{checked_conversion, comma_joined_stringifiable};
@@ -104,7 +104,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
             let attempt: u16 = Self::get_with_expect(row, 5);
             Ok(PendingPayableFingerprint {
                 rowid,
-                timestamp: from_time_t(timestamp),
+                timestamp: from_unix_timestamp(timestamp),
                 hash: H256::from_str(&transaction_hash[2..]).unwrap_or_else(|e| {
                     panic!(
                         "Invalid hash format (\"{}\": {:?}) - database corrupt",
@@ -133,7 +133,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
             hashes_and_amounts: &[HashAndAmount],
             batch_wide_timestamp: SystemTime,
         ) -> String {
-            let time_t = to_time_t(batch_wide_timestamp);
+            let time_t = to_unix_timestamp(batch_wide_timestamp);
             comma_joined_stringifiable(hashes_and_amounts, |hash_and_amount| {
                 let amount_checked = checked_conversion::<u128, i128>(hash_and_amount.amount);
                 let (high_bytes, low_bytes) = BigIntDivider::deconstruct(amount_checked);
@@ -275,7 +275,7 @@ mod tests {
     use crate::accountant::db_access_objects::pending_payable_dao::{
         PendingPayableDao, PendingPayableDaoError, PendingPayableDaoReal,
     };
-    use crate::accountant::db_access_objects::utils::from_time_t;
+    use crate::accountant::db_access_objects::utils::from_unix_timestamp;
     use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
     use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::HashAndAmount;
@@ -304,7 +304,7 @@ mod tests {
         let amount_1 = 55556;
         let hash_2 = make_tx_hash(6789);
         let amount_2 = 44445;
-        let batch_wide_timestamp = from_time_t(200_000_000);
+        let batch_wide_timestamp = from_unix_timestamp(200_000_000);
         let subject = PendingPayableDaoReal::new(wrapped_conn);
         let hash_and_amount_1 = HashAndAmount {
             hash: hash_1,
@@ -365,7 +365,7 @@ mod tests {
         let wrapped_conn = ConnectionWrapperReal::new(conn_read_only);
         let hash = make_tx_hash(45466);
         let amount = 55556;
-        let timestamp = from_time_t(200_000_000);
+        let timestamp = from_unix_timestamp(200_000_000);
         let subject = PendingPayableDaoReal::new(Box::new(wrapped_conn));
         let hash_and_amount = HashAndAmount { hash, amount };
 
@@ -394,7 +394,7 @@ mod tests {
         let wrapped_conn = ConnectionWrapperMock::default().prepare_result(Ok(statement));
         let hash_1 = make_tx_hash(4546);
         let amount_1 = 55556;
-        let batch_wide_timestamp = from_time_t(200_000_000);
+        let batch_wide_timestamp = from_unix_timestamp(200_000_000);
         let subject = PendingPayableDaoReal::new(Box::new(wrapped_conn));
         let hash_and_amount = HashAndAmount {
             hash: hash_1,
@@ -414,7 +414,7 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = PendingPayableDaoReal::new(wrapped_conn);
-        let timestamp = from_time_t(195_000_000);
+        let timestamp = from_unix_timestamp(195_000_000);
         // use full range tx hashes because SqLite has tendencies to see the value as a hex and convert it to an integer,
         // then complain about its excessive size if supplied in unquoted strings
         let hash_1 =
@@ -510,7 +510,7 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = PendingPayableDaoReal::new(wrapped_conn);
-        let batch_wide_timestamp = from_time_t(195_000_000);
+        let batch_wide_timestamp = from_unix_timestamp(195_000_000);
         let hash_1 = make_tx_hash(11119);
         let amount_1 = 787;
         let hash_2 = make_tx_hash(10000);
@@ -568,7 +568,7 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = PendingPayableDaoReal::new(wrapped_conn);
-        let timestamp = from_time_t(198_000_000);
+        let timestamp = from_unix_timestamp(198_000_000);
         let hash = make_tx_hash(10000);
         let amount = 333;
         let hash_and_amount_1 = HashAndAmount {
@@ -750,7 +750,7 @@ mod tests {
             hash: hash_3,
             amount: 3344,
         };
-        let timestamp = from_time_t(190_000_000);
+        let timestamp = from_unix_timestamp(190_000_000);
         let subject = PendingPayableDaoReal::new(conn);
         {
             subject
@@ -842,7 +842,7 @@ mod tests {
             hash: hash_2,
             amount: amount_2,
         };
-        let timestamp = from_time_t(190_000_000);
+        let timestamp = from_unix_timestamp(190_000_000);
         let subject = PendingPayableDaoReal::new(conn);
         {
             subject
@@ -868,7 +868,7 @@ mod tests {
                 let process_error: Option<String> = row.get(6).unwrap();
                 Ok(PendingPayableFingerprint {
                     rowid,
-                    timestamp: from_time_t(timestamp),
+                    timestamp: from_unix_timestamp(timestamp),
                     hash: H256::from_str(&transaction_hash[2..]).unwrap(),
                     attempt,
                     amount: checked_conversion::<i128, u128>(BigIntDivider::reconstitute(
