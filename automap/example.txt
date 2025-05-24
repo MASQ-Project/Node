@@ -1,3 +1,0 @@
-PCP document: https://tools.ietf.org/html/rfc6887
-PMP document: https://tools.ietf.org/html/rfc6886
-IGDP document: https://openconnectivity.org/upnp-specs/UPnP-arch-DeviceArchitecture-v2.0-20200417.pdf
