@@ -1017,11 +1017,11 @@ pub mod unshared_test_utils {
                 if let Some(remaining) =
                     self.stop_system_on_count_received_opt.borrow_mut().as_mut()
                 {
+                    *remaining -= 1;
                     if remaining == &0 {
                         System::current().stop();
                         return;
                     }
-                    *remaining -= 1;
                 }
                 if self.send_message_out {
                     ctx.notify(msg)

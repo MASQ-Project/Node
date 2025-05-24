@@ -28,7 +28,7 @@ use crate::sub_lib::accountant::{
 };
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use crate::sub_lib::wallet::Wallet;
-use actix::{Message, Recipient};
+use actix::{Message};
 use itertools::{Either, Itertools};
 use masq_lib::logger::Logger;
 use masq_lib::logger::TIME_FORMATTING_STRING;
@@ -38,18 +38,14 @@ use masq_lib::utils::ExpectValue;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
-use std::marker::PhantomData;
 use std::rc::Rc;
-use std::sync::{Arc, RwLock};
 use std::time::{SystemTime};
-use futures::future::result;
 use time::format_description::parse;
 use time::OffsetDateTime;
 use variant_count::VariantCount;
 use web3::types::H256;
 use crate::accountant::scanners::payable_scanner_extension::{MultistageDualPayableScanner, PreparedAdjustment, SolvencySensitivePaymentInstructor};
 use crate::accountant::scanners::payable_scanner_extension::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage};
-use crate::accountant::scanners::scan_schedulers::{ScanSchedulers};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionReceiptResult, TxStatus};
 use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
 use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
@@ -274,8 +270,18 @@ impl Scanners {
         self.receivable.finish_scan(msg, logger)
     }
 
-    pub fn scan_error_scan_reset(&self, error: &ScanError) {
-        todo!("test me locally")
+    pub fn acknowledge_scan_error(&mut self, error: &ScanError, logger: &Logger) {
+        match error.scan_type {
+            ScanType::Payables => {
+                self.payable.mark_as_ended(logger);
+            }
+            ScanType::PendingPayables => {
+                self.pending_payable.mark_as_ended(logger);
+            }
+            ScanType::Receivables => {
+                self.receivable.mark_as_ended(logger);
+            }
+        };
     }
 
     pub fn try_skipping_payable_adjustment(
@@ -896,7 +902,7 @@ impl Scanner<ReportTransactionReceipts, PendingPayableScanResult> for PendingPay
                 })
         };
 
-        match message.fingerprints_with_receipts.is_empty() {
+        let requires_payment_retry = match message.fingerprints_with_receipts.is_empty() {
             true => {
                 debug!(logger, "No transaction receipts found.");
                 todo!(
@@ -911,17 +917,19 @@ impl Scanner<ReportTransactionReceipts, PendingPayableScanResult> for PendingPay
                     message.fingerprints_with_receipts.len()
                 );
                 let scan_report = self.handle_receipts_for_pending_transactions(message, logger);
-                let requires_payments_retry =
+                let requires_payment_retry =
                     self.process_transactions_by_reported_state(scan_report, logger);
 
                 self.mark_as_ended(&logger);
 
-                if requires_payments_retry {
-                    todo!()
-                } else {
-                    PendingPayableScanResult::NoPendingPayablesLeft(construct_msg_scan_ended_to_ui())
-                }
+                requires_payment_retry
             }
+        };
+
+        if requires_payment_retry {
+            PendingPayableScanResult::PaymentRetryRequired
+        } else {
+            PendingPayableScanResult::NoPendingPayablesLeft(construct_msg_scan_ended_to_ui())
         }
     }
 
@@ -1366,10 +1374,8 @@ pub mod local_test_utils {
         MultistageDualPayableScanner, PreparedAdjustment, PrivateScanner, Scanner,
         SolvencySensitivePaymentInstructor, StartScanError, StartableScanner,
     };
+    use crate::accountant::BlockchainAgentWithContextMessage;
     use crate::accountant::OutboundPaymentsInstructions;
-    use crate::accountant::{
-        BlockchainAgentWithContextMessage, ScanForNewPayables, ScanForRetryPayables,
-    };
     use crate::accountant::{ResponseSkeleton, SentPayables};
     use crate::sub_lib::wallet::Wallet;
     use actix::{Message, System};
@@ -1664,9 +1670,9 @@ mod tests {
     use crate::accountant::scanners::payable_scanner_extension::msgs::QualifiedPayablesMessage;
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{OperationOutcome, PayableScanResult, PendingPayableMetadata};
     use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_none_status, handle_status_with_failure, PendingPayableScanReport, PendingPayableScanResult};
-    use crate::accountant::scanners::{Scanner, StartScanError, StartableScanner, PayableScanner, PendingPayableScanner, ReceivableScanner, ScannerCommon, Scanners, PrivateScanner};
+    use crate::accountant::scanners::{Scanner, StartScanError, StartableScanner, PayableScanner, PendingPayableScanner, ReceivableScanner, ScannerCommon, Scanners};
     use crate::accountant::test_utils::{make_custom_payment_thresholds, make_payable_account, make_qualified_and_unqualified_payables, make_pending_payable_fingerprint, make_receivable_account, BannedDaoFactoryMock, BannedDaoMock, ConfigDaoFactoryMock, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder, PayableThresholdsGaugeMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock, PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock, ReceivableScannerBuilder};
-    use crate::accountant::{gwei_to_wei, PendingPayableId, ReceivedPayments, ReportTransactionReceipts, RequestTransactionReceipts, ScanForNewPayables, ScanForRetryPayables, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC};
+    use crate::accountant::{gwei_to_wei, PendingPayableId, ReceivedPayments, ReportTransactionReceipts, RequestTransactionReceipts, ScanError, ScanForNewPayables, ScanForRetryPayables, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC};
     use crate::blockchain::blockchain_bridge::{BlockMarker, PendingPayableFingerprint, RetrieveTransactions};
     use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
     use crate::blockchain::blockchain_interface::data_structures::{
@@ -1696,14 +1702,13 @@ mod tests {
     use std::ops::Sub;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::rc::Rc;
-    use std::sync::{Arc, Mutex, RwLock};
+    use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
-    use itertools::Either;
     use web3::types::{TransactionReceipt, H256};
     use web3::Error;
     use masq_lib::messages::ScanType;
     use masq_lib::ui_gateway::NodeToUiMessage;
-    use crate::accountant::scanners::local_test_utils::{NullScanner, ScannerMock};
+    use crate::accountant::scanners::local_test_utils::{NullScanner};
     use crate::accountant::scanners::test_utils::{MarkScanner, ReplacementType, ScannerReplacement};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TransactionReceiptResult, TxReceipt, TxStatus};
 
@@ -4433,6 +4438,72 @@ mod tests {
             pseudo_timestamp_for_pending_payable_start,
             PseudoTimestamp::from(time)
         );
+    }
+
+    #[test]
+    fn acknowledge_scan_error_works() {
+        fn scan_error(scan_type: ScanType) -> ScanError {
+            ScanError {
+                scan_type,
+                response_skeleton_opt: None,
+                msg: "bluh".to_string(),
+            }
+        }
+
+        init_test_logging();
+        let test_name = "acknowledge_scan_error_works";
+        let inputs: Vec<(
+            ScanType,
+            Box<dyn Fn(&mut Scanners)>,
+            Box<dyn Fn(&Scanners) -> Option<SystemTime>>,
+        )> = vec![
+            (
+                ScanType::Payables,
+                Box::new(|subject| subject.payable.mark_as_started(SystemTime::now())),
+                Box::new(|subject| subject.payable.scan_started_at()),
+            ),
+            (
+                ScanType::PendingPayables,
+                Box::new(|subject| subject.pending_payable.mark_as_started(SystemTime::now())),
+                Box::new(|subject| subject.pending_payable.scan_started_at()),
+            ),
+            (
+                ScanType::Receivables,
+                Box::new(|subject| subject.receivable.mark_as_started(SystemTime::now())),
+                Box::new(|subject| subject.receivable.scan_started_at()),
+            ),
+        ];
+        let mut subject = make_dull_subject();
+        subject.payable = Box::new(PayableScannerBuilder::new().build());
+        subject.pending_payable = Box::new(PendingPayableScannerBuilder::new().build());
+        subject.receivable = Box::new(ReceivableScannerBuilder::new().build());
+        let logger = Logger::new(test_name);
+        let test_log_handler = TestLogHandler::new();
+
+        inputs
+            .into_iter()
+            .for_each(|(scan_type, set_started, get_started_at)| {
+                set_started(&mut subject);
+                let started_at_before = get_started_at(&subject);
+
+                subject.acknowledge_scan_error(&scan_error(scan_type), &logger);
+
+                let started_at_after = get_started_at(&subject);
+                assert!(
+                    started_at_before.is_some(),
+                    "Should've been started for {:?}",
+                    scan_type
+                );
+                assert_eq!(
+                    started_at_after, None,
+                    "Should've been unset for {:?}",
+                    scan_type
+                );
+                test_log_handler.exists_log_containing(&format!(
+                    "INFO: {test_name}: The {:?} scan ended in",
+                    scan_type
+                ));
+            })
     }
 
     fn make_dull_subject() -> Scanners {

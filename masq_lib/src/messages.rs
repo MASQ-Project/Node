@@ -11,7 +11,6 @@ use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Debug;
-use std::future::pending;
 use std::str::FromStr;
 
 pub const NODE_UI_PROTOCOL: &str = "MASQNode-UIv2";

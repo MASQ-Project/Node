@@ -12,7 +12,6 @@ use crate::sub_lib::utils::{
 use actix::{Actor, Context, Handler};
 use masq_lib::logger::Logger;
 use masq_lib::messages::ScanType;
-use std::cell::RefCell;
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -145,14 +144,12 @@ impl PayableScanScheduler {
 
 pub struct PayableScanSchedulerInner {
     pub last_new_payable_scan_timestamp: SystemTime,
-    pub next_new_payable_scan_already_scheduled: bool,
 }
 
 impl Default for PayableScanSchedulerInner {
     fn default() -> Self {
         Self {
             last_new_payable_scan_timestamp: UNIX_EPOCH,
-            next_new_payable_scan_already_scheduled: false,
         }
     }
 }
@@ -215,7 +212,7 @@ where
 
         debug!(
             logger,
-            "Scheduling a scan with {:?} in {}ms",
+            "Scheduling a scan via {:?} in {}ms",
             msg,
             self.interval.as_millis()
         );
@@ -361,10 +358,6 @@ mod tests {
         assert_eq!(
             payable_scheduler_inner.last_new_payable_scan_timestamp,
             UNIX_EPOCH
-        );
-        assert_eq!(
-            payable_scheduler_inner.next_new_payable_scan_already_scheduled,
-            false
         );
         assert_eq!(
             schedulers.pending_payable.interval,
@@ -586,7 +579,7 @@ mod tests {
         ALL_START_SCAN_ERRORS
             .iter()
             .enumerate()
-            .for_each(|(idx, (error))| {
+            .for_each(|(idx, error)| {
                 let result = subject
                     .reschedule_on_error_resolver
                     .resolve_rescheduling_for_given_error(hintable_scanner, error, true);
@@ -733,7 +726,7 @@ mod tests {
 
     #[test]
     fn resolve_rescheduling_for_given_error_works_for_retry_payables_if_externally_triggered() {
-        let subject = ScanSchedulers::new(ScanIntervals::default(), true);
+        let subject = ScanSchedulers::new(ScanIntervals::default(), false);
 
         test_what_if_externally_triggered(&subject, HintableScanner::RetryPayables {});
     }
@@ -757,7 +750,7 @@ mod tests {
             let panic_msg = panic.downcast_ref::<String>().unwrap();
             let expected_msg = format!(
                 "internal error: entered unreachable code: {:?} should be impossible \
-                with RetryPayablesScanner in automatic mode.",
+                with RetryPayableScanner in automatic mode",
                 error
             );
             assert_eq!(

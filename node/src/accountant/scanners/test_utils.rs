@@ -12,7 +12,6 @@ use crate::accountant::{
     ReceivedPayments, ReportTransactionReceipts, RequestTransactionReceipts, SentPayables,
 };
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
-use itertools::Either;
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeToUiMessage;
 use std::cell::RefCell;

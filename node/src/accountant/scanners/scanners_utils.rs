@@ -6,7 +6,7 @@ pub mod payable_scanner_utils {
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
         LocallyCausedError, RemotelyCausedErrors,
     };
-    use crate::accountant::{comma_joined_stringifiable, ResponseSkeleton, SentPayables};
+    use crate::accountant::{comma_joined_stringifiable, SentPayables};
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::sub_lib::wallet::Wallet;
     use itertools::Itertools;

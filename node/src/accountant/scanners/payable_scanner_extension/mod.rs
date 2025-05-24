@@ -14,7 +14,6 @@ use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableS
 use crate::accountant::scanners::{Scanner, StartableScanner};
 use crate::accountant::{ScanForNewPayables, ScanForRetryPayables, SentPayables};
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
-use actix::Message;
 use itertools::Either;
 use masq_lib::logger::Logger;
 
