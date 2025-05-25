@@ -146,8 +146,8 @@ impl Scanners {
         )
     }
 
-    // Note: This scanner cannot be started on its own, it always comes after the pending payable
-    // scan, but only if it was made clear that there is a need to perform this retry.
+    // Note: This scanner cannot be started on its own. It always runs after the pending payable
+    // scan, but only if it is clear that a retry is needed.
     pub fn start_retry_payable_scan_guarded(
         &mut self,
         wallet: &Wallet,
@@ -192,7 +192,7 @@ impl Scanners {
             self.payable.scan_started_at(),
         ) {
             (Some(pp_timestamp), Some(p_timestamp)) =>
-            // If you're wondering, then yes, this should be the sacre truth between
+            // If you're wondering, then yes, this condition should be the sacre truth between
             // PendingPayableScanner and NewPayableScanner.
             {
                 unreachable!(

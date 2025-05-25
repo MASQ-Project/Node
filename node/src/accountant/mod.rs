@@ -220,10 +220,10 @@ impl Handler<ScanForPendingPayables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ScanForPendingPayables, ctx: &mut Self::Context) -> Self::Result {
-        // By this time we know it is an automatic scanner, which may or may not be rescheduled.
-        // It depends on the findings: if it finds failed transactions, then it will launch
-        // the RetryPayableScanner, which finishes, and the PendingPayablesScanner is scheduled
-        // to run again. Therefore, not from here.
+        // By now we know this is an automatic scan process. The scan may be or may not be
+        // rescheduled. It depends on the findings. Any failed transactions will lead to the launch
+        // of the RetryPayableScanner, which finishes, and the PendingPayablesScanner is scheduled
+        // to run again. However, not from here.
         let response_skeleton_opt = msg.response_skeleton_opt;
         if let SchedulingAfterHaltedScan::Schedule(ScanType::Payables) =
             self.handle_request_of_scan_for_pending_payable(response_skeleton_opt)
@@ -239,12 +239,11 @@ impl Handler<ScanForNewPayables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ScanForNewPayables, ctx: &mut Self::Context) -> Self::Result {
-        // TODO recheck these descriptions
-        // We know this must be a scheduled scanner, but we don't if we are going to reschedule it
-        // from here or elsewhere. If the scan finds no payables that qualify for a payment, we do
-        // it right away. If some new pending payables are produced, the next scheduling is going to
-        // be determined by the PendingPayableScanner, evaluating if it has seen all pending
-        // payables complete. That opens up an opportunity for another run of the NewPayableScanner.
+        // We know this must be a scheduled scan, but are yet clueless if where it's going to be
+        // rescheduled. If no payables qualify for a payment, we do it here right away. If some
+        // transactions made it out, the next scheduling of this scanner is going to be decided by
+        // the PendingPayableScanner whose job is to evaluate if it has seen every pending payable
+        // complete. That's the moment when another run of the NewPayableScanner makes sense again.
         let response_skeleton = msg.response_skeleton_opt;
         if let SchedulingAfterHaltedScan::Schedule(ScanType::Payables) =
             self.handle_request_of_scan_for_new_payable(response_skeleton)
@@ -260,8 +259,8 @@ impl Handler<ScanForRetryPayables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ScanForRetryPayables, _ctx: &mut Self::Context) -> Self::Result {
-        // RetryPayableScanner is scheduled only when the PendingPayableScanner finishes finding out
-        // that there have been some failed pending payables. That means not from here.
+        // RetryPayableScanner is scheduled only when the PendingPayableScanner finishes discovering
+        // that there have been some failed pending payables. No place for it here.
         let response_skeleton = msg.response_skeleton_opt;
         let _ = self.handle_request_of_scan_for_retry_payable(response_skeleton);
     }
@@ -271,8 +270,8 @@ impl Handler<ScanForReceivables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ScanForReceivables, ctx: &mut Self::Context) -> Self::Result {
-        // By this time we know it is an automatic scanner, which is always rescheduled right away,
-        // no matter what its outcome is.
+        // By now we know it is an automatic scan, which, for this particular scanner, is
+        // rescheduled pretty regularly, right here, no matter what its outcome is.
         self.handle_request_of_scan_for_receivable(msg.response_skeleton_opt);
         self.scan_schedulers.receivable.schedule(ctx, &self.logger);
     }
@@ -291,8 +290,8 @@ impl Handler<ReportTransactionReceipts> for Accountant {
                         .expect("UIGateway is not bound")
                         .try_send(node_to_ui_msg)
                         .expect("UIGateway is dead");
-                    // Externally triggered scan is not allowed to be a spark for a procedure that
-                    // would involve payables with fresh nonces. The job is done.
+                    // Externally triggered scan should never be allowed to spark a procedure that
+                    // would bring around payables with fresh nonces. The job's done.
                 } else {
                     self.scan_schedulers
                         .payable
@@ -343,10 +342,9 @@ impl Handler<SentPayables> for Accountant {
                     .try_send(node_to_ui_msg)
                     .expect("UIGateway is dead");
 
-                // When automatic scans are suppressed, the external triggers are not allowed to
-                // provoke an unwinding scan sequence across intervals. The only exception is
-                // the PendingPayableScanner and RetryPayableScanner, which are meant to run in
-                // a tight tandem.
+                // Externally triggered scans are not allowed to provoke an unwinding scan sequence
+                // with intervals. The only exception is the PendingPayableScanner and
+                // RetryPayableScanner, which are ever meant to run in a tight tandem.
             }
         }
     }
