@@ -1305,16 +1305,19 @@ impl StartScanError {
                 scan_type
             )),
             StartScanError::CalledFromNullScanner => match cfg!(test) {
-                true => ErrorType::Permanent(format!("Called from NullScanner, not the {:?} scanner.", scan_type)),
+                true => ErrorType::Permanent(format!(
+                    "Called from NullScanner, not the {:?} scanner.",
+                    scan_type
+                )),
                 false => panic!("Null Scanner shouldn't be running inside production code."),
             },
             StartScanError::ManualTriggerError(e) => match e {
                 MTError::AutomaticScanConflict => ErrorType::Permanent(format!(
-                    "Requested manually, the {:?} scan was denied. Automatic mode prevents manual triggers.",
+                    "User requested {:?} scan was denied. Automatic mode prevents manual triggers.",
                     scan_type
                 )),
                 MTError::UnnecessaryRequest { hint_opt } => ErrorType::Temporary(format!(
-                    "Requested manually, the {:?} scan was denied expecting zero findings.{}",
+                    "User requested {:?} scan was denied expecting zero findings.{}",
                     scan_type,
                     match hint_opt {
                         Some(hint) => format!(" {}", hint),
@@ -4520,19 +4523,19 @@ mod tests {
             ),
             (
                 StartScanError::ManualTriggerError(MTError::AutomaticScanConflict),
-                format!("DEBUG: {test_name}: Requested manually, the Payables scan was denied. Automatic mode prevents manual triggers.")
+                format!("DEBUG: {test_name}: User requested Payables scan was denied. Automatic mode prevents manual triggers.")
             ),
             (
                 StartScanError::ManualTriggerError(MTError::UnnecessaryRequest {
                     hint_opt: Some("Wise words".to_string())
                 }),
-                format!("DEBUG: {test_name}: Requested manually, the Payables scan was denied expecting zero findings. Wise words")
+                format!("DEBUG: {test_name}: User requested Payables scan was denied expecting zero findings. Wise words")
             ),
             (
                 StartScanError::ManualTriggerError(MTError::UnnecessaryRequest {
                     hint_opt: None}
                 ),
-                format!("DEBUG: {test_name}: Requested manually, the Payables scan was denied expecting zero findings.")
+                format!("DEBUG: {test_name}: User requested Payables scan was denied expecting zero findings.")
             ),
             (
                 StartScanError::CalledFromNullScanner,
@@ -4571,19 +4574,19 @@ mod tests {
             ),
             (
                 StartScanError::ManualTriggerError(MTError::AutomaticScanConflict),
-                format!("WARN: {test_name}: Requested manually, the Payables scan was denied. Automatic mode prevents manual triggers.")
+                format!("WARN: {test_name}: User requested Payables scan was denied. Automatic mode prevents manual triggers.")
             ),
             (
                 StartScanError::ManualTriggerError(MTError::UnnecessaryRequest {
                     hint_opt: Some("Wise words".to_string())
                 }),
-                format!("INFO: {test_name}: Requested manually, the Payables scan was denied expecting zero findings. Wise words")
+                format!("INFO: {test_name}: User requested Payables scan was denied expecting zero findings. Wise words")
             ),
             (
                 StartScanError::ManualTriggerError(MTError::UnnecessaryRequest {
                     hint_opt: None}
                 ),
-                format!("INFO: {test_name}: Requested manually, the Payables scan was denied expecting zero findings.")
+                format!("INFO: {test_name}: User requested Payables scan was denied expecting zero findings.")
             ),
             (
                 StartScanError::CalledFromNullScanner,

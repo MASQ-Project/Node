@@ -1971,7 +1971,7 @@ mod tests {
         scan_type: ScanType,
     ) {
         let expected_log_msg = format!(
-            "WARN: {test_name}: Manual {:?} scan was denied. Automatic mode \
+            "WARN: {test_name}: User requested {:?} scan was denied. Automatic mode \
             prevents manual triggers.",
             scan_type
         );
@@ -2054,8 +2054,8 @@ mod tests {
     ) {
         let test_name = "externally_triggered_scan_for_pending_payables_is_prevented_if_all_payments_already_complete";
         let expected_log_msg = format!(
-            "INFO: {test_name}: Manual PendingPayables scan was denied for the predictable zero \
-            effect. Run the Payable scanner first."
+            "INFO: {test_name}: User requested PendingPayables scan was denied expecting zero \
+            findings. Run the Payable scanner first."
         );
 
         test_externally_triggered_scan_is_prevented_if(
