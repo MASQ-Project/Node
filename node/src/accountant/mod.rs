@@ -937,7 +937,7 @@ impl Accountant {
                     response_skeleton_opt,
                     &self.logger,
                 ),
-                None => todo!("I need a test here"), //Err(StartScanError::NoConsumingWalletFound),
+                None => Err(StartScanError::NoConsumingWalletFound),
             };
 
         match result {
@@ -949,35 +949,11 @@ impl Accountant {
                     .expect("BlockchainBridge is dead");
                 SchedulingAfterHaltedScan::DoNotSchedule
             }
-            Err(e) => {
-                self.handle_start_scan_error_for_scanner_with_irregular_scheduling(
-                    todo!(),
-                    e,
-                    response_skeleton_opt,
-                )
-                // let is_externally_triggered = response_skeleton_opt.is_some();
-                // todo!("process...and eventually schedule for pending payable");
-                // // e.log_error(
-                // //     &self.logger,
-                // //     ScanType::Payables,
-                // //     is_externally_triggered,
-                // // );
-                // //
-                // // response_skeleton_opt.map(|skeleton| {
-                // //     self.ui_message_sub_opt
-                // //         .as_ref()
-                // //         .expect("UiGateway is unbound")
-                // //         .try_send(NodeToUiMessage {
-                // //             target: MessageTarget::ClientId(skeleton.client_id),
-                // //             body: UiScanResponse {}.tmb(skeleton.context_id),
-                // //         })
-                // //         .expect("UiGateway is dead");
-                // // });
-                //
-                // self.scan_schedulers
-                //     .reschedule_on_error_resolver
-                //     .resolve_rescheduling_for_given_error(todo!(), &e, is_externally_triggered)
-            }
+            Err(e) => self.handle_start_scan_error_for_scanner_with_irregular_scheduling(
+                HintableScanner::RetryPayables,
+                e,
+                response_skeleton_opt,
+            ),
         }
     }
 
@@ -2311,10 +2287,6 @@ mod tests {
         subject
             .scanners
             .replace_scanner(ScannerReplacement::Receivable(ReplacementType::Null));
-        let response_skeleton_opt = Some(ResponseSkeleton {
-            client_id: 789,
-            context_id: 111,
-        });
         let accountant_addr = subject.start();
         let accountant_subs = Accountant::make_subs_from(&accountant_addr);
         let peer_actors = peer_actors_builder()
@@ -2324,7 +2296,7 @@ mod tests {
 
         accountant_addr
             .try_send(ScanForRetryPayables {
-                response_skeleton_opt,
+                response_skeleton_opt: None,
             })
             .unwrap();
 
@@ -2336,7 +2308,7 @@ mod tests {
         let (actual_wallet, actual_now, actual_response_skeleton_opt, actual_logger, _) =
             start_scan_params.remove(0);
         assert_eq!(actual_wallet, consuming_wallet);
-        assert_eq!(actual_response_skeleton_opt, response_skeleton_opt);
+        assert_eq!(actual_response_skeleton_opt, None);
         assert!(before <= actual_now && actual_now <= after);
         assert!(
             start_scan_params.is_empty(),
@@ -2348,6 +2320,52 @@ mod tests {
         assert_eq!(message, &qualified_payables_msg);
         assert_eq!(blockchain_bridge_recorder.len(), 1);
         test_use_of_the_same_logger(&actual_logger, test_name, None)
+    }
+
+    #[test]
+    fn scan_for_retry_payables_if_consuming_wallet_is_not_present() {
+        init_test_logging();
+        let test_name = "scan_for_retry_payables_if_consuming_wallet_is_not_present";
+        let system = System::new(test_name);
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let ui_gateway =
+            ui_gateway.system_stop_conditions(match_lazily_every_type_id!(NodeToUiMessage));
+        let ui_gateway_addr = ui_gateway.start();
+        let mut subject = AccountantBuilder::default()
+            .logger(Logger::new(test_name))
+            .build();
+        let payable_scanner_mock = ScannerMock::new();
+        subject
+            .scanners
+            .replace_scanner(ScannerReplacement::Payable(ReplacementType::Mock(
+                payable_scanner_mock,
+            )));
+        subject.ui_message_sub_opt = Some(ui_gateway_addr.recipient());
+        // It must be populated because no errors are tolerated at the RetryPayableScanner
+        // if automatic scans are on
+        let response_skeleton_opt = Some(ResponseSkeleton {
+            client_id: 789,
+            context_id: 111,
+        });
+        let accountant_addr = subject.start();
+
+        accountant_addr
+            .try_send(ScanForRetryPayables {
+                response_skeleton_opt,
+            })
+            .unwrap();
+
+        system.run();
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        let message = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
+        assert_eq!(
+            message,
+            &NodeToUiMessage {
+                target: MessageTarget::ClientId(response_skeleton_opt.unwrap().client_id),
+                body: UiScanResponse {}.tmb(response_skeleton_opt.unwrap().context_id)
+            }
+        );
+        TestLogHandler::new().exists_log_containing(&format!("WARN: {test_name}: Cannot initiate Payables scan because no consuming wallet was found"));
     }
 
     #[test]

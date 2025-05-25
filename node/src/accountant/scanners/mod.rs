@@ -1305,20 +1305,20 @@ impl StartScanError {
                 scan_type
             )),
             StartScanError::CalledFromNullScanner => match cfg!(test) {
-                true => todo!(), //None,
+                true => ErrorType::Permanent(format!("Called from NullScanner, not the {:?} scanner.", scan_type)),
                 false => panic!("Null Scanner shouldn't be running inside production code."),
             },
             StartScanError::ManualTriggerError(e) => match e {
                 MTError::AutomaticScanConflict => ErrorType::Permanent(format!(
-                    "Manual {:?} scan was denied. Automatic mode prevents manual triggers.",
+                    "Requested manually, the {:?} scan was denied. Automatic mode prevents manual triggers.",
                     scan_type
                 )),
                 MTError::UnnecessaryRequest { hint_opt } => ErrorType::Temporary(format!(
-                    "Manual {:?} scan was denied for the predictable zero effect.{}",
+                    "Requested manually, the {:?} scan was denied expecting zero findings.{}",
                     scan_type,
                     match hint_opt {
                         Some(hint) => format!(" {}", hint),
-                        None => todo!(),
+                        None => "".to_string(),
                     }
                 )),
             },
@@ -1670,7 +1670,7 @@ mod tests {
     use crate::accountant::scanners::payable_scanner_extension::msgs::QualifiedPayablesMessage;
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{OperationOutcome, PayableScanResult, PendingPayableMetadata};
     use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_none_status, handle_status_with_failure, PendingPayableScanReport, PendingPayableScanResult};
-    use crate::accountant::scanners::{Scanner, StartScanError, StartableScanner, PayableScanner, PendingPayableScanner, ReceivableScanner, ScannerCommon, Scanners};
+    use crate::accountant::scanners::{Scanner, StartScanError, StartableScanner, PayableScanner, PendingPayableScanner, ReceivableScanner, ScannerCommon, Scanners, MTError};
     use crate::accountant::test_utils::{make_custom_payment_thresholds, make_payable_account, make_qualified_and_unqualified_payables, make_pending_payable_fingerprint, make_receivable_account, BannedDaoFactoryMock, BannedDaoMock, ConfigDaoFactoryMock, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder, PayableThresholdsGaugeMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock, PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock, ReceivableScannerBuilder};
     use crate::accountant::{gwei_to_wei, PendingPayableId, ReceivedPayments, ReportTransactionReceipts, RequestTransactionReceipts, ScanError, ScanForNewPayables, ScanForRetryPayables, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC};
     use crate::blockchain::blockchain_bridge::{BlockMarker, PendingPayableFingerprint, RetrieveTransactions};
@@ -4504,6 +4504,108 @@ mod tests {
                     scan_type
                 ));
             })
+    }
+
+    #[test]
+    fn log_error_works_fine_for_automatic_scanning() {
+        init_test_logging();
+        let test_name = "log_error_works_fine_for_automatic_scanning";
+        let input = vec![
+            (
+                StartScanError::ScanAlreadyRunning {
+                    pertinent_scanner: ScanType::Payables,
+                    started_at: SystemTime::now()
+                },
+                format!("DEBUG: {test_name}: Payables scan was already initiated at" /*TODO suboptimal */)
+            ),
+            (
+                StartScanError::ManualTriggerError(MTError::AutomaticScanConflict),
+                format!("DEBUG: {test_name}: Requested manually, the Payables scan was denied. Automatic mode prevents manual triggers.")
+            ),
+            (
+                StartScanError::ManualTriggerError(MTError::UnnecessaryRequest {
+                    hint_opt: Some("Wise words".to_string())
+                }),
+                format!("DEBUG: {test_name}: Requested manually, the Payables scan was denied expecting zero findings. Wise words")
+            ),
+            (
+                StartScanError::ManualTriggerError(MTError::UnnecessaryRequest {
+                    hint_opt: None}
+                ),
+                format!("DEBUG: {test_name}: Requested manually, the Payables scan was denied expecting zero findings.")
+            ),
+            (
+                StartScanError::CalledFromNullScanner,
+                format!("DEBUG: {test_name}: Called from NullScanner, not the Payables scanner.")
+            ),
+            (
+                StartScanError::NoConsumingWalletFound,
+                format!("DEBUG: {test_name}: Cannot initiate Payables scan because no consuming wallet was found.")
+            ),
+            (
+                StartScanError::NothingToProcess,
+                format!("DEBUG: {test_name}: There was nothing to process during Payables scan.")
+            ),
+          ];
+        let logger = Logger::new(test_name);
+        let test_log_handler = TestLogHandler::new();
+
+        input.into_iter().for_each(|(err, expected_log_msg)| {
+            err.log_error(&logger, ScanType::Payables, false);
+
+            test_log_handler.exists_log_containing(&expected_log_msg);
+        });
+    }
+
+    #[test]
+    fn log_error_works_fine_for_externally_triggered_scanning() {
+        init_test_logging();
+        let test_name = "log_error_works_fine_for_externally_triggered_scanning";
+        let input = vec![
+            (
+                StartScanError::ScanAlreadyRunning {
+                    pertinent_scanner: ScanType::Payables,
+                    started_at: SystemTime::now()
+                },
+                format!("INFO: {test_name}: Payables scan was already initiated at" /*TODO suboptimal */)
+            ),
+            (
+                StartScanError::ManualTriggerError(MTError::AutomaticScanConflict),
+                format!("WARN: {test_name}: Requested manually, the Payables scan was denied. Automatic mode prevents manual triggers.")
+            ),
+            (
+                StartScanError::ManualTriggerError(MTError::UnnecessaryRequest {
+                    hint_opt: Some("Wise words".to_string())
+                }),
+                format!("INFO: {test_name}: Requested manually, the Payables scan was denied expecting zero findings. Wise words")
+            ),
+            (
+                StartScanError::ManualTriggerError(MTError::UnnecessaryRequest {
+                    hint_opt: None}
+                ),
+                format!("INFO: {test_name}: Requested manually, the Payables scan was denied expecting zero findings.")
+            ),
+            (
+                StartScanError::CalledFromNullScanner,
+                format!("WARN: {test_name}: Called from NullScanner, not the Payables scanner.")
+            ),
+            (
+                StartScanError::NoConsumingWalletFound,
+                format!("WARN: {test_name}: Cannot initiate Payables scan because no consuming wallet was found.")
+            ),
+            (
+                StartScanError::NothingToProcess,
+                format!("INFO: {test_name}: There was nothing to process during Payables scan.")
+            ),
+        ];
+        let logger = Logger::new(test_name);
+        let test_log_handler = TestLogHandler::new();
+
+        input.into_iter().for_each(|(err, expected_log_msg)| {
+            err.log_error(&logger, ScanType::Payables, true);
+
+            test_log_handler.exists_log_containing(&expected_log_msg);
+        });
     }
 
     fn make_dull_subject() -> Scanners {
