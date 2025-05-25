@@ -1314,7 +1314,7 @@ impl StartScanError {
                     scan_type
                 )),
                 MTError::UnnecessaryRequest { hint_opt } => ErrorType::Temporary(format!(
-                    "Manual {:?} scan was denied for a predictable zero effect.{}",
+                    "Manual {:?} scan was denied for the predictable zero effect.{}",
                     scan_type,
                     match hint_opt {
                         Some(hint) => format!(" {}", hint),

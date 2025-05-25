@@ -972,6 +972,7 @@ pub mod unshared_test_utils {
             notify_params: Arc<Mutex<Vec<M>>>,
             send_message_out: bool,
             stop_system_on_count_received_opt: RefCell<Option<usize>>,
+            panic_on_schedule_attempt: bool,
         }
 
         impl<M: Message> Default for NotifyHandleMock<M> {
@@ -980,6 +981,7 @@ pub mod unshared_test_utils {
                     notify_params: Arc::new(Mutex::new(vec![])),
                     send_message_out: false,
                     stop_system_on_count_received_opt: RefCell::new(None),
+                    panic_on_schedule_attempt: false,
                 }
             }
         }
@@ -1005,14 +1007,25 @@ pub mod unshared_test_utils {
                     .replace(Some(msg_count));
                 self
             }
+
+            pub fn panic_on_schedule_attempt(mut self) -> Self {
+                self.panic_on_schedule_attempt = true;
+                self
+            }
         }
 
         impl<M, A> NotifyHandle<M, A> for NotifyHandleMock<M>
         where
-            M: Message + 'static + Clone,
+            M: Message + Debug + Clone + 'static,
             A: Actor<Context = Context<A>> + Handler<M>,
         {
             fn notify<'a>(&'a self, msg: M, ctx: &'a mut Context<A>) {
+                if self.panic_on_schedule_attempt {
+                    panic!(
+                        "Message scheduling request for {:?}, thought not expected",
+                        msg
+                    )
+                }
                 self.notify_params.lock().unwrap().push(msg.clone());
                 if let Some(remaining) =
                     self.stop_system_on_count_received_opt.borrow_mut().as_mut()

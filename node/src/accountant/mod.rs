@@ -291,7 +291,6 @@ impl Handler<ReportTransactionReceipts> for Accountant {
                         .expect("UIGateway is not bound")
                         .try_send(node_to_ui_msg)
                         .expect("UIGateway is dead");
-                    todo!("Finishing PendingPayable scan. Non-automatic.");
                     // Externally triggered scan is not allowed to be a spark for a procedure that
                     // would involve payables with fresh nonces. The job is done.
                 } else {
@@ -1815,7 +1814,6 @@ mod tests {
     #[test]
     fn externally_triggered_scan_pending_payables_request() {
         let mut config = bc_from_earning_wallet(make_wallet("some_wallet_address"));
-        config.automatic_scans_enabled = false;
         config.scan_intervals_opt = Some(ScanIntervals {
             payable_scan_interval: Duration::from_millis(10_000),
             receivable_scan_interval: Duration::from_millis(10_000),
@@ -1871,6 +1869,68 @@ mod tests {
                 }),
             }
         );
+    }
+
+    #[test]
+    fn externally_triggered_scan_identifies_all_pending_payables_as_complete() {
+        let transaction_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
+        let response_skeleton_opt = Some(ResponseSkeleton {
+            client_id: 565,
+            context_id: 112233,
+        });
+        let payable_dao = PayableDaoMock::default()
+            .transactions_confirmed_params(&transaction_confirmed_params_arc)
+            .transactions_confirmed_result(Ok(()));
+        let pending_payable_dao =
+            PendingPayableDaoMock::default().delete_fingerprints_result(Ok(()));
+        let mut subject = AccountantBuilder::default()
+            .payable_daos(vec![ForPendingPayableScanner(payable_dao)])
+            .pending_payable_daos(vec![ForPendingPayableScanner(pending_payable_dao)])
+            .build();
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let ui_gateway =
+            ui_gateway.system_stop_conditions(match_lazily_every_type_id!(NodeToUiMessage));
+        let ui_gateway_addr = ui_gateway.start();
+        let system = System::new("test");
+        subject.scan_schedulers.automatic_scans_enabled = false;
+        // Making sure we would kill the test if any sort of scan was scheduled
+        subject.scan_schedulers.payable.retry_payable_notify =
+            Box::new(NotifyHandleMock::default().panic_on_schedule_attempt());
+        subject.scan_schedulers.payable.new_payable_notify_later =
+            Box::new(NotifyLaterHandleMock::default().panic_on_schedule_attempt());
+        subject.scan_schedulers.payable.new_payable_notify =
+            Box::new(NotifyHandleMock::default().panic_on_schedule_attempt());
+        subject.ui_message_sub_opt = Some(ui_gateway_addr.recipient());
+        let subject_addr = subject.start();
+        let tx_fingerprint = make_pending_payable_fingerprint();
+        let report_tx_receipts = ReportTransactionReceipts {
+            fingerprints_with_receipts: vec![(
+                TransactionReceiptResult::RpcResponse(TxReceipt {
+                    transaction_hash: make_tx_hash(777),
+                    status: TxStatus::Succeeded(TransactionBlock {
+                        block_hash: make_tx_hash(456),
+                        block_number: 78901234.into(),
+                    }),
+                }),
+                tx_fingerprint.clone(),
+            )],
+            response_skeleton_opt,
+        };
+
+        subject_addr.try_send(report_tx_receipts).unwrap();
+
+        system.run();
+        let transaction_confirmed_params = transaction_confirmed_params_arc.lock().unwrap();
+        assert_eq!(*transaction_confirmed_params, vec![vec![tx_fingerprint]]);
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        assert_eq!(
+            ui_gateway_recording.get_record::<NodeToUiMessage>(0),
+            &NodeToUiMessage {
+                target: MessageTarget::ClientId(response_skeleton_opt.unwrap().client_id),
+                body: UiScanResponse {}.tmb(response_skeleton_opt.unwrap().context_id),
+            }
+        );
+        assert_eq!(ui_gateway_recording.len(), 1);
     }
 
     #[test]
@@ -2018,8 +2078,8 @@ mod tests {
     ) {
         let test_name = "externally_triggered_scan_for_pending_payables_is_prevented_if_all_payments_already_complete";
         let expected_log_msg = format!(
-            "INFO: {test_name}: Manual PendingPayables scan was \
-        denied for a predictable zero effect. Run the Payable scanner first."
+            "INFO: {test_name}: Manual PendingPayables scan was denied for the predictable zero \
+            effect. Run the Payable scanner first."
         );
 
         test_externally_triggered_scan_is_prevented_if(
