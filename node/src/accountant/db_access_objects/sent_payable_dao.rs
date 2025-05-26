@@ -220,7 +220,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
                     block_number: U64::from(block_number),
                 }),
                 (None, None) => None,
-                _ => panic!("Invalid block details"), // TODO: GH-631: Test me
+                _ => panic!("Invalid block details"),
             };
 
             Ok(Tx {
@@ -571,6 +571,42 @@ mod tests {
         let result = subject.retrieve_txs(Some(ByHash(vec![tx1.hash])));
 
         assert_eq!(result, vec![tx1]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid block details")]
+    fn retrieve_txs_enforces_complete_block_details() {
+        let home_dir = ensure_node_home_directory_exists(
+            "sent_payable_dao",
+            "retrieve_txs_enforces_complete_block_details",
+        );
+        let wrapped_conn = DbInitializerReal::default()
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
+        // Insert a record with block_hash but no block_number
+        {
+            let sql = "INSERT INTO sent_payable (tx_hash, receiver_address, amount_high_b, amount_low_b, timestamp, gas_price_wei_high_b, gas_price_wei_low_b, nonce, block_hash, block_number)
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)";
+            let mut stmt = wrapped_conn.prepare(sql).unwrap();
+            stmt.execute(rusqlite::params![
+                "0x1234567890123456789012345678901234567890123456789012345678901234",
+                "0x1234567890123456789012345678901234567890",
+                0,
+                100,
+                1234567890,
+                0,
+                1000000000,
+                1,
+                "0x2345678901234567890123456789012345678901234567890123456789012345",
+                rusqlite::types::Null,
+            ])
+            .unwrap();
+        }
+
+        let subject = SentPayableDaoReal::new(wrapped_conn);
+
+        // This should panic due to invalid block details
+        let _ = subject.retrieve_txs(None);
     }
 
     #[test]
