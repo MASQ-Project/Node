@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
-use ethereum_types::H256;
+use ethereum_types::{H256, U64};
 use web3::types::Address;
 use masq_lib::utils::ExpectValue;
 use crate::accountant::{checked_conversion, comma_joined_stringifiable};
@@ -34,8 +34,7 @@ pub struct Tx {
     pub timestamp: i64,
     pub gas_price_wei: u128,
     pub nonce: u64,
-    pub block_hash_opt: Option<Hash>,
-    pub block_number_opt: Option<u64>,
+    pub block_opt: Option<TransactionBlock>,
 }
 
 pub enum RetrieveCondition {
@@ -141,16 +140,12 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
                 let (amount_high_b, amount_low_b) = BigIntDivider::deconstruct(amount_checked);
                 let (gas_price_wei_high_b, gas_price_wei_low_b) =
                     BigIntDivider::deconstruct(gas_price_wei_checked);
-                let block_hash = match tx.block_hash_opt {
-                    Some(h) => format!("'{:?}'", h),
-                    None => "null".to_string(),
-                };
-                let block_number = match tx.block_number_opt {
-                    Some(n) => format!("{}", n),
-                    None => "null".to_string(),
+                let block_details = match &tx.block_opt {
+                    Some(block) => format!("'{:?}', {}", block.block_hash, block.block_number),
+                    None => "null, null".to_string(),
                 };
                 format!(
-                    "('{:?}', '{:?}', {}, {}, {}, {}, {}, {}, {}, {})",
+                    "('{:?}', '{:?}', {}, {}, {}, {}, {}, {}, {})",
                     tx.hash,
                     tx.receiver_address,
                     amount_high_b,
@@ -159,8 +154,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
                     gas_price_wei_high_b,
                     gas_price_wei_low_b,
                     tx.nonce,
-                    block_hash,
-                    block_number
+                    block_details
                 )
             })
         );
@@ -220,6 +214,15 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
                 block_number_i64_opt.map(|v| u64::try_from(v).expect("Failed to parse u64"))
             };
 
+            let block_opt = match (block_hash_opt, block_number_opt) {
+                (Some(block_hash), Some(block_number)) => Some(TransactionBlock {
+                    block_hash,
+                    block_number: U64::from(block_number),
+                }),
+                (None, None) => None,
+                _ => panic!("Invalid block details"), // TODO: GH-631: Test me
+            };
+
             Ok(Tx {
                 hash,
                 receiver_address,
@@ -227,8 +230,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
                 timestamp,
                 gas_price_wei,
                 nonce,
-                block_hash_opt,
-                block_number_opt,
+                block_opt,
             })
         })
         .expect("Failed to execute query")
@@ -323,7 +325,7 @@ mod tests {
         let tx1 = TxBuilder::default().hash(H256::from_low_u64_le(1)).build();
         let tx2 = TxBuilder::default()
             .hash(H256::from_low_u64_le(2))
-            .block_status(Default::default(), Default::default())
+            .block(Default::default())
             .build();
         let subject = SentPayableDaoReal::new(wrapped_conn);
         let txs = vec![tx1, tx2];
@@ -366,7 +368,7 @@ mod tests {
         let tx1 = TxBuilder::default().hash(hash).build();
         let tx2 = TxBuilder::default()
             .hash(hash)
-            .block_status(Default::default(), Default::default())
+            .block(Default::default())
             .build();
         let subject = SentPayableDaoReal::new(wrapped_conn);
 
@@ -393,7 +395,7 @@ mod tests {
         let tx1 = TxBuilder::default().hash(hash).build();
         let tx2 = TxBuilder::default()
             .hash(hash)
-            .block_status(Default::default(), Default::default())
+            .block(Default::default())
             .build();
         let subject = SentPayableDaoReal::new(wrapped_conn);
         let initial_insertion_result = subject.insert_new_records(&vec![tx1]);
@@ -516,7 +518,7 @@ mod tests {
         let tx1 = TxBuilder::default().hash(H256::from_low_u64_le(1)).build();
         let tx2 = TxBuilder::default()
             .hash(H256::from_low_u64_le(2))
-            .block_status(Default::default(), Default::default())
+            .block(Default::default())
             .build();
         let tx3 = TxBuilder::default().hash(H256::from_low_u64_le(3)).build();
         subject
@@ -541,7 +543,7 @@ mod tests {
         let tx2 = TxBuilder::default().hash(H256::from_low_u64_le(2)).build();
         let tx3 = TxBuilder::default()
             .hash(H256::from_low_u64_le(3))
-            .block_status(Default::default(), Default::default())
+            .block(Default::default())
             .build();
         subject
             .insert_new_records(&vec![tx1.clone(), tx2.clone(), tx3.clone()])
@@ -584,37 +586,25 @@ mod tests {
         subject
             .insert_new_records(&vec![tx1.clone(), tx2.clone()])
             .unwrap();
+        let tx_block_1 = TransactionBlock {
+            block_hash: H256::from_low_u64_le(3),
+            block_number: U64::from(1),
+        };
+        let tx_block_2 = TransactionBlock {
+            block_hash: H256::from_low_u64_le(4),
+            block_number: U64::from(2),
+        };
         let hash_map = HashMap::from([
-            (
-                tx1.hash,
-                TransactionBlock {
-                    block_hash: H256::from_low_u64_le(3),
-                    block_number: U64::from(1),
-                },
-            ),
-            (
-                tx2.hash,
-                TransactionBlock {
-                    block_hash: H256::from_low_u64_le(4),
-                    block_number: U64::from(2),
-                },
-            ),
+            (tx1.hash, tx_block_1.clone()),
+            (tx2.hash, tx_block_2.clone()),
         ]);
 
         let result = subject.update_tx_blocks(&hash_map);
 
         let updated_txs = subject.retrieve_txs(Some(ByHash(vec![tx1.hash, tx2.hash])));
         assert_eq!(result, Ok(()));
-        assert_eq!(
-            updated_txs[0].block_hash_opt,
-            Some(H256::from_low_u64_le(3))
-        );
-        assert_eq!(updated_txs[0].block_number_opt, Some(1));
-        assert_eq!(
-            updated_txs[1].block_hash_opt,
-            Some(H256::from_low_u64_le(4))
-        );
-        assert_eq!(updated_txs[1].block_number_opt, Some(2));
+        assert_eq!(updated_txs[0].block_opt, Some(tx_block_1));
+        assert_eq!(updated_txs[1].block_opt, Some(tx_block_2));
     }
 
     #[test]
@@ -728,7 +718,7 @@ mod tests {
         let tx3 = TxBuilder::default().hash(H256::from_low_u64_le(3)).build();
         let tx4 = TxBuilder::default()
             .hash(H256::from_low_u64_le(4))
-            .block_status(Default::default(), Default::default())
+            .block(Default::default())
             .build();
         subject
             .insert_new_records(&vec![tx1.clone(), tx2.clone(), tx3.clone(), tx4.clone()])

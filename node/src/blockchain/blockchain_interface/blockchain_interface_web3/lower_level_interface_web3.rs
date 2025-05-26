@@ -77,7 +77,7 @@ pub struct TxReceipt {
     pub status: TxStatus,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, Default, PartialEq, Eq, Clone)]
 pub struct TransactionBlock {
     pub block_hash: H256,
     pub block_number: U64,
