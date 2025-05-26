@@ -46,6 +46,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -B generated-source
           git rm -rf .
+#         make conditional checkout -b if branch do not exists and switch if exists
           mkdir -p ip_country/src
           mv "${TEMP_DIR}"/dbip_country.rs ip_country/src/dbip_country.rs
           git add ip_country/src/dbip_country.rs
