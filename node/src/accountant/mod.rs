@@ -1195,7 +1195,7 @@ mod tests {
         PendingPayable, PendingPayableDaoError, TransactionHashes,
     };
     use crate::accountant::db_access_objects::receivable_dao::ReceivableAccount;
-    use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
+    use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp, CustomQuery};
     use crate::accountant::payment_adjuster::Adjustment;
     use crate::accountant::scanners::payable_scanner_extension::test_utils::BlockchainAgentMock;
     use crate::accountant::scanners::test_utils::{MarkScanner, NewPayableScanDynIntervalComputerMock, ReplacementType, ScannerReplacement};
@@ -1914,14 +1914,14 @@ mod tests {
             "externally_triggered_scan_is_not_handled_in_case_the_scan_is_already_running";
         let mut config = bc_from_earning_wallet(make_wallet("some_wallet_address"));
         config.automatic_scans_enabled = false;
-        let now_unix = to_time_t(SystemTime::now());
+        let now_unix = to_unix_timestamp(SystemTime::now());
         let payment_thresholds = PaymentThresholds::default();
         let past_timestamp_unix = now_unix
             - (payment_thresholds.maturity_threshold_sec
                 + payment_thresholds.threshold_interval_sec) as i64;
         let mut payable_account = make_payable_account(123);
         payable_account.balance_wei = gwei_to_wei(payment_thresholds.debt_threshold_gwei);
-        payable_account.last_paid_timestamp = from_time_t(past_timestamp_unix);
+        payable_account.last_paid_timestamp = from_unix_timestamp(past_timestamp_unix);
         let payable_dao =
             PayableDaoMock::default().non_pending_payables_result(vec![payable_account]);
         let subject = AccountantBuilder::default()
@@ -3226,13 +3226,13 @@ mod tests {
             unban_below_gwei: 10_000_000,
         };
         let config = bc_from_earning_wallet(make_wallet("mine"));
-        let now = to_time_t(SystemTime::now());
+        let now = to_unix_timestamp(SystemTime::now());
         let accounts = vec![
             // below minimum balance, to the right of time intersection (inside buffer zone)
             PayableAccount {
                 wallet: make_wallet("wallet0"),
                 balance_wei: gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei - 1),
-                last_paid_timestamp: from_time_t(
+                last_paid_timestamp: from_unix_timestamp(
                     now - checked_conversion::<u64, i64>(
                         payment_thresholds.threshold_interval_sec + 10,
                     ),
@@ -3243,7 +3243,7 @@ mod tests {
             PayableAccount {
                 wallet: make_wallet("wallet1"),
                 balance_wei: gwei_to_wei(payment_thresholds.debt_threshold_gwei + 1),
-                last_paid_timestamp: from_time_t(
+                last_paid_timestamp: from_unix_timestamp(
                     now - checked_conversion::<u64, i64>(
                         payment_thresholds.maturity_threshold_sec - 10,
                     ),
@@ -3254,7 +3254,7 @@ mod tests {
             PayableAccount {
                 wallet: make_wallet("wallet2"),
                 balance_wei: gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei + 55),
-                last_paid_timestamp: from_time_t(
+                last_paid_timestamp: from_unix_timestamp(
                     now - checked_conversion::<u64, i64>(
                         payment_thresholds.maturity_threshold_sec + 15,
                     ),
@@ -3302,7 +3302,7 @@ mod tests {
             pending_payable_scan_interval: Duration::from_secs(10_000),
             receivable_scan_interval: Duration::from_secs(50_000),
         });
-        let now = to_time_t(SystemTime::now());
+        let now = to_unix_timestamp(SystemTime::now());
         let qualified_payables = vec![
             // slightly above the minimum balance, to the right of the curve (time intersection)
             PayableAccount {
@@ -3310,7 +3310,7 @@ mod tests {
                 balance_wei: gwei_to_wei(
                     DEFAULT_PAYMENT_THRESHOLDS.permanent_debt_allowed_gwei + 1,
                 ),
-                last_paid_timestamp: from_time_t(
+                last_paid_timestamp: from_unix_timestamp(
                     now - checked_conversion::<u64, i64>(
                         DEFAULT_PAYMENT_THRESHOLDS.threshold_interval_sec
                             + DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec
@@ -3323,7 +3323,7 @@ mod tests {
             PayableAccount {
                 wallet: make_wallet("wallet1"),
                 balance_wei: gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 1),
-                last_paid_timestamp: from_time_t(
+                last_paid_timestamp: from_unix_timestamp(
                     now - checked_conversion::<u64, i64>(
                         DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec + 10,
                     ),
@@ -3472,7 +3472,7 @@ mod tests {
             .start();
         let payable_fingerprint_1 = PendingPayableFingerprint {
             rowid: 555,
-            timestamp: from_time_t(210_000_000),
+            timestamp: from_unix_timestamp(210_000_000),
             hash: make_tx_hash(45678),
             attempt: 1,
             amount: 4444,
@@ -3480,7 +3480,7 @@ mod tests {
         };
         let payable_fingerprint_2 = PendingPayableFingerprint {
             rowid: 550,
-            timestamp: from_time_t(210_000_100),
+            timestamp: from_unix_timestamp(210_000_100),
             hash: make_tx_hash(112233),
             attempt: 2,
             amount: 7999,
@@ -4546,7 +4546,7 @@ mod tests {
         };
         let fingerprint_1 = PendingPayableFingerprint {
             rowid: 5,
-            timestamp: from_time_t(200_000_000),
+            timestamp: from_unix_timestamp(200_000_000),
             hash: transaction_hash_1,
             attempt: 2,
             amount: 444,
@@ -4559,7 +4559,7 @@ mod tests {
         };
         let fingerprint_2 = PendingPayableFingerprint {
             rowid: 10,
-            timestamp: from_time_t(199_780_000),
+            timestamp: from_unix_timestamp(199_780_000),
             hash: Default::default(),
             attempt: 15,
             amount: 1212,

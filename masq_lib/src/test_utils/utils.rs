@@ -5,9 +5,10 @@ use crate::test_utils::environment_guard::EnvironmentGuard;
 use serde_derive::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::time::Duration;
 
-pub const TEST_DEFAULT_CHAIN: Chain = Chain::EthRopsten;
+pub const TEST_DEFAULT_CHAIN: Chain = Chain::BaseSepolia;
 pub const TEST_DEFAULT_MULTINODE_CHAIN: Chain = Chain::Dev;
 pub const BASE_TEST_DIR: &str = "generated/test";
 const MASQ_SOURCE_CODE_UNAVAILABLE: &str = "MASQ_SOURCE_CODE_UNAVAILABLE";
@@ -47,6 +48,13 @@ pub fn ensure_node_home_directory_exists(module: &str, name: &str) -> PathBuf {
     let _ = fs::remove_dir_all(&home_dir);
     let _ = fs::create_dir_all(&home_dir);
     home_dir
+}
+
+pub fn open_all_file_permissions(dir: PathBuf) {
+    let _ = Command::new("chmod")
+        .args(&["-R", "777", dir.to_str().unwrap()])
+        .output()
+        .expect("Couldn't chmod 777 files in directory");
 }
 
 pub fn is_running_under_github_actions() -> bool {
@@ -109,7 +117,7 @@ mod tests {
 
     #[test]
     fn constants_have_correct_values() {
-        assert_eq!(TEST_DEFAULT_CHAIN, Chain::EthRopsten);
+        assert_eq!(TEST_DEFAULT_CHAIN, Chain::BaseSepolia);
         assert_eq!(TEST_DEFAULT_MULTINODE_CHAIN, Chain::Dev);
         assert_eq!(BASE_TEST_DIR, "generated/test");
     }

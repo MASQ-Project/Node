@@ -76,7 +76,7 @@ impl DatabaseMigration for Migrate_4_to_5 {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t};
+    use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp};
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal, ExternalData, DATABASE_FILE,
     };
@@ -124,7 +124,7 @@ mod tests {
             None,
             &wallet_1,
             113344,
-            from_time_t(250_000_000),
+            from_unix_timestamp(250_000_000),
         );
         let config_table_before = fetch_all_from_config_table(conn.as_ref());
 
@@ -160,7 +160,7 @@ mod tests {
         let params: &[&dyn ToSql] = &[
             &wallet,
             &amount,
-            &to_time_t(timestamp),
+            &to_unix_timestamp(timestamp),
             if !hash_str.is_empty() {
                 &hash_str
             } else {
@@ -208,7 +208,7 @@ mod tests {
             Some(transaction_hash_2),
             &wallet_2,
             1111111,
-            from_time_t(200_000_000),
+            from_unix_timestamp(200_000_000),
         );
         let config_table_before = fetch_all_from_config_table(&conn);
 
@@ -227,7 +227,7 @@ mod tests {
         let config_table_after = fetch_all_from_config_table(&conn);
         assert_eq!(config_table_before, config_table_after);
         assert_on_schema_5_was_adopted(conn_schema5.as_ref());
-        TestLogHandler::new().exists_log_containing("WARN: DbMigrator: Migration from 4 to 5: database belonging to the chain 'eth-ropsten'; \
+        TestLogHandler::new().exists_log_containing("WARN: DbMigrator: Migration from 4 to 5: database belonging to the chain 'base-sepolia'; \
          we discovered possibly abandoned transactions that are said yet to be pending, these are: \
           '0x0000000000000000000000000000000000000000000000000000000002b594d1', \
           '0x00000000000000000000000000000000000000000000000000000000000f41d0'; continuing");

@@ -135,6 +135,7 @@ impl DbInitializerReal {
         Self::create_config_table(conn);
         Self::initialize_config(conn, external_params);
         Self::create_payable_table(conn);
+        Self::create_sent_payable_table(conn);
         Self::create_pending_payable_table(conn);
         Self::create_receivable_table(conn);
         Self::create_banned_table(conn);
@@ -256,6 +257,30 @@ impl DbInitializerReal {
             "scan intervals",
         );
         Self::set_config_value(conn, "max_block_count", None, false, "maximum block count");
+    }
+
+    pub fn create_sent_payable_table(conn: &Connection) {
+        conn.execute(
+            "create table if not exists sent_payable (
+                rowid integer primary key,
+                tx_hash text not null,
+                receiver_address text not null,
+                amount_high_b integer not null,
+                amount_low_b integer not null,
+                timestamp integer not null,
+                gas_price_wei integer not null,
+                nonce integer not null,
+                status text not null
+            )",
+            [],
+        )
+        .expect("Can't create sent_payable table");
+
+        conn.execute(
+            "CREATE UNIQUE INDEX sent_payable_tx_hash_idx ON sent_payable (tx_hash)",
+            [],
+        )
+        .expect("Can't create transaction hash index in sent payments");
     }
 
     pub fn create_pending_payable_table(conn: &Connection) {
@@ -621,6 +646,7 @@ impl Debug for DbInitializationConfig {
 mod tests {
     use super::*;
     use crate::database::db_initializer::InitializationError::SqliteError;
+    use crate::database::test_utils::SQL_ATTRIBUTES_FOR_CREATING_SENT_PAYABLE;
     use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal};
     use crate::test_utils::database_utils::{
         assert_create_table_stm_contains_all_parts,
@@ -652,7 +678,7 @@ mod tests {
     #[test]
     fn constants_have_correct_values() {
         assert_eq!(DATABASE_FILE, "node-data.db");
-        assert_eq!(CURRENT_SCHEMA_VERSION, 10);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 11);
     }
 
     #[test]
@@ -709,6 +735,34 @@ mod tests {
         assert_index_stm_is_coupled_with_right_parameter(
             conn.as_ref(),
             "pending_payable_hash_idx",
+            expected_key_words,
+        )
+    }
+
+    #[test]
+    fn db_initialize_creates_sent_payable_table() {
+        let home_dir = ensure_node_home_directory_does_not_exist(
+            "db_initializer",
+            "db_initialize_creates_sent_payable_table",
+        );
+        let subject = DbInitializerReal::default();
+
+        let conn = subject
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
+
+        let mut stmt = conn.prepare("select rowid, tx_hash, receiver_address, amount_high_b, amount_low_b, timestamp, gas_price_wei, nonce, status from sent_payable").unwrap();
+        let mut sent_payable_contents = stmt.query_map([], |_| Ok(42)).unwrap();
+        assert!(sent_payable_contents.next().is_none());
+        assert_create_table_stm_contains_all_parts(
+            &*conn,
+            "sent_payable",
+            SQL_ATTRIBUTES_FOR_CREATING_SENT_PAYABLE,
+        );
+        let expected_key_words: &[&[&str]] = &[&["tx_hash"]];
+        assert_index_stm_is_coupled_with_right_parameter(
+            conn.as_ref(),
+            "sent_payable_tx_hash_idx",
             expected_key_words,
         )
     }
@@ -1168,7 +1222,7 @@ mod tests {
             .initialize(
                 &updated_db_path_dir,
                 DbInitializationConfig::create_or_migrate(ExternalData::new(
-                    Chain::EthRopsten,
+                    Chain::BaseSepolia,
                     NeighborhoodModeLight::Standard,
                     Some("password".to_string()),
                 )),

@@ -330,7 +330,7 @@ pub fn create_blockchain_agent_web3(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::db_access_objects::utils::from_time_t;
+    use crate::accountant::db_access_objects::utils::from_unix_timestamp;
     use crate::accountant::gwei_to_wei;
     use crate::accountant::scanners::payable_scanner_extension::agent_web3::WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
     use crate::accountant::test_utils::{
@@ -507,7 +507,7 @@ mod tests {
         Transactions in the batch:\n\
         \n\
         gas price:                                   120 wei\n\
-        chain:                                       ropsten\n\
+        chain:                                       sepolia\n\
         \n\
         [wallet address]                             [payment in wei]\n\
         0x0000000000000000000000000000000077313233   900,000,000,000,000,000\n\
@@ -522,13 +522,13 @@ mod tests {
             PayableAccount {
                 wallet: make_wallet("4567"),
                 balance_wei: 2_345_678,
-                last_paid_timestamp: from_time_t(4500000),
+                last_paid_timestamp: from_unix_timestamp(4500000),
                 pending_payable_opt: None,
             },
             PayableAccount {
                 wallet: make_wallet("5656"),
                 balance_wei: 6_543_210,
-                last_paid_timestamp: from_time_t(333000),
+                last_paid_timestamp: from_unix_timestamp(333000),
                 pending_payable_opt: None,
             },
         ];

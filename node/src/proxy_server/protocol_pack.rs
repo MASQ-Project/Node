@@ -9,7 +9,16 @@ use masq_lib::constants::{HTTP_PORT, TLS_PORT};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Host {
     pub name: String,
-    pub port: Option<u16>,
+    pub port: u16,
+}
+
+impl Host {
+    pub fn new(name: &str, port: u16) -> Host {
+        Host {
+            name: name.to_string(),
+            port,
+        }
+    }
 }
 
 pub trait ProtocolPack: Send + Sync {
