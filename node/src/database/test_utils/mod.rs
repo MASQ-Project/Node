@@ -135,19 +135,22 @@ mod tests {
 
     #[test]
     fn constants_have_correct_values() {
+        let expected_sql_attributes_for_creating_sent_payable: &[&[&str]] = &[
+            &["rowid", "integer", "primary", "key"],
+            &["tx_hash", "text", "not", "null"],
+            &["receiver_address", "text", "not", "null"],
+            &["amount_high_b", "integer", "not", "null"],
+            &["amount_low_b", "integer", "not", "null"],
+            &["timestamp", "integer", "not", "null"],
+            &["gas_price_wei_high_b", "integer", "not", "null"],
+            &["gas_price_wei_low_b", "integer", "not", "null"],
+            &["nonce", "integer", "not", "null"],
+            &["block_hash", "text", "null"],
+            &["block_number", "integer", "null"],
+        ];
         assert_eq!(
             SQL_ATTRIBUTES_FOR_CREATING_SENT_PAYABLE,
-            &[
-                &["rowid", "integer", "primary", "key"],
-                &["tx_hash", "text", "not", "null"],
-                &["receiver_address", "text", "not", "null"],
-                &["amount_high_b", "integer", "not", "null"],
-                &["amount_low_b", "integer", "not", "null"],
-                &["timestamp", "integer", "not", "null"],
-                &["gas_price_wei", "integer", "not", "null"],
-                &["nonce", "integer", "not", "null"],
-                &["status", "text", "not", "null"],
-            ]
+            expected_sql_attributes_for_creating_sent_payable
         );
     }
 }
