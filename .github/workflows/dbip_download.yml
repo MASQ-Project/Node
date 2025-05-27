@@ -42,12 +42,18 @@ jobs:
 
       - name: Commit and push generated file
         run: |
+          git ls-remote --heads | grep generated-source
+          BRANCH=$?
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git checkout -B generated-source
-          git rm -rf .
-#         make conditional checkout -b if branch do not exists and switch if exists
-          mkdir -p ip_country/src
+          if [[ BRANCH ]]
+          then
+               git checkout -B generated-source
+               git rm -rf .
+               mkdir -p ip_country/src
+          else
+               git switch generated-source
+          fi;
           mv "${TEMP_DIR}"/dbip_country.rs ip_country/src/dbip_country.rs
           git add ip_country/src/dbip_country.rs
           git commit -m "Update generated dbip_country ${YEAR_MONTH} Rust source file"
