@@ -136,6 +136,7 @@ impl DbInitializerReal {
         Self::initialize_config(conn, external_params);
         Self::create_payable_table(conn);
         Self::create_sent_payable_table(conn);
+        Self::create_failed_payable_table(conn);
         Self::create_pending_payable_table(conn);
         Self::create_receivable_table(conn);
         Self::create_banned_table(conn);
@@ -283,6 +284,32 @@ impl DbInitializerReal {
             [],
         )
         .expect("Can't create transaction hash index in sent payments");
+    }
+
+    pub fn create_failed_payable_table(conn: &Connection) {
+        conn.execute(
+            "create table if not exists failed_payable (
+                rowid integer primary key,
+                tx_hash text not null,
+                receiver_address text not null,
+                amount_high_b integer not null,
+                amount_low_b integer not null,
+                timestamp integer not null,
+                gas_price_wei_high_b integer not null,
+                gas_price_wei_low_b integer not null,
+                nonce integer not null,
+                failure_reason text not null,
+                failure_checked integer not null
+            )",
+            [],
+        )
+        .expect("Can't create failed_payable table");
+
+        conn.execute(
+            "CREATE UNIQUE INDEX failed_payable_tx_hash_idx ON sent_payable (tx_hash)",
+            [],
+        )
+        .expect("Can't create transaction hash index in failed payments");
     }
 
     pub fn create_pending_payable_table(conn: &Connection) {
@@ -648,7 +675,9 @@ impl Debug for DbInitializationConfig {
 mod tests {
     use super::*;
     use crate::database::db_initializer::InitializationError::SqliteError;
-    use crate::database::test_utils::SQL_ATTRIBUTES_FOR_CREATING_SENT_PAYABLE;
+    use crate::database::test_utils::{
+        SQL_ATTRIBUTES_FOR_CREATING_FAILED_PAYABLE, SQL_ATTRIBUTES_FOR_CREATING_SENT_PAYABLE,
+    };
     use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal};
     use crate::test_utils::database_utils::{
         assert_create_table_stm_contains_all_parts,
@@ -764,6 +793,33 @@ mod tests {
         assert_index_stm_is_coupled_with_right_parameter(
             conn.as_ref(),
             "sent_payable_tx_hash_idx",
+            expected_key_words,
+        )
+    }
+
+    #[test]
+    fn db_initialize_creates_failed_payable_table() {
+        let home_dir = ensure_node_home_directory_does_not_exist(
+            "db_initializer",
+            "db_initialize_creates_failed_payable_table",
+        );
+        let subject = DbInitializerReal::default();
+
+        let conn = subject
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
+        let mut stmt = conn.prepare("select rowid, tx_hash, receiver_address, amount_high_b, amount_low_b, timestamp, gas_price_wei_high_b, gas_price_wei_low_b, nonce, failure_reason, failure_checked from failed_payable").unwrap();
+        let mut sent_payable_contents = stmt.query_map([], |_| Ok(42)).unwrap();
+        assert!(sent_payable_contents.next().is_none());
+        assert_create_table_stm_contains_all_parts(
+            &*conn,
+            "failed_payable",
+            SQL_ATTRIBUTES_FOR_CREATING_FAILED_PAYABLE,
+        );
+        let expected_key_words: &[&[&str]] = &[&["tx_hash"]];
+        assert_index_stm_is_coupled_with_right_parameter(
+            conn.as_ref(),
+            "failed_payable_tx_hash_idx",
             expected_key_words,
         )
     }

@@ -26,6 +26,20 @@ pub const SQL_ATTRIBUTES_FOR_CREATING_SENT_PAYABLE: &[&[&str]] = &[
     &["block_number", "integer", "null"],
 ];
 
+pub const SQL_ATTRIBUTES_FOR_CREATING_FAILED_PAYABLE: &[&[&str]] = &[
+    &["rowid", "integer", "primary", "key"],
+    &["tx_hash", "text", "not", "null"],
+    &["receiver_address", "text", "not", "null"],
+    &["amount_high_b", "integer", "not", "null"],
+    &["amount_low_b", "integer", "not", "null"],
+    &["timestamp", "integer", "not", "null"],
+    &["gas_price_wei_high_b", "integer", "not", "null"],
+    &["gas_price_wei_low_b", "integer", "not", "null"],
+    &["nonce", "integer", "not", "null"],
+    &["failure_reason", "text", "not", "null"],
+    &["failure_checked", "integer", "not", "null"],
+];
+
 #[derive(Debug, Default)]
 pub struct ConnectionWrapperMock<'conn> {
     prepare_params: Arc<Mutex<Vec<String>>>,
@@ -131,7 +145,9 @@ impl DbInitializerMock {
 
 #[cfg(test)]
 mod tests {
-    use crate::database::test_utils::SQL_ATTRIBUTES_FOR_CREATING_SENT_PAYABLE;
+    use crate::database::test_utils::{
+        SQL_ATTRIBUTES_FOR_CREATING_FAILED_PAYABLE, SQL_ATTRIBUTES_FOR_CREATING_SENT_PAYABLE,
+    };
 
     #[test]
     fn constants_have_correct_values() {
@@ -151,6 +167,24 @@ mod tests {
         assert_eq!(
             SQL_ATTRIBUTES_FOR_CREATING_SENT_PAYABLE,
             expected_sql_attributes_for_creating_sent_payable
+        );
+
+        let expected_sql_attributes_for_creating_failed_payable: &[&[&str]] = &[
+            &["rowid", "integer", "primary", "key"],
+            &["tx_hash", "text", "not", "null"],
+            &["receiver_address", "text", "not", "null"],
+            &["amount_high_b", "integer", "not", "null"],
+            &["amount_low_b", "integer", "not", "null"],
+            &["timestamp", "integer", "not", "null"],
+            &["gas_price_wei_high_b", "integer", "not", "null"],
+            &["gas_price_wei_low_b", "integer", "not", "null"],
+            &["nonce", "integer", "not", "null"],
+            &["failure_reason", "text", "not", "null"],
+            &["failure_checked", "integer", "not", "null"],
+        ];
+        assert_eq!(
+            SQL_ATTRIBUTES_FOR_CREATING_FAILED_PAYABLE,
+            expected_sql_attributes_for_creating_failed_payable
         );
     }
 }
