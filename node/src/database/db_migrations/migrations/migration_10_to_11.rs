@@ -9,7 +9,7 @@ impl DatabaseMigration for Migrate_10_to_11 {
         &self,
         declaration_utils: Box<dyn DBMigDeclarator + 'a>,
     ) -> rusqlite::Result<()> {
-        let sql_statement = "create table if not exists sent_payable (
+        let sql_statement_for_sent_payable = "create table if not exists sent_payable (
                 rowid integer primary key,
                 tx_hash text not null,
                 receiver_address text not null,
@@ -23,7 +23,24 @@ impl DatabaseMigration for Migrate_10_to_11 {
                 block_number integer null
             )";
 
-        declaration_utils.execute_upon_transaction(&[&sql_statement])
+        let sql_statement_for_failed_payable = "create table if not exists failed_payable (
+                rowid integer primary key,
+                tx_hash text not null,
+                receiver_address text not null,
+                amount_high_b integer not null,
+                amount_low_b integer not null,
+                timestamp integer not null,
+                gas_price_wei_high_b integer not null,
+                gas_price_wei_low_b integer not null,
+                nonce integer not null,
+                failure_reason text not null,
+                failure_checked integer not null
+            )";
+
+        declaration_utils.execute_upon_transaction(&[
+            &sql_statement_for_sent_payable,
+            &sql_statement_for_failed_payable,
+        ])
     }
 
     fn old_version(&self) -> usize {
@@ -36,7 +53,9 @@ mod tests {
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
     };
-    use crate::database::test_utils::SQL_ATTRIBUTES_FOR_CREATING_SENT_PAYABLE;
+    use crate::database::test_utils::{
+        SQL_ATTRIBUTES_FOR_CREATING_FAILED_PAYABLE, SQL_ATTRIBUTES_FOR_CREATING_SENT_PAYABLE,
+    };
     use crate::test_utils::database_utils::{
         assert_create_table_stm_contains_all_parts, assert_table_exists,
         bring_db_0_back_to_life_and_return_connection, make_external_data,
@@ -74,10 +93,16 @@ mod tests {
             .unwrap();
 
         assert_table_exists(connection.as_ref(), "sent_payable");
+        assert_table_exists(connection.as_ref(), "failed_payable");
         assert_create_table_stm_contains_all_parts(
             &*connection,
             "sent_payable",
             SQL_ATTRIBUTES_FOR_CREATING_SENT_PAYABLE,
+        );
+        assert_create_table_stm_contains_all_parts(
+            &*connection,
+            "failed_payable",
+            SQL_ATTRIBUTES_FOR_CREATING_FAILED_PAYABLE,
         );
         TestLogHandler::new().assert_logs_contain_in_order(vec![
             "DbMigrator: Database successfully migrated from version 10 to 11",
