@@ -314,6 +314,7 @@ mod tests {
     use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::{ByHash, IsPending};
     use crate::accountant::db_access_objects::test_utils::TxBuilder;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock};
+    use crate::blockchain::test_utils::make_tx_hash;
 
     #[test]
     fn insert_new_records_works() {
@@ -322,9 +323,9 @@ mod tests {
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let tx1 = TxBuilder::default().hash(H256::from_low_u64_le(1)).build();
+        let tx1 = TxBuilder::default().hash(make_tx_hash(1)).build();
         let tx2 = TxBuilder::default()
-            .hash(H256::from_low_u64_le(2))
+            .hash(make_tx_hash(2))
             .block(Default::default())
             .build();
         let subject = SentPayableDaoReal::new(wrapped_conn);
@@ -473,9 +474,9 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = SentPayableDaoReal::new(wrapped_conn);
-        let present_hash = H256::from_low_u64_le(1);
-        let absent_hash = H256::from_low_u64_le(2);
-        let another_present_hash = H256::from_low_u64_le(3);
+        let present_hash = make_tx_hash(1);
+        let absent_hash = make_tx_hash(2);
+        let another_present_hash = make_tx_hash(3);
         let hashset = HashSet::from([present_hash, absent_hash, another_present_hash]);
         let present_tx = TxBuilder::default().hash(present_hash).build();
         let another_present_tx = TxBuilder::default().hash(another_present_hash).build();
@@ -515,12 +516,12 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = SentPayableDaoReal::new(wrapped_conn);
-        let tx1 = TxBuilder::default().hash(H256::from_low_u64_le(1)).build();
+        let tx1 = TxBuilder::default().hash(make_tx_hash(1)).build();
         let tx2 = TxBuilder::default()
-            .hash(H256::from_low_u64_le(2))
+            .hash(make_tx_hash(2))
             .block(Default::default())
             .build();
-        let tx3 = TxBuilder::default().hash(H256::from_low_u64_le(3)).build();
+        let tx3 = TxBuilder::default().hash(make_tx_hash(3)).build();
         subject
             .insert_new_records(&vec![tx1.clone(), tx2.clone()])
             .unwrap();
@@ -539,10 +540,10 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = SentPayableDaoReal::new(wrapped_conn);
-        let tx1 = TxBuilder::default().hash(H256::from_low_u64_le(1)).build();
-        let tx2 = TxBuilder::default().hash(H256::from_low_u64_le(2)).build();
+        let tx1 = TxBuilder::default().hash(make_tx_hash(1)).build();
+        let tx2 = TxBuilder::default().hash(make_tx_hash(2)).build();
         let tx3 = TxBuilder::default()
-            .hash(H256::from_low_u64_le(3))
+            .hash(make_tx_hash(3))
             .block(Default::default())
             .build();
         subject
@@ -562,8 +563,8 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = SentPayableDaoReal::new(wrapped_conn);
-        let tx1 = TxBuilder::default().hash(H256::from_low_u64_le(1)).build();
-        let tx2 = TxBuilder::default().hash(H256::from_low_u64_le(2)).build();
+        let tx1 = TxBuilder::default().hash(make_tx_hash(1)).build();
+        let tx2 = TxBuilder::default().hash(make_tx_hash(2)).build();
         subject
             .insert_new_records(&vec![tx1.clone(), tx2.clone()])
             .unwrap();
@@ -585,7 +586,18 @@ mod tests {
             .unwrap();
         // Insert a record with block_hash but no block_number
         {
-            let sql = "INSERT INTO sent_payable (tx_hash, receiver_address, amount_high_b, amount_low_b, timestamp, gas_price_wei_high_b, gas_price_wei_low_b, nonce, block_hash, block_number)
+            let sql = "INSERT INTO sent_payable (\
+            tx_hash, \
+            receiver_address, \
+            amount_high_b, \
+            amount_low_b, \
+            timestamp, \
+            gas_price_wei_high_b, \
+            gas_price_wei_low_b, \
+            nonce, \
+            block_hash, \
+            block_number\
+            )
                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)";
             let mut stmt = wrapped_conn.prepare(sql).unwrap();
             stmt.execute(rusqlite::params![
@@ -617,17 +629,17 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = SentPayableDaoReal::new(wrapped_conn);
-        let tx1 = TxBuilder::default().hash(H256::from_low_u64_le(1)).build();
-        let tx2 = TxBuilder::default().hash(H256::from_low_u64_le(2)).build();
+        let tx1 = TxBuilder::default().hash(make_tx_hash(1)).build();
+        let tx2 = TxBuilder::default().hash(make_tx_hash(2)).build();
         subject
             .insert_new_records(&vec![tx1.clone(), tx2.clone()])
             .unwrap();
         let tx_block_1 = TransactionBlock {
-            block_hash: H256::from_low_u64_le(3),
+            block_hash: make_tx_hash(3),
             block_number: U64::from(1),
         };
         let tx_block_2 = TransactionBlock {
-            block_hash: H256::from_low_u64_le(4),
+            block_hash: make_tx_hash(4),
             block_number: U64::from(2),
         };
         let hash_map = HashMap::from([
@@ -653,7 +665,7 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = SentPayableDaoReal::new(wrapped_conn);
-        let existent_hash = H256::from_low_u64_le(1);
+        let existent_hash = make_tx_hash(1);
         let tx = TxBuilder::default().hash(existent_hash).build();
         subject.insert_new_records(&vec![tx]).unwrap();
         let hash_map = HashMap::new();
@@ -673,22 +685,22 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = SentPayableDaoReal::new(wrapped_conn);
-        let existent_hash = H256::from_low_u64_le(1);
-        let non_existent_hash = H256::from_low_u64_le(999);
+        let existent_hash = make_tx_hash(1);
+        let non_existent_hash = make_tx_hash(999);
         let tx = TxBuilder::default().hash(existent_hash).build();
         subject.insert_new_records(&vec![tx]).unwrap();
         let hash_map = HashMap::from([
             (
                 existent_hash,
                 TransactionBlock {
-                    block_hash: H256::from_low_u64_le(1),
+                    block_hash: make_tx_hash(1),
                     block_number: U64::from(1),
                 },
             ),
             (
                 non_existent_hash,
                 TransactionBlock {
-                    block_hash: H256::from_low_u64_le(2),
+                    block_hash: make_tx_hash(2),
                     block_number: U64::from(2),
                 },
             ),
@@ -723,7 +735,7 @@ mod tests {
         .unwrap();
         let wrapped_conn = ConnectionWrapperReal::new(read_only_conn);
         let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
-        let hash = H256::from_low_u64_le(1);
+        let hash = make_tx_hash(1);
         let hash_map = HashMap::from([(
             hash,
             TransactionBlock {
@@ -749,11 +761,11 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = SentPayableDaoReal::new(wrapped_conn);
-        let tx1 = TxBuilder::default().hash(H256::from_low_u64_le(1)).build();
-        let tx2 = TxBuilder::default().hash(H256::from_low_u64_le(2)).build();
-        let tx3 = TxBuilder::default().hash(H256::from_low_u64_le(3)).build();
+        let tx1 = TxBuilder::default().hash(make_tx_hash(1)).build();
+        let tx2 = TxBuilder::default().hash(make_tx_hash(2)).build();
+        let tx3 = TxBuilder::default().hash(make_tx_hash(3)).build();
         let tx4 = TxBuilder::default()
-            .hash(H256::from_low_u64_le(4))
+            .hash(make_tx_hash(4))
             .block(Default::default())
             .build();
         subject
@@ -794,7 +806,7 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = SentPayableDaoReal::new(wrapped_conn);
-        let non_existent_hash = H256::from_low_u64_le(999);
+        let non_existent_hash = make_tx_hash(999);
         let hashset = HashSet::from([non_existent_hash]);
 
         let result = subject.delete_records(&hashset);
@@ -812,8 +824,8 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = SentPayableDaoReal::new(wrapped_conn);
-        let present_hash = H256::from_low_u64_le(1);
-        let absent_hash = H256::from_low_u64_le(2);
+        let present_hash = make_tx_hash(1);
+        let absent_hash = make_tx_hash(2);
         let tx = TxBuilder::default().hash(present_hash).build();
         subject.insert_new_records(&vec![tx]).unwrap();
         let hashset = HashSet::from([present_hash, absent_hash]);
@@ -846,7 +858,7 @@ mod tests {
         .unwrap();
         let wrapped_conn = ConnectionWrapperReal::new(read_only_conn);
         let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
-        let hashes = HashSet::from([H256::from_low_u64_le(1)]);
+        let hashes = HashSet::from([make_tx_hash(1)]);
 
         let result = subject.delete_records(&hashes);
 
