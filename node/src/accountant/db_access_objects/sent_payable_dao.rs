@@ -20,11 +20,11 @@ pub enum SentPayableDaoError {
     SqlExecutionFailed(String),
 }
 
-type Hash = H256;
-type RowId = u64;
+pub type Hash = H256;
+pub type RowId = u64;
 
-type TxIdentifiers = HashMap<Hash, RowId>;
-type TxUpdates = HashMap<Hash, TransactionBlock>;
+pub type TxIdentifiers = HashMap<Hash, RowId>;
+pub type TxUpdates = HashMap<Hash, TransactionBlock>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Tx {
