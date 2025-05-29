@@ -1385,8 +1385,8 @@ mod tests {
         make_request_payload, prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
     };
     use crate::test_utils::zero_hop_route_response;
-    use crate::test_utils::{alias_cryptde, rate_pack};
-    use crate::test_utils::{main_cryptde, make_meaningless_route};
+    use crate::test_utils::{rate_pack};
+    use crate::test_utils::{make_meaningless_route};
     use actix::System;
     use crossbeam_channel::unbounded;
     use masq_lib::constants::{HTTP_PORT, TLS_PORT};
@@ -1400,6 +1400,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::SystemTime;
+    use crate::bootstrapper::{alias_cryptde, main_cryptde};
 
     impl Handler<AssertionsMessage<ProxyServer>> for ProxyServer {
         type Result = ();

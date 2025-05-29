@@ -643,7 +643,7 @@ mod tests {
     use super::*;
     use crate::accountant::exportable_test_parts::test_accountant_is_constructed_with_upgraded_db_connection_recognizing_our_extra_sqlite_functions;
     use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
-    use crate::bootstrapper::{Bootstrapper, RealUser};
+    use crate::bootstrapper::{alias_cryptde, main_cryptde, Bootstrapper, RealUser};
     use crate::node_test_utils::{
         make_stream_handler_pool_subs_from_recorder, start_recorder_refcell_opt,
     };
@@ -676,8 +676,8 @@ mod tests {
     use crate::test_utils::unshared_test_utils::{
         assert_on_initialization_with_panic_on_migration, SubsFactoryTestAddrLeaker,
     };
-    use crate::test_utils::{alias_cryptde, rate_pack};
-    use crate::test_utils::{main_cryptde, make_cryptde_pair};
+    use crate::test_utils::{rate_pack};
+    use crate::test_utils::{make_cryptde_pair};
     use crate::{hopper, proxy_client, proxy_server, stream_handler_pool, ui_gateway};
     use actix::{Actor, Arbiter, System};
     use automap_lib::control_layer::automap_control::AutomapChange;
@@ -708,6 +708,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
+    use crate::bootstrapper::cryptde_test::ensure_cryptde_initialization;
 
     struct LogRecipientSetterNull {}
 
@@ -1061,14 +1062,10 @@ mod tests {
         let validate_database_chain_params_arc = Arc::new(Mutex::new(vec![]));
         let prepare_initial_messages_params_arc = Arc::new(Mutex::new(vec![]));
         let (stream_handler_pool, _, stream_handler_pool_recording_arc) = make_recorder();
-        let main_cryptde = main_cryptde();
-        let alias_cryptde = alias_cryptde();
-        let cryptde_pair = CryptDEPair {
-            main: main_cryptde,
-            alias: alias_cryptde,
-        };
-        let main_cryptde_public_key_expected = pk_from_cryptde_null(main_cryptde);
-        let alias_cryptde_public_key_expected = pk_from_cryptde_null(alias_cryptde);
+        ensure_cryptde_initialization();
+        let cryptde_pair = CryptDEPair::default();
+        let main_cryptde_public_key_expected = pk_from_cryptde_null(main_cryptde());
+        let alias_cryptde_public_key_expected = pk_from_cryptde_null(alias_cryptde());
         let actor_factory = Box::new(ActorFactoryReal::new());
         let actor_factory_raw_address_expected = addr_of!(*actor_factory);
         let persistent_config_expected_arbitrary_id = ArbitraryIdStamp::new();
@@ -1199,10 +1196,7 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::default()
             .chain_name_result("base-sepolia".to_string())
             .set_min_hops_result(Ok(()));
-        Bootstrapper::pub_initialize_cryptdes_for_testing(
-            &Some(main_cryptde()),
-            &Some(alias_cryptde()),
-        );
+        ensure_cryptde_initialization();
         let mut tools = make_subject_with_null_setter();
         tools.automap_control_factory = Box::new(
             AutomapControlFactoryMock::new().make_result(Box::new(
@@ -1402,6 +1396,7 @@ mod tests {
     )]
     fn change_handler_panics_when_receiving_ip_change_from_isp() {
         running_test();
+        ensure_cryptde_initialization();
         let actor_factory = ActorFactoryMock::new();
         let mut config = BootstrapperConfig::default();
         config.mapping_protocol_opt = Some(AutomapProtocol::Pcp);
@@ -1960,10 +1955,7 @@ mod tests {
         bootstrapper_config.blockchain_bridge_config.chain = TEST_DEFAULT_CHAIN;
         let persistent_config =
             PersistentConfigurationMock::default().chain_name_result("eth-mainnet".to_string());
-        Bootstrapper::pub_initialize_cryptdes_for_testing(
-            &Some(main_cryptde().clone()),
-            &Some(alias_cryptde().clone()),
-        );
+        ensure_cryptde_initialization();
         let subject = ActorSystemFactoryReal::new(Box::new(ActorSystemFactoryToolsReal::new()));
 
         let _ = subject.make_and_start_actors(

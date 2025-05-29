@@ -33,7 +33,7 @@ pub struct PersistentConfigurationMock {
     set_clandestine_port_params: Arc<Mutex<Vec<u16>>>,
     set_clandestine_port_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     cryptde_params: Arc<Mutex<Vec<String>>>,
-    cryptde_results: RefCell<Vec<Result<Box<dyn CryptDE>, PersistentConfigError>>>,
+    cryptde_results: RefCell<Vec<Result<Option<Box<dyn CryptDE>>, PersistentConfigError>>>,
     set_cryptde_params: Arc<Mutex<Vec<(Box<dyn CryptDE>, String)>>>,
     set_cryptde_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     gas_price_results: RefCell<Vec<Result<u64, PersistentConfigError>>>,
@@ -103,7 +103,11 @@ impl Clone for PersistentConfigurationMock {
             cryptde_params: self.cryptde_params.clone(),
             cryptde_results: RefCell::new(self.cryptde_results.borrow().iter().map(|x| {
                 x.as_ref()
-                    .map(|cryptde| cryptde.dup())
+                    .map(|cryptde_opt|
+                        cryptde_opt.as_ref().map (|cryptde|
+                            cryptde.dup()
+                        )
+                    )
                     .map_err(|e| e.clone())
             }).collect()),
             set_cryptde_params: self.set_cryptde_params.clone(),
@@ -232,7 +236,7 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         self.set_clandestine_port_results.borrow_mut().remove(0)
     }
 
-    fn cryptde(&self, db_password: &str) -> Result<Box<dyn CryptDE>, PersistentConfigError> {
+    fn cryptde(&self, db_password: &str) -> Result<Option<Box<dyn CryptDE>>, PersistentConfigError> {
         self.cryptde_params.lock().unwrap().push(db_password.to_string());
         self.cryptde_results.borrow_mut().remove(0)
     }
@@ -574,7 +578,7 @@ impl PersistentConfigurationMock {
         self
     }
 
-    pub fn cryptde_result(self, result: Result<Box<dyn CryptDE>, PersistentConfigError>) -> Self {
+    pub fn cryptde_result(self, result: Result<Option<Box<dyn CryptDE>>, PersistentConfigError>) -> Self {
         self.cryptde_results.borrow_mut().push(result);
         self
     }

@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::bootstrapper::BootstrapperConfig;
+use crate::bootstrapper::{set_alias_cryptde, set_main_cryptde, Bootstrapper, BootstrapperConfig, CryptDEPair};
 use crate::node_configurator::{initialize_database, DirsWrapper, FieldPair, NodeConfigurator};
 use crate::node_configurator::{ConfigInitializationData, DirsWrapperReal};
 use masq_lib::crash_point::CrashPoint;
@@ -17,7 +17,7 @@ use log::LevelFilter;
 use crate::apps::app_node;
 use crate::bootstrapper::PortConfiguration;
 use crate::database::db_initializer::{DbInitializationConfig, ExternalData};
-use crate::db_config::persistent_configuration::PersistentConfiguration;
+use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::http_request_start_finder::HttpRequestDiscriminatorFactory;
 use crate::node_configurator::unprivileged_parse_args_configuration::{
     UnprivilegedParseArgsConfiguration, UnprivilegedParseArgsConfigurationDaoReal,
@@ -33,6 +33,10 @@ use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
 use masq_lib::constants::{DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT};
 use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl};
 use std::str::FromStr;
+use masq_lib::blockchains::chains::Chain;
+use crate::bootstrapper::{alias_cryptde, main_cryptde};
+use crate::bootstrapper::cryptdes_are_initialized;
+use crate::sub_lib::cryptde_real::CryptDEReal;
 
 pub struct NodeConfiguratorStandardPrivileged {
     dirs_wrapper: Box<dyn DirsWrapper>,
@@ -91,7 +95,7 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
             &self.logger,
         )?;
         configure_database(&unprivileged_config, persistent_config.as_mut())?;
-        configure_cryptdes(&unprivileged_config, persistent_config.as_mut())?;
+        configure_cryptdes(persistent_config.as_mut(), &unprivileged_config.db_password_opt)?;
         Ok(unprivileged_config)
     }
 }
@@ -356,17 +360,53 @@ fn configure_database(
 }
 
 fn configure_cryptdes(
-    config: &BootstrapperConfig,
     persistent_config: &mut dyn PersistentConfiguration,
+    db_password_opt: &Option<String>,
 ) -> Result<(), ConfiguratorError> {
-    todo!()
+    // Look at MAIN_CRYPTDE_BOX_OPT and ALIAS_CRYPTDE_BOX_OPT. If one of them is populated with
+    // a CryptDENull, then return a CryptDEPair consisting of them. If this happens, we're
+    // obviously running a test, and there's no reason to store test data in the database.
+    if cryptdes_are_initialized() {
+        let cryptde_pair = CryptDEPair::default();
+        if cryptde_pair.main.as_any().downcast_ref::<CryptDENull>().is_some() ||
+            cryptde_pair.alias.as_any().downcast_ref::<CryptDENull>().is_some() {
+            return Ok(());
+        }
+    }
+    if let Some(db_password) = db_password_opt {
+        let main_result = persistent_config.cryptde(db_password);
+eprintln!("main_result: {:?}", main_result.as_ref().err().clone());
+        match main_result {
+            Ok(Some(last_main_cryptde)) => {
+                set_main_cryptde(last_main_cryptde);
+                if !cryptdes_are_initialized() {
+                    todo! ("Invent a new alias CryptDEReal and set it")
+                }
+            },
+            Ok(None) => {
+                persistent_config.set_cryptde(main_cryptde(), db_password)
+                    .expect("Failed to set cryptde");
+            },
+            Err(e) => panic!("Could not read last cryptde from database: {:?}", e),
+        }
+    }
+    else {
+        if !cryptdes_are_initialized() {
+            let chain = Chain::from(persistent_config.chain_name().as_str());
+            let main = CryptDEReal::new(chain);
+            let alias = CryptDEReal::new(chain);
+            set_main_cryptde(Box::new(main));
+            set_alias_cryptde(Box::new(alias));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
-    use crate::bootstrapper::{BootstrapperConfig, RealUser};
+    use crate::bootstrapper::{Bootstrapper, BootstrapperConfig, CryptDEPair, RealUser};
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::db_config::config_dao::ConfigDaoReal;
     use crate::db_config::persistent_configuration::PersistentConfigError;
@@ -383,7 +423,7 @@ mod tests {
     use crate::test_utils::unshared_test_utils::{
         make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
     };
-    use crate::test_utils::{assert_string_contains, main_cryptde, ArgsBuilder};
+    use crate::test_utils::{assert_string_contains, ArgsBuilder};
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::multi_config::VirtualCommandLine;
@@ -399,9 +439,17 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
     use std::vec;
+    use trust_dns::rr::zone::TEST;
+    use crate::bootstrapper::cryptde_test::{ensure_cryptde_initialization, set_cryptdes};
+    use crate::sub_lib::cryptde_real::CryptDEReal;
 
     #[test]
     fn node_configurator_standard_unprivileged_uses_parse_args_configurator_dao_real() {
+        let _guard = EnvironmentGuard::new();
+        set_cryptdes(
+            Some(Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN))),
+            Some(Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN)))
+        );
         let home_dir = ensure_node_home_directory_exists(
             "node_configurator_standard",
             "node_configurator_standard_unprivileged_uses_parse_args_configurator_dao_real",
@@ -453,6 +501,7 @@ mod tests {
 
     #[test]
     fn configure_database_handles_error_during_setting_clandestine_port() {
+        let _guard = EnvironmentGuard::new();
         let mut config = BootstrapperConfig::new();
         config.clandestine_port_opt = Some(1000);
         let mut persistent_config = PersistentConfigurationMock::new()
@@ -468,6 +517,7 @@ mod tests {
 
     #[test]
     fn configure_database_handles_error_during_setting_gas_price() {
+        let _guard = EnvironmentGuard::new();
         let mut config = BootstrapperConfig::new();
         config.clandestine_port_opt = None;
         let mut persistent_config = PersistentConfigurationMock::new()
@@ -485,6 +535,7 @@ mod tests {
 
     #[test]
     fn configure_database_handles_error_during_setting_blockchain_service_url() {
+        let _guard = EnvironmentGuard::new();
         let mut config = BootstrapperConfig::new();
         config.blockchain_bridge_config.blockchain_service_url_opt =
             Some("https://infura.io/ID".to_string());
@@ -504,6 +555,7 @@ mod tests {
 
     #[test]
     fn configure_database_handles_error_during_setting_neighborhood_mode() {
+        let _guard = EnvironmentGuard::new();
         let mut config = BootstrapperConfig::new();
         config.neighborhood_config.mode = ZeroHop;
         let mut persistent_config = PersistentConfigurationMock::new()
@@ -520,6 +572,7 @@ mod tests {
 
     #[test]
     fn configure_database_handles_error_during_setting_min_hops() {
+        let _guard = EnvironmentGuard::new();
         let mut config = BootstrapperConfig::new();
         config.neighborhood_config.min_hops = Hops::FourHops;
         let mut persistent_config = PersistentConfigurationMock::new()
@@ -532,6 +585,119 @@ mod tests {
             result,
             Err(PersistentConfigError::TransactionError.into_configurator_error("min-hops"))
         )
+    }
+
+    #[test]
+    fn configure_cryptdes_handles_existing_null_cryptdes() {
+        let _guard = EnvironmentGuard::new();
+        ensure_cryptde_initialization();
+        let main_null = CryptDENull::new(TEST_DEFAULT_CHAIN);
+        set_main_cryptde(main_null.dup());
+        let alias_null = CryptDENull::new(TEST_DEFAULT_CHAIN);
+        set_alias_cryptde(alias_null.dup());
+        let set_cryptde_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .set_cryptde_params(&set_cryptde_params_arc);
+
+        configure_cryptdes(&mut persistent_config, &Some("db_password".to_string())).unwrap();
+
+        let check_pair = CryptDEPair::default();
+        assert_eq!(main_null.public_key(), check_pair.main.public_key());
+        assert_eq!(alias_null.public_key(), check_pair.alias.public_key());
+        let set_cryptde_params = set_cryptde_params_arc.lock().unwrap();
+        assert_eq!(set_cryptde_params.len(), 0);
+    }
+
+    #[test]
+    fn configure_cryptdes_handles_missing_password_with_existing_cryptdes() {
+        let _guard = EnvironmentGuard::new();
+        let main = CryptDEReal::new(TEST_DEFAULT_CHAIN);
+        let alias = CryptDEReal::new(TEST_DEFAULT_CHAIN);
+        set_cryptdes(Some(main.dup()), Some(alias.dup()));
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .chain_name_result(TEST_DEFAULT_CHAIN.to_string());
+
+        configure_cryptdes(&mut persistent_config, &None).unwrap();
+
+        assert_eq!(main.public_key(), main_cryptde().public_key());
+        assert_eq!(alias.public_key(), alias_cryptde().public_key());
+    }
+
+    #[test]
+    fn configure_cryptdes_handles_missing_password_with_uninitialized_cryptdes() {
+        let _guard = EnvironmentGuard::new();
+        set_cryptdes(None, None);
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .chain_name_result(TEST_DEFAULT_CHAIN.to_string());
+
+        configure_cryptdes(&mut persistent_config, &None).unwrap();
+
+        main_cryptde();
+        alias_cryptde();
+        // no panic: cryptdes are initialized
+    }
+
+    #[test]
+    fn configure_cryptdes_handles_missing_last_cryptde() {
+        let _guard = EnvironmentGuard::new();
+        let main = CryptDEReal::new(TEST_DEFAULT_CHAIN);
+        let alias = CryptDEReal::new(TEST_DEFAULT_CHAIN);
+        set_cryptdes(Some(main.dup()), Some(alias.dup()));
+        let cryptde_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_cryptde_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .cryptde_params(&cryptde_params_arc)
+            .cryptde_result(Ok(None))
+            .set_cryptde_params(&set_cryptde_params_arc)
+            .set_cryptde_result(Ok(()));
+
+        configure_cryptdes(&mut persistent_config, &Some("db_password".to_string())).unwrap();
+
+        assert_eq!(main_cryptde().public_key(), main.public_key());
+        assert_eq!(alias_cryptde().public_key(), alias.public_key());
+        let cryptde_params = cryptde_params_arc.lock().unwrap();
+        assert_eq!(*cryptde_params, vec!["db_password".to_string()]);
+        let set_cryptde_params = set_cryptde_params_arc.lock().unwrap();
+        let call = &set_cryptde_params[0];
+        assert_eq!(call.0.public_key(), main_cryptde().public_key());
+        assert_eq!(call.1, "db_password".to_string());
+    }
+
+    #[test]
+    #[should_panic(expected = "Could not read last cryptde from database: NotPresent")]
+    fn configure_cryptdes_panics_if_database_throws_error() {
+        let _guard = EnvironmentGuard::new();
+        set_cryptdes(None, None);
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .cryptde_result(Err(PersistentConfigError::NotPresent));
+
+        let _ = configure_cryptdes(&mut persistent_config, &Some("db_password".to_string()));
+    }
+
+    #[test]
+    fn configure_cryptdes_handles_populated_database() {
+        let _guard = EnvironmentGuard::new();
+        let main = CryptDEReal::new(TEST_DEFAULT_CHAIN);
+        let alias = CryptDEReal::new(TEST_DEFAULT_CHAIN);
+        set_cryptdes(Some(main.dup()), Some(alias.dup()));
+        let original_main_cryptde_box = main_cryptde().dup();
+        let stored_main_cryptde_box = Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN));
+        assert_ne!(
+            original_main_cryptde_box.public_key(),
+            stored_main_cryptde_box.public_key()
+        );
+        let original_alias_cryptde_box = alias_cryptde().dup();
+        let cryptde_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .cryptde_params(&cryptde_params_arc)
+            .cryptde_result(Ok(Some(stored_main_cryptde_box.dup())));
+
+        configure_cryptdes(&mut persistent_config, &Some("db_password".to_string())).unwrap();
+
+        assert_eq!(main_cryptde().public_key(), stored_main_cryptde_box.public_key());
+        assert_eq!(alias_cryptde().public_key(), original_alias_cryptde_box.public_key());
+        let cryptde_params = cryptde_params_arc.lock().unwrap();
+        assert_eq!(*cryptde_params, vec!["db_password".to_string()]);
     }
 
     fn make_default_cli_params() -> ArgsBuilder {
@@ -570,6 +736,7 @@ mod tests {
 
     #[test]
     fn can_read_dns_servers_and_consuming_private_key_from_config_file() {
+        let _guard = EnvironmentGuard::new();
         running_test();
         let home_dir = ensure_node_home_directory_exists(
             "node_configurator_standard",
@@ -642,6 +809,7 @@ mod tests {
 
     #[test]
     fn privileged_parse_args_creates_configurations() {
+        let _guard = EnvironmentGuard::new();
         running_test();
         let home_dir = ensure_node_home_directory_exists(
             "node_configurator_standard",
@@ -715,6 +883,7 @@ mod tests {
 
     #[test]
     fn privileged_parse_args_creates_configuration_with_defaults() {
+        let _guard = EnvironmentGuard::new();
         running_test();
         let args = ArgsBuilder::new().param("--ip", "1.2.3.4");
         let mut config = BootstrapperConfig::new();
@@ -741,6 +910,7 @@ mod tests {
     #[test]
     #[cfg(not(target_os = "windows"))]
     fn privileged_parse_args_with_real_user_defaults_data_directory_properly() {
+        let _guard = EnvironmentGuard::new();
         running_test();
         let args = ArgsBuilder::new()
             .param("--ip", "1.2.3.4")
@@ -769,6 +939,7 @@ mod tests {
 
     #[test]
     fn privileged_parse_args_with_no_command_line_params() {
+        let _guard = EnvironmentGuard::new();
         running_test();
         let args = ArgsBuilder::new();
         let mut config = BootstrapperConfig::new();
@@ -794,6 +965,7 @@ mod tests {
 
     #[test]
     fn no_parameters_produces_configuration_for_crash_point() {
+        let _guard = EnvironmentGuard::new();
         running_test();
         let args = make_default_cli_params();
         let mut config = BootstrapperConfig::new();
@@ -807,6 +979,7 @@ mod tests {
 
     #[test]
     fn with_parameters_produces_configuration_for_crash_point() {
+        let _guard = EnvironmentGuard::new();
         running_test();
         let args = make_default_cli_params().param("--crash-point", "panic");
         let mut config = BootstrapperConfig::new();
@@ -1022,8 +1195,8 @@ mod tests {
 
     #[test]
     fn server_initializer_collected_params_rewrite_config_files_parameters_from_environment() {
-        running_test();
         let _guard = EnvironmentGuard::new();
+        running_test();
         let _clap_guard = ClapGuard::new();
         let home_dir = ensure_node_home_directory_exists(
             "node_configurator_standard",
@@ -1083,8 +1256,8 @@ mod tests {
 
     #[test]
     fn tilde_in_config_file_path_from_commandline_and_args_uploaded_from_config_file() {
-        running_test();
         let _guard = EnvironmentGuard::new();
+        running_test();
         let _clap_guard = ClapGuard::new();
         let home_dir = ensure_node_home_directory_exists(
             "node_configurator_standard",
@@ -1157,8 +1330,8 @@ mod tests {
     #[test]
     fn server_initializer_collected_params_handle_config_file_from_environment_and_real_user_from_config_file_with_data_directory(
     ) {
-        running_test();
         let _guard = EnvironmentGuard::new();
+        running_test();
         let _clap_guard = ClapGuard::new();
         let home_dir = ensure_node_home_directory_exists( "node_configurator_standard","server_initializer_collected_params_handle_config_file_from_environment_and_real_user_from_config_file_with_data_directory");
         let data_dir = &home_dir.join("data_dir");
@@ -1201,8 +1374,8 @@ mod tests {
         expected = "If the config file is given with a naked relative path (config/config.toml), the data directory must be given to serve as the root for the config-file path."
     )]
     fn server_initializer_collected_params_fails_on_naked_dir_config_file_without_data_directory() {
-        running_test();
         let _guard = EnvironmentGuard::new();
+        running_test();
         let _clap_guard = ClapGuard::new();
         let home_dir = ensure_node_home_directory_exists( "node_configurator_standard","server_initializer_collected_params_fails_on_naked_dir_config_file_without_data_directory");
         let data_dir = &home_dir.join("data_dir");
@@ -1220,8 +1393,8 @@ mod tests {
 
     #[test]
     fn server_initializer_collected_params_combine_vcls_properly() {
-        running_test();
         let _guard = EnvironmentGuard::new();
+        running_test();
         let _clap_guard = ClapGuard::new();
         let home_dir = ensure_node_home_directory_exists(
             "node_configurator_standard",
@@ -1284,6 +1457,7 @@ mod tests {
 
     #[test]
     fn server_initializer_collected_params_senses_when_user_specifies_config_file() {
+        let _guard = EnvironmentGuard::new();
         running_test();
         let home_dir = PathBuf::from("/unexisting_home/unexisting_alice");
         let data_dir = home_dir.join("data_dir");
@@ -1315,6 +1489,7 @@ mod tests {
 
     #[test]
     fn privileged_configuration_accepts_network_chain_selection_for_multinode() {
+        let _guard = EnvironmentGuard::new();
         running_test();
         let _clap_guard = ClapGuard::new();
         let subject = NodeConfiguratorStandardPrivileged::new();
@@ -1329,6 +1504,7 @@ mod tests {
 
     #[test]
     fn privileged_configuration_accepts_network_chain_selection_for_ropsten() {
+        let _guard = EnvironmentGuard::new();
         running_test();
         let subject = NodeConfiguratorStandardPrivileged::new();
         let args = [
@@ -1347,6 +1523,7 @@ mod tests {
 
     #[test]
     fn privileged_configuration_defaults_network_chain_selection_to_mainnet() {
+        let _guard = EnvironmentGuard::new();
         running_test();
         let _clap_guard = ClapGuard::new();
         let subject = NodeConfiguratorStandardPrivileged::new();
@@ -1368,6 +1545,7 @@ mod tests {
 
     #[test]
     fn privileged_configuration_accepts_ropsten_network_chain_selection() {
+        let _guard = EnvironmentGuard::new();
         running_test();
         let subject = NodeConfiguratorStandardPrivileged::new();
         let args = [
@@ -1388,6 +1566,7 @@ mod tests {
 
     #[test]
     fn unprivileged_configuration_gets_parameter_gas_price() {
+        let _guard = EnvironmentGuard::new();
         running_test();
         let _clap_guard = ClapGuard::new();
         let data_dir = ensure_node_home_directory_exists(
@@ -1408,6 +1587,7 @@ mod tests {
 
     #[test]
     fn unprivileged_configuration_sets_default_gas_price_when_not_provided() {
+        let _guard = EnvironmentGuard::new();
         running_test();
         let _clap_guard = ClapGuard::new();
         let data_dir = ensure_node_home_directory_exists(
@@ -1431,8 +1611,8 @@ mod tests {
     )]
     #[test]
     fn server_initializer_collected_params_rejects_invalid_gas_price() {
-        running_test();
         let _guard = EnvironmentGuard::new();
+        running_test();
         let _clap_guard = ClapGuard::new();
         let args = ArgsBuilder::new().param("--gas-price", "unleaded");
         let args_vec: Vec<String> = args.into();
@@ -1450,7 +1630,12 @@ mod tests {
 
     #[test]
     fn configure_database_with_data_specified_on_command_line_and_in_database() {
+        let _guard = EnvironmentGuard::new();
         running_test();
+        set_cryptdes(
+            Some(Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN))),
+            Some(Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN)))
+        );
         let mut config = BootstrapperConfig::new();
         let gas_price = 4u64;
         config.clandestine_port_opt = Some(1234);
@@ -1508,6 +1693,7 @@ mod tests {
 
     #[test]
     fn configure_database_with_no_data_specified() {
+        let _guard = EnvironmentGuard::new();
         running_test();
         let config = BootstrapperConfig::new();
         let set_blockchain_service_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1539,6 +1725,7 @@ mod tests {
 
     #[test]
     fn external_data_is_properly_created_when_password_is_provided() {
+        let _guard = EnvironmentGuard::new();
         let mut configurator_standard =
             NodeConfiguratorStandardUnprivileged::new(&BootstrapperConfig::new());
         configurator_standard
@@ -1564,6 +1751,7 @@ mod tests {
 
     #[test]
     fn external_data_is_properly_created_when_no_password_is_provided() {
+        let _guard = EnvironmentGuard::new();
         let mut configurator_standard =
             NodeConfiguratorStandardUnprivileged::new(&BootstrapperConfig::new());
         configurator_standard

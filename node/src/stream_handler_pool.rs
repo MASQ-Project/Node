@@ -794,7 +794,7 @@ mod tests {
     };
     use crate::sub_lib::stream_connector::ConnectionInfo;
     use crate::test_utils::channel_wrapper_mocks::SenderWrapperMock;
-    use crate::test_utils::main_cryptde;
+    use crate::bootstrapper::main_cryptde;
     use crate::test_utils::rate_pack;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;

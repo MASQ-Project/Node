@@ -6,6 +6,7 @@ export PATH="$PATH:$HOME/.cargo/bin"
 
 export RUST_BACKTRACE=full
 export RUSTFLAGS="-D warnings -Anon-snake-case"
+export RUSTFLAGS="-Anon-snake-case"
 umask 000
 
 pushd "$CI_DIR/.."

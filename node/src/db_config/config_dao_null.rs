@@ -101,6 +101,10 @@ impl Default for ConfigDaoNull {
             ),
         );
         data.insert(
+            "last_cryptde".to_string(),
+            (None, true),
+        );
+        data.insert(
             "gas_price".to_string(),
             (Some(DEFAULT_GAS_PRICE.to_string()), false),
         );
@@ -241,12 +245,13 @@ mod tests {
         assert_eq!(null_pairs, real_pairs);
     }
 
-    fn return_parameter_pairs(dao: &dyn ConfigDao) -> HashSet<(String, bool)> {
+    fn return_parameter_pairs(dao: &dyn ConfigDao) -> Vec<(String, bool)> {
         dao.get_all()
             .unwrap()
             .into_iter()
             .map(|r| (r.name, r.encrypted))
-            .collect()
+            .sorted_by_key(|pair| pair.0.clone())
+            .collect::<Vec<(String, bool)>>()
     }
 
     #[test]

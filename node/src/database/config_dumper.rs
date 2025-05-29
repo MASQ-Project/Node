@@ -172,7 +172,7 @@ mod tests {
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::neighborhood::{NodeDescriptor, DEFAULT_RATE_PACK};
     use crate::test_utils::database_utils::bring_db_0_back_to_life_and_return_connection;
-    use crate::test_utils::{main_cryptde, ArgsBuilder};
+    use crate::test_utils::{ArgsBuilder};
     use masq_lib::constants::CURRENT_SCHEMA_VERSION;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
@@ -183,6 +183,7 @@ mod tests {
     use std::fs::{create_dir_all, File};
     use std::io::ErrorKind;
     use std::panic::{catch_unwind, AssertUnwindSafe};
+    use crate::bootstrapper::main_cryptde;
 
     #[test]
     fn database_must_be_created_by_node_before_dump_config_is_used() {

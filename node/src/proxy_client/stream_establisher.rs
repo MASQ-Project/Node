@@ -137,7 +137,6 @@ impl StreamEstablisherFactory for StreamEstablisherFactoryReal {
 mod tests {
     use super::*;
     use crate::sub_lib::proxy_server::ProxyProtocol;
-    use crate::test_utils::main_cryptde;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::stream_connector_mock::StreamConnectorMock;
@@ -150,6 +149,7 @@ mod tests {
     use std::str::FromStr;
     use std::thread;
     use tokio::prelude::Async;
+    use crate::bootstrapper::main_cryptde;
 
     #[test]
     fn spawn_stream_reader_handles_data() {

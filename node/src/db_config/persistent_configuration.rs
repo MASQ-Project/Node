@@ -109,7 +109,7 @@ pub trait PersistentConfiguration {
     fn clandestine_port(&self) -> Result<u16, PersistentConfigError>;
     fn set_clandestine_port(&mut self, port: u16) -> Result<(), PersistentConfigError>;
     // WARNING: Actors should get earning-wallet information from their startup config, not from here
-    fn cryptde(&self, db_password: &str) -> Result<Box<dyn CryptDE>, PersistentConfigError>;
+    fn cryptde(&self, db_password: &str) -> Result<Option<Box<dyn CryptDE>>, PersistentConfigError>;
     fn set_cryptde(&mut self, cryptde: &dyn CryptDE, db_password: &str) -> Result<(), PersistentConfigError>;
     fn earning_wallet(&self) -> Result<Option<Wallet>, PersistentConfigError>;
     // WARNING: Actors should get earning-wallet information from their startup config, not from here
@@ -298,7 +298,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
             .set("clandestine_port", encode_u64(Some(u64::from(port)))?)?)
     }
 
-    fn cryptde(&self, db_password: &str) -> Result<Box<dyn CryptDE>, PersistentConfigError> {
+    fn cryptde(&self, db_password: &str) -> Result<Option<Box<dyn CryptDE>>, PersistentConfigError> {
         let record = match self.get_record("last_cryptde") {
             Ok(record) => record,
             Err(ConfigDaoError::NotPresent) => return Err(PersistentConfigError::NotPresent),
@@ -309,16 +309,22 @@ impl PersistentConfiguration for PersistentConfigurationReal {
                 )))
             }
         };
-        let cryptde_text = self.scl.decrypt(
+        let cryptde_text = match self.scl.decrypt(
             record,
             Some(db_password.to_string()),
             &self.dao
-        )?.expect("Can't be None here, or we would have gotten NotPresent above");
+        ) {
+            Ok(Some(text)) => text,
+            Ok(None) => return Ok(None),
+            Err(_) => {
+                todo!("Test-drive me")
+            }
+        };
         let chain_name = self.chain_name();
         let chain = Chain::from(chain_name.as_str());
         if cryptde_text.contains(",") {
             match CryptDEReal::new(chain).make_from_str(cryptde_text.as_str(), chain) {
-                Ok(c) => Ok(c),
+                Ok(c) => Ok(Some(c)),
                 Err(e) => {
                     Err(PersistentConfigError::BadCoupledParamsFormat(format!(
                         "CryptDEReal string '{}' is not valid: {:?}",
@@ -329,7 +335,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         }
         else {
             match CryptDENull::new(chain).make_from_str(cryptde_text.as_str(), chain) {
-                Ok(c) => Ok(c),
+                Ok(c) => Ok(Some(c)),
                 Err(e) => {
                     Err(PersistentConfigError::BadCoupledParamsFormat(format!(
                         "CryptDENull string '{}' is not valid: {:?}",
@@ -672,7 +678,7 @@ mod tests {
     use crate::db_config::config_dao::ConfigDaoRecord;
     use crate::db_config::mocks::ConfigDaoMock;
     use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
-    use crate::test_utils::main_cryptde;
+    use crate::bootstrapper::main_cryptde;
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use bip39::{Language, MnemonicType};
     use lazy_static::lazy_static;
@@ -1080,7 +1086,7 @@ mod tests {
             .get_result(Ok(ConfigDaoRecord::new("chain_name", Some("dev"), false)));
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
 
-        let result = subject.cryptde("bellybutton").unwrap();
+        let result = subject.cryptde("bellybutton").unwrap().unwrap();
 
         assert_eq!(result.public_key(), cryptde.public_key());
         let get_params = get_params_arc.lock().unwrap();
@@ -1116,7 +1122,7 @@ mod tests {
             .get_result(Ok(ConfigDaoRecord::new("chain_name", Some("dev"), false)));
         let subject = PersistentConfigurationReal::new(Box::new(config_dao));
 
-        let result = subject.cryptde(db_password.as_str()).unwrap();
+        let result = subject.cryptde(db_password.as_str()).unwrap().unwrap();
 
         assert_eq!(result.public_key(), cryptde.public_key());
         let get_params = get_params_arc.lock().unwrap();
@@ -1128,8 +1134,38 @@ mod tests {
     }
 
     #[test]
-    fn cryptde_failure_not_present() {
+    fn cryptde_failure_null_value_in_database() {
         let db_password = "bellybutton".to_string();
+        // TODO: See if we can get rid of this
+        let example_encrypted =
+            DbEncryptionLayer::encrypt_value(&Some("Example plaintext".to_string()), &Some(db_password.clone()), EXAMPLE_ENCRYPTED)
+                .unwrap()
+                .unwrap();
+        let get_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .get_params(&get_params_arc)
+            .get_result(Ok(ConfigDaoRecord::new(
+                "last_cryptde",
+                None,
+                true,
+            )))
+            // TODO: See if we can get rid of this
+            .get_result(Ok(ConfigDaoRecord::new(
+                EXAMPLE_ENCRYPTED,
+                Some(example_encrypted.as_str()),
+                true,
+            )));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.cryptde(db_password.as_str()).unwrap();
+
+        assert_eq!(result.is_none(), true);
+    }
+
+    #[test]
+    fn cryptde_failure_not_present_means_database_schema_is_wrong() {
+        let db_password = "bellybutton".to_string();
+        // TODO: See if we can get rid of this
         let example_encrypted =
             DbEncryptionLayer::encrypt_value(&Some("Example plaintext".to_string()), &Some(db_password.clone()), EXAMPLE_ENCRYPTED)
                 .unwrap()
@@ -1138,6 +1174,7 @@ mod tests {
         let config_dao = ConfigDaoMock::new()
             .get_params(&get_params_arc)
             .get_result(Err(ConfigDaoError::NotPresent))
+            // TODO: See if we can get rid of this
             .get_result(Ok(ConfigDaoRecord::new(
                 EXAMPLE_ENCRYPTED,
                 Some(example_encrypted.as_str()),

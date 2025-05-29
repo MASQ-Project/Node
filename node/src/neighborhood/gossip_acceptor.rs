@@ -1338,7 +1338,7 @@ mod tests {
         public_keys_from_node_records, DB_PATCH_SIZE_FOR_TEST,
     };
     use crate::test_utils::unshared_test_utils::make_cpm_recipient;
-    use crate::test_utils::{assert_contains, main_cryptde, vec_to_set};
+    use crate::test_utils::{assert_contains, vec_to_set};
     use actix::System;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
@@ -1346,6 +1346,7 @@ mod tests {
     use std::ops::{Add, Sub};
     use std::str::FromStr;
     use std::time::Duration;
+    use crate::bootstrapper::main_cryptde;
 
     #[test]
     fn constants_have_correct_values() {

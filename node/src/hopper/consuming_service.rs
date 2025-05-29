@@ -140,7 +140,7 @@ mod tests {
     use crate::sub_lib::route::RouteSegment;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
-    use crate::test_utils::{main_cryptde, make_meaningless_message_type, make_paying_wallet};
+    use crate::test_utils::{make_meaningless_message_type, make_paying_wallet};
     use actix::System;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
@@ -148,6 +148,7 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr};
     use std::str::FromStr;
     use std::time::SystemTime;
+    use crate::bootstrapper::main_cryptde;
 
     #[test]
     fn converts_no_lookup_incipient_message_to_live_and_sends_to_dispatcher() {

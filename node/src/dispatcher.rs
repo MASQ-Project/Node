@@ -8,7 +8,7 @@ use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp};
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
-use crate::test_utils::main_cryptde;
+use crate::bootstrapper::main_cryptde;
 use actix::Actor;
 use actix::Addr;
 use actix::Context;
@@ -217,7 +217,6 @@ mod tests {
     use crate::sub_lib::dispatcher::Endpoint;
     use crate::sub_lib::neighborhood::NodeDescriptor;
     use crate::sub_lib::node_addr::NodeAddr;
-    use crate::test_utils::main_cryptde;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
     use crate::test_utils::unshared_test_utils::prove_that_crash_request_handler_is_hooked_up;

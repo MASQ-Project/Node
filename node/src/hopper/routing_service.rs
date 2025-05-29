@@ -501,7 +501,7 @@ impl RoutingService {
 mod tests {
     use super::*;
     use crate::accountant::db_access_objects::banned_dao::BAN_CACHE;
-    use crate::bootstrapper::Bootstrapper;
+    use crate::bootstrapper::{alias_cryptde, main_cryptde, Bootstrapper};
     use crate::neighborhood::gossip::{GossipBuilder, Gossip_0v1};
     use crate::node_test_utils::check_timestamp;
     use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
@@ -521,7 +521,7 @@ mod tests {
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
     use crate::test_utils::unshared_test_utils::{make_request_payload, make_response_payload};
     use crate::test_utils::{
-        alias_cryptde, main_cryptde, make_cryptde_pair, make_meaningless_message_type,
+        make_cryptde_pair, make_meaningless_message_type,
         make_paying_wallet, rate_pack_routing, rate_pack_routing_byte, route_from_proxy_client,
         route_to_proxy_client, route_to_proxy_server,
     };
@@ -532,6 +532,7 @@ mod tests {
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::time::SystemTime;
+    use crate::bootstrapper::cryptde_test::set_cryptdes;
 
     #[test]
     fn dns_resolution_failures_are_reported_to_the_proxy_server() {
@@ -635,18 +636,16 @@ mod tests {
     #[test]
     fn logs_and_ignores_message_that_cannot_be_decrypted() {
         init_test_logging();
-        let (main_cryptde, alias_cryptde) = {
-            //initialization to real CryptDEs
-            let pair = Bootstrapper::pub_initialize_cryptdes_for_testing(&None, &None);
-            (pair.main, pair.alias)
-        };
+        let _ = EnvironmentGuard::new();
+        let main_cryptde = Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN));
+        let alias_cryptde = Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN));
         let rogue_cryptde = CryptDEReal::new(TEST_DEFAULT_CHAIN);
-        let route = route_from_proxy_client(main_cryptde.public_key(), main_cryptde);
+        let route = route_from_proxy_client(main_cryptde.public_key(), main_cryptde.as_ref());
         let lcp = LiveCoresPackage::new(
             route,
             encodex(&rogue_cryptde, rogue_cryptde.public_key(), &[42u8]).unwrap(),
         );
-        let data_enc = encodex(main_cryptde, main_cryptde.public_key(), &lcp).unwrap();
+        let data_enc = encodex(main_cryptde.as_ref(), main_cryptde.public_key(), &lcp).unwrap();
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
@@ -657,11 +656,12 @@ mod tests {
             data: data_enc.into(),
         };
         let peer_actors = peer_actors_builder().build();
+        let cryptde_pair = CryptDEPair {
+            main: Box::leak(main_cryptde),
+            alias: Box::leak(alias_cryptde),
+        };
         let subject = RoutingService::new(
-            CryptDEPair {
-                main: main_cryptde,
-                alias: alias_cryptde,
-            },
+            cryptde_pair,
             RoutingServiceSubs {
                 proxy_client_subs_opt: peer_actors.proxy_client_opt,
                 proxy_server_subs: peer_actors.proxy_server,
