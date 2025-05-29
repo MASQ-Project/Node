@@ -8,12 +8,8 @@ ci/format.sh
 export RUST_BACKTRACE=1
 #if github checkout fails, you can download csv database from db-ip.com and convert it locally by cargo run ip_country
 if [[ $GITHUB_ACTIONS || "$ARGV_1" == "dbip" ]]; then
-  ls
-  git remote add experiment https://github.com/MASQ-Project/DBIP-Experiment.git
-  git fetch experiment
-  git checkout experiment/generated-source -- ip_country/src/dbip_country.rs
-  git remote remove experiment
-  echo "chekout $ARGV_1"
+  git checkout origin/generated-source -- ip_country/src/dbip_country.rs
+  ls -la ip_country/src/dbip_country.rs
 fi
 if [[ -z "${GITHUB_ACTIONS}" ]]; then
   bash ./install-hooks.sh
