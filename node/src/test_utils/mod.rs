@@ -24,7 +24,6 @@ use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::cryptde::PublicKey;
-use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::dispatcher::Component;
 use crate::sub_lib::neighborhood::ExpectedServices;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
@@ -36,7 +35,6 @@ use crate::sub_lib::wallet::Wallet;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use ethsign_crypto::Keccak256;
 use futures::sync::mpsc::SendError;
-use lazy_static::lazy_static;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use rand::RngCore;
 use regex::Regex;
@@ -62,7 +60,6 @@ use std::thread;
 use std::time::Duration;
 use std::time::Instant;
 use web3::types::{Address, U256};
-use crate::sub_lib::null_cryptde::NullCryptDE;
 
 pub fn make_cryptde_pair() -> CryptDEPair {
     CryptDEPair {

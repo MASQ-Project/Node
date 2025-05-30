@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::bootstrapper::{set_alias_cryptde, set_main_cryptde, Bootstrapper, BootstrapperConfig, CryptDEPair};
+use crate::bootstrapper::{set_alias_cryptde, set_main_cryptde, BootstrapperConfig, CryptDEPair};
 use crate::node_configurator::{initialize_database, DirsWrapper, FieldPair, NodeConfigurator};
 use crate::node_configurator::{ConfigInitializationData, DirsWrapperReal};
 use masq_lib::crash_point::CrashPoint;
@@ -17,7 +17,7 @@ use log::LevelFilter;
 use crate::apps::app_node;
 use crate::bootstrapper::PortConfiguration;
 use crate::database::db_initializer::{DbInitializationConfig, ExternalData};
-use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
+use crate::db_config::persistent_configuration::{PersistentConfiguration};
 use crate::http_request_start_finder::HttpRequestDiscriminatorFactory;
 use crate::node_configurator::unprivileged_parse_args_configuration::{
     UnprivilegedParseArgsConfiguration, UnprivilegedParseArgsConfigurationDaoReal,
@@ -34,7 +34,7 @@ use masq_lib::constants::{DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT};
 use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl};
 use std::str::FromStr;
 use masq_lib::blockchains::chains::Chain;
-use crate::bootstrapper::{alias_cryptde, main_cryptde};
+use crate::bootstrapper::{main_cryptde, alias_cryptde};
 use crate::bootstrapper::cryptdes_are_initialized;
 use crate::sub_lib::cryptde_real::CryptDEReal;
 
@@ -390,14 +390,12 @@ eprintln!("main_result: {:?}", main_result.as_ref().err().clone());
             Err(e) => panic!("Could not read last cryptde from database: {:?}", e),
         }
     }
-    else {
-        if !cryptdes_are_initialized() {
-            let chain = Chain::from(persistent_config.chain_name().as_str());
-            let main = CryptDEReal::new(chain);
-            let alias = CryptDEReal::new(chain);
-            set_main_cryptde(Box::new(main));
-            set_alias_cryptde(Box::new(alias));
-        }
+    else if !cryptdes_are_initialized() {
+        let chain = Chain::from(persistent_config.chain_name().as_str());
+        let main = CryptDEReal::new(chain);
+        let alias = CryptDEReal::new(chain);
+        set_main_cryptde(Box::new(main));
+        set_alias_cryptde(Box::new(alias));
     }
     Ok(())
 }
@@ -406,7 +404,7 @@ eprintln!("main_result: {:?}", main_result.as_ref().err().clone());
 mod tests {
     use super::*;
     use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
-    use crate::bootstrapper::{Bootstrapper, BootstrapperConfig, CryptDEPair, RealUser};
+    use crate::bootstrapper::{BootstrapperConfig, CryptDEPair, RealUser};
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::db_config::config_dao::ConfigDaoReal;
     use crate::db_config::persistent_configuration::PersistentConfigError;
@@ -439,7 +437,6 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
     use std::vec;
-    use trust_dns::rr::zone::TEST;
     use crate::bootstrapper::cryptde_test::{ensure_cryptde_initialization, set_cryptdes};
     use crate::sub_lib::cryptde_real::CryptDEReal;
 

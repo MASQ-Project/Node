@@ -24,7 +24,6 @@ use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
 use websocket::url::Url;
 use masq_lib::blockchains::chains::Chain;
-use crate::db_config::db_encryption_layer::DbEncryptionLayer;
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::cryptde_real::CryptDEReal;
 
@@ -322,7 +321,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         };
         let chain_name = self.chain_name();
         let chain = Chain::from(chain_name.as_str());
-        if cryptde_text.contains(",") {
+        if cryptde_text.contains(',') {
             match CryptDEReal::new(chain).make_from_str(cryptde_text.as_str(), chain) {
                 Ok(c) => Ok(Some(c)),
                 Err(e) => {
