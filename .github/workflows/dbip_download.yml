@@ -44,7 +44,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          if [[ "$(git ls-remote --heads 2>/dev/null | grep generated-sources)" == "" ]]
+          if [[ "$(git ls-remote --heads 2>/dev/null | grep generated-source)" == "" ]]
           then
                git checkout -B generated-source
                git rm -rf .
