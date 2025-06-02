@@ -401,7 +401,6 @@ impl PersistentConfiguration for PersistentConfigurationMock {
     }
 
     arbitrary_id_stamp_in_trait_impl!();
-    set_arbitrary_id_stamp_in_mock_impl!();
 }
 
 impl PersistentConfigurationMock {
