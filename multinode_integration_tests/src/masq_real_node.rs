@@ -38,7 +38,7 @@ use std::thread;
 use std::time::Duration;
 
 pub const DATA_DIRECTORY: &str = "/node_root/home";
-pub const STANDARD_CLIENT_TIMEOUT_MILLIS: u64 = 1000;
+pub const STANDARD_CLIENT_TIMEOUT_MILLIS: u64 = 2000;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Firewall {
