@@ -1262,7 +1262,7 @@ mod tests {
     use crate::accountant::scanners::scan_schedulers::{NewPayableScanDynIntervalComputer, NewPayableScanDynIntervalComputerReal};
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{OperationOutcome, PayableScanResult};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt, TxStatus};
-    use crate::test_utils::recorder_counter_msgs::SingleCounterMsgSetup;
+    use crate::test_utils::recorder_counter_msgs::SingleTypeCounterMsgSetup;
 
     impl Handler<AssertionsMessage<Accountant>> for Accountant {
         type Result = ();

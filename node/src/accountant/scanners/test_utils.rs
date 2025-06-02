@@ -55,37 +55,34 @@ impl NewPayableScanDynIntervalComputerMock {
     }
 }
 
-pub enum ReplacementType<A, B> {
-    Real(A),
-    Mock(B),
+pub enum ReplacementType<ScannerReal, TriggerMsg, StartMsg, EndMsg> {
+    Real(ScannerReal),
+    Mock(ScannerMock<TriggerMsg, StartMsg, EndMsg>),
     Null,
 }
 
-// The supplied scanner types are broken down to these detailed categories because they are
-// eventually represented by a private trait within the Scanners struct. Therefore, when
-// the values are constructed, they cannot be made into a trait object right away and needs to be
-// handled specifically.
+// The supplied scanner types are broken down to these detailed categories because they become
+// eventually trait objects represented by a private trait. That one cannot be supplied, though,
+// because it is unknown to the outside world, therefore, we provide the specific objects that
+// will be then treated in an abstract manner.
 pub enum ScannerReplacement {
     Payable(
-        ReplacementType<
-            PayableScanner,
-            ScannerMock<QualifiedPayablesMessage, SentPayables, PayableScanResult>,
-        >,
+        ReplacementType<PayableScanner, QualifiedPayablesMessage, SentPayables, PayableScanResult>,
     ),
     PendingPayable(
         ReplacementType<
             PendingPayableScanner,
-            ScannerMock<
-                RequestTransactionReceipts,
-                ReportTransactionReceipts,
-                PendingPayableScanResult,
-            >,
+            RequestTransactionReceipts,
+            ReportTransactionReceipts,
+            PendingPayableScanResult,
         >,
     ),
     Receivable(
         ReplacementType<
             ReceivableScanner,
-            ScannerMock<RetrieveTransactions, ReceivedPayments, Option<NodeToUiMessage>>,
+            RetrieveTransactions,
+            ReceivedPayments,
+            Option<NodeToUiMessage>,
         >,
     ),
 }

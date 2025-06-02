@@ -120,7 +120,7 @@ pub enum DaoWithDestination<T> {
 enum DestinationMarker {
     AccountantBody,
     PendingPayableScanner,
-    SharedPayableScanner,
+    PayableScanner,
     ReceivableScanner,
 }
 
@@ -132,7 +132,7 @@ impl<T> DaoWithDestination<T> {
                 matches!(dest_marker, DestinationMarker::PendingPayableScanner)
             }
             Self::ForPayableScanner(_) => {
-                matches!(dest_marker, DestinationMarker::SharedPayableScanner)
+                matches!(dest_marker, DestinationMarker::PayableScanner)
             }
             Self::ForReceivableScanner(_) => {
                 matches!(dest_marker, DestinationMarker::ReceivableScanner)
@@ -237,13 +237,13 @@ macro_rules! create_or_update_factory {
 
 const PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER: [DestinationMarker; 3] = [
     DestinationMarker::AccountantBody,
-    DestinationMarker::SharedPayableScanner,
+    DestinationMarker::PayableScanner,
     DestinationMarker::PendingPayableScanner,
 ];
 
 const PENDING_PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER: [DestinationMarker; 3] = [
     DestinationMarker::AccountantBody,
-    DestinationMarker::SharedPayableScanner,
+    DestinationMarker::PayableScanner,
     DestinationMarker::PendingPayableScanner,
 ];
 

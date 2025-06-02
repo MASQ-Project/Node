@@ -337,7 +337,7 @@ pub mod pending_payable_scanner_utils {
 
     impl PendingPayableScanReport {
         pub fn requires_payments_retry(&self) -> bool {
-            !self.still_pending.is_empty() || !self.failures.is_empty()
+            todo!("complete my within GH-642")
         }
     }
 
@@ -478,7 +478,7 @@ mod tests {
         PayableThresholdsGaugeReal,
     };
     use crate::accountant::scanners::scanners_utils::receivable_scanner_utils::balance_and_age;
-    use crate::accountant::{checked_conversion, gwei_to_wei, PendingPayableId, SentPayables};
+    use crate::accountant::{checked_conversion, gwei_to_wei, SentPayables};
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::test_utils::make_wallet;
@@ -487,8 +487,6 @@ mod tests {
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::time::SystemTime;
     use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
-    use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::PendingPayableScanReport;
-    use crate::accountant::test_utils::make_pending_payable_fingerprint;
     use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainError, PayableTransactionError};
     use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RpcPayableFailure};
 
@@ -874,59 +872,61 @@ mod tests {
 
     #[test]
     fn requires_payments_retry_says_yes() {
-        let cases = vec![
-            PendingPayableScanReport {
-                still_pending: vec![PendingPayableId::new(12, make_tx_hash(456))],
-                failures: vec![],
-                confirmed: vec![],
-            },
-            PendingPayableScanReport {
-                still_pending: vec![],
-                failures: vec![PendingPayableId::new(456, make_tx_hash(1234))],
-                confirmed: vec![],
-            },
-            PendingPayableScanReport {
-                still_pending: vec![PendingPayableId::new(12, make_tx_hash(456))],
-                failures: vec![PendingPayableId::new(456, make_tx_hash(1234))],
-                confirmed: vec![],
-            },
-            PendingPayableScanReport {
-                still_pending: vec![PendingPayableId::new(12, make_tx_hash(456))],
-                failures: vec![PendingPayableId::new(456, make_tx_hash(1234))],
-                confirmed: vec![make_pending_payable_fingerprint()],
-            },
-            PendingPayableScanReport {
-                still_pending: vec![PendingPayableId::new(12, make_tx_hash(456))],
-                failures: vec![],
-                confirmed: vec![make_pending_payable_fingerprint()],
-            },
-            PendingPayableScanReport {
-                still_pending: vec![],
-                failures: vec![PendingPayableId::new(456, make_tx_hash(1234))],
-                confirmed: vec![make_pending_payable_fingerprint()],
-            },
-        ];
-
-        cases.into_iter().enumerate().for_each(|(idx, case)| {
-            let result = case.requires_payments_retry();
-            assert_eq!(
-                result, true,
-                "We expected true, but got false for case of idx {}",
-                idx
-            )
-        })
+        todo!("complete this test with GH-604")
+        // let cases = vec![
+        //     PendingPayableScanReport {
+        //         still_pending: vec![PendingPayableId::new(12, make_tx_hash(456))],
+        //         failures: vec![],
+        //         confirmed: vec![],
+        //     },
+        //     PendingPayableScanReport {
+        //         still_pending: vec![],
+        //         failures: vec![PendingPayableId::new(456, make_tx_hash(1234))],
+        //         confirmed: vec![],
+        //     },
+        //     PendingPayableScanReport {
+        //         still_pending: vec![PendingPayableId::new(12, make_tx_hash(456))],
+        //         failures: vec![PendingPayableId::new(456, make_tx_hash(1234))],
+        //         confirmed: vec![],
+        //     },
+        //     PendingPayableScanReport {
+        //         still_pending: vec![PendingPayableId::new(12, make_tx_hash(456))],
+        //         failures: vec![PendingPayableId::new(456, make_tx_hash(1234))],
+        //         confirmed: vec![make_pending_payable_fingerprint()],
+        //     },
+        //     PendingPayableScanReport {
+        //         still_pending: vec![PendingPayableId::new(12, make_tx_hash(456))],
+        //         failures: vec![],
+        //         confirmed: vec![make_pending_payable_fingerprint()],
+        //     },
+        //     PendingPayableScanReport {
+        //         still_pending: vec![],
+        //         failures: vec![PendingPayableId::new(456, make_tx_hash(1234))],
+        //         confirmed: vec![make_pending_payable_fingerprint()],
+        //     },
+        // ];
+        //
+        // cases.into_iter().enumerate().for_each(|(idx, case)| {
+        //     let result = case.requires_payments_retry();
+        //     assert_eq!(
+        //         result, true,
+        //         "We expected true, but got false for case of idx {}",
+        //         idx
+        //     )
+        // })
     }
 
     #[test]
     fn requires_payments_retry_says_no() {
-        let report = PendingPayableScanReport {
-            still_pending: vec![],
-            failures: vec![],
-            confirmed: vec![make_pending_payable_fingerprint()],
-        };
-
-        let result = report.requires_payments_retry();
-
-        assert_eq!(result, false)
+        todo!("complete this test with GH-604")
+        // let report = PendingPayableScanReport {
+        //     still_pending: vec![],
+        //     failures: vec![],
+        //     confirmed: vec![make_pending_payable_fingerprint()],
+        // };
+        //
+        // let result = report.requires_payments_retry();
+        //
+        // assert_eq!(result, false)
     }
 }

@@ -572,7 +572,6 @@ mod tests {
     use crate::test_utils::recorder::{
         make_accountant_subs_from_recorder, make_recorder, peer_actors_builder,
     };
-    use crate::test_utils::recorder_stop_conditions::MsgIdentification;
     use crate::test_utils::recorder_stop_conditions::StopConditions;
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use crate::test_utils::unshared_test_utils::{

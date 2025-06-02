@@ -121,8 +121,8 @@ impl MsgIdentification {
     }
 
     fn matches_by_type<Msg: ForcedMatchable<Msg>>(msg: &Msg, expected_type_id: TypeId) -> bool {
-        let correct_msg_type_id = msg.correct_msg_type_id();
-        correct_msg_type_id == expected_type_id
+        let trigger_msg_type_id = msg.trigger_msg_type_id();
+        trigger_msg_type_id == expected_type_id
     }
 
     fn matches_completely<Msg: ForcedMatchable<Msg> + 'static + Send>(
@@ -144,7 +144,7 @@ impl MsgIdentification {
 }
 
 pub trait ForcedMatchable<Message>: PartialEq + Send {
-    fn correct_msg_type_id(&self) -> TypeId;
+    fn trigger_msg_type_id(&self) -> TypeId;
 }
 
 pub struct PretendedMatchableWrapper<M: 'static + Send>(pub M);
@@ -154,7 +154,7 @@ where
     OuterM: PartialEq,
     InnerM: Send,
 {
-    fn correct_msg_type_id(&self) -> TypeId {
+    fn trigger_msg_type_id(&self) -> TypeId {
         TypeId::of::<InnerM>()
     }
 }
@@ -173,7 +173,13 @@ impl<T: Send> PartialEq for PretendedMatchableWrapper<T> {
 #[macro_export]
 macro_rules! match_lazily_every_type_id{
     ($($single_message: ident),+) => {
-         StopConditions::AllLazily(vec![$(MsgIdentification::ByType(TypeId::of::<$single_message>())),+])
+         StopConditions::AllLazily(vec![
+              $(
+                   crate::test_utils::recorder_stop_conditions::MsgIdentification::ByType(
+                       TypeId::of::<$single_message>()
+                   )
+              ),+
+         ])
     }
 }
 
