@@ -22,6 +22,7 @@ pub enum FailedPayableDaoError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FailureReason {
     PendingTooLong,
+    NonceIssue,
 }
 
 impl FromStr for FailureReason {
@@ -49,11 +50,17 @@ pub struct FailedTx {
     pub checked: u8,
 }
 
-pub enum FailureRetrieveCondition {}
+pub enum FailureRetrieveCondition {
+    ByReason(FailureReason),
+}
 
 impl Display for FailureRetrieveCondition {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        todo!()
+        match self {
+            FailureRetrieveCondition::ByReason(reason) => {
+                write!(f, "WHERE reason IS '{:?}'", reason)
+            }
+        }
     }
 }
 
@@ -297,9 +304,10 @@ mod tests {
     use ethereum_types::{ H256, U64};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::{Connection, OpenFlags};
-    use crate::accountant::db_access_objects::failed_payable_dao::{FailedPayableDao, FailedPayableDaoError, FailedPayableDaoReal};
+    use crate::accountant::db_access_objects::failed_payable_dao::{FailedPayableDao, FailedPayableDaoError, FailedPayableDaoReal, FailureReason, FailureRetrieveCondition};
     use crate::accountant::db_access_objects::failed_payable_dao::FailureReason::PendingTooLong;
-    use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::{ByHash, IsPending};
+    use crate::accountant::db_access_objects::failed_payable_dao::FailureRetrieveCondition::ByReason;
+    use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::{ByHash};
     use crate::accountant::db_access_objects::test_utils::{FailedTxBuilder, TxBuilder};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock};
 
@@ -332,42 +340,39 @@ mod tests {
     #[test]
     fn insert_new_records_throws_err_for_empty_input() {
         let home_dir = ensure_node_home_directory_exists(
-            "sent_payable_dao",
+            "failed_payable_dao",
             "insert_new_records_throws_err_for_empty_input",
         );
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let subject = SentPayableDaoReal::new(wrapped_conn);
+        let subject = FailedPayableDaoReal::new(wrapped_conn);
         let empty_input = vec![];
 
         let result = subject.insert_new_records(&empty_input);
 
-        assert_eq!(result, Err(SentPayableDaoError::EmptyInput));
+        assert_eq!(result, Err(FailedPayableDaoError::EmptyInput));
     }
 
     #[test]
     fn insert_new_records_throws_error_when_two_txs_with_same_hash_are_present_in_the_input() {
         let home_dir = ensure_node_home_directory_exists(
-            "sent_payable_dao",
+            "failed_payable_dao",
             "insert_new_records_throws_error_when_two_txs_with_same_hash_are_present_in_the_input",
         );
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let hash = H256::from_low_u64_be(1234567890);
-        let tx1 = TxBuilder::default().hash(hash).build();
-        let tx2 = TxBuilder::default()
-            .hash(hash)
-            .block(Default::default())
-            .build();
-        let subject = SentPayableDaoReal::new(wrapped_conn);
+        let tx1 = FailedTxBuilder::default().hash(hash).build();
+        let tx2 = FailedTxBuilder::default().hash(hash).checked(1).build();
+        let subject = FailedPayableDaoReal::new(wrapped_conn);
 
         let result = subject.insert_new_records(&vec![tx1, tx2]);
 
         assert_eq!(
             result,
-            Err(SentPayableDaoError::InvalidInput(
+            Err(FailedPayableDaoError::InvalidInput(
                 "Duplicate hashes found in the input".to_string()
             ))
         );
@@ -376,19 +381,16 @@ mod tests {
     #[test]
     fn insert_new_records_throws_error_when_input_tx_hash_is_already_present_in_the_db() {
         let home_dir = ensure_node_home_directory_exists(
-            "sent_payable_dao",
+            "failed_payable_dao",
             "insert_new_records_throws_error_when_input_tx_hash_is_already_present_in_the_db",
         );
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let hash = H256::from_low_u64_be(1234567890);
-        let tx1 = TxBuilder::default().hash(hash).build();
-        let tx2 = TxBuilder::default()
-            .hash(hash)
-            .block(Default::default())
-            .build();
-        let subject = SentPayableDaoReal::new(wrapped_conn);
+        let tx1 = FailedTxBuilder::default().hash(hash).build();
+        let tx2 = FailedTxBuilder::default().hash(hash).checked(1).build();
+        let subject = FailedPayableDaoReal::new(wrapped_conn);
         let initial_insertion_result = subject.insert_new_records(&vec![tx1]);
 
         let result = subject.insert_new_records(&vec![tx2]);
@@ -396,7 +398,7 @@ mod tests {
         assert_eq!(initial_insertion_result, Ok(()));
         assert_eq!(
             result,
-            Err(SentPayableDaoError::InvalidInput(
+            Err(FailedPayableDaoError::InvalidInput(
                 "Input hash is already present in the database".to_string()
             ))
         );
@@ -413,14 +415,14 @@ mod tests {
         let wrapped_conn = ConnectionWrapperMock::default()
             .prepare_result(Ok(get_tx_identifiers_stmt))
             .prepare_result(Ok(faulty_insert_stmt));
-        let tx = TxBuilder::default().build();
-        let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
+        let tx = FailedTxBuilder::default().build();
+        let subject = FailedPayableDaoReal::new(Box::new(wrapped_conn));
 
         let result = subject.insert_new_records(&vec![tx]);
 
         assert_eq!(
             result,
-            Err(SentPayableDaoError::PartialExecution(
+            Err(FailedPayableDaoError::PartialExecution(
                 "Only 0 out of 1 records inserted".to_string()
             ))
         );
@@ -429,7 +431,7 @@ mod tests {
     #[test]
     fn insert_new_records_can_throw_error() {
         let home_dir = ensure_node_home_directory_exists(
-            "sent_payable_dao",
+            "failed_payable_dao",
             "insert_new_records_can_throw_error",
         );
         {
@@ -443,14 +445,14 @@ mod tests {
         )
         .unwrap();
         let wrapped_conn = ConnectionWrapperReal::new(read_only_conn);
-        let tx = TxBuilder::default().build();
-        let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
+        let tx = FailedTxBuilder::default().build();
+        let subject = FailedPayableDaoReal::new(Box::new(wrapped_conn));
 
         let result = subject.insert_new_records(&vec![tx]);
 
         assert_eq!(
             result,
-            Err(SentPayableDaoError::SqlExecutionFailed(
+            Err(FailedPayableDaoError::SqlExecutionFailed(
                 "attempt to write a readonly database".to_string()
             ))
         )
@@ -459,17 +461,19 @@ mod tests {
     #[test]
     fn get_tx_identifiers_works() {
         let home_dir =
-            ensure_node_home_directory_exists("sent_payable_dao", "get_tx_identifiers_works");
+            ensure_node_home_directory_exists("failed_payable_dao", "get_tx_identifiers_works");
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let subject = SentPayableDaoReal::new(wrapped_conn);
+        let subject = FailedPayableDaoReal::new(wrapped_conn);
         let present_hash = H256::from_low_u64_le(1);
         let absent_hash = H256::from_low_u64_le(2);
         let another_present_hash = H256::from_low_u64_le(3);
         let hashset = HashSet::from([present_hash, absent_hash, another_present_hash]);
-        let present_tx = TxBuilder::default().hash(present_hash).build();
-        let another_present_tx = TxBuilder::default().hash(another_present_hash).build();
+        let present_tx = FailedTxBuilder::default().hash(present_hash).build();
+        let another_present_tx = FailedTxBuilder::default()
+            .hash(another_present_hash)
+            .build();
         subject
             .insert_new_records(&vec![present_tx, another_present_tx])
             .unwrap();
@@ -483,35 +487,30 @@ mod tests {
 
     #[test]
     fn retrieve_condition_display_works() {
-        assert_eq!(IsPending.to_string(), "WHERE block_hash IS NULL");
         assert_eq!(
-            ByHash(vec![
-                H256::from_low_u64_be(0x123456789),
-                H256::from_low_u64_be(0x987654321),
-            ])
-            .to_string(),
-            "WHERE tx_hash IN (\
-            '0x0000000000000000000000000000000000000000000000000000000123456789', \
-            '0x0000000000000000000000000000000000000000000000000000000987654321'\
-            )"
-            .to_string()
+            FailureRetrieveCondition::ByReason(PendingTooLong).to_string(),
+            "WHERE reason IS 'PendingTooLong'"
         );
     }
 
     #[test]
     fn can_retrieve_all_txs() {
         let home_dir =
-            ensure_node_home_directory_exists("sent_payable_dao", "can_retrieve_all_txs");
+            ensure_node_home_directory_exists("failed_payable_dao", "can_retrieve_all_txs");
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let subject = SentPayableDaoReal::new(wrapped_conn);
-        let tx1 = TxBuilder::default().hash(H256::from_low_u64_le(1)).build();
-        let tx2 = TxBuilder::default()
-            .hash(H256::from_low_u64_le(2))
-            .block(Default::default())
+        let subject = FailedPayableDaoReal::new(wrapped_conn);
+        let tx1 = FailedTxBuilder::default()
+            .hash(H256::from_low_u64_le(1))
             .build();
-        let tx3 = TxBuilder::default().hash(H256::from_low_u64_le(3)).build();
+        let tx2 = FailedTxBuilder::default()
+            .hash(H256::from_low_u64_le(2))
+            .nonce(1)
+            .build();
+        let tx3 = FailedTxBuilder::default()
+            .hash(H256::from_low_u64_le(3))
+            .build();
         subject
             .insert_new_records(&vec![tx1.clone(), tx2.clone()])
             .unwrap();
@@ -523,81 +522,34 @@ mod tests {
     }
 
     #[test]
-    fn can_retrieve_pending_txs() {
+    fn can_retrieve_pending_too_long_txs() {
         let home_dir =
             ensure_node_home_directory_exists("sent_payable_dao", "can_retrieve_pending_txs");
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let subject = SentPayableDaoReal::new(wrapped_conn);
-        let tx1 = TxBuilder::default().hash(H256::from_low_u64_le(1)).build();
-        let tx2 = TxBuilder::default().hash(H256::from_low_u64_le(2)).build();
-        let tx3 = TxBuilder::default()
+        let subject = FailedPayableDaoReal::new(wrapped_conn);
+        let tx1 = FailedTxBuilder::default()
+            .hash(H256::from_low_u64_le(1))
+            .reason(FailureReason::PendingTooLong)
+            .checked(0)
+            .build();
+        let tx2 = FailedTxBuilder::default()
+            .hash(H256::from_low_u64_le(2))
+            .reason(FailureReason::PendingTooLong)
+            .checked(1)
+            .build();
+        let tx3 = FailedTxBuilder::default()
             .hash(H256::from_low_u64_le(3))
-            .block(Default::default())
+            .reason(FailureReason::NonceIssue)
             .build();
         subject
             .insert_new_records(&vec![tx1.clone(), tx2.clone(), tx3.clone()])
             .unwrap();
 
-        let result = subject.retrieve_txs(Some(RetrieveCondition::IsPending));
+        let result = subject.retrieve_txs(Some(ByReason(PendingTooLong)));
 
         assert_eq!(result, vec![tx1, tx2]);
-    }
-
-    #[test]
-    fn tx_can_be_retrieved_by_hash() {
-        let home_dir =
-            ensure_node_home_directory_exists("sent_payable_dao", "tx_can_be_retrieved_by_hash");
-        let wrapped_conn = DbInitializerReal::default()
-            .initialize(&home_dir, DbInitializationConfig::test_default())
-            .unwrap();
-        let subject = SentPayableDaoReal::new(wrapped_conn);
-        let tx1 = TxBuilder::default().hash(H256::from_low_u64_le(1)).build();
-        let tx2 = TxBuilder::default().hash(H256::from_low_u64_le(2)).build();
-        subject
-            .insert_new_records(&vec![tx1.clone(), tx2.clone()])
-            .unwrap();
-
-        let result = subject.retrieve_txs(Some(ByHash(vec![tx1.hash])));
-
-        assert_eq!(result, vec![tx1]);
-    }
-
-    #[test]
-    #[should_panic(expected = "Invalid block details")]
-    fn retrieve_txs_enforces_complete_block_details() {
-        let home_dir = ensure_node_home_directory_exists(
-            "sent_payable_dao",
-            "retrieve_txs_enforces_complete_block_details",
-        );
-        let wrapped_conn = DbInitializerReal::default()
-            .initialize(&home_dir, DbInitializationConfig::test_default())
-            .unwrap();
-        // Insert a record with block_hash but no block_number
-        {
-            let sql = "INSERT INTO sent_payable (tx_hash, receiver_address, amount_high_b, amount_low_b, timestamp, gas_price_wei_high_b, gas_price_wei_low_b, nonce, block_hash, block_number)
-               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)";
-            let mut stmt = wrapped_conn.prepare(sql).unwrap();
-            stmt.execute(rusqlite::params![
-                "0x1234567890123456789012345678901234567890123456789012345678901234",
-                "0x1234567890123456789012345678901234567890",
-                0,
-                100,
-                1234567890,
-                0,
-                1000000000,
-                1,
-                "0x2345678901234567890123456789012345678901234567890123456789012345",
-                rusqlite::types::Null,
-            ])
-            .unwrap();
-        }
-
-        let subject = SentPayableDaoReal::new(wrapped_conn);
-
-        // This should panic due to invalid block details
-        let _ = subject.retrieve_txs(None);
     }
 
     #[test]
