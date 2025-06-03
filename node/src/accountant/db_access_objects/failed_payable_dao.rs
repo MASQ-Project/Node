@@ -1,10 +1,12 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::db_access_objects::sent_payable_dao::{Hash, TxIdentifiers};
+use crate::accountant::db_access_objects::sent_payable_dao::{TxHash, TxIdentifiers};
+use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
+use crate::accountant::{checked_conversion, comma_joined_stringifiable};
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use masq_lib::utils::ExpectValue;
 use std::collections::{HashMap, HashSet};
-use std::fmt::Display;
+use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use web3::types::Address;
 
@@ -22,11 +24,22 @@ pub enum FailureReason {
     PendingTooLong,
 }
 
-pub type FailureUpdates = HashMap<Hash, FailureReason>;
+impl FromStr for FailureReason {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "PendingTooLong" => Ok(FailureReason::PendingTooLong),
+            _ => todo!(),
+        }
+    }
+}
+
+pub type FailureUpdates = HashMap<TxHash, FailureReason>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FailedTx {
-    pub hash: Hash,
+    pub hash: TxHash,
     pub receiver_address: Address,
     pub amount: u128,
     pub timestamp: i64,
@@ -38,12 +51,18 @@ pub struct FailedTx {
 
 pub enum FailureRetrieveCondition {}
 
+impl Display for FailureRetrieveCondition {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        todo!()
+    }
+}
+
 pub trait FailedPayableDao {
-    fn get_tx_identifiers(&self, hashes: &HashSet<Hash>) -> TxIdentifiers;
+    fn get_tx_identifiers(&self, hashes: &HashSet<TxHash>) -> TxIdentifiers;
     fn insert_new_records(&self, txs: &[FailedTx]) -> Result<(), FailedPayableDaoError>;
     fn retrieve_txs(&self, condition: Option<FailureRetrieveCondition>) -> Vec<FailedTx>;
     fn update_tx_failures(&self, hash_map: &FailureUpdates) -> Result<(), FailedPayableDaoError>;
-    fn delete_records(&self, hashes: &HashSet<Hash>) -> Result<(), FailedPayableDaoError>;
+    fn delete_records(&self, hashes: &HashSet<TxHash>) -> Result<(), FailedPayableDaoError>;
 }
 
 #[derive(Debug)]
@@ -58,169 +77,147 @@ impl<'a> FailedPayableDaoReal<'a> {
 }
 
 impl FailedPayableDao for FailedPayableDaoReal<'_> {
-    fn get_tx_identifiers(&self, hashes: &HashSet<Hash>) -> TxIdentifiers {
-        todo!("fix 1");
+    fn get_tx_identifiers(&self, hashes: &HashSet<TxHash>) -> TxIdentifiers {
+        let hashes_vec: Vec<TxHash> = hashes.iter().copied().collect();
+        let sql = format!(
+            "SELECT tx_hash, rowid FROM failed_payable WHERE tx_hash IN ({})",
+            comma_joined_stringifiable(&hashes_vec, |hash| format!("'{:?}'", hash))
+        );
 
-        // let hashes_vec: Vec<Hash> = hashes.iter().copied().collect();
-        // let sql = format!(
-        //     "SELECT tx_hash, rowid FROM sent_payable WHERE tx_hash IN ({})",
-        //     comma_joined_stringifiable(&hashes_vec, |hash| format!("'{:?}'", hash))
-        // );
-        //
-        // let mut stmt = self
-        //     .conn
-        //     .prepare(&sql)
-        //     .expect("Failed to prepare SQL statement");
-        //
-        // stmt.query_map([], |row| {
-        //     let tx_hash_str: String = row.get(0).expectv("tx_hash");
-        //     let tx_hash = H256::from_str(&tx_hash_str[2..]).expect("Failed to parse H256");
-        //     let row_id: u64 = row.get(1).expectv("rowid");
-        //
-        //     Ok((tx_hash, row_id))
-        // })
-        // .expect("Failed to execute query")
-        // .filter_map(Result::ok)
-        // .collect()
+        let mut stmt = self
+            .conn
+            .prepare(&sql)
+            .unwrap_or_else(|_| panic!("Failed to prepare SQL statement"));
+
+        stmt.query_map([], |row| {
+            let tx_hash_str: String = row.get(0).unwrap_or_default();
+            let tx_hash = TxHash::from_str(&tx_hash_str[2..]).unwrap_or_default();
+            let row_id: u64 = row.get(1).unwrap_or_default();
+
+            Ok((tx_hash, row_id))
+        })
+        .unwrap_or_else(|_| panic!("Failed to execute query"))
+        .filter_map(Result::ok)
+        .collect()
     }
 
     fn insert_new_records(&self, txs: &[FailedTx]) -> Result<(), FailedPayableDaoError> {
-        todo!("fix 2");
+        if txs.is_empty() {
+            return Err(FailedPayableDaoError::EmptyInput);
+        }
 
-        // if txs.is_empty() {
-        //     return Err(FailedPayableDaoError::EmptyInput);
-        // }
-        //
-        // let unique_hashes: HashSet<Hash> = txs.iter().map(|tx| tx.hash).collect();
-        // if unique_hashes.len() != txs.len() {
-        //     return Err(FailedPayableDaoError::InvalidInput(
-        //         "Duplicate hashes found in the input".to_string(),
-        //     ));
-        // }
-        //
-        // if !self.get_tx_identifiers(&unique_hashes).is_empty() {
-        //     return Err(FailedPayableDaoError::InvalidInput(
-        //         "Input hash is already present in the database".to_string(),
-        //     ));
-        // }
-        //
-        // let sql = format!(
-        //     "INSERT INTO sent_payable (\
-        //      tx_hash, \
-        //      receiver_address, \
-        //      amount_high_b, \
-        //      amount_low_b, \
-        //      timestamp, \
-        //      gas_price_wei_high_b, \
-        //      gas_price_wei_low_b, \
-        //      nonce, \
-        //      block_hash, \
-        //      block_number
-        //      ) VALUES {}",
-        //     comma_joined_stringifiable(txs, |tx| {
-        //         let amount_checked = checked_conversion::<u128, i128>(tx.amount);
-        //         let gas_price_wei_checked = checked_conversion::<u128, i128>(tx.gas_price_wei);
-        //         let (amount_high_b, amount_low_b) = BigIntDivider::deconstruct(amount_checked);
-        //         let (gas_price_wei_high_b, gas_price_wei_low_b) =
-        //             BigIntDivider::deconstruct(gas_price_wei_checked);
-        //         let block_details = match &tx.block_opt {
-        //             Some(block) => format!("'{:?}', {}", block.block_hash, block.block_number),
-        //             None => "null, null".to_string(),
-        //         };
-        //         format!(
-        //             "('{:?}', '{:?}', {}, {}, {}, {}, {}, {}, {})",
-        //             tx.hash,
-        //             tx.receiver_address,
-        //             amount_high_b,
-        //             amount_low_b,
-        //             tx.timestamp,
-        //             gas_price_wei_high_b,
-        //             gas_price_wei_low_b,
-        //             tx.nonce,
-        //             block_details
-        //         )
-        //     })
-        // );
-        //
-        // match self.conn.prepare(&sql).expect("Internal error").execute([]) {
-        //     Ok(inserted_rows) => {
-        //         if inserted_rows == txs.len() {
-        //             Ok(())
-        //         } else {
-        //             Err(FailedPayableDaoError::PartialExecution(format!(
-        //                 "Only {} out of {} records inserted",
-        //                 inserted_rows,
-        //                 txs.len()
-        //             )))
-        //         }
-        //     }
-        //     Err(e) => Err(FailedPayableDaoError::SqlExecutionFailed(e.to_string())),
-        // }
+        let unique_hashes: HashSet<TxHash> = txs.iter().map(|tx| tx.hash).collect();
+        if unique_hashes.len() != txs.len() {
+            return Err(FailedPayableDaoError::InvalidInput(
+                "Duplicate hashes found in the input".to_string(),
+            ));
+        }
+
+        if !self.get_tx_identifiers(&unique_hashes).is_empty() {
+            return Err(FailedPayableDaoError::InvalidInput(
+                "Input hash is already present in the database".to_string(),
+            ));
+        }
+
+        let sql = format!(
+            "INSERT INTO failed_payable (\
+             tx_hash, \
+             receiver_address, \
+             amount_high_b, \
+             amount_low_b, \
+             timestamp, \
+             gas_price_wei_high_b, \
+             gas_price_wei_low_b, \
+             nonce, \
+             reason, \
+             checked
+             ) VALUES {}",
+            comma_joined_stringifiable(txs, |tx| {
+                let amount_checked = checked_conversion::<u128, i128>(tx.amount);
+                let gas_price_wei_checked = checked_conversion::<u128, i128>(tx.gas_price_wei);
+                let (amount_high_b, amount_low_b) = BigIntDivider::deconstruct(amount_checked);
+                let (gas_price_wei_high_b, gas_price_wei_low_b) =
+                    BigIntDivider::deconstruct(gas_price_wei_checked);
+                format!(
+                    "('{:?}', '{:?}', {}, {}, {}, {}, {}, {}, '{:?}', {})",
+                    tx.hash,
+                    tx.receiver_address,
+                    amount_high_b,
+                    amount_low_b,
+                    tx.timestamp,
+                    gas_price_wei_high_b,
+                    gas_price_wei_low_b,
+                    tx.nonce,
+                    tx.reason,
+                    tx.checked
+                )
+            })
+        );
+
+        match self.conn.prepare(&sql).expect("Internal error").execute([]) {
+            Ok(inserted_rows) => {
+                if inserted_rows == txs.len() {
+                    Ok(())
+                } else {
+                    Err(FailedPayableDaoError::PartialExecution(format!(
+                        "Only {} out of {} records inserted",
+                        inserted_rows,
+                        txs.len()
+                    )))
+                }
+            }
+            Err(e) => Err(FailedPayableDaoError::SqlExecutionFailed(e.to_string())),
+        }
     }
 
     fn retrieve_txs(&self, condition: Option<FailureRetrieveCondition>) -> Vec<FailedTx> {
-        todo!("fix 3");
+        let raw_sql = "SELECT tx_hash, receiver_address, amount_high_b, amount_low_b, \
+        timestamp, gas_price_wei_high_b, gas_price_wei_low_b, nonce, reason, checked FROM failed_payable"
+            .to_string();
+        let sql = match condition {
+            None => raw_sql,
+            Some(condition) => format!("{} {}", raw_sql, condition),
+        };
 
-        // let raw_sql = "SELECT tx_hash, receiver_address, amount_high_b, amount_low_b, \
-        //     timestamp, gas_price_wei_high_b, gas_price_wei_low_b, nonce, block_hash, block_number FROM sent_payable"
-        //     .to_string();
-        // let sql = match condition_opt {
-        //     None => raw_sql,
-        //     Some(condition) => format!("{} {}", raw_sql, condition),
-        // };
-        //
-        // let mut stmt = self
-        //     .conn
-        //     .prepare(&sql)
-        //     .expect("Failed to prepare SQL statement");
-        //
-        // stmt.query_map([], |row| {
-        //     let tx_hash_str: String = row.get(0).expectv("tx_hash");
-        //     let hash = H256::from_str(&tx_hash_str[2..]).expect("Failed to parse H256");
-        //     let receiver_address_str: String = row.get(1).expectv("receivable_address");
-        //     let receiver_address =
-        //         Address::from_str(&receiver_address_str[2..]).expect("Failed to parse H160");
-        //     let amount_high_b = row.get(2).expectv("amount_high_b");
-        //     let amount_low_b = row.get(3).expectv("amount_low_b");
-        //     let amount = BigIntDivider::reconstitute(amount_high_b, amount_low_b) as u128;
-        //     let timestamp = row.get(4).expectv("timestamp");
-        //     let gas_price_wei_high_b = row.get(5).expectv("gas_price_wei_high_b");
-        //     let gas_price_wei_low_b = row.get(6).expectv("gas_price_wei_low_b");
-        //     let gas_price_wei =
-        //         BigIntDivider::reconstitute(gas_price_wei_high_b, gas_price_wei_low_b) as u128;
-        //     let nonce = row.get(7).expectv("nonce");
-        //     let block_hash_opt: Option<H256> = {
-        //         let block_hash_str_opt: Option<String> = row.get(8).expectv("block_hash");
-        //         block_hash_str_opt
-        //             .map(|string| H256::from_str(&string[2..]).expect("Failed to parse H256"))
-        //     };
-        //     let block_number_opt: Option<u64> = {
-        //         let block_number_i64_opt: Option<i64> = row.get(9).expectv("block_number");
-        //         block_number_i64_opt.map(|v| u64::try_from(v).expect("Failed to parse u64"))
-        //     };
-        //
-        //     let block_opt = match (block_hash_opt, block_number_opt) {
-        //         (Some(block_hash), Some(block_number)) => Some(TransactionBlock {
-        //             block_hash,
-        //             block_number: U64::from(block_number),
-        //         }),
-        //         (None, None) => None,
-        //         _ => panic!("Invalid block details"),
-        //     };
-        //
-        //     Ok(Tx {
-        //         hash,
-        //         receiver_address,
-        //         amount,
-        //         timestamp,
-        //         gas_price_wei,
-        //         nonce,
-        //         block_opt,
-        //     })
-        // })
-        // .expect("Failed to execute query")
-        // .filter_map(Result::ok)
-        // .collect()
+        let mut stmt = self
+            .conn
+            .prepare(&sql)
+            .expect("Failed to prepare SQL statement");
+
+        stmt.query_map([], |row| {
+            let tx_hash_str: String = row.get(0).expectv("tx_hash");
+            let hash = TxHash::from_str(&tx_hash_str[2..]).expect("Failed to parse TxHash");
+            let receiver_address_str: String = row.get(1).expectv("receiver_address");
+            let receiver_address =
+                Address::from_str(&receiver_address_str[2..]).expect("Failed to parse Address");
+            let amount_high_b = row.get(2).expectv("amount_high_b");
+            let amount_low_b = row.get(3).expectv("amount_low_b");
+            let amount = BigIntDivider::reconstitute(amount_high_b, amount_low_b) as u128;
+            let timestamp = row.get(4).expectv("timestamp");
+            let gas_price_wei_high_b = row.get(5).expectv("gas_price_wei_high_b");
+            let gas_price_wei_low_b = row.get(6).expectv("gas_price_wei_low_b");
+            let gas_price_wei =
+                BigIntDivider::reconstitute(gas_price_wei_high_b, gas_price_wei_low_b) as u128;
+            let nonce = row.get(7).expectv("nonce");
+            let reason_str: String = row.get(8).expectv("reason");
+            let reason =
+                FailureReason::from_str(&reason_str).expect("Failed to parse FailureReason");
+            let checked: u8 = row.get(9).expectv("checked");
+
+            Ok(FailedTx {
+                hash,
+                receiver_address,
+                amount,
+                timestamp,
+                gas_price_wei,
+                nonce,
+                reason,
+                checked,
+            })
+        })
+        .expect("Failed to execute query")
+        .filter_map(Result::ok)
+        .collect()
     }
 
     fn update_tx_failures(&self, hash_map: &FailureUpdates) -> Result<(), FailedPayableDaoError> {
@@ -256,7 +253,7 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
         // Ok(())
     }
 
-    fn delete_records(&self, hashes: &HashSet<Hash>) -> Result<(), FailedPayableDaoError> {
+    fn delete_records(&self, hashes: &HashSet<TxHash>) -> Result<(), FailedPayableDaoError> {
         todo!("fix 5");
 
         // if hashes.is_empty() {
@@ -300,23 +297,28 @@ mod tests {
     use ethereum_types::{ H256, U64};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::{Connection, OpenFlags};
+    use crate::accountant::db_access_objects::failed_payable_dao::{FailedPayableDao, FailedPayableDaoError, FailedPayableDaoReal};
+    use crate::accountant::db_access_objects::failed_payable_dao::FailureReason::PendingTooLong;
     use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::{ByHash, IsPending};
-    use crate::accountant::db_access_objects::test_utils::TxBuilder;
+    use crate::accountant::db_access_objects::test_utils::{FailedTxBuilder, TxBuilder};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock};
 
     #[test]
     fn insert_new_records_works() {
         let home_dir =
-            ensure_node_home_directory_exists("sent_payable_dao", "insert_new_records_works");
+            ensure_node_home_directory_exists("failed_payable_dao", "insert_new_records_works");
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let tx1 = TxBuilder::default().hash(H256::from_low_u64_le(1)).build();
-        let tx2 = TxBuilder::default()
-            .hash(H256::from_low_u64_le(2))
-            .block(Default::default())
+        let tx1 = FailedTxBuilder::default()
+            .hash(H256::from_low_u64_le(1))
             .build();
-        let subject = SentPayableDaoReal::new(wrapped_conn);
+        let tx2 = FailedTxBuilder::default()
+            .hash(H256::from_low_u64_le(2))
+            .reason(PendingTooLong)
+            .checked(1)
+            .build();
+        let subject = FailedPayableDaoReal::new(wrapped_conn);
         let txs = vec![tx1, tx2];
 
         let result = subject.insert_new_records(&txs);

@@ -1,7 +1,7 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 #![cfg(test)]
 
-use crate::accountant::db_access_objects::sent_payable_dao::{Hash, Tx};
+use crate::accountant::db_access_objects::sent_payable_dao::{TxHash, Tx};
 use crate::accountant::db_access_objects::utils::current_unix_timestamp;
 use web3::types::{Address, H256};
 use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureReason};
@@ -9,7 +9,7 @@ use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_le
 
 #[derive(Default)]
 pub struct TxBuilder {
-    hash_opt: Option<Hash>,
+    hash_opt: Option<TxHash>,
     receiver_address_opt: Option<Address>,
     amount_opt: Option<u128>,
     timestamp_opt: Option<i64>,
@@ -23,7 +23,7 @@ impl TxBuilder {
         Default::default()
     }
 
-    pub fn hash(mut self, hash: Hash) -> Self {
+    pub fn hash(mut self, hash: TxHash) -> Self {
         self.hash_opt = Some(hash);
         self
     }
@@ -48,7 +48,7 @@ impl TxBuilder {
 
 #[derive(Default)]
 pub struct FailedTxBuilder {
-    hash_opt: Option<Hash>,
+    hash_opt: Option<TxHash>,
     receiver_address_opt: Option<Address>,
     amount_opt: Option<u128>,
     timestamp_opt: Option<i64>,
@@ -63,7 +63,7 @@ impl FailedTxBuilder {
         Self::default()
     }
 
-    pub fn hash(mut self, hash: Hash) -> Self {
+    pub fn hash(mut self, hash: TxHash) -> Self {
         self.hash_opt = Some(hash);
         self
     }

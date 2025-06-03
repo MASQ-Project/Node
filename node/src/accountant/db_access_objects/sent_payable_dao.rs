@@ -20,15 +20,15 @@ pub enum SentPayableDaoError {
     SqlExecutionFailed(String),
 }
 
-pub type Hash = H256;
+pub type TxHash = H256;
 pub type RowId = u64;
 
-pub type TxIdentifiers = HashMap<Hash, RowId>;
-pub type TxUpdates = HashMap<Hash, TransactionBlock>;
+pub type TxIdentifiers = HashMap<TxHash, RowId>;
+pub type TxUpdates = HashMap<TxHash, TransactionBlock>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Tx {
-    pub hash: Hash,
+    pub hash: TxHash,
     pub receiver_address: Address,
     pub amount: u128,
     pub timestamp: i64,
@@ -39,7 +39,7 @@ pub struct Tx {
 
 pub enum RetrieveCondition {
     IsPending,
-    ByHash(Vec<Hash>),
+    ByHash(Vec<TxHash>),
 }
 
 impl Display for RetrieveCondition {
@@ -60,11 +60,11 @@ impl Display for RetrieveCondition {
 }
 
 pub trait SentPayableDao {
-    fn get_tx_identifiers(&self, hashes: &HashSet<Hash>) -> TxIdentifiers;
+    fn get_tx_identifiers(&self, hashes: &HashSet<TxHash>) -> TxIdentifiers;
     fn insert_new_records(&self, txs: &[Tx]) -> Result<(), SentPayableDaoError>;
     fn retrieve_txs(&self, condition: Option<RetrieveCondition>) -> Vec<Tx>;
     fn update_tx_blocks(&self, hash_map: &TxUpdates) -> Result<(), SentPayableDaoError>;
-    fn delete_records(&self, hashes: &HashSet<Hash>) -> Result<(), SentPayableDaoError>;
+    fn delete_records(&self, hashes: &HashSet<TxHash>) -> Result<(), SentPayableDaoError>;
 }
 
 #[derive(Debug)]
@@ -79,8 +79,8 @@ impl<'a> SentPayableDaoReal<'a> {
 }
 
 impl SentPayableDao for SentPayableDaoReal<'_> {
-    fn get_tx_identifiers(&self, hashes: &HashSet<Hash>) -> TxIdentifiers {
-        let hashes_vec: Vec<Hash> = hashes.iter().copied().collect();
+    fn get_tx_identifiers(&self, hashes: &HashSet<TxHash>) -> TxIdentifiers {
+        let hashes_vec: Vec<TxHash> = hashes.iter().copied().collect();
         let sql = format!(
             "SELECT tx_hash, rowid FROM sent_payable WHERE tx_hash IN ({})",
             comma_joined_stringifiable(&hashes_vec, |hash| format!("'{:?}'", hash))
@@ -108,7 +108,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
             return Err(SentPayableDaoError::EmptyInput);
         }
 
-        let unique_hashes: HashSet<Hash> = txs.iter().map(|tx| tx.hash).collect();
+        let unique_hashes: HashSet<TxHash> = txs.iter().map(|tx| tx.hash).collect();
         if unique_hashes.len() != txs.len() {
             return Err(SentPayableDaoError::InvalidInput(
                 "Duplicate hashes found in the input".to_string(),
@@ -269,12 +269,12 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
         Ok(())
     }
 
-    fn delete_records(&self, hashes: &HashSet<Hash>) -> Result<(), SentPayableDaoError> {
+    fn delete_records(&self, hashes: &HashSet<TxHash>) -> Result<(), SentPayableDaoError> {
         if hashes.is_empty() {
             return Err(SentPayableDaoError::EmptyInput);
         }
 
-        let hashes_vec: Vec<Hash> = hashes.iter().cloned().collect();
+        let hashes_vec: Vec<TxHash> = hashes.iter().cloned().collect();
         let sql = format!(
             "DELETE FROM sent_payable WHERE tx_hash IN ({})",
             comma_joined_stringifiable(&hashes_vec, |hash| { format!("'{:?}'", hash) })
