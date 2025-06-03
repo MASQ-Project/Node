@@ -129,7 +129,6 @@ impl Scanners {
                 MTError::AutomaticScanConflict,
             ));
         }
-
         if let Some(started_at) = self.payable.scan_started_at() {
             return Err(StartScanError::ScanAlreadyRunning {
                 pertinent_scanner: ScanType::Payables,
@@ -192,12 +191,12 @@ impl Scanners {
             self.payable.scan_started_at(),
         ) {
             (Some(pp_timestamp), Some(p_timestamp)) =>
-            // If you're wondering, then yes, this condition should be the sacre truth between
+            // If you're wondering, then yes, this condition should be the sacred truth between
             // PendingPayableScanner and NewPayableScanner.
             {
                 unreachable!(
-                    "Both payable scanners should never be allowed to run in parallel. Scan for \
-                    pending payables started at: {}, scan for payables started at: {}",
+                    "Any payable-related scanners should never be allowed to run in parallel. \
+                    Scan for pending payables started at: {}, scan for payables started at: {}",
                     StartScanError::timestamp_as_string(pp_timestamp),
                     StartScanError::timestamp_as_string(p_timestamp)
                 )
@@ -229,7 +228,6 @@ impl Scanners {
         automatic_scans_enabled: bool,
     ) -> Result<RetrieveTransactions, StartScanError> {
         let triggered_manually = response_skeleton_opt.is_some();
-
         if triggered_manually && automatic_scans_enabled {
             return Err(StartScanError::ManualTriggerError(
                 MTError::AutomaticScanConflict,
@@ -241,6 +239,7 @@ impl Scanners {
                 started_at,
             });
         }
+
         self.receivable
             .start_scan(wallet, timestamp, response_skeleton_opt, logger)
     }
@@ -308,6 +307,10 @@ impl Scanners {
         self.initial_pending_payable_scan = false
     }
 
+    // This is a helper function reducing a boilerplate of complex trait resolving where
+    // the compiler requires to specify which trigger message distinguish the scan to run.
+    // The payable scanner offers two modes through doubled implementations of StartableScanner
+    // which uses the trigger message type as the only distinction between them.
     fn start_correct_payable_scanner<'a, TriggerMessage>(
         scanner: &'a mut (dyn MultistageDualPayableScanner + 'a),
         wallet: &Wallet,
@@ -332,25 +335,28 @@ impl Scanners {
         automatic_scans_enabled: bool,
     ) -> Result<(), StartScanError> {
         if triggered_manually && automatic_scans_enabled {
-            Err(StartScanError::ManualTriggerError(
+            return Err(StartScanError::ManualTriggerError(
                 MTError::AutomaticScanConflict,
-            ))
-        } else if self.initial_pending_payable_scan {
-            Ok(())
-        } else if triggered_manually && !self.aware_of_unresolved_pending_payable {
-            Err(StartScanError::ManualTriggerError(
+            ));
+        }
+        if self.initial_pending_payable_scan {
+            return Ok(());
+        }
+        if triggered_manually && !self.aware_of_unresolved_pending_payable {
+            return Err(StartScanError::ManualTriggerError(
                 MTError::UnnecessaryRequest {
                     hint_opt: Some("Run the Payable scanner first.".to_string()),
                 },
-            ))
-        } else if !self.aware_of_unresolved_pending_payable {
+            ));
+        }
+        if !self.aware_of_unresolved_pending_payable {
             unreachable!(
                 "Automatic pending payable scan should never start if there are no pending \
                 payables to process."
             )
-        } else {
-            Ok(())
         }
+
+        Ok(())
     }
 }
 
@@ -509,7 +515,7 @@ impl StartableScanner<ScanForRetryPayables, QualifiedPayablesMessage> for Payabl
         _response_skeleton_opt: Option<ResponseSkeleton>,
         _logger: &Logger,
     ) -> Result<QualifiedPayablesMessage, StartScanError> {
-        todo!()
+        todo!("Complete me under GH-605")
     }
 }
 
@@ -893,21 +899,14 @@ impl Scanner<ReportTransactionReceipts, PendingPayableScanResult> for PendingPay
         message: ReportTransactionReceipts,
         logger: &Logger,
     ) -> PendingPayableScanResult {
-        let construct_msg_scan_ended_to_ui = move || {
-            message
-                .response_skeleton_opt
-                .map(|response_skeleton| NodeToUiMessage {
-                    target: MessageTarget::ClientId(response_skeleton.client_id),
-                    body: UiScanResponse {}.tmb(response_skeleton.context_id),
-                })
-        };
+        let response_skeleton_opt = message.response_skeleton_opt;
 
         let requires_payment_retry = match message.fingerprints_with_receipts.is_empty() {
             true => {
-                debug!(logger, "No transaction receipts found.");
+                warning!(logger, "No transaction receipts found.");
                 todo!(
-                    "requires payment retry...it must be processed across the new methods on \
-                the SentPaybleDAO"
+                    "This requires the payment retry. It must be processed by using some of the new \
+                    methods on the SentPaybleDAO. After GH-631 is done."
                 );
             }
             false => {
@@ -929,7 +928,11 @@ impl Scanner<ReportTransactionReceipts, PendingPayableScanResult> for PendingPay
         if requires_payment_retry {
             PendingPayableScanResult::PaymentRetryRequired
         } else {
-            PendingPayableScanResult::NoPendingPayablesLeft(construct_msg_scan_ended_to_ui())
+            let ui_msg_opt = response_skeleton_opt.map(|response_skeleton| NodeToUiMessage {
+                target: MessageTarget::ClientId(response_skeleton.client_id),
+                body: UiScanResponse {}.tmb(response_skeleton.context_id),
+            });
+            PendingPayableScanResult::NoPendingPayablesLeft(ui_msg_opt)
         }
     }
 
@@ -1675,7 +1678,7 @@ mod tests {
     use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_none_status, handle_status_with_failure, PendingPayableScanReport, PendingPayableScanResult};
     use crate::accountant::scanners::{Scanner, StartScanError, StartableScanner, PayableScanner, PendingPayableScanner, ReceivableScanner, ScannerCommon, Scanners, MTError};
     use crate::accountant::test_utils::{make_custom_payment_thresholds, make_payable_account, make_qualified_and_unqualified_payables, make_pending_payable_fingerprint, make_receivable_account, BannedDaoFactoryMock, BannedDaoMock, ConfigDaoFactoryMock, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder, PayableThresholdsGaugeMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock, PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock, ReceivableScannerBuilder};
-    use crate::accountant::{gwei_to_wei, PendingPayableId, ReceivedPayments, ReportTransactionReceipts, RequestTransactionReceipts, ScanError, ScanForNewPayables, ScanForRetryPayables, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC};
+    use crate::accountant::{gwei_to_wei, PendingPayableId, ReceivedPayments, ReportTransactionReceipts, RequestTransactionReceipts, ScanError, ScanForRetryPayables, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC};
     use crate::blockchain::blockchain_bridge::{BlockMarker, PendingPayableFingerprint, RetrieveTransactions};
     use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
     use crate::blockchain::blockchain_interface::data_structures::{
@@ -1760,6 +1763,10 @@ mod tests {
                     Self::simple_scanner_timestamp_treatment(&mut *self.receivable, value)
                 }
             }
+        }
+
+        pub fn aware_of_unresolved_pending_payables(&self) -> bool {
+            self.aware_of_unresolved_pending_payable
         }
 
         pub fn set_aware_of_unresolved_pending_payables(&mut self, value: bool) {
@@ -1981,19 +1988,22 @@ mod tests {
             make_qualified_and_unqualified_payables(now, &PaymentThresholds::default());
         let payable_dao =
             PayableDaoMock::new().non_pending_payables_result(unqualified_payable_accounts);
-        let mut subject = PayableScannerBuilder::new()
-            .payable_dao(payable_dao)
-            .build();
-
-        let result = Scanners::start_correct_payable_scanner::<ScanForNewPayables>(
-            &mut subject,
-            &consuming_wallet,
-            now,
-            None,
-            &Logger::new("test"),
+        let mut subject = make_dull_subject();
+        subject.payable = Box::new(
+            PayableScannerBuilder::new()
+                .payable_dao(payable_dao)
+                .build(),
         );
 
-        let is_scan_running = subject.scan_started_at().is_some();
+        let result = subject.start_new_payable_scan_guarded(
+            &consuming_wallet,
+            SystemTime::now(),
+            None,
+            &Logger::new("test"),
+            true,
+        );
+
+        let is_scan_running = subject.scan_started_at(ScanType::Payables).is_some();
         assert_eq!(is_scan_running, false);
         assert_eq!(result, Err(StartScanError::NothingToProcess));
     }
@@ -3211,8 +3221,9 @@ mod tests {
         .unwrap_err();
 
         let panic_msg = caught_panic.downcast_ref::<String>().unwrap();
-        let expected_msg_fragment_1 = "internal error: entered unreachable code: Both payable \
-        scanners should never be allowed to run in parallel. Scan for pending payables started at: ";
+        let expected_msg_fragment_1 = "internal error: entered unreachable code: Any payable-\
+        related scanners should never be allowed to run in parallel. Scan for pending payables \
+        started at: ";
         assert!(
             panic_msg.contains(expected_msg_fragment_1),
             "This fragment '{}' wasn't found in \
@@ -3909,7 +3920,7 @@ mod tests {
         assert_eq!(is_scan_running, false);
         let tlh = TestLogHandler::new();
         tlh.exists_log_containing(&format!(
-            "ERROR: {test_name}: No transaction receipts found."
+            "WARN: {test_name}: No transaction receipts found."
         ));
         tlh.exists_log_matching(&format!(
             "INFO: {test_name}: The PendingPayables scan ended in \\d+ms."
@@ -4513,13 +4524,14 @@ mod tests {
     fn log_error_works_fine_for_automatic_scanning() {
         init_test_logging();
         let test_name = "log_error_works_fine_for_automatic_scanning";
+        let now = SystemTime::now();
         let input = vec![
             (
                 StartScanError::ScanAlreadyRunning {
                     pertinent_scanner: ScanType::Payables,
-                    started_at: SystemTime::now()
+                    started_at: now
                 },
-                format!("DEBUG: {test_name}: Payables scan was already initiated at" /*TODO suboptimal */)
+                format!("DEBUG: {test_name}: Payables scan was already initiated at {}", StartScanError::timestamp_as_string(now))
             ),
             (
                 StartScanError::ManualTriggerError(MTError::AutomaticScanConflict),

@@ -50,18 +50,18 @@ pub enum SchedulingAfterHaltedScan {
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
-pub enum HintableScanner {
+pub enum PayableSequenceScanner {
     NewPayables,
     RetryPayables,
     PendingPayables { initial_pending_payable_scan: bool },
 }
 
-impl From<HintableScanner> for ScanType {
-    fn from(hintable_scanner: HintableScanner) -> Self {
-        match hintable_scanner {
-            HintableScanner::NewPayables => ScanType::Payables,
-            HintableScanner::RetryPayables => ScanType::Payables,
-            HintableScanner::PendingPayables { .. } => ScanType::PendingPayables,
+impl From<PayableSequenceScanner> for ScanType {
+    fn from(scanner: PayableSequenceScanner) -> Self {
+        match scanner {
+            PayableSequenceScanner::NewPayables => ScanType::Payables,
+            PayableSequenceScanner::RetryPayables => ScanType::Payables,
+            PayableSequenceScanner::PendingPayables { .. } => ScanType::PendingPayables,
         }
     }
 }
@@ -70,32 +70,32 @@ pub struct PayableScanScheduler {
     pub new_payable_notify_later: Box<dyn NotifyLaterHandle<ScanForNewPayables, Accountant>>,
     pub dyn_interval_computer: Box<dyn NewPayableScanDynIntervalComputer>,
     pub inner: Arc<Mutex<PayableScanSchedulerInner>>,
-    pub nominal_interval: Duration,
+    pub new_payable_interval: Duration,
     pub new_payable_notify: Box<dyn NotifyHandle<ScanForNewPayables, Accountant>>,
     pub retry_payable_notify: Box<dyn NotifyHandle<ScanForRetryPayables, Accountant>>,
 }
 
 impl PayableScanScheduler {
-    fn new(nominal_interval: Duration) -> Self {
+    fn new(new_payable_interval: Duration) -> Self {
         Self {
             new_payable_notify_later: Box::new(NotifyLaterHandleReal::default()),
             dyn_interval_computer: Box::new(NewPayableScanDynIntervalComputerReal::default()),
             inner: Arc::new(Mutex::new(PayableScanSchedulerInner::default())),
-            nominal_interval,
+            new_payable_interval,
             new_payable_notify: Box::new(NotifyHandleReal::default()),
             retry_payable_notify: Box::new(NotifyHandleReal::default()),
         }
     }
 
-    pub fn schedule_for_new_payable(&self, ctx: &mut Context<Accountant>, logger: &Logger) {
+    pub fn schedule_new_payable_scan(&self, ctx: &mut Context<Accountant>, logger: &Logger) {
         let inner = self.inner.lock().expect("couldn't acquire inner");
-        let last_new_payable_timestamp = inner.last_new_payable_scan_timestamp;
-        let nominal_interval = self.nominal_interval;
+        let last_new_payable_scan_timestamp = inner.last_new_payable_scan_timestamp;
+        let new_payable_interval = self.new_payable_interval;
         let now = SystemTime::now();
         if let Some(interval) = self.dyn_interval_computer.compute_interval(
             now,
-            last_new_payable_timestamp,
-            nominal_interval,
+            last_new_payable_scan_timestamp,
+            new_payable_interval,
         ) {
             debug!(
                 logger,
@@ -125,7 +125,7 @@ impl PayableScanScheduler {
     // Can be triggered by a command, whereas the finished pending payable scanner is followed up
     // by this scheduled message that can bear the response skeleton. This message is inserted into
     // the Accountant's mailbox with no delay
-    pub fn schedule_for_retry_payable(
+    pub fn schedule_retry_payable_scan(
         &self,
         ctx: &mut Context<Accountant>,
         response_skeleton_opt: Option<ResponseSkeleton>,
@@ -230,7 +230,7 @@ where
 pub trait RescheduleScanOnErrorResolver {
     fn resolve_rescheduling_for_given_error(
         &self,
-        hintable_scanner: HintableScanner,
+        scanner: PayableSequenceScanner,
         error: &StartScanError,
         is_externally_triggered: bool,
     ) -> SchedulingAfterHaltedScan;
@@ -242,18 +242,18 @@ pub struct RescheduleScanOnErrorResolverReal {}
 impl RescheduleScanOnErrorResolver for RescheduleScanOnErrorResolverReal {
     fn resolve_rescheduling_for_given_error(
         &self,
-        hintable_scanner: HintableScanner,
+        scanner: PayableSequenceScanner,
         error: &StartScanError,
         is_externally_triggered: bool,
     ) -> SchedulingAfterHaltedScan {
-        match hintable_scanner {
-            HintableScanner::NewPayables => {
+        match scanner {
+            PayableSequenceScanner::NewPayables => {
                 Self::resolve_new_payables(error, is_externally_triggered)
             }
-            HintableScanner::RetryPayables => {
+            PayableSequenceScanner::RetryPayables => {
                 Self::resolve_retry_payables(error, is_externally_triggered)
             }
-            HintableScanner::PendingPayables {
+            PayableSequenceScanner::PendingPayables {
                 initial_pending_payable_scan,
             } => Self::resolve_pending_payables(
                 error,
@@ -328,8 +328,8 @@ impl RescheduleScanOnErrorResolverReal {
 #[cfg(test)]
 mod tests {
     use crate::accountant::scanners::scan_schedulers::{
-        HintableScanner, NewPayableScanDynIntervalComputer, NewPayableScanDynIntervalComputerReal,
-        ScanSchedulers, SchedulingAfterHaltedScan,
+        NewPayableScanDynIntervalComputer, NewPayableScanDynIntervalComputerReal,
+        PayableSequenceScanner, ScanSchedulers, SchedulingAfterHaltedScan,
     };
     use crate::accountant::scanners::{MTError, StartScanError};
     use crate::sub_lib::accountant::ScanIntervals;
@@ -351,7 +351,7 @@ mod tests {
         let schedulers = ScanSchedulers::new(scan_intervals, automatic_scans_enabled);
 
         assert_eq!(
-            schedulers.payable.nominal_interval,
+            schedulers.payable.new_payable_interval,
             scan_intervals.payable_scan_interval
         );
         let payable_scheduler_inner = schedulers.payable.inner.lock().unwrap();
@@ -367,7 +367,7 @@ mod tests {
             schedulers.receivable.interval,
             scan_intervals.receivable_scan_interval
         );
-        assert_eq!(schedulers.automatic_scans_enabled, true)
+        assert_eq!(schedulers.automatic_scans_enabled, automatic_scans_enabled)
     }
 
     #[test]
@@ -492,22 +492,22 @@ mod tests {
             let mut check_vec = candidates
                 .iter()
                 .fold(vec![],|mut acc, current|{
-                    acc.push(AllStartScanErrorsAdjustable::number_variant(current));
+                    acc.push(ListOfStartScanErrors::number_variant(current));
                     acc
             });
             // Making sure we didn't count in one variant multiple times
             check_vec.dedup();
-            assert_eq!(check_vec.len(), StartScanError::VARIANT_COUNT, "Check on variant \
+            assert_eq!(check_vec.len(), StartScanError::VARIANT_COUNT, "The check on variant \
             exhaustiveness failed.");
             candidates
         };
     }
 
-    struct AllStartScanErrorsAdjustable<'a> {
+    struct ListOfStartScanErrors<'a> {
         errors: Vec<&'a StartScanError>,
     }
 
-    impl<'a> Default for AllStartScanErrorsAdjustable<'a> {
+    impl<'a> Default for ListOfStartScanErrors<'a> {
         fn default() -> Self {
             Self {
                 errors: ALL_START_SCAN_ERRORS.iter().collect_vec(),
@@ -515,31 +515,17 @@ mod tests {
         }
     }
 
-    impl<'a> AllStartScanErrorsAdjustable<'a> {
+    impl<'a> ListOfStartScanErrors<'a> {
         fn eliminate_already_tested_variants(
             mut self,
             errors_to_eliminate: Vec<StartScanError>,
         ) -> Self {
-            let original_errors_tuples = self
-                .errors
-                .iter()
-                .map(|err| (Self::number_variant(*err), err))
-                .collect_vec();
-            let errors_to_eliminate_num_rep = errors_to_eliminate
+            let error_variants_to_remove: Vec<_> = errors_to_eliminate
                 .iter()
                 .map(Self::number_variant)
-                .collect_vec();
-            let adjusted = errors_to_eliminate_num_rep
-                .into_iter()
-                .fold(original_errors_tuples, |acc, current| {
-                    acc.into_iter()
-                        .filter(|(num, _)| num != &current)
-                        .collect_vec()
-                })
-                .into_iter()
-                .map(|(_, err)| *err)
-                .collect_vec();
-            self.errors = adjusted;
+                .collect();
+            self.errors
+                .retain(|err| !error_variants_to_remove.contains(&Self::number_variant(*err)));
             self
         }
 
@@ -560,13 +546,13 @@ mod tests {
 
         test_what_if_externally_triggered(
             &subject,
-            HintableScanner::PendingPayables {
+            PayableSequenceScanner::PendingPayables {
                 initial_pending_payable_scan: false,
             },
         );
         test_what_if_externally_triggered(
             &subject,
-            HintableScanner::PendingPayables {
+            PayableSequenceScanner::PendingPayables {
                 initial_pending_payable_scan: true,
             },
         );
@@ -574,7 +560,7 @@ mod tests {
 
     fn test_what_if_externally_triggered(
         subject: &ScanSchedulers,
-        hintable_scanner: HintableScanner,
+        scanner: PayableSequenceScanner,
     ) {
         ALL_START_SCAN_ERRORS
             .iter()
@@ -582,7 +568,7 @@ mod tests {
             .for_each(|(idx, error)| {
                 let result = subject
                     .reschedule_on_error_resolver
-                    .resolve_rescheduling_for_given_error(hintable_scanner, error, true);
+                    .resolve_rescheduling_for_given_error(scanner, error, true);
 
                 assert_eq!(
                     result,
@@ -590,7 +576,7 @@ mod tests {
                     "We expected DoNotSchedule but got {:?} at idx {} for {:?}",
                     result,
                     idx,
-                    hintable_scanner
+                    scanner
                 );
             })
     }
@@ -603,7 +589,7 @@ mod tests {
         let result = subject
             .reschedule_on_error_resolver
             .resolve_rescheduling_for_given_error(
-                HintableScanner::PendingPayables {
+                PayableSequenceScanner::PendingPayables {
                     initial_pending_payable_scan: true,
                 },
                 &StartScanError::NothingToProcess,
@@ -631,7 +617,7 @@ mod tests {
         let _ = subject
             .reschedule_on_error_resolver
             .resolve_rescheduling_for_given_error(
-                HintableScanner::PendingPayables {
+                PayableSequenceScanner::PendingPayables {
                     initial_pending_payable_scan: false,
                 },
                 &StartScanError::NothingToProcess,
@@ -643,12 +629,12 @@ mod tests {
     fn resolve_error_for_pending_payables_if_no_consuming_wallet_found() {
         fn test_no_consuming_wallet_found(
             subject: &ScanSchedulers,
-            hintable_scanner: HintableScanner,
+            scanner: PayableSequenceScanner,
         ) {
             let result = subject
                 .reschedule_on_error_resolver
                 .resolve_rescheduling_for_given_error(
-                    hintable_scanner,
+                    scanner,
                     &StartScanError::NoConsumingWalletFound,
                     false,
                 );
@@ -658,7 +644,7 @@ mod tests {
                 SchedulingAfterHaltedScan::Schedule(ScanType::Payables),
                 "We expected Schedule(Payables) but got {:?} for {:?}",
                 result,
-                hintable_scanner
+                scanner
             );
         }
 
@@ -666,13 +652,13 @@ mod tests {
 
         test_no_consuming_wallet_found(
             &subject,
-            HintableScanner::PendingPayables {
+            PayableSequenceScanner::PendingPayables {
                 initial_pending_payable_scan: false,
             },
         );
         test_no_consuming_wallet_found(
             &subject,
-            HintableScanner::PendingPayables {
+            PayableSequenceScanner::PendingPayables {
                 initial_pending_payable_scan: true,
             },
         );
@@ -682,7 +668,7 @@ mod tests {
     fn resolve_error_for_pending_payables_forbidden_states() {
         fn test_forbidden_states(
             subject: &ScanSchedulers,
-            inputs: &AllStartScanErrorsAdjustable,
+            inputs: &ListOfStartScanErrors,
             initial_pending_payable_scan: bool,
         ) {
             inputs.errors.iter().for_each(|error| {
@@ -690,7 +676,7 @@ mod tests {
                     subject
                         .reschedule_on_error_resolver
                         .resolve_rescheduling_for_given_error(
-                            HintableScanner::PendingPayables {
+                            PayableSequenceScanner::PendingPayables {
                                 initial_pending_payable_scan,
                             },
                             *error,
@@ -713,11 +699,10 @@ mod tests {
             })
         }
 
-        let inputs =
-            AllStartScanErrorsAdjustable::default().eliminate_already_tested_variants(vec![
-                StartScanError::NothingToProcess,
-                StartScanError::NoConsumingWalletFound,
-            ]);
+        let inputs = ListOfStartScanErrors::default().eliminate_already_tested_variants(vec![
+            StartScanError::NothingToProcess,
+            StartScanError::NoConsumingWalletFound,
+        ]);
         let subject = ScanSchedulers::new(ScanIntervals::default(), true);
 
         test_forbidden_states(&subject, &inputs, false);
@@ -728,7 +713,7 @@ mod tests {
     fn resolve_rescheduling_for_given_error_works_for_retry_payables_if_externally_triggered() {
         let subject = ScanSchedulers::new(ScanIntervals::default(), false);
 
-        test_what_if_externally_triggered(&subject, HintableScanner::RetryPayables {});
+        test_what_if_externally_triggered(&subject, PayableSequenceScanner::RetryPayables {});
     }
 
     #[test]
@@ -740,7 +725,7 @@ mod tests {
                 subject
                     .reschedule_on_error_resolver
                     .resolve_rescheduling_for_given_error(
-                        HintableScanner::RetryPayables,
+                        PayableSequenceScanner::RetryPayables,
                         error,
                         false,
                     )
@@ -765,7 +750,7 @@ mod tests {
     fn resolve_rescheduling_for_given_error_works_for_new_payables_if_externally_triggered() {
         let subject = ScanSchedulers::new(ScanIntervals::default(), true);
 
-        test_what_if_externally_triggered(&subject, HintableScanner::NewPayables {});
+        test_what_if_externally_triggered(&subject, PayableSequenceScanner::NewPayables {});
     }
 
     #[test]
@@ -779,7 +764,7 @@ mod tests {
         let _ = subject
             .reschedule_on_error_resolver
             .resolve_rescheduling_for_given_error(
-                HintableScanner::NewPayables,
+                PayableSequenceScanner::NewPayables,
                 &StartScanError::ScanAlreadyRunning {
                     pertinent_scanner: ScanType::Payables,
                     started_at: SystemTime::now(),
@@ -790,19 +775,22 @@ mod tests {
 
     #[test]
     fn resolve_hint_for_new_payables_with_those_error_cases_that_result_in_future_rescheduling() {
-        let inputs =
-            AllStartScanErrorsAdjustable::default().eliminate_already_tested_variants(vec![
-                StartScanError::ScanAlreadyRunning {
-                    pertinent_scanner: ScanType::Payables,
-                    started_at: SystemTime::now(),
-                },
-            ]);
+        let inputs = ListOfStartScanErrors::default().eliminate_already_tested_variants(vec![
+            StartScanError::ScanAlreadyRunning {
+                pertinent_scanner: ScanType::Payables,
+                started_at: SystemTime::now(),
+            },
+        ]);
         let subject = ScanSchedulers::new(ScanIntervals::default(), true);
 
         inputs.errors.iter().for_each(|error| {
             let result = subject
                 .reschedule_on_error_resolver
-                .resolve_rescheduling_for_given_error(HintableScanner::NewPayables, *error, false);
+                .resolve_rescheduling_for_given_error(
+                    PayableSequenceScanner::NewPayables,
+                    *error,
+                    false,
+                );
 
             assert_eq!(
                 result,
@@ -816,21 +804,21 @@ mod tests {
     #[test]
     fn conversion_between_hintable_scanner_and_scan_type_works() {
         assert_eq!(
-            ScanType::from(HintableScanner::NewPayables),
+            ScanType::from(PayableSequenceScanner::NewPayables),
             ScanType::Payables
         );
         assert_eq!(
-            ScanType::from(HintableScanner::RetryPayables),
+            ScanType::from(PayableSequenceScanner::RetryPayables),
             ScanType::Payables
         );
         assert_eq!(
-            ScanType::from(HintableScanner::PendingPayables {
+            ScanType::from(PayableSequenceScanner::PendingPayables {
                 initial_pending_payable_scan: false
             }),
             ScanType::PendingPayables
         );
         assert_eq!(
-            ScanType::from(HintableScanner::PendingPayables {
+            ScanType::from(PayableSequenceScanner::PendingPayables {
                 initial_pending_payable_scan: true
             }),
             ScanType::PendingPayables
