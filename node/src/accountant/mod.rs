@@ -1650,12 +1650,12 @@ mod tests {
             agent_id_stamp
         );
         assert_eq!(blockchain_bridge_recording.len(), 1);
-        test_use_of_the_same_logger(&logger_clone, test_name, None)
+        assert_using_the_same_logger(&logger_clone, test_name, None)
         // adjust_payments() did not need a prepared result, which means it wasn't reached
         // because otherwise this test would've panicked
     }
 
-    fn test_use_of_the_same_logger(
+    fn assert_using_the_same_logger(
         logger_clone: &Logger,
         test_name: &str,
         differentiation_opt: Option<&str>,
@@ -1782,7 +1782,7 @@ mod tests {
             Some(response_skeleton)
         );
         assert_eq!(blockchain_bridge_recording.len(), 1);
-        test_use_of_the_same_logger(&logger_clone, test_name, None)
+        assert_using_the_same_logger(&logger_clone, test_name, None)
     }
 
     #[test]
@@ -2094,36 +2094,38 @@ mod tests {
             .build_and_provide_addresses();
         let subject_addr = subject.start();
         let system = System::new("test");
+        let first_counter_msg_setup = setup_for_counter_msg_triggered_via_type_id!(
+            RequestTransactionReceipts,
+            ReportTransactionReceipts {
+                fingerprints_with_receipts: vec![(
+                    TransactionReceiptResult::RpcResponse(TxReceipt {
+                        transaction_hash: make_tx_hash(234),
+                        status: TxStatus::Failed
+                    }),
+                    make_pending_payable_fingerprint()
+                )],
+                response_skeleton_opt
+            },
+            &subject_addr
+        );
+        let second_counter_msg_setup = setup_for_counter_msg_triggered_via_type_id!(
+            QualifiedPayablesMessage,
+            SentPayables {
+                payment_procedure_result: Ok(vec![ProcessedPayableFallible::Correct(
+                    PendingPayable {
+                        recipient_wallet: make_wallet("abc"),
+                        hash: make_tx_hash(789)
+                    }
+                )]),
+                response_skeleton_opt
+            },
+            &subject_addr
+        );
         peer_addresses
             .blockchain_bridge_addr
             .try_send(SetUpCounterMsgs::new(vec![
-                setup_for_counter_msg_triggered_via_type_id!(
-                    RequestTransactionReceipts,
-                    ReportTransactionReceipts {
-                        fingerprints_with_receipts: vec![(
-                            TransactionReceiptResult::RpcResponse(TxReceipt {
-                                transaction_hash: make_tx_hash(234),
-                                status: TxStatus::Failed
-                            }),
-                            make_pending_payable_fingerprint()
-                        )],
-                        response_skeleton_opt
-                    },
-                    &subject_addr
-                ),
-                setup_for_counter_msg_triggered_via_type_id!(
-                    QualifiedPayablesMessage,
-                    SentPayables {
-                        payment_procedure_result: Ok(vec![ProcessedPayableFallible::Correct(
-                            PendingPayable {
-                                recipient_wallet: make_wallet("abc"),
-                                hash: make_tx_hash(789)
-                            }
-                        )]),
-                        response_skeleton_opt
-                    },
-                    &subject_addr
-                ),
+                first_counter_msg_setup,
+                second_counter_msg_setup,
             ]))
             .unwrap();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -2317,7 +2319,7 @@ mod tests {
         let message = blockchain_bridge_recorder.get_record::<QualifiedPayablesMessage>(0);
         assert_eq!(message, &qualified_payables_msg);
         assert_eq!(blockchain_bridge_recorder.len(), 1);
-        test_use_of_the_same_logger(&actual_logger, test_name, None)
+        assert_using_the_same_logger(&actual_logger, test_name, None)
     }
 
     #[test]
@@ -2688,14 +2690,16 @@ mod tests {
             scan_for_pending_payables_notify_later_params_arc
                 .lock()
                 .unwrap();
-        // The part with executing the scan for NewPayables is deliberately omitted here, but
-        // the scan for pending payables would've been scheduled just after that
+        // The part of running the `NewPayableScanner` is deliberately omitted here, we stop
+        // the test right before that. Normally, the first occasion for scheduling
+        // the `PendingPayableScanner` would've lied no sooner than after the `NewPayableScan`
+        // finishes, having produced at least one blockchain transactions.
         assert!(
             scan_for_pending_payables_notify_later_params.is_empty(),
             "We did not expect to see another schedule for pending payables, but it happened {:?}",
             scan_for_pending_payables_notify_later_params
         );
-        test_use_of_the_same_logger(&pp_logger, test_name, Some("pp"));
+        assert_using_the_same_logger(&pp_logger, test_name, Some("pp"));
         // Assertions on the payable scanner proper functioning
         // First, there is no functionality from the payable scanner actually running.
         // We only witness it to be scheduled.
@@ -2746,7 +2750,7 @@ mod tests {
             "Should be already empty but was {:?}",
             receivable_start_scan_params
         );
-        test_use_of_the_same_logger(&r_logger, test_name, Some("r"));
+        assert_using_the_same_logger(&r_logger, test_name, Some("r"));
         let scan_for_receivables_notify_later_params =
             scan_for_receivables_notify_later_params_arc.lock().unwrap();
         assert_eq!(
@@ -3098,7 +3102,7 @@ mod tests {
         assert!(time_before <= timestamp && timestamp <= time_after);
         assert_eq!(response_skeleton_opt, None);
         assert!(start_scan_payable_params.is_empty());
-        debug!(logger, "verifying payable scanner logger");
+        assert_using_the_same_logger(&logger, test_name, Some("abc"));
         let mut start_scan_pending_payable_params =
             start_scan_pending_payable_params_arc.lock().unwrap();
         let (wallet, timestamp, response_skeleton_opt, logger, _) =
@@ -3107,7 +3111,7 @@ mod tests {
         assert!(time_before <= timestamp && timestamp <= time_after);
         assert_eq!(response_skeleton_opt, None);
         assert!(start_scan_pending_payable_params.is_empty());
-        debug!(logger, "verifying pending payable scanner logger");
+        assert_using_the_same_logger(&logger, test_name, Some("def"));
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
         let actual_qualified_payables_msg =
             blockchain_bridge_recording.get_record::<QualifiedPayablesMessage>(0);
@@ -4278,7 +4282,7 @@ mod tests {
         let mut finish_scan_params = finish_scan_params_arc.lock().unwrap();
         let (actual_sent_payable, logger) = finish_scan_params.remove(0);
         assert_eq!(actual_sent_payable, sent_payable,);
-        test_use_of_the_same_logger(&logger, test_name, None);
+        assert_using_the_same_logger(&logger, test_name, None);
         let mut payable_notify_later_params = payable_notify_later_params_arc.lock().unwrap();
         let (scheduled_msg, _interval) = payable_notify_later_params.remove(0);
         assert_eq!(scheduled_msg, ScanForNewPayables::default());
@@ -4311,7 +4315,7 @@ mod tests {
             Box::new(NotifyHandleMock::default().notify_params(&retry_payable_notify_params_arc));
         let system = System::new(test_name);
         let (mut msg, _) =
-            make_report_transaction_receipts_msg(TxStatus::Pending, TxStatus::Failed);
+            make_report_transaction_receipts_msg(vec![TxStatus::Pending, TxStatus::Failed]);
         let response_skeleton_opt = Some(ResponseSkeleton {
             client_id: 45,
             context_id: 7,
@@ -4333,7 +4337,7 @@ mod tests {
                 response_skeleton_opt
             }]
         );
-        test_use_of_the_same_logger(&logger, test_name, None)
+        assert_using_the_same_logger(&logger, test_name, None)
     }
 
     #[test]
@@ -4375,7 +4379,7 @@ mod tests {
         subject.scan_schedulers.payable.new_payable_notify =
             Box::new(NotifyHandleMock::default().notify_params(&new_payable_notify_arc));
         let subject_addr = subject.start();
-        let (msg, two_fingerprints) = make_report_transaction_receipts_msg(
+        let (msg, two_fingerprints) = make_report_transaction_receipts_msg(vec![
             TxStatus::Succeeded(TransactionBlock {
                 block_hash: make_tx_hash(123),
                 block_number: U64::from(100),
@@ -4384,7 +4388,7 @@ mod tests {
                 block_hash: make_tx_hash(234),
                 block_number: U64::from(200),
             }),
-        );
+        ]);
 
         subject_addr.try_send(msg).unwrap();
 
@@ -4451,7 +4455,7 @@ mod tests {
         subject.scan_schedulers.payable.new_payable_notify =
             Box::new(NotifyHandleMock::default().notify_params(&new_payable_notify_arc));
         let subject_addr = subject.start();
-        let (msg, two_fingerprints) = make_report_transaction_receipts_msg(
+        let (msg, two_fingerprints) = make_report_transaction_receipts_msg(vec![
             TxStatus::Succeeded(TransactionBlock {
                 block_hash: make_tx_hash(123),
                 block_number: U64::from(100),
@@ -4460,7 +4464,7 @@ mod tests {
                 block_hash: make_tx_hash(234),
                 block_number: U64::from(200),
             }),
-        );
+        ]);
 
         subject_addr.try_send(msg).unwrap();
 
@@ -4515,7 +4519,7 @@ mod tests {
             NotifyLaterHandleMock::default().notify_later_params(&new_payable_notify_later_arc),
         );
         let subject_addr = subject.start();
-        let (msg, _) = make_report_transaction_receipts_msg(
+        let (msg, _) = make_report_transaction_receipts_msg(vec![
             TxStatus::Succeeded(TransactionBlock {
                 block_hash: make_tx_hash(123),
                 block_number: U64::from(100),
@@ -4524,7 +4528,7 @@ mod tests {
                 block_hash: make_tx_hash(234),
                 block_number: U64::from(200),
             }),
-        );
+        ]);
 
         subject_addr.try_send(msg).unwrap();
 
@@ -4555,49 +4559,38 @@ mod tests {
     }
 
     fn make_report_transaction_receipts_msg(
-        status_of_tx_1: TxStatus,
-        status_of_tx_2: TxStatus,
-    ) -> (ReportTransactionReceipts, [PendingPayableFingerprint; 2]) {
-        let transaction_hash_1 = make_tx_hash(4545);
-        let transaction_receipt_1 = TxReceipt {
-            transaction_hash: transaction_hash_1,
-            status: status_of_tx_1,
-        };
-        let fingerprint_1 = PendingPayableFingerprint {
-            rowid: 5,
-            timestamp: from_unix_timestamp(200_000_000),
-            hash: transaction_hash_1,
-            attempt: 2,
-            amount: 444,
-            process_error: None,
-        };
-        let transaction_hash_2 = make_tx_hash(3333333);
-        let transaction_receipt_2 = TxReceipt {
-            transaction_hash: transaction_hash_2,
-            status: status_of_tx_2,
-        };
-        let fingerprint_2 = PendingPayableFingerprint {
-            rowid: 10,
-            timestamp: from_unix_timestamp(199_780_000),
-            hash: Default::default(),
-            attempt: 15,
-            amount: 1212,
-            process_error: None,
-        };
+        status_txs: Vec<TxStatus>,
+    ) -> (ReportTransactionReceipts, Vec<PendingPayableFingerprint>) {
+        let (receipt_result_fingerprint_pairs, fingerprints): (Vec<_>, Vec<_>) = status_txs
+            .into_iter()
+            .enumerate()
+            .map(|(idx, status)| {
+                let transaction_hash = make_tx_hash(idx as u32);
+                let transaction_receipt_result = TransactionReceiptResult::RpcResponse(TxReceipt {
+                    transaction_hash,
+                    status,
+                });
+                let fingerprint = PendingPayableFingerprint {
+                    rowid: idx as u64,
+                    timestamp: from_unix_timestamp(1_000_000_000 * idx as i64),
+                    hash: transaction_hash,
+                    attempt: 2,
+                    amount: 1_000_000 * idx as u128 * idx as u128,
+                    process_error: None,
+                };
+                (
+                    (transaction_receipt_result, fingerprint.clone()),
+                    fingerprint,
+                )
+            })
+            .unzip();
+
         let msg = ReportTransactionReceipts {
-            fingerprints_with_receipts: vec![
-                (
-                    TransactionReceiptResult::RpcResponse(transaction_receipt_1),
-                    fingerprint_1.clone(),
-                ),
-                (
-                    TransactionReceiptResult::RpcResponse(transaction_receipt_2),
-                    fingerprint_2.clone(),
-                ),
-            ],
+            fingerprints_with_receipts: receipt_result_fingerprint_pairs,
             response_skeleton_opt: None,
         };
-        (msg, [fingerprint_1, fingerprint_2])
+
+        (msg, fingerprints)
     }
 
     #[test]

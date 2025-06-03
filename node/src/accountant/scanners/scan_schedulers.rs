@@ -122,9 +122,9 @@ impl PayableScanScheduler {
         }
     }
 
-    // Can be triggered by a command, whereas the finished pending payable scanner is followed up
-    // by this scheduled message that can bear the response skeleton. This message is inserted into
-    // the Accountant's mailbox with no delay
+    // This message is always inserted into the Accountant's mailbox with no delay.
+    // Can also be triggered by command, following up after the PendingPayableScanner that
+    // requests it. That's why the response skeleton is possible to be used.
     pub fn schedule_retry_payable_scan(
         &self,
         ctx: &mut Context<Accountant>,
