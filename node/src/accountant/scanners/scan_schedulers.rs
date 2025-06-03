@@ -483,7 +483,7 @@ mod tests {
             let candidates = vec![
                 StartScanError::NothingToProcess,
                 StartScanError::NoConsumingWalletFound,
-                StartScanError::ScanAlreadyRunning { pertinent_scanner: ScanType::Payables, started_at: SystemTime::now()},
+                StartScanError::ScanAlreadyRunning { cross_scan_cause_opt: None, started_at: SystemTime::now()},
                 StartScanError::ManualTriggerError(MTError::AutomaticScanConflict),
                 StartScanError::CalledFromNullScanner
             ];
@@ -766,7 +766,7 @@ mod tests {
             .resolve_rescheduling_for_given_error(
                 PayableSequenceScanner::NewPayables,
                 &StartScanError::ScanAlreadyRunning {
-                    pertinent_scanner: ScanType::Payables,
+                    cross_scan_cause_opt: None,
                     started_at: SystemTime::now(),
                 },
                 false,
@@ -774,10 +774,10 @@ mod tests {
     }
 
     #[test]
-    fn resolve_hint_for_new_payables_with_those_error_cases_that_result_in_future_rescheduling() {
+    fn resolve_hint_for_new_payables_with_error_cases_resulting_in_future_rescheduling() {
         let inputs = ListOfStartScanErrors::default().eliminate_already_tested_variants(vec![
             StartScanError::ScanAlreadyRunning {
-                pertinent_scanner: ScanType::Payables,
+                cross_scan_cause_opt: None,
                 started_at: SystemTime::now(),
             },
         ]);

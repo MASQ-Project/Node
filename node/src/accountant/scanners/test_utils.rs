@@ -2,12 +2,14 @@
 
 #![cfg(test)]
 
-use crate::accountant::scanners::local_test_utils::ScannerMock;
+use crate::accountant::scanners::local_test_utils::{ScannerMock, ScannerMockMarker};
 use crate::accountant::scanners::payable_scanner_extension::msgs::QualifiedPayablesMessage;
 use crate::accountant::scanners::scan_schedulers::NewPayableScanDynIntervalComputer;
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableScanResult;
 use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::PendingPayableScanResult;
-use crate::accountant::scanners::{PayableScanner, PendingPayableScanner, ReceivableScanner};
+use crate::accountant::scanners::{
+    PayableScanner, PendingPayableScanner, RealScannerMarker, ReceivableScanner,
+};
 use crate::accountant::{
     ReceivedPayments, ReportTransactionReceipts, RequestTransactionReceipts, SentPayables,
 };
@@ -55,34 +57,41 @@ impl NewPayableScanDynIntervalComputerMock {
     }
 }
 
-pub enum ReplacementType<ScannerReal, TriggerMsg, StartMsg, EndMsg> {
+pub enum ReplacementType<ScannerReal, ScannerMock>
+where
+    ScannerReal: RealScannerMarker,
+    ScannerMock: ScannerMockMarker,
+{
     Real(ScannerReal),
-    Mock(ScannerMock<TriggerMsg, StartMsg, EndMsg>),
+    Mock(ScannerMock),
     Null,
 }
 
-// The supplied scanner types are broken down to these detailed categories because they become
-// eventually trait objects represented by a private trait. That one cannot be supplied, though,
-// because it is unknown to the outside world, therefore, we provide the specific objects that
-// will be then treated in an abstract manner.
+// The scanners are categorized by types because we want them to become an abstract object
+// represented by a private trait. Of course, such an object cannot be constructed directly in
+// the outer world; therefore, we have to provide specific objects that will cast accordingly
+// under the hood.
 pub enum ScannerReplacement {
     Payable(
-        ReplacementType<PayableScanner, QualifiedPayablesMessage, SentPayables, PayableScanResult>,
+        ReplacementType<
+            PayableScanner,
+            ScannerMock<QualifiedPayablesMessage, SentPayables, PayableScanResult>,
+        >,
     ),
     PendingPayable(
         ReplacementType<
             PendingPayableScanner,
-            RequestTransactionReceipts,
-            ReportTransactionReceipts,
-            PendingPayableScanResult,
+            ScannerMock<
+                RequestTransactionReceipts,
+                ReportTransactionReceipts,
+                PendingPayableScanResult,
+            >,
         >,
     ),
     Receivable(
         ReplacementType<
             ReceivableScanner,
-            RetrieveTransactions,
-            ReceivedPayments,
-            Option<NodeToUiMessage>,
+            ScannerMock<RetrieveTransactions, ReceivedPayments, Option<NodeToUiMessage>>,
         >,
     ),
 }
