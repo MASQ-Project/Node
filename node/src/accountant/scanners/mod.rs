@@ -1721,10 +1721,9 @@ mod tests {
     use ethereum_types::U64;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use regex::{CaptureMatches, Regex};
+    use regex::{Regex};
     use rusqlite::{ffi, ErrorCode};
     use std::cell::RefCell;
-    use std::cmp::Ordering;
     use std::collections::HashSet;
     use std::ops::Sub;
     use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -1736,7 +1735,7 @@ mod tests {
     use masq_lib::messages::ScanType;
     use masq_lib::ui_gateway::NodeToUiMessage;
     use crate::accountant::scanners::local_test_utils::{NullScanner};
-    use crate::accountant::scanners::test_utils::{MarkScanner, ReplacementType, ScannerReplacement};
+    use crate::accountant::scanners::test_utils::{assert_timestamps_from_str, parse_system_time_from_str, MarkScanner, ReplacementType, ScannerReplacement};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TransactionReceiptResult, TxReceipt, TxStatus};
 
     impl Scanners {
@@ -2132,28 +2131,25 @@ mod tests {
         before: SystemTime,
         after: SystemTime,
     ) {
-        let regex = PseudoTimestamp::regex();
-        let mut captures = regex.captures_iter(panic_msg);
-        let first_actual_as_pseudo_t = PseudoTimestamp::new_from_captures(&mut captures);
-        let second_actual_as_pseudo_t = PseudoTimestamp::new_from_captures(&mut captures);
-        let before_as_pseudo_t = PseudoTimestamp::from(before);
-        let after_as_pseudo_t = PseudoTimestamp::from(after);
+        let system_times = parse_system_time_from_str(panic_msg);
+        let first_actual = system_times[0];
+        let second_actual = system_times[1];
 
         assert!(
-            before_as_pseudo_t <= first_actual_as_pseudo_t
-                && first_actual_as_pseudo_t <= second_actual_as_pseudo_t
-                && second_actual_as_pseudo_t <= after_as_pseudo_t,
+            before <= first_actual
+                && first_actual <= second_actual
+                && second_actual <= after,
             "We expected this relationship before({:?}) <= first_actual({:?}) <= second_actual({:?}) \
             <= after({:?}), but it does not hold true",
-            before_as_pseudo_t,
-            first_actual_as_pseudo_t,
-            second_actual_as_pseudo_t,
-            after_as_pseudo_t
+            before,
+            first_actual,
+            second_actual,
+            after
         );
     }
 
     #[test]
-    #[should_panic(expected = "bluh")]
+    #[should_panic(expected = "Complete me with GH-605")]
     fn retry_payable_scanner_panics_in_case_no_qualified_payable_is_found() {
         let consuming_wallet = make_paying_wallet(b"consuming wallet");
         let now = SystemTime::now();
@@ -3260,18 +3256,12 @@ mod tests {
             expected_msg_fragment_2,
             panic_msg
         );
-        let regex = PseudoTimestamp::regex();
-        let mut captures = regex.captures_iter(panic_msg);
-        let pseudo_timestamp_for_pending_payable_start =
-            PseudoTimestamp::new_from_captures(&mut captures);
-        let pseudo_timestamp_for_payable_start = PseudoTimestamp::new_from_captures(&mut captures);
-        assert_eq!(
-            pseudo_timestamp_for_pending_payable_start,
-            PseudoTimestamp::from(timestamp_pending_payable_start)
-        );
-        assert_eq!(
-            pseudo_timestamp_for_payable_start,
-            PseudoTimestamp::from(timestamp_payable_scanner_start)
+        assert_timestamps_from_str(
+            panic_msg,
+            vec![
+                timestamp_pending_payable_start,
+                timestamp_payable_scanner_start,
+            ],
         )
     }
 
@@ -4467,16 +4457,16 @@ mod tests {
 
     fn test_scan_already_running_msg(
         requested_scan: ScanType,
-        cross_scan_blocking_cause_opt: Option<(ScanType)>,
+        cross_scan_blocking_cause_opt: Option<ScanType>,
         expected_leading_msg_fragment: &str,
-        expectd_trailing_msg_fragment: &str,
+        expected_trailing_msg_fragment: &str,
     ) {
-        let time = SystemTime::now();
+        let some_time = SystemTime::now();
 
         let result = StartScanError::scan_already_running_msg(
             requested_scan,
             cross_scan_blocking_cause_opt,
-            time,
+            some_time,
         );
 
         assert!(
@@ -4486,19 +4476,12 @@ mod tests {
             result
         );
         assert!(
-            result.contains(expectd_trailing_msg_fragment),
+            result.contains(expected_trailing_msg_fragment),
             "We expected {} but the msg is: {}",
-            expectd_trailing_msg_fragment,
+            expected_trailing_msg_fragment,
             result
         );
-        let regex = PseudoTimestamp::regex();
-        let mut captures = regex.captures_iter(&result);
-        let pseudo_timestamp_for_pending_payable_start =
-            PseudoTimestamp::new_from_captures(&mut captures);
-        assert_eq!(
-            pseudo_timestamp_for_pending_payable_start,
-            PseudoTimestamp::from(time)
-        );
+        assert_timestamps_from_str(&result, vec![some_time]);
     }
 
     #[test]
@@ -4673,65 +4656,6 @@ mod tests {
             initial_pending_payable_scan: false,
             pending_payable: Box::new(NullScanner::new()),
             receivable: Box::new(NullScanner::new()),
-        }
-    }
-
-    // Concatenated hours, minutes, seconds and milliseconds in a single integer
-    #[derive(PartialEq, Debug)]
-    struct PseudoTimestamp {
-        rep: u32,
-    }
-
-    // This is a one-hour difference, indicating wrapping around the midnight
-    const MIDNIGHT_INDICATIVE_DIFFERENCE_DIFF: u32 = 1_000_000;
-
-    impl PartialOrd for PseudoTimestamp {
-        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-            if self.rep == other.rep {
-                Some(Ordering::Equal)
-            } else if self.rep < other.rep {
-                if (other.rep - self.rep) > MIDNIGHT_INDICATIVE_DIFFERENCE_DIFF {
-                    Some(Ordering::Greater)
-                } else {
-                    Some(Ordering::Less)
-                }
-            } else {
-                if (self.rep - other.rep) > MIDNIGHT_INDICATIVE_DIFFERENCE_DIFF {
-                    Some(Ordering::Less)
-                } else {
-                    Some(Ordering::Greater)
-                }
-            }
-        }
-    }
-
-    impl From<SystemTime> for PseudoTimestamp {
-        fn from(timestamp: SystemTime) -> Self {
-            let specially_formatted_timestamp = StartScanError::timestamp_as_string(timestamp);
-            let regex = Self::regex();
-            let mut captures = regex.captures_iter(&specially_formatted_timestamp);
-            PseudoTimestamp::new_from_captures(&mut captures)
-        }
-    }
-
-    impl PseudoTimestamp {
-        fn new_from_captures(captures: &mut CaptureMatches) -> Self {
-            let captured_first_time = captures.next().unwrap().get(1).unwrap().as_str();
-            let num = Self::remove_colons_and_dots(captured_first_time);
-            Self {
-                rep: u32::from_str_radix(&num, 10).unwrap(),
-            }
-        }
-
-        fn regex() -> Regex {
-            Regex::new(r"\d{4}-\d{2}-\d{2} (\d{2}:\d{2}:\d{2}\.\d{3})").unwrap()
-        }
-
-        fn remove_colons_and_dots(str: &str) -> String {
-            let mut str = str.to_string();
-            str = str.replace(":", "");
-            str = str.replace(".", "");
-            str
         }
     }
 }

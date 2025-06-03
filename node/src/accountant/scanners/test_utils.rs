@@ -14,11 +14,14 @@ use crate::accountant::{
     ReceivedPayments, ReportTransactionReceipts, RequestTransactionReceipts, SentPayables,
 };
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
-use masq_lib::logger::Logger;
+use masq_lib::logger::{Logger, TIME_FORMATTING_STRING};
 use masq_lib::ui_gateway::NodeToUiMessage;
+use regex::Regex;
 use std::cell::RefCell;
+use std::panic::panic_any;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use time::{format_description, OffsetDateTime, PrimitiveDateTime};
 
 #[derive(Default)]
 pub struct NewPayableScanDynIntervalComputerMock {
@@ -99,4 +102,57 @@ pub enum ScannerReplacement {
 pub enum MarkScanner<'a> {
     Ended(&'a Logger),
     Started(SystemTime),
+}
+
+// Cautious: Don't compare to another timestamp on a full match; this timestamp is trimmed in
+// nanoseconds down to three digits
+pub fn parse_system_time_from_str(examined_str: &str) -> Vec<SystemTime> {
+    let regex = Regex::new(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})").unwrap();
+    let captures = regex.captures_iter(examined_str);
+    captures
+        .map(|captures| {
+            let captured_str_timestamp = captures.get(0).unwrap().as_str();
+            let format = format_description::parse(TIME_FORMATTING_STRING).unwrap();
+            let dt = PrimitiveDateTime::parse(captured_str_timestamp, &format).unwrap();
+            let duration = Duration::from_secs(dt.assume_utc().unix_timestamp() as u64)
+                + Duration::from_nanos(dt.nanosecond() as u64);
+            UNIX_EPOCH + duration
+        })
+        .collect()
+}
+
+fn trim_expected_timestamp_to_three_digits_nanos(value: SystemTime) -> SystemTime {
+    let duration = value.duration_since(UNIX_EPOCH).unwrap();
+    let full_nanos = duration.subsec_nanos();
+    let diffuser = 10_u32.pow(6);
+    let trimmed_nanos = (full_nanos / diffuser) * diffuser;
+    let duration = duration
+        .checked_sub(Duration::from_nanos(full_nanos as u64))
+        .unwrap()
+        .checked_add(Duration::from_nanos(trimmed_nanos as u64))
+        .unwrap();
+    UNIX_EPOCH + duration
+}
+
+pub fn assert_timestamps_from_str(examined_str: &str, expected_timestamps: Vec<SystemTime>) {
+    let parsed_timestamps = parse_system_time_from_str(examined_str);
+    if parsed_timestamps.len() != expected_timestamps.len() {
+        panic!(
+            "You supplied {} expected timestamps, but the examined text contains only {}",
+            expected_timestamps.len(),
+            parsed_timestamps.len()
+        )
+    }
+    let zipped = parsed_timestamps
+        .into_iter()
+        .zip(expected_timestamps.into_iter());
+    zipped.for_each(|(parsed_timestamp, expected_timestamp)| {
+        let expected_timestamp_trimmed =
+            trim_expected_timestamp_to_three_digits_nanos(expected_timestamp);
+        assert_eq!(
+            parsed_timestamp, expected_timestamp_trimmed,
+            "We expected this timestamp {:?} in this fragment '{}' but found {:?}",
+            expected_timestamp_trimmed, examined_str, parsed_timestamp
+        )
+    })
 }

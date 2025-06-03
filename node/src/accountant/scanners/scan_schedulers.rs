@@ -756,7 +756,7 @@ mod tests {
     #[test]
     #[should_panic(
         expected = "internal error: entered unreachable code: an automatic scan of NewPayableScanner \
-        should never interfere with itself ScanAlreadyRunning { pertinent_scanner: Payables, started_at:"
+        should never interfere with itself ScanAlreadyRunning { cross_scan_cause_opt: None, started_at:"
     )]
     fn resolve_hint_for_new_payables_if_scan_is_already_running_error_and_is_automatic_scan() {
         let subject = ScanSchedulers::new(ScanIntervals::default(), true);
