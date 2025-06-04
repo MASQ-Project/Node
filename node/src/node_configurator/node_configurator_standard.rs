@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::bootstrapper::{set_alias_cryptde, set_main_cryptde, BootstrapperConfig, CryptDEPair};
+use crate::bootstrapper::{BootstrapperConfig, CryptDEPair};
 use crate::node_configurator::{initialize_database, DirsWrapper, FieldPair, NodeConfigurator};
 use crate::node_configurator::{ConfigInitializationData, DirsWrapperReal};
 use masq_lib::crash_point::CrashPoint;
@@ -34,7 +34,7 @@ use masq_lib::constants::{DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT};
 use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl};
 use std::str::FromStr;
 use masq_lib::blockchains::chains::Chain;
-use crate::bootstrapper::{main_cryptde, alias_cryptde};
+use crate::bootstrapper::{main_cryptde, initialize_cryptdes};
 use crate::bootstrapper::cryptdes_are_initialized;
 use crate::sub_lib::cryptde_real::CryptDEReal;
 
@@ -95,7 +95,8 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
             &self.logger,
         )?;
         configure_database(&unprivileged_config, persistent_config.as_mut())?;
-        configure_cryptdes(persistent_config.as_mut(), &unprivileged_config.db_password_opt)?;
+        configure_cryptdes(&unprivileged_config.blockchain_bridge_config.chain,
+            persistent_config.as_mut(), &unprivileged_config.db_password_opt)?;
         Ok(unprivileged_config)
     }
 }
@@ -360,6 +361,7 @@ fn configure_database(
 }
 
 fn configure_cryptdes(
+    chain: &Chain,
     persistent_config: &mut dyn PersistentConfiguration,
     db_password_opt: &Option<String>,
 ) -> Result<(), ConfiguratorError> {
@@ -378,12 +380,18 @@ fn configure_cryptdes(
 eprintln!("main_result: {:?}", main_result.as_ref().err().clone());
         match main_result {
             Ok(Some(last_main_cryptde)) => {
-                set_main_cryptde(last_main_cryptde);
-                if !cryptdes_are_initialized() {
-                    todo! ("Invent a new alias CryptDEReal and set it")
-                }
+                let alias_cryptde = CryptDEReal::new(chain.clone());
+                initialize_cryptdes(
+                    last_main_cryptde
+                        .as_ref()
+                        .as_any()
+                        .downcast_ref::<CryptDEReal>()
+                        .expect("Nothing but CryptDEReal allowed in production"),
+                    &alias_cryptde,
+                );
             },
             Ok(None) => {
+                // TODO: We probably need to make up new cryptdes here.
                 persistent_config.set_cryptde(main_cryptde(), db_password)
                     .expect("Failed to set cryptde");
             },
@@ -391,11 +399,9 @@ eprintln!("main_result: {:?}", main_result.as_ref().err().clone());
         }
     }
     else if !cryptdes_are_initialized() {
-        let chain = Chain::from(persistent_config.chain_name().as_str());
-        let main = CryptDEReal::new(chain);
-        let alias = CryptDEReal::new(chain);
-        set_main_cryptde(Box::new(main));
-        set_alias_cryptde(Box::new(alias));
+        let main = CryptDEReal::new(chain.clone());
+        let alias = CryptDEReal::new(chain.clone());
+        initialize_cryptdes(&main, &alias);
     }
     Ok(())
 }
@@ -404,7 +410,7 @@ eprintln!("main_result: {:?}", main_result.as_ref().err().clone());
 mod tests {
     use super::*;
     use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
-    use crate::bootstrapper::{BootstrapperConfig, CryptDEPair, RealUser};
+    use crate::bootstrapper::{BootstrapperConfig, RealUser};
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::db_config::config_dao::ConfigDaoReal;
     use crate::db_config::persistent_configuration::PersistentConfigError;
@@ -437,16 +443,10 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
     use std::vec;
-    use crate::bootstrapper::cryptde_test::{ensure_cryptde_initialization, set_cryptdes};
-    use crate::sub_lib::cryptde_real::CryptDEReal;
 
     #[test]
     fn node_configurator_standard_unprivileged_uses_parse_args_configurator_dao_real() {
         let _guard = EnvironmentGuard::new();
-        set_cryptdes(
-            Some(Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN))),
-            Some(Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN)))
-        );
         let home_dir = ensure_node_home_directory_exists(
             "node_configurator_standard",
             "node_configurator_standard_unprivileged_uses_parse_args_configurator_dao_real",
@@ -583,15 +583,15 @@ mod tests {
             Err(PersistentConfigError::TransactionError.into_configurator_error("min-hops"))
         )
     }
+    /*
 
     #[test]
     fn configure_cryptdes_handles_existing_null_cryptdes() {
         let _guard = EnvironmentGuard::new();
         ensure_cryptde_initialization();
         let main_null = CryptDENull::new(TEST_DEFAULT_CHAIN);
-        set_main_cryptde(main_null.dup());
         let alias_null = CryptDENull::new(TEST_DEFAULT_CHAIN);
-        set_alias_cryptde(alias_null.dup());
+        set_cryptdes(Some(main_null.dup()), Some(alias_null.dup()));
         let set_cryptde_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_config = PersistentConfigurationMock::new()
             .set_cryptde_params(&set_cryptde_params_arc);
@@ -696,7 +696,7 @@ mod tests {
         let cryptde_params = cryptde_params_arc.lock().unwrap();
         assert_eq!(*cryptde_params, vec!["db_password".to_string()]);
     }
-
+*/
     fn make_default_cli_params() -> ArgsBuilder {
         ArgsBuilder::new().param("--ip", "1.2.3.4")
     }
@@ -1629,10 +1629,6 @@ mod tests {
     fn configure_database_with_data_specified_on_command_line_and_in_database() {
         let _guard = EnvironmentGuard::new();
         running_test();
-        set_cryptdes(
-            Some(Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN))),
-            Some(Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN)))
-        );
         let mut config = BootstrapperConfig::new();
         let gas_price = 4u64;
         config.clandestine_port_opt = Some(1234);

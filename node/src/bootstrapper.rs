@@ -54,14 +54,18 @@ use std::fmt::{Debug, Display, Error, Formatter};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::Once;
 use std::vec::Vec;
 use tokio::prelude::stream::futures_unordered::FuturesUnordered;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
 use tokio::prelude::Stream;
+use crate::sub_lib::cryptde_real::CryptDEReal;
 #[cfg(test)]
 use crate::bootstrapper::cryptde_test::ensure_cryptde_initialization;
 
+
+static CRYPTDE_ONCE_BLOCK: Once = Once::new();
 static mut MAIN_CRYPTDE_OPT: Option<Box<dyn CryptDE + 'static>> = None;
 static mut ALIAS_CRYPTDE_OPT: Option<Box<dyn CryptDE + 'static>> = None;
 
@@ -81,16 +85,13 @@ pub fn alias_cryptde() -> &'static dyn CryptDE {
     }
 }
 
-pub fn set_main_cryptde(cryptde: Box<dyn CryptDE>) {
-    unsafe {
-        MAIN_CRYPTDE_OPT = Some(cryptde);
-    }
-}
-
-pub fn set_alias_cryptde(cryptde: Box<dyn CryptDE>) {
-    unsafe {
-        ALIAS_CRYPTDE_OPT = Some(cryptde);
-    }
+pub fn initialize_cryptdes(main_cryptde: &CryptDEReal, alias_cryptde: &CryptDEReal) {
+    CRYPTDE_ONCE_BLOCK.call_once(|| {
+        unsafe{
+            MAIN_CRYPTDE_OPT = Some(main_cryptde.dup());
+            ALIAS_CRYPTDE_OPT = Some(alias_cryptde.dup());
+        }
+    })
 }
 
 pub fn cryptdes_are_initialized() -> bool {
@@ -102,18 +103,22 @@ pub fn cryptdes_are_initialized() -> bool {
 #[cfg(test)]
 pub mod cryptde_test {
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
-    use crate::bootstrapper::{cryptdes_are_initialized, set_alias_cryptde, set_main_cryptde, CryptDEPair, ALIAS_CRYPTDE_OPT, MAIN_CRYPTDE_OPT};
+    use crate::bootstrapper::{cryptdes_are_initialized, ALIAS_CRYPTDE_OPT, CRYPTDE_ONCE_BLOCK, MAIN_CRYPTDE_OPT};
     use crate::sub_lib::cryptde::CryptDE;
     use crate::sub_lib::cryptde_null::CryptDENull;
 
     pub fn ensure_cryptde_initialization() {
-        if (!cryptdes_are_initialized()) {
-            set_main_cryptde(Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN)));
-            set_alias_cryptde(Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN)));
+        if !cryptdes_are_initialized() {
+            CRYPTDE_ONCE_BLOCK.call_once(|| {
+                set_cryptdes(
+                    Some(Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN))),
+                    Some(Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN))),
+                );
+            });
         }
     }
 
-    pub fn set_cryptdes(main_crypde_opt: Option<Box<dyn CryptDE>>, alias_cryptde_opt: Option<Box<dyn CryptDE>>) {
+    fn set_cryptdes(main_crypde_opt: Option<Box<dyn CryptDE>>, alias_cryptde_opt: Option<Box<dyn CryptDE>>) {
         unsafe{
             MAIN_CRYPTDE_OPT = main_crypde_opt;
             ALIAS_CRYPTDE_OPT = alias_cryptde_opt;
@@ -754,7 +759,7 @@ mod tests {
     use tokio::executor::current_thread::CurrentThread;
     use tokio::prelude::stream::FuturesUnordered;
     use tokio::prelude::Async;
-    use crate::bootstrapper::cryptde_test::{ensure_cryptde_initialization, set_cryptdes};
+    use crate::bootstrapper::cryptde_test::{ensure_cryptde_initialization};
 
     lazy_static! {
         pub static ref INITIALIZATION: Mutex<bool> = Mutex::new(false);
