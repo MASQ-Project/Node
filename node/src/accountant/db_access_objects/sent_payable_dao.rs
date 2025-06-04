@@ -365,7 +365,7 @@ mod tests {
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let hash = H256::from_low_u64_be(1234567890);
+        let hash = make_tx_hash(1234);
         let tx1 = TxBuilder::default().hash(hash).build();
         let tx2 = TxBuilder::default()
             .hash(hash)
@@ -392,7 +392,7 @@ mod tests {
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let hash = H256::from_low_u64_be(1234567890);
+        let hash = make_tx_hash(1234);
         let tx1 = TxBuilder::default().hash(hash).build();
         let tx2 = TxBuilder::default()
             .hash(hash)

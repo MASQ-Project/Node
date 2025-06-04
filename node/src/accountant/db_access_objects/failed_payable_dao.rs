@@ -306,7 +306,6 @@ mod tests {
     };
     use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::database::test_utils::ConnectionWrapperMock;
-    use ethereum_types::H256;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::{Connection, OpenFlags};
     use std::collections::{HashMap, HashSet};
@@ -362,7 +361,7 @@ mod tests {
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let hash = H256::from_low_u64_be(1234567890);
+        let hash = make_tx_hash(123);
         let tx1 = FailedTxBuilder::default().hash(hash).build();
         let tx2 = FailedTxBuilder::default().hash(hash).checked(1).build();
         let subject = FailedPayableDaoReal::new(wrapped_conn);
@@ -386,7 +385,7 @@ mod tests {
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let hash = H256::from_low_u64_be(1234567890);
+        let hash = make_tx_hash(123);
         let tx1 = FailedTxBuilder::default().hash(hash).build();
         let tx2 = FailedTxBuilder::default().hash(hash).checked(1).build();
         let subject = FailedPayableDaoReal::new(wrapped_conn);
