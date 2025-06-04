@@ -26,13 +26,13 @@ pub enum FailureReason {
 }
 
 impl FromStr for FailureReason {
-    type Err = ();
+    type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "PendingTooLong" => Ok(FailureReason::PendingTooLong),
             "NonceIssue" => Ok(FailureReason::NonceIssue),
-            _ => todo!(),
+            _ => Err(format!("Invalid FailureReason: {}", s)),
         }
     }
 }
@@ -309,6 +309,7 @@ mod tests {
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::{Connection, OpenFlags};
     use std::collections::{HashMap, HashSet};
+    use std::str::FromStr;
 
     #[test]
     fn insert_new_records_works() {
@@ -482,6 +483,19 @@ mod tests {
         assert_eq!(result.get(&present_hash), Some(&1u64));
         assert_eq!(result.get(&absent_hash), None);
         assert_eq!(result.get(&another_present_hash), Some(&2u64));
+    }
+
+    #[test]
+    fn failure_reason_from_str_works() {
+        assert_eq!(
+            FailureReason::from_str("PendingTooLong"),
+            Ok(PendingTooLong)
+        );
+        assert_eq!(FailureReason::from_str("NonceIssue"), Ok(NonceIssue));
+        assert_eq!(
+            FailureReason::from_str("InvalidReason"),
+            Err("Invalid FailureReason: InvalidReason".to_string())
+        );
     }
 
     #[test]
