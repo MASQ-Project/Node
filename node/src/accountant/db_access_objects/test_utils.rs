@@ -3,7 +3,7 @@
 
 use crate::accountant::db_access_objects::sent_payable_dao::{TxHash, Tx};
 use crate::accountant::db_access_objects::utils::current_unix_timestamp;
-use web3::types::{Address, H256};
+use web3::types::{Address};
 use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureReason};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionBlock;
 
@@ -59,32 +59,12 @@ pub struct FailedTxBuilder {
 }
 
 impl FailedTxBuilder {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn default() -> Self {
+        Default::default()
     }
 
     pub fn hash(mut self, hash: TxHash) -> Self {
         self.hash_opt = Some(hash);
-        self
-    }
-
-    pub fn receiver_address(mut self, receiver_address: Address) -> Self {
-        self.receiver_address_opt = Some(receiver_address);
-        self
-    }
-
-    pub fn amount(mut self, amount: u128) -> Self {
-        self.amount_opt = Some(amount);
-        self
-    }
-
-    pub fn timestamp(mut self, timestamp: i64) -> Self {
-        self.timestamp_opt = Some(timestamp);
-        self
-    }
-
-    pub fn gas_price_wei(mut self, gas_price_wei: u128) -> Self {
-        self.gas_price_wei_opt = Some(gas_price_wei);
         self
     }
 

@@ -31,6 +31,7 @@ impl FromStr for FailureReason {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "PendingTooLong" => Ok(FailureReason::PendingTooLong),
+            "NonceIssue" => Ok(FailureReason::NonceIssue),
             _ => todo!(),
         }
     }
@@ -228,88 +229,86 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
     }
 
     fn update_tx_failures(&self, hash_map: &FailureUpdates) -> Result<(), FailedPayableDaoError> {
-        todo!("fix 4");
+        if hash_map.is_empty() {
+            return Err(FailedPayableDaoError::EmptyInput);
+        }
 
-        // if hash_map.is_empty() {
-        //     return Err(FailedPayableDaoError::EmptyInput);
-        // }
-        //
-        // for (hash, transaction_block) in hash_map {
-        //     let sql = format!(
-        //         "UPDATE sent_payable SET block_hash = '{:?}', block_number = {} WHERE tx_hash = '{:?}'",
-        //         transaction_block.block_hash, transaction_block.block_number, hash
-        //     );
-        //
-        //     match self.conn.prepare(&sql).expect("Internal error").execute([]) {
-        //         Ok(updated_rows) => {
-        //             if updated_rows == 1 {
-        //                 continue;
-        //             } else {
-        //                 return Err(FailedPayableDaoError::PartialExecution(format!(
-        //                     "Failed to update status for hash {:?}",
-        //                     hash
-        //                 )));
-        //             }
-        //         }
-        //         Err(e) => {
-        //             return Err(FailedPayableDaoError::SqlExecutionFailed(e.to_string()));
-        //         }
-        //     }
-        // }
-        //
-        // Ok(())
+        for (hash, failure_reason) in hash_map {
+            let sql = format!(
+                "UPDATE failed_payable SET reason = '{:?}' WHERE tx_hash = '{:?}'",
+                failure_reason, hash
+            );
+
+            match self.conn.prepare(&sql).expect("Internal error").execute([]) {
+                Ok(updated_rows) => {
+                    if updated_rows == 1 {
+                        continue;
+                    } else {
+                        return Err(FailedPayableDaoError::PartialExecution(format!(
+                            "Failed to update failure reason for hash {:?}",
+                            hash
+                        )));
+                    }
+                }
+                Err(e) => {
+                    return Err(FailedPayableDaoError::SqlExecutionFailed(e.to_string()));
+                }
+            }
+        }
+
+        Ok(())
     }
 
     fn delete_records(&self, hashes: &HashSet<TxHash>) -> Result<(), FailedPayableDaoError> {
-        todo!("fix 5");
+        if hashes.is_empty() {
+            return Err(FailedPayableDaoError::EmptyInput);
+        }
 
-        // if hashes.is_empty() {
-        //     return Err(FailedPayableDaoError::EmptyInput);
-        // }
-        //
-        // let hashes_vec: Vec<Hash> = hashes.iter().cloned().collect();
-        // let sql = format!(
-        //     "DELETE FROM sent_payable WHERE tx_hash IN ({})",
-        //     comma_joined_stringifiable(&hashes_vec, |hash| { format!("'{:?}'", hash) })
-        // );
-        //
-        // match self.conn.prepare(&sql).expect("Internal error").execute([]) {
-        //     Ok(deleted_rows) => {
-        //         if deleted_rows == hashes.len() {
-        //             Ok(())
-        //         } else if deleted_rows == 0 {
-        //             Err(FailedPayableDaoError::NoChange)
-        //         } else {
-        //             Err(FailedPayableDaoError::PartialExecution(format!(
-        //                 "Only {} of the {} hashes has been deleted.",
-        //                 deleted_rows,
-        //                 hashes.len(),
-        //             )))
-        //         }
-        //     }
-        //     Err(e) => Err(FailedPayableDaoError::SqlExecutionFailed(e.to_string())),
-        // }
+        let hashes_vec: Vec<TxHash> = hashes.iter().cloned().collect();
+        let sql = format!(
+            "DELETE FROM failed_payable WHERE tx_hash IN ({})",
+            comma_joined_stringifiable(&hashes_vec, |hash| { format!("'{:?}'", hash) })
+        );
+
+        match self.conn.prepare(&sql).expect("Internal error").execute([]) {
+            Ok(deleted_rows) => {
+                if deleted_rows == hashes.len() {
+                    Ok(())
+                } else if deleted_rows == 0 {
+                    Err(FailedPayableDaoError::NoChange)
+                } else {
+                    Err(FailedPayableDaoError::PartialExecution(format!(
+                        "Only {} of the {} hashes has been deleted.",
+                        deleted_rows,
+                        hashes.len(),
+                    )))
+                }
+            }
+            Err(e) => Err(FailedPayableDaoError::SqlExecutionFailed(e.to_string())),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{HashMap, HashSet};
-    use crate::accountant::db_access_objects::sent_payable_dao::{RetrieveCondition, SentPayableDao, SentPayableDaoError, SentPayableDaoReal};
+    use crate::accountant::db_access_objects::failed_payable_dao::FailureReason::{
+        NonceIssue, PendingTooLong,
+    };
+    use crate::accountant::db_access_objects::failed_payable_dao::FailureRetrieveCondition::ByReason;
+    use crate::accountant::db_access_objects::failed_payable_dao::{
+        FailedPayableDao, FailedPayableDaoError, FailedPayableDaoReal, FailureReason,
+        FailureRetrieveCondition,
+    };
+    use crate::accountant::db_access_objects::test_utils::FailedTxBuilder;
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
     };
     use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::database::test_utils::ConnectionWrapperMock;
-    use ethereum_types::{ H256, U64};
+    use ethereum_types::H256;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::{Connection, OpenFlags};
-    use crate::accountant::db_access_objects::failed_payable_dao::{FailedPayableDao, FailedPayableDaoError, FailedPayableDaoReal, FailureReason, FailureRetrieveCondition};
-    use crate::accountant::db_access_objects::failed_payable_dao::FailureReason::PendingTooLong;
-    use crate::accountant::db_access_objects::failed_payable_dao::FailureRetrieveCondition::ByReason;
-    use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::{ByHash};
-    use crate::accountant::db_access_objects::test_utils::{FailedTxBuilder, TxBuilder};
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock};
+    use std::collections::{HashMap, HashSet};
 
     #[test]
     fn insert_new_records_works() {
@@ -553,106 +552,87 @@ mod tests {
     }
 
     #[test]
-    fn update_tx_blocks_works() {
+    fn update_tx_failures_works() {
         let home_dir =
-            ensure_node_home_directory_exists("sent_payable_dao", "update_tx_blocks_works");
+            ensure_node_home_directory_exists("failed_payable_dao", "update_tx_failures_works");
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let subject = SentPayableDaoReal::new(wrapped_conn);
-        let tx1 = TxBuilder::default().hash(H256::from_low_u64_le(1)).build();
-        let tx2 = TxBuilder::default().hash(H256::from_low_u64_le(2)).build();
+        let subject = FailedPayableDaoReal::new(wrapped_conn);
+        let tx1 = FailedTxBuilder::default()
+            .hash(H256::from_low_u64_le(1))
+            .build();
+        let tx2 = FailedTxBuilder::default()
+            .hash(H256::from_low_u64_le(2))
+            .build();
         subject
             .insert_new_records(&vec![tx1.clone(), tx2.clone()])
             .unwrap();
-        let tx_block_1 = TransactionBlock {
-            block_hash: H256::from_low_u64_le(3),
-            block_number: U64::from(1),
-        };
-        let tx_block_2 = TransactionBlock {
-            block_hash: H256::from_low_u64_le(4),
-            block_number: U64::from(2),
-        };
-        let hash_map = HashMap::from([
-            (tx1.hash, tx_block_1.clone()),
-            (tx2.hash, tx_block_2.clone()),
-        ]);
+        let hash_map = HashMap::from([(tx1.hash, PendingTooLong), (tx2.hash, NonceIssue)]);
 
-        let result = subject.update_tx_blocks(&hash_map);
+        let result = subject.update_tx_failures(&hash_map);
 
-        let updated_txs = subject.retrieve_txs(Some(ByHash(vec![tx1.hash, tx2.hash])));
+        let updated_txs = subject.retrieve_txs(None);
         assert_eq!(result, Ok(()));
-        assert_eq!(updated_txs[0].block_opt, Some(tx_block_1));
-        assert_eq!(updated_txs[1].block_opt, Some(tx_block_2));
+        assert_eq!(updated_txs[0].reason, PendingTooLong);
+        assert_eq!(updated_txs[1].reason, NonceIssue);
     }
 
     #[test]
-    fn update_tx_blocks_returns_error_when_input_is_empty() {
+    fn update_tx_failures_returns_error_when_input_is_empty() {
         let home_dir = ensure_node_home_directory_exists(
-            "sent_payable_dao",
-            "update_tx_blocks_returns_error_when_input_is_empty",
+            "failed_payable_dao",
+            "update_tx_failures_returns_error_when_input_is_empty",
         );
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let subject = SentPayableDaoReal::new(wrapped_conn);
+        let subject = FailedPayableDaoReal::new(wrapped_conn);
         let existent_hash = H256::from_low_u64_le(1);
-        let tx = TxBuilder::default().hash(existent_hash).build();
+        let tx = FailedTxBuilder::default().hash(existent_hash).build();
         subject.insert_new_records(&vec![tx]).unwrap();
         let hash_map = HashMap::new();
 
-        let result = subject.update_tx_blocks(&hash_map);
+        let result = subject.update_tx_failures(&hash_map);
 
-        assert_eq!(result, Err(SentPayableDaoError::EmptyInput));
+        assert_eq!(result, Err(FailedPayableDaoError::EmptyInput));
     }
 
     #[test]
-    fn update_tx_blocks_returns_error_during_partial_execution() {
+    fn update_tx_failures_returns_error_during_partial_execution() {
         let home_dir = ensure_node_home_directory_exists(
-            "sent_payable_dao",
-            "update_tx_blocks_returns_error_during_partial_execution",
+            "failed_payable_dao",
+            "update_tx_failures_returns_error_during_partial_execution",
         );
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let subject = SentPayableDaoReal::new(wrapped_conn);
+        let subject = FailedPayableDaoReal::new(wrapped_conn);
         let existent_hash = H256::from_low_u64_le(1);
         let non_existent_hash = H256::from_low_u64_le(999);
-        let tx = TxBuilder::default().hash(existent_hash).build();
+        let tx = FailedTxBuilder::default().hash(existent_hash).build();
         subject.insert_new_records(&vec![tx]).unwrap();
         let hash_map = HashMap::from([
-            (
-                existent_hash,
-                TransactionBlock {
-                    block_hash: H256::from_low_u64_le(1),
-                    block_number: U64::from(1),
-                },
-            ),
-            (
-                non_existent_hash,
-                TransactionBlock {
-                    block_hash: H256::from_low_u64_le(2),
-                    block_number: U64::from(2),
-                },
-            ),
+            (existent_hash, PendingTooLong),
+            (non_existent_hash, NonceIssue),
         ]);
 
-        let result = subject.update_tx_blocks(&hash_map);
+        let result = subject.update_tx_failures(&hash_map);
 
         assert_eq!(
             result,
-            Err(SentPayableDaoError::PartialExecution(format!(
-                "Failed to update status for hash {:?}",
+            Err(FailedPayableDaoError::PartialExecution(format!(
+                "Failed to update failure reason for hash {:?}",
                 non_existent_hash
             )))
         );
     }
 
     #[test]
-    fn update_tx_blocks_returns_error_when_an_error_occurs_while_executing_sql() {
+    fn update_tx_failures_returns_error_when_an_error_occurs_while_executing_sql() {
         let home_dir = ensure_node_home_directory_exists(
-            "sent_payable_dao",
-            "update_tx_blocks_returns_error_when_an_error_occurs_while_executing_sql",
+            "failed_payable_dao",
+            "update_tx_failures_returns_error_when_an_error_occurs_while_executing_sql",
         );
         {
             DbInitializerReal::default()
@@ -665,21 +645,15 @@ mod tests {
         )
         .unwrap();
         let wrapped_conn = ConnectionWrapperReal::new(read_only_conn);
-        let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
+        let subject = FailedPayableDaoReal::new(Box::new(wrapped_conn));
         let hash = H256::from_low_u64_le(1);
-        let hash_map = HashMap::from([(
-            hash,
-            TransactionBlock {
-                block_hash: H256::default(),
-                block_number: U64::default(),
-            },
-        )]);
+        let hash_map = HashMap::from([(hash, NonceIssue)]);
 
-        let result = subject.update_tx_blocks(&hash_map);
+        let result = subject.update_tx_failures(&hash_map);
 
         assert_eq!(
             result,
-            Err(SentPayableDaoError::SqlExecutionFailed(
+            Err(FailedPayableDaoError::SqlExecutionFailed(
                 "attempt to write a readonly database".to_string()
             ))
         )
@@ -687,17 +661,23 @@ mod tests {
 
     #[test]
     fn txs_can_be_deleted() {
-        let home_dir = ensure_node_home_directory_exists("sent_payable_dao", "txs_can_be_deleted");
+        let home_dir =
+            ensure_node_home_directory_exists("failed_payable_dao", "txs_can_be_deleted");
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let subject = SentPayableDaoReal::new(wrapped_conn);
-        let tx1 = TxBuilder::default().hash(H256::from_low_u64_le(1)).build();
-        let tx2 = TxBuilder::default().hash(H256::from_low_u64_le(2)).build();
-        let tx3 = TxBuilder::default().hash(H256::from_low_u64_le(3)).build();
-        let tx4 = TxBuilder::default()
+        let subject = FailedPayableDaoReal::new(wrapped_conn);
+        let tx1 = FailedTxBuilder::default()
+            .hash(H256::from_low_u64_le(1))
+            .build();
+        let tx2 = FailedTxBuilder::default()
+            .hash(H256::from_low_u64_le(2))
+            .build();
+        let tx3 = FailedTxBuilder::default()
+            .hash(H256::from_low_u64_le(3))
+            .build();
+        let tx4 = FailedTxBuilder::default()
             .hash(H256::from_low_u64_le(4))
-            .block(Default::default())
             .build();
         subject
             .insert_new_records(&vec![tx1.clone(), tx2.clone(), tx3.clone(), tx4.clone()])
@@ -714,50 +694,50 @@ mod tests {
     #[test]
     fn delete_records_returns_error_when_input_is_empty() {
         let home_dir = ensure_node_home_directory_exists(
-            "sent_payable_dao",
+            "failed_payable_dao",
             "delete_records_returns_error_when_input_is_empty",
         );
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let subject = SentPayableDaoReal::new(wrapped_conn);
+        let subject = FailedPayableDaoReal::new(wrapped_conn);
 
         let result = subject.delete_records(&HashSet::new());
 
-        assert_eq!(result, Err(SentPayableDaoError::EmptyInput));
+        assert_eq!(result, Err(FailedPayableDaoError::EmptyInput));
     }
 
     #[test]
     fn delete_records_returns_error_when_no_records_are_deleted() {
         let home_dir = ensure_node_home_directory_exists(
-            "sent_payable_dao",
+            "failed_payable_dao",
             "delete_records_returns_error_when_no_records_are_deleted",
         );
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let subject = SentPayableDaoReal::new(wrapped_conn);
+        let subject = FailedPayableDaoReal::new(wrapped_conn);
         let non_existent_hash = H256::from_low_u64_le(999);
         let hashset = HashSet::from([non_existent_hash]);
 
         let result = subject.delete_records(&hashset);
 
-        assert_eq!(result, Err(SentPayableDaoError::NoChange));
+        assert_eq!(result, Err(FailedPayableDaoError::NoChange));
     }
 
     #[test]
     fn delete_records_returns_error_when_not_all_input_records_were_deleted() {
         let home_dir = ensure_node_home_directory_exists(
-            "sent_payable_dao",
+            "failed_payable_dao",
             "delete_records_returns_error_when_not_all_input_records_were_deleted",
         );
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let subject = SentPayableDaoReal::new(wrapped_conn);
+        let subject = FailedPayableDaoReal::new(wrapped_conn);
         let present_hash = H256::from_low_u64_le(1);
         let absent_hash = H256::from_low_u64_le(2);
-        let tx = TxBuilder::default().hash(present_hash).build();
+        let tx = FailedTxBuilder::default().hash(present_hash).build();
         subject.insert_new_records(&vec![tx]).unwrap();
         let hashset = HashSet::from([present_hash, absent_hash]);
 
@@ -765,7 +745,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(SentPayableDaoError::PartialExecution(
+            Err(FailedPayableDaoError::PartialExecution(
                 "Only 1 of the 2 hashes has been deleted.".to_string()
             ))
         );
@@ -774,7 +754,7 @@ mod tests {
     #[test]
     fn delete_records_returns_a_general_error_from_sql() {
         let home_dir = ensure_node_home_directory_exists(
-            "sent_payable_dao",
+            "failed_payable_dao",
             "delete_records_returns_a_general_error_from_sql",
         );
         {
@@ -788,14 +768,14 @@ mod tests {
         )
         .unwrap();
         let wrapped_conn = ConnectionWrapperReal::new(read_only_conn);
-        let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
+        let subject = FailedPayableDaoReal::new(Box::new(wrapped_conn));
         let hashes = HashSet::from([H256::from_low_u64_le(1)]);
 
         let result = subject.delete_records(&hashes);
 
         assert_eq!(
             result,
-            Err(SentPayableDaoError::SqlExecutionFailed(
+            Err(FailedPayableDaoError::SqlExecutionFailed(
                 "attempt to write a readonly database".to_string()
             ))
         )
