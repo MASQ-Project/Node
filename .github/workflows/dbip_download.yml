@@ -1,8 +1,9 @@
 name: Download DBIP data and generate dbip_country.rs
 
 on:
-  schedule:
-    - cron: "0 0 * * *" # Runs at midnight on the 3rd of every month
+  workflow_dispatch:
+#  schedule:
+#    - cron: "0 0 * * *" # Runs at midnight on the 3rd of every month
 
 env:
   TEMP_DIR: '/tmp'
@@ -25,6 +26,7 @@ jobs:
 
       - name: Download DBIP data in MMDB format
         run: |
+          set -xv
           export YEAR_MONTH=$(date +%Y-%m)
           echo "TEMP_DIR=$(mktemp -d)" >> $GITHUB_ENV
           echo "YEAR_MONTH=$YEAR_MONTH" >> $GITHUB_ENV
@@ -36,15 +38,18 @@ jobs:
 
       - name: Generate Rust source file
         run: |
+          set -xv
           cd dbipexperiment/ip_country
           cargo run < "dbip-data/dbip-country-lite.mmdb" > "$TEMP_DIR"/dbip_country.rs
           ls "$TEMP_DIR"
 
       - name: Commit and push generated file
         run: |
+          set -xv
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          if [[ "$(git ls-remote --heads 2>/dev/null | grep generated-source)" == "" ]]
+          BRANCH=$(git ls-remote --heads 2>/dev/null | grep generated-source)
+          if [[ "$BRANCH" == "" ]]
           then
                git checkout -B generated-source
                git rm -rf .
