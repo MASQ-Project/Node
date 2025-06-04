@@ -300,6 +300,7 @@ mod tests {
         FailureRetrieveCondition,
     };
     use crate::accountant::db_access_objects::test_utils::FailedTxBuilder;
+    use crate::blockchain::test_utils::make_tx_hash;
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
     };
@@ -318,11 +319,9 @@ mod tests {
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let tx1 = FailedTxBuilder::default()
-            .hash(H256::from_low_u64_le(1))
-            .build();
+        let tx1 = FailedTxBuilder::default().hash(make_tx_hash(1)).build();
         let tx2 = FailedTxBuilder::default()
-            .hash(H256::from_low_u64_le(2))
+            .hash(make_tx_hash(2))
             .reason(PendingTooLong)
             .checked(1)
             .build();
@@ -466,9 +465,9 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = FailedPayableDaoReal::new(wrapped_conn);
-        let present_hash = H256::from_low_u64_le(1);
-        let absent_hash = H256::from_low_u64_le(2);
-        let another_present_hash = H256::from_low_u64_le(3);
+        let present_hash = make_tx_hash(1);
+        let absent_hash = make_tx_hash(2);
+        let another_present_hash = make_tx_hash(3);
         let hashset = HashSet::from([present_hash, absent_hash, another_present_hash]);
         let present_tx = FailedTxBuilder::default().hash(present_hash).build();
         let another_present_tx = FailedTxBuilder::default()
@@ -514,16 +513,12 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = FailedPayableDaoReal::new(wrapped_conn);
-        let tx1 = FailedTxBuilder::default()
-            .hash(H256::from_low_u64_le(1))
-            .build();
+        let tx1 = FailedTxBuilder::default().hash(make_tx_hash(1)).build();
         let tx2 = FailedTxBuilder::default()
-            .hash(H256::from_low_u64_le(2))
+            .hash(make_tx_hash(2))
             .nonce(1)
             .build();
-        let tx3 = FailedTxBuilder::default()
-            .hash(H256::from_low_u64_le(3))
-            .build();
+        let tx3 = FailedTxBuilder::default().hash(make_tx_hash(3)).build();
         subject
             .insert_new_records(&vec![tx1.clone(), tx2.clone()])
             .unwrap();
@@ -543,17 +538,17 @@ mod tests {
             .unwrap();
         let subject = FailedPayableDaoReal::new(wrapped_conn);
         let tx1 = FailedTxBuilder::default()
-            .hash(H256::from_low_u64_le(1))
+            .hash(make_tx_hash(1))
             .reason(FailureReason::PendingTooLong)
             .checked(0)
             .build();
         let tx2 = FailedTxBuilder::default()
-            .hash(H256::from_low_u64_le(2))
+            .hash(make_tx_hash(2))
             .reason(FailureReason::PendingTooLong)
             .checked(1)
             .build();
         let tx3 = FailedTxBuilder::default()
-            .hash(H256::from_low_u64_le(3))
+            .hash(make_tx_hash(3))
             .reason(FailureReason::NonceIssue)
             .build();
         subject
@@ -573,12 +568,8 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = FailedPayableDaoReal::new(wrapped_conn);
-        let tx1 = FailedTxBuilder::default()
-            .hash(H256::from_low_u64_le(1))
-            .build();
-        let tx2 = FailedTxBuilder::default()
-            .hash(H256::from_low_u64_le(2))
-            .build();
+        let tx1 = FailedTxBuilder::default().hash(make_tx_hash(1)).build();
+        let tx2 = FailedTxBuilder::default().hash(make_tx_hash(2)).build();
         subject
             .insert_new_records(&vec![tx1.clone(), tx2.clone()])
             .unwrap();
@@ -602,7 +593,7 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = FailedPayableDaoReal::new(wrapped_conn);
-        let existent_hash = H256::from_low_u64_le(1);
+        let existent_hash = make_tx_hash(1);
         let tx = FailedTxBuilder::default().hash(existent_hash).build();
         subject.insert_new_records(&vec![tx]).unwrap();
         let hash_map = HashMap::new();
@@ -622,8 +613,8 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = FailedPayableDaoReal::new(wrapped_conn);
-        let existent_hash = H256::from_low_u64_le(1);
-        let non_existent_hash = H256::from_low_u64_le(999);
+        let existent_hash = make_tx_hash(1);
+        let non_existent_hash = make_tx_hash(999);
         let tx = FailedTxBuilder::default().hash(existent_hash).build();
         subject.insert_new_records(&vec![tx]).unwrap();
         let hash_map = HashMap::from([
@@ -660,7 +651,7 @@ mod tests {
         .unwrap();
         let wrapped_conn = ConnectionWrapperReal::new(read_only_conn);
         let subject = FailedPayableDaoReal::new(Box::new(wrapped_conn));
-        let hash = H256::from_low_u64_le(1);
+        let hash = make_tx_hash(1);
         let hash_map = HashMap::from([(hash, NonceIssue)]);
 
         let result = subject.update_tx_failures(&hash_map);
@@ -681,18 +672,10 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = FailedPayableDaoReal::new(wrapped_conn);
-        let tx1 = FailedTxBuilder::default()
-            .hash(H256::from_low_u64_le(1))
-            .build();
-        let tx2 = FailedTxBuilder::default()
-            .hash(H256::from_low_u64_le(2))
-            .build();
-        let tx3 = FailedTxBuilder::default()
-            .hash(H256::from_low_u64_le(3))
-            .build();
-        let tx4 = FailedTxBuilder::default()
-            .hash(H256::from_low_u64_le(4))
-            .build();
+        let tx1 = FailedTxBuilder::default().hash(make_tx_hash(1)).build();
+        let tx2 = FailedTxBuilder::default().hash(make_tx_hash(2)).build();
+        let tx3 = FailedTxBuilder::default().hash(make_tx_hash(3)).build();
+        let tx4 = FailedTxBuilder::default().hash(make_tx_hash(4)).build();
         subject
             .insert_new_records(&vec![tx1.clone(), tx2.clone(), tx3.clone(), tx4.clone()])
             .unwrap();
@@ -731,7 +714,7 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = FailedPayableDaoReal::new(wrapped_conn);
-        let non_existent_hash = H256::from_low_u64_le(999);
+        let non_existent_hash = make_tx_hash(999);
         let hashset = HashSet::from([non_existent_hash]);
 
         let result = subject.delete_records(&hashset);
@@ -749,8 +732,8 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = FailedPayableDaoReal::new(wrapped_conn);
-        let present_hash = H256::from_low_u64_le(1);
-        let absent_hash = H256::from_low_u64_le(2);
+        let present_hash = make_tx_hash(1);
+        let absent_hash = make_tx_hash(2);
         let tx = FailedTxBuilder::default().hash(present_hash).build();
         subject.insert_new_records(&vec![tx]).unwrap();
         let hashset = HashSet::from([present_hash, absent_hash]);
@@ -783,7 +766,7 @@ mod tests {
         .unwrap();
         let wrapped_conn = ConnectionWrapperReal::new(read_only_conn);
         let subject = FailedPayableDaoReal::new(Box::new(wrapped_conn));
-        let hashes = HashSet::from([H256::from_low_u64_le(1)]);
+        let hashes = HashSet::from([make_tx_hash(1)]);
 
         let result = subject.delete_records(&hashes);
 
