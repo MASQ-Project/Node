@@ -26,7 +26,6 @@ jobs:
 
       - name: Download DBIP data in MMDB format
         run: |
-          set -xv
           export YEAR_MONTH=$(date +%Y-%m)
           echo "TEMP_DIR=$(mktemp -d)" >> $GITHUB_ENV
           echo "YEAR_MONTH=$YEAR_MONTH" >> $GITHUB_ENV
@@ -38,7 +37,6 @@ jobs:
 
       - name: Generate Rust source file
         run: |
-          set -xv
           cd dbipexperiment/ip_country
           cargo run < "dbip-data/dbip-country-lite.mmdb" > "$TEMP_DIR"/dbip_country.rs
           ls "$TEMP_DIR"
@@ -48,6 +46,7 @@ jobs:
           set -xv
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch
           BRANCH=$(git ls-remote --heads 2>/dev/null | grep generated-source)
           if [[ "$BRANCH" == "" ]]
           then
