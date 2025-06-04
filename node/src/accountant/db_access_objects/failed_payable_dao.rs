@@ -1,6 +1,5 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-
-use crate::accountant::db_access_objects::sent_payable_dao::{TxHash, TxIdentifiers};
+use crate::accountant::db_access_objects::utils::{TxHash, TxIdentifiers};
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::{checked_conversion, comma_joined_stringifiable};
 use crate::database::rusqlite_wrappers::ConnectionWrapper;

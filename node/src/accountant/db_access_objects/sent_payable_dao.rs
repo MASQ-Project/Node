@@ -7,6 +7,7 @@ use ethereum_types::{H256, U64};
 use web3::types::Address;
 use masq_lib::utils::ExpectValue;
 use crate::accountant::{checked_conversion, comma_joined_stringifiable};
+use crate::accountant::db_access_objects::utils::{TxHash, TxIdentifiers};
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock};
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
@@ -19,12 +20,7 @@ pub enum SentPayableDaoError {
     PartialExecution(String),
     SqlExecutionFailed(String),
 }
-
-pub type TxHash = H256;
-pub type RowId = u64;
-
-pub type TxIdentifiers = HashMap<TxHash, RowId>;
-pub type TxUpdates = HashMap<TxHash, TransactionBlock>;
+type TxUpdates = HashMap<TxHash, TransactionBlock>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Tx {
