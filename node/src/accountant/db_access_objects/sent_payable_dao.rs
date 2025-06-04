@@ -310,7 +310,7 @@ mod tests {
     use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::{ByHash, IsPending};
     use crate::accountant::db_access_objects::test_utils::TxBuilder;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock};
-    use crate::blockchain::test_utils::make_tx_hash;
+    use crate::blockchain::test_utils::{make_block_hash, make_tx_hash};
 
     #[test]
     fn insert_new_records_works() {
@@ -631,11 +631,11 @@ mod tests {
             .insert_new_records(&vec![tx1.clone(), tx2.clone()])
             .unwrap();
         let tx_block_1 = TransactionBlock {
-            block_hash: make_tx_hash(3),
+            block_hash: make_block_hash(3),
             block_number: U64::from(1),
         };
         let tx_block_2 = TransactionBlock {
-            block_hash: make_tx_hash(4),
+            block_hash: make_block_hash(4),
             block_number: U64::from(2),
         };
         let hash_map = HashMap::from([
@@ -689,14 +689,14 @@ mod tests {
             (
                 existent_hash,
                 TransactionBlock {
-                    block_hash: make_tx_hash(1),
+                    block_hash: make_block_hash(1),
                     block_number: U64::from(1),
                 },
             ),
             (
                 non_existent_hash,
                 TransactionBlock {
-                    block_hash: make_tx_hash(2),
+                    block_hash: make_block_hash(2),
                     block_number: U64::from(2),
                 },
             ),
@@ -735,7 +735,7 @@ mod tests {
         let hash_map = HashMap::from([(
             hash,
             TransactionBlock {
-                block_hash: H256::default(),
+                block_hash: make_block_hash(1),
                 block_number: U64::default(),
             },
         )]);
