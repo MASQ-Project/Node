@@ -9,6 +9,20 @@ use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
+// Counter-messages are a powerful tool that allows you to actively simulate communication within
+// a system. They enable sending either a single message or multiple messages in response to
+// a specific trigger, which is just another Actor message arriving at the Recorder.
+// By trigger, we mean the moment when an incoming message is tested sequentially against collected
+// identification methods and matches. Each counter-message must have its identification method
+// attached when it is being prepared for storage in the Recorder.
+// Counter-messages can be independently customized and targeted at different actors by
+// providing their addresses, supporting complex interaction patterns. This design facilitates
+// sophisticated testing scenarios by mimicking real communication flows between multiple Actors.
+// The actual preparation of the Recorder needs to be carried out somewhat specifically during the
+// late stage of configuring the test, when all participating Actors are already started and their
+// addresses are known. The setup for counter-messages must be registered with the appropriate
+// Recorder using a specially designated Actor message called `SetUpCounterMsgs`.
+
 pub trait CounterMsgGear: Send {
     fn try_send(&self);
 }
