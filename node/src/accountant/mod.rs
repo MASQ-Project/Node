@@ -225,12 +225,23 @@ impl Handler<ScanForPendingPayables> for Accountant {
         // of the RetryPayableScanner, which finishes, and the PendingPayablesScanner is scheduled
         // to run again. However, not from here.
         let response_skeleton_opt = msg.response_skeleton_opt;
-        if let StartScanErrorResponse::Schedule(ScanType::Payables) =
-            self.handle_request_of_scan_for_pending_payable(response_skeleton_opt)
-        {
-            self.scan_schedulers
+
+        let scheduling_hint =
+            self.handle_request_of_scan_for_pending_payable(response_skeleton_opt);
+
+        match scheduling_hint {
+            StartScanErrorResponse::Schedule(ScanType::Payables) => self
+                .scan_schedulers
                 .payable
-                .schedule_new_payable_scan(ctx, &self.logger);
+                .schedule_new_payable_scan(ctx, &self.logger),
+            StartScanErrorResponse::Schedule(ScanType::PendingPayables) => todo!(),
+            StartScanErrorResponse::Schedule(_) => todo!(),
+            StartScanErrorResponse::DoNotSchedule => {
+                trace!(
+                    self.logger,
+                    "No early rescheduling, as the pending payable scan found results"
+                );
+            }
         }
     }
 }
@@ -245,12 +256,21 @@ impl Handler<ScanForNewPayables> for Accountant {
         // the PendingPayableScanner whose job is to evaluate if it has seen every pending payable
         // complete. That's the moment when another run of the NewPayableScanner makes sense again.
         let response_skeleton = msg.response_skeleton_opt;
-        if let StartScanErrorResponse::Schedule(ScanType::Payables) =
-            self.handle_request_of_scan_for_new_payable(response_skeleton)
-        {
-            self.scan_schedulers
+
+        let scheduling_hint = self.handle_request_of_scan_for_new_payable(response_skeleton);
+
+        match scheduling_hint {
+            StartScanErrorResponse::Schedule(ScanType::Payables) => self
+                .scan_schedulers
                 .payable
-                .schedule_new_payable_scan(ctx, &self.logger)
+                .schedule_new_payable_scan(ctx, &self.logger),
+            StartScanErrorResponse::Schedule(other_scan_type) => todo!(),
+            StartScanErrorResponse::DoNotSchedule => {
+                trace!(
+                    self.logger,
+                    "No early rescheduling, as the new payable scan found results"
+                )
+            }
         }
     }
 }
@@ -262,7 +282,7 @@ impl Handler<ScanForRetryPayables> for Accountant {
         // RetryPayableScanner is scheduled only when the PendingPayableScanner finishes discovering
         // that there have been some failed payables. No place for that here.
         let response_skeleton = msg.response_skeleton_opt;
-        let _ = self.handle_request_of_scan_for_retry_payable(response_skeleton);
+        self.handle_request_of_scan_for_retry_payable(response_skeleton);
     }
 }
 
@@ -926,7 +946,7 @@ impl Accountant {
     fn handle_request_of_scan_for_retry_payable(
         &mut self,
         response_skeleton_opt: Option<ResponseSkeleton>,
-    ) -> StartScanErrorResponse {
+    ) {
         let result: Result<QualifiedPayablesMessage, StartScanError> =
             match self.consuming_wallet_opt.as_ref() {
                 Some(consuming_wallet) => self.scanners.start_retry_payable_scan_guarded(
@@ -945,13 +965,14 @@ impl Accountant {
                     .expect("BlockchainBridge is unbound")
                     .try_send(scan_message)
                     .expect("BlockchainBridge is dead");
-                StartScanErrorResponse::DoNotSchedule
             }
-            Err(e) => self.handle_start_scan_error_and_prevent_scan_stall_point(
-                PayableSequenceScanner::RetryPayables,
-                e,
-                response_skeleton_opt,
-            ),
+            Err(e) => {
+                let _ = self.handle_start_scan_error_and_prevent_scan_stall_point(
+                    PayableSequenceScanner::RetryPayables,
+                    e,
+                    response_skeleton_opt,
+                );
+            }
         }
     }
 
