@@ -430,7 +430,7 @@ impl BlockchainBridge {
             .expect("Accountant is unbound");
 
         let transaction_hashes = msg
-            .pending_payable
+            .pending_payable_fingerprints
             .iter()
             .map(|finger_print| finger_print.hash)
             .collect::<Vec<Hash>>();
@@ -443,7 +443,7 @@ impl BlockchainBridge {
 
                     let pairs = transaction_receipts_results
                         .into_iter()
-                        .zip(msg.pending_payable.into_iter())
+                        .zip(msg.pending_payable_fingerprints.into_iter())
                         .collect_vec();
 
                     accountant_recipient
@@ -1179,7 +1179,7 @@ mod tests {
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         send_bind_message!(subject_subs, peer_actors);
         let msg = RequestTransactionReceipts {
-            pending_payable: vec![
+            pending_payable_fingerprints: vec![
                 pending_payable_fingerprint_1.clone(),
                 pending_payable_fingerprint_2.clone(),
             ],
@@ -1360,7 +1360,7 @@ mod tests {
             .report_transaction_receipts_sub_opt = Some(report_transaction_receipt_recipient);
         subject.scan_error_subs_opt = Some(scan_error_recipient);
         let msg = RequestTransactionReceipts {
-            pending_payable: vec![
+            pending_payable_fingerprints: vec![
                 fingerprint_1.clone(),
                 fingerprint_2.clone(),
                 fingerprint_3.clone(),
@@ -1439,7 +1439,7 @@ mod tests {
             .report_transaction_receipts_sub_opt = Some(report_transaction_recipient);
         subject.scan_error_subs_opt = Some(scan_error_recipient);
         let msg = RequestTransactionReceipts {
-            pending_payable: vec![fingerprint_1, fingerprint_2],
+            pending_payable_fingerprints: vec![fingerprint_1, fingerprint_2],
             response_skeleton_opt: None,
         };
         let system = System::new("test");

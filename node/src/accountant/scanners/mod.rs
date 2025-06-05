@@ -885,7 +885,7 @@ impl StartableScanner<ScanForPendingPayables, RequestTransactionReceipts>
                     filtered_pending_payable.len()
                 );
                 Ok(RequestTransactionReceipts {
-                    pending_payable: filtered_pending_payable,
+                    pending_payable_fingerprints: filtered_pending_payable,
                     response_skeleton_opt,
                 })
             }
@@ -3123,7 +3123,7 @@ mod tests {
         assert_eq!(
             result,
             Ok(RequestTransactionReceipts {
-                pending_payable: fingerprints,
+                pending_payable_fingerprints: fingerprints,
                 response_skeleton_opt: None
             })
         );

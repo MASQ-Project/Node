@@ -110,6 +110,8 @@ impl CounterMessages {
     }
 }
 
+// Note that you're not limited to triggering an only message a time, but you can supply more
+// messages to this macro, all triggered by the same type id.
 #[macro_export]
 macro_rules! setup_for_counter_msg_triggered_via_type_id{
     ($trigger_msg_type: ty, $($owned_counter_msg: expr, $respondent_actor_addr_ref: expr),+) => {

@@ -18,10 +18,9 @@ use masq_lib::logger::{Logger, TIME_FORMATTING_STRING};
 use masq_lib::ui_gateway::NodeToUiMessage;
 use regex::Regex;
 use std::cell::RefCell;
-use std::panic::panic_any;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use time::{format_description, OffsetDateTime, PrimitiveDateTime};
+use time::{format_description, PrimitiveDateTime};
 
 #[derive(Default)]
 pub struct NewPayableScanDynIntervalComputerMock {

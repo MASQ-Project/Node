@@ -438,7 +438,7 @@ pub trait SkeletonOptHolder {
 
 #[derive(Debug, PartialEq, Eq, Message, Clone)]
 pub struct RequestTransactionReceipts {
-    pub pending_payable: Vec<PendingPayableFingerprint>,
+    pub pending_payable_fingerprints: Vec<PendingPayableFingerprint>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
@@ -1248,7 +1248,7 @@ mod tests {
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_gateway::{MessageBody, MessagePath, NodeFromUiMessage, NodeToUiMessage};
-    use std::any::TypeId;
+    use std::any::{TypeId};
     use std::ops::{Sub};
     use std::sync::Arc;
     use std::sync::Mutex;
@@ -1836,7 +1836,7 @@ mod tests {
         assert_eq!(
             blockchain_bridge_recording.get_record::<RequestTransactionReceipts>(0),
             &RequestTransactionReceipts {
-                pending_payable: vec![fingerprint],
+                pending_payable_fingerprints: vec![fingerprint],
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321,
@@ -2577,11 +2577,12 @@ mod tests {
     }
 
     #[test]
-    fn accountant_scans_after_startup() {
-        // We do ensure the PendingPayableScanner runs before the NewPayableScanner. It does not
-        // matter a lot when does the ReceivableScanner take place.
+    fn accountant_scans_after_startup_and_does_not_detect_straggled_pending_payables() {
+        // We do ensure the PendingPayableScanner runs before the NewPayableScanner. Not interested
+        // in an exact placing of the ReceivableScanner too much.
         init_test_logging();
-        let test_name = "accountant_scans_after_startup";
+        let test_name =
+            "accountant_scans_after_startup_and_does_not_detect_straggled_pending_payables";
         let pending_payable_start_scan_params_arc = Arc::new(Mutex::new(vec![]));
         let receivable_start_scan_params_arc = Arc::new(Mutex::new(vec![]));
         let payable_start_scan_params_arc = Arc::new(Mutex::new(vec![]));
@@ -2593,7 +2594,7 @@ mod tests {
         let scan_for_receivables_notify_later_params_arc = Arc::new(Mutex::new(vec![]));
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = make_wallet("consuming");
-        let system = System::new("accountant_scans_after_startup");
+        let system = System::new(test_name);
         let _ = SystemKillerActor::new(Duration::from_secs(10)).start();
         let config = bc_from_wallets(consuming_wallet.clone(), earning_wallet.clone());
         let pending_payable_scanner = ScannerMock::new()
@@ -2608,6 +2609,222 @@ mod tests {
             .scan_started_at_result(None)
             .start_scan_params(&payable_start_scan_params_arc)
             .start_scan_result(Err(StartScanError::NothingToProcess));
+        let (subject, new_payable_expected_computed_interval, receivable_scan_interval) =
+            set_up_subject_for_no_pending_payables_found_startup_test(
+                test_name,
+                &scan_for_pending_payables_notify_later_params_arc,
+                &scan_for_new_payables_notify_later_params_arc,
+                &scan_for_new_payables_notify_params_arc,
+                &scan_for_retry_payables_notify_params_arc,
+                &compute_interval_params_arc,
+                &scan_for_receivables_notify_later_params_arc,
+                config,
+                pending_payable_scanner,
+                receivable_scanner,
+                payable_scanner,
+            );
+        let peer_actors = peer_actors_builder().build();
+        let subject_addr: Addr<Accountant> = subject.start();
+        let subject_subs = Accountant::make_subs_from(&subject_addr);
+        send_bind_message!(subject_subs, peer_actors);
+
+        send_start_message!(subject_subs);
+
+        // The system is stopped by the NotifyLaterHandleMock for the Receivable scanner
+        system.run();
+        let pp_scan_started_at = assert_pending_payable_scanner_for_no_pending_payable_found(
+            test_name,
+            consuming_wallet,
+            pending_payable_start_scan_params_arc,
+            scan_for_pending_payables_notify_later_params_arc,
+        );
+        let p_scheduling_happened_at = assert_payable_scanner_for_no_pending_payable_found(
+            scan_for_new_payables_notify_later_params_arc,
+            new_payable_expected_computed_interval,
+            scan_for_new_payables_notify_params_arc,
+            scan_for_retry_payables_notify_params_arc,
+            compute_interval_params_arc,
+        );
+        assert_receivable_scanner(
+            test_name,
+            earning_wallet,
+            receivable_start_scan_params_arc,
+            receivable_scan_interval,
+            scan_for_receivables_notify_later_params_arc,
+        );
+        // We expect the PendingPayableScanner to take place before the PayableScanner.
+        // I do believe it's impossible for these two events to happen within the same nanosecond,
+        // until somebody fiddles with MASQ tests on a true supercomputer.
+        assert!(
+            pp_scan_started_at < p_scheduling_happened_at,
+            "We failed to prove that the PendingPayableScanner runs before the PayableScanner."
+        );
+    }
+
+    #[test]
+    fn accountant_scans_after_startup_and_detects_straggled_pending_payable() {
+        // We do ensure the PendingPayableScanner runs before the NewPayableScanner. Not interested
+        // in an exact placing of the ReceivableScanner too much.
+        init_test_logging();
+        let test_name = "accountant_scans_after_startup_and_detects_straggled_pending_payable";
+        let pending_payable_start_scan_params_arc = Arc::new(Mutex::new(vec![]));
+        let pending_payable_finish_scan_params_arc = Arc::new(Mutex::new(vec![]));
+        let receivable_start_scan_params_arc = Arc::new(Mutex::new(vec![]));
+        let payable_start_scan_params_arc = Arc::new(Mutex::new(vec![]));
+        let payable_finish_scan_params_arc = Arc::new(Mutex::new(vec![]));
+        let scan_for_pending_payables_notify_later_params_arc = Arc::new(Mutex::new(vec![]));
+        let scan_for_new_payables_notify_later_params_arc = Arc::new(Mutex::new(vec![]));
+        let scan_for_new_payables_notify_params_arc = Arc::new(Mutex::new(vec![]));
+        let scan_for_retry_payables_notify_params_arc = Arc::new(Mutex::new(vec![]));
+        let scan_for_receivables_notify_later_params_arc = Arc::new(Mutex::new(vec![]));
+        let earning_wallet = make_wallet("earning");
+        let consuming_wallet = make_wallet("consuming");
+        let system = System::new(test_name);
+        let _ = SystemKillerActor::new(Duration::from_secs(10)).start();
+        let config = bc_from_wallets(consuming_wallet.clone(), earning_wallet.clone());
+        let pp_fingerprint = make_pending_payable_fingerprint();
+        let pending_payable_scanner = ScannerMock::new()
+            .scan_started_at_result(None)
+            .start_scan_params(&pending_payable_start_scan_params_arc)
+            .start_scan_result(Ok(RequestTransactionReceipts {
+                pending_payable_fingerprints: vec![pp_fingerprint],
+                response_skeleton_opt: None,
+            }))
+            .finish_scan_params(&pending_payable_finish_scan_params_arc)
+            .finish_scan_result(PendingPayableScanResult::PaymentRetryRequired);
+        let receivable_scanner = ScannerMock::new()
+            .scan_started_at_result(None)
+            .start_scan_params(&receivable_start_scan_params_arc)
+            .start_scan_result(Err(StartScanError::NothingToProcess));
+        let payable_scanner = ScannerMock::new()
+            .scan_started_at_result(None)
+            .scan_started_at_result(None)
+            .start_scan_params(&payable_start_scan_params_arc)
+            .start_scan_result(Ok(QualifiedPayablesMessage {
+                qualified_payables: vec![make_payable_account(123)],
+                consuming_wallet: consuming_wallet.clone(),
+                response_skeleton_opt: None,
+            }))
+            .finish_scan_params(&payable_finish_scan_params_arc)
+            // Important
+            .finish_scan_result(PayableScanResult {
+                ui_response_opt: None,
+                result: OperationOutcome::NewPendingPayable,
+            });
+        let (subject, pending_payable_expected_notify_later_interval, receivable_scan_interval) =
+            set_up_subject_for_some_pending_payable_found_startup_test(
+                test_name,
+                &scan_for_pending_payables_notify_later_params_arc,
+                &scan_for_new_payables_notify_later_params_arc,
+                &scan_for_new_payables_notify_params_arc,
+                &scan_for_retry_payables_notify_params_arc,
+                &scan_for_receivables_notify_later_params_arc,
+                config,
+                pending_payable_scanner,
+                receivable_scanner,
+                payable_scanner,
+            );
+        let (peer_actors, addresses) = peer_actors_builder().build_and_provide_addresses();
+        let subject_addr: Addr<Accountant> = subject.start();
+        let subject_subs = Accountant::make_subs_from(&subject_addr);
+        let expected_report_transaction_receipts = ReportTransactionReceipts {
+            fingerprints_with_receipts: vec![(
+                TransactionReceiptResult::RpcResponse(TxReceipt {
+                    transaction_hash: make_tx_hash(789),
+                    status: TxStatus::Failed,
+                }),
+                make_pending_payable_fingerprint(),
+            )],
+            response_skeleton_opt: None,
+        };
+        let expected_sent_payables = SentPayables {
+            payment_procedure_result: Ok(vec![ProcessedPayableFallible::Correct(PendingPayable {
+                recipient_wallet: make_wallet("bcd"),
+                hash: make_tx_hash(890),
+            })]),
+            response_skeleton_opt: None,
+        };
+        let blockchain_bridge_counter_msg_setup_for_pending_payable_scanner = setup_for_counter_msg_triggered_via_type_id!(
+            RequestTransactionReceipts,
+            expected_report_transaction_receipts.clone(),
+            &subject_addr
+        );
+        let blockchain_bridge_counter_msg_setup_for_payable_scanner = setup_for_counter_msg_triggered_via_type_id!(
+            QualifiedPayablesMessage,
+            expected_sent_payables.clone(),
+            &subject_addr
+        );
+        send_bind_message!(subject_subs, peer_actors);
+        addresses
+            .blockchain_bridge_addr
+            .try_send(SetUpCounterMsgs::new(vec![
+                blockchain_bridge_counter_msg_setup_for_pending_payable_scanner,
+                blockchain_bridge_counter_msg_setup_for_payable_scanner,
+            ]))
+            .unwrap();
+
+        send_start_message!(subject_subs);
+
+        // The system is stopped by the NotifyHandleLaterMock for the PendingPayable scanner
+        system.run();
+        assert_pending_payable_scanner_for_some_pending_payable_found(
+            test_name,
+            consuming_wallet.clone(),
+            pending_payable_start_scan_params_arc,
+            pending_payable_finish_scan_params_arc,
+            scan_for_pending_payables_notify_later_params_arc,
+            pending_payable_expected_notify_later_interval,
+            expected_report_transaction_receipts,
+        );
+        assert_payable_scanner_for_some_pending_payable_found(
+            test_name,
+            consuming_wallet,
+            expected_sent_payables,
+            payable_finish_scan_params_arc,
+            payable_start_scan_params_arc,
+            scan_for_new_payables_notify_later_params_arc,
+            scan_for_new_payables_notify_params_arc,
+            scan_for_retry_payables_notify_params_arc,
+        );
+        assert_receivable_scanner(
+            test_name,
+            earning_wallet,
+            receivable_start_scan_params_arc,
+            receivable_scan_interval,
+            scan_for_receivables_notify_later_params_arc,
+        );
+        // Given the assertions proving that the pending payable scanner will run multiple times
+        // before the new payable scanner runs at least once (even not scheduled yet), its front
+        // position is clear
+    }
+
+    fn set_up_subject_for_no_pending_payables_found_startup_test(
+        test_name: &str,
+        scan_for_pending_payables_notify_later_params_arc: &Arc<
+            Mutex<Vec<(ScanForPendingPayables, Duration)>>,
+        >,
+        scan_for_new_payables_notify_later_params_arc: &Arc<
+            Mutex<Vec<(ScanForNewPayables, Duration)>>,
+        >,
+        scan_for_new_payables_notify_params_arc: &Arc<Mutex<Vec<ScanForNewPayables>>>,
+        scan_for_retry_payables_notify_params_arc: &Arc<Mutex<Vec<ScanForRetryPayables>>>,
+        compute_interval_params_arc: &Arc<Mutex<Vec<(SystemTime, SystemTime, Duration)>>>,
+        scan_for_receivables_notify_later_params_arc: &Arc<
+            Mutex<Vec<(ScanForReceivables, Duration)>>,
+        >,
+        config: BootstrapperConfig,
+        pending_payable_scanner: ScannerMock<
+            RequestTransactionReceipts,
+            ReportTransactionReceipts,
+            PendingPayableScanResult,
+        >,
+        receivable_scanner: ScannerMock<
+            RetrieveTransactions,
+            ReceivedPayments,
+            Option<NodeToUiMessage>,
+        >,
+        payable_scanner: ScannerMock<QualifiedPayablesMessage, SentPayables, PayableScanResult>,
+    ) -> (Accountant, Duration, Duration) {
         let mut subject = AccountantBuilder::default()
             .logger(Logger::new(test_name))
             .bootstrapper_config(config)
@@ -2627,10 +2844,10 @@ mod tests {
             .replace_scanner(ScannerReplacement::Payable(ReplacementType::Mock(
                 payable_scanner,
             )));
-        subject.scan_schedulers.pending_payable.handle = Box::new(
-            NotifyLaterHandleMock::default()
-                .notify_later_params(&scan_for_pending_payables_notify_later_params_arc),
-        );
+        let pending_payable_notify_later_handle_mock = NotifyLaterHandleMock::default()
+            .notify_later_params(&scan_for_pending_payables_notify_later_params_arc);
+        subject.scan_schedulers.pending_payable.handle =
+            Box::new(pending_payable_notify_later_handle_mock);
         let new_payable_expected_computed_interval = Duration::from_secs(3600);
         subject.scan_schedulers.payable.new_payable_notify_later = Box::new(
             NotifyLaterHandleMock::default()
@@ -2640,32 +2857,183 @@ mod tests {
             NotifyHandleMock::default().notify_params(&scan_for_retry_payables_notify_params_arc),
         );
         subject.scan_schedulers.payable.new_payable_notify = Box::new(
-            NotifyHandleMock::default()
-                .capture_msg_and_let_it_fly_on()
-                .notify_params(&scan_for_new_payables_notify_params_arc),
+            NotifyHandleMock::default().notify_params(&scan_for_new_payables_notify_params_arc),
         );
-        subject.scan_schedulers.receivable.handle = Box::new(
-            NotifyLaterHandleMock::default()
-                .notify_later_params(&scan_for_receivables_notify_later_params_arc)
-                .stop_system_on_count_received(1),
-        );
-        // Important that this is short because the test relies on it to stop the system.
+        let receivable_notify_later_handle_mock = NotifyLaterHandleMock::default()
+            .notify_later_params(&scan_for_receivables_notify_later_params_arc)
+            .stop_system_on_count_received(1);
+        subject.scan_schedulers.receivable.handle = Box::new(receivable_notify_later_handle_mock);
+        // Important that this is made short because the test relies on it with the system stop.
         let receivable_scan_interval = Duration::from_millis(50);
         subject.scan_schedulers.receivable.interval = receivable_scan_interval;
         let dyn_interval_computer = NewPayableScanDynIntervalComputerMock::default()
             .compute_interval_params(&compute_interval_params_arc)
             .compute_interval_result(Some(new_payable_expected_computed_interval));
         subject.scan_schedulers.payable.dyn_interval_computer = Box::new(dyn_interval_computer);
-        let peer_actors = peer_actors_builder().build();
-        let subject_addr: Addr<Accountant> = subject.start();
-        let subject_subs = Accountant::make_subs_from(&subject_addr);
-        send_bind_message!(subject_subs, peer_actors);
+        (
+            subject,
+            new_payable_expected_computed_interval,
+            receivable_scan_interval,
+        )
+    }
 
-        send_start_message!(subject_subs);
+    fn set_up_subject_for_some_pending_payable_found_startup_test(
+        test_name: &str,
+        scan_for_pending_payables_notify_later_params_arc: &Arc<
+            Mutex<Vec<(ScanForPendingPayables, Duration)>>,
+        >,
+        scan_for_new_payables_notify_later_params_arc: &Arc<
+            Mutex<Vec<(ScanForNewPayables, Duration)>>,
+        >,
+        scan_for_new_payables_notify_params_arc: &Arc<Mutex<Vec<ScanForNewPayables>>>,
+        scan_for_retry_payables_notify_params_arc: &Arc<Mutex<Vec<ScanForRetryPayables>>>,
+        scan_for_receivables_notify_later_params_arc: &Arc<
+            Mutex<Vec<(ScanForReceivables, Duration)>>,
+        >,
+        config: BootstrapperConfig,
+        pending_payable_scanner: ScannerMock<
+            RequestTransactionReceipts,
+            ReportTransactionReceipts,
+            PendingPayableScanResult,
+        >,
+        receivable_scanner: ScannerMock<
+            RetrieveTransactions,
+            ReceivedPayments,
+            Option<NodeToUiMessage>,
+        >,
+        payable_scanner: ScannerMock<QualifiedPayablesMessage, SentPayables, PayableScanResult>,
+    ) -> (Accountant, Duration, Duration) {
+        let mut subject = AccountantBuilder::default()
+            .logger(Logger::new(test_name))
+            .bootstrapper_config(config)
+            .build();
+        subject
+            .scanners
+            .replace_scanner(ScannerReplacement::PendingPayable(ReplacementType::Mock(
+                pending_payable_scanner,
+            )));
+        subject
+            .scanners
+            .replace_scanner(ScannerReplacement::Receivable(ReplacementType::Mock(
+                receivable_scanner,
+            )));
+        subject
+            .scanners
+            .replace_scanner(ScannerReplacement::Payable(ReplacementType::Mock(
+                payable_scanner,
+            )));
+        let pending_payable_notify_later_handle_mock = NotifyLaterHandleMock::default()
+            .notify_later_params(&scan_for_pending_payables_notify_later_params_arc)
+            // This should stop the system
+            .stop_system_on_count_received(1);
+        subject.scan_schedulers.pending_payable.handle =
+            Box::new(pending_payable_notify_later_handle_mock);
+        let pending_payable_scan_interval = Duration::from_secs(3600);
+        subject.scan_schedulers.pending_payable.interval = pending_payable_scan_interval;
+        subject.scan_schedulers.payable.new_payable_notify_later = Box::new(
+            NotifyLaterHandleMock::default()
+                .notify_later_params(&scan_for_new_payables_notify_later_params_arc),
+        );
+        subject.scan_schedulers.payable.retry_payable_notify = Box::new(
+            NotifyHandleMock::default()
+                .notify_params(&scan_for_retry_payables_notify_params_arc)
+                .capture_msg_and_let_it_fly_on(),
+        );
+        subject.scan_schedulers.payable.new_payable_notify = Box::new(
+            NotifyHandleMock::default().notify_params(&scan_for_new_payables_notify_params_arc),
+        );
+        let receivable_notify_later_handle_mock = NotifyLaterHandleMock::default()
+            .notify_later_params(&scan_for_receivables_notify_later_params_arc);
+        let receivable_scan_interval = Duration::from_secs(3600);
+        subject.scan_schedulers.receivable.interval = receivable_scan_interval;
+        subject.scan_schedulers.receivable.handle = Box::new(receivable_notify_later_handle_mock);
+        (
+            subject,
+            pending_payable_scan_interval,
+            receivable_scan_interval,
+        )
+    }
 
-        // The system is stopped by the NotifyLaterHandleMock for the Receivable scanner
-        system.run();
-        // Assertions on the pending payable scanner proper functioning
+    fn assert_pending_payable_scanner_for_no_pending_payable_found(
+        test_name: &str,
+        consuming_wallet: Wallet,
+        pending_payable_start_scan_params_arc: Arc<
+            Mutex<Vec<(Wallet, SystemTime, Option<ResponseSkeleton>, Logger, String)>>,
+        >,
+        scan_for_pending_payables_notify_later_params_arc: Arc<
+            Mutex<Vec<(ScanForPendingPayables, Duration)>>,
+        >,
+    ) -> SystemTime {
+        let (pp_scan_started_at, pp_logger) =
+            pending_payable_common(consuming_wallet, pending_payable_start_scan_params_arc);
+        let scan_for_pending_payables_notify_later_params =
+            scan_for_pending_payables_notify_later_params_arc
+                .lock()
+                .unwrap();
+        // The part of running the `NewPayableScanner` is deliberately omitted here, we stop
+        // the test right before that. Normally, the first occasion for scheduling
+        // the `PendingPayableScanner` would've lied no sooner than after the `NewPayableScan`
+        // finishes, having produced at least one blockchain transactions.
+        assert!(
+            scan_for_pending_payables_notify_later_params.is_empty(),
+            "We did not expect to see another schedule for pending payables, but it happened {:?}",
+            scan_for_pending_payables_notify_later_params
+        );
+        assert_using_the_same_logger(&pp_logger, test_name, Some("pp"));
+        pp_scan_started_at
+    }
+
+    fn assert_pending_payable_scanner_for_some_pending_payable_found(
+        test_name: &str,
+        consuming_wallet: Wallet,
+        pending_payable_start_scan_params_arc: Arc<
+            Mutex<Vec<(Wallet, SystemTime, Option<ResponseSkeleton>, Logger, String)>>,
+        >,
+        pending_payable_finish_scan_params_arc: Arc<
+            Mutex<Vec<(ReportTransactionReceipts, Logger)>>,
+        >,
+        scan_for_pending_payables_notify_later_params_arc: Arc<
+            Mutex<Vec<(ScanForPendingPayables, Duration)>>,
+        >,
+        pending_payable_expected_notify_later_interval: Duration,
+        expected_report_tx_receipts_msg: ReportTransactionReceipts,
+    ) {
+        let (_, pp_start_scan_logger) =
+            pending_payable_common(consuming_wallet, pending_payable_start_scan_params_arc);
+        assert_using_the_same_logger(&pp_start_scan_logger, test_name, Some("pp start scan"));
+        let mut pending_payable_finish_scan_params =
+            pending_payable_finish_scan_params_arc.lock().unwrap();
+        let (actual_report_tx_receipts_msg, pp_finish_scan_logger) =
+            pending_payable_finish_scan_params.remove(0);
+        assert_eq!(
+            actual_report_tx_receipts_msg,
+            expected_report_tx_receipts_msg
+        );
+        assert_using_the_same_logger(&pp_finish_scan_logger, test_name, Some("pp finish scan"));
+        let scan_for_pending_payables_notify_later_params =
+            scan_for_pending_payables_notify_later_params_arc
+                .lock()
+                .unwrap();
+        // This is the moment when the test ends. It says that we went the way of the pending payable
+        // sequence, instead of calling the NewPayableScan just after the initial pending payable
+        // scan.
+        assert_eq!(
+            *scan_for_pending_payables_notify_later_params,
+            vec![(
+                ScanForPendingPayables {
+                    response_skeleton_opt: None
+                },
+                pending_payable_expected_notify_later_interval
+            )],
+        );
+    }
+
+    fn pending_payable_common(
+        consuming_wallet: Wallet,
+        pending_payable_start_scan_params_arc: Arc<
+            Mutex<Vec<(Wallet, SystemTime, Option<ResponseSkeleton>, Logger, String)>>,
+        >,
+    ) -> (SystemTime, Logger) {
         let mut pending_payable_params = pending_payable_start_scan_params_arc.lock().unwrap();
         let (
             pp_wallet,
@@ -2686,21 +3054,18 @@ mod tests {
             "Should be empty but was {:?}",
             pending_payable_params
         );
-        let scan_for_pending_payables_notify_later_params =
-            scan_for_pending_payables_notify_later_params_arc
-                .lock()
-                .unwrap();
-        // The part of running the `NewPayableScanner` is deliberately omitted here, we stop
-        // the test right before that. Normally, the first occasion for scheduling
-        // the `PendingPayableScanner` would've lied no sooner than after the `NewPayableScan`
-        // finishes, having produced at least one blockchain transactions.
-        assert!(
-            scan_for_pending_payables_notify_later_params.is_empty(),
-            "We did not expect to see another schedule for pending payables, but it happened {:?}",
-            scan_for_pending_payables_notify_later_params
-        );
-        assert_using_the_same_logger(&pp_logger, test_name, Some("pp"));
-        // Assertions on the payable scanner proper functioning
+        (pp_scan_started_at, pp_logger)
+    }
+
+    fn assert_payable_scanner_for_no_pending_payable_found(
+        scan_for_new_payables_notify_later_params_arc: Arc<
+            Mutex<Vec<(ScanForNewPayables, Duration)>>,
+        >,
+        new_payable_expected_computed_interval: Duration,
+        scan_for_new_payables_notify_params_arc: Arc<Mutex<Vec<ScanForNewPayables>>>,
+        scan_for_retry_payables_notify_params_arc: Arc<Mutex<Vec<ScanForRetryPayables>>>,
+        compute_interval_params_arc: Arc<Mutex<Vec<(SystemTime, SystemTime, Duration)>>>,
+    ) -> SystemTime {
         // First, there is no functionality from the payable scanner actually running.
         // We only witness it to be scheduled.
         let scan_for_new_payables_notify_later_params =
@@ -2734,7 +3099,90 @@ mod tests {
             "We did not expect any scheduling of retry payables, but it happened {:?}",
             scan_for_retry_payables_notify_params
         );
-        // Assertions on the receivable scanner proper functioning
+        p_scheduling_now
+    }
+
+    fn assert_payable_scanner_for_some_pending_payable_found(
+        test_name: &str,
+        consuming_wallet: Wallet,
+        expected_sent_payables: SentPayables,
+        payable_finish_scan_params_arc: Arc<Mutex<Vec<(SentPayables, Logger)>>>,
+        payable_start_scan_params_arc: Arc<
+            Mutex<Vec<(Wallet, SystemTime, Option<ResponseSkeleton>, Logger, String)>>,
+        >,
+        scan_for_new_payables_notify_later_params_arc: Arc<
+            Mutex<Vec<(ScanForNewPayables, Duration)>>,
+        >,
+        scan_for_new_payables_notify_params_arc: Arc<Mutex<Vec<ScanForNewPayables>>>,
+        scan_for_retry_payables_notify_params_arc: Arc<Mutex<Vec<ScanForRetryPayables>>>,
+    ) {
+        let mut payable_start_scan_params = payable_start_scan_params_arc.lock().unwrap();
+        let (p_wallet, _, p_response_skeleton_opt, p_start_scan_logger, p_trigger_msg_type_str) =
+            payable_start_scan_params.remove(0);
+        assert_eq!(p_wallet, consuming_wallet);
+        assert_eq!(p_response_skeleton_opt, None);
+        // Important: it's the proof that we're dealing with the RetryPayableScanner not NewPayableScanner
+        assert!(
+            p_trigger_msg_type_str.contains("RetryPayable"),
+            "Should contain RetryPayable but {}",
+            p_trigger_msg_type_str
+        );
+        assert!(
+            payable_start_scan_params.is_empty(),
+            "Should be empty but was {:?}",
+            payable_start_scan_params
+        );
+        assert_using_the_same_logger(&p_start_scan_logger, test_name, Some("retry payable start"));
+        let mut payable_finish_scan_params = payable_finish_scan_params_arc.lock().unwrap();
+        let (actual_sent_payable, p_finish_scan_logger) = payable_finish_scan_params.remove(0);
+        assert_eq!(actual_sent_payable, expected_sent_payables,);
+        assert!(
+            payable_finish_scan_params.is_empty(),
+            "Should be empty but was {:?}",
+            payable_finish_scan_params
+        );
+        assert_using_the_same_logger(
+            &p_finish_scan_logger,
+            test_name,
+            Some("retry payable finish"),
+        );
+        let scan_for_new_payables_notify_later_params =
+            scan_for_new_payables_notify_later_params_arc
+                .lock()
+                .unwrap();
+        assert!(
+            scan_for_new_payables_notify_later_params.is_empty(),
+            "We did not expect any later scheduling of new payables, but it happened {:?}",
+            scan_for_new_payables_notify_later_params
+        );
+        let scan_for_new_payables_notify_params =
+            scan_for_new_payables_notify_params_arc.lock().unwrap();
+        assert!(
+            scan_for_new_payables_notify_params.is_empty(),
+            "We did not expect any immediate scheduling of new payables, but it happened {:?}",
+            scan_for_new_payables_notify_params
+        );
+        let scan_for_retry_payables_notify_params =
+            scan_for_retry_payables_notify_params_arc.lock().unwrap();
+        assert_eq!(
+            *scan_for_retry_payables_notify_params,
+            vec![ScanForRetryPayables {
+                response_skeleton_opt: None
+            }],
+        );
+    }
+
+    fn assert_receivable_scanner(
+        test_name: &str,
+        earning_wallet: Wallet,
+        receivable_start_scan_params_arc: Arc<
+            Mutex<Vec<(Wallet, SystemTime, Option<ResponseSkeleton>, Logger, String)>>,
+        >,
+        receivable_scan_interval: Duration,
+        scan_for_receivables_notify_later_params_arc: Arc<
+            Mutex<Vec<(ScanForReceivables, Duration)>>,
+        >,
+    ) {
         let mut receivable_start_scan_params = receivable_start_scan_params_arc.lock().unwrap();
         let (r_wallet, _r_started_at, r_response_skeleton_opt, r_logger, r_trigger_msg_name_str) =
             receivable_start_scan_params.remove(0);
@@ -2762,11 +3210,6 @@ mod tests {
                 receivable_scan_interval
             )]
         );
-        // Finally, an assertion to prove course of actions in time. We expect the pending payable
-        // scanner to take place before the payable scanner.
-        // I do believe it's impossible that these two instants would happen at the same time, until
-        // this is run on a real super-giga-computer.
-        assert!(pp_scan_started_at < p_scheduling_now);
     }
 
     #[test]
@@ -2998,7 +3441,7 @@ mod tests {
         };
         let blockchain_bridge_addr = blockchain_bridge.start();
         let request_transaction_receipts = RequestTransactionReceipts {
-            pending_payable: vec![pending_payable_fingerprint],
+            pending_payable_fingerprints: vec![pending_payable_fingerprint],
             response_skeleton_opt: None,
         };
         let pending_payable_scanner = ScannerMock::new()
@@ -3531,7 +3974,7 @@ mod tests {
         assert_eq!(
             received_msg,
             &RequestTransactionReceipts {
-                pending_payable: vec![payable_fingerprint_1, payable_fingerprint_2],
+                pending_payable_fingerprints: vec![payable_fingerprint_1, payable_fingerprint_2],
                 response_skeleton_opt: None,
             }
         );
