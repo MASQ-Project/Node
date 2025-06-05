@@ -68,6 +68,11 @@ impl FailedTxBuilder {
         self
     }
 
+    pub fn timestamp(mut self, timestamp: i64) -> Self {
+        self.timestamp_opt = Some(timestamp);
+        self
+    }
+
     pub fn nonce(mut self, nonce: u64) -> Self {
         self.nonce_opt = Some(nonce);
         self
