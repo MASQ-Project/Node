@@ -904,10 +904,7 @@ impl Scanner<ReportTransactionReceipts, PendingPayableScanResult> for PendingPay
         let requires_payment_retry = match message.fingerprints_with_receipts.is_empty() {
             true => {
                 warning!(logger, "No transaction receipts found.");
-                todo!(
-                    "This requires the payment retry. It must be processed by using some of the new \
-                    methods on the SentPaybleDAO. After GH-631 is done."
-                );
+                todo!("This requires the payment retry. GH-631 must be completed first");
             }
             false => {
                 debug!(
