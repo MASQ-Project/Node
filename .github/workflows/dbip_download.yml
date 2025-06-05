@@ -48,6 +48,7 @@ jobs:
           set -xv
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch
           BRANCH=$(git ls-remote --heads 2>/dev/null | grep generated-source)
           if [[ "$BRANCH" == "" ]]
           then
