@@ -44,7 +44,7 @@ pub enum PayableScanSchedulerError {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum SchedulingAfterHaltedScan {
+pub enum StartScanErrorResponse {
     Schedule(ScanType),
     DoNotSchedule,
 }
@@ -122,9 +122,9 @@ impl PayableScanScheduler {
         }
     }
 
-    // This message is always inserted into the Accountant's mailbox with no delay.
-    // Can also be triggered by command, following up after the PendingPayableScanner that
-    // requests it. That's why the response skeleton is possible to be used.
+    // This message ships into the Accountant's mailbox with no delay.
+    // Can also be triggered by command, following up after the PendingPayableScanner
+    // that requests it. That's why the response skeleton is possible to be used.
     pub fn schedule_retry_payable_scan(
         &self,
         ctx: &mut Context<Accountant>,
@@ -221,19 +221,20 @@ where
     }
 }
 
-// Scanners that conclude by scheduling a later scan (usually different from this one) must handle
-// StartScanErrors carefully to maintain continuity and periodicity. Poor handling could disrupt
-// the entire scan chain. Where possible, a different type of scan may be scheduled (avoiding
-// repetition of the erroneous scan) to prevent a full panic, while ensuring no unresolved issues
-// are left for future scans. A panic is justified only if the error is deemed impossible by design
-// within the broader context of that location.
+// Scanners that take part in a scan sequence composed of different scanners must handle
+// StartScanErrors delicately to maintain the continuity and periodicity of this process. Where
+// possible, either the same, some other, but traditional, or even a totally unrelated scan chosen
+// just in the event of emergency, may be scheduled. The intention is to prevent a full panic while
+// ensuring no harmful, toxic issues are left behind for the future scans. Following that philosophy,
+// panic is justified only if the error was thought to be impossible by design and contextual
+// things but still happened.
 pub trait RescheduleScanOnErrorResolver {
     fn resolve_rescheduling_for_given_error(
         &self,
         scanner: PayableSequenceScanner,
         error: &StartScanError,
         is_externally_triggered: bool,
-    ) -> SchedulingAfterHaltedScan;
+    ) -> StartScanErrorResponse;
 }
 
 #[derive(Default)]
@@ -245,7 +246,7 @@ impl RescheduleScanOnErrorResolver for RescheduleScanOnErrorResolverReal {
         scanner: PayableSequenceScanner,
         error: &StartScanError,
         is_externally_triggered: bool,
-    ) -> SchedulingAfterHaltedScan {
+    ) -> StartScanErrorResponse {
         match scanner {
             PayableSequenceScanner::NewPayables => {
                 Self::resolve_new_payables(error, is_externally_triggered)
@@ -268,28 +269,28 @@ impl RescheduleScanOnErrorResolverReal {
     fn resolve_new_payables(
         err: &StartScanError,
         is_externally_triggered: bool,
-    ) -> SchedulingAfterHaltedScan {
+    ) -> StartScanErrorResponse {
         if is_externally_triggered {
-            SchedulingAfterHaltedScan::DoNotSchedule
+            StartScanErrorResponse::DoNotSchedule
         } else if matches!(err, StartScanError::ScanAlreadyRunning { .. }) {
             unreachable!(
                 "an automatic scan of NewPayableScanner should never interfere with itself {:?}",
                 err
             )
         } else {
-            SchedulingAfterHaltedScan::Schedule(ScanType::Payables)
+            StartScanErrorResponse::Schedule(ScanType::Payables)
         }
     }
 
-    // This looks paradoxical, but this scanner is meant to be shielded by the scanner right before
+    // Paradoxical at first, but this scanner is meant to be shielded by the scanner right before
     // it. That should ensure this scanner will not be requested if there was already something
-    // fishy. We can go strict.
+    // fishy. We can impose strictness.
     fn resolve_retry_payables(
         err: &StartScanError,
         is_externally_triggered: bool,
-    ) -> SchedulingAfterHaltedScan {
+    ) -> StartScanErrorResponse {
         if is_externally_triggered {
-            SchedulingAfterHaltedScan::DoNotSchedule
+            StartScanErrorResponse::DoNotSchedule
         } else {
             unreachable!(
                 "{:?} should be impossible with RetryPayableScanner in automatic mode",
@@ -302,12 +303,12 @@ impl RescheduleScanOnErrorResolverReal {
         err: &StartScanError,
         initial_pending_payable_scan: bool,
         is_externally_triggered: bool,
-    ) -> SchedulingAfterHaltedScan {
+    ) -> StartScanErrorResponse {
         if is_externally_triggered {
-            SchedulingAfterHaltedScan::DoNotSchedule
+            StartScanErrorResponse::DoNotSchedule
         } else if err == &StartScanError::NothingToProcess {
             if initial_pending_payable_scan {
-                SchedulingAfterHaltedScan::Schedule(ScanType::Payables)
+                StartScanErrorResponse::Schedule(ScanType::Payables)
             } else {
                 unreachable!(
                     "the automatic pending payable scan should always be requested only in need, \
@@ -315,7 +316,21 @@ impl RescheduleScanOnErrorResolverReal {
                 )
             }
         } else if err == &StartScanError::NoConsumingWalletFound {
-            SchedulingAfterHaltedScan::Schedule(ScanType::Payables)
+            if initial_pending_payable_scan {
+                // Cannot deduce there are strayed pending payables from the previous Node's run
+                // (StartScanError::NoConsumingWalletFound is thrown before
+                // StartScanError::NothingToProcess can be evaluated); but may be cautious and
+                // prevent starting the NewPayableScanner. Repeating this scan endlessly may alarm
+                // the user.
+                // TODO Correctly, a check-point during the bootstrap should be the solution,
+                // which wouldn't allow to come this far.
+                StartScanErrorResponse::Schedule(ScanType::PendingPayables)
+            } else {
+                unreachable!(
+                    "PendingPayableScanner called later than the initial attempt, but \
+                the consuming wallet is still missing; this should not be possible"
+                )
+            }
         } else {
             unreachable!(
                 "{:?} should be impossible with PendingPayableScanner in automatic mode",
@@ -329,7 +344,7 @@ impl RescheduleScanOnErrorResolverReal {
 mod tests {
     use crate::accountant::scanners::scan_schedulers::{
         NewPayableScanDynIntervalComputer, NewPayableScanDynIntervalComputerReal,
-        PayableSequenceScanner, ScanSchedulers, SchedulingAfterHaltedScan,
+        PayableSequenceScanner, ScanSchedulers, StartScanErrorResponse,
     };
     use crate::accountant::scanners::{MTError, StartScanError};
     use crate::sub_lib::accountant::ScanIntervals;
@@ -572,7 +587,7 @@ mod tests {
 
                 assert_eq!(
                     result,
-                    SchedulingAfterHaltedScan::DoNotSchedule,
+                    StartScanErrorResponse::DoNotSchedule,
                     "We expected DoNotSchedule but got {:?} at idx {} for {:?}",
                     result,
                     idx,
@@ -598,7 +613,7 @@ mod tests {
 
         assert_eq!(
             result,
-            SchedulingAfterHaltedScan::Schedule(ScanType::Payables),
+            StartScanErrorResponse::Schedule(ScanType::Payables),
             "We expected Schedule(Payables) but got {:?}",
             result,
         );
@@ -626,42 +641,48 @@ mod tests {
     }
 
     #[test]
-    fn resolve_error_for_pending_payables_if_no_consuming_wallet_found() {
-        fn test_no_consuming_wallet_found(
-            subject: &ScanSchedulers,
-            scanner: PayableSequenceScanner,
-        ) {
-            let result = subject
-                .reschedule_on_error_resolver
-                .resolve_rescheduling_for_given_error(
-                    scanner,
-                    &StartScanError::NoConsumingWalletFound,
-                    false,
-                );
-
-            assert_eq!(
-                result,
-                SchedulingAfterHaltedScan::Schedule(ScanType::Payables),
-                "We expected Schedule(Payables) but got {:?} for {:?}",
-                result,
-                scanner
-            );
-        }
-
+    fn resolve_error_for_pending_p_if_no_consuming_wallet_found_in_initial_pending_payable_scan() {
         let subject = ScanSchedulers::new(ScanIntervals::default(), true);
+        let scanner = PayableSequenceScanner::PendingPayables {
+            initial_pending_payable_scan: true,
+        };
 
-        test_no_consuming_wallet_found(
-            &subject,
-            PayableSequenceScanner::PendingPayables {
-                initial_pending_payable_scan: false,
-            },
+        let result = subject
+            .reschedule_on_error_resolver
+            .resolve_rescheduling_for_given_error(
+                scanner,
+                &StartScanError::NoConsumingWalletFound,
+                false,
+            );
+
+        assert_eq!(
+            result,
+            StartScanErrorResponse::Schedule(ScanType::PendingPayables),
+            "We expected Schedule(PendingPayables) but got {:?} for {:?}",
+            result,
+            scanner
         );
-        test_no_consuming_wallet_found(
-            &subject,
-            PayableSequenceScanner::PendingPayables {
-                initial_pending_payable_scan: true,
-            },
-        );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "internal error: entered unreachable code: PendingPayableScanner called later \
+        than the initial attempt, but the consuming wallet is still missing; this should not be \
+        possible"
+    )]
+    fn pending_p_scan_attempt_if_no_consuming_wallet_found_mustnt_happen_if_not_initial_scan() {
+        let subject = ScanSchedulers::new(ScanIntervals::default(), true);
+        let scanner = PayableSequenceScanner::PendingPayables {
+            initial_pending_payable_scan: false,
+        };
+
+        let _ = subject
+            .reschedule_on_error_resolver
+            .resolve_rescheduling_for_given_error(
+                scanner,
+                &StartScanError::NoConsumingWalletFound,
+                false,
+            );
     }
 
     #[test]
@@ -794,7 +815,7 @@ mod tests {
 
             assert_eq!(
                 result,
-                SchedulingAfterHaltedScan::Schedule(ScanType::Payables),
+                StartScanErrorResponse::Schedule(ScanType::Payables),
                 "We expected Schedule(Payables) but got '{:?}'",
                 result,
             )
