@@ -1,5 +1,5 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::db_access_objects::utils::{TxHash, TxIdentifiers};
+use crate::accountant::db_access_objects::utils::{current_unix_timestamp, TxHash, TxIdentifiers};
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::{checked_conversion, comma_joined_stringifiable};
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
@@ -52,6 +52,7 @@ pub struct FailedTx {
 
 pub enum FailureRetrieveCondition {
     ByReason(FailureReason),
+    UncheckedPendingTooLong(u32), // u32 represents seconds ago
 }
 
 impl Display for FailureRetrieveCondition {
@@ -59,6 +60,16 @@ impl Display for FailureRetrieveCondition {
         match self {
             FailureRetrieveCondition::ByReason(reason) => {
                 write!(f, "WHERE reason IS '{:?}'", reason)
+            }
+            FailureRetrieveCondition::UncheckedPendingTooLong(seconds_ago) => {
+                let timestamp_threshold = current_unix_timestamp() - *seconds_ago as i64;
+                write!(
+                    f,
+                    "WHERE reason = 'PendingTooLong' AND checked = 0 \
+                     AND timestamp >= {} \
+                     ORDER BY timestamp DESC",
+                    timestamp_threshold
+                )
             }
         }
     }
@@ -97,9 +108,9 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
             .unwrap_or_else(|_| panic!("Failed to prepare SQL statement"));
 
         stmt.query_map([], |row| {
-            let tx_hash_str: String = row.get(0).unwrap_or_default();
-            let tx_hash = TxHash::from_str(&tx_hash_str[2..]).unwrap_or_default();
-            let row_id: u64 = row.get(1).unwrap_or_default();
+            let tx_hash_str: String = row.get(0).expectv("tx_hash");
+            let tx_hash = TxHash::from_str(&tx_hash_str[2..]).expect("Failed to parse TxHash");
+            let row_id: u64 = row.get(1).expectv("row_id");
 
             Ok((tx_hash, row_id))
         })
@@ -299,6 +310,7 @@ mod tests {
         FailureRetrieveCondition,
     };
     use crate::accountant::db_access_objects::test_utils::FailedTxBuilder;
+    use crate::accountant::db_access_objects::utils::current_unix_timestamp;
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
@@ -550,12 +562,64 @@ mod tests {
             .reason(FailureReason::NonceIssue)
             .build();
         subject
-            .insert_new_records(&vec![tx1.clone(), tx2.clone(), tx3.clone()])
+            .insert_new_records(&vec![tx1.clone(), tx2.clone(), tx3])
             .unwrap();
 
         let result = subject.retrieve_txs(Some(ByReason(PendingTooLong)));
 
         assert_eq!(result, vec![tx1, tx2]);
+    }
+    #[test]
+    fn can_retrieve_unchecked_pending_too_long_txs() {
+        let home_dir = ensure_node_home_directory_exists(
+            "failed_payable_dao",
+            "can_retrieve_unchecked_pending_too_long_txs",
+        );
+        let wrapped_conn = DbInitializerReal::default()
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
+        let subject = FailedPayableDaoReal::new(wrapped_conn);
+        let now = current_unix_timestamp();
+        let tx1 = FailedTxBuilder::default()
+            .hash(make_tx_hash(1))
+            .reason(FailureReason::PendingTooLong)
+            .checked(0)
+            .timestamp(now - 3600) // 1 hour ago
+            .build();
+        let tx2 = FailedTxBuilder::default()
+            .hash(make_tx_hash(2))
+            .reason(FailureReason::PendingTooLong)
+            .checked(1) // This one is checked
+            .timestamp(now - 7200) // 2 hours ago
+            .build();
+        let tx3 = FailedTxBuilder::default()
+            .hash(make_tx_hash(3))
+            .reason(FailureReason::PendingTooLong)
+            .checked(0)
+            .timestamp(now - 1800) // 30 minutes ago
+            .build();
+        let tx4 = FailedTxBuilder::default()
+            .hash(make_tx_hash(4))
+            .reason(FailureReason::NonceIssue)
+            .checked(0)
+            .timestamp(now - 3600) // 1 hour ago
+            .build();
+        let tx2 = FailedTxBuilder::default()
+            .hash(make_tx_hash(2))
+            .reason(FailureReason::PendingTooLong)
+            .checked(0) // This one is checked
+            .timestamp(now - 7200) // 2 hours ago
+            .build();
+
+        subject
+            .insert_new_records(&vec![tx1.clone(), tx2, tx3.clone(), tx4])
+            .unwrap();
+
+        // Retrieve unchecked PendingTooLong transactions from the last hour
+        let result = subject.retrieve_txs(Some(FailureRetrieveCondition::UncheckedPendingTooLong(
+            3600,
+        )));
+        assert_eq!(result, vec![tx3, tx1]);
     }
 
     #[test]
