@@ -409,10 +409,12 @@ fn configure_cryptdes(
                 );
             }
             Ok(None) => {
-                // TODO: We probably need to make up new cryptdes here.
+                let main = CryptDEReal::new(chain.clone());
+                let alias = CryptDEReal::new(chain.clone());
                 persistent_config
-                    .set_cryptde(main_cryptde(), db_password)
+                    .set_cryptde(&main, db_password)
                     .expect("Failed to set cryptde");
+                initialize_cryptdes(&main, &alias);
             }
             Err(e) => panic!("Could not read last cryptde from database: {:?}", e),
         }
@@ -634,6 +636,7 @@ mod tests {
     fn configure_cryptdes_handles_missing_password() {
         let _guard = EnvironmentGuard::new();
         set_cryptdes(None, None);
+        reset_once_block();
         let mut persistent_config =
             PersistentConfigurationMock::new().chain_name_result(TEST_DEFAULT_CHAIN.to_string());
 
@@ -662,7 +665,8 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(true, cryptdes_are_initialized());
+        assert_eq!(true, main_cryptde().as_any().downcast_ref::<CryptDEReal>().is_some());
+        assert_eq!(true, alias_cryptde().as_any().downcast_ref::<CryptDEReal>().is_some());
         let cryptde_params = cryptde_params_arc.lock().unwrap();
         assert_eq!(*cryptde_params, vec!["db_password".to_string()]);
         let set_cryptde_params = set_cryptde_params_arc.lock().unwrap();
