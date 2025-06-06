@@ -760,6 +760,10 @@ impl MASQNode for MASQRealNode {
     fn routes_data(&self) -> bool {
         self.guts.routes_data
     }
+
+    fn country_code_opt(&self) -> Option<String> {
+        MASQNodeUtils::derive_country_code_opt(&self.node_addr())
+    }
 }
 
 impl MASQRealNode {
