@@ -59,7 +59,7 @@ jobs:
                git checkout generated-source
           fi
           DIFF="$(diff "${TEMP_DIR}"/dbip_country.rs ip_country/src/dbip_country.rs || true)"
-          if [[ "$DIFF" != "" ]]
+          if [[ "$DIFF" != "" || "$BRANCH" == "" ]]
           then
               mv "${TEMP_DIR}"/dbip_country.rs ip_country/src/dbip_country.rs
               git add ip_country/src/dbip_country.rs
