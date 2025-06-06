@@ -548,7 +548,7 @@ mod tests {
     use super::*;
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
-    use crate::accountant::db_access_objects::utils::from_time_t;
+    use crate::accountant::db_access_objects::utils::from_unix_timestamp;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
     use crate::accountant::scanners::test_utils::protect_payables_in_test;
@@ -876,7 +876,7 @@ mod tests {
         let accounts = vec![PayableAccount {
             wallet: wallet_account,
             balance_wei: 111_420_204,
-            last_paid_timestamp: from_time_t(150_000_000),
+            last_paid_timestamp: from_unix_timestamp(150_000_000),
             pending_payable_opt: None,
         }];
         let agent_id_stamp = ArbitraryIdStamp::new();
@@ -966,7 +966,7 @@ mod tests {
         let accounts = vec![PayableAccount {
             wallet: wallet_account,
             balance_wei: 111_420_204,
-            last_paid_timestamp: from_time_t(150_000_000),
+            last_paid_timestamp: from_unix_timestamp(150_000_000),
             pending_payable_opt: None,
         }];
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
@@ -1337,7 +1337,7 @@ mod tests {
         };
         let fingerprint_4 = PendingPayableFingerprint {
             rowid: 450,
-            timestamp: from_time_t(230_000_000),
+            timestamp: from_unix_timestamp(230_000_000),
             hash: hash_4,
             attempt: 1,
             amount: 7879,
