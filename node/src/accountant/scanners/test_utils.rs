@@ -8,7 +8,10 @@ use crate::accountant::scanners::payable_scanner_extension::msgs::{
 use crate::accountant::scanners::payable_scanner_extension::{
     MultistageDualPayableScanner, PreparedAdjustment, SolvencySensitivePaymentInstructor,
 };
-use crate::accountant::scanners::scan_schedulers::NewPayableScanDynIntervalComputer;
+use crate::accountant::scanners::scan_schedulers::{
+    NewPayableScanDynIntervalComputer, PayableSequenceScanner, RescheduleScanOnErrorResolver,
+    ScanRescheduleAfterEarlyStop,
+};
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableScanResult;
 use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::PendingPayableScanResult;
 use crate::accountant::scanners::{
@@ -435,4 +438,53 @@ pub fn assert_timestamps_from_str(examined_str: &str, expected_timestamps: Vec<S
             expected_timestamp_trimmed, examined_str, parsed_timestamp
         )
     })
+}
+
+#[derive(Default)]
+pub struct RescheduleScanOnErrorResolverMock {
+    resolve_rescheduling_on_error_params:
+        Arc<Mutex<Vec<(PayableSequenceScanner, StartScanError, bool, Logger)>>>,
+    resolve_rescheduling_on_error_results: RefCell<Vec<ScanRescheduleAfterEarlyStop>>,
+}
+
+impl RescheduleScanOnErrorResolver for RescheduleScanOnErrorResolverMock {
+    fn resolve_rescheduling_on_error(
+        &self,
+        scanner: PayableSequenceScanner,
+        error: &StartScanError,
+        is_externally_triggered: bool,
+        logger: &Logger,
+    ) -> ScanRescheduleAfterEarlyStop {
+        self.resolve_rescheduling_on_error_params
+            .lock()
+            .unwrap()
+            .push((
+                scanner,
+                error.clone(),
+                is_externally_triggered,
+                logger.clone(),
+            ));
+        self.resolve_rescheduling_on_error_results
+            .borrow_mut()
+            .remove(0)
+    }
+}
+
+impl RescheduleScanOnErrorResolverMock {
+    pub fn resolve_rescheduling_on_error_params(
+        mut self,
+        params: &Arc<Mutex<Vec<(PayableSequenceScanner, StartScanError, bool, Logger)>>>,
+    ) -> Self {
+        self.resolve_rescheduling_on_error_params = params.clone();
+        self
+    }
+    pub fn resolve_rescheduling_on_error_result(
+        self,
+        result: ScanRescheduleAfterEarlyStop,
+    ) -> Self {
+        self.resolve_rescheduling_on_error_results
+            .borrow_mut()
+            .push(result);
+        self
+    }
 }

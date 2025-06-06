@@ -76,7 +76,7 @@ use std::path::Path;
 use std::rc::Rc;
 use std::time::SystemTime;
 use web3::types::H256;
-use crate::accountant::scanners::scan_schedulers::{PayableSequenceScanner, StartScanErrorResponse, ScanSchedulers};
+use crate::accountant::scanners::scan_schedulers::{PayableSequenceScanner, ScanRescheduleAfterEarlyStop, ScanSchedulers};
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::OperationOutcome;
 use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::PendingPayableScanResult;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionReceiptResult;
@@ -230,16 +230,23 @@ impl Handler<ScanForPendingPayables> for Accountant {
             self.handle_request_of_scan_for_pending_payable(response_skeleton_opt);
 
         match scheduling_hint {
-            StartScanErrorResponse::Schedule(ScanType::Payables) => self
+            ScanRescheduleAfterEarlyStop::Schedule(ScanType::Payables) => self
                 .scan_schedulers
                 .payable
                 .schedule_new_payable_scan(ctx, &self.logger),
-            StartScanErrorResponse::Schedule(ScanType::PendingPayables) => todo!(),
-            StartScanErrorResponse::Schedule(_) => todo!(),
-            StartScanErrorResponse::DoNotSchedule => {
+            ScanRescheduleAfterEarlyStop::Schedule(ScanType::PendingPayables) => self
+                .scan_schedulers
+                .pending_payable
+                .schedule(ctx, &self.logger),
+            ScanRescheduleAfterEarlyStop::Schedule(scan_type) => unreachable!(
+                "Early stopped pending payable scan was suggested to be followed up \
+                by the scan for {:?}, which is not supported though",
+                scan_type
+            ),
+            ScanRescheduleAfterEarlyStop::DoNotSchedule => {
                 trace!(
                     self.logger,
-                    "No early rescheduling, as the pending payable scan found results"
+                    "No early rescheduling, as the pending payable scan did find results"
                 );
             }
         }
@@ -260,15 +267,19 @@ impl Handler<ScanForNewPayables> for Accountant {
         let scheduling_hint = self.handle_request_of_scan_for_new_payable(response_skeleton);
 
         match scheduling_hint {
-            StartScanErrorResponse::Schedule(ScanType::Payables) => self
+            ScanRescheduleAfterEarlyStop::Schedule(ScanType::Payables) => self
                 .scan_schedulers
                 .payable
                 .schedule_new_payable_scan(ctx, &self.logger),
-            StartScanErrorResponse::Schedule(other_scan_type) => todo!(),
-            StartScanErrorResponse::DoNotSchedule => {
+            ScanRescheduleAfterEarlyStop::Schedule(other_scan_type) => unreachable!(
+                "Early stopped new payable scan was suggested to be followed up by the scan \
+                for {:?}, which is not supported though",
+                other_scan_type
+            ),
+            ScanRescheduleAfterEarlyStop::DoNotSchedule => {
                 trace!(
                     self.logger,
-                    "No early rescheduling, as the new payable scan found results"
+                    "No early rescheduling, as the new payable scan did find results"
                 )
             }
         }
@@ -363,8 +374,8 @@ impl Handler<SentPayables> for Accountant {
                     .expect("UIGateway is dead");
 
                 // Externally triggered scans are not allowed to provoke an unwinding scan sequence
-                // with intervals. The only exception is the PendingPayableScanner and
-                // RetryPayableScanner, which are ever meant to run in a tight tandem.
+                // with intervals. The only exception is the PendingPayableScanner and retry-
+                // payable scanner, which are ever meant to run in a tight tandem.
             }
         }
     }
@@ -913,7 +924,7 @@ impl Accountant {
     fn handle_request_of_scan_for_new_payable(
         &mut self,
         response_skeleton_opt: Option<ResponseSkeleton>,
-    ) -> StartScanErrorResponse {
+    ) -> ScanRescheduleAfterEarlyStop {
         let result: Result<QualifiedPayablesMessage, StartScanError> =
             match self.consuming_wallet_opt.as_ref() {
                 Some(consuming_wallet) => self.scanners.start_new_payable_scan_guarded(
@@ -933,7 +944,7 @@ impl Accountant {
                     .expect("BlockchainBridge is unbound")
                     .try_send(scan_message)
                     .expect("BlockchainBridge is dead");
-                StartScanErrorResponse::DoNotSchedule
+                ScanRescheduleAfterEarlyStop::DoNotSchedule
             }
             Err(e) => self.handle_start_scan_error_and_prevent_scan_stall_point(
                 PayableSequenceScanner::NewPayables,
@@ -979,7 +990,7 @@ impl Accountant {
     fn handle_request_of_scan_for_pending_payable(
         &mut self,
         response_skeleton_opt: Option<ResponseSkeleton>,
-    ) -> StartScanErrorResponse {
+    ) -> ScanRescheduleAfterEarlyStop {
         let result: Result<RequestTransactionReceipts, StartScanError> =
             match self.consuming_wallet_opt.as_ref() {
                 Some(consuming_wallet) => self.scanners.start_pending_payable_scan_guarded(
@@ -992,14 +1003,14 @@ impl Accountant {
                 None => Err(StartScanError::NoConsumingWalletFound),
             };
 
-        let hint: StartScanErrorResponse = match result {
+        let hint: ScanRescheduleAfterEarlyStop = match result {
             Ok(scan_message) => {
                 self.request_transaction_receipts_sub_opt
                     .as_ref()
                     .expect("BlockchainBridge is unbound")
                     .try_send(scan_message)
                     .expect("BlockchainBridge is dead");
-                StartScanErrorResponse::DoNotSchedule
+                ScanRescheduleAfterEarlyStop::DoNotSchedule
             }
             Err(e) => {
                 let initial_pending_payable_scan = self.scanners.initial_pending_payable_scan();
@@ -1025,7 +1036,7 @@ impl Accountant {
         scanner: PayableSequenceScanner,
         e: StartScanError,
         response_skeleton_opt: Option<ResponseSkeleton>,
-    ) -> StartScanErrorResponse {
+    ) -> ScanRescheduleAfterEarlyStop {
         let is_externally_triggered = response_skeleton_opt.is_some();
 
         e.log_error(&self.logger, scanner.into(), is_externally_triggered);
@@ -1043,7 +1054,7 @@ impl Accountant {
 
         self.scan_schedulers
             .reschedule_on_error_resolver
-            .resolve_rescheduling_for_given_error(scanner, &e, is_externally_triggered)
+            .resolve_rescheduling_on_error(scanner, &e, is_externally_triggered, &self.logger)
     }
 
     fn handle_request_of_scan_for_receivable(
@@ -1215,7 +1226,7 @@ mod tests {
     use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp, CustomQuery};
     use crate::accountant::payment_adjuster::Adjustment;
     use crate::accountant::scanners::payable_scanner_extension::test_utils::BlockchainAgentMock;
-    use crate::accountant::scanners::test_utils::{MarkScanner, NewPayableScanDynIntervalComputerMock, ReplacementType, ScannerMock, ScannerReplacement};
+    use crate::accountant::scanners::test_utils::{MarkScanner, NewPayableScanDynIntervalComputerMock, ReplacementType, RescheduleScanOnErrorResolverMock, ScannerMock, ScannerReplacement};
     use crate::accountant::scanners::{StartScanError};
     use crate::accountant::test_utils::DaoWithDestination::{
         ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,
@@ -3251,7 +3262,7 @@ mod tests {
         System::current().stop();
         system.run();
         let flag_after = subject.scanners.initial_pending_payable_scan();
-        assert_eq!(hint, StartScanErrorResponse::DoNotSchedule);
+        assert_eq!(hint, ScanRescheduleAfterEarlyStop::DoNotSchedule);
         assert_eq!(flag_before, true);
         assert_eq!(flag_after, false);
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
@@ -3271,7 +3282,10 @@ mod tests {
         let hint = subject.handle_request_of_scan_for_pending_payable(None);
 
         let flag_after = subject.scanners.initial_pending_payable_scan();
-        assert_eq!(hint, StartScanErrorResponse::Schedule(ScanType::Payables));
+        assert_eq!(
+            hint,
+            ScanRescheduleAfterEarlyStop::Schedule(ScanType::Payables)
+        );
         assert_eq!(flag_before, true);
         assert_eq!(flag_after, false);
     }
@@ -3792,7 +3806,10 @@ mod tests {
 
         System::current().stop();
         system.run();
-        assert_eq!(result, StartScanErrorResponse::Schedule(ScanType::Payables));
+        assert_eq!(
+            result,
+            ScanRescheduleAfterEarlyStop::Schedule(ScanType::Payables)
+        );
         let blockchain_bridge_recordings = blockchain_bridge_recordings_arc.lock().unwrap();
         assert_eq!(blockchain_bridge_recordings.len(), 0);
     }
@@ -3870,6 +3887,31 @@ mod tests {
                 response_skeleton_opt: None,
             }
         );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "internal error: entered unreachable code: Early stopped new payable scan \
+        was suggested to be followed up by the scan for Receivables, which is not supported though"
+    )]
+    fn start_scan_early_stop_for_new_payables_requests_unexpected_receivable_scan_scheduling() {
+        let mut subject = AccountantBuilder::default().build();
+        let reschedule_on_error_resolver = RescheduleScanOnErrorResolverMock::default()
+            .resolve_rescheduling_on_error_result(ScanRescheduleAfterEarlyStop::Schedule(
+                ScanType::Receivables,
+            ));
+        subject.scan_schedulers.reschedule_on_error_resolver =
+            Box::new(reschedule_on_error_resolver);
+        let system = System::new("test");
+        let subject_addr = subject.start();
+
+        subject_addr
+            .try_send(ScanForNewPayables {
+                response_skeleton_opt: None,
+            })
+            .unwrap();
+
+        system.run();
     }
 
     #[test]
@@ -4021,6 +4063,73 @@ mod tests {
         assert_eq!(blockchain_bridge_recording.len(), 1);
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing("DEBUG: Accountant: Found 2 pending payables to process");
+    }
+
+    #[test]
+    fn start_scan_early_stop_for_pending_payables_if_initial_pending_payable_scan_and_no_wallet() {
+        let pending_payables_notify_later_params_arc = Arc::new(Mutex::new(vec![]));
+        let new_payables_notify_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut subject = AccountantBuilder::default().build();
+        subject.scan_schedulers.pending_payable.handle = Box::new(
+            NotifyLaterHandleMock::default()
+                .notify_later_params(&pending_payables_notify_later_params_arc)
+                .stop_system_on_count_received(1),
+        );
+        subject.scan_schedulers.pending_payable.interval = Duration::from_secs(60);
+        subject.scan_schedulers.payable.new_payable_notify =
+            Box::new(NotifyHandleMock::default().notify_params(&new_payables_notify_params_arc));
+        let system = System::new("test");
+        let subject_addr = subject.start();
+
+        subject_addr
+            .try_send(ScanForPendingPayables {
+                response_skeleton_opt: None,
+            })
+            .unwrap();
+
+        system.run();
+        let pending_payables_notify_later_params =
+            pending_payables_notify_later_params_arc.lock().unwrap();
+        assert_eq!(
+            *pending_payables_notify_later_params,
+            vec![(
+                ScanForPendingPayables {
+                    response_skeleton_opt: None
+                },
+                Duration::from_secs(60)
+            )]
+        );
+        let new_payables_notify_params = new_payables_notify_params_arc.lock().unwrap();
+        assert_eq!(
+            new_payables_notify_params.len(),
+            0,
+            "Did not expect the new payables request"
+        );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "internal error: entered unreachable code: Early stopped pending payable scan \
+        was suggested to be followed up by the scan for Receivables, which is not supported though"
+    )]
+    fn start_scan_early_stop_for_pending_payables_requests_unexpected_receivable_scan_scheduling() {
+        let mut subject = AccountantBuilder::default().build();
+        let reschedule_on_error_resolver = RescheduleScanOnErrorResolverMock::default()
+            .resolve_rescheduling_on_error_result(ScanRescheduleAfterEarlyStop::Schedule(
+                ScanType::Receivables,
+            ));
+        subject.scan_schedulers.reschedule_on_error_resolver =
+            Box::new(reschedule_on_error_resolver);
+        let system = System::new("test");
+        let subject_addr = subject.start();
+
+        subject_addr
+            .try_send(ScanForPendingPayables {
+                response_skeleton_opt: None,
+            })
+            .unwrap();
+
+        system.run();
     }
 
     #[test]
