@@ -622,7 +622,6 @@ mod tests {
             ])
             .unwrap();
         }
-
         let subject = SentPayableDaoReal::new(wrapped_conn);
 
         // This should panic due to invalid block details
