@@ -300,15 +300,14 @@ mod tests {
     use std::collections::{HashMap, HashSet};
     use crate::accountant::db_access_objects::sent_payable_dao::{RetrieveCondition, SentPayableDao, SentPayableDaoError, SentPayableDaoReal};
     use crate::database::db_initializer::{
-        DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
+        DbInitializationConfig, DbInitializer, DbInitializerReal,
     };
-    use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::database::test_utils::ConnectionWrapperMock;
     use ethereum_types::{ H256, U64};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use rusqlite::{Connection, OpenFlags};
+    use rusqlite::{Connection};
     use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::{ByHash, IsPending};
-    use crate::accountant::db_access_objects::test_utils::TxBuilder;
+    use crate::accountant::db_access_objects::test_utils::{make_read_only_db_connection, TxBuilder};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock};
     use crate::blockchain::test_utils::{make_block_hash, make_tx_hash};
 
@@ -438,18 +437,8 @@ mod tests {
             "sent_payable_dao",
             "insert_new_records_can_throw_error",
         );
-        {
-            DbInitializerReal::default()
-                .initialize(&home_dir, DbInitializationConfig::test_default())
-                .unwrap();
-        }
-        let read_only_conn = Connection::open_with_flags(
-            home_dir.join(DATABASE_FILE),
-            OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .unwrap();
-        let wrapped_conn = ConnectionWrapperReal::new(read_only_conn);
         let tx = TxBuilder::default().build();
+        let wrapped_conn = make_read_only_db_connection(home_dir);
         let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
 
         let result = subject.insert_new_records(&vec![tx]);
@@ -724,17 +713,7 @@ mod tests {
             "sent_payable_dao",
             "update_tx_blocks_returns_error_when_an_error_occurs_while_executing_sql",
         );
-        {
-            DbInitializerReal::default()
-                .initialize(&home_dir, DbInitializationConfig::test_default())
-                .unwrap();
-        }
-        let read_only_conn = Connection::open_with_flags(
-            home_dir.join(DATABASE_FILE),
-            OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .unwrap();
-        let wrapped_conn = ConnectionWrapperReal::new(read_only_conn);
+        let wrapped_conn = make_read_only_db_connection(home_dir);
         let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
         let hash = make_tx_hash(1);
         let hash_map = HashMap::from([(
@@ -847,17 +826,7 @@ mod tests {
             "sent_payable_dao",
             "delete_records_returns_a_general_error_from_sql",
         );
-        {
-            DbInitializerReal::default()
-                .initialize(&home_dir, DbInitializationConfig::test_default())
-                .unwrap();
-        }
-        let read_only_conn = Connection::open_with_flags(
-            home_dir.join(DATABASE_FILE),
-            OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .unwrap();
-        let wrapped_conn = ConnectionWrapperReal::new(read_only_conn);
+        let wrapped_conn = make_read_only_db_connection(home_dir);
         let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
         let hashes = HashSet::from([make_tx_hash(1)]);
 
