@@ -638,8 +638,8 @@ mod tests {
         let subject = SentPayableDaoReal::new(wrapped_conn);
         let tx1 = TxBuilder::default().hash(make_tx_hash(1)).build();
         let tx2 = TxBuilder::default().hash(make_tx_hash(2)).build();
-        let tx1_prior_block_opt = tx1.block_opt.clone();
-        let tx2_prior_block_opt = tx2.block_opt.clone();
+        let pre_assert_is_block_details_present_tx1 = tx1.block_opt.is_some();
+        let pre_assert_is_block_details_present_tx2 = tx2.block_opt.is_some();
         subject
             .insert_new_records(&vec![tx1.clone(), tx2.clone()])
             .unwrap();
@@ -660,9 +660,9 @@ mod tests {
 
         let updated_txs = subject.retrieve_txs(Some(ByHash(vec![tx1.hash, tx2.hash])));
         assert_eq!(result, Ok(()));
-        assert_eq!(tx1_prior_block_opt, None);
+        assert_eq!(pre_assert_is_block_details_present_tx1, false);
         assert_eq!(updated_txs[0].block_opt, Some(tx_block_1));
-        assert_eq!(tx2_prior_block_opt, None);
+        assert_eq!(pre_assert_is_block_details_present_tx2, false);
         assert_eq!(updated_txs[1].block_opt, Some(tx_block_2));
     }
 

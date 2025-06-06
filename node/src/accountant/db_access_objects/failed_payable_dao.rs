@@ -77,7 +77,7 @@ pub trait FailedPayableDao {
     fn retrieve_txs(&self, condition: Option<FailureRetrieveCondition>) -> Vec<FailedTx>;
     fn update_recheck_status(
         &self,
-        hash_map: &HashSet<TxHash>,
+        hash_set: &HashSet<TxHash>,
     ) -> Result<(), FailedPayableDaoError>;
     fn delete_records(&self, hashes: &HashSet<TxHash>) -> Result<(), FailedPayableDaoError>;
 }
@@ -603,8 +603,8 @@ mod tests {
         let tx5 = FailedTxBuilder::default()
             .hash(make_tx_hash(5))
             .reason(FailureReason::PendingTooLong)
-            .rechecked(false) // This one is rechecked
-            .timestamp(now - 7200) // 2 hours ago
+            .rechecked(true) // This one is rechecked
+            .timestamp(now - 3000) // 50 minutes ago
             .build();
 
         subject
