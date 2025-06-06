@@ -9,17 +9,23 @@ use crate::database::db_initializer::{
 };
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use crate::sub_lib::accountant::PaymentThresholds;
+use ethereum_types::H256;
 use masq_lib::constants::WEIS_IN_GWEI;
 use masq_lib::messages::{
     RangeQuery, TopRecordsConfig, TopRecordsOrdering, UiPayableAccount, UiReceivableAccount,
 };
 use rusqlite::{Row, Statement, ToSql};
+use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::iter::FlatMap;
 use std::path::{Path, PathBuf};
 use std::string::ToString;
 use std::time::Duration;
 use std::time::SystemTime;
+
+pub type TxHash = H256;
+pub type RowId = u64;
+pub type TxIdentifiers = HashMap<TxHash, RowId>;
 
 pub fn to_unix_timestamp(system_time: SystemTime) -> i64 {
     match system_time.duration_since(SystemTime::UNIX_EPOCH) {
