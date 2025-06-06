@@ -521,9 +521,9 @@ mod tests {
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
     use crate::test_utils::unshared_test_utils::{make_request_payload, make_response_payload};
     use crate::test_utils::{
-        make_cryptde_pair, make_meaningless_message_type,
-        make_paying_wallet, rate_pack_routing, rate_pack_routing_byte, route_from_proxy_client,
-        route_to_proxy_client, route_to_proxy_server,
+        make_cryptde_pair, make_meaningless_message_type, make_paying_wallet, rate_pack_routing,
+        rate_pack_routing_byte, route_from_proxy_client, route_to_proxy_client,
+        route_to_proxy_server,
     };
     use actix::System;
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;

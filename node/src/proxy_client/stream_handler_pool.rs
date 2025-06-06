@@ -569,6 +569,7 @@ impl StreamHandlerPoolFactory for StreamHandlerPoolFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bootstrapper::main_cryptde;
     use crate::node_test_utils::check_timestamp;
     use crate::proxy_client::local_test_utils::make_send_error;
     use crate::proxy_client::local_test_utils::ResolverWrapperMock;
@@ -582,7 +583,6 @@ mod tests {
     use crate::test_utils::channel_wrapper_mocks::FuturesChannelFactoryMock;
     use crate::test_utils::channel_wrapper_mocks::ReceiverWrapperMock;
     use crate::test_utils::channel_wrapper_mocks::SenderWrapperMock;
-    use crate::bootstrapper::main_cryptde;
     use crate::test_utils::make_meaningless_route;
     use crate::test_utils::make_wallet;
     use crate::test_utils::recorder::make_recorder;

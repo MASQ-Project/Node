@@ -1,6 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::sub_lib::route::RouteError;
 use ethsign_crypto::Keccak256;
+use masq_lib::blockchains::chains::Chain;
 use rustc_hex::{FromHex, ToHex};
 use serde::de::Visitor;
 use serde::Deserialize;
@@ -11,7 +12,6 @@ use std::any::Any;
 use std::fmt;
 use std::iter::FromIterator;
 use std::str::FromStr;
-use masq_lib::blockchains::chains::Chain;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct PrivateKey {
@@ -631,8 +631,8 @@ pub fn create_digest(msg: &dyn AsRef<[u8]>, address: &dyn AsRef<[u8]>) -> [u8; 3
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::bootstrapper::main_cryptde;
+    use crate::sub_lib::cryptde_null::CryptDENull;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use rustc_hex::{FromHex, FromHexError};
     use serde::de;

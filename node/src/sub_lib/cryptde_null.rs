@@ -316,18 +316,30 @@ mod tests {
 
         let result = subject.make_from_str(string, Chain::Dev);
 
-        assert_eq!(result.err().unwrap(), "Serialized CryptDE must have valid Base64, not '/ / / /'".to_string());
+        assert_eq!(
+            result.err().unwrap(),
+            "Serialized CryptDE must have valid Base64, not '/ / / /'".to_string()
+        );
     }
 
     #[test]
     fn make_from_str_can_succeed() {
         let subject = CryptDENull::new(Chain::BaseSepolia);
         let private_key_data = subject.private_key.as_slice().to_vec();
-        let string = format!("{}", base64::encode_config(private_key_data, base64::URL_SAFE_NO_PAD));
+        let string = format!(
+            "{}",
+            base64::encode_config(private_key_data, base64::URL_SAFE_NO_PAD)
+        );
 
-        let boxed_result = subject.make_from_str(string.as_str(), Chain::BaseSepolia).unwrap();
+        let boxed_result = subject
+            .make_from_str(string.as_str(), Chain::BaseSepolia)
+            .unwrap();
 
-        let result = boxed_result.as_ref().as_any().downcast_ref::<CryptDENull>().unwrap();
+        let result = boxed_result
+            .as_ref()
+            .as_any()
+            .downcast_ref::<CryptDENull>()
+            .unwrap();
         assert_eq!(result.public_key, subject.public_key);
         assert_eq!(result.private_key, subject.private_key);
         assert_eq!(result.digest, subject.digest);

@@ -1678,6 +1678,7 @@ mod tests {
     use crate::sub_lib::versioned_data::VersionedData;
     use crate::test_utils::assert_contains;
     use crate::test_utils::make_meaningless_route;
+    use crate::test_utils::make_paying_wallet;
     use crate::test_utils::make_wallet;
     use crate::test_utils::neighborhood_test_utils::{
         cryptdes_from_node_records, db_from_node, linearly_connect_nodes,
@@ -1697,10 +1698,10 @@ mod tests {
         prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
     };
     use crate::test_utils::vec_to_set;
-    use crate::test_utils::{make_paying_wallet};
 
     use super::*;
     use crate::accountant::test_utils::bc_from_earning_wallet;
+    use crate::bootstrapper::main_cryptde;
     use crate::neighborhood::overall_connection_status::ConnectionStageErrors::{
         NoGossipResponseReceived, PassLoopFound, TcpConnectionFailed,
     };
@@ -1709,7 +1710,6 @@ mod tests {
     };
     use crate::test_utils::unshared_test_utils::notify_handlers::NotifyLaterHandleMock;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use crate::bootstrapper::main_cryptde;
 
     impl Handler<AssertionsMessage<Neighborhood>> for Neighborhood {
         type Result = ();

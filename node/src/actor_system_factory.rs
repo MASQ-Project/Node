@@ -643,6 +643,7 @@ mod tests {
     use super::*;
     use crate::accountant::exportable_test_parts::test_accountant_is_constructed_with_upgraded_db_connection_recognizing_our_extra_sqlite_functions;
     use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
+    use crate::bootstrapper::cryptde_test::ensure_cryptde_initialization;
     use crate::bootstrapper::{alias_cryptde, main_cryptde, RealUser};
     use crate::node_test_utils::{
         make_stream_handler_pool_subs_from_recorder, start_recorder_refcell_opt,
@@ -661,9 +662,11 @@ mod tests {
     use crate::sub_lib::ui_gateway::UiGatewayConfig;
     use crate::test_utils::actor_system_factory::BannedCacheLoaderMock;
     use crate::test_utils::automap_mocks::{AutomapControlFactoryMock, AutomapControlMock};
+    use crate::test_utils::make_cryptde_pair;
     use crate::test_utils::make_wallet;
     use crate::test_utils::neighborhood_test_utils::MIN_HOPS_FOR_TEST;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+    use crate::test_utils::rate_pack;
     use crate::test_utils::recorder::{
         make_accountant_subs_from_recorder, make_blockchain_bridge_subs_from_recorder,
         make_configurator_subs_from_recorder, make_hopper_subs_from_recorder,
@@ -676,8 +679,6 @@ mod tests {
     use crate::test_utils::unshared_test_utils::{
         assert_on_initialization_with_panic_on_migration, SubsFactoryTestAddrLeaker,
     };
-    use crate::test_utils::{rate_pack};
-    use crate::test_utils::{make_cryptde_pair};
     use crate::{hopper, proxy_client, proxy_server, stream_handler_pool, ui_gateway};
     use actix::{Actor, Arbiter, System};
     use automap_lib::control_layer::automap_control::AutomapChange;
@@ -708,7 +709,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
-    use crate::bootstrapper::cryptde_test::ensure_cryptde_initialization;
 
     struct LogRecipientSetterNull {}
 

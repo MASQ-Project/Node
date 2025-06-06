@@ -132,6 +132,7 @@ impl ConsumingService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bootstrapper::main_cryptde;
     use crate::node_test_utils::check_timestamp;
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::dispatcher::{Component, InboundClientData};
@@ -148,7 +149,6 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr};
     use std::str::FromStr;
     use std::time::SystemTime;
-    use crate::bootstrapper::main_cryptde;
 
     #[test]
     fn converts_no_lookup_incipient_message_to_live_and_sends_to_dispatcher() {

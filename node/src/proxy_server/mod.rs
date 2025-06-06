@@ -1353,6 +1353,7 @@ impl Hostname {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bootstrapper::{alias_cryptde, main_cryptde};
     use crate::match_every_type_id;
     use crate::proxy_server::protocol_pack::ServerImpersonator;
     use crate::proxy_server::server_impersonator_http::ServerImpersonatorHttp;
@@ -1375,8 +1376,10 @@ mod tests {
     use crate::sub_lib::sequence_buffer::SequencedPacket;
     use crate::sub_lib::ttl_hashmap::TtlHashMap;
     use crate::sub_lib::versioned_data::VersionedData;
+    use crate::test_utils::make_meaningless_route;
     use crate::test_utils::make_paying_wallet;
     use crate::test_utils::make_wallet;
+    use crate::test_utils::rate_pack;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
@@ -1385,8 +1388,6 @@ mod tests {
         make_request_payload, prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
     };
     use crate::test_utils::zero_hop_route_response;
-    use crate::test_utils::{rate_pack};
-    use crate::test_utils::{make_meaningless_route};
     use actix::System;
     use crossbeam_channel::unbounded;
     use masq_lib::constants::{HTTP_PORT, TLS_PORT};
@@ -1400,7 +1401,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::SystemTime;
-    use crate::bootstrapper::{alias_cryptde, main_cryptde};
 
     impl Handler<AssertionsMessage<ProxyServer>> for ProxyServer {
         type Result = ();

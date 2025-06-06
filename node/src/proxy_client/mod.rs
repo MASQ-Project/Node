@@ -331,6 +331,7 @@ struct StreamContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bootstrapper::{alias_cryptde, main_cryptde};
     use crate::node_test_utils::check_timestamp;
     use crate::proxy_client::local_test_utils::ResolverWrapperFactoryMock;
     use crate::proxy_client::local_test_utils::ResolverWrapperMock;
@@ -366,7 +367,6 @@ mod tests {
     use std::sync::Mutex;
     use std::thread;
     use std::time::SystemTime;
-    use crate::bootstrapper::{alias_cryptde, main_cryptde};
 
     #[test]
     fn constants_have_correct_values() {

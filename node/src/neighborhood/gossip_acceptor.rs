@@ -1326,6 +1326,7 @@ impl<'a> GossipAcceptorReal<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bootstrapper::main_cryptde;
     use crate::neighborhood::gossip_producer::GossipProducer;
     use crate::neighborhood::gossip_producer::GossipProducerReal;
     use crate::neighborhood::node_record::NodeRecord;
@@ -1346,7 +1347,6 @@ mod tests {
     use std::ops::{Add, Sub};
     use std::str::FromStr;
     use std::time::Duration;
-    use crate::bootstrapper::main_cryptde;
 
     #[test]
     fn constants_have_correct_values() {

@@ -220,7 +220,13 @@ impl DbInitializerReal {
             false,
             "gas price",
         );
-        Self::set_config_value(conn, "last_cryptde", None, true, "CryptDE that gave us the public key we used last time");
+        Self::set_config_value(
+            conn,
+            "last_cryptde",
+            None,
+            true,
+            "CryptDE that gave us the public key we used last time",
+        );
         Self::set_config_value(conn, "past_neighbors", None, true, "past neighbors");
         Self::set_config_value(
             conn,
@@ -643,6 +649,7 @@ mod tests {
     use rusqlite::Error::InvalidColumnType;
     use rusqlite::{Error, OpenFlags};
     use std::collections::HashMap;
+    use std::collections::HashSet;
     use std::fs::File;
     use std::io::{Read, Write};
     use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
@@ -650,7 +657,6 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
     use tokio::net::TcpListener;
-    use std::collections::HashSet;
 
     #[test]
     fn constants_have_correct_values() {
@@ -984,8 +990,11 @@ mod tests {
         let mut flags = OpenFlags::empty();
         flags.insert(OpenFlags::SQLITE_OPEN_READ_ONLY);
         let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
-        let mut stmt = conn.prepare("SELECT name FROM sqlite_master WHERE type='table'").unwrap();
-        let table_names = stmt.query_map([], |row| row.get(0))
+        let mut stmt = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+            .unwrap();
+        let table_names = stmt
+            .query_map([], |row| row.get(0))
             .unwrap()
             .map(|x| x.unwrap())
             .collect::<HashSet<String>>();

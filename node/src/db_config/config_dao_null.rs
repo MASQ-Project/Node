@@ -100,10 +100,7 @@ impl Default for ConfigDaoNull {
                 false,
             ),
         );
-        data.insert(
-            "last_cryptde".to_string(),
-            (None, true),
-        );
+        data.insert("last_cryptde".to_string(), (None, true));
         data.insert(
             "gas_price".to_string(),
             (Some(DEFAULT_GAS_PRICE.to_string()), false),

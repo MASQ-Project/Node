@@ -20,6 +20,7 @@ use masq_lib::ui_gateway::{
 
 use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
 use crate::blockchain::bip39::Bip39;
+use crate::bootstrapper::main_cryptde;
 use crate::database::db_initializer::DbInitializationConfig;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::db_config::config_dao::ConfigDaoReal;
@@ -30,7 +31,6 @@ use crate::sub_lib::neighborhood::{ConfigChange, ConfigChangeMsg, Hops, WalletPa
 use crate::sub_lib::peer_actors::{BindMessage, ConfigChangeSubs};
 use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request};
 use crate::sub_lib::wallet::Wallet;
-use crate::bootstrapper::main_cryptde;
 use bip39::{Language, Mnemonic, MnemonicType, Seed};
 use masq_lib::constants::{
     BAD_PASSWORD_ERROR, CONFIGURATOR_READ_ERROR, CONFIGURATOR_WRITE_ERROR, DERIVATION_PATH_ERROR,

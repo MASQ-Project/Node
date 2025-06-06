@@ -336,6 +336,7 @@ impl NodeRecordMetadata {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bootstrapper::main_cryptde;
     use crate::neighborhood::gossip::GossipBuilder;
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::neighborhood::ZERO_RATE_PACK;
@@ -345,7 +346,6 @@ mod tests {
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::net::IpAddr;
     use std::str::FromStr;
-    use crate::bootstrapper::main_cryptde;
 
     #[test]
     fn can_create_a_node_record_from_a_reference() {

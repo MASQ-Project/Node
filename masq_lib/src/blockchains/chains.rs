@@ -1,6 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::fmt::{Display, Formatter};
 use crate::blockchains::blockchain_records::{BlockchainRecord, CHAINS};
 use crate::constants::{
     BASE_MAINNET_FULL_IDENTIFIER, BASE_SEPOLIA_FULL_IDENTIFIER, DEFAULT_CHAIN,
@@ -8,6 +7,7 @@ use crate::constants::{
     POLYGON_AMOY_FULL_IDENTIFIER, POLYGON_MAINNET_FULL_IDENTIFIER,
 };
 use serde_derive::{Deserialize, Serialize};
+use std::fmt::{Display, Formatter};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub enum Chain {
@@ -186,17 +186,23 @@ mod tests {
             Chain::Dev,
         ];
 
-        let strings = chains.iter().map(|chain| chain.to_string()).collect::<Vec<_>>();
+        let strings = chains
+            .iter()
+            .map(|chain| chain.to_string())
+            .collect::<Vec<_>>();
 
-        assert_eq!(strings, vec![
-            ETH_MAINNET_FULL_IDENTIFIER.to_string(),
-            ETH_ROPSTEN_FULL_IDENTIFIER.to_string(),
-            POLYGON_MAINNET_FULL_IDENTIFIER.to_string(),
-            POLYGON_AMOY_FULL_IDENTIFIER.to_string(),
-            BASE_MAINNET_FULL_IDENTIFIER.to_string(),
-            BASE_SEPOLIA_FULL_IDENTIFIER.to_string(),
-            DEV_CHAIN_FULL_IDENTIFIER.to_string(),
-        ]);
+        assert_eq!(
+            strings,
+            vec![
+                ETH_MAINNET_FULL_IDENTIFIER.to_string(),
+                ETH_ROPSTEN_FULL_IDENTIFIER.to_string(),
+                POLYGON_MAINNET_FULL_IDENTIFIER.to_string(),
+                POLYGON_AMOY_FULL_IDENTIFIER.to_string(),
+                BASE_MAINNET_FULL_IDENTIFIER.to_string(),
+                BASE_SEPOLIA_FULL_IDENTIFIER.to_string(),
+                DEV_CHAIN_FULL_IDENTIFIER.to_string(),
+            ]
+        );
     }
 
     fn assert_mainnet_exist() {

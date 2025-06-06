@@ -624,6 +624,7 @@ mod tests {
     use crate::accountant::db_access_objects::utils::ThresholdUtils;
     use crate::apps::app_node;
     use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
+    use crate::bootstrapper::main_cryptde;
     use crate::database::db_initializer::DbInitializationConfig;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal};
@@ -641,7 +642,7 @@ mod tests {
         make_persistent_config_real_with_config_dao_null, make_simplified_multi_config,
         ACCOUNTANT_CONFIG_PARAMS, MAPPING_PROTOCOL, RATE_PACK, ZERO,
     };
-    use crate::test_utils::{ArgsBuilder};
+    use crate::test_utils::ArgsBuilder;
     use masq_lib::constants::DEFAULT_GAS_PRICE;
     use masq_lib::multi_config::{CommandLineVcl, NameValueVclArg, VclArg, VirtualCommandLine};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
@@ -651,7 +652,6 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
-    use crate::bootstrapper::main_cryptde;
 
     #[test]
     fn convert_ci_configs_handles_blockchain_mismatch() {

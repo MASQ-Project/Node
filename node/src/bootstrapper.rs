@@ -3,6 +3,8 @@ use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
 use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
 use crate::actor_system_factory::{ActorFactoryReal, ActorSystemFactoryToolsReal};
+#[cfg(test)]
+use crate::bootstrapper::cryptde_test::ensure_cryptde_initialization;
 use crate::crash_test_dummy::CrashTestDummy;
 use crate::database::db_initializer::DbInitializationConfig;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
@@ -28,6 +30,7 @@ use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeConfig;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde_null::CryptDENull;
+use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode};
 use crate::sub_lib::node_addr::NodeAddr;
@@ -54,74 +57,112 @@ use std::fmt::{Debug, Display, Error, Formatter};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::Mutex;
 use std::sync::Once;
 use std::vec::Vec;
 use tokio::prelude::stream::futures_unordered::FuturesUnordered;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
 use tokio::prelude::Stream;
-use crate::sub_lib::cryptde_real::CryptDEReal;
+
 #[cfg(test)]
-use crate::bootstrapper::cryptde_test::ensure_cryptde_initialization;
-
-
+static CRYPTDE_GUARD: Mutex<bool> = Mutex::new(false);
+#[cfg(not(test))]
 static CRYPTDE_ONCE_BLOCK: Once = Once::new();
+#[cfg(test)]
+static mut CRYPTDE_ONCE_BLOCK: Once = Once::new();
 static mut MAIN_CRYPTDE_OPT: Option<Box<dyn CryptDE + 'static>> = None;
 static mut ALIAS_CRYPTDE_OPT: Option<Box<dyn CryptDE + 'static>> = None;
 
 pub fn main_cryptde() -> &'static dyn CryptDE {
     #[cfg(test)]
     ensure_cryptde_initialization();
+    let _ = CRYPTDE_GUARD.lock().expect("Failed to lock CRYPTDE_GUARD");
     unsafe {
-        MAIN_CRYPTDE_OPT.as_ref().expect("Main CryptDE not initialized").as_ref()
+        MAIN_CRYPTDE_OPT
+            .as_ref()
+            .expect("Main CryptDE not initialized")
+            .as_ref()
     }
 }
 
 pub fn alias_cryptde() -> &'static dyn CryptDE {
     #[cfg(test)]
     ensure_cryptde_initialization();
+    let _ = CRYPTDE_GUARD.lock().expect("Failed to lock CRYPTDE_GUARD");
     unsafe {
-        ALIAS_CRYPTDE_OPT.as_ref().expect("Alias CryptDE not initialized").as_ref()
+        ALIAS_CRYPTDE_OPT
+            .as_ref()
+            .expect("Alias CryptDE not initialized")
+            .as_ref()
     }
 }
 
+// This should be the only way for production code to set the CryptDEs. Don't add
+// any other code that writes these variables directly; make it call this function instead.
 pub fn initialize_cryptdes(main_cryptde: &CryptDEReal, alias_cryptde: &CryptDEReal) {
-    CRYPTDE_ONCE_BLOCK.call_once(|| {
-        unsafe{
+    let closure = || {
+        let _ = CRYPTDE_GUARD.lock().expect("Failed to lock CRYPTDE_GUARD");
+        unsafe {
             MAIN_CRYPTDE_OPT = Some(main_cryptde.dup());
             ALIAS_CRYPTDE_OPT = Some(alias_cryptde.dup());
         }
-    })
+    };
+    #[cfg(not(test))]
+    CRYPTDE_ONCE_BLOCK.call_once(closure);
+    #[cfg(test)]
+    unsafe { CRYPTDE_ONCE_BLOCK.call_once(closure); }
 }
 
 pub fn cryptdes_are_initialized() -> bool {
+    let _ = CRYPTDE_GUARD.lock().expect("Failed to lock CRYPTDE_GUARD");
     unsafe {
-        MAIN_CRYPTDE_OPT.is_some() && ALIAS_CRYPTDE_OPT.is_some()
+        let main_cryptde_opt = MAIN_CRYPTDE_OPT.as_ref();
+        let alias_cryptde_opt = ALIAS_CRYPTDE_OPT.as_ref();
+        main_cryptde_opt.is_some() && alias_cryptde_opt.is_some()
     }
 }
 
 #[cfg(test)]
 pub mod cryptde_test {
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
-    use crate::bootstrapper::{cryptdes_are_initialized, ALIAS_CRYPTDE_OPT, CRYPTDE_ONCE_BLOCK, MAIN_CRYPTDE_OPT};
+    use websocket::header::CacheDirective::OnlyIfCached;
+    use crate::bootstrapper::{cryptdes_are_initialized, ALIAS_CRYPTDE_OPT, CRYPTDE_GUARD, CRYPTDE_ONCE_BLOCK, MAIN_CRYPTDE_OPT};
     use crate::sub_lib::cryptde::CryptDE;
     use crate::sub_lib::cryptde_null::CryptDENull;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+    use std::sync::Once;
 
+    // In tests, this function is always called implicitly by main_cryptde() and alias_cryptde(),
+    // so you probably won't need to call it explicitly.
     pub fn ensure_cryptde_initialization() {
         if !cryptdes_are_initialized() {
-            CRYPTDE_ONCE_BLOCK.call_once(|| {
-                set_cryptdes(
-                    Some(Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN))),
-                    Some(Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN))),
-                );
-            });
+            set_cryptdes(
+                Some(Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN))),
+                Some(Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN))),
+            );
         }
     }
 
-    fn set_cryptdes(main_crypde_opt: Option<Box<dyn CryptDE>>, alias_cryptde_opt: Option<Box<dyn CryptDE>>) {
-        unsafe{
+    // Tests should call this function exclusively to set the CryptDEs. They
+    // should never call initialize_cryptdes() except from the production code under
+    // test.
+    pub fn set_cryptdes(
+        main_crypde_opt: Option<Box<dyn CryptDE>>,
+        alias_cryptde_opt: Option<Box<dyn CryptDE>>,
+    ) {
+        let _ = CRYPTDE_GUARD.lock().expect("Failed to lock CRYPTDE_GUARD");
+        unsafe {
             MAIN_CRYPTDE_OPT = main_crypde_opt;
             ALIAS_CRYPTDE_OPT = alias_cryptde_opt;
+        }
+    }
+
+    // Call this function at the beginning of any test that expects to call
+    // production code that uses the initialize_cryptdes() function.
+    pub fn reset_once_block() {
+        let _ = CRYPTDE_GUARD.lock().expect("Failed to lock CRYPTDE_GUARD");
+        unsafe {
+            CRYPTDE_ONCE_BLOCK = Once::new();
         }
     }
 }
@@ -388,6 +429,7 @@ pub struct BootstrapperConfig {
     pub port_configurations: HashMap<u16, PortConfiguration>,
     pub data_directory: PathBuf,
     pub node_descriptor: NodeDescriptor,
+    // TODO: Check out these two fields. Perhaps they can be removed.
     pub main_cryptde_null_opt: Option<CryptDENull>,
     pub alias_cryptde_null_opt: Option<CryptDENull>,
     pub mapping_protocol_opt: Option<AutomapProtocol>,
@@ -540,8 +582,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
         // NOTE: The following line of code is not covered by unit tests
         fdlimit::raise_fd_limit();
         let unprivileged_config =
-            NodeConfiguratorStandardUnprivileged::new(&self.config)
-                .configure(multi_config)?; // this is where the CryptDEs are set up
+            NodeConfiguratorStandardUnprivileged::new(&self.config).configure(multi_config)?; // this is where the CryptDEs are set up
         self.config.merge_unprivileged(unprivileged_config);
         let _ = self.set_up_clandestine_port();
         let node_descriptor = Bootstrapper::make_local_descriptor(
@@ -556,7 +597,9 @@ impl ConfiguredByPrivilege for Bootstrapper {
         match &self.config.neighborhood_config.mode {
             NeighborhoodMode::Standard(node_addr, _, _)
                 if node_addr.ip_addr() == Ipv4Addr::new(0, 0, 0, 0) => {} // node_addr still coming
-            _ => Bootstrapper::report_local_descriptor(main_cryptde(), &self.config.node_descriptor), // here or not coming
+            _ => {
+                Bootstrapper::report_local_descriptor(main_cryptde(), &self.config.node_descriptor)
+            } // here or not coming
         }
         let stream_handler_pool_subs = self.start_actors_and_return_shp_subs();
         self.listener_handlers
@@ -692,7 +735,11 @@ impl Bootstrapper {
 mod tests {
     use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
     use crate::actor_system_factory::{ActorFactory, ActorSystemFactory};
-    use crate::bootstrapper::{main_cryptde, Bootstrapper, BootstrapperConfig, CryptDEPair, EnvironmentWrapper, PortConfiguration, RealUser};
+    use crate::bootstrapper::cryptde_test::ensure_cryptde_initialization;
+    use crate::bootstrapper::{
+        main_cryptde, Bootstrapper, BootstrapperConfig, CryptDEPair, EnvironmentWrapper,
+        PortConfiguration, RealUser,
+    };
     use crate::database::db_initializer::DbInitializationConfig;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::db_config::config_dao::ConfigDaoReal;
@@ -718,6 +765,7 @@ mod tests {
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::socket_server::ConfiguredByPrivilege;
     use crate::sub_lib::stream_connector::ConnectionInfo;
+    use crate::test_utils::make_wallet;
     use crate::test_utils::neighborhood_test_utils::MIN_HOPS_FOR_TEST;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::make_recorder;
@@ -729,7 +777,6 @@ mod tests {
         assert_on_initialization_with_panic_on_migration, make_simplified_multi_config,
     };
     use crate::test_utils::{assert_contains, rate_pack};
-    use crate::test_utils::{make_wallet};
     use actix::System;
     use actix::{Actor, Recipient};
     use crossbeam_channel::unbounded;
@@ -759,7 +806,6 @@ mod tests {
     use tokio::executor::current_thread::CurrentThread;
     use tokio::prelude::stream::FuturesUnordered;
     use tokio::prelude::Async;
-    use crate::bootstrapper::cryptde_test::{ensure_cryptde_initialization};
 
     lazy_static! {
         pub static ref INITIALIZATION: Mutex<bool> = Mutex::new(false);

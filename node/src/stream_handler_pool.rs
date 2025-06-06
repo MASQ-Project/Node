@@ -783,6 +783,7 @@ impl TrafficAnalyzerReal {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bootstrapper::main_cryptde;
     use crate::http_request_start_finder::HttpRequestDiscriminatorFactory;
     use crate::json_discriminator_factory::JsonDiscriminatorFactory;
     use crate::json_masquerader::JsonMasquerader;
@@ -794,7 +795,6 @@ mod tests {
     };
     use crate::sub_lib::stream_connector::ConnectionInfo;
     use crate::test_utils::channel_wrapper_mocks::SenderWrapperMock;
-    use crate::bootstrapper::main_cryptde;
     use crate::test_utils::rate_pack;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
