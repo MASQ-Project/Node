@@ -49,7 +49,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git fetch
-          BRANCH=$(git ls-remote --heads 2>/dev/null | grep generated-source)
+          BRANCH="$(git ls-remote --exit-code --heads origin generated-source 2>/dev/null || true)"
           if [[ "$BRANCH" == "" ]]
           then
                git checkout -B generated-source
@@ -58,7 +58,11 @@ jobs:
           else
                git checkout generated-source
           fi
-          mv "${TEMP_DIR}"/dbip_country.rs ip_country/src/dbip_country.rs
-          git add ip_country/src/dbip_country.rs
-          git commit -m "Update generated dbip_country ${YEAR_MONTH} Rust source file"
-          git push -u origin HEAD
+          DIFF="$(diff "${TEMP_DIR}"/dbip_country.rs ip_country/src/dbip_country.rs || true)"
+          if [[ "$DIFF" != "" ]]
+          then
+              mv "${TEMP_DIR}"/dbip_country.rs ip_country/src/dbip_country.rs
+              git add ip_country/src/dbip_country.rs
+              git commit -m "Update generated dbip_country ${YEAR_MONTH} Rust source file" || true
+              git push -u origin HEAD
+          fi
