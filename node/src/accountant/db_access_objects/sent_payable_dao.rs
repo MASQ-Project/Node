@@ -106,9 +106,10 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
 
         let unique_hashes: HashSet<TxHash> = txs.iter().map(|tx| tx.hash).collect();
         if unique_hashes.len() != txs.len() {
-            return Err(SentPayableDaoError::InvalidInput(
-                "Duplicate hashes found in the input".to_string(),
-            ));
+            return Err(SentPayableDaoError::InvalidInput(format!(
+                "Duplicate hashes found in the input. Input Transactions: {:?}",
+                txs
+            )));
         }
 
         let duplicates = self.get_tx_identifiers(&unique_hashes);
@@ -363,9 +364,13 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let hash = make_tx_hash(1234);
-        let tx1 = TxBuilder::default().hash(hash).build();
+        let tx1 = TxBuilder::default()
+            .hash(hash)
+            .timestamp(1749204017)
+            .build();
         let tx2 = TxBuilder::default()
             .hash(hash)
+            .timestamp(1749204020)
             .block(Default::default())
             .build();
         let subject = SentPayableDaoReal::new(wrapped_conn);
@@ -375,7 +380,20 @@ mod tests {
         assert_eq!(
             result,
             Err(SentPayableDaoError::InvalidInput(
-                "Duplicate hashes found in the input".to_string()
+                "Duplicate hashes found in the input. Input Transactions: \
+                [Tx { \
+                hash: 0x00000000000000000000000000000000000000000000000000000000000004d2, \
+                receiver_address: 0x0000000000000000000000000000000000000000, \
+                amount: 0, timestamp: 1749204017, gas_price_wei: 0, \
+                nonce: 0, block_opt: None }, \
+                Tx { \
+                hash: 0x00000000000000000000000000000000000000000000000000000000000004d2, \
+                receiver_address: 0x0000000000000000000000000000000000000000, \
+                amount: 0, timestamp: 1749204020, gas_price_wei: 0, \
+                nonce: 0, block_opt: Some(TransactionBlock { \
+                block_hash: 0x0000000000000000000000000000000000000000000000000000000000000000, \
+                block_number: 0 }) }]"
+                    .to_string()
             ))
         );
     }

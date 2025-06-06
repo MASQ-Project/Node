@@ -125,9 +125,10 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
 
         let unique_hashes: HashSet<TxHash> = txs.iter().map(|tx| tx.hash).collect();
         if unique_hashes.len() != txs.len() {
-            return Err(FailedPayableDaoError::InvalidInput(
-                "Duplicate hashes found in the input".to_string(),
-            ));
+            return Err(FailedPayableDaoError::InvalidInput(format!(
+                "Duplicate hashes found in the input. Input Transactions: {:?}",
+                txs
+            )));
         }
 
         let duplicates = self.get_tx_identifiers(&unique_hashes);
@@ -392,7 +393,18 @@ mod tests {
         assert_eq!(
             result,
             Err(FailedPayableDaoError::InvalidInput(
-                "Duplicate hashes found in the input".to_string()
+                "Duplicate hashes found in the input. Input Transactions: \
+                [FailedTx { \
+                hash: 0x000000000000000000000000000000000000000000000000000000000000007b, \
+                receiver_address: 0x0000000000000000000000000000000000000000, \
+                amount: 0, timestamp: 0, gas_price_wei: 0, \
+                nonce: 0, reason: PendingTooLong, checked: false }, \
+                FailedTx { \
+                hash: 0x000000000000000000000000000000000000000000000000000000000000007b, \
+                receiver_address: 0x0000000000000000000000000000000000000000, \
+                amount: 0, timestamp: 0, gas_price_wei: 0, \
+                nonce: 0, reason: PendingTooLong, checked: true }]"
+                    .to_string()
             ))
         );
     }

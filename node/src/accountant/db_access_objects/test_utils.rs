@@ -32,6 +32,11 @@ impl TxBuilder {
         self
     }
 
+    pub fn timestamp(mut self, timestamp: i64) -> Self {
+        self.timestamp_opt = Some(timestamp);
+        self
+    }
+
     pub fn block(mut self, block: TransactionBlock) -> Self {
         self.block_opt = Some(block);
         self
