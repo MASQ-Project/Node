@@ -111,10 +111,12 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
             ));
         }
 
-        if !self.get_tx_identifiers(&unique_hashes).is_empty() {
-            return Err(SentPayableDaoError::InvalidInput(
-                "Input hash is already present in the database".to_string(),
-            ));
+        let duplicates = self.get_tx_identifiers(&unique_hashes);
+        if !duplicates.is_empty() {
+            return Err(SentPayableDaoError::InvalidInput(format!(
+                "Duplicates detected in the database: {:?}",
+                duplicates,
+            )));
         }
 
         let sql = format!(
@@ -402,7 +404,9 @@ mod tests {
         assert_eq!(
             result,
             Err(SentPayableDaoError::InvalidInput(
-                "Input hash is already present in the database".to_string()
+                "Duplicates detected in the database: \
+                {0x00000000000000000000000000000000000000000000000000000000000004d2: 1}"
+                    .to_string()
             ))
         );
     }

@@ -51,16 +51,12 @@ pub struct FailedTx {
 }
 
 pub enum FailureRetrieveCondition {
-    ByReason(FailureReason),
     UncheckedPendingTooLong(u32), // u32 represents seconds ago
 }
 
 impl Display for FailureRetrieveCondition {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            FailureRetrieveCondition::ByReason(reason) => {
-                write!(f, "WHERE reason IS '{:?}'", reason)
-            }
             FailureRetrieveCondition::UncheckedPendingTooLong(seconds_ago) => {
                 let timestamp_threshold = current_unix_timestamp() - *seconds_ago as i64;
                 write!(
@@ -134,10 +130,12 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
             ));
         }
 
-        if !self.get_tx_identifiers(&unique_hashes).is_empty() {
-            return Err(FailedPayableDaoError::InvalidInput(
-                "Input hash is already present in the database".to_string(),
-            ));
+        let duplicates = self.get_tx_identifiers(&unique_hashes);
+        if !duplicates.is_empty() {
+            return Err(FailedPayableDaoError::InvalidInput(format!(
+                "Duplicates detected in the database: {:?}",
+                duplicates,
+            )));
         }
 
         let sql = format!(
@@ -316,7 +314,6 @@ mod tests {
     use crate::accountant::db_access_objects::failed_payable_dao::FailureReason::{
         NonceIssue, PendingTooLong,
     };
-    use crate::accountant::db_access_objects::failed_payable_dao::FailureRetrieveCondition::ByReason;
     use crate::accountant::db_access_objects::failed_payable_dao::{
         FailedPayableDao, FailedPayableDaoError, FailedPayableDaoReal, FailureReason,
         FailureRetrieveCondition,
@@ -324,8 +321,6 @@ mod tests {
     use crate::accountant::db_access_objects::test_utils::{
         make_read_only_db_connection, FailedTxBuilder,
     };
-    use crate::accountant::db_access_objects::utils::current_unix_timestamp;
-    use crate::accountant::db_access_objects::test_utils::FailedTxBuilder;
     use crate::accountant::db_access_objects::utils::current_unix_timestamp;
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::database::db_initializer::{
@@ -423,7 +418,9 @@ mod tests {
         assert_eq!(
             result,
             Err(FailedPayableDaoError::InvalidInput(
-                "Input hash is already present in the database".to_string()
+                "Duplicates detected in the database: \
+                {0x000000000000000000000000000000000000000000000000000000000000007b: 1}"
+                    .to_string()
             ))
         );
     }
@@ -514,9 +511,14 @@ mod tests {
 
     #[test]
     fn retrieve_condition_display_works() {
+        let expected_condition = format!(
+            "WHERE reason = 'PendingTooLong' AND checked = 0 \
+             AND timestamp >= {} ORDER BY timestamp DESC",
+            current_unix_timestamp() - 30
+        );
         assert_eq!(
-            FailureRetrieveCondition::ByReason(PendingTooLong).to_string(),
-            "WHERE reason IS 'PendingTooLong'"
+            FailureRetrieveCondition::UncheckedPendingTooLong(30).to_string(),
+            expected_condition
         );
     }
 
@@ -544,36 +546,6 @@ mod tests {
         assert_eq!(result, vec![tx1, tx2, tx3]);
     }
 
-    #[test]
-    fn can_retrieve_pending_too_long_txs() {
-        let home_dir =
-            ensure_node_home_directory_exists("sent_payable_dao", "can_retrieve_pending_txs");
-        let wrapped_conn = DbInitializerReal::default()
-            .initialize(&home_dir, DbInitializationConfig::test_default())
-            .unwrap();
-        let subject = FailedPayableDaoReal::new(wrapped_conn);
-        let tx1 = FailedTxBuilder::default()
-            .hash(make_tx_hash(1))
-            .reason(FailureReason::PendingTooLong)
-            .checked(false)
-            .build();
-        let tx2 = FailedTxBuilder::default()
-            .hash(make_tx_hash(2))
-            .reason(FailureReason::PendingTooLong)
-            .checked(true)
-            .build();
-        let tx3 = FailedTxBuilder::default()
-            .hash(make_tx_hash(3))
-            .reason(FailureReason::NonceIssue)
-            .build();
-        subject
-            .insert_new_records(&vec![tx1.clone(), tx2.clone(), tx3])
-            .unwrap();
-
-        let result = subject.retrieve_txs(Some(ByReason(PendingTooLong)));
-
-        assert_eq!(result, vec![tx1, tx2]);
-    }
     #[test]
     fn can_retrieve_unchecked_pending_too_long_txs() {
         let home_dir = ensure_node_home_directory_exists(
