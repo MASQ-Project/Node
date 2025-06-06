@@ -340,11 +340,13 @@ mod tests {
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let tx1 = FailedTxBuilder::default().hash(make_tx_hash(1)).build();
+        let tx1 = FailedTxBuilder::default()
+            .hash(make_tx_hash(1))
+            .reason(NonceIssue)
+            .build();
         let tx2 = FailedTxBuilder::default()
             .hash(make_tx_hash(2))
             .reason(PendingTooLong)
-            .checked(true)
             .build();
         let subject = FailedPayableDaoReal::new(wrapped_conn);
         let txs = vec![tx1, tx2];
@@ -353,7 +355,6 @@ mod tests {
 
         let retrieved_txs = subject.retrieve_txs(None);
         assert_eq!(result, Ok(()));
-        assert_eq!(retrieved_txs.len(), 2);
         assert_eq!(retrieved_txs, txs);
     }
 
