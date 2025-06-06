@@ -299,7 +299,7 @@ impl DbInitializerReal {
                 gas_price_wei_low_b integer not null,
                 nonce integer not null,
                 reason text not null,
-                checked integer not null
+                rechecked integer not null
             )",
             [],
         )
@@ -847,7 +847,7 @@ mod tests {
                         gas_price_wei_low_b,
                         nonce,
                         reason,
-                        checked
+                        rechecked
                  FROM failed_payable",
             )
             .unwrap();

@@ -47,7 +47,7 @@ pub struct FailedTx {
     pub gas_price_wei: u128,
     pub nonce: u64,
     pub reason: FailureReason,
-    pub checked: bool,
+    pub rechecked: bool,
 }
 
 pub enum FailureRetrieveCondition {
@@ -61,7 +61,7 @@ impl Display for FailureRetrieveCondition {
                 let timestamp_threshold = current_unix_timestamp() - *seconds_ago as i64;
                 write!(
                     f,
-                    "WHERE reason = 'PendingTooLong' AND checked = 0 \
+                    "WHERE reason = 'PendingTooLong' AND rechecked = 0 \
                      AND timestamp >= {} \
                      ORDER BY timestamp DESC",
                     timestamp_threshold
@@ -150,7 +150,7 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
              gas_price_wei_low_b, \
              nonce, \
              reason, \
-             checked
+             rechecked
              ) VALUES {}",
             comma_joined_stringifiable(txs, |tx| {
                 let amount_checked = checked_conversion::<u128, i128>(tx.amount);
@@ -169,7 +169,7 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
                     gas_price_wei_low_b,
                     tx.nonce,
                     tx.reason,
-                    tx.checked
+                    tx.rechecked
                 )
             })
         );
@@ -200,7 +200,7 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
                               gas_price_wei_low_b, \
                               nonce, \
                               reason, \
-                              checked \
+                              rechecked \
                        FROM failed_payable"
             .to_string();
         let sql = match condition {
@@ -231,8 +231,8 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
             let reason_str: String = row.get(8).expectv("reason");
             let reason =
                 FailureReason::from_str(&reason_str).expect("Failed to parse FailureReason");
-            let checked_integer: u8 = row.get(9).expectv("checked");
-            let checked = checked_integer == 1;
+            let checked_integer: u8 = row.get(9).expectv("rechecked");
+            let rechecked = checked_integer == 1;
 
             Ok(FailedTx {
                 hash,
@@ -242,7 +242,7 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
                 gas_price_wei,
                 nonce,
                 reason,
-                checked,
+                rechecked,
             })
         })
         .expect("Failed to execute query")
@@ -260,7 +260,7 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
 
         let vec: Vec<TxHash> = hash_set.iter().cloned().collect();
         let sql = format!(
-            "UPDATE failed_payable SET checked = 1 WHERE tx_hash IN ({})",
+            "UPDATE failed_payable SET rechecked = 1 WHERE tx_hash IN ({})",
             comma_joined_stringifiable(&vec, |hash| format!("'{:?}'", hash))
         );
 
@@ -386,7 +386,10 @@ mod tests {
             .unwrap();
         let hash = make_tx_hash(123);
         let tx1 = FailedTxBuilder::default().hash(hash).build();
-        let tx2 = FailedTxBuilder::default().hash(hash).checked(true).build();
+        let tx2 = FailedTxBuilder::default()
+            .hash(hash)
+            .rechecked(true)
+            .build();
         let subject = FailedPayableDaoReal::new(wrapped_conn);
 
         let result = subject.insert_new_records(&vec![tx1, tx2]);
@@ -399,12 +402,12 @@ mod tests {
                 hash: 0x000000000000000000000000000000000000000000000000000000000000007b, \
                 receiver_address: 0x0000000000000000000000000000000000000000, \
                 amount: 0, timestamp: 0, gas_price_wei: 0, \
-                nonce: 0, reason: PendingTooLong, checked: false }, \
+                nonce: 0, reason: PendingTooLong, rechecked: false }, \
                 FailedTx { \
                 hash: 0x000000000000000000000000000000000000000000000000000000000000007b, \
                 receiver_address: 0x0000000000000000000000000000000000000000, \
                 amount: 0, timestamp: 0, gas_price_wei: 0, \
-                nonce: 0, reason: PendingTooLong, checked: true }]"
+                nonce: 0, reason: PendingTooLong, rechecked: true }]"
                     .to_string()
             ))
         );
@@ -421,7 +424,10 @@ mod tests {
             .unwrap();
         let hash = make_tx_hash(123);
         let tx1 = FailedTxBuilder::default().hash(hash).build();
-        let tx2 = FailedTxBuilder::default().hash(hash).checked(true).build();
+        let tx2 = FailedTxBuilder::default()
+            .hash(hash)
+            .rechecked(true)
+            .build();
         let subject = FailedPayableDaoReal::new(wrapped_conn);
         let initial_insertion_result = subject.insert_new_records(&vec![tx1]);
 
@@ -525,7 +531,7 @@ mod tests {
     #[test]
     fn retrieve_condition_display_works() {
         let expected_condition = format!(
-            "WHERE reason = 'PendingTooLong' AND checked = 0 \
+            "WHERE reason = 'PendingTooLong' AND rechecked = 0 \
              AND timestamp >= {} ORDER BY timestamp DESC",
             current_unix_timestamp() - 30
         );
@@ -573,31 +579,31 @@ mod tests {
         let tx1 = FailedTxBuilder::default()
             .hash(make_tx_hash(1))
             .reason(FailureReason::PendingTooLong)
-            .checked(false)
+            .rechecked(false)
             .timestamp(now - 3600) // 1 hour ago
             .build();
         let tx2 = FailedTxBuilder::default()
             .hash(make_tx_hash(2))
             .reason(FailureReason::PendingTooLong)
-            .checked(true) // This one is checked
+            .rechecked(true) // This one is rechecked
             .timestamp(now - 7200) // 2 hours ago
             .build();
         let tx3 = FailedTxBuilder::default()
             .hash(make_tx_hash(3))
             .reason(FailureReason::PendingTooLong)
-            .checked(false)
+            .rechecked(false)
             .timestamp(now - 1800) // 30 minutes ago
             .build();
         let tx4 = FailedTxBuilder::default()
             .hash(make_tx_hash(4))
             .reason(FailureReason::NonceIssue)
-            .checked(false)
+            .rechecked(false)
             .timestamp(now - 3600) // 1 hour ago
             .build();
         let tx5 = FailedTxBuilder::default()
             .hash(make_tx_hash(5))
             .reason(FailureReason::PendingTooLong)
-            .checked(false) // This one is checked
+            .rechecked(false) // This one is rechecked
             .timestamp(now - 7200) // 2 hours ago
             .build();
 
@@ -623,21 +629,21 @@ mod tests {
         let tx1 = FailedTxBuilder::default()
             .hash(make_tx_hash(1))
             .reason(NonceIssue)
-            .checked(false)
+            .rechecked(false)
             .build();
         let tx2 = FailedTxBuilder::default()
             .hash(make_tx_hash(2))
             .reason(PendingTooLong)
-            .checked(false)
+            .rechecked(false)
             .build();
         let tx3 = FailedTxBuilder::default()
             .hash(make_tx_hash(3))
             .reason(PendingTooLong)
-            .checked(true) // already checked
+            .rechecked(true) // already rechecked
             .build();
-        let tx1_pre_checked_state = tx1.checked;
-        let tx2_pre_checked_state = tx2.checked;
-        let tx3_pre_checked_state = tx3.checked;
+        let tx1_pre_checked_state = tx1.rechecked;
+        let tx2_pre_checked_state = tx2.rechecked;
+        let tx3_pre_checked_state = tx3.rechecked;
         subject
             .insert_new_records(&vec![tx1, tx2.clone(), tx3.clone()])
             .unwrap();
@@ -650,9 +656,9 @@ mod tests {
         assert_eq!(tx1_pre_checked_state, false);
         assert_eq!(tx2_pre_checked_state, false);
         assert_eq!(tx3_pre_checked_state, true);
-        assert_eq!(updated_txs[0].checked, false);
-        assert_eq!(updated_txs[1].checked, true);
-        assert_eq!(updated_txs[2].checked, true);
+        assert_eq!(updated_txs[0].rechecked, false);
+        assert_eq!(updated_txs[1].rechecked, true);
+        assert_eq!(updated_txs[2].rechecked, true);
     }
 
     #[test]

@@ -37,7 +37,7 @@ pub const SQL_ATTRIBUTES_FOR_CREATING_FAILED_PAYABLE: &[&[&str]] = &[
     &["gas_price_wei_low_b", "integer", "not", "null"],
     &["nonce", "integer", "not", "null"],
     &["reason", "text", "not", "null"],
-    &["checked", "integer", "not", "null"],
+    &["rechecked", "integer", "not", "null"],
 ];
 
 #[derive(Debug, Default)]

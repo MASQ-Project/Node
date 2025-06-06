@@ -64,7 +64,7 @@ pub struct FailedTxBuilder {
     gas_price_wei_opt: Option<u128>,
     nonce_opt: Option<u64>,
     reason_opt: Option<FailureReason>,
-    checked_opt: Option<bool>,
+    rechecked_opt: Option<bool>,
 }
 
 impl FailedTxBuilder {
@@ -92,8 +92,8 @@ impl FailedTxBuilder {
         self
     }
 
-    pub fn checked(mut self, checked: bool) -> Self {
-        self.checked_opt = Some(checked);
+    pub fn rechecked(mut self, rechecked: bool) -> Self {
+        self.rechecked_opt = Some(rechecked);
         self
     }
 
@@ -108,7 +108,7 @@ impl FailedTxBuilder {
             reason: self
                 .reason_opt
                 .unwrap_or_else(|| FailureReason::PendingTooLong),
-            checked: self.checked_opt.unwrap_or_else(|| false),
+            rechecked: self.rechecked_opt.unwrap_or_else(|| false),
         }
     }
 }
