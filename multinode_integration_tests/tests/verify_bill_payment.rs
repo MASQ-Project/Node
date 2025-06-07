@@ -432,7 +432,7 @@ fn verify_pending_payables() {
     );
     ui_client.send_request(
         UiScanRequest {
-            scan_type: ScanType::Payables,
+            scan_type: ScanType::PendingPayables,
         }
         .tmb(0),
     );

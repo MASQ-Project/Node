@@ -3,11 +3,11 @@
 
 use crate::accountant::scanners::payable_scanner_extension::msgs::BlockchainAgentWithContextMessage;
 use crate::accountant::scanners::payable_scanner_extension::msgs::QualifiedPayablesMessage;
-use crate::accountant::ReportTransactionReceipts;
 use crate::accountant::{
     ReceivedPayments, RequestTransactionReceipts, ScanError, ScanForNewPayables,
     ScanForReceivables, SentPayables,
 };
+use crate::accountant::{ReportTransactionReceipts, ScanForPendingPayables, ScanForRetryPayables};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::daemon::crash_notification::CrashNotification;
@@ -48,7 +48,7 @@ use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use crate::sub_lib::utils::MessageScheduler;
 use crate::test_utils::recorder_counter_msgs::{
-    CounterMessages, CounterMsgGear, SingleCounterMsgSetup,
+    CounterMessages, CounterMsgGear, SingleTypeCounterMsgSetup,
 };
 use crate::test_utils::recorder_stop_conditions::{
     ForcedMatchable, MsgIdentification, PretendedMatchableWrapper, StopConditions,
@@ -73,7 +73,7 @@ pub struct Recorder {
     recording: Arc<Mutex<Recording>>,
     node_query_responses: Vec<Option<NodeQueryResponseMetadata>>,
     route_query_responses: Vec<Option<RouteQueryResponse>>,
-    expected_future_counter_msgs_opt: Option<CounterMessages>,
+    counter_msgs_opt: Option<CounterMessages>,
     stop_conditions_opt: Option<StopConditions>,
 }
 
@@ -105,7 +105,7 @@ macro_rules! message_handler_common {
 macro_rules! matchable {
     ($message_type: ty) => {
         impl ForcedMatchable<$message_type> for $message_type {
-            fn correct_msg_type_id(&self) -> TypeId {
+            fn trigger_msg_type_id(&self) -> TypeId {
                 TypeId::of::<$message_type>()
             }
         }
@@ -167,6 +167,8 @@ recorder_message_handler_t_m_p!(RequestTransactionReceipts);
 recorder_message_handler_t_m_p!(RetrieveTransactions);
 recorder_message_handler_t_m_p!(ScanError);
 recorder_message_handler_t_m_p!(ScanForNewPayables);
+recorder_message_handler_t_m_p!(ScanForRetryPayables);
+recorder_message_handler_t_m_p!(ScanForPendingPayables);
 recorder_message_handler_t_m_p!(ScanForReceivables);
 recorder_message_handler_t_m_p!(SentPayables);
 recorder_message_handler_t_m_p!(StartMessage);
@@ -190,7 +192,7 @@ where
     OuterM: PartialEq + 'static,
     InnerM: PartialEq + Send + Message,
 {
-    fn correct_msg_type_id(&self) -> TypeId {
+    fn trigger_msg_type_id(&self) -> TypeId {
         TypeId::of::<OuterM>()
     }
 }
@@ -279,13 +281,13 @@ impl Recorder {
         self
     }
 
-    fn add_counter_msg(&mut self, counter_msg_setup: SingleCounterMsgSetup) {
-        if let Some(counter_msgs) = self.expected_future_counter_msgs_opt.as_mut() {
+    fn add_counter_msg(&mut self, counter_msg_setup: SingleTypeCounterMsgSetup) {
+        if let Some(counter_msgs) = self.counter_msgs_opt.as_mut() {
             counter_msgs.add_msg(counter_msg_setup)
         } else {
             let mut counter_msgs = CounterMessages::default();
             counter_msgs.add_msg(counter_msg_setup);
-            self.expected_future_counter_msgs_opt = Some(counter_msgs)
+            self.counter_msgs_opt = Some(counter_msgs)
         }
     }
 
@@ -329,8 +331,8 @@ impl Recorder {
     where
         M: ForcedMatchable<M> + 'static,
     {
-        if let Some(counter_msgs) = self.expected_future_counter_msgs_opt.as_mut() {
-            counter_msgs.search_for_msg_setup(msg)
+        if let Some(counter_msgs) = self.counter_msgs_opt.as_mut() {
+            counter_msgs.search_for_msg_gear(msg)
         } else {
             None
         }
@@ -438,11 +440,11 @@ pub struct SetUpCounterMsgs {
     // However, setups of the same trigger message types compose clusters.
     // Keep in mind these are tested over their ID method sequentially, according to the order
     // in which they are fed into this vector, with the other messages ignored.
-    setups: Vec<SingleCounterMsgSetup>,
+    setups: Vec<SingleTypeCounterMsgSetup>,
 }
 
 impl SetUpCounterMsgs {
-    pub fn new(setups: Vec<SingleCounterMsgSetup>) -> Self {
+    pub fn new(setups: Vec<SingleTypeCounterMsgSetup>) -> Self {
         Self { setups }
     }
 }
@@ -824,104 +826,133 @@ mod tests {
             NodeToUiMessage
         ));
         let respondent_addr = respondent.start();
-        let msg_1 = StartMessage {};
-        let counter_msg_1 = ScanForReceivables {
-            response_skeleton_opt: None,
+        // Case 1
+        let (trigger_message_1, cm_setup_1) = {
+            let trigger_msg = StartMessage {};
+            let counter_msg = ScanForReceivables {
+                response_skeleton_opt: None,
+            };
+            // Also testing this convenient macro if it works fine
+            (
+                trigger_msg,
+                setup_for_counter_msg_triggered_via_type_id!(
+                    StartMessage,
+                    counter_msg,
+                    &respondent_addr
+                ),
+            )
         };
-        // Also testing this convenient macro if it works fine
-        let setup_1 = setup_for_counter_msg_triggered_via_type_id!(
-            StartMessage,
-            counter_msg_1,
-            &respondent_addr
-        );
-        let counter_msg_2_strayed = StartMessage {};
-        let random_id = TypeId::of::<BlockchainBridge>();
-        let id_method_2 = MsgIdentification::ByType(random_id);
-        let setup_2 = SingleCounterMsgSetup::new(
-            random_id,
-            id_method_2,
-            vec![Box::new(SendableCounterMsgWithRecipient::new(
-                counter_msg_2_strayed,
-                respondent_addr.clone().recipient(),
-            ))],
-        );
-        let msg_3_unmatching = NewPublicIp {
-            new_ip: IpAddr::V4(Ipv4Addr::new(7, 7, 7, 7)),
+        // Case two
+        let cm_setup_2 = {
+            let counter_msg_strayed = StartMessage {};
+            let random_id = TypeId::of::<BlockchainBridge>();
+            let id_method = MsgIdentification::ByType(random_id);
+            SingleTypeCounterMsgSetup::new(
+                random_id,
+                id_method,
+                vec![Box::new(SendableCounterMsgWithRecipient::new(
+                    counter_msg_strayed,
+                    respondent_addr.clone().recipient(),
+                ))],
+            )
         };
-        let msg_3_type_id = msg_3_unmatching.type_id();
-        let counter_msg_3 = NodeToUiMessage {
-            target: MessageTarget::ClientId(4),
-            body: UiUnmarshalError {
-                message: "abc".to_string(),
-                bad_data: "456".to_string(),
-            }
-            .tmb(0),
+        // Case three
+        let (trigger_msg_3_unmatching, cm_setup_3) = {
+            let trigger_msg = NewPublicIp {
+                new_ip: IpAddr::V4(Ipv4Addr::new(7, 7, 7, 7)),
+            };
+            let type_id = trigger_msg.type_id();
+            let counter_msg = NodeToUiMessage {
+                target: MessageTarget::ClientId(4),
+                body: UiUnmarshalError {
+                    message: "abc".to_string(),
+                    bad_data: "456".to_string(),
+                }
+                .tmb(0),
+            };
+            let id_method = MsgIdentification::ByMatch {
+                exemplar: Box::new(NewPublicIp { new_ip: make_ip(1) }),
+            };
+            (
+                trigger_msg,
+                SingleTypeCounterMsgSetup::new(
+                    type_id,
+                    id_method,
+                    vec![Box::new(SendableCounterMsgWithRecipient::new(
+                        counter_msg,
+                        respondent_addr.clone().recipient(),
+                    ))],
+                ),
+            )
         };
-        let id_method_3 = MsgIdentification::ByMatch {
-            exemplar: Box::new(NewPublicIp { new_ip: make_ip(1) }),
+        // Case four
+        let (trigger_msg_4_matching, cm_setup_4, counter_msg_4) = {
+            let trigger_msg = NewPublicIp {
+                new_ip: IpAddr::V4(Ipv4Addr::new(4, 5, 6, 7)),
+            };
+            let msg_type_id = trigger_msg.type_id();
+            let counter_msg = NodeToUiMessage {
+                target: MessageTarget::ClientId(234),
+                body: UiLogBroadcast {
+                    msg: "Good one".to_string(),
+                    log_level: SerializableLogLevel::Error,
+                }
+                .tmb(0),
+            };
+            let id_method = MsgIdentification::ByMatch {
+                exemplar: Box::new(trigger_msg.clone()),
+            };
+            (
+                trigger_msg,
+                SingleTypeCounterMsgSetup::new(
+                    msg_type_id,
+                    id_method,
+                    vec![Box::new(SendableCounterMsgWithRecipient::new(
+                        counter_msg.clone(),
+                        respondent_addr.clone().recipient(),
+                    ))],
+                ),
+                counter_msg,
+            )
         };
-        let setup_3 = SingleCounterMsgSetup::new(
-            msg_3_type_id,
-            id_method_3,
-            vec![Box::new(SendableCounterMsgWithRecipient::new(
-                counter_msg_3,
-                respondent_addr.clone().recipient(),
-            ))],
-        );
-        let msg_4_matching = NewPublicIp {
-            new_ip: IpAddr::V4(Ipv4Addr::new(4, 5, 6, 7)),
-        };
-        let msg_4_type_id = msg_4_matching.type_id();
-        let counter_msg_4 = NodeToUiMessage {
-            target: MessageTarget::ClientId(234),
-            body: UiLogBroadcast {
-                msg: "Good one".to_string(),
-                log_level: SerializableLogLevel::Error,
-            }
-            .tmb(0),
-        };
-        let id_method_4 = MsgIdentification::ByMatch {
-            exemplar: Box::new(msg_4_matching.clone()),
-        };
-        let setup_4 = SingleCounterMsgSetup::new(
-            msg_4_type_id,
-            id_method_4,
-            vec![Box::new(SendableCounterMsgWithRecipient::new(
-                counter_msg_4.clone(),
-                respondent_addr.clone().recipient(),
-            ))],
-        );
         let system = System::new("test");
         let (subject, _, subject_recording_arc) = make_recorder();
         let subject_addr = subject.start();
-        // Adding messages in a tangled manner
+        // Supplying messages deliberately in a tangled manner to express that the mechanism is
+        // robust enough to compensate it
         subject_addr
             .try_send(SetUpCounterMsgs {
-                setups: vec![setup_3, setup_1, setup_2, setup_4],
+                setups: vec![cm_setup_3, cm_setup_1, cm_setup_2, cm_setup_4],
             })
             .unwrap();
 
-        subject_addr.try_send(msg_1).unwrap();
-        subject_addr.try_send(msg_3_unmatching.clone()).unwrap();
-        subject_addr.try_send(msg_4_matching.clone()).unwrap();
+        subject_addr.try_send(trigger_message_1).unwrap();
+        subject_addr
+            .try_send(trigger_msg_3_unmatching.clone())
+            .unwrap();
+        subject_addr
+            .try_send(trigger_msg_4_matching.clone())
+            .unwrap();
 
         system.run();
+        // Actual counter messages that flew over in this test
         let respondent_recording = respondent_recording_arc.lock().unwrap();
         let _first_counter_msg_recorded = respondent_recording.get_record::<ScanForReceivables>(0);
         let second_counter_msg_recorded = respondent_recording.get_record::<NodeToUiMessage>(1);
         assert_eq!(second_counter_msg_recorded, &counter_msg_4);
         assert_eq!(respondent_recording.len(), 2);
+        // Recorded trigger messages
         let subject_recording = subject_recording_arc.lock().unwrap();
-        let _first_subject_recorded_msg = subject_recording.get_record::<StartMessage>(0);
-        let second_subject_recorded_msg = subject_recording.get_record::<NewPublicIp>(1);
-        assert_eq!(second_subject_recorded_msg, &msg_3_unmatching);
-        let third_subject_recording_msg = subject_recording.get_record::<NewPublicIp>(2);
-        assert_eq!(third_subject_recording_msg, &msg_4_matching);
+        let _first_recorded_trigger_msg = subject_recording.get_record::<StartMessage>(0);
+        let second_recorded_trigger_msg = subject_recording.get_record::<NewPublicIp>(1);
+        assert_eq!(second_recorded_trigger_msg, &trigger_msg_3_unmatching);
+        let third_recorded_trigger_msg = subject_recording.get_record::<NewPublicIp>(2);
+        assert_eq!(third_recorded_trigger_msg, &trigger_msg_4_matching);
         assert_eq!(subject_recording.len(), 3)
     }
 
     #[test]
-    fn counter_msgs_of_same_type_are_revisited_sequentially_and_triggered_by_first_matching_id_method(
+    fn counter_msgs_of_same_type_are_checked_sequentially_and_triggered_by_first_matching_id_method(
     ) {
         let (respondent, _, respondent_recording_arc) = make_recorder();
         let respondent = respondent.system_stop_conditions(match_lazily_every_type_id!(
@@ -930,71 +961,90 @@ mod tests {
             ConfigChangeMsg
         ));
         let respondent_addr = respondent.start();
-        let msg_1 = CrashNotification {
-            process_id: 7777777,
-            exit_code: None,
-            stderr: Some("blah".to_string()),
+        // Case 1
+        let (trigger_msg_1, cm_setup_1) = {
+            let trigger_msg = CrashNotification {
+                process_id: 7777777,
+                exit_code: None,
+                stderr: Some("blah".to_string()),
+            };
+            let counter_msg = ConfigChangeMsg {
+                change: ConfigChange::UpdateMinHops(Hops::SixHops),
+            };
+            let id_method = MsgIdentification::ByPredicate {
+                predicate: Box::new(|msg_boxed| {
+                    let msg = msg_boxed.downcast_ref::<CrashNotification>().unwrap();
+                    msg.process_id == 1010
+                }),
+            };
+            (
+                trigger_msg,
+                setup_for_counter_msg_triggered_via_specific_msg_id_method!(
+                    CrashNotification,
+                    id_method,
+                    counter_msg,
+                    &respondent_addr
+                ),
+            )
         };
-        let counter_msg_1 = ConfigChangeMsg {
-            change: ConfigChange::UpdateMinHops(Hops::SixHops),
+        // Case two
+        let (trigger_msg_2, cm_setup_2) = {
+            let trigger_msg = CrashNotification {
+                process_id: 1010,
+                exit_code: Some(11),
+                stderr: None,
+            };
+            let counter_msg = ConfigChangeMsg {
+                change: ConfigChange::UpdatePassword("betterPassword".to_string()),
+            };
+            (
+                trigger_msg,
+                setup_for_counter_msg_triggered_via_type_id!(
+                    CrashNotification,
+                    counter_msg,
+                    &respondent_addr
+                ),
+            )
         };
-        let id_method_1 = MsgIdentification::ByPredicate {
-            predicate: Box::new(|msg_boxed| {
-                let msg = msg_boxed.downcast_ref::<CrashNotification>().unwrap();
-                msg.process_id == 1010
-            }),
+        // Case three
+        let (trigger_msg_3, cm_setup_3) = {
+            let trigger_msg = CrashNotification {
+                process_id: 9999999,
+                exit_code: None,
+                stderr: None,
+            };
+            let counter_msg = ConfigChangeMsg {
+                change: ConfigChange::UpdateWallets(WalletPair {
+                    consuming_wallet: make_wallet("abc"),
+                    earning_wallet: make_wallet("def"),
+                }),
+            };
+            (
+                trigger_msg,
+                setup_for_counter_msg_triggered_via_type_id!(
+                    CrashNotification,
+                    counter_msg,
+                    &respondent_addr
+                ),
+            )
         };
-        let setup_1 = setup_for_counter_msg_triggered_via_specific_msg_id_method!(
-            CrashNotification,
-            id_method_1,
-            counter_msg_1,
-            &respondent_addr
-        );
-        let msg_2 = CrashNotification {
-            process_id: 1010,
-            exit_code: Some(11),
-            stderr: None,
-        };
-        let counter_msg_2 = ConfigChangeMsg {
-            change: ConfigChange::UpdatePassword("betterPassword".to_string()),
-        };
-        let setup_2 = setup_for_counter_msg_triggered_via_type_id!(
-            CrashNotification,
-            counter_msg_2,
-            &respondent_addr
-        );
-        let msg_3 = CrashNotification {
-            process_id: 9999999,
-            exit_code: None,
-            stderr: None,
-        };
-        let counter_msg_3 = ConfigChangeMsg {
-            change: ConfigChange::UpdateWallets(WalletPair {
-                consuming_wallet: make_wallet("abc"),
-                earning_wallet: make_wallet("def"),
-            }),
-        };
-        let setup_3 = setup_for_counter_msg_triggered_via_type_id!(
-            CrashNotification,
-            counter_msg_3,
-            &respondent_addr
-        );
         let system = System::new("test");
         let (subject, _, subject_recording_arc) = make_recorder();
         let subject_addr = subject.start();
         // Adding messages in standard order
         subject_addr
             .try_send(SetUpCounterMsgs {
-                setups: vec![setup_1, setup_2, setup_3],
+                setups: vec![cm_setup_1, cm_setup_2, cm_setup_3],
             })
             .unwrap();
 
-        // More tricky scenario picked on purpose
-        subject_addr.try_send(msg_3.clone()).unwrap();
-        subject_addr.try_send(msg_2.clone()).unwrap();
-        subject_addr.try_send(msg_1.clone()).unwrap();
+        // Trickier scenarios picked on purpose
+        subject_addr.try_send(trigger_msg_3.clone()).unwrap();
+        subject_addr.try_send(trigger_msg_2.clone()).unwrap();
+        subject_addr.try_send(trigger_msg_1.clone()).unwrap();
 
         system.run();
+        // Actual counter messages that flew over in this test
         let respondent_recording = respondent_recording_arc.lock().unwrap();
         let first_counter_msg_recorded = respondent_recording.get_record::<ConfigChangeMsg>(0);
         assert_eq!(
@@ -1006,22 +1056,23 @@ mod tests {
             second_counter_msg_recorded.change,
             ConfigChange::UpdateMinHops(Hops::SixHops)
         );
-        let second_counter_msg_recorded = respondent_recording.get_record::<ConfigChangeMsg>(2);
+        let third_counter_msg_recorded = respondent_recording.get_record::<ConfigChangeMsg>(2);
         assert_eq!(
-            second_counter_msg_recorded.change,
+            third_counter_msg_recorded.change,
             ConfigChange::UpdateWallets(WalletPair {
                 consuming_wallet: make_wallet("abc"),
                 earning_wallet: make_wallet("def")
             })
         );
         assert_eq!(respondent_recording.len(), 3);
+        // Recorded trigger messages
         let subject_recording = subject_recording_arc.lock().unwrap();
-        let first_subject_recorded_msg = subject_recording.get_record::<CrashNotification>(0);
-        assert_eq!(first_subject_recorded_msg, &msg_3);
-        let second_subject_recorded_msg = subject_recording.get_record::<CrashNotification>(1);
-        assert_eq!(second_subject_recorded_msg, &msg_2);
-        let third_subject_recording_msg = subject_recording.get_record::<CrashNotification>(2);
-        assert_eq!(third_subject_recording_msg, &msg_1);
+        let first_recorded_trigger_msg = subject_recording.get_record::<CrashNotification>(0);
+        assert_eq!(first_recorded_trigger_msg, &trigger_msg_3);
+        let second_recorded_trigger_msg = subject_recording.get_record::<CrashNotification>(1);
+        assert_eq!(second_recorded_trigger_msg, &trigger_msg_2);
+        let third_recorded_trigger_msg = subject_recording.get_record::<CrashNotification>(2);
+        assert_eq!(third_recorded_trigger_msg, &trigger_msg_1);
         assert_eq!(subject_recording.len(), 3)
     }
 }
