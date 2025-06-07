@@ -49,19 +49,6 @@ pub enum ScanRescheduleAfterEarlyStop {
     DoNotSchedule,
 }
 
-// impl Display for ScanRescheduleAfterEarlyStop {
-//     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-//         match self {
-//             ScanRescheduleAfterEarlyStop::Schedule(scan_type) => {
-//                 write!(f, "Schedule({:?})", scan_type)
-//             }
-//             ScanRescheduleAfterEarlyStop::DoNotSchedule => {
-//                 write!(f, "DoNotSchedule")
-//             }
-//         }
-//     }
-// }
-
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum PayableSequenceScanner {
     NewPayables,
