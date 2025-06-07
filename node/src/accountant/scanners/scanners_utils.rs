@@ -16,6 +16,7 @@ pub mod payable_scanner_utils {
     use std::time::SystemTime;
     use thousands::Separable;
     use web3::types::H256;
+    use masq_lib::ui_gateway::NodeToUiMessage;
     use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
     use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
     use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RpcPayableFailure};
@@ -24,6 +25,18 @@ pub mod payable_scanner_utils {
     pub enum PayableTransactingErrorEnum {
         LocallyCausedError(PayableTransactionError),
         RemotelyCausedErrors(Vec<H256>),
+    }
+
+    #[derive(Debug, PartialEq)]
+    pub struct PayableScanResult {
+        pub ui_response_opt: Option<NodeToUiMessage>,
+        pub result: OperationOutcome,
+    }
+
+    #[derive(Debug, PartialEq)]
+    pub enum OperationOutcome {
+        NewPendingPayable,
+        Failure,
     }
 
     //debugging purposes only
@@ -312,6 +325,7 @@ pub mod pending_payable_scanner_utils {
     use crate::accountant::PendingPayableId;
     use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
     use masq_lib::logger::Logger;
+    use masq_lib::ui_gateway::NodeToUiMessage;
     use std::time::SystemTime;
 
     #[derive(Debug, Default, PartialEq, Eq, Clone)]
@@ -319,6 +333,18 @@ pub mod pending_payable_scanner_utils {
         pub still_pending: Vec<PendingPayableId>,
         pub failures: Vec<PendingPayableId>,
         pub confirmed: Vec<PendingPayableFingerprint>,
+    }
+
+    impl PendingPayableScanReport {
+        pub fn requires_payments_retry(&self) -> bool {
+            todo!("complete my within GH-642")
+        }
+    }
+
+    #[derive(Debug, PartialEq)]
+    pub enum PendingPayableScanResult {
+        NoPendingPayablesLeft(Option<NodeToUiMessage>),
+        PaymentRetryRequired,
     }
 
     pub fn elapsed_in_ms(timestamp: SystemTime) -> u128 {
@@ -842,5 +868,65 @@ mod tests {
             result,
             "Got 0 properly sent payables of an unknown number of attempts"
         )
+    }
+
+    #[test]
+    fn requires_payments_retry_says_yes() {
+        todo!("complete this test with GH-604")
+        // let cases = vec![
+        //     PendingPayableScanReport {
+        //         still_pending: vec![PendingPayableId::new(12, make_tx_hash(456))],
+        //         failures: vec![],
+        //         confirmed: vec![],
+        //     },
+        //     PendingPayableScanReport {
+        //         still_pending: vec![],
+        //         failures: vec![PendingPayableId::new(456, make_tx_hash(1234))],
+        //         confirmed: vec![],
+        //     },
+        //     PendingPayableScanReport {
+        //         still_pending: vec![PendingPayableId::new(12, make_tx_hash(456))],
+        //         failures: vec![PendingPayableId::new(456, make_tx_hash(1234))],
+        //         confirmed: vec![],
+        //     },
+        //     PendingPayableScanReport {
+        //         still_pending: vec![PendingPayableId::new(12, make_tx_hash(456))],
+        //         failures: vec![PendingPayableId::new(456, make_tx_hash(1234))],
+        //         confirmed: vec![make_pending_payable_fingerprint()],
+        //     },
+        //     PendingPayableScanReport {
+        //         still_pending: vec![PendingPayableId::new(12, make_tx_hash(456))],
+        //         failures: vec![],
+        //         confirmed: vec![make_pending_payable_fingerprint()],
+        //     },
+        //     PendingPayableScanReport {
+        //         still_pending: vec![],
+        //         failures: vec![PendingPayableId::new(456, make_tx_hash(1234))],
+        //         confirmed: vec![make_pending_payable_fingerprint()],
+        //     },
+        // ];
+        //
+        // cases.into_iter().enumerate().for_each(|(idx, case)| {
+        //     let result = case.requires_payments_retry();
+        //     assert_eq!(
+        //         result, true,
+        //         "We expected true, but got false for case of idx {}",
+        //         idx
+        //     )
+        // })
+    }
+
+    #[test]
+    fn requires_payments_retry_says_no() {
+        todo!("complete this test with GH-604")
+        // let report = PendingPayableScanReport {
+        //     still_pending: vec![],
+        //     failures: vec![],
+        //     confirmed: vec![make_pending_payable_fingerprint()],
+        // };
+        //
+        // let result = report.requires_payments_retry();
+        //
+        // assert_eq!(result, false)
     }
 }
