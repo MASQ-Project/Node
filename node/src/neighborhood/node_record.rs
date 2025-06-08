@@ -402,6 +402,7 @@ mod tests {
         let mut expected_node_record = make_node_record(1234, true);
         expected_node_record.set_version(6);
         expected_node_record.resign();
+        let expected_cc = expected_node_record.inner.country_code_opt.clone().unwrap();
         let mut db = db_from_node(&make_node_record(2345, true));
         db.add_node(expected_node_record.clone()).unwrap();
         let builder = GossipBuilder::new(&db).node(expected_node_record.public_key(), true);
@@ -415,10 +416,7 @@ mod tests {
             before <= actual_node_record.metadata.last_update
                 && actual_node_record.metadata.last_update <= after
         );
-        assert_eq!(
-            actual_node_record.inner.country_code_opt,
-            Some("AU".to_string())
-        );
+        assert_eq!(actual_node_record.inner.country_code_opt, Some(expected_cc));
         expected_node_record.metadata.last_update = actual_node_record.metadata.last_update;
         assert_eq!(actual_node_record, expected_node_record);
     }
@@ -471,7 +469,7 @@ mod tests {
             result,
             NodeDescriptor::try_from((
                 main_cryptde(),
-                "masq://eth-ropsten:AQIDBA@1.2.3.4:1234/2345"
+                "masq://base-sepolia:AQIDBA@1.2.3.4:1234/2345"
             ))
             .unwrap()
         );
@@ -486,7 +484,7 @@ mod tests {
 
         assert_eq!(
             result,
-            NodeDescriptor::try_from((main_cryptde(), "masq://eth-ropsten:AQIDBA@:")).unwrap()
+            NodeDescriptor::try_from((main_cryptde(), "masq://base-sepolia:AQIDBA@:")).unwrap()
         );
     }
 

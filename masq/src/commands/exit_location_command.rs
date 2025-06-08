@@ -195,7 +195,7 @@ pub fn set_exit_location_subcommand() -> App<'static, 'static> {
                 .args(&["show-countries", "fallback-routing"]),
         )
         .group(
-            ArgGroup::with_name("show-countries-ccodes").args(&["show-countries", "country-codes"]),
+            ArgGroup::with_name("show-countries-codes").args(&["show-countries", "country-codes"]),
         )
 }
 
@@ -511,9 +511,10 @@ pub mod tests {
         );
         assert!(
             result.contains(expected_one) || result.contains(expected_two),
-            "result was not containing neither of those {:?}, nor {:?}",
+            "result should have contained either {:?}, or {:?}, but was instead {:?}",
             expected_one,
             expected_two,
+            result
         );
     }
 
@@ -538,9 +539,10 @@ pub mod tests {
         );
         assert!(
             result.contains(expected_one) || result.contains(expected_two),
-            "result was not containing neither of those {:?}, nor {:?}",
+            "result should have contained either {:?}, or {:?}, but was instead {:?}",
             expected_one,
             expected_two,
+            result
         );
     }
 }

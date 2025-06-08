@@ -560,7 +560,9 @@ impl Neighborhood {
                     self.user_exit_preferences.locations_opt.clone()
                 {
                     for exit_location in &exit_locations_by_priority {
-                        self.enrich_exit_countries_and_return_missing(&exit_location.country_codes);
+                        self.synchronize_exit_countries_and_return_missing(
+                            &exit_location.country_codes,
+                        );
                     }
                     self.set_country_undesirability_and_exit_countries(&exit_locations_by_priority);
                 }
@@ -1819,7 +1821,7 @@ impl Neighborhood {
                 .map(|cc| {
                     let requested_country_codes = &cc.country_codes;
                     countries_not_in_neighborhood.extend(
-                        self.enrich_exit_countries_and_return_missing(requested_country_codes),
+                        self.synchronize_exit_countries_and_return_missing(requested_country_codes),
                     );
                     ExitLocation {
                         country_codes: cc.country_codes,
@@ -1831,7 +1833,7 @@ impl Neighborhood {
         )
     }
 
-    fn enrich_exit_countries_and_return_missing(
+    fn synchronize_exit_countries_and_return_missing(
         &mut self,
         country_codes: &Vec<String>,
     ) -> Vec<String> {
@@ -2078,8 +2080,8 @@ pub enum FallbackPreference {
 // fallback_preference is enum, that controls whether we want to strictly prohibit exit_location to nodes
 // with requested country_codes, or we accept other locations in case requested country is unavailable
 // locations_opt is Optional Vec of ExitLocation, it is set to Some(Vec<ExitLocation>) from users input,
-// where ExitLocation is a set of countries with the same priority. None is state, when user did not set any
-// country for exit at all.
+// where ExitLocation is a set of countries with the same priority. locations_opt will be None when the
+// user did not set any country for exit at all.
 // db_countries is set of country_codes of all possible exit_nodes in our Neighborhood DB, is used to
 // persist those information in case, user want to see, which country he can select for exit
 #[derive(Clone, Debug)]
@@ -3677,7 +3679,7 @@ mod tests {
             priority: 1,
         }];
         for exit_location in &exit_locations_by_priority {
-            subject.enrich_exit_countries_and_return_missing(&exit_location.country_codes);
+            subject.synchronize_exit_countries_and_return_missing(&exit_location.country_codes);
         }
         subject.user_exit_preferences.fallback_preference =
             FallbackPreference::ExitCountryNoFallback;
@@ -5861,12 +5863,14 @@ mod tests {
             .root_mut()
             .inner
             .country_code_opt = Some("AU".to_string());
-        let new_public_ip = IpAddr::from_str("4.3.2.1").unwrap();
+        let new_public_ip = IpAddr::from_str("5.6.7.8").unwrap();
 
         subject.handle_new_public_ip(NewPublicIp {
             new_ip: new_public_ip,
         });
 
+        // Sometimes this test runs against the small test dbip_country.rs, and sometimes it runs against
+        // the big generated dbip_country.rs with real data; this assertion must succeed in both cases.
         assert_ne!(
             subject.neighborhood_database.root().inner.country_code_opt,
             Some("AU".to_string())
@@ -5895,7 +5899,7 @@ mod tests {
             new_public_ip
         );
         TestLogHandler::new()
-            .exists_log_containing("INFO: Neighborhood: Changed public IP from 1.2.3.4 to 4.3.2.1");
+            .exists_log_containing("INFO: Neighborhood: Changed public IP from 1.2.3.4 to 5.6.7.8");
     }
 
     #[test]

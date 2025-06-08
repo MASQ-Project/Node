@@ -1,37 +1,26 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::bit_queue::BitQueue;
-use crate::country_block_serde::{CountryBlockSerializer, FinalBitQueue};
-use crate::country_block_stream::CountryBlock;
+use crate::countries::Countries;
+use crate::country_block_serde::FinalBitQueue;
+use crate::ip_country_csv::CSVParser;
+use crate::ip_country_mmdb::MMDBParser;
+use std::any::Any;
 use std::io;
 
 const COUNTRY_BLOCK_BIT_SIZE: usize = 64;
 
 pub fn ip_country(
-    _args: Vec<String>,
+    args: Vec<String>,
     stdin: &mut dyn io::Read,
     stdout: &mut dyn io::Write,
     stderr: &mut dyn io::Write,
+    parser_factory: &dyn DBIPParserFactory,
 ) -> i32 {
-    let mut serializer = CountryBlockSerializer::new();
-    let mut csv_rdr = csv::Reader::from_reader(stdin);
-    let mut errors = csv_rdr
-        .records()
-        .map(|string_record_result| match string_record_result {
-            Ok(string_record) => CountryBlock::try_from(string_record),
-            Err(e) => Err(format!("CSV format error: {:?}", e)),
-        })
-        .enumerate()
-        .flat_map(|(idx, country_block_result)| match country_block_result {
-            Ok(country_block) => {
-                serializer.add(country_block);
-                None
-            }
-            Err(e) => Some(format!("Line {}: {}", idx + 1, e)),
-        })
-        .collect::<Vec<String>>();
-    let (final_ipv4, final_ipv6) = serializer.finish();
-    if let Err(error) = generate_rust_code(final_ipv4, final_ipv6, stdout) {
+    let parser = parser_factory.make(&args);
+    let mut errors: Vec<String> = vec![];
+    let (final_ipv4, final_ipv6, countries) = parser.parse(stdin, &mut errors);
+    if let Err(error) = generate_rust_code(final_ipv4, final_ipv6, countries, stdout) {
         errors.push(format!("Error generating Rust code: {:?}", error))
     }
     if errors.is_empty() {
@@ -58,19 +47,47 @@ pub fn ip_country(
     }
 }
 
-fn generate_rust_code(
+pub trait DBIPParserFactory {
+    fn make(&self, args: &[String]) -> Box<dyn DBIPParser>;
+}
+
+pub struct DBIPParserFactoryReal {}
+
+impl DBIPParserFactory for DBIPParserFactoryReal {
+    fn make(&self, args: &[String]) -> Box<dyn DBIPParser> {
+        if args.contains(&"--csv".to_string()) {
+            Box::new(CSVParser {})
+        } else {
+            Box::new(MMDBParser::new())
+        }
+    }
+}
+
+pub trait DBIPParser: Any {
+    fn as_any(&self) -> &dyn Any;
+
+    fn parse(
+        &self,
+        stdin: &mut dyn io::Read,
+        errors: &mut Vec<String>,
+    ) -> (FinalBitQueue, FinalBitQueue, Countries);
+}
+
+pub fn generate_rust_code(
     final_ipv4: FinalBitQueue,
     final_ipv6: FinalBitQueue,
+    countries: Countries,
     output: &mut dyn io::Write,
 ) -> Result<(), io::Error> {
     write!(output, "\n// GENERATED CODE: REGENERATE, DO NOT MODIFY!\n")?;
-    generate_country_data(
+    generate_country_list(countries, output)?;
+    generate_country_block_code(
         "ipv4_country",
         final_ipv4.bit_queue,
         output,
         final_ipv4.block_count,
     )?;
-    generate_country_data(
+    generate_country_block_code(
         "ipv6_country",
         final_ipv6.bit_queue,
         output,
@@ -79,7 +96,40 @@ fn generate_rust_code(
     Ok(())
 }
 
-fn generate_country_data(
+fn generate_country_list(
+    countries: Countries,
+    output: &mut dyn io::Write,
+) -> Result<(), io::Error> {
+    writeln!(output)?;
+    writeln!(output, "use lazy_static::lazy_static;")?;
+    writeln!(output, "use crate::countries::Countries;")?;
+    writeln!(output)?;
+    writeln!(output, "lazy_static! {{")?;
+    writeln!(
+        output,
+        "    pub static ref COUNTRIES: Countries = Countries::new("
+    )?;
+    writeln!(output, "        vec![")?;
+    for country in countries.iter() {
+        writeln!(
+            output,
+            "            (\"{}\", \"{}\"),",
+            country.iso3166, country.name
+        )?;
+    }
+    writeln!(output, "        ]")?;
+    writeln!(output, "        .into_iter()")?;
+    writeln!(
+        output,
+        "        .map(|(iso3166, name)| (iso3166.to_string(), name.to_string()))"
+    )?;
+    writeln!(output, "        .collect::<Vec<(String, String)>>()")?;
+    writeln!(output, "    );")?;
+    writeln!(output, "}}")?;
+    Ok(())
+}
+
+fn generate_country_block_code(
     name: &str,
     mut bit_queue: BitQueue,
     output: &mut dyn io::Write,
@@ -135,64 +185,162 @@ fn write_value(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lazy_static::lazy_static;
+    use std::any::TypeId;
+    use std::cell::RefCell;
     use std::io::{Error, ErrorKind};
+    use std::sync::{Arc, Mutex};
     use test_utilities::byte_array_reader_writer::{ByteArrayReader, ByteArrayWriter};
 
-    static PROPER_TEST_DATA: &str = "0.0.0.0,0.255.255.255,ZZ
-1.0.0.0,1.0.0.255,AU
-1.0.1.0,1.0.3.255,CN
-1.0.4.0,1.0.7.255,AU
-1.0.8.0,1.0.15.255,CN
-1.0.16.0,1.0.31.255,JP
-1.0.32.0,1.0.63.255,CN
-1.0.64.0,1.0.127.255,JP
-1.0.128.0,1.0.255.255,TH
-1.1.0.0,1.1.0.255,CN
-0:0:0:0:0:0:0:0,0:255:255:255:0:0:0:0,ZZ
-1:0:0:0:0:0:0:0,1:0:0:255:0:0:0:0,AU
-1:0:1:0:0:0:0:0,1:0:3:255:0:0:0:0,CN
-1:0:4:0:0:0:0:0,1:0:7:255:0:0:0:0,AU
-1:0:8:0:0:0:0:0,1:0:15:255:0:0:0:0,CN
-1:0:16:0:0:0:0:0,1:0:31:255:0:0:0:0,JP
-1:0:32:0:0:0:0:0,1:0:63:255:0:0:0:0,CN
-1:0:64:0:0:0:0:0,1:0:127:255:0:0:0:0,JP
-1:0:128:0:0:0:0:0,1:0:255:255:0:0:0:0,TH
-1:1:0:0:0:0:0:0,1:1:0:255:0:0:0:0,CN
-";
+    struct DBIPParserMock {
+        parse_params: Arc<Mutex<Vec<Vec<String>>>>,
+        parse_errors: RefCell<Vec<Vec<String>>>,
+        parse_results: RefCell<Vec<(FinalBitQueue, FinalBitQueue, Countries)>>,
+    }
 
-    static BAD_TEST_DATA: &str = "0.0.0.0,0.255.255.255,ZZ
-1.0.0.0,1.0.0.255,AU
-1.0.1.0,1.0.3.255,CN
-1.0.7.255,AU
-1.0.8.0,1.0.15.255
-1.0.16.0,1.0.31.255,JP,
-BOOGA,BOOGA,BOOGA
-1.0.63.255,1.0.32.0,CN
-1.0.64.0,1.0.64.0,JP
-1.0.128.0,1.0.255.255,TH
-1.1.0.0,1.1.0.255,CN
-0:0:0:0:0:0:0:0,0:255:255:255:0:0:0:0,ZZ
-1:0:0:0:0:0:0:0,1:0:0:255:0:0:0:0,AU
-1:0:1:0:0:0:0:0,1:0:3:255:0:0:0:0,CN
-1:0:4:0:0:0:0:0,1:0:7:255:0:0:0:0,AU
-1:0:8:0:0:0:0:0,1:0:15:255:0:0:0:0,CN
-1:0:16:0:0:0:0:0,1:0:31:255:0:0:0:0,JP
-BOOGA,BOOGA,BOOGA
-1:0:32:0:0:0:0:0,1:0:63:255:0:0:0:0,CN
-1:0:64:0:0:0:0:0,1:0:127:255:0:0:0:0,JP
-1:0:128:0:0:0:0:0,1:0:255:255:0:0:0:0,TH
-1:1:0:0:0:0:0:0,1:1:0:255:0:0:0:0,CN
-";
+    impl DBIPParser for DBIPParserMock {
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+
+        fn parse(
+            &self,
+            _stdin: &mut dyn io::Read,
+            errors: &mut Vec<String>,
+        ) -> (FinalBitQueue, FinalBitQueue, Countries) {
+            self.parse_params.lock().unwrap().push(errors.clone());
+            errors.extend(self.parse_errors.borrow_mut().remove(0));
+            self.parse_results.borrow_mut().remove(0)
+        }
+    }
+
+    impl DBIPParserMock {
+        pub fn new() -> Self {
+            Self {
+                parse_params: Arc::new(Mutex::new(vec![])),
+                parse_errors: RefCell::new(vec![]),
+                parse_results: RefCell::new(vec![]),
+            }
+        }
+
+        pub fn parse_params(mut self, params: &Arc<Mutex<Vec<Vec<String>>>>) -> Self {
+            self.parse_params = params.clone();
+            self
+        }
+
+        pub fn parse_errors(self, errors: Vec<&str>) -> Self {
+            self.parse_errors
+                .borrow_mut()
+                .push(errors.into_iter().map(|s| s.to_string()).collect());
+            self
+        }
+
+        pub fn parse_result(self, result: (FinalBitQueue, FinalBitQueue, &Countries)) -> Self {
+            self.parse_results
+                .borrow_mut()
+                .push((result.0, result.1, result.2.clone()));
+            self
+        }
+    }
+
+    struct DBIPParserFactoryMock {
+        make_params: Arc<Mutex<Vec<Vec<String>>>>,
+        make_results: RefCell<Vec<DBIPParserMock>>,
+    }
+
+    impl DBIPParserFactory for DBIPParserFactoryMock {
+        fn make(&self, args: &[String]) -> Box<dyn DBIPParser> {
+            self.make_params.lock().unwrap().push(args.to_vec());
+            Box::new(self.make_results.borrow_mut().remove(0))
+        }
+    }
+
+    impl DBIPParserFactoryMock {
+        pub fn new() -> Self {
+            Self {
+                make_params: Arc::new(Mutex::new(vec![])),
+                make_results: RefCell::new(vec![]),
+            }
+        }
+
+        fn make_params(mut self, params: &Arc<Mutex<Vec<Vec<String>>>>) -> Self {
+            self.make_params = params.clone();
+            self
+        }
+
+        fn make_result(self, result: DBIPParserMock) -> Self {
+            self.make_results.borrow_mut().push(result);
+            self
+        }
+    }
+
+    static TEST_DATA: &str = "I represent test data arriving on standard input.";
+    lazy_static! {
+        static ref TEST_COUNTRIES: Countries = Countries::new(vec![
+            ("FR".to_string(), "France".to_string()),
+            ("CA".to_string(), "Canada".to_string()),
+        ]);
+    }
+
+    #[test]
+    fn csv_makes_csv() {
+        let subject = DBIPParserFactoryReal {};
+
+        let result = subject.make(&vec!["--csv".to_string()]);
+
+        assert_eq!((*result).as_any().type_id(), TypeId::of::<CSVParser>());
+    }
+
+    #[test]
+    fn mmdb_makes_mmdb() {
+        let subject = DBIPParserFactoryReal {};
+
+        let result = subject.make(&vec!["--mmdb".to_string()]);
+
+        assert_eq!((*result).as_any().type_id(), TypeId::of::<MMDBParser>());
+    }
+
+    #[test]
+    fn missing_parameter_makes_mmdb() {
+        let subject = DBIPParserFactoryReal {};
+
+        let result = subject.make(&vec![]);
+
+        assert_eq!((*result).as_any().type_id(), TypeId::of::<MMDBParser>());
+    }
 
     #[test]
     fn happy_path_test() {
-        let mut stdin = ByteArrayReader::new(PROPER_TEST_DATA.as_bytes());
+        let mut stdin = ByteArrayReader::new(TEST_DATA.as_bytes());
         let mut stdout = ByteArrayWriter::new();
         let mut stderr = ByteArrayWriter::new();
+        let parse_params_arc = Arc::new(Mutex::new(vec![]));
+        let ipv4_result = final_bit_queue(0x1122334455667788, 12);
+        let ipv6_result = final_bit_queue(0x8877665544332211, 21);
+        let parser = DBIPParserMock::new()
+            .parse_params(&parse_params_arc)
+            .parse_errors(vec![])
+            .parse_result((ipv4_result, ipv6_result, &TEST_COUNTRIES));
+        let make_params_arc = Arc::new(Mutex::new(vec![]));
+        let parser_factory = DBIPParserFactoryMock::new()
+            .make_params(&make_params_arc)
+            .make_result(parser);
+        let args = vec![];
 
-        let result = ip_country(vec![], &mut stdin, &mut stdout, &mut stderr);
+        let result = ip_country(
+            args.clone(),
+            &mut stdin,
+            &mut stdout,
+            &mut stderr,
+            &parser_factory,
+        );
 
         assert_eq!(result, 0);
+        let make_params = make_params_arc.lock().unwrap();
+        assert_eq!(*make_params, vec![args.clone()]);
+        let parse_params = parse_params_arc.lock().unwrap();
+        let expected_parse_params: Vec<Vec<String>> = vec![vec![]];
+        assert_eq!(*parse_params, expected_parse_params);
         let stdout_string = String::from_utf8(stdout.get_bytes()).unwrap();
         let stderr_string = String::from_utf8(stderr.get_bytes()).unwrap();
         assert_eq!(
@@ -200,36 +348,46 @@ BOOGA,BOOGA,BOOGA
             r#"
 // GENERATED CODE: REGENERATE, DO NOT MODIFY!
 
+use lazy_static::lazy_static;
+use crate::countries::Countries;
+
+lazy_static! {
+    pub static ref COUNTRIES: Countries = Countries::new(
+        vec![
+            ("ZZ", "Sentinel"),
+            ("CA", "Canada"),
+            ("FR", "France"),
+        ]
+        .into_iter()
+        .map(|(iso3166, name)| (iso3166.to_string(), name.to_string()))
+        .collect::<Vec<(String, String)>>()
+    );
+}
+
 pub fn ipv4_country_data() -> (Vec<u64>, usize) {
     (
         vec![
-            0x0080000300801003, 0x82201C0902E01807, 0x28102E208388840B, 0x605C0100AB76020E,
-            0x0000000000000000,
+            0x1122334455667788,
         ],
-        271
+        64
     )
 }
 
 pub fn ipv4_country_block_count() -> usize {
-        11
+        12
 }
 
 pub fn ipv6_country_data() -> (Vec<u64>, usize) {
     (
         vec![
-            0x3000040000400007, 0x00C0001400020000, 0xA80954B000000700, 0x4000000F0255604A,
-            0x0300004000040004, 0xE04AAC8380003800, 0x00018000A4000001, 0x2AB0003485C0001C,
-            0x0600089000000781, 0xC001D20700007000, 0x00424000001E04AA, 0x15485C0001C00018,
-            0xC90000007812AB00, 0x2388000700006002, 0x000001E04AAC00C5, 0xC0001C0001801924,
-            0x0007812AB0063485, 0x0070000600C89000, 0x1E04AAC049D23880, 0xC000180942400000,
-            0x12AB025549BA0001, 0x0040002580000078, 0xAC8B800038000300, 0x000000000001E04A,
+            0x8877665544332211,
         ],
-        1513
+        64
     )
 }
 
 pub fn ipv6_country_block_count() -> usize {
-        20
+        21
 }
 "#
             .to_string()
@@ -239,13 +397,36 @@ pub fn ipv6_country_block_count() -> usize {
 
     #[test]
     fn sad_path_test() {
-        let mut stdin = ByteArrayReader::new(BAD_TEST_DATA.as_bytes());
+        let mut stdin = ByteArrayReader::new(TEST_DATA.as_bytes());
         let mut stdout = ByteArrayWriter::new();
         let mut stderr = ByteArrayWriter::new();
+        let parse_params_arc = Arc::new(Mutex::new(vec![]));
+        let ipv4_result = final_bit_queue(0x1122334455667788, 12);
+        let ipv6_result = final_bit_queue(0x8877665544332211, 21);
+        let parser = DBIPParserMock::new()
+            .parse_params(&parse_params_arc)
+            .parse_errors(vec!["First error", "Second error"])
+            .parse_result((ipv4_result, ipv6_result, &TEST_COUNTRIES));
+        let make_params_arc = Arc::new(Mutex::new(vec![]));
+        let parser_factory = DBIPParserFactoryMock::new()
+            .make_params(&make_params_arc)
+            .make_result(parser);
+        let args = vec!["--csv".to_string()];
 
-        let result = ip_country(vec![], &mut stdin, &mut stdout, &mut stderr);
+        let result = ip_country(
+            args.clone(),
+            &mut stdin,
+            &mut stdout,
+            &mut stderr,
+            &parser_factory,
+        );
 
         assert_eq!(result, 1);
+        let make_params = make_params_arc.lock().unwrap();
+        assert_eq!(*make_params, vec![args.clone()]);
+        let parse_params = parse_params_arc.lock().unwrap();
+        let expected_parse_params: Vec<Vec<String>> = vec![vec![]];
+        assert_eq!(*parse_params, expected_parse_params);
         let stdout_string = String::from_utf8(stdout.get_bytes()).unwrap();
         let stderr_string = String::from_utf8(stderr.get_bytes()).unwrap();
         assert_eq!(
@@ -253,76 +434,91 @@ pub fn ipv6_country_block_count() -> usize {
             r#"
 // GENERATED CODE: REGENERATE, DO NOT MODIFY!
 
+use lazy_static::lazy_static;
+use crate::countries::Countries;
+
+lazy_static! {
+    pub static ref COUNTRIES: Countries = Countries::new(
+        vec![
+            ("ZZ", "Sentinel"),
+            ("CA", "Canada"),
+            ("FR", "France"),
+        ]
+        .into_iter()
+        .map(|(iso3166, name)| (iso3166.to_string(), name.to_string()))
+        .collect::<Vec<(String, String)>>()
+    );
+}
+
 pub fn ipv4_country_data() -> (Vec<u64>, usize) {
     (
         vec![
-            0x0080000300801003, 0x5020000902E01807, 0xAB74038090000E1C, 0x00000000605C0100,
+            0x1122334455667788,
         ],
-        239
+        64
     )
 }
 
 pub fn ipv4_country_block_count() -> usize {
-        9
+        12
 }
 
 pub fn ipv6_country_data() -> (Vec<u64>, usize) {
     (
         vec![
-            0x3000040000400007, 0x00C0001400020000, 0xA80954B000000700, 0x4000000F0255604A,
-            0x0300004000040004, 0xE04AAC8380003800, 0x00018000A4000001, 0x2AB0003485C0001C,
-            0x0600089000000781, 0xC001D20700007000, 0x00424000001E04AA, 0x15485C0001C00018,
-            0xC90000007812AB00, 0x2388000700006002, 0x000001E04AAC00C5, 0xC0001C0001801924,
-            0x0007812AB0063485, 0x0070000600C89000, 0x1E04AAC049D23880, 0xC000180942400000,
-            0x12AB025549BA0001, 0x0040002580000078, 0xAC8B800038000300, 0x000000000001E04A,
+            0x8877665544332211,
         ],
-        1513
+        64
     )
 }
 
 pub fn ipv6_country_block_count() -> usize {
-        20
+        21
 }
 
             *** DO NOT USE THIS CODE ***
             It will produce incorrect results.
             The process that generated it found these errors:
 
-Line 3: CSV format error: Error(UnequalLengths { pos: Some(Position { byte: 67, line: 4, record: 3 }), expected_len: 3, len: 2 })
-Line 4: CSV format error: Error(UnequalLengths { pos: Some(Position { byte: 80, line: 5, record: 4 }), expected_len: 3, len: 2 })
-Line 5: CSV format error: Error(UnequalLengths { pos: Some(Position { byte: 99, line: 6, record: 5 }), expected_len: 3, len: 4 })
-Line 6: Invalid (AddrParseError(Ip)) IP address in CSV record: 'BOOGA'
-Line 7: Ending address 1.0.32.0 is less than starting address 1.0.63.255
-Line 17: Invalid (AddrParseError(Ip)) IP address in CSV record: 'BOOGA'
+First error
+Second error
 
             Fix the errors and regenerate the code.
             *** DO NOT USE THIS CODE ***
 "#
+            .to_string()
         );
-        assert_eq!(stderr_string,
-r#"Line 3: CSV format error: Error(UnequalLengths { pos: Some(Position { byte: 67, line: 4, record: 3 }), expected_len: 3, len: 2 })
-Line 4: CSV format error: Error(UnequalLengths { pos: Some(Position { byte: 80, line: 5, record: 4 }), expected_len: 3, len: 2 })
-Line 5: CSV format error: Error(UnequalLengths { pos: Some(Position { byte: 99, line: 6, record: 5 }), expected_len: 3, len: 4 })
-Line 6: Invalid (AddrParseError(Ip)) IP address in CSV record: 'BOOGA'
-Line 7: Ending address 1.0.32.0 is less than starting address 1.0.63.255
-Line 17: Invalid (AddrParseError(Ip)) IP address in CSV record: 'BOOGA'"#
-.to_string()
+        assert_eq!(
+            stderr_string,
+            r#"First error
+Second error"#
+                .to_string()
         );
     }
 
     #[test]
     fn write_error_from_ip_country() {
-        let stdin = &mut ByteArrayReader::new(PROPER_TEST_DATA.as_bytes());
+        let stdin = &mut ByteArrayReader::new(TEST_DATA.as_bytes());
         let stdout = &mut ByteArrayWriter::new();
         let stderr = &mut ByteArrayWriter::new();
         stdout.reject_next_write(Error::new(ErrorKind::WriteZero, "Bad file Descriptor"));
+        let factory = DBIPParserFactoryReal {};
 
-        let result = ip_country(vec![], stdin, stdout, stderr);
+        let result = ip_country(vec!["--csv".to_string()], stdin, stdout, stderr, &factory);
 
         assert_eq!(result, 1);
         let stdout_string = String::from_utf8(stdout.get_bytes()).unwrap();
         let stderr_string = String::from_utf8(stderr.get_bytes()).unwrap();
         assert_eq!(stderr_string, "Error generating Rust code: Custom { kind: WriteZero, error: \"Bad file Descriptor\" }");
         assert_eq!(stdout_string, "\n            *** DO NOT USE THIS CODE ***\n            It will produce incorrect results.\n            The process that generated it found these errors:\n\nError generating Rust code: Custom { kind: WriteZero, error: \"Bad file Descriptor\" }\n\n            Fix the errors and regenerate the code.\n            *** DO NOT USE THIS CODE ***\n");
+    }
+
+    fn final_bit_queue(contents: u64, block_count: usize) -> FinalBitQueue {
+        let mut bit_queue = BitQueue::new();
+        bit_queue.add_bits(contents, 64);
+        FinalBitQueue {
+            bit_queue,
+            block_count,
+        }
     }
 }

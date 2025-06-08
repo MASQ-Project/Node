@@ -171,7 +171,7 @@ mod tests {
     fn panics_if_routing_service_is_unbound() {
         let main_cryptde = main_cryptde();
         let alias_cryptde = alias_cryptde();
-        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let client_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let route = route_to_proxy_client(&main_cryptde.public_key(), main_cryptde);
         let serialized_payload = serde_cbor::ser::to_vec(&make_meaningless_message_type()).unwrap();
         let data = main_cryptde
@@ -189,7 +189,7 @@ mod tests {
 
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr,
+            client_addr,
             reception_port: None,
             last_data: false,
             is_clandestine: false,
