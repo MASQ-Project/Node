@@ -100,12 +100,16 @@ pub fn make_meaningless_db() -> NeighborhoodDatabase {
 }
 
 pub fn db_from_node(node: &NodeRecord) -> NeighborhoodDatabase {
-    NeighborhoodDatabase::new(
+    let mut db = NeighborhoodDatabase::new(
         node.public_key(),
         node.into(),
         node.earning_wallet(),
         &CryptDENull::from(node.public_key(), TEST_DEFAULT_CHAIN),
-    )
+    );
+    db.root_mut().inner.country_code_opt = node.inner.country_code_opt.clone();
+    db.root_mut().metadata.node_location_opt = node.metadata.node_location_opt.clone();
+    db.root_mut().resign();
+    db
 }
 
 // Note: If you don't supply a neighbor_opt, here, your root node's IP address will be removed.

@@ -868,12 +868,6 @@ mod tests {
     fn new_public_ip_replaces_ip_address_and_nothing_else() {
         let this_node = make_node_record(1234, true);
         let mut old_node = this_node.clone();
-        old_node.inner.country_code_opt = Some("AU".to_string());
-        old_node.metadata.node_location_opt = Some(NodeLocation {
-            country_code: "AU".to_string(),
-        });
-        old_node.resign();
-
         let mut subject = NeighborhoodDatabase::new(
             this_node.public_key(),
             (&this_node).into(),

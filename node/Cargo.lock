@@ -989,7 +989,7 @@ dependencies = [
  "lazy_static",
  "log 0.4.18",
  "regex",
- "thiserror",
+ "thiserror 1.0.30",
  "yansi",
 ]
 
@@ -1005,7 +1005,7 @@ dependencies = [
  "lazy_static",
  "log 0.4.18",
  "regex",
- "thiserror",
+ "thiserror 1.0.30",
  "yansi",
 ]
 
@@ -1581,8 +1581,10 @@ name = "ip_country"
 version = "0.1.0"
 dependencies = [
  "csv",
+ "ipnetwork",
  "itertools 0.13.0",
  "lazy_static",
+ "maxminddb",
  "test_utilities",
 ]
 
@@ -1616,6 +1618,12 @@ name = "ipnet"
 version = "2.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68f2d64f2edebec4ce84ad108148e67e1064789bee435edc5b60ad398714a3a9"
+
+[[package]]
+name = "ipnetwork"
+version = "0.21.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf370abdafd54d13e54a620e8c3e1145f28e46cc9d704bc6d94414559df41763"
 
 [[package]]
 name = "itertools"
@@ -1917,6 +1925,19 @@ name = "matches"
 version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ffc5c5338469d4d3ea17d269fa8ea3512ad247247c30bd2df69e68309ed0a08"
+
+[[package]]
+name = "maxminddb"
+version = "0.26.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2a197e44322788858682406c74b0b59bf8d9b4954fe1f224d9a25147f1880bba"
+dependencies = [
+ "ipnetwork",
+ "log 0.4.18",
+ "memchr",
+ "serde",
+ "thiserror 2.0.12",
+]
 
 [[package]]
 name = "maybe-uninit"
@@ -3746,7 +3767,16 @@ version = "1.0.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "854babe52e4df1653706b98fcfc05843010039b406875930a70e4d9644e5c417"
 dependencies = [
- "thiserror-impl",
+ "thiserror-impl 1.0.30",
+]
+
+[[package]]
+name = "thiserror"
+version = "2.0.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "567b8a2dae586314f7be2a752ec7474332959c6460e02bde30d702a66d488708"
+dependencies = [
+ "thiserror-impl 2.0.12",
 ]
 
 [[package]]
@@ -3758,6 +3788,17 @@ dependencies = [
  "proc-macro2 1.0.94",
  "quote 1.0.40",
  "syn 1.0.85",
+]
+
+[[package]]
+name = "thiserror-impl"
+version = "2.0.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f7cf42b4507d8ea322120659672cf1b9dbb93f8f2d4ecfd6e51350ff5b17a1d"
+dependencies = [
+ "proc-macro2 1.0.94",
+ "quote 1.0.40",
+ "syn 2.0.100",
 ]
 
 [[package]]
@@ -3808,7 +3849,7 @@ dependencies = [
  "rand 0.7.3",
  "rustc-hash",
  "sha2 0.9.8",
- "thiserror",
+ "thiserror 1.0.30",
  "unicode-normalization",
  "wasm-bindgen",
  "zeroize",

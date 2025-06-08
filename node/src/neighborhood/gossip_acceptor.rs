@@ -1435,6 +1435,7 @@ mod tests {
     use crate::test_utils::unshared_test_utils::make_cpm_recipient;
     use crate::test_utils::{assert_contains, main_cryptde, vec_to_set};
     use actix::System;
+    use ip_country_lib::dbip_country::COUNTRIES;
     use itertools::Itertools;
     use masq_lib::messages::ExitLocation;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
@@ -2069,15 +2070,18 @@ mod tests {
         let cryptde = CryptDENull::from(dest_db.root().public_key(), TEST_DEFAULT_CHAIN);
         let subject = IntroductionHandler::new(Logger::new("test"));
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
+        let mut expected_introducer = NodeRecord::from(&agrs[0]);
+        expected_introducer.metadata.country_undesirability = COUNTRY_UNDESIRABILITY_FACTOR;
+        let cc = expected_introducer.inner.country_code_opt.clone().unwrap();
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
         neighborhood_metadata.user_exit_preferences_opt = Some(UserExitPreferences {
-            exit_countries: vec!["FR".to_string()],
+            exit_countries: vec![cc.clone()],
             fallback_preference: FallbackPreference::ExitCountryNoFallback,
             locations_opt: Some(vec![ExitLocation {
-                country_codes: vec!["FR".to_string()],
+                country_codes: vec![cc.clone()],
                 priority: 2,
             }]),
-            db_countries: vec!["FR".to_string()],
+            db_countries: vec![cc.clone()],
         });
 
         let qualifies_result = subject.qualifies(&dest_db, &agrs, gossip_source);
@@ -2101,13 +2105,8 @@ mod tests {
             ),
             handle_result
         );
-
         let result_introducer: &NodeRecord =
             dest_db.node_by_key(&agrs[0].inner.public_key).unwrap();
-        let mut expected_introducer = NodeRecord::from(&agrs[0]);
-        expected_introducer.metadata.last_update = result_introducer.metadata.last_update;
-        expected_introducer.metadata.country_undesirability = COUNTRY_UNDESIRABILITY_FACTOR;
-        expected_introducer.resign();
         assert_eq!(result_introducer, &expected_introducer);
         assert_eq!(
             dest_db
@@ -2440,17 +2439,24 @@ mod tests {
         let src_root = make_node_record(1234, true);
         let dest_root = make_node_record(2345, true);
         let mut src_db = db_from_node(&src_root);
-        let node_a_fr = make_node_record_cc(5678, true, "FR");
-        let node_b_us = make_node_record_cc(4567, true, "US");
+        let node_a = make_node_record(5678, true);
+        let country_zero = node_a.inner.country_code_opt.clone().unwrap();
+        let exclude = vec![country_zero.as_ref(), "NOEX", "ZZ"];
+        let countries = COUNTRIES
+            .iter()
+            .filter(|c| !exclude.contains(&c.iso3166.as_str()))
+            .collect_vec();
+        let cc = countries[0].iso3166.as_str();
+        let node_b = make_node_record_cc(7777u16, true, cc);
         let mut dest_db = db_from_node(&dest_root);
         dest_db.add_node(src_root.clone()).unwrap();
         dest_db.add_arbitrary_full_neighbor(dest_root.public_key(), src_root.public_key());
         src_db.add_node(dest_db.root().clone()).unwrap();
-        src_db.add_node(node_a_fr.clone()).unwrap();
-        src_db.add_node(node_b_us.clone()).unwrap();
+        src_db.add_node(node_a.clone()).unwrap();
+        src_db.add_node(node_b.clone()).unwrap();
         src_db.add_arbitrary_full_neighbor(src_root.public_key(), dest_root.public_key());
-        src_db.add_arbitrary_half_neighbor(src_root.public_key(), &node_a_fr.public_key());
-        src_db.add_arbitrary_full_neighbor(src_root.public_key(), &node_b_us.public_key());
+        src_db.add_arbitrary_half_neighbor(src_root.public_key(), &node_a.public_key());
+        src_db.add_arbitrary_full_neighbor(src_root.public_key(), &node_b.public_key());
         src_db
             .node_by_key_mut(src_root.public_key())
             .unwrap()
@@ -2458,8 +2464,8 @@ mod tests {
         src_db.resign_node(src_root.public_key());
         let gossip = GossipBuilder::new(&src_db)
             .node(src_root.public_key(), true)
-            .node(node_a_fr.public_key(), false)
-            .node(node_b_us.public_key(), false)
+            .node(node_a.public_key(), false)
+            .node(node_b.public_key(), false)
             .build();
         let subject = StandardGossipHandler::new(Logger::new("test"));
         let cryptde = CryptDENull::from(dest_db.root().public_key(), TEST_DEFAULT_CHAIN);
@@ -2468,13 +2474,13 @@ mod tests {
         let (cpm_recipient, recording_arc) = make_cpm_recipient();
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
         neighborhood_metadata.user_exit_preferences_opt = Some(UserExitPreferences {
-            exit_countries: vec!["FR".to_string()],
+            exit_countries: vec![country_zero.clone()],
             fallback_preference: FallbackPreference::ExitCountryWithFallback,
             locations_opt: Some(vec![ExitLocation {
-                country_codes: vec!["FR".to_string()],
+                country_codes: vec![country_zero.clone()],
                 priority: 1,
             }]),
-            db_countries: vec!["FR".to_string()],
+            db_countries: vec![country_zero],
         });
         neighborhood_metadata.cpm_recipient = cpm_recipient;
         let system = System::new("test");
@@ -2490,7 +2496,7 @@ mod tests {
 
         assert_eq!(
             dest_db
-                .node_by_key(node_a_fr.public_key())
+                .node_by_key(node_a.public_key())
                 .unwrap()
                 .metadata
                 .country_undesirability,
@@ -2498,7 +2504,7 @@ mod tests {
         );
         assert_eq!(
             dest_db
-                .node_by_key(node_b_us.public_key())
+                .node_by_key(node_b.public_key())
                 .unwrap()
                 .metadata
                 .country_undesirability,
@@ -2512,12 +2518,12 @@ mod tests {
         );
         assert!(dest_db.has_full_neighbor(dest_db.root().public_key(), src_db.root().public_key()));
         assert_eq!(
-            &src_db.node_by_key(node_a_fr.public_key()).unwrap().inner,
-            &dest_db.node_by_key(node_a_fr.public_key()).unwrap().inner
+            &src_db.node_by_key(node_a.public_key()).unwrap().inner,
+            &dest_db.node_by_key(node_a.public_key()).unwrap().inner
         );
         assert_eq!(
-            &src_db.node_by_key(node_b_us.public_key()).unwrap().inner,
-            &dest_db.node_by_key(node_b_us.public_key()).unwrap().inner
+            &src_db.node_by_key(node_b.public_key()).unwrap().inner,
+            &dest_db.node_by_key(node_b.public_key()).unwrap().inner
         );
         System::current().stop();
         assert_eq!(system.run(), 0);

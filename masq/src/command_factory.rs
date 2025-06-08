@@ -272,7 +272,7 @@ mod tests {
             .make(&[
                 "exit-location".to_string(),
                 "--country-codes".to_string(),
-                "CZ".to_string(),
+                "AS".to_string(),
             ])
             .unwrap();
 
@@ -283,7 +283,7 @@ mod tests {
                 .unwrap(),
             &SetExitLocationCommand {
                 exit_locations: vec![CountryGroups {
-                    country_codes: vec!["CZ".to_string()],
+                    country_codes: vec!["AS".to_string()],
                     priority: 1
                 }],
                 fallback_routing: false,
