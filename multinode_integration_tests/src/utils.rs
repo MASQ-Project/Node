@@ -13,6 +13,7 @@ use node_lib::database::db_initializer::{
 use node_lib::database::rusqlite_wrappers::ConnectionWrapper;
 use node_lib::db_config::config_dao::{ConfigDao, ConfigDaoReal};
 use node_lib::neighborhood::gossip::AccessibleGossipRecord;
+use node_lib::neighborhood::node_location::get_node_location;
 use node_lib::neighborhood::node_record::NodeRecordInner_0v1;
 use node_lib::sub_lib::cryptde::{CryptData, PlainData};
 use std::collections::BTreeSet;

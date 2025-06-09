@@ -739,7 +739,7 @@ Length: 4 (0x4) bytes
     fn to_dot_graph_returns_gossip_in_dotgraph_format() {
         let mut source_node = make_node_record_cc(1234, true, "AU");
         source_node.inner.public_key = PublicKey::new(&b"ABCDEFGHIJKLMNOPQRSTUVWXYZ"[..]);
-        let mut target_node = make_node_record_cc(2345, true, "GB");
+        let mut target_node = make_node_record_cc(2345, true, "FR");
         target_node.inner.public_key = PublicKey::new(&b"ZYXWVUTSRQPONMLKJIHGFEDCBA"[..]);
         let neighbor = make_node_record_cc(3456, false, "FR");
         let mut db = db_from_node(&source_node);
@@ -772,7 +772,7 @@ Length: 4 (0x4) bytes
         );
         assert_string_contains(
             &result,
-            "\"WllYV1ZVVFNSUVBPTk1MS0pJSEdGRURDQkE\" [label=\"AR v0 GB\\nWllYV1ZV\\n2.3.4.5:2345\"] [shape=box]; ",
+            "\"WllYV1ZVVFNSUVBPTk1MS0pJSEdGRURDQkE\" [label=\"AR v0 FR\\nWllYV1ZV\\n2.3.4.5:2345\"] [shape=box]; ",
         );
         assert_string_contains(
             &result,

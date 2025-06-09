@@ -20,7 +20,7 @@ jobs:
     name: Build node on ${{ matrix.target.os }}
     runs-on: ${{ matrix.target.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v3
         with:
           ref: ${{ github.event.pull_request.head.sha }}
 
@@ -36,8 +36,7 @@ jobs:
           toolchain: 1.63.0
           components: rustfmt, clippy
           override: true
-
-      - uses: actions/cache@v4
+      - uses: actions/cache@v3
         with:
           path: |
             ~/.cargo/bin/
@@ -46,13 +45,10 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
+          key: ${{ runner.os }}-cargo
 
       - name: Build ${{ matrix.target.os }}
         run: |
-          git fetch
           ./ci/all.sh
           ./ci/multinode_integration_test.sh
           ./ci/collect_results.sh
@@ -70,16 +66,14 @@ jobs:
           df -h /Users/runner/work/Node/Node/node/target/release
   deploy_to_s3:
     needs: build
-    if: success() && (startsWith(github.head_ref, 'GH') || startsWith(github.head_ref, 'v'))
     strategy:
       matrix:
-        os: [linux, macos, windows]
-    runs-on: ubuntu-latest
+          os: [linux, macos, windows]
+    runs-on: ubuntu-22.04
     steps:
-        - uses: actions/checkout@v4
+        - uses: actions/checkout@v3
           with:
             ref: ${{ github.event.pull_request.head.sha }}
-            fetch-depth: 1
 
         - name: Download artifacts
           uses: actions/download-artifact@v4
@@ -87,35 +81,31 @@ jobs:
         - name: Display structure of downloaded files
           run: ls -R
 
-        - name: Check artifacts exist
-          run: |
-            if [ ! -d "Node-${{ matrix.os }}/generated/bin/" ]; then
-              echo "Error: Build artifacts not found"
-              exit 1
-            fi
-
-        - name: Configure AWS Credentials
-          uses: aws-actions/configure-aws-credentials@v4
-          with:
-            aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-            aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-            aws-region: us-west-2
-
         - if: startsWith(github.head_ref, 'GH')
           name: Versioned S3 Sync
-          run: |
-            aws s3 sync "Node-${{ matrix.os }}/generated/bin/" "s3://${{ secrets.AWS_S3_BUCKET }}/Node/${{ github.head_ref }}/Node-${{ matrix.os }}" \
-              --delete \
-              --no-progress \
-              --acl private
+          uses: jakejarvis/s3-sync-action@v0.5.1
+          with:
+           args: --acl private --follow-symlinks --delete
+          env:
+            AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+            AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+            AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+            AWS_REGION: 'us-west-2'
+            DEST_DIR: 'Node/${{ github.head_ref }}/Node-${{ matrix.os }}'
+            SOURCE_DIR: 'Node-${{ matrix.os }}/generated/bin/'
 
         - if: startsWith(github.head_ref, 'v')
           name: Latest S3 Sync
-          run: |
-            aws s3 sync "Node-${{ matrix.os }}/generated/bin/" "s3://${{ secrets.AWS_S3_BUCKET }}/Node/latest/Node-${{ matrix.os }}" \
-              --delete \
-              --no-progress \
-              --acl private
+          uses: jakejarvis/s3-sync-action@v0.5.1
+          with:
+           args: --acl private --follow-symlinks --delete
+          env:
+            AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+            AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+            AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+            AWS_REGION: 'us-west-2'
+            DEST_DIR: 'Node/latest/Node-${{ matrix.os }}'
+            SOURCE_DIR: 'Node-${{ matrix.os }}/generated/bin/'
 
         - name: Invalidate Binaries CloudFront
           uses: chetan/invalidate-cloudfront-action@v2.4

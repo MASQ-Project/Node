@@ -2,7 +2,7 @@
 
 use std::collections::VecDeque;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct BitQueue {
     back_blank_bit_count: usize, // number of high-order bits in the back byte of the queue that are unused
     byte_queue: VecDeque<u8>,
@@ -281,7 +281,7 @@ mod tests {
     }
 
     #[test]
-    fn queues_and_dequeues_one_bit() {
+    fn queues_and_unqueues_one_bit() {
         let mut subject = BitQueue::new();
 
         subject.add_bits(1, 1);
@@ -294,7 +294,7 @@ mod tests {
     }
 
     #[test]
-    fn queues_and_dequeues_seven_bits() {
+    fn queues_and_unqueues_seven_bits() {
         let mut subject = BitQueue::new();
 
         subject.add_bits(0b1101101, 7);
@@ -305,7 +305,7 @@ mod tests {
     }
 
     #[test]
-    fn queues_and_dequeues_nine_bits() {
+    fn queues_and_unqueues_nine_bits() {
         let mut subject = BitQueue::new();
 
         subject.add_bits(0b110110111, 9);
@@ -370,7 +370,7 @@ mod tests {
     }
 
     #[test]
-    fn queues_and_dequeues_32_bits() {
+    fn queues_and_unqueues_32_bits() {
         let value: u64 = 0xDEADBEEF;
         let mut subject = BitQueue::new();
 

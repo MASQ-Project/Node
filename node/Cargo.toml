@@ -7,7 +7,7 @@ description = "MASQ Node is the foundation of MASQ Network, an open-source netwo
 edition = "2021"
 
 [workspace]
-members = ["../multinode_integration_tests", "../masq_lib", "../masq", "../ip_country", "../test_utilities"]
+members = ["../multinode_integration_tests", "../masq_lib", "../masq"]
 
 [dependencies]
 actix = "0.7.9"

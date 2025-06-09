@@ -560,9 +560,7 @@ impl Neighborhood {
                     self.user_exit_preferences.locations_opt.clone()
                 {
                     for exit_location in &exit_locations_by_priority {
-                        self.synchronize_exit_countries_and_return_missing(
-                            &exit_location.country_codes,
-                        );
+                        self.synchronize_exit_countries_and_return_missing(&exit_location.country_codes);
                     }
                     self.set_country_undesirability_and_exit_countries(&exit_locations_by_priority);
                 }
@@ -5863,13 +5861,13 @@ mod tests {
             .root_mut()
             .inner
             .country_code_opt = Some("AU".to_string());
-        let new_public_ip = IpAddr::from_str("5.6.7.8").unwrap();
+        let new_public_ip = IpAddr::from_str("4.3.2.1").unwrap();
 
         subject.handle_new_public_ip(NewPublicIp {
             new_ip: new_public_ip,
         });
 
-        // Sometimes this test runs against the small test dbip_country.rs, and sometimes it runs against
+        // Sometimes this test runs against the small test dbip_country.rs, and sometimes it runs against 
         // the big generated dbip_country.rs with real data; this assertion must succeed in both cases.
         assert_ne!(
             subject.neighborhood_database.root().inner.country_code_opt,
@@ -5899,7 +5897,7 @@ mod tests {
             new_public_ip
         );
         TestLogHandler::new()
-            .exists_log_containing("INFO: Neighborhood: Changed public IP from 1.2.3.4 to 5.6.7.8");
+            .exists_log_containing("INFO: Neighborhood: Changed public IP from 1.2.3.4 to 4.3.2.1");
     }
 
     #[test]
