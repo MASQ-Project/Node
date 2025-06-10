@@ -170,6 +170,8 @@ impl PartialEq for RealUser {
     }
 }
 
+impl Eq for RealUser {}
+
 impl Default for RealUser {
     fn default() -> Self {
         RealUser::null()

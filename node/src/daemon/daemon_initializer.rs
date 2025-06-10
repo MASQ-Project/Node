@@ -113,7 +113,10 @@ impl DaemonInitializerReal {
         config: InitializationConfig,
         mut params: DIClusteredParams,
     ) -> DaemonInitializerReal {
-        let real_user = RealUser::new(None, None, None).populate(params.dirs_wrapper.as_ref());
+        let real_user = match &config.real_user_opt {
+            Some(user) => user.clone(),
+            None => RealUser::new(None, None, None).populate(params.dirs_wrapper.as_ref())
+        };
         let dirs_home_dir_opt = params.dirs_wrapper.home_dir();
         let dirs_home_dir = dirs_home_dir_opt
             .as_ref()

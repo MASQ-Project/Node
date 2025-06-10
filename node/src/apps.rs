@@ -4,10 +4,7 @@ use clap::{crate_description, crate_version, App, AppSettings, Arg};
 use indoc::indoc;
 use lazy_static::lazy_static;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
-use masq_lib::shared_schema::{
-    chain_arg, data_directory_arg, db_password_arg, real_user_arg, shared_app, ui_port_arg,
-    DATA_DIRECTORY_HELP, DB_PASSWORD_HELP,
-};
+use masq_lib::shared_schema::{chain_arg, data_directory_arg, db_password_arg, real_user_arg, shared_app, ui_port_arg, DATA_DIRECTORY_HELP, DB_PASSWORD_HELP};
 use masq_lib::utils::DATA_DIRECTORY_DAEMON_HELP;
 
 pub fn app_head() -> App<'static, 'static> {
@@ -33,6 +30,7 @@ pub fn app_daemon() -> App<'static, 'static> {
                 .help("Directs MASQ to start the Daemon that controls the Node, rather than the Node itself"),
         )
         .arg(ui_port_arg(&DAEMON_UI_PORT_HELP))
+        .arg(real_user_arg())
 }
 
 pub fn app_node() -> App<'static, 'static> {
