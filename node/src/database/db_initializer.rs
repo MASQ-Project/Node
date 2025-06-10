@@ -727,7 +727,6 @@ mod tests {
         let mut stmt = conn
             .prepare("select name, value, encrypted from config")
             .unwrap();
-        // TODO: The next line's execution returns Err(ExecuteReturnedResults). Don't know why.
         let _ = stmt.execute([]);
         let expected_key_words: &[&[&str]] = &[
             &["name", "text", "primary", "key"],
