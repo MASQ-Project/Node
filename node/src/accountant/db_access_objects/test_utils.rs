@@ -1,11 +1,15 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 #![cfg(test)]
 
+use std::path::PathBuf;
+use rusqlite::{Connection, OpenFlags};
 use crate::accountant::db_access_objects::sent_payable_dao::{ Tx};
 use crate::accountant::db_access_objects::utils::{current_unix_timestamp, TxHash};
 use web3::types::{Address};
 use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureReason};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionBlock;
+use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE};
+use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
 
 #[derive(Default)]
 pub struct TxBuilder {
@@ -25,6 +29,11 @@ impl TxBuilder {
 
     pub fn hash(mut self, hash: TxHash) -> Self {
         self.hash_opt = Some(hash);
+        self
+    }
+
+    pub fn timestamp(mut self, timestamp: i64) -> Self {
+        self.timestamp_opt = Some(timestamp);
         self
     }
 
@@ -55,7 +64,7 @@ pub struct FailedTxBuilder {
     gas_price_wei_opt: Option<u128>,
     nonce_opt: Option<u64>,
     reason_opt: Option<FailureReason>,
-    checked_opt: Option<u8>,
+    rechecked_opt: Option<bool>,
 }
 
 impl FailedTxBuilder {
@@ -65,6 +74,11 @@ impl FailedTxBuilder {
 
     pub fn hash(mut self, hash: TxHash) -> Self {
         self.hash_opt = Some(hash);
+        self
+    }
+
+    pub fn timestamp(mut self, timestamp: i64) -> Self {
+        self.timestamp_opt = Some(timestamp);
         self
     }
 
@@ -78,8 +92,8 @@ impl FailedTxBuilder {
         self
     }
 
-    pub fn checked(mut self, checked: u8) -> Self {
-        self.checked_opt = Some(checked);
+    pub fn rechecked(mut self, rechecked: bool) -> Self {
+        self.rechecked_opt = Some(rechecked);
         self
     }
 
@@ -94,7 +108,22 @@ impl FailedTxBuilder {
             reason: self
                 .reason_opt
                 .unwrap_or_else(|| FailureReason::PendingTooLong),
-            checked: self.checked_opt.unwrap_or_default(),
+            rechecked: self.rechecked_opt.unwrap_or_else(|| false),
         }
     }
+}
+
+pub fn make_read_only_db_connection(home_dir: PathBuf) -> ConnectionWrapperReal {
+    {
+        DbInitializerReal::default()
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
+    }
+    let read_only_conn = Connection::open_with_flags(
+        home_dir.join(DATABASE_FILE),
+        OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+
+    ConnectionWrapperReal::new(read_only_conn)
 }
