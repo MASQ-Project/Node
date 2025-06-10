@@ -1,0 +1,32 @@
+#!/bin/bash
+
+# File to check (relative to repo root)
+FILENAME="ip_country/src/dbip_country.rs"
+
+if ! git diff --cached --name-only | grep -q "^$FILENAME$"; then
+  exit 0
+fi
+
+# find 'Nonexistents' country in dbip_country.rs
+@cat "$FILENAME" | grep '("NOEX", "Nonexistent")'
+NONEXISTENT=$?
+
+# Get local file size (staged version, not working copy)
+LOCAL_SIZE=$(git ls-files --stage | grep "$FILENAME" | awk '{print $2}' | xargs git cat-file -s)
+
+if [[ $LOCAL_SIZE -gt 1000000 || NONEXISTENT -gt 0 ]]; then
+  if [[ $LOCAL_SIZE -gt 1000000 ]]; then
+    echo "❌ Commit blocked: $FILENAME size it not dev version, we want to keep dev version under 1 MB."
+    echo "   Local file size:  $LOCAL_SIZE bytes"
+  fi
+  if [[ $NONEXISTENT -gt 0 ]]; then
+    echo "❌ Commit blocked: Dev file  must contain '(\"NOEX\", \"Nonexistents\")' country"
+  fi
+  echo ""
+  echo " ⚡  Please sync the file with the remote before committing using:"
+  echo "      git checkout HEAD -- ip_country/src/dbip_country.rs"
+  exit 1
+fi
+
+# All good
+exit 0

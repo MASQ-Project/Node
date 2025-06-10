@@ -8,6 +8,7 @@ use crate::commands::configuration_command::configuration_subcommand;
 use crate::commands::connection_status_command::connection_status_subcommand;
 use crate::commands::crash_command::crash_subcommand;
 use crate::commands::descriptor_command::descriptor_subcommand;
+use crate::commands::exit_location_command::exit_location_subcommand;
 use crate::commands::financials_command::args_validation::financials_subcommand;
 use crate::commands::generate_wallets_command::generate_wallets_subcommand;
 use crate::commands::recover_wallets_command::recover_wallets_subcommand;
@@ -67,6 +68,7 @@ pub fn app() -> App<'static, 'static> {
         .subcommand(configuration_subcommand())
         .subcommand(connection_status_subcommand())
         .subcommand(descriptor_subcommand())
+        .subcommand(exit_location_subcommand())
         .subcommand(financials_subcommand())
         .subcommand(generate_wallets_subcommand())
         .subcommand(recover_wallets_subcommand())
