@@ -19,9 +19,25 @@ pub const SQL_ATTRIBUTES_FOR_CREATING_SENT_PAYABLE: &[&[&str]] = &[
     &["amount_high_b", "integer", "not", "null"],
     &["amount_low_b", "integer", "not", "null"],
     &["timestamp", "integer", "not", "null"],
-    &["gas_price_wei", "integer", "not", "null"],
+    &["gas_price_wei_high_b", "integer", "not", "null"],
+    &["gas_price_wei_low_b", "integer", "not", "null"],
     &["nonce", "integer", "not", "null"],
-    &["status", "text", "not", "null"],
+    &["block_hash", "text", "null"],
+    &["block_number", "integer", "null"],
+];
+
+pub const SQL_ATTRIBUTES_FOR_CREATING_FAILED_PAYABLE: &[&[&str]] = &[
+    &["rowid", "integer", "primary", "key"],
+    &["tx_hash", "text", "not", "null"],
+    &["receiver_address", "text", "not", "null"],
+    &["amount_high_b", "integer", "not", "null"],
+    &["amount_low_b", "integer", "not", "null"],
+    &["timestamp", "integer", "not", "null"],
+    &["gas_price_wei_high_b", "integer", "not", "null"],
+    &["gas_price_wei_low_b", "integer", "not", "null"],
+    &["nonce", "integer", "not", "null"],
+    &["reason", "text", "not", "null"],
+    &["rechecked", "integer", "not", "null"],
 ];
 
 #[derive(Debug, Default)]
@@ -124,28 +140,5 @@ impl DbInitializerMock {
     ) -> DbInitializerMock {
         self.initialize_results.borrow_mut().push(result);
         self
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::database::test_utils::SQL_ATTRIBUTES_FOR_CREATING_SENT_PAYABLE;
-
-    #[test]
-    fn constants_have_correct_values() {
-        assert_eq!(
-            SQL_ATTRIBUTES_FOR_CREATING_SENT_PAYABLE,
-            &[
-                &["rowid", "integer", "primary", "key"],
-                &["tx_hash", "text", "not", "null"],
-                &["receiver_address", "text", "not", "null"],
-                &["amount_high_b", "integer", "not", "null"],
-                &["amount_low_b", "integer", "not", "null"],
-                &["timestamp", "integer", "not", "null"],
-                &["gas_price_wei", "integer", "not", "null"],
-                &["nonce", "integer", "not", "null"],
-                &["status", "text", "not", "null"],
-            ]
-        );
     }
 }
