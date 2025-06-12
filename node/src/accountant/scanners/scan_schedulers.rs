@@ -275,21 +275,7 @@ impl RescheduleScanOnErrorResolver for RescheduleScanOnErrorResolverReal {
             ),
         };
 
-        let scan_mode = if is_externally_triggered {
-            "manually requested"
-        } else {
-            "automatic"
-        };
-
-        info!(
-            logger,
-            "Rescheduling strategy '{:?}' was chosen after the {} {} scan encountered \
-            the '{:?}' error",
-            reschedule_hint,
-            scan_mode,
-            scanner,
-            error
-        );
+        Self::log_rescheduling(scanner, is_externally_triggered, logger, &reschedule_hint);
 
         reschedule_hint
     }
@@ -352,8 +338,8 @@ impl RescheduleScanOnErrorResolverReal {
                 // StartScanError::NothingToProcess can be evaluated); but may be cautious and
                 // prevent starting the NewPayableScanner. Repeating this scan endlessly may alarm
                 // the user.
-                // TODO Correctly, a check-point during the bootstrap should be the solution,
-                // which wouldn't allow to come this far.
+                // TODO Correctly, a check-point during the bootstrap that wouldn't allow to come
+                // this far should be the solution. Part of the issue mentioned in GH-799
                 ScanRescheduleAfterEarlyStop::Schedule(ScanType::PendingPayables)
             } else {
                 unreachable!(
@@ -367,6 +353,27 @@ impl RescheduleScanOnErrorResolverReal {
                 err
             )
         }
+    }
+
+    fn log_rescheduling(
+        scanner: PayableSequenceScanner,
+        is_externally_triggered: bool,
+        logger: &Logger,
+        reschedule_hint: &ScanRescheduleAfterEarlyStop,
+    ) {
+        let scan_mode = if is_externally_triggered {
+            "Manual"
+        } else {
+            "Automatic"
+        };
+
+        debug!(
+            logger,
+            "{} {} scan failed - rescheduling strategy: \"{:?}\"",
+            scan_mode,
+            scanner,
+            reschedule_hint
+        );
     }
 }
 
@@ -634,9 +641,9 @@ mod tests {
                     scanner
                 );
                 test_log_handler.exists_log_containing(&format!(
-                    "INFO: {test_name}: Rescheduling strategy 'DoNotSchedule' was chosen after \
-                    the manually requested {} scan encountered the '{:?}' error",
-                    scanner, error
+                    "DEBUG: {test_name}: Manual {} scan failed - rescheduling strategy: \
+                    \"DoNotSchedule\"",
+                    scanner
                 ));
             })
     }
@@ -644,6 +651,7 @@ mod tests {
     #[test]
     fn resolve_error_for_pending_payables_if_nothing_to_process_and_initial_pending_payable_scan_true(
     ) {
+        init_test_logging();
         let subject = ScanSchedulers::new(ScanIntervals::default(), true);
         let test_name = "resolve_error_for_pending_payables_if_nothing_to_process_and_initial_pending_payable_scan_true";
         let logger = Logger::new(test_name);
@@ -666,8 +674,8 @@ mod tests {
             result,
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "INFO: {test_name}: Rescheduling strategy 'Schedule(Payables)' was chosen after \
-            the automatic PendingPayables scan encountered the 'NothingToProcess' error"
+            "DEBUG: {test_name}: Automatic PendingPayables scan failed - rescheduling strategy: \
+            \"Schedule(Payables)\""
         ));
     }
 
@@ -720,8 +728,8 @@ mod tests {
             scanner
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "INFO: {test_name}: Rescheduling strategy 'Schedule(PendingPayables)' was chosen after \
-            the automatic PendingPayables scan encountered the 'NoConsumingWalletFound' error"
+            "DEBUG: {test_name}: Automatic PendingPayables scan failed - rescheduling strategy: \
+            \"Schedule(PendingPayables)\""
         ));
     }
 
@@ -901,9 +909,8 @@ mod tests {
                 result,
             );
             test_log_handler.exists_log_containing(&format!(
-                "INFO: {test_name}: Rescheduling strategy 'Schedule(Payables)' was chosen after \
-                the automatic NewPayables scan encountered the '{:?}' error",
-                error
+                "DEBUG: {test_name}: Automatic NewPayables scan failed - rescheduling strategy: \
+                \"Schedule(Payables)\"",
             ));
         })
     }

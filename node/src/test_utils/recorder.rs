@@ -706,7 +706,6 @@ mod tests {
     use crate::blockchain::blockchain_bridge::BlockchainBridge;
     use crate::sub_lib::neighborhood::{ConfigChange, Hops, WalletPair};
     use crate::test_utils::make_wallet;
-    use crate::test_utils::neighborhood_test_utils::make_ip;
     use crate::test_utils::recorder_counter_msgs::SendableCounterMsgWithRecipient;
     use crate::{
         match_lazily_every_type_id, setup_for_counter_msg_triggered_via_specific_msg_id_method,
@@ -845,10 +844,10 @@ mod tests {
         // Case two
         let cm_setup_2 = {
             let counter_msg_strayed = StartMessage {};
-            let random_id = TypeId::of::<BlockchainBridge>();
-            let id_method = MsgIdentification::ByType(random_id);
+            let screwed_id = TypeId::of::<BlockchainBridge>();
+            let id_method = MsgIdentification::ByType(screwed_id);
             SingleTypeCounterMsgSetup::new(
-                random_id,
+                screwed_id,
                 id_method,
                 vec![Box::new(SendableCounterMsgWithRecipient::new(
                     counter_msg_strayed,
@@ -871,7 +870,9 @@ mod tests {
                 .tmb(0),
             };
             let id_method = MsgIdentification::ByMatch {
-                exemplar: Box::new(NewPublicIp { new_ip: make_ip(1) }),
+                exemplar: Box::new(NewPublicIp {
+                    new_ip: IpAddr::V4(Ipv4Addr::new(7, 6, 5, 4)),
+                }),
             };
             (
                 trigger_msg,
@@ -888,7 +889,7 @@ mod tests {
         // Case four
         let (trigger_msg_4_matching, cm_setup_4, counter_msg_4) = {
             let trigger_msg = NewPublicIp {
-                new_ip: IpAddr::V4(Ipv4Addr::new(4, 5, 6, 7)),
+                new_ip: IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)),
             };
             let msg_type_id = trigger_msg.type_id();
             let counter_msg = NodeToUiMessage {
@@ -919,7 +920,7 @@ mod tests {
         let (subject, _, subject_recording_arc) = make_recorder();
         let subject_addr = subject.start();
         // Supplying messages deliberately in a tangled manner to express that the mechanism is
-        // robust enough to compensate it
+        // robust enough to compensate for it
         subject_addr
             .try_send(SetUpCounterMsgs {
                 setups: vec![cm_setup_3, cm_setup_1, cm_setup_2, cm_setup_4],
@@ -935,7 +936,7 @@ mod tests {
             .unwrap();
 
         system.run();
-        // Actual counter messages that flew over in this test
+        // Actual counter-messages that flew over in this test
         let respondent_recording = respondent_recording_arc.lock().unwrap();
         let _first_counter_msg_recorded = respondent_recording.get_record::<ScanForReceivables>(0);
         let second_counter_msg_recorded = respondent_recording.get_record::<NodeToUiMessage>(1);

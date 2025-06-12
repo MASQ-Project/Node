@@ -4332,19 +4332,19 @@ mod tests {
             |(
                 err,
                 form_expected_log_msg,
-                severity_for_externally_triggered_scans,
-                severity_for_automatic_scans,
+                log_severity_for_externally_triggered_scans,
+                log_severity_for_automatic_scans,
             )| {
-                err.log_error(&logger, ScanType::Payables, true);
+                let test_log_error_by_mode =
+                    |is_externally_triggered: bool, expected_severity: &str| {
+                        err.log_error(&logger, ScanType::Payables, is_externally_triggered);
+                        let expected_log_msg = form_expected_log_msg(expected_severity);
+                        test_log_handler.exists_log_containing(&expected_log_msg);
+                    };
 
-                let expected_log_msg =
-                    form_expected_log_msg(severity_for_externally_triggered_scans);
-                test_log_handler.exists_log_containing(&expected_log_msg);
+                test_log_error_by_mode(true, log_severity_for_externally_triggered_scans);
 
-                err.log_error(&logger, ScanType::Payables, false);
-
-                let expected_log_msg = form_expected_log_msg(severity_for_automatic_scans);
-                test_log_handler.exists_log_containing(&expected_log_msg);
+                test_log_error_by_mode(false, log_severity_for_automatic_scans);
             },
         );
     }
