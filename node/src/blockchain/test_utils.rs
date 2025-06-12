@@ -2,9 +2,8 @@
 
 #![cfg(test)]
 
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
-    BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
-};
+use std::collections::HashMap;
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::{BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL};
 use bip39::{Language, Mnemonic, Seed};
 use ethabi::Hash;
 use ethereum_types::{BigEndianHash, H160, H256, U64};
@@ -15,8 +14,10 @@ use serde::Serialize;
 use serde_derive::Deserialize;
 use std::fmt::Debug;
 use std::net::Ipv4Addr;
+use itertools::Itertools;
 use web3::transports::{EventLoopHandle, Http};
-use web3::types::{Index, Log, SignedTransaction, TransactionReceipt, H2048, U256};
+use web3::types::{Address, Index, Log, SignedTransaction, TransactionReceipt, H2048, U256};
+use crate::test_utils::make_wallet;
 
 lazy_static! {
     static ref BIG_MEANINGLESS_PHRASE: Vec<&'static str> = vec![
@@ -216,4 +217,8 @@ pub fn transport_error_message() -> String {
     } else {
         "Connection refused".to_string()
     }
+}
+
+pub fn increase_gas_price_by_marginal(gas_price: u128, chain: Chain) -> u128 {
+    (gas_price * (100 + chain.rec().gas_price_recommended_margin_percents as u128)) / 100
 }

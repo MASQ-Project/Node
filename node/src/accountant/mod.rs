@@ -1464,7 +1464,7 @@ mod tests {
         assert_eq!(
             blockchain_bridge_recording.get_record::<QualifiedPayablesMessage>(0),
             &QualifiedPayablesMessage {
-                protected_qualified_payables: protect_payables_in_test(vec![payable_account]),
+                qualified_payables: protect_payables_in_test(vec![payable_account]),
                 consuming_wallet,
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
@@ -1551,7 +1551,7 @@ mod tests {
         let agent = BlockchainAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp);
         let accounts = vec![account_1, account_2];
         let msg = BlockchainAgentWithContextMessage {
-            protected_qualified_payables: protect_payables_in_test(accounts.clone()),
+            qualified_payables: protect_payables_in_test(accounts.clone()),
             agent: Box::new(agent),
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 1234,
@@ -1566,7 +1566,7 @@ mod tests {
         let (blockchain_agent_with_context_msg_actual, logger_clone) =
             is_adjustment_required_params.remove(0);
         assert_eq!(
-            blockchain_agent_with_context_msg_actual.protected_qualified_payables,
+            blockchain_agent_with_context_msg_actual.qualified_payables,
             protect_payables_in_test(accounts.clone())
         );
         assert_eq!(
@@ -1649,7 +1649,7 @@ mod tests {
             unadjusted_account_2.clone(),
         ]);
         let msg = BlockchainAgentWithContextMessage {
-            protected_qualified_payables: initial_unadjusted_accounts.clone(),
+            qualified_payables: initial_unadjusted_accounts.clone(),
             agent: Box::new(agent),
             response_skeleton_opt: Some(response_skeleton),
         };
@@ -1689,7 +1689,7 @@ mod tests {
         assert_eq!(
             actual_prepared_adjustment
                 .original_setup_msg
-                .protected_qualified_payables,
+                .qualified_payables,
             initial_unadjusted_accounts
         );
         assert_eq!(
@@ -1960,7 +1960,7 @@ mod tests {
         assert_eq!(
             message,
             &QualifiedPayablesMessage {
-                protected_qualified_payables: protect_payables_in_test(qualified_payables),
+                qualified_payables: protect_payables_in_test(qualified_payables),
                 consuming_wallet,
                 response_skeleton_opt: None,
             }
@@ -2351,7 +2351,7 @@ mod tests {
             .begin_scan_params(&begin_scan_params_arc)
             .begin_scan_result(Err(BeginScanError::NothingToProcess))
             .begin_scan_result(Ok(QualifiedPayablesMessage {
-                protected_qualified_payables: protect_payables_in_test(vec![make_payable_account(
+                qualified_payables: protect_payables_in_test(vec![make_payable_account(
                     123,
                 )]),
                 consuming_wallet: consuming_wallet.clone(),
@@ -2651,7 +2651,7 @@ mod tests {
         assert_eq!(
             message,
             &QualifiedPayablesMessage {
-                protected_qualified_payables: protect_payables_in_test(qualified_payables),
+                qualified_payables: protect_payables_in_test(qualified_payables),
                 consuming_wallet,
                 response_skeleton_opt: None,
             }

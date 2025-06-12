@@ -1,13 +1,12 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use std::fmt::Display;
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::BlockchainAgentWeb3;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
-    BlockchainInterfaceWeb3, HashAndAmount, TRANSFER_METHOD_ID,
-};
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::{BlockchainInterfaceWeb3, HashAndAmount, TRANSFER_METHOD_ID};
 use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
 use crate::blockchain::blockchain_interface::data_structures::{
     ProcessedPayableFallible, RpcPayableFailure,
@@ -20,13 +19,13 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
 use secp256k1secrets::SecretKey;
 use serde_json::Value;
-use std::iter::once;
 use std::time::SystemTime;
 use thousands::Separable;
 use web3::transports::{Batch, Http};
 use web3::types::{Bytes, SignedTransaction, TransactionParameters, U256};
 use web3::Error as Web3Error;
 use web3::Web3;
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{QualifiedPayablesRawPack, QualifiedPayablesRipePack};
 
 #[derive(Debug)]
 pub struct BlockchainAgentFutureResult {
@@ -85,35 +84,47 @@ pub fn merged_output_data(
 
 pub fn transmission_log(
     chain: Chain,
-    accounts: &[PayableAccount],
-    gas_price_in_wei: u128,
+    accounts: &QualifiedPayablesRipePack,
 ) -> String {
-    let chain_name = chain
-        .rec()
-        .literal_identifier
-        .chars()
-        .skip_while(|char| char != &'-')
-        .skip(1)
-        .collect::<String>();
-    let introduction = once(format!(
-        "\
-        Paying to creditors...\n\
-        Transactions in the batch:\n\
-        \n\
-        gas price:                                   {} wei\n\
-        chain:                                       {}\n\
-        \n\
-        [wallet address]                             [payment in wei]\n",
-        gas_price_in_wei, chain_name
-    ));
-    let body = accounts.iter().map(|account| {
-        format!(
-            "{}   {}\n",
-            account.wallet,
-            account.balance_wei.separate_with_commas()
-        )
-    });
-    introduction.chain(body).collect()
+    todo!()
+    // let chain_name = chain
+    //     .rec()
+    //     .literal_identifier
+    //     .chars()
+    //     .skip_while(|char| char != &'-')
+    //     .skip(1)
+    //     .collect::<String>();
+    // const PAYMENT_VALUE_MAX_LENGTH_INCLUDING_COMMAS: usize = 24;
+    // let introduction = once(format!(
+    //     "\
+    //     Paying to creditors...\n\
+    //     Transactions in the batch:\n\
+    //     \n\
+    //     chain:                                       {}\n\
+    //     \n\
+    //     {:wallet_address_length$}  {:<payment_length$}  {}\n",
+    //     chain_name,
+    //     "[wallet address]", 
+    //     "[payment wei]",
+    //     "[gas price wei]",
+    //     wallet_address_length = WALLET_ADDRESS_LENGTH,
+    //     payment_length = PAYMENT_VALUE_MAX_LENGTH_INCLUDING_COMMAS,
+    // ));
+    // let body = accounts.iter().map(|account| {
+    //     let gas_price_wei: &dyn Display = match gas_price_for_individual_txs_wei.get(&account.wallet.address()){
+    //         Some(value) => value,
+    //         None => &"NA"
+    //     };
+    //     format!(
+    //         "{:wallet_address_length$}  {:<payment_max_space_length$}  {}\n",
+    //         account.wallet,
+    //         account.balance_wei.separate_with_commas(),
+    //         gas_price_wei,
+    //         wallet_address_length = WALLET_ADDRESS_LENGTH,
+    //         payment_max_space_length = 24,
+    //     )
+    // });
+    // introduction.chain(body).collect()
 }
 
 pub fn sign_transaction_data(amount: u128, recipient_wallet: Wallet) -> [u8; 68] {
@@ -215,12 +226,12 @@ pub fn sign_and_append_multiple_payments(
     chain: Chain,
     web3_batch: &Web3<Batch<Http>>,
     consuming_wallet: Wallet,
-    gas_price_in_wei: u128,
     mut pending_nonce: U256,
-    accounts: &[PayableAccount],
+    accounts: &QualifiedPayablesRipePack,
 ) -> Vec<HashAndAmount> {
     let mut hash_and_amount_list = vec![];
-    accounts.iter().for_each(|payable| {
+    accounts.payables.iter().for_each(|payable_pack| {
+        let payable = &payable_pack.payable;
         debug!(
             logger,
             "Preparing payable future of {} wei to {} with nonce {}",
@@ -235,7 +246,7 @@ pub fn sign_and_append_multiple_payments(
             payable,
             consuming_wallet.clone(),
             pending_nonce,
-            gas_price_in_wei,
+            payable_pack.gas_price_minor,
         );
 
         pending_nonce = advance_used_nonce(pending_nonce);
@@ -250,19 +261,17 @@ pub fn send_payables_within_batch(
     chain: Chain,
     web3_batch: &Web3<Batch<Http>>,
     consuming_wallet: Wallet,
-    gas_price_in_wei: u128,
     pending_nonce: U256,
     new_fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
-    accounts: Vec<PayableAccount>,
+    accounts: QualifiedPayablesRipePack,
 ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError> + 'static>
 {
     debug!(
             logger,
-            "Common attributes of payables to be transacted: sender wallet: {}, contract: {:?}, chain_id: {}, gas_price: {}",
+            "Common attributes of payables to be transacted: sender wallet: {}, contract: {:?}, chain_id: {}",
             consuming_wallet,
             chain.rec().contract,
             chain.rec().num_chain_id,
-            gas_price_in_wei
         );
 
     let hashes_and_paid_amounts = sign_and_append_multiple_payments(
@@ -270,7 +279,6 @@ pub fn send_payables_within_batch(
         chain,
         web3_batch,
         consuming_wallet,
-        gas_price_in_wei,
         pending_nonce,
         &accounts,
     );
@@ -290,7 +298,7 @@ pub fn send_payables_within_batch(
     info!(
         logger,
         "{}",
-        transmission_log(chain, &accounts, gas_price_in_wei)
+        transmission_log(chain, &accounts)
     );
 
     Box::new(
@@ -302,7 +310,7 @@ pub fn send_payables_within_batch(
                 Ok(merged_output_data(
                     batch_response,
                     hashes_and_paid_amounts_ok,
-                    accounts,
+                    accounts.into(),
                 ))
             }),
     )
@@ -310,21 +318,25 @@ pub fn send_payables_within_batch(
 
 pub fn create_blockchain_agent_web3(
     gas_limit_const_part: u128,
+    qualified_payables: QualifiedPayablesRawPack,
     blockchain_agent_future_result: BlockchainAgentFutureResult,
     wallet: Wallet,
     chain: Chain,
-) -> Box<dyn BlockchainAgent> {
-    Box::new(BlockchainAgentWeb3::new(
+) -> (Box<dyn BlockchainAgent>, QualifiedPayablesRipePack) {
+    let cons_wallet_balances = ConsumingWalletBalances {
+        transaction_fee_balance_in_minor_units: blockchain_agent_future_result
+            .transaction_fee_balance,
+        masq_token_balance_in_minor_units: blockchain_agent_future_result.masq_token_balance,
+    };
+
+    BlockchainAgentWeb3::new(
         blockchain_agent_future_result.gas_price_wei.as_u128(),
+        qualified_payables,
         gas_limit_const_part,
         wallet,
-        ConsumingWalletBalances {
-            transaction_fee_balance_in_minor_units: blockchain_agent_future_result
-                .transaction_fee_balance,
-            masq_token_balance_in_minor_units: blockchain_agent_future_result.masq_token_balance,
-        },
+        cons_wallet_balances,
         chain,
-    ))
+    )
 }
 
 #[cfg(test)]
@@ -575,7 +587,7 @@ mod tests {
 
     fn execute_send_payables_test(
         test_name: &str,
-        accounts: Vec<PayableAccount>,
+        accounts: QualifiedPayablesRipePack,
         expected_result: Result<Vec<ProcessedPayableFallible>, PayableTransactionError>,
         port: u16,
     ) {
@@ -585,7 +597,6 @@ mod tests {
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
-        let gas_price = 1_000_000_000;
         let pending_nonce: U256 = 1.into();
         let web3_batch = Web3::new(Batch::new(transport));
         let (accountant, _, accountant_recording) = make_recorder();
@@ -601,7 +612,6 @@ mod tests {
             chain,
             &web3_batch,
             consuming_wallet.clone(),
-            gas_price,
             pending_nonce,
             new_fingerprints_recipient,
             accounts.clone(),
@@ -619,16 +629,15 @@ mod tests {
         assert!(timestamp_after >= ppfs_message.batch_wide_timestamp);
         let tlh = TestLogHandler::new();
         tlh.exists_log_containing(
-            &format!("DEBUG: {test_name}: Common attributes of payables to be transacted: sender wallet: {}, contract: {:?}, chain_id: {}, gas_price: {}",
+            &format!("DEBUG: {test_name}: Common attributes of payables to be transacted: sender wallet: {}, contract: {:?}, chain_id: {}",
                      consuming_wallet,
                      chain.rec().contract,
                      chain.rec().num_chain_id,
-                     gas_price
             )
         );
         tlh.exists_log_containing(&format!(
             "INFO: {test_name}: {}",
-            transmission_log(chain, &accounts, gas_price)
+            transmission_log(chain, &accounts)
         ));
         assert_eq!(result, expected_result);
     }

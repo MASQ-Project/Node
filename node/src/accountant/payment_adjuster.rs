@@ -86,7 +86,7 @@ mod tests {
         payable.balance_wei = 100_000_000;
         let agent = BlockchainAgentMock::default();
         let setup_msg = BlockchainAgentWithContextMessage {
-            protected_qualified_payables: protect_payables_in_test(vec![payable]),
+            qualified_payables: protect_payables_in_test(vec![payable]),
             agent: Box::new(agent),
             response_skeleton_opt: None,
         };

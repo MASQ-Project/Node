@@ -4,6 +4,7 @@ pub mod lower_level_interface_web3;
 mod utils;
 
 use std::cmp::PartialEq;
+use std::collections::HashMap;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainError, PayableTransactionError};
 use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, ProcessedPayableFallible};
@@ -22,9 +23,14 @@ use ethereum_types::U64;
 use web3::transports::{EventLoopHandle, Http};
 use web3::types::{Address, Log, H256, U256, FilterBuilder, TransactionReceipt, BlockNumber};
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{QualifiedPayablesRawPack, QualifiedPayablesRipePack};
 use crate::blockchain::blockchain_bridge::{BlockMarker, BlockScanRange, PendingPayableFingerprintSeeds};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{LowBlockchainIntWeb3, TransactionReceiptResult, TxReceipt, TxStatus};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::utils::{create_blockchain_agent_web3, send_payables_within_batch, BlockchainAgentFutureResult};
+
+// TODO We probably should begin to attach these constants more tightly to the interface, so that we aren't baffled 
+// which constant belongs to which interface. I suggest to declare them inside the inherent impl block. They will then 
+// need to be preceded by the class name if you want to use them. That could be the distinction we desire, though.    
 
 const CONTRACT_ABI: &str = indoc!(
     r#"[{
@@ -156,10 +162,11 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         )
     }
 
-    fn build_blockchain_agent(
+    fn introduce_blockchain_agent(
         &self,
         consuming_wallet: Wallet,
-    ) -> Box<dyn Future<Item = Box<dyn BlockchainAgent>, Error = BlockchainAgentBuildError>> {
+        qualified_payables: QualifiedPayablesRawPack,
+    ) -> Box<dyn Future<Item = (Box<dyn BlockchainAgent>, QualifiedPayablesRipePack), Error = BlockchainAgentBuildError>> {
         let wallet_address = consuming_wallet.address();
         let gas_limit_const_part = self.gas_limit_const_part;
         // TODO: Would it be better to wrap these 3 calls into a single batch call?
@@ -194,6 +201,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                                         };
                                     Ok(create_blockchain_agent_web3(
                                         gas_limit_const_part,
+                                        qualified_payables,
                                         blockchain_agent_future_result,
                                         consuming_wallet,
                                         chain,
@@ -246,7 +254,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         logger: Logger,
         agent: Box<dyn BlockchainAgent>,
         fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
-        affordable_accounts: Vec<PayableAccount>,
+        affordable_accounts: QualifiedPayablesRipePack,
     ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>
     {
         let consuming_wallet = agent.consuming_wallet().clone();
@@ -254,7 +262,6 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         let get_transaction_id = self
             .lower_interface()
             .get_transaction_id(consuming_wallet.address());
-        let gas_price_wei = agent.agreed_fee_per_computation_unit();
         let chain = agent.get_chain();
 
         Box::new(
@@ -266,7 +273,6 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                         chain,
                         &web3_batch,
                         consuming_wallet,
-                        gas_price_wei,
                         pending_nonce,
                         fingerprints_recipient,
                         affordable_accounts,
@@ -441,9 +447,7 @@ mod tests {
         BlockchainAgentBuildError, BlockchainError, BlockchainInterface,
         RetrievedBlockchainTransactions,
     };
-    use crate::blockchain::test_utils::{
-        all_chains, make_blockchain_interface_web3, ReceiptResponseBuilder,
-    };
+    use crate::blockchain::test_utils::{all_chains, make_blockchain_interface_web3, ReceiptResponseBuilder};
     use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_paying_wallet;
@@ -831,7 +835,7 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_interface_web3_can_build_blockchain_agent() {
+    fn blockchain_interface_web3_can_introduce_blockchain_agent() {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             // gas_price
@@ -849,13 +853,13 @@ mod tests {
         let subject = make_blockchain_interface_web3(port);
 
         let result = subject
-            .build_blockchain_agent(wallet.clone())
+            .introduce_blockchain_agent(wallet.clone(), gas_price_hashmap_inputs)
             .wait()
             .unwrap();
 
         let expected_transaction_fee_balance = U256::from(65_520);
         let expected_masq_balance = U256::from(65_535);
-        let expected_gas_price_wei = 1_000_000_000;
+        let expected_gas_price_wei = (1_000_000_000 * (100 + chain.rec().gas_price_recommended_margin_percents as u128)) / 100;
         assert_eq!(result.consuming_wallet(), &wallet);
         assert_eq!(
             result.consuming_wallet_balances(),
@@ -865,8 +869,8 @@ mod tests {
             }
         );
         assert_eq!(
-            result.agreed_fee_per_computation_unit(),
-            expected_gas_price_wei
+            result.gas_price_for_individual_txs(),
+            hashmap!()
         );
         let expected_fee_estimation = (3
             * (BlockchainInterfaceWeb3::web3_gas_limit_const_part(chain)
@@ -886,7 +890,7 @@ mod tests {
     {
         let wallet = make_wallet("bcd");
         let subject = make_blockchain_interface_web3(port);
-        let result = subject.build_blockchain_agent(wallet.clone()).wait();
+        let result = subject.introduce_blockchain_agent(wallet.clone(), gas_price_hashmap_inputs).wait();
         let err = match result {
             Err(e) => e,
             _ => panic!("we expected Err() but got Ok()"),
@@ -900,9 +904,10 @@ mod tests {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port).start();
         let wallet = make_wallet("abc");
+        let gas_price_hashmap_inputs = make_populated_new_payable_gas_price_hashmap_inputs(1);
         let subject = make_blockchain_interface_web3(port);
 
-        let err = subject.build_blockchain_agent(wallet).wait().err().unwrap();
+        let err = subject.introduce_blockchain_agent(wallet, gas_price_hashmap_inputs).wait().err().unwrap();
 
         let expected_err = BlockchainAgentBuildError::GasPrice(QueryFailed(
             "Transport error: Error(IncompleteMessage)".to_string(),

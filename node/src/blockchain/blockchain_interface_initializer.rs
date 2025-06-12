@@ -50,9 +50,7 @@ mod tests {
     use std::net::Ipv4Addr;
     use web3::transports::Http;
 
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
-        BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
-    };
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::{BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL};
     use crate::blockchain::blockchain_interface::BlockchainInterface;
     use crate::test_utils::make_wallet;
     use masq_lib::constants::DEFAULT_CHAIN;
@@ -77,16 +75,18 @@ mod tests {
         let (event_loop_handle, transport) =
             Http::with_max_parallel(server_url, REQUESTS_IN_PARALLEL).unwrap();
         let subject = BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain);
+        let payable_wallet = make_wallet("payable"); 
 
         let blockchain_agent = subject
-            .build_blockchain_agent(wallet.clone())
+            .introduce_blockchain_agent(wallet.clone(), gas_price_inputs)
             .wait()
             .unwrap();
 
         assert_eq!(blockchain_agent.consuming_wallet(), &wallet);
+        let expected_gas_price = (1_000_000_000_u128 * (100 + chain.rec().gas_price_recommended_margin_percents as u128))/ 100;
         assert_eq!(
-            blockchain_agent.agreed_fee_per_computation_unit(),
-            1_000_000_000
+            blockchain_agent.gas_price_for_individual_txs(),
+            hashmap!(payable_wallet.address() => expected_gas_price)
         );
     }
 

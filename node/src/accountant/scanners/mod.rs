@@ -51,7 +51,7 @@ use time::OffsetDateTime;
 use web3::types::H256;
 use masq_lib::type_obfuscation::Obfuscated;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::{PreparedAdjustment, MultistagePayableScanner, SolvencySensitivePaymentInstructor};
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage};
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage, QualifiedPayablesRawPack};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionReceiptResult, TxStatus};
 use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
 use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
@@ -222,9 +222,9 @@ impl Scanner<QualifiedPayablesMessage, SentPayables> for PayableScanner {
                     "Chose {} qualified debts to pay",
                     qualified_payables.len()
                 );
-                let protected_payables = self.protect_payables(qualified_payables);
+                let qualified_payables = QualifiedPayablesRawPack::from(qualified_payables);
                 let outgoing_msg = QualifiedPayablesMessage::new(
-                    protected_payables,
+                    qualified_payables,
                     consuming_wallet,
                     response_skeleton_opt,
                 );
@@ -271,10 +271,9 @@ impl SolvencySensitivePaymentInstructor for PayableScanner {
             .search_for_indispensable_adjustment(&msg, logger)
         {
             Ok(None) => {
-                let protected = msg.protected_qualified_payables;
-                let unprotected = self.expose_payables(protected);
+                let payables = msg.qualified_payables;
                 Ok(Either::Left(OutboundPaymentsInstructions::new(
-                    unprotected,
+                    payables,
                     msg.agent,
                     msg.response_skeleton_opt,
                 )))
@@ -1253,9 +1252,7 @@ mod tests {
         assert_eq!(
             result,
             Ok(QualifiedPayablesMessage {
-                protected_qualified_payables: protect_payables_in_test(
-                    qualified_payable_accounts.clone()
-                ),
+                qualified_payables: todo!(),
                 consuming_wallet,
                 response_skeleton_opt: None,
             })

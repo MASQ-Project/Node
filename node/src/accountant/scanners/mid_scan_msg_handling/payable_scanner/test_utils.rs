@@ -3,16 +3,18 @@
 #![cfg(test)]
 
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
-use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
+use crate::sub_lib::blockchain_bridge::{ConsumingWalletBalances, QualifiedPayableGasPriceSetup};
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use crate::{arbitrary_id_stamp_in_trait_impl, set_arbitrary_id_stamp_in_mock_impl};
 use masq_lib::blockchains::chains::Chain;
 use std::cell::RefCell;
+use std::collections::HashMap;
+use web3::types::Address;
 
 pub struct BlockchainAgentMock {
     consuming_wallet_balances_results: RefCell<Vec<ConsumingWalletBalances>>,
-    agreed_fee_per_computation_unit_results: RefCell<Vec<u128>>,
+    gas_price_results: RefCell<Vec<u128>>,
     consuming_wallet_result_opt: Option<Wallet>,
     arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
     get_chain_result_opt: Option<Chain>,
@@ -22,7 +24,7 @@ impl Default for BlockchainAgentMock {
     fn default() -> Self {
         BlockchainAgentMock {
             consuming_wallet_balances_results: RefCell::new(vec![]),
-            agreed_fee_per_computation_unit_results: RefCell::new(vec![]),
+            gas_price_results: RefCell::new(vec![]),
             consuming_wallet_result_opt: None,
             arbitrary_id_stamp_opt: None,
             get_chain_result_opt: None,
@@ -31,7 +33,7 @@ impl Default for BlockchainAgentMock {
 }
 
 impl BlockchainAgent for BlockchainAgentMock {
-    fn estimated_transaction_fee_total(&self, _number_of_transactions: usize) -> u128 {
+    fn estimated_transaction_fee_total(&self) -> u128 {
         todo!("to be implemented by GH-711")
     }
 
@@ -39,11 +41,14 @@ impl BlockchainAgent for BlockchainAgentMock {
         todo!("to be implemented by GH-711")
     }
 
-    fn agreed_fee_per_computation_unit(&self) -> u128 {
-        self.agreed_fee_per_computation_unit_results
-            .borrow_mut()
-            .remove(0)
-    }
+    // fn gas_price_for_individual_txs(&self) -> QualifiedPayableGasPriceSetup {
+    //     todo!()
+    //     //     (&self) -> u128 {
+    //     //     self.gas_price_results
+    //     //     .borrow_mut()
+    //     //     .remove(0)
+    //     // }
+    // }
 
     fn consuming_wallet(&self) -> &Wallet {
         self.consuming_wallet_result_opt.as_ref().unwrap()
@@ -68,8 +73,8 @@ impl BlockchainAgentMock {
         self
     }
 
-    pub fn agreed_fee_per_computation_unit_result(self, result: u128) -> Self {
-        self.agreed_fee_per_computation_unit_results
+    pub fn gas_price_result(self, result: u128) -> Self {
+        self.gas_price_results
             .borrow_mut()
             .push(result);
         self

@@ -1,13 +1,16 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use std::collections::HashMap;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 
-use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
+use crate::sub_lib::blockchain_bridge::{ConsumingWalletBalances, QualifiedPayableGasPriceSetup};
 use crate::sub_lib::wallet::Wallet;
 use ethereum_types::U256;
+use web3::types::Address;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{QualifiedPayableWithGasPrice, QualifiedPayablesRawPack, QualifiedPayablesRipePack};
 
 #[derive(Clone)]
 pub struct BlockchainAgentNull {
@@ -16,7 +19,7 @@ pub struct BlockchainAgentNull {
 }
 
 impl BlockchainAgent for BlockchainAgentNull {
-    fn estimated_transaction_fee_total(&self, _number_of_transactions: usize) -> u128 {
+    fn estimated_transaction_fee_total(&self) -> u128 {
         self.log_function_call("estimated_transaction_fee_total()");
         0
     }
@@ -29,10 +32,13 @@ impl BlockchainAgent for BlockchainAgentNull {
         }
     }
 
-    fn agreed_fee_per_computation_unit(&self) -> u128 {
-        self.log_function_call("agreed_fee_per_computation_unit()");
-        0
-    }
+    // fn finalize_gas_price_per_payable(&self, qualified_payables: QualifiedPayablesRawPack) -> QualifiedPayablesRipePack {
+    //     self.log_function_call("finalize_gas_price_per_payable()");
+    //     let payables = qualified_payables.payables.into_iter().map(|preconfiguration| {
+    //         QualifiedPayableWithGasPrice{ payable: preconfiguration.payable, gas_price_minor: 0 }
+    //     }).collect();
+    //     QualifiedPayablesRipePack{ payables }
+    // }
 
     fn consuming_wallet(&self) -> &Wallet {
         self.log_function_call("consuming_wallet()");
@@ -77,10 +83,11 @@ impl Default for BlockchainAgentNull {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_null::BlockchainAgentNull;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 
-    use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
+    use crate::sub_lib::blockchain_bridge::{ConsumingWalletBalances, QualifiedPayableGasPriceSetup};
     use crate::sub_lib::wallet::Wallet;
 
     use masq_lib::logger::Logger;
@@ -129,7 +136,7 @@ mod tests {
         let mut subject = BlockchainAgentNull::new();
         subject.logger = Logger::new(test_name);
 
-        let result = subject.estimated_transaction_fee_total(4);
+        let result = subject.estimated_transaction_fee_total();
 
         assert_eq!(result, 0);
         assert_error_log(test_name, "estimated_transaction_fee_total");
@@ -152,19 +159,6 @@ mod tests {
             }
         );
         assert_error_log(test_name, "consuming_wallet_balances")
-    }
-
-    #[test]
-    fn null_agent_agreed_fee_per_computation_unit() {
-        init_test_logging();
-        let test_name = "null_agent_agreed_fee_per_computation_unit";
-        let mut subject = BlockchainAgentNull::new();
-        subject.logger = Logger::new(test_name);
-
-        let result = subject.agreed_fee_per_computation_unit();
-
-        assert_eq!(result, 0);
-        assert_error_log(test_name, "agreed_fee_per_computation_unit")
     }
 
     #[test]

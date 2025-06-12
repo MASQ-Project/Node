@@ -1,10 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use std::collections::HashMap;
+use web3::types::Address;
 use crate::arbitrary_id_stamp_in_trait;
-use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
+use crate::sub_lib::blockchain_bridge::{ConsumingWalletBalances, QualifiedPayableGasPriceSetup};
 use crate::sub_lib::wallet::Wallet;
 use masq_lib::blockchains::chains::Chain;
-
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{QualifiedPayablesRawPack, QualifiedPayablesRipePack};
 // Table of chains by
 //
 // a) adoption of the fee market (variations on "gas price")
@@ -22,11 +24,9 @@ use masq_lib::blockchains::chains::Chain;
 //* defaulted limit
 
 pub trait BlockchainAgent: Send {
-    fn estimated_transaction_fee_total(&self, number_of_transactions: usize) -> u128;
+    fn estimated_transaction_fee_total(&self) -> u128;
     fn consuming_wallet_balances(&self) -> ConsumingWalletBalances;
-    fn agreed_fee_per_computation_unit(&self) -> u128;
     fn consuming_wallet(&self) -> &Wallet;
-
     fn get_chain(&self) -> Chain;
 
     #[cfg(test)]
