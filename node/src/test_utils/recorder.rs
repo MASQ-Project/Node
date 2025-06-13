@@ -818,7 +818,7 @@ mod tests {
     }
 
     #[test]
-    fn diff_counter_msgs_with_diff_id_methods_can_be_used() {
+    fn counter_msgs_with_diff_id_methods_are_used_together_and_one_was_not_triggered() {
         let (respondent, _, respondent_recording_arc) = make_recorder();
         let respondent = respondent.system_stop_conditions(match_lazily_every_type_id!(
             ScanForReceivables,
@@ -826,12 +826,15 @@ mod tests {
         ));
         let respondent_addr = respondent.start();
         // Case 1
+        // This msg will trigger as the recorder will detect the arrival of StartMessage (no more
+        // requirement).
         let (trigger_message_1, cm_setup_1) = {
             let trigger_msg = StartMessage {};
             let counter_msg = ScanForReceivables {
                 response_skeleton_opt: None,
             };
-            // Also testing this convenient macro if it works fine
+            // Taking an opportunity to test a setup via the macro for the simplest identification,
+            // by the TypeId.
             (
                 trigger_msg,
                 setup_for_counter_msg_triggered_via_type_id!(
@@ -842,6 +845,8 @@ mod tests {
             )
         };
         // Case two
+        // This msg will not trigger as it is declared with a wrong TypeId of the supposed trigger
+        // msg. The supplied ID does not even belong to an Actor msg type.
         let cm_setup_2 = {
             let counter_msg_strayed = StartMessage {};
             let screwed_id = TypeId::of::<BlockchainBridge>();
@@ -856,6 +861,9 @@ mod tests {
             )
         };
         // Case three
+        // This msg will not trigger as it is declared to have to be matched entirely (The message
+        // type, plus the data of the message). The expected msg and the actual sent msg bear
+        // different IP addresses.
         let (trigger_msg_3_unmatching, cm_setup_3) = {
             let trigger_msg = NewPublicIp {
                 new_ip: IpAddr::V4(Ipv4Addr::new(7, 7, 7, 7)),
@@ -887,6 +895,7 @@ mod tests {
             )
         };
         // Case four
+        // This msg will trigger as the performed msg is an exact match of the expected msg.
         let (trigger_msg_4_matching, cm_setup_4, counter_msg_4) = {
             let trigger_msg = NewPublicIp {
                 new_ip: IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)),
@@ -920,7 +929,9 @@ mod tests {
         let (subject, _, subject_recording_arc) = make_recorder();
         let subject_addr = subject.start();
         // Supplying messages deliberately in a tangled manner to express that the mechanism is
-        // robust enough to compensate for it
+        // robust enough to compensate for it.
+        // This works because we don't supply overlapping setups, such as that could apply to
+        // a single arriving msg. That could
         subject_addr
             .try_send(SetUpCounterMsgs {
                 setups: vec![cm_setup_3, cm_setup_1, cm_setup_2, cm_setup_4],
@@ -936,7 +947,7 @@ mod tests {
             .unwrap();
 
         system.run();
-        // Actual counter-messages that flew over in this test
+        // Actual counter-messages that flew in this test
         let respondent_recording = respondent_recording_arc.lock().unwrap();
         let _first_counter_msg_recorded = respondent_recording.get_record::<ScanForReceivables>(0);
         let second_counter_msg_recorded = respondent_recording.get_record::<NodeToUiMessage>(1);
@@ -953,8 +964,31 @@ mod tests {
     }
 
     #[test]
-    fn counter_msgs_of_same_type_are_checked_sequentially_and_triggered_by_first_matching_id_method(
-    ) {
+    fn counter_msgs_evaluate_lazily_so_the_msgs_with_the_same_triggers_are_eliminated_sequentially()
+    {
+        // This test demonstrates the need for caution in setups where multiple messages are sent
+        // at different times and should be responded to by different counter-messages. However,
+        // the trigger methods of these setups also apply to each other. Which setup gets
+        // triggered depends purely on the order used to supply them to the recorder
+        // in SetUpCounterMsgs.
+
+        // Notice that three of the messages share the same data type, with one additional message
+        // serving a special purpose in assertions. Two of the three use only TypeId for
+        // identification. This already requires greater caution since you probably need the three
+        // messages to be dispatched in a specific sequence. However, this wasn't considered
+        // properly and, as you can see in the test, the trigger messages aren't sent in the same
+        // order as the counter-message setups were supplied.
+
+        // This results in an inevitable mismatch. The first counter-message that was sent should
+        // have belonged to the second trigger message, but was triggered by the third trigger
+        // message (which actually introduces the test). Similarly, the second trigger message
+        // activates a message rightfully meant for the first trigger message. To complete
+        // the picture, even the first trigger message is matched with the third counter-message.
+
+        // This shows how important it is to avoid ambiguous setups. When operating with multiple
+        // calls of the same typed message as triggers, it is highly recommended not to use
+        // MsgIdentification::ByTypeId but to use more specific, unmistakable settings instead:
+        // MsgIdentification::ByMatch or MsgIdentification::ByPredicate.
         let (respondent, _, respondent_recording_arc) = make_recorder();
         let respondent = respondent.system_stop_conditions(match_lazily_every_type_id!(
             ConfigChangeMsg,
@@ -980,6 +1014,8 @@ mod tests {
             };
             (
                 trigger_msg,
+                // Taking an opportunity to test a setup via the macro allowing more specific
+                // identification methods.
                 setup_for_counter_msg_triggered_via_specific_msg_id_method!(
                     CrashNotification,
                     id_method,
@@ -1029,51 +1065,75 @@ mod tests {
                 ),
             )
         };
+        // Case four
+        let (trigger_msg_4, cm_setup_4) = {
+            let trigger_msg = StartMessage {};
+            let counter_msg = ScanForReceivables {
+                response_skeleton_opt: None,
+            };
+            (
+                trigger_msg,
+                setup_for_counter_msg_triggered_via_type_id!(
+                    StartMessage,
+                    counter_msg,
+                    &respondent_addr
+                ),
+            )
+        };
         let system = System::new("test");
         let (subject, _, subject_recording_arc) = make_recorder();
         let subject_addr = subject.start();
         // Adding messages in standard order
         subject_addr
             .try_send(SetUpCounterMsgs {
-                setups: vec![cm_setup_1, cm_setup_2, cm_setup_3],
+                setups: vec![cm_setup_1, cm_setup_2, cm_setup_3, cm_setup_4],
             })
             .unwrap();
 
-        // Trickier scenarios picked on purpose
+        // Now the fun begins, the trigger messages are shuffled
         subject_addr.try_send(trigger_msg_3.clone()).unwrap();
+        // The fourth message demonstrates that the previous trigger didn't activate two messages
+        // at once, even though this trigger actually matches two different setups. This shows
+        // that each trigger can only be matched with one setup at a time, consuming it. If you
+        // want to trigger multiple messages in response, you must configure that setup with
+        // multiple counter-messages (a one-to-many scenario).
+        subject_addr.try_send(trigger_msg_4.clone()).unwrap();
         subject_addr.try_send(trigger_msg_2.clone()).unwrap();
         subject_addr.try_send(trigger_msg_1.clone()).unwrap();
 
         system.run();
-        // Actual counter messages that flew over in this test
+        // Actual counter-messages that flew in this test
         let respondent_recording = respondent_recording_arc.lock().unwrap();
         let first_counter_msg_recorded = respondent_recording.get_record::<ConfigChangeMsg>(0);
         assert_eq!(
             first_counter_msg_recorded.change,
             ConfigChange::UpdatePassword("betterPassword".to_string())
         );
-        let second_counter_msg_recorded = respondent_recording.get_record::<ConfigChangeMsg>(1);
-        assert_eq!(
-            second_counter_msg_recorded.change,
-            ConfigChange::UpdateMinHops(Hops::SixHops)
-        );
+        let _ = respondent_recording.get_record::<ScanForReceivables>(1);
         let third_counter_msg_recorded = respondent_recording.get_record::<ConfigChangeMsg>(2);
         assert_eq!(
             third_counter_msg_recorded.change,
+            ConfigChange::UpdateMinHops(Hops::SixHops)
+        );
+        let fourth_counter_msg_recorded = respondent_recording.get_record::<ConfigChangeMsg>(3);
+        assert_eq!(
+            fourth_counter_msg_recorded.change,
             ConfigChange::UpdateWallets(WalletPair {
                 consuming_wallet: make_wallet("abc"),
                 earning_wallet: make_wallet("def")
             })
         );
-        assert_eq!(respondent_recording.len(), 3);
+        assert_eq!(respondent_recording.len(), 4);
         // Recorded trigger messages
         let subject_recording = subject_recording_arc.lock().unwrap();
         let first_recorded_trigger_msg = subject_recording.get_record::<CrashNotification>(0);
         assert_eq!(first_recorded_trigger_msg, &trigger_msg_3);
-        let second_recorded_trigger_msg = subject_recording.get_record::<CrashNotification>(1);
-        assert_eq!(second_recorded_trigger_msg, &trigger_msg_2);
+        let second_recorded_trigger_msg = subject_recording.get_record::<StartMessage>(1);
+        assert_eq!(second_recorded_trigger_msg, &trigger_msg_4);
         let third_recorded_trigger_msg = subject_recording.get_record::<CrashNotification>(2);
-        assert_eq!(third_recorded_trigger_msg, &trigger_msg_1);
-        assert_eq!(subject_recording.len(), 3)
+        assert_eq!(third_recorded_trigger_msg, &trigger_msg_2);
+        let fourth_recorded_trigger_msg = subject_recording.get_record::<CrashNotification>(3);
+        assert_eq!(fourth_recorded_trigger_msg, &trigger_msg_1);
+        assert_eq!(subject_recording.len(), 4)
     }
 }

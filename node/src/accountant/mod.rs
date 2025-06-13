@@ -2860,11 +2860,13 @@ mod tests {
             receivable_scanner,
             payable_scanner,
         );
+        let new_payable_expected_computed_interval = Duration::from_secs(3600);
+        // Important that this is made short because the test relies on it with the system stop.
+        let receivable_scan_interval = Duration::from_millis(50);
         subject.scan_schedulers.pending_payable.handle = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_and_notify_later_params.pending_payables_notify_later),
         );
-        let new_payable_expected_computed_interval = Duration::from_secs(3600);
         subject.scan_schedulers.payable.new_payable_notify_later = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_and_notify_later_params.new_payables_notify_later),
@@ -2881,8 +2883,6 @@ mod tests {
             .notify_later_params(&notify_and_notify_later_params.receivables_notify_later)
             .stop_system_on_count_received(1);
         subject.scan_schedulers.receivable.handle = Box::new(receivable_notify_later_handle_mock);
-        // Important that this is made short because the test relies on it with the system stop.
-        let receivable_scan_interval = Duration::from_millis(50);
         subject.scan_schedulers.receivable.interval = receivable_scan_interval;
         let dyn_interval_computer = NewPayableScanDynIntervalComputerMock::default()
             .compute_interval_params(&compute_interval_params_arc)
@@ -2918,13 +2918,14 @@ mod tests {
             receivable_scanner,
             payable_scanner,
         );
+        let pending_payable_scan_interval = Duration::from_secs(3600);
+        let receivable_scan_interval = Duration::from_secs(3600);
         let pending_payable_notify_later_handle_mock = NotifyLaterHandleMock::default()
             .notify_later_params(&notify_and_notify_later_params.pending_payables_notify_later)
             // This should stop the system
             .stop_system_on_count_received(1);
         subject.scan_schedulers.pending_payable.handle =
             Box::new(pending_payable_notify_later_handle_mock);
-        let pending_payable_scan_interval = Duration::from_secs(3600);
         subject.scan_schedulers.pending_payable.interval = pending_payable_scan_interval;
         subject.scan_schedulers.payable.new_payable_notify_later = Box::new(
             NotifyLaterHandleMock::default()
@@ -2941,7 +2942,6 @@ mod tests {
         );
         let receivable_notify_later_handle_mock = NotifyLaterHandleMock::default()
             .notify_later_params(&notify_and_notify_later_params.receivables_notify_later);
-        let receivable_scan_interval = Duration::from_secs(3600);
         subject.scan_schedulers.receivable.interval = receivable_scan_interval;
         subject.scan_schedulers.receivable.handle = Box::new(receivable_notify_later_handle_mock);
         (
