@@ -168,10 +168,11 @@ mod tests {
         CommandFactoryMock, CommandProcessorMock, TerminalActiveMock, TerminalPassiveMock,
     };
     use crossbeam_channel::bounded;
-    use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, FakeStreamHolder};
+    use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::{Duration, Instant};
+    use test_utilities::byte_array_reader_writer::ByteArrayWriter;
 
     #[test]
     fn interactive_mode_works_for_unrecognized_command() {
