@@ -224,8 +224,9 @@ impl Display for ScanIntervals {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{}|{}",
+            "{}|{}|{}",
             self.payable_scan_interval.as_secs(),
+            self.pending_payable_scan_interval.as_secs(),
             self.receivable_scan_interval.as_secs()
         )
     }
@@ -399,8 +400,8 @@ mod tests {
         assert_eq!(
             scan_interval,
             &[
-                ("pending_payable_scan_interval", U64),
                 ("payable_scan_interval", U64),
+                ("pending_payable_scan_interval", U64),
                 ("receivable_scan_interval", U64),
             ]
         );

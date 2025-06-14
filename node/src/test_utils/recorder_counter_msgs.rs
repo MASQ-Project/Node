@@ -9,6 +9,27 @@ use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
+// Counter-messages are a powerful tool that allows you to actively simulate communication within
+// a system. They enable sending either a single message or multiple messages in response to
+// a specific trigger, which is just another Actor message arriving at the Recorder.
+// By trigger, we mean the moment when an incoming message is tested sequentially against collected
+// identification methods and matches. Each counter-message must have its ID method attached when 
+// it is being prepared for storage in the Recorder. This bundle is called a setup. Each setup has 
+// one ID method but can contain multiple counter-messages that are all sent when triggered.
+
+// Counter-messages can be independently customized and targeted at different actors by
+// providing their addresses, supporting complex interaction patterns. This design facilitates
+// sophisticated testing scenarios by mimicking real communication flows between multiple Actors.
+// The actual preparation of the Recorder needs to be carried out somewhat specifically during the
+// late stage of configuring the test, when all participating Actors are already started and their
+// addresses are known. The setup for counter-messages must be registered with the appropriate
+// Recorder using a specially designated Actor message SetUpCounterMsgs.
+
+// If a trigger message matches multiple counter-message setups, the triggered setup depends 
+// on the order in which setups are provided. Consider using MsgIdentification::ByMatch 
+// or MsgIdentification::ByPredicate instead of MsgIdentification::ByTypeId to avoid confusion 
+// about setup ordering.
+
 pub trait CounterMsgGear: Send {
     fn try_send(&self);
 }
@@ -46,64 +67,72 @@ where
     }
 }
 
-pub struct SingleCounterMsgSetup {
+pub struct SingleTypeCounterMsgSetup {
     // Leave them private
-    trigger_msg_type_id: TypeId,
-    condition: MsgIdentification,
-    // Multiple messages sent off on reaction are allowed
-    // (Imagine a message handler whose execution goes about more than just one msg dispatch)
+    trigger_msg_type_id: TriggerMsgTypeId,
+    trigger_msg_id_method: MsgIdentification,
+    // Responding by multiple outbound messages to a single incoming (trigger) message is supported.
+    // (Imitates a message handler whose execution implies a couple of message dispatches)
     msg_gears: Vec<Box<dyn CounterMsgGear>>,
 }
 
-impl SingleCounterMsgSetup {
+impl SingleTypeCounterMsgSetup {
     pub fn new(
-        trigger_msg_type_id: TypeId,
+        trigger_msg_type_id: TriggerMsgTypeId,
         trigger_msg_id_method: MsgIdentification,
-        counter_messages: Vec<Box<dyn CounterMsgGear>>,
+        msg_gears: Vec<Box<dyn CounterMsgGear>>,
     ) -> Self {
         Self {
             trigger_msg_type_id,
-            condition: trigger_msg_id_method,
-            msg_gears: counter_messages,
+            trigger_msg_id_method,
+            msg_gears,
         }
     }
 }
 
+pub type TriggerMsgTypeId = TypeId;
+
 #[derive(Default)]
 pub struct CounterMessages {
-    msgs: HashMap<TypeId, Vec<SingleCounterMsgSetup>>,
+    msgs: HashMap<TriggerMsgTypeId, Vec<SingleTypeCounterMsgSetup>>,
 }
 
 impl CounterMessages {
-    pub fn search_for_msg_setup<Msg>(&mut self, msg: &Msg) -> Option<Vec<Box<dyn CounterMsgGear>>>
+    pub fn search_for_msg_gear<Msg>(
+        &mut self,
+        trigger_msg: &Msg,
+    ) -> Option<Vec<Box<dyn CounterMsgGear>>>
     where
         Msg: ForcedMatchable<Msg> + 'static,
     {
-        let type_id = msg.correct_msg_type_id();
+        let type_id = trigger_msg.trigger_msg_type_id();
         if let Some(msgs_vec) = self.msgs.get_mut(&type_id) {
             msgs_vec
                 .iter_mut()
-                .position(|cm_setup| cm_setup.condition.resolve_condition(msg))
-                .map(|idx| {
-                    let matching_counter_msg = msgs_vec.remove(idx);
-                    matching_counter_msg.msg_gears
+                .position(|cm_setup| {
+                    cm_setup
+                        .trigger_msg_id_method
+                        .resolve_condition(trigger_msg)
                 })
+                .map(|idx| msgs_vec.remove(idx).msg_gears)
         } else {
             None
         }
     }
 
-    pub fn add_msg(&mut self, counter_msg_setup: SingleCounterMsgSetup) {
+    pub fn add_msg(&mut self, counter_msg_setup: SingleTypeCounterMsgSetup) {
         let type_id = counter_msg_setup.trigger_msg_type_id;
         match self.msgs.entry(type_id) {
-            Entry::Occupied(mut existing) => existing.get_mut().push(counter_msg_setup),
-            Entry::Vacant(vacant) => {
-                vacant.insert(vec![counter_msg_setup]);
+            Entry::Occupied(mut existing_vec) => existing_vec.get_mut().push(counter_msg_setup),
+            Entry::Vacant(vacancy) => {
+                vacancy.insert(vec![counter_msg_setup]);
             }
         }
     }
 }
 
+// Note that you're not limited to triggering only one message at a time, but you can supply more
+// messages to this macro, all triggered by the same type id.
 #[macro_export]
 macro_rules! setup_for_counter_msg_triggered_via_type_id{
     ($trigger_msg_type: ty, $($owned_counter_msg: expr, $respondent_actor_addr_ref: expr),+) => {
@@ -133,7 +162,7 @@ macro_rules! setup_for_counter_msg_triggered_via_specific_msg_id_method{
                 )),+
             ];
 
-            SingleCounterMsgSetup::new(
+            SingleTypeCounterMsgSetup::new(
                 TypeId::of::<$trigger_msg_type>(),
                 $msg_id_method,
                 msg_gears
