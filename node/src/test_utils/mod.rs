@@ -12,6 +12,7 @@ pub mod logfile_name_guard;
 pub mod neighborhood_test_utils;
 pub mod persistent_configuration_mock;
 pub mod recorder;
+pub mod recorder_counter_msgs;
 pub mod recorder_stop_conditions;
 pub mod stream_connector_mock;
 pub mod tcp_wrapper_mocks;
@@ -539,7 +540,7 @@ pub mod unshared_test_utils {
     use crate::test_utils::neighborhood_test_utils::MIN_HOPS_FOR_TEST;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_recorder, Recorder, Recording};
-    use crate::test_utils::recorder_stop_conditions::{StopCondition, StopConditions};
+    use crate::test_utils::recorder_stop_conditions::{MsgIdentification, StopConditions};
     use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
     use actix::{Actor, Addr, AsyncContext, Context, Handler, Recipient, System};
     use actix::{Message, SpawnHandle};
@@ -682,7 +683,7 @@ pub mod unshared_test_utils {
     pub fn make_bc_with_defaults() -> BootstrapperConfig {
         let mut config = BootstrapperConfig::new();
         config.scan_intervals_opt = Some(ScanIntervals::default());
-        config.suppress_initial_scans = false;
+        config.automatic_scans_enabled = true;
         config.when_pending_too_long_sec = DEFAULT_PENDING_TOO_LONG_SEC;
         config.payment_thresholds_opt = Some(PaymentThresholds::default());
         config
@@ -698,9 +699,9 @@ pub mod unshared_test_utils {
     {
         let (recorder, _, recording_arc) = make_recorder();
         let recorder = match stopping_message {
-            Some(type_id) => recorder.system_stop_conditions(StopConditions::All(vec![
-                StopCondition::StopOnType(type_id),
-            ])), // No need to write stop message after this
+            Some(type_id) => recorder.system_stop_conditions(StopConditions::AllLazily(vec![
+                MsgIdentification::ByType(type_id),
+            ])), // This will take care of stopping the system
             None => recorder,
         };
         let addr = recorder.start();
@@ -871,17 +872,23 @@ pub mod unshared_test_utils {
 
     pub mod notify_handlers {
         use super::*;
+        use std::fmt::Debug;
 
         pub struct NotifyLaterHandleMock<M> {
             notify_later_params: Arc<Mutex<Vec<(M, Duration)>>>,
+            stop_system_on_count_received_opt: RefCell<Option<usize>>,
             send_message_out: bool,
+            // To prove that no msg was tried to be scheduled
+            panic_on_schedule_attempt: bool,
         }
 
         impl<M: Message> Default for NotifyLaterHandleMock<M> {
             fn default() -> Self {
                 Self {
                     notify_later_params: Arc::new(Mutex::new(vec![])),
+                    stop_system_on_count_received_opt: RefCell::new(None),
                     send_message_out: false,
+                    panic_on_schedule_attempt: false,
                 }
             }
         }
@@ -892,15 +899,30 @@ pub mod unshared_test_utils {
                 self
             }
 
+            pub fn stop_system_on_count_received(self, count: usize) -> Self {
+                if count == 0 {
+                    panic!("Should be a none-zero value")
+                }
+                let system_killer = SystemKillerActor::new(Duration::from_secs(10));
+                system_killer.start();
+                self.stop_system_on_count_received_opt.replace(Some(count));
+                self
+            }
+
             pub fn capture_msg_and_let_it_fly_on(mut self) -> Self {
                 self.send_message_out = true;
+                self
+            }
+
+            pub fn panic_on_schedule_attempt(mut self) -> Self {
+                self.panic_on_schedule_attempt = true;
                 self
             }
         }
 
         impl<M, A> NotifyLaterHandle<M, A> for NotifyLaterHandleMock<M>
         where
-            M: Message + 'static + Clone,
+            M: Message + Clone + Debug + Send + 'static,
             A: Actor<Context = Context<A>> + Handler<M>,
         {
             fn notify_later<'a>(
@@ -909,10 +931,26 @@ pub mod unshared_test_utils {
                 interval: Duration,
                 ctx: &'a mut Context<A>,
             ) -> Box<dyn NLSpawnHandleHolder> {
+                if self.panic_on_schedule_attempt {
+                    panic!(
+                        "Message scheduling request for {:?} and interval {}ms, thought not \
+                    expected",
+                        msg,
+                        interval.as_millis()
+                    );
+                }
                 self.notify_later_params
                     .lock()
                     .unwrap()
                     .push((msg.clone(), interval));
+                if let Some(remaining) =
+                    self.stop_system_on_count_received_opt.borrow_mut().as_mut()
+                {
+                    *remaining -= 1;
+                    if remaining == &0 {
+                        System::current().stop();
+                    }
+                }
                 if self.send_message_out {
                     let handle = ctx.notify_later(msg, interval);
                     Box::new(NLSpawnHandleHolderReal::new(handle))
@@ -933,6 +971,8 @@ pub mod unshared_test_utils {
         pub struct NotifyHandleMock<M> {
             notify_params: Arc<Mutex<Vec<M>>>,
             send_message_out: bool,
+            stop_system_on_count_received_opt: RefCell<Option<usize>>,
+            panic_on_schedule_attempt: bool,
         }
 
         impl<M: Message> Default for NotifyHandleMock<M> {
@@ -940,6 +980,8 @@ pub mod unshared_test_utils {
                 Self {
                     notify_params: Arc::new(Mutex::new(vec![])),
                     send_message_out: false,
+                    stop_system_on_count_received_opt: RefCell::new(None),
+                    panic_on_schedule_attempt: false,
                 }
             }
         }
@@ -950,19 +992,50 @@ pub mod unshared_test_utils {
                 self
             }
 
-            pub fn permit_to_send_out(mut self) -> Self {
+            pub fn capture_msg_and_let_it_fly_on(mut self) -> Self {
                 self.send_message_out = true;
+                self
+            }
+
+            pub fn stop_system_on_count_received(self, msg_count: usize) -> Self {
+                if msg_count == 0 {
+                    panic!("Should be a non-zero value")
+                }
+                let system_killer = SystemKillerActor::new(Duration::from_secs(10));
+                system_killer.start();
+                self.stop_system_on_count_received_opt
+                    .replace(Some(msg_count));
+                self
+            }
+
+            pub fn panic_on_schedule_attempt(mut self) -> Self {
+                self.panic_on_schedule_attempt = true;
                 self
             }
         }
 
         impl<M, A> NotifyHandle<M, A> for NotifyHandleMock<M>
         where
-            M: Message + 'static + Clone,
+            M: Message + Debug + Clone + 'static,
             A: Actor<Context = Context<A>> + Handler<M>,
         {
             fn notify<'a>(&'a self, msg: M, ctx: &'a mut Context<A>) {
+                if self.panic_on_schedule_attempt {
+                    panic!(
+                        "Message scheduling request for {:?}, thought not expected",
+                        msg
+                    )
+                }
                 self.notify_params.lock().unwrap().push(msg.clone());
+                if let Some(remaining) =
+                    self.stop_system_on_count_received_opt.borrow_mut().as_mut()
+                {
+                    *remaining -= 1;
+                    if remaining == &0 {
+                        System::current().stop();
+                        return;
+                    }
+                }
                 if self.send_message_out {
                     ctx.notify(msg)
                 }
@@ -984,7 +1057,7 @@ pub mod unshared_test_utils {
         // you've pasted in before at the other end.
         // 3) Using raw pointers to link the real memory address to your objects does not lead to good
         // results in all cases (It was found confusing and hard to be done correctly or even impossible
-        // to implement especially for references pointing to a dereferenced Box that was originally
+        // to implement, especially for references pointing to a dereferenced Box that was originally
         // supplied as an owned argument into the testing environment at the beginning, or we can
         // suspect the memory link already broken because of moves of the owned boxed instance
         // around the subjected code)

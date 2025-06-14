@@ -504,12 +504,13 @@ fn configure_accountant_config(
         |pc: &dyn PersistentConfiguration| pc.scan_intervals(),
         |pc: &mut dyn PersistentConfiguration, intervals| pc.set_scan_intervals(intervals),
     )?;
-    let suppress_initial_scans =
-        value_m!(multi_config, "scans", String).unwrap_or_else(|| "on".to_string()) == *"off";
+
+    let automatic_scans_enabled =
+        value_m!(multi_config, "scans", String).unwrap_or_else(|| "on".to_string()) == "on";
 
     config.payment_thresholds_opt = Some(payment_thresholds);
     config.scan_intervals_opt = Some(scan_intervals);
-    config.suppress_initial_scans = suppress_initial_scans;
+    config.automatic_scans_enabled = automatic_scans_enabled;
     config.when_pending_too_long_sec = DEFAULT_PENDING_TOO_LONG_SEC;
     Ok(())
 }
@@ -1818,7 +1819,7 @@ mod tests {
             "--ip",
             "1.2.3.4",
             "--scan-intervals",
-            "180|150|130",
+            "180|50|130",
             "--payment-thresholds",
             "100000|10000|1000|20000|1000|20000",
         ];
@@ -1827,8 +1828,8 @@ mod tests {
         let mut persistent_configuration =
             configure_default_persistent_config(RATE_PACK | MAPPING_PROTOCOL)
                 .scan_intervals_result(Ok(ScanIntervals {
-                    pending_payable_scan_interval: Duration::from_secs(100),
                     payable_scan_interval: Duration::from_secs(101),
+                    pending_payable_scan_interval: Duration::from_secs(33),
                     receivable_scan_interval: Duration::from_secs(102),
                 }))
                 .payment_thresholds_result(Ok(PaymentThresholds {
@@ -1855,8 +1856,8 @@ mod tests {
             .unwrap();
 
         let expected_scan_intervals = ScanIntervals {
-            pending_payable_scan_interval: Duration::from_secs(180),
-            payable_scan_interval: Duration::from_secs(150),
+            payable_scan_interval: Duration::from_secs(180),
+            pending_payable_scan_interval: Duration::from_secs(50),
             receivable_scan_interval: Duration::from_secs(130),
         };
         let expected_payment_thresholds = PaymentThresholds {
@@ -1872,13 +1873,13 @@ mod tests {
             Some(expected_payment_thresholds)
         );
         assert_eq!(config.scan_intervals_opt, Some(expected_scan_intervals));
-        assert_eq!(config.suppress_initial_scans, false);
+        assert_eq!(config.automatic_scans_enabled, true);
         assert_eq!(
             config.when_pending_too_long_sec,
             DEFAULT_PENDING_TOO_LONG_SEC
         );
         let set_scan_intervals_params = set_scan_intervals_params_arc.lock().unwrap();
-        assert_eq!(*set_scan_intervals_params, vec!["180|150|130".to_string()]);
+        assert_eq!(*set_scan_intervals_params, vec!["180|50|130".to_string()]);
         let set_payment_thresholds_params = set_payment_thresholds_params_arc.lock().unwrap();
         assert_eq!(
             *set_payment_thresholds_params,
@@ -1894,7 +1895,7 @@ mod tests {
             "--ip",
             "1.2.3.4",
             "--scan-intervals",
-            "180|150|130",
+            "180|15|130",
             "--payment-thresholds",
             "100000|1000|1000|20000|1000|20000",
         ];
@@ -1903,8 +1904,8 @@ mod tests {
         let mut persistent_configuration =
             configure_default_persistent_config(RATE_PACK | MAPPING_PROTOCOL)
                 .scan_intervals_result(Ok(ScanIntervals {
-                    pending_payable_scan_interval: Duration::from_secs(180),
-                    payable_scan_interval: Duration::from_secs(150),
+                    payable_scan_interval: Duration::from_secs(180),
+                    pending_payable_scan_interval: Duration::from_secs(15),
                     receivable_scan_interval: Duration::from_secs(130),
                 }))
                 .payment_thresholds_result(Ok(PaymentThresholds {
@@ -1935,11 +1936,11 @@ mod tests {
             unban_below_gwei: 20000,
         };
         let expected_scan_intervals = ScanIntervals {
-            pending_payable_scan_interval: Duration::from_secs(180),
-            payable_scan_interval: Duration::from_secs(150),
+            payable_scan_interval: Duration::from_secs(180),
+            pending_payable_scan_interval: Duration::from_secs(15),
             receivable_scan_interval: Duration::from_secs(130),
         };
-        let expected_suppress_initial_scans = false;
+        let expected_automatic_scans_enabled = true;
         let expected_when_pending_too_long_sec = DEFAULT_PENDING_TOO_LONG_SEC;
         assert_eq!(
             config.payment_thresholds_opt,
@@ -1947,8 +1948,8 @@ mod tests {
         );
         assert_eq!(config.scan_intervals_opt, Some(expected_scan_intervals));
         assert_eq!(
-            config.suppress_initial_scans,
-            expected_suppress_initial_scans
+            config.automatic_scans_enabled,
+            expected_automatic_scans_enabled
         );
         assert_eq!(
             config.when_pending_too_long_sec,
@@ -2578,7 +2579,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(bootstrapper_config.suppress_initial_scans, true);
+        assert_eq!(bootstrapper_config.automatic_scans_enabled, false);
     }
 
     #[test]
@@ -2599,7 +2600,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(bootstrapper_config.suppress_initial_scans, false);
+        assert_eq!(bootstrapper_config.automatic_scans_enabled, true);
     }
 
     #[test]
@@ -2620,7 +2621,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(bootstrapper_config.suppress_initial_scans, false);
+        assert_eq!(bootstrapper_config.automatic_scans_enabled, true);
     }
 
     fn make_persistent_config(
