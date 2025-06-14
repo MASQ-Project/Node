@@ -13,15 +13,22 @@ use std::collections::HashMap;
 // a system. They enable sending either a single message or multiple messages in response to
 // a specific trigger, which is just another Actor message arriving at the Recorder.
 // By trigger, we mean the moment when an incoming message is tested sequentially against collected
-// identification methods and matches. Each counter-message must have its identification method
-// attached when it is being prepared for storage in the Recorder.
+// identification methods and matches. Each counter-message must have its ID method attached when 
+// it is being prepared for storage in the Recorder. This bundle is called a setup. Each setup has 
+// one ID method but can contain multiple counter-messages that are all sent when triggered.
+
 // Counter-messages can be independently customized and targeted at different actors by
 // providing their addresses, supporting complex interaction patterns. This design facilitates
 // sophisticated testing scenarios by mimicking real communication flows between multiple Actors.
 // The actual preparation of the Recorder needs to be carried out somewhat specifically during the
 // late stage of configuring the test, when all participating Actors are already started and their
 // addresses are known. The setup for counter-messages must be registered with the appropriate
-// Recorder using a specially designated Actor message called `SetUpCounterMsgs`.
+// Recorder using a specially designated Actor message SetUpCounterMsgs.
+
+// If a trigger message matches multiple counter-message setups, the triggered setup depends 
+// on the order in which setups are provided. Consider using MsgIdentification::ByMatch 
+// or MsgIdentification::ByPredicate instead of MsgIdentification::ByTypeId to avoid confusion 
+// about setup ordering.
 
 pub trait CounterMsgGear: Send {
     fn try_send(&self);
@@ -124,7 +131,7 @@ impl CounterMessages {
     }
 }
 
-// Note that you're not limited to triggering an only message a time, but you can supply more
+// Note that you're not limited to triggering only one message at a time, but you can supply more
 // messages to this macro, all triggered by the same type id.
 #[macro_export]
 macro_rules! setup_for_counter_msg_triggered_via_type_id{
