@@ -931,7 +931,7 @@ mod tests {
         // Supplying messages deliberately in a tangled manner to express that the mechanism is
         // robust enough to compensate for it.
         // This works because we don't supply overlapping setups, such as that could apply to
-        // a single arriving msg. That could
+        // a single trigger msg.
         subject_addr
             .try_send(SetUpCounterMsgs {
                 setups: vec![cm_setup_3, cm_setup_1, cm_setup_2, cm_setup_4],

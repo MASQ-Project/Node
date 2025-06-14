@@ -3010,10 +3010,9 @@ mod tests {
             scan_for_pending_payables_notify_later_params_arc
                 .lock()
                 .unwrap();
-        // We stop the test right before running the `NewPayableScanner` and so that part is
-        // missing. We cannot capture the first occasion of scheduling the `PendingPayableScanner`
-        // any sooner than straight after the `NewPayableScan` finishes, if only it produced at
-        // least one blockchain transaction.
+        // PendingPayableScanner can only start after NewPayableScanner finishes and makes at least 
+        // one transaction. The test stops before running NewPayableScanner, missing both 
+        // the second PendingPayableScanner run and its scheduling event.
         assert!(
             scan_for_pending_payables_notify_later_params.is_empty(),
             "We did not expect to see another schedule for pending payables, but it happened {:?}",
