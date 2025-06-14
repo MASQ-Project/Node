@@ -45,17 +45,16 @@ impl BlockchainInterfaceInitializer {
 mod tests {
     use crate::blockchain::blockchain_interface_initializer::BlockchainInterfaceInitializer;
     use masq_lib::blockchains::chains::Chain;
-
     use futures::Future;
     use std::net::Ipv4Addr;
-    use web3::transports::Http;
-
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::{BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL};
     use crate::blockchain::blockchain_interface::BlockchainInterface;
     use crate::test_utils::make_wallet;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
     use masq_lib::utils::find_free_port;
+    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{QualifiedPayableWithGasPrice, QualifiedPayablesRawPack, QualifiedPayablesRipePack};
+    use crate::accountant::test_utils::make_payable_account;
+    use crate::blockchain::test_utils::increase_gas_price_by_marginal;
 
     #[test]
     fn initialize_web3_interface_works() {
@@ -72,21 +71,25 @@ mod tests {
         let wallet = make_wallet("123");
         let chain = Chain::PolyMainnet;
         let server_url = &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port);
-        let (event_loop_handle, transport) =
-            Http::with_max_parallel(server_url, REQUESTS_IN_PARALLEL).unwrap();
-        let subject = BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain);
-        let payable_wallet = make_wallet("payable"); 
 
-        let blockchain_agent = subject
-            .introduce_blockchain_agent(wallet.clone(), gas_price_inputs)
+        let result = BlockchainInterfaceInitializer{}.initialize_interface(server_url, chain);
+
+        let account_1 = make_payable_account(12);
+        let account_2 = make_payable_account(34);
+        let raw_qualified_payables = QualifiedPayablesRawPack::from(vec![account_1.clone(), account_2.clone()]);
+        let payable_wallet = make_wallet("payable");
+        let (blockchain_agent, ripe_qualified_payables) = result
+            .introduce_blockchain_agent(raw_qualified_payables, payable_wallet)
             .wait()
             .unwrap();
-
         assert_eq!(blockchain_agent.consuming_wallet(), &wallet);
-        let expected_gas_price = (1_000_000_000_u128 * (100 + chain.rec().gas_price_recommended_margin_percents as u128))/ 100;
+        let gas_price_with_margin = increase_gas_price_by_marginal(1_000_000_000, chain);
+        let expected_ripe_qualified_payables = QualifiedPayablesRipePack{ payables:
+        vec![QualifiedPayableWithGasPrice::new(account_1, gas_price_with_margin), QualifiedPayableWithGasPrice::new(account_2, gas_price_with_margin)]};
+        assert_eq!(ripe_qualified_payables, expected_ripe_qualified_payables);
         assert_eq!(
-            blockchain_agent.gas_price_for_individual_txs(),
-            hashmap!(payable_wallet.address() => expected_gas_price)
+            blockchain_agent.estimated_transaction_fee_total(),
+            todo!()
         );
     }
 

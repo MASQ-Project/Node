@@ -16,9 +16,7 @@ use crate::accountant::db_access_objects::utils::{
     from_unix_timestamp, to_unix_timestamp, CustomQuery,
 };
 use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdjuster};
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{
-    BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
-};
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{BlockchainAgentWithContextMessage, QualifiedPayableWithGasPrice, QualifiedPayablesBeforeGasPricePick, QualifiedPayablesMessage, QualifiedPayablesRipePack};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::{
     MultistagePayableScanner, PreparedAdjustment, SolvencySensitivePaymentInstructor,
 };
@@ -1714,4 +1712,13 @@ impl ScanSchedulers {
             scheduler.interval = new_interval
         }
     }
+}
+
+pub fn make_ripe_qualified_payables(inputs: Vec<(PayableAccount, u128)>) -> QualifiedPayablesRipePack {
+    QualifiedPayablesRipePack{ payables: inputs.into_iter().map(|(payable, gas_price_minor)|{
+        QualifiedPayableWithGasPrice{
+            payable,
+            gas_price_minor,
+        }
+    }).collect() }
 }

@@ -261,7 +261,7 @@ impl BlockchainBridge {
         let accountant_recipient = self.payable_payments_setup_subs_opt.clone();
         Box::new(
             self.blockchain_interface
-                .introduce_blockchain_agent(incoming_message.consuming_wallet, incoming_message.qualified_payables)
+                .introduce_blockchain_agent(incoming_message.qualified_payables, incoming_message.consuming_wallet)
                 .map_err(|e| format!("Blockchain agent build error: {:?}", e))
                 .and_then(move |(agent, qualified_payables_with_finalized_gas_price)| {
                     let outgoing_message = BlockchainAgentWithContextMessage::new(
@@ -728,7 +728,6 @@ mod tests {
         let qualified_payables_msg = QualifiedPayablesMessage {
             qualified_payables: qualified_payables.clone(),
             consuming_wallet: consuming_wallet.clone(),
-            previous_attempt_gas_price_values_minor_opt: None,
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 11122,
                 context_id: 444,
@@ -742,7 +741,6 @@ mod tests {
 
         System::current().stop();
         system.run();
-
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
         let blockchain_agent_with_context_msg_actual: &BlockchainAgentWithContextMessage =
             accountant_received_payment.get_record(0);
@@ -755,13 +753,6 @@ mod tests {
                 .agent
                 .consuming_wallet(),
             &consuming_wallet
-        );
-        let gas_price_for_individual_txs_wei =  blockchain_agent_with_context_msg_actual
-            .agent
-            .gas_price_for_individual_txs();
-        assert_eq!(
-            gas_price_for_individual_txs_wei,
-           hashmap!(wallet_1.address() => 0, wallet_2.address() => 0) //TODO past right values
         );
         assert_eq!(
             blockchain_agent_with_context_msg_actual
@@ -777,8 +768,8 @@ mod tests {
         assert_eq!(
             blockchain_agent_with_context_msg_actual
                 .agent
-                .estimated_transaction_fee_total(1),
-            0 //TODO past right values
+                .estimated_transaction_fee_total(),
+            todo!()
         );
         assert_eq!(
             blockchain_agent_with_context_msg_actual.response_skeleton_opt,
@@ -814,7 +805,6 @@ mod tests {
         let qualified_payables_msg = QualifiedPayablesMessage {
             qualified_payables: qualified_payables,
             consuming_wallet: consuming_wallet.clone(),
-            previous_attempt_gas_price_values_minor_opt: None,
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 11122,
                 context_id: 444,

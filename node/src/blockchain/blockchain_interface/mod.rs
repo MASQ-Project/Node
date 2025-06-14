@@ -36,8 +36,8 @@ pub trait BlockchainInterface {
 
     fn introduce_blockchain_agent(
         &self,
-        consuming_wallet: Wallet,
         qualified_payables: QualifiedPayablesRawPack,
+        consuming_wallet: Wallet,
     ) -> Box<dyn Future<Item = (Box<dyn BlockchainAgent>, QualifiedPayablesRipePack), Error = BlockchainAgentBuildError>>;
 
     fn process_transaction_receipts(

@@ -1051,13 +1051,7 @@ mod tests {
     use crate::accountant::test_utils::DaoWithDestination::{
         ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,
     };
-    use crate::accountant::test_utils::{
-        bc_from_earning_wallet, bc_from_wallets, make_payable_account, make_payables,
-        BannedDaoFactoryMock, ConfigDaoFactoryMock, MessageIdGeneratorMock, NullScanner,
-        PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder, PaymentAdjusterMock,
-        PendingPayableDaoFactoryMock, PendingPayableDaoMock, ReceivableDaoFactoryMock,
-        ReceivableDaoMock, ScannerMock,
-    };
+    use crate::accountant::test_utils::{bc_from_earning_wallet, bc_from_wallets, make_payable_account, make_payables, make_ripe_qualified_payables, BannedDaoFactoryMock, ConfigDaoFactoryMock, MessageIdGeneratorMock, NullScanner, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder, PaymentAdjusterMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock, ReceivableDaoFactoryMock, ReceivableDaoMock, ScannerMock};
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
     use crate::accountant::Accountant;
     use crate::blockchain::blockchain_bridge::BlockchainBridge;
@@ -1117,6 +1111,7 @@ mod tests {
     use std::sync::Mutex;
     use std::time::Duration;
     use std::vec;
+    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{QualifiedPayablesBeforeGasPricePick, QualifiedPayablesRawPack};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt, TxStatus};
 
     impl Handler<AssertionsMessage<Accountant>> for Accountant {
@@ -1464,7 +1459,7 @@ mod tests {
         assert_eq!(
             blockchain_bridge_recording.get_record::<QualifiedPayablesMessage>(0),
             &QualifiedPayablesMessage {
-                qualified_payables: protect_payables_in_test(vec![payable_account]),
+                qualified_payables: QualifiedPayablesRawPack::from(vec![payable_account]),
                 consuming_wallet,
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
@@ -1522,7 +1517,7 @@ mod tests {
     #[test]
     fn received_balances_and_qualified_payables_under_our_money_limit_thus_all_forwarded_to_blockchain_bridge(
     ) {
-        // the numbers for balances don't do real math, they need not to match either the condition for
+        // The numbers for balances don't do real math, they need not match either the condition for
         // the payment adjustment or the actual values that come from the payable size reducing algorithm;
         // all that is mocked in this test
         init_test_logging();
@@ -1549,9 +1544,9 @@ mod tests {
         let system = System::new("test");
         let agent_id_stamp = ArbitraryIdStamp::new();
         let agent = BlockchainAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp);
-        let accounts = vec![account_1, account_2];
+        let qualified_payables = make_ripe_qualified_payables(vec![(account_1,1_000_000_001), (account_2, 1_000_000_002)]);
         let msg = BlockchainAgentWithContextMessage {
-            qualified_payables: protect_payables_in_test(accounts.clone()),
+            qualified_payables: qualified_payables.clone(),
             agent: Box::new(agent),
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 1234,
@@ -1567,7 +1562,7 @@ mod tests {
             is_adjustment_required_params.remove(0);
         assert_eq!(
             blockchain_agent_with_context_msg_actual.qualified_payables,
-            protect_payables_in_test(accounts.clone())
+            qualified_payables.clone()
         );
         assert_eq!(
             blockchain_agent_with_context_msg_actual.response_skeleton_opt,
@@ -1586,7 +1581,7 @@ mod tests {
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
         let payments_instructions =
             blockchain_bridge_recording.get_record::<OutboundPaymentsInstructions>(0);
-        assert_eq!(payments_instructions.affordable_accounts, accounts);
+        assert_eq!(payments_instructions.affordable_accounts, qualified_payables);
         assert_eq!(
             payments_instructions.response_skeleton_opt,
             Some(ResponseSkeleton {
@@ -1600,8 +1595,8 @@ mod tests {
         );
         assert_eq!(blockchain_bridge_recording.len(), 1);
         test_use_of_the_same_logger(&logger_clone, test_name)
-        // adjust_payments() did not need a prepared result which means it wasn't reached
-        // because otherwise this test would've panicked
+        // adjust_payments() did not need any prepared result, which means it couldn't have been
+        // reached because otherwise this test would've panicked
     }
 
     fn test_use_of_the_same_logger(logger_clone: &Logger, test_name: &str) {
@@ -1615,7 +1610,7 @@ mod tests {
     #[test]
     fn received_qualified_payables_exceeding_our_masq_balance_are_adjusted_before_forwarded_to_blockchain_bridge(
     ) {
-        // the numbers for balances don't do real math, they need not to match either the condition for
+        // The numbers for balances don't do real math, they need not to match either the condition for
         // the payment adjustment or the actual values that come from the payable size reducing algorithm;
         // all that is mocked in this test
         init_test_logging();

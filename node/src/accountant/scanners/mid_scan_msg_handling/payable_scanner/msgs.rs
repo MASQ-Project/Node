@@ -36,6 +36,16 @@ pub struct QualifiedPayablesBeforeGasPricePick {
     pub previous_attempt_gas_price_minor_opt: Option<u128>
 }
 
+impl QualifiedPayablesBeforeGasPricePick {
+    pub fn new(payable: PayableAccount, previous_attempt_gas_price_minor_opt: Option<u128>) -> Self {
+        todo!();
+        Self {
+            payable,
+            previous_attempt_gas_price_minor_opt
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct QualifiedPayablesRipePack {
     pub payables: Vec<QualifiedPayableWithGasPrice>,
@@ -51,6 +61,16 @@ impl Into<Vec<PayableAccount>> for QualifiedPayablesRipePack {
 pub struct QualifiedPayableWithGasPrice{
     pub payable: PayableAccount,
     pub gas_price_minor: u128
+}
+
+impl QualifiedPayableWithGasPrice {
+    pub fn new(payable: PayableAccount, gas_price_minor: u128) -> Self {
+        todo!();
+        Self {
+            payable,
+            gas_price_minor
+        }
+    }
 }
 
 impl QualifiedPayablesMessage {

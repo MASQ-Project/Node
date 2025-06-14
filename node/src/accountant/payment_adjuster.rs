@@ -74,19 +74,18 @@ mod tests {
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::BlockchainAgentWithContextMessage;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
     use crate::accountant::scanners::test_utils::protect_payables_in_test;
-    use crate::accountant::test_utils::make_payable_account;
+    use crate::accountant::test_utils::{make_payable_account, make_ripe_qualified_payables};
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
     #[test]
     fn search_for_indispensable_adjustment_always_returns_none() {
         init_test_logging();
-        let test_name = "is_adjustment_required_always_returns_none";
-        let mut payable = make_payable_account(111);
-        payable.balance_wei = 100_000_000;
+        let test_name = "search_for_indispensable_adjustment_always_returns_none";
+        let mut payable = make_payable_account(123);
         let agent = BlockchainAgentMock::default();
         let setup_msg = BlockchainAgentWithContextMessage {
-            qualified_payables: protect_payables_in_test(vec![payable]),
+            qualified_payables: make_ripe_qualified_payables(vec![(payable, 111_111_111)]),
             agent: Box::new(agent),
             response_skeleton_opt: None,
         };

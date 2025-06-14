@@ -317,21 +317,22 @@ pub fn send_payables_within_batch(
 }
 
 pub fn create_blockchain_agent_web3(
-    gas_limit_const_part: u128,
     qualified_payables: QualifiedPayablesRawPack,
+    gas_limit_const_part: u128,
     blockchain_agent_future_result: BlockchainAgentFutureResult,
     wallet: Wallet,
     chain: Chain,
 ) -> (Box<dyn BlockchainAgent>, QualifiedPayablesRipePack) {
-    let cons_wallet_balances = ConsumingWalletBalances {
-        transaction_fee_balance_in_minor_units: blockchain_agent_future_result
-            .transaction_fee_balance,
-        masq_token_balance_in_minor_units: blockchain_agent_future_result.masq_token_balance,
-    };
-
+    let transaction_fee_balance_in_minor_units = blockchain_agent_future_result
+        .transaction_fee_balance;
+    let masq_token_balance_in_minor_units = blockchain_agent_future_result.masq_token_balance;
+    let cons_wallet_balances = ConsumingWalletBalances::new(
+        transaction_fee_balance_in_minor_units,
+        masq_token_balance_in_minor_units
+    );
     BlockchainAgentWeb3::new(
-        blockchain_agent_future_result.gas_price_wei.as_u128(),
         qualified_payables,
+        blockchain_agent_future_result.gas_price_wei.as_u128(),
         gas_limit_const_part,
         wallet,
         cons_wallet_balances,
@@ -345,9 +346,7 @@ mod tests {
     use crate::accountant::db_access_objects::utils::from_unix_timestamp;
     use crate::accountant::gwei_to_wei;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
-    use crate::accountant::test_utils::{
-        make_payable_account, make_payable_account_with_wallet_and_balance_and_timestamp_opt,
-    };
+    use crate::accountant::test_utils::{make_payable_account, make_payable_account_with_wallet_and_balance_and_timestamp_opt, make_ripe_qualified_payables};
     use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
         BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
@@ -448,14 +447,13 @@ mod tests {
         let consuming_wallet = make_paying_wallet(b"paying_wallet");
         let account_1 = make_payable_account(1);
         let account_2 = make_payable_account(2);
-        let accounts = vec![account_1, account_2];
+        let accounts = make_ripe_qualified_payables(vec![(account_1, 111_111_111), (account_2, 222_222_222)]);
 
         let result = sign_and_append_multiple_payments(
             &logger,
             chain,
             &web3_batch,
             consuming_wallet,
-            gwei_to_wei(gas_price_in_gwei),
             pending_nonce.into(),
             &accounts,
         );
@@ -505,12 +503,12 @@ mod tests {
             amount_3,
             None,
         );
-        let accounts_to_process = vec![account_1, account_2, account_3];
+        let accounts_to_process = make_ripe_qualified_payables(vec![(account_1, 123_456_789), (account_2, 234_567_890), (account_3, 345_678_901)]);
 
         info!(
             logger,
             "{}",
-            transmission_log(TEST_DEFAULT_CHAIN, &accounts_to_process, gas_price)
+            transmission_log(TEST_DEFAULT_CHAIN, &accounts_to_process)
         );
 
         let log_handler = TestLogHandler::new();
