@@ -3446,10 +3446,13 @@ mod tests {
     #[test]
     fn scan_intervals_computed_default_persistent_config_unequal_to_default() {
         let mut scan_intervals = *DEFAULT_SCAN_INTERVALS;
-        scan_intervals.pending_payable_scan_interval = scan_intervals
-            .pending_payable_scan_interval
+        scan_intervals.payable_scan_interval = scan_intervals
+            .payable_scan_interval
             .add(Duration::from_secs(15));
         scan_intervals.pending_payable_scan_interval = scan_intervals
+            .pending_payable_scan_interval
+            .add(Duration::from_secs(20));
+        scan_intervals.receivable_scan_interval = scan_intervals
             .receivable_scan_interval
             .sub(Duration::from_secs(33));
 

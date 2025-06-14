@@ -16,6 +16,7 @@ pub mod payable_scanner_utils {
     use std::time::SystemTime;
     use thousands::Separable;
     use web3::types::H256;
+    use masq_lib::ui_gateway::NodeToUiMessage;
     use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
     use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
     use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RpcPayableFailure};
@@ -24,6 +25,18 @@ pub mod payable_scanner_utils {
     pub enum PayableTransactingErrorEnum {
         LocallyCausedError(PayableTransactionError),
         RemotelyCausedErrors(Vec<H256>),
+    }
+
+    #[derive(Debug, PartialEq)]
+    pub struct PayableScanResult {
+        pub ui_response_opt: Option<NodeToUiMessage>,
+        pub result: OperationOutcome,
+    }
+
+    #[derive(Debug, PartialEq)]
+    pub enum OperationOutcome {
+        NewPendingPayable,
+        Failure,
     }
 
     //debugging purposes only
@@ -312,6 +325,7 @@ pub mod pending_payable_scanner_utils {
     use crate::accountant::PendingPayableId;
     use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
     use masq_lib::logger::Logger;
+    use masq_lib::ui_gateway::NodeToUiMessage;
     use std::time::SystemTime;
 
     #[derive(Debug, Default, PartialEq, Eq, Clone)]
@@ -319,6 +333,18 @@ pub mod pending_payable_scanner_utils {
         pub still_pending: Vec<PendingPayableId>,
         pub failures: Vec<PendingPayableId>,
         pub confirmed: Vec<PendingPayableFingerprint>,
+    }
+
+    impl PendingPayableScanReport {
+        pub fn requires_payments_retry(&self) -> bool {
+            todo!("complete my within GH-642")
+        }
+    }
+
+    #[derive(Debug, PartialEq)]
+    pub enum PendingPayableScanResult {
+        NoPendingPayablesLeft(Option<NodeToUiMessage>),
+        PaymentRetryRequired,
     }
 
     pub fn elapsed_in_ms(timestamp: SystemTime) -> u128 {
@@ -440,7 +466,7 @@ pub mod receivable_scanner_utils {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t};
+    use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp};
     use crate::accountant::db_access_objects::payable_dao::{PayableAccount};
     use crate::accountant::db_access_objects::receivable_dao::ReceivableAccount;
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
@@ -467,21 +493,21 @@ mod tests {
     #[test]
     fn investigate_debt_extremes_picks_the_most_relevant_records() {
         let now = SystemTime::now();
-        let now_t = to_time_t(now);
+        let now_t = to_unix_timestamp(now);
         let same_amount_significance = 2_000_000;
-        let same_age_significance = from_time_t(now_t - 30000);
+        let same_age_significance = from_unix_timestamp(now_t - 30000);
         let payables = &[
             PayableAccount {
                 wallet: make_wallet("wallet0"),
                 balance_wei: same_amount_significance,
-                last_paid_timestamp: from_time_t(now_t - 5000),
+                last_paid_timestamp: from_unix_timestamp(now_t - 5000),
                 pending_payable_opt: None,
             },
             //this debt is more significant because beside being high in amount it's also older, so should be prioritized and picked
             PayableAccount {
                 wallet: make_wallet("wallet1"),
                 balance_wei: same_amount_significance,
-                last_paid_timestamp: from_time_t(now_t - 10000),
+                last_paid_timestamp: from_unix_timestamp(now_t - 10000),
                 pending_payable_opt: None,
             },
             //similarly these two wallets have debts equally old but the second has a bigger balance and should be chosen
@@ -511,7 +537,7 @@ mod tests {
         let receivable_account = ReceivableAccount {
             wallet: make_wallet("wallet0"),
             balance_wei: 10_000_000_000,
-            last_received_timestamp: from_time_t(to_time_t(now) - offset),
+            last_received_timestamp: from_unix_timestamp(to_unix_timestamp(now) - offset),
         };
 
         let (balance, age) = balance_and_age(now, &receivable_account);
@@ -614,7 +640,7 @@ mod tests {
     #[test]
     fn payables_debug_summary_prints_pretty_summary() {
         init_test_logging();
-        let now = to_time_t(SystemTime::now());
+        let now = to_unix_timestamp(SystemTime::now());
         let payment_thresholds = PaymentThresholds {
             threshold_interval_sec: 2_592_000,
             debt_threshold_gwei: 1_000_000_000,
@@ -628,7 +654,7 @@ mod tests {
                 PayableAccount {
                     wallet: make_wallet("wallet0"),
                     balance_wei: gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei + 2000),
-                    last_paid_timestamp: from_time_t(
+                    last_paid_timestamp: from_unix_timestamp(
                         now - checked_conversion::<u64, i64>(
                             payment_thresholds.maturity_threshold_sec
                                 + payment_thresholds.threshold_interval_sec,
@@ -642,7 +668,7 @@ mod tests {
                 PayableAccount {
                     wallet: make_wallet("wallet1"),
                     balance_wei: gwei_to_wei(payment_thresholds.debt_threshold_gwei - 1),
-                    last_paid_timestamp: from_time_t(
+                    last_paid_timestamp: from_unix_timestamp(
                         now - checked_conversion::<u64, i64>(
                             payment_thresholds.maturity_threshold_sec + 55,
                         ),
@@ -842,5 +868,65 @@ mod tests {
             result,
             "Got 0 properly sent payables of an unknown number of attempts"
         )
+    }
+
+    #[test]
+    fn requires_payments_retry_says_yes() {
+        todo!("complete this test with GH-604")
+        // let cases = vec![
+        //     PendingPayableScanReport {
+        //         still_pending: vec![PendingPayableId::new(12, make_tx_hash(456))],
+        //         failures: vec![],
+        //         confirmed: vec![],
+        //     },
+        //     PendingPayableScanReport {
+        //         still_pending: vec![],
+        //         failures: vec![PendingPayableId::new(456, make_tx_hash(1234))],
+        //         confirmed: vec![],
+        //     },
+        //     PendingPayableScanReport {
+        //         still_pending: vec![PendingPayableId::new(12, make_tx_hash(456))],
+        //         failures: vec![PendingPayableId::new(456, make_tx_hash(1234))],
+        //         confirmed: vec![],
+        //     },
+        //     PendingPayableScanReport {
+        //         still_pending: vec![PendingPayableId::new(12, make_tx_hash(456))],
+        //         failures: vec![PendingPayableId::new(456, make_tx_hash(1234))],
+        //         confirmed: vec![make_pending_payable_fingerprint()],
+        //     },
+        //     PendingPayableScanReport {
+        //         still_pending: vec![PendingPayableId::new(12, make_tx_hash(456))],
+        //         failures: vec![],
+        //         confirmed: vec![make_pending_payable_fingerprint()],
+        //     },
+        //     PendingPayableScanReport {
+        //         still_pending: vec![],
+        //         failures: vec![PendingPayableId::new(456, make_tx_hash(1234))],
+        //         confirmed: vec![make_pending_payable_fingerprint()],
+        //     },
+        // ];
+        //
+        // cases.into_iter().enumerate().for_each(|(idx, case)| {
+        //     let result = case.requires_payments_retry();
+        //     assert_eq!(
+        //         result, true,
+        //         "We expected true, but got false for case of idx {}",
+        //         idx
+        //     )
+        // })
+    }
+
+    #[test]
+    fn requires_payments_retry_says_no() {
+        todo!("complete this test with GH-604")
+        // let report = PendingPayableScanReport {
+        //     still_pending: vec![],
+        //     failures: vec![],
+        //     confirmed: vec![make_pending_payable_fingerprint()],
+        // };
+        //
+        // let result = report.requires_payments_retry();
+        //
+        // assert_eq!(result, false)
     }
 }
