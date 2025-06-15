@@ -218,7 +218,3 @@ pub fn transport_error_message() -> String {
         "Connection refused".to_string()
     }
 }
-
-pub fn increase_gas_price_by_marginal(gas_price: u128, chain: Chain) -> u128 {
-    (gas_price * (100 + chain.rec().gas_price_recommended_margin_percents as u128)) / 100
-}

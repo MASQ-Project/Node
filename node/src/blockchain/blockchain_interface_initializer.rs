@@ -52,9 +52,9 @@ mod tests {
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
     use masq_lib::utils::find_free_port;
-    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{QualifiedPayableWithGasPrice, QualifiedPayablesRawPack, QualifiedPayablesRipePack};
+    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{QualifiedPayablesWithGasPrice, QualifiedPayablesRawPack, QualifiedPayablesRipePack};
     use crate::accountant::test_utils::make_payable_account;
-    use crate::blockchain::test_utils::increase_gas_price_by_marginal;
+    use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
 
     #[test]
     fn initialize_web3_interface_works() {
@@ -83,9 +83,9 @@ mod tests {
             .wait()
             .unwrap();
         assert_eq!(blockchain_agent.consuming_wallet(), &wallet);
-        let gas_price_with_margin = increase_gas_price_by_marginal(1_000_000_000, chain);
+        let gas_price_with_margin = increase_gas_price_by_margin(1_000_000_000, chain);
         let expected_ripe_qualified_payables = QualifiedPayablesRipePack{ payables:
-        vec![QualifiedPayableWithGasPrice::new(account_1, gas_price_with_margin), QualifiedPayableWithGasPrice::new(account_2, gas_price_with_margin)]};
+        vec![QualifiedPayablesWithGasPrice::new(account_1, gas_price_with_margin), QualifiedPayablesWithGasPrice::new(account_2, gas_price_with_margin)]};
         assert_eq!(ripe_qualified_payables, expected_ripe_qualified_payables);
         assert_eq!(
             blockchain_agent.estimated_transaction_fee_total(),

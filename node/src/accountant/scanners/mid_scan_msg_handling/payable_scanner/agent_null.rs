@@ -10,7 +10,7 @@ use web3::types::Address;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{QualifiedPayableWithGasPrice, QualifiedPayablesRawPack, QualifiedPayablesRipePack};
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{QualifiedPayablesWithGasPrice, QualifiedPayablesRawPack, QualifiedPayablesRipePack};
 
 #[derive(Clone)]
 pub struct BlockchainAgentNull {
@@ -35,7 +35,7 @@ impl BlockchainAgent for BlockchainAgentNull {
     // fn finalize_gas_price_per_payable(&self, qualified_payables: QualifiedPayablesRawPack) -> QualifiedPayablesRipePack {
     //     self.log_function_call("finalize_gas_price_per_payable()");
     //     let payables = qualified_payables.payables.into_iter().map(|preconfiguration| {
-    //         QualifiedPayableWithGasPrice{ payable: preconfiguration.payable, gas_price_minor: 0 }
+    //         QualifiedPayablesWithGasPrice{ payable: preconfiguration.payable, gas_price_minor: 0 }
     //     }).collect();
     //     QualifiedPayablesRipePack{ payables }
     // }

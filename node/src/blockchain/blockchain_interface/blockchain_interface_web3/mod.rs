@@ -447,7 +447,7 @@ mod tests {
         BlockchainAgentBuildError, BlockchainError, BlockchainInterface,
         RetrievedBlockchainTransactions,
     };
-    use crate::blockchain::test_utils::{all_chains, increase_gas_price_by_marginal, make_blockchain_interface_web3, ReceiptResponseBuilder};
+    use crate::blockchain::test_utils::{all_chains, make_blockchain_interface_web3, ReceiptResponseBuilder};
     use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_paying_wallet;
@@ -463,8 +463,9 @@ mod tests {
     use std::str::FromStr;
     use web3::transports::Http;
     use web3::types::{H256, U256};
-    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{QualifiedPayableWithGasPrice, QualifiedPayablesBeforeGasPricePick};
+    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{QualifiedPayablesWithGasPrice, QualifiedPayablesBeforeGasPricePick};
     use crate::accountant::test_utils::make_payable_account;
+    use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt, TxStatus};
 
     #[test]
@@ -842,9 +843,9 @@ mod tests {
         let account_2 = make_payable_account(34);
         let raw_qualified_payables = QualifiedPayablesRawPack::from(vec![account_1.clone(), account_2.clone()]);
         let gas_price_wei_from_rpc_hex = "0x3B9ACA00"; // 1000000000
-        let expected_ripe_qualified_payables = QualifiedPayablesRipePack {payables: vec![QualifiedPayableWithGasPrice::new(account_1, 1_000_000_000), QualifiedPayableWithGasPrice::new(account_2, 1_000_000_000)]};
+        let expected_ripe_qualified_payables = QualifiedPayablesRipePack {payables: vec![QualifiedPayablesWithGasPrice::new(account_1, 1_000_000_000), QualifiedPayablesWithGasPrice::new(account_2, 1_000_000_000)]};
         let expected_estimated_transaction_fee = todo!("fix me");
-        
+
         blockchain_interface_web3_can_introduce_blockchain_agent(raw_qualified_payables, gas_price_wei_from_rpc_hex, expected_ripe_qualified_payables, expected_estimated_transaction_fee);
     }
 
@@ -855,17 +856,17 @@ mod tests {
         let account_3 = make_payable_account(56);
         let raw_qualified_payables = QualifiedPayablesRawPack{payables:
         vec![
-            QualifiedPayablesBeforeGasPricePick::new(account_1, Some(999_999_999)),
-            QualifiedPayablesBeforeGasPricePick::new(account_2, Some(1_000_000_000)),
-            QualifiedPayablesBeforeGasPricePick::new(account_3, Some(1_000_000_001))
+            QualifiedPayablesBeforeGasPricePick::new(account_1.clone(), Some(999_999_999)),
+            QualifiedPayablesBeforeGasPricePick::new(account_2.clone(), Some(1_000_000_000)),
+            QualifiedPayablesBeforeGasPricePick::new(account_3.clone(), Some(1_000_000_001))
         ]};
         let gas_price_wei_from_rpc_hex = "0x3B9ACA00"; // 1000000000
-        let expected_ripe_qualified_payables = QualifiedPayablesRipePack {payables: vec![QualifiedPayableWithGasPrice::new(account_1, 1_000_000_000), QualifiedPayableWithGasPrice::new(account_2, 1_000_000_000), QualifiedPayableWithGasPrice::new(account_3, 1_000_000_001)]};
+        let expected_ripe_qualified_payables = QualifiedPayablesRipePack {payables: vec![QualifiedPayablesWithGasPrice::new(account_1, 1_000_000_000), QualifiedPayablesWithGasPrice::new(account_2, 1_000_000_000), QualifiedPayablesWithGasPrice::new(account_3, 1_000_000_001)]};
         let expected_estimated_transaction_fee = todo!("fix me");
 
         blockchain_interface_web3_can_introduce_blockchain_agent(raw_qualified_payables, gas_price_wei_from_rpc_hex, expected_ripe_qualified_payables, expected_estimated_transaction_fee);
     }
-    
+
     fn blockchain_interface_web3_can_introduce_blockchain_agent(raw_qualified_payables: QualifiedPayablesRawPack, gas_price_wei_from_rpc_hex: &str, expected_ripe_qualified_payables: QualifiedPayablesRipePack, expected_estimated_transaction_fee: u128) {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
@@ -898,7 +899,7 @@ mod tests {
                 masq_token_balance_in_minor_units: expected_masq_balance
             }
         );
-        let expected_gas_price_wei = increase_gas_price_by_marginal(u128::from_str_radix(gas_price_wei_from_rpc_hex,16).unwrap(), chain);
+        let expected_gas_price_wei = increase_gas_price_by_margin(u128::from_str_radix(gas_price_wei_from_rpc_hex,16).unwrap(), chain);
         assert_eq!(ripe_qualified_payables, expected_ripe_qualified_payables);
         assert_eq!(
             result.estimated_transaction_fee_total(),
@@ -917,9 +918,9 @@ mod tests {
         let account_2 = make_payable_account(34);
         let raw_qualified_payables = QualifiedPayablesRawPack::from(vec![account_1.clone(), account_2.clone()]);
         let subject = make_blockchain_interface_web3(port);
-        
+
         let result = subject.introduce_blockchain_agent(raw_qualified_payables, wallet.clone()).wait();
-        
+
         let err = match result {
             Err(e) => e,
             _ => panic!("we expected Err() but got Ok()"),
@@ -935,7 +936,7 @@ mod tests {
         let expected_err_factory = |_wallet:&Wallet| BlockchainAgentBuildError::GasPrice(QueryFailed(
             "Transport error: Error(IncompleteMessage)".to_string(),
         ));
-        
+
         build_of_the_blockchain_agent_fails_on_blockchain_interface_error(port, expected_err_factory);
     }
 

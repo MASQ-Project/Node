@@ -13,9 +13,6 @@ use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 pub struct QualifiedPayablesMessage {
     pub qualified_payables: QualifiedPayablesRawPack,
     pub consuming_wallet: Wallet,
-    // // None = NewPayableScanner
-    // // Some = RetryPayableScanner
-    // pub previous_attempt_gas_price_values_minor_opt: Option<HashMap<Address, u128>>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
@@ -26,7 +23,7 @@ pub struct QualifiedPayablesRawPack {
 
 impl From<Vec<PayableAccount>> for QualifiedPayablesRawPack {
     fn from(qualified_payable: Vec<PayableAccount>) -> Self {
-        todo!()
+       QualifiedPayablesRawPack{ payables: qualified_payable.into_iter().map(|payable| QualifiedPayablesBeforeGasPricePick::new(payable, None)).collect()}
     }
 }
 
@@ -38,7 +35,6 @@ pub struct QualifiedPayablesBeforeGasPricePick {
 
 impl QualifiedPayablesBeforeGasPricePick {
     pub fn new(payable: PayableAccount, previous_attempt_gas_price_minor_opt: Option<u128>) -> Self {
-        todo!();
         Self {
             payable,
             previous_attempt_gas_price_minor_opt
@@ -48,7 +44,7 @@ impl QualifiedPayablesBeforeGasPricePick {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct QualifiedPayablesRipePack {
-    pub payables: Vec<QualifiedPayableWithGasPrice>,
+    pub payables: Vec<QualifiedPayablesWithGasPrice>,
 }
 
 impl Into<Vec<PayableAccount>> for QualifiedPayablesRipePack {
@@ -58,14 +54,13 @@ impl Into<Vec<PayableAccount>> for QualifiedPayablesRipePack {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct QualifiedPayableWithGasPrice{
+pub struct QualifiedPayablesWithGasPrice{
     pub payable: PayableAccount,
     pub gas_price_minor: u128
 }
 
-impl QualifiedPayableWithGasPrice {
+impl QualifiedPayablesWithGasPrice {
     pub fn new(payable: PayableAccount, gas_price_minor: u128) -> Self {
-        todo!();
         Self {
             payable,
             gas_price_minor

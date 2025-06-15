@@ -642,7 +642,7 @@ mod tests {
 
     #[test]
     fn send_payables_within_batch_works() {
-        let accounts = vec![make_payable_account(1), make_payable_account(2)];
+        let account_1 = make_payable_account(1); let account_2 = make_payable_account(2);
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .begin_batch()
@@ -653,14 +653,14 @@ mod tests {
             .start();
         let expected_result = Ok(vec![
             Correct(PendingPayable {
-                recipient_wallet: accounts[0].wallet.clone(),
+                recipient_wallet: account_1.wallet.clone(),
                 hash: H256::from_str(
                     "35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4",
                 )
                 .unwrap(),
             }),
             Correct(PendingPayable {
-                recipient_wallet: accounts[1].wallet.clone(),
+                recipient_wallet: account_2.wallet.clone(),
                 hash: H256::from_str(
                     "7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3",
                 )
@@ -670,7 +670,7 @@ mod tests {
 
         execute_send_payables_test(
             "send_payables_within_batch_works",
-            accounts,
+            make_ripe_qualified_payables(vec![(account_1, 111_111_111), (account_2, 222_222_222)]),
             expected_result,
             port,
         );
@@ -678,7 +678,7 @@ mod tests {
 
     #[test]
     fn send_payables_within_batch_fails_on_submit_batch_call() {
-        let accounts = vec![make_payable_account(1), make_payable_account(2)];
+        let accounts = make_ripe_qualified_payables(vec![(make_payable_account(1), 111_222_333), (make_payable_account(2),222_333_444)]);
         let os_code = transport_error_code();
         let os_msg = transport_error_message();
         let port = find_free_port();
@@ -700,7 +700,8 @@ mod tests {
 
     #[test]
     fn send_payables_within_batch_all_payments_fail() {
-        let accounts = vec![make_payable_account(1), make_payable_account(2)];
+        let account_1 = make_payable_account(1);
+        let account_2 = make_payable_account(2);
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .begin_batch()
@@ -725,7 +726,7 @@ mod tests {
                     message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string(),
                     data: None,
                 }),
-                recipient_wallet: accounts[0].wallet.clone(),
+                recipient_wallet: account_1.wallet.clone(),
                 hash: H256::from_str("35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4").unwrap(),
             }),
             Failed(RpcPayableFailure {
@@ -734,14 +735,14 @@ mod tests {
                     message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string(),
                     data: None,
                 }),
-                recipient_wallet: accounts[1].wallet.clone(),
+                recipient_wallet: account_2.wallet.clone(),
                 hash: H256::from_str("7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3").unwrap(),
             }),
         ]);
 
         execute_send_payables_test(
             "send_payables_within_batch_all_payments_fail",
-            accounts,
+            make_ripe_qualified_payables(vec![(account_1, 111_111_111), (account_2,111_111_111)]),
             expected_result,
             port,
         );
@@ -749,7 +750,8 @@ mod tests {
 
     #[test]
     fn send_payables_within_batch_one_payment_works_the_other_fails() {
-        let accounts = vec![make_payable_account(1), make_payable_account(2)];
+        let account_1 = make_payable_account(1);
+        let account_2 = make_payable_account(2);
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .begin_batch()
@@ -764,7 +766,7 @@ mod tests {
             .start();
         let expected_result = Ok(vec![
             Correct(PendingPayable {
-                recipient_wallet: accounts[0].wallet.clone(),
+                recipient_wallet: account_1.wallet.clone(),
                 hash: H256::from_str("35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4").unwrap(),
             }),
             Failed(RpcPayableFailure {
@@ -773,14 +775,14 @@ mod tests {
                     message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string(),
                     data: None,
                 }),
-                recipient_wallet: accounts[1].wallet.clone(),
+                recipient_wallet: account_2.wallet.clone(),
                 hash: H256::from_str("7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3").unwrap(),
             }),
         ]);
 
         execute_send_payables_test(
             "send_payables_within_batch_one_payment_works_the_other_fails",
-            accounts,
+            make_ripe_qualified_payables(vec![(account_1, 111_111_111), (account_2,111_111_111)]),
             expected_result,
             port,
         );

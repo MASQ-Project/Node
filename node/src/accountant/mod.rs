@@ -1639,9 +1639,9 @@ mod tests {
         let agent_id_stamp_first_phase = ArbitraryIdStamp::new();
         let agent =
             BlockchainAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp_first_phase);
-        let initial_unadjusted_accounts = protect_payables_in_test(vec![
-            unadjusted_account_1.clone(),
-            unadjusted_account_2.clone(),
+        let initial_unadjusted_accounts = make_ripe_qualified_payables(vec![
+            (unadjusted_account_1.clone(),111_222_333),
+            (unadjusted_account_2.clone(),222_333_444),
         ]);
         let msg = BlockchainAgentWithContextMessage {
             qualified_payables: initial_unadjusted_accounts.clone(),
@@ -1653,7 +1653,7 @@ mod tests {
         let agent_id_stamp_second_phase = ArbitraryIdStamp::new();
         let agent =
             BlockchainAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp_second_phase);
-        let affordable_accounts = vec![adjusted_account_1.clone(), adjusted_account_2.clone()];
+        let affordable_accounts = make_ripe_qualified_payables(vec![(adjusted_account_1.clone(), 111_222_333), (adjusted_account_2.clone(),222_333_444)]);
         let payments_instructions = OutboundPaymentsInstructions {
             affordable_accounts: affordable_accounts.clone(),
             agent: Box::new(agent),
@@ -1696,7 +1696,7 @@ mod tests {
         );
         assert!(
             before <= captured_now && captured_now <= after,
-            "captured timestamp should have been between {:?} and {:?} but was {:?}",
+            "captured should be between {:?} and {:?} but was {:?}",
             before,
             after,
             captured_now
@@ -1955,7 +1955,7 @@ mod tests {
         assert_eq!(
             message,
             &QualifiedPayablesMessage {
-                qualified_payables: protect_payables_in_test(qualified_payables),
+                qualified_payables: QualifiedPayablesRawPack::from(qualified_payables),
                 consuming_wallet,
                 response_skeleton_opt: None,
             }
@@ -2346,7 +2346,7 @@ mod tests {
             .begin_scan_params(&begin_scan_params_arc)
             .begin_scan_result(Err(BeginScanError::NothingToProcess))
             .begin_scan_result(Ok(QualifiedPayablesMessage {
-                qualified_payables: protect_payables_in_test(vec![make_payable_account(
+                qualified_payables: QualifiedPayablesRawPack::from(vec![make_payable_account(
                     123,
                 )]),
                 consuming_wallet: consuming_wallet.clone(),
@@ -2355,7 +2355,7 @@ mod tests {
             .stop_the_system_after_last_msg();
         let mut config = bc_from_earning_wallet(make_wallet("hi"));
         config.scan_intervals_opt = Some(ScanIntervals {
-            payable_scan_interval: Duration::from_millis(97),
+            payable_scan_interval: Duration::from_millis(25),
             receivable_scan_interval: Duration::from_secs(100), // We'll never run this scanner
             pending_payable_scan_interval: Duration::from_secs(100), // We'll never run this scanner
         });
@@ -2423,13 +2423,13 @@ mod tests {
                     ScanForPayables {
                         response_skeleton_opt: None
                     },
-                    Duration::from_millis(97)
+                    Duration::from_millis(25)
                 ),
                 (
                     ScanForPayables {
                         response_skeleton_opt: None
                     },
-                    Duration::from_millis(97)
+                    Duration::from_millis(25)
                 ),
             ]
         )
@@ -2590,7 +2590,7 @@ mod tests {
         });
         let now = to_unix_timestamp(SystemTime::now());
         let qualified_payables = vec![
-            // slightly above minimum balance, to the right of the curve (time intersection)
+            // Slightly above the minimum balance, to the right of the curve (time intersection)
             PayableAccount {
                 wallet: make_wallet("wallet0"),
                 balance_wei: gwei_to_wei(
@@ -2605,7 +2605,7 @@ mod tests {
                 ),
                 pending_payable_opt: None,
             },
-            // slightly above the curve (balance intersection), to the right of minimum time
+            // Slightly above the curve (balance intersection), to the right of minimum time
             PayableAccount {
                 wallet: make_wallet("wallet1"),
                 balance_wei: gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 1),
@@ -2646,7 +2646,7 @@ mod tests {
         assert_eq!(
             message,
             &QualifiedPayablesMessage {
-                qualified_payables: protect_payables_in_test(qualified_payables),
+                qualified_payables: QualifiedPayablesRawPack::from(qualified_payables),
                 consuming_wallet,
                 response_skeleton_opt: None,
             }
