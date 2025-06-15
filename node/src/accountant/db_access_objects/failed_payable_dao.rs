@@ -1,10 +1,11 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::db_access_objects::utils::{TxHash, TxIdentifiers};
+use crate::accountant::db_access_objects::failed_payable_dao::FailureRetrieveCondition::UncheckedPendingTooLong;
+use crate::accountant::db_access_objects::utils::{TxHash, TxIdentifiers, VigilantRusqliteFlatten};
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::{checked_conversion, comma_joined_stringifiable};
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use masq_lib::utils::ExpectValue;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use web3::types::Address;
@@ -36,8 +37,6 @@ impl FromStr for FailureReason {
     }
 }
 
-pub type FailureUpdates = HashMap<TxHash, FailureReason>;
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FailedTx {
     pub hash: TxHash,
@@ -47,18 +46,18 @@ pub struct FailedTx {
     pub gas_price_wei: u128,
     pub nonce: u64,
     pub reason: FailureReason,
-    pub checked: u8,
+    pub rechecked: bool,
 }
 
 pub enum FailureRetrieveCondition {
-    ByReason(FailureReason),
+    UncheckedPendingTooLong,
 }
 
 impl Display for FailureRetrieveCondition {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            FailureRetrieveCondition::ByReason(reason) => {
-                write!(f, "WHERE reason IS '{:?}'", reason)
+            FailureRetrieveCondition::UncheckedPendingTooLong => {
+                write!(f, "WHERE reason = 'PendingTooLong' AND rechecked = 0",)
             }
         }
     }
@@ -68,7 +67,7 @@ pub trait FailedPayableDao {
     fn get_tx_identifiers(&self, hashes: &HashSet<TxHash>) -> TxIdentifiers;
     fn insert_new_records(&self, txs: &[FailedTx]) -> Result<(), FailedPayableDaoError>;
     fn retrieve_txs(&self, condition: Option<FailureRetrieveCondition>) -> Vec<FailedTx>;
-    fn update_tx_failures(&self, hash_map: &FailureUpdates) -> Result<(), FailedPayableDaoError>;
+    fn mark_as_rechecked(&self) -> Result<(), FailedPayableDaoError>;
     fn delete_records(&self, hashes: &HashSet<TxHash>) -> Result<(), FailedPayableDaoError>;
 }
 
@@ -97,14 +96,14 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
             .unwrap_or_else(|_| panic!("Failed to prepare SQL statement"));
 
         stmt.query_map([], |row| {
-            let tx_hash_str: String = row.get(0).unwrap_or_default();
-            let tx_hash = TxHash::from_str(&tx_hash_str[2..]).unwrap_or_default();
-            let row_id: u64 = row.get(1).unwrap_or_default();
+            let tx_hash_str: String = row.get(0).expectv("tx_hash");
+            let tx_hash = TxHash::from_str(&tx_hash_str[2..]).expect("Failed to parse TxHash");
+            let row_id: u64 = row.get(1).expectv("row_id");
 
             Ok((tx_hash, row_id))
         })
         .unwrap_or_else(|_| panic!("Failed to execute query"))
-        .filter_map(Result::ok)
+        .vigilant_flatten()
         .collect()
     }
 
@@ -115,15 +114,25 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
 
         let unique_hashes: HashSet<TxHash> = txs.iter().map(|tx| tx.hash).collect();
         if unique_hashes.len() != txs.len() {
-            return Err(FailedPayableDaoError::InvalidInput(
-                "Duplicate hashes found in the input".to_string(),
-            ));
+            return Err(FailedPayableDaoError::InvalidInput(format!(
+                "Duplicate hashes found in the input. Input Transactions: {:?}",
+                txs
+            )));
         }
 
-        if !self.get_tx_identifiers(&unique_hashes).is_empty() {
-            return Err(FailedPayableDaoError::InvalidInput(
-                "Input hash is already present in the database".to_string(),
-            ));
+        let duplicates = self.get_tx_identifiers(&unique_hashes);
+        if !duplicates.is_empty() {
+            return Err(FailedPayableDaoError::InvalidInput(format!(
+                "Duplicates detected in the database: {:?}",
+                duplicates,
+            )));
+        }
+
+        if let Some(_rechecked_tx) = txs.iter().find(|tx| tx.rechecked) {
+            return Err(FailedPayableDaoError::InvalidInput(format!(
+                "Already rechecked transaction(s) provided: {:?}",
+                txs
+            )));
         }
 
         let sql = format!(
@@ -137,7 +146,7 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
              gas_price_wei_low_b, \
              nonce, \
              reason, \
-             checked
+             rechecked
              ) VALUES {}",
             comma_joined_stringifiable(txs, |tx| {
                 let amount_checked = checked_conversion::<u128, i128>(tx.amount);
@@ -156,7 +165,7 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
                     gas_price_wei_low_b,
                     tx.nonce,
                     tx.reason,
-                    tx.checked
+                    tx.rechecked
                 )
             })
         );
@@ -178,8 +187,17 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
     }
 
     fn retrieve_txs(&self, condition: Option<FailureRetrieveCondition>) -> Vec<FailedTx> {
-        let raw_sql = "SELECT tx_hash, receiver_address, amount_high_b, amount_low_b, \
-        timestamp, gas_price_wei_high_b, gas_price_wei_low_b, nonce, reason, checked FROM failed_payable"
+        let raw_sql = "SELECT tx_hash, \
+                              receiver_address, \
+                              amount_high_b, \
+                              amount_low_b, \
+                              timestamp, \
+                              gas_price_wei_high_b, \
+                              gas_price_wei_low_b, \
+                              nonce, \
+                              reason, \
+                              rechecked \
+                       FROM failed_payable"
             .to_string();
         let sql = match condition {
             None => raw_sql,
@@ -209,7 +227,8 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
             let reason_str: String = row.get(8).expectv("reason");
             let reason =
                 FailureReason::from_str(&reason_str).expect("Failed to parse FailureReason");
-            let checked: u8 = row.get(9).expectv("checked");
+            let rechecked_as_integer: u8 = row.get(9).expectv("rechecked");
+            let rechecked = rechecked_as_integer == 1;
 
             Ok(FailedTx {
                 hash,
@@ -219,43 +238,40 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
                 gas_price_wei,
                 nonce,
                 reason,
-                checked,
+                rechecked,
             })
         })
         .expect("Failed to execute query")
-        .filter_map(Result::ok)
+        .vigilant_flatten()
         .collect()
     }
 
-    fn update_tx_failures(&self, hash_map: &FailureUpdates) -> Result<(), FailedPayableDaoError> {
-        if hash_map.is_empty() {
-            return Err(FailedPayableDaoError::EmptyInput);
-        }
+    fn mark_as_rechecked(&self) -> Result<(), FailedPayableDaoError> {
+        let txs = self.retrieve_txs(Some(UncheckedPendingTooLong));
+        let hashes_vec: Vec<TxHash> = txs.iter().map(|tx| tx.hash).collect();
+        let hashes_string = comma_joined_stringifiable(&hashes_vec, |hash| format!("'{:?}'", hash));
 
-        for (hash, failure_reason) in hash_map {
-            let sql = format!(
-                "UPDATE failed_payable SET reason = '{:?}' WHERE tx_hash = '{:?}'",
-                failure_reason, hash
-            );
+        let sql = format!(
+            "UPDATE failed_payable SET rechecked = 1 WHERE tx_hash IN ({})",
+            hashes_string
+        );
 
-            match self.conn.prepare(&sql).expect("Internal error").execute([]) {
-                Ok(updated_rows) => {
-                    if updated_rows == 1 {
-                        continue;
-                    } else {
-                        return Err(FailedPayableDaoError::PartialExecution(format!(
-                            "Failed to update failure reason for hash {:?}",
-                            hash
-                        )));
-                    }
-                }
-                Err(e) => {
-                    return Err(FailedPayableDaoError::SqlExecutionFailed(e.to_string()));
+        match self.conn.prepare(&sql).expect("Internal error").execute([]) {
+            Ok(rows_changed) => {
+                if rows_changed == txs.len() {
+                    Ok(())
+                } else {
+                    // This should never occur because we retrieve transaction hashes
+                    // under the condition that all retrieved transactions are unchecked.
+                    Err(FailedPayableDaoError::PartialExecution(format!(
+                        "Only {} of {} records has been marked as rechecked.",
+                        rows_changed,
+                        txs.len(),
+                    )))
                 }
             }
+            Err(e) => Err(FailedPayableDaoError::SqlExecutionFailed(e.to_string())),
         }
-
-        Ok(())
     }
 
     fn delete_records(&self, hashes: &HashSet<TxHash>) -> Result<(), FailedPayableDaoError> {
@@ -277,7 +293,7 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
                     Err(FailedPayableDaoError::NoChange)
                 } else {
                     Err(FailedPayableDaoError::PartialExecution(format!(
-                        "Only {} of the {} hashes has been deleted.",
+                        "Only {} of {} hashes has been deleted.",
                         deleted_rows,
                         hashes.len(),
                     )))
@@ -293,21 +309,22 @@ mod tests {
     use crate::accountant::db_access_objects::failed_payable_dao::FailureReason::{
         NonceIssue, PendingTooLong,
     };
-    use crate::accountant::db_access_objects::failed_payable_dao::FailureRetrieveCondition::ByReason;
     use crate::accountant::db_access_objects::failed_payable_dao::{
         FailedPayableDao, FailedPayableDaoError, FailedPayableDaoReal, FailureReason,
         FailureRetrieveCondition,
     };
-    use crate::accountant::db_access_objects::test_utils::FailedTxBuilder;
+    use crate::accountant::db_access_objects::test_utils::{
+        make_read_only_db_connection, FailedTxBuilder,
+    };
+    use crate::accountant::db_access_objects::utils::current_unix_timestamp;
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::database::db_initializer::{
-        DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
+        DbInitializationConfig, DbInitializer, DbInitializerReal,
     };
-    use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::database::test_utils::ConnectionWrapperMock;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use rusqlite::{Connection, OpenFlags};
-    use std::collections::{HashMap, HashSet};
+    use rusqlite::Connection;
+    use std::collections::HashSet;
     use std::str::FromStr;
 
     #[test]
@@ -317,11 +334,13 @@ mod tests {
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let tx1 = FailedTxBuilder::default().hash(make_tx_hash(1)).build();
+        let tx1 = FailedTxBuilder::default()
+            .hash(make_tx_hash(1))
+            .reason(NonceIssue)
+            .build();
         let tx2 = FailedTxBuilder::default()
             .hash(make_tx_hash(2))
             .reason(PendingTooLong)
-            .checked(1)
             .build();
         let subject = FailedPayableDaoReal::new(wrapped_conn);
         let txs = vec![tx1, tx2];
@@ -330,7 +349,6 @@ mod tests {
 
         let retrieved_txs = subject.retrieve_txs(None);
         assert_eq!(result, Ok(()));
-        assert_eq!(retrieved_txs.len(), 2);
         assert_eq!(retrieved_txs, txs);
     }
 
@@ -362,7 +380,10 @@ mod tests {
             .unwrap();
         let hash = make_tx_hash(123);
         let tx1 = FailedTxBuilder::default().hash(hash).build();
-        let tx2 = FailedTxBuilder::default().hash(hash).checked(1).build();
+        let tx2 = FailedTxBuilder::default()
+            .hash(hash)
+            .rechecked(true)
+            .build();
         let subject = FailedPayableDaoReal::new(wrapped_conn);
 
         let result = subject.insert_new_records(&vec![tx1, tx2]);
@@ -370,7 +391,18 @@ mod tests {
         assert_eq!(
             result,
             Err(FailedPayableDaoError::InvalidInput(
-                "Duplicate hashes found in the input".to_string()
+                "Duplicate hashes found in the input. Input Transactions: \
+                [FailedTx { \
+                hash: 0x000000000000000000000000000000000000000000000000000000000000007b, \
+                receiver_address: 0x0000000000000000000000000000000000000000, \
+                amount: 0, timestamp: 0, gas_price_wei: 0, \
+                nonce: 0, reason: PendingTooLong, rechecked: false }, \
+                FailedTx { \
+                hash: 0x000000000000000000000000000000000000000000000000000000000000007b, \
+                receiver_address: 0x0000000000000000000000000000000000000000, \
+                amount: 0, timestamp: 0, gas_price_wei: 0, \
+                nonce: 0, reason: PendingTooLong, rechecked: true }]"
+                    .to_string()
             ))
         );
     }
@@ -386,7 +418,10 @@ mod tests {
             .unwrap();
         let hash = make_tx_hash(123);
         let tx1 = FailedTxBuilder::default().hash(hash).build();
-        let tx2 = FailedTxBuilder::default().hash(hash).checked(1).build();
+        let tx2 = FailedTxBuilder::default()
+            .hash(hash)
+            .rechecked(true)
+            .build();
         let subject = FailedPayableDaoReal::new(wrapped_conn);
         let initial_insertion_result = subject.insert_new_records(&vec![tx1]);
 
@@ -396,8 +431,41 @@ mod tests {
         assert_eq!(
             result,
             Err(FailedPayableDaoError::InvalidInput(
-                "Input hash is already present in the database".to_string()
+                "Duplicates detected in the database: \
+                {0x000000000000000000000000000000000000000000000000000000000000007b: 1}"
+                    .to_string()
             ))
+        );
+    }
+
+    #[test]
+    fn insert_new_records_throws_err_if_an_already_rechecked_tx_is_supplied() {
+        let home_dir = ensure_node_home_directory_exists(
+            "failed_payable_dao",
+            "insert_new_records_throws_err_if_an_already_rechecked_tx_is_supplied",
+        );
+        let wrapped_conn = DbInitializerReal::default()
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
+        let subject = FailedPayableDaoReal::new(wrapped_conn);
+        let tx1 = FailedTxBuilder::default()
+            .hash(make_tx_hash(1))
+            .rechecked(true)
+            .build();
+        let tx2 = FailedTxBuilder::default()
+            .hash(make_tx_hash(2))
+            .rechecked(false)
+            .build();
+        let input = vec![tx1, tx2];
+
+        let result = subject.insert_new_records(&input);
+
+        assert_eq!(
+            result,
+            Err(FailedPayableDaoError::InvalidInput(format!(
+                "Already rechecked transaction(s) provided: {:?}",
+                input
+            )))
         );
     }
 
@@ -431,17 +499,7 @@ mod tests {
             "failed_payable_dao",
             "insert_new_records_can_throw_error",
         );
-        {
-            DbInitializerReal::default()
-                .initialize(&home_dir, DbInitializationConfig::test_default())
-                .unwrap();
-        }
-        let read_only_conn = Connection::open_with_flags(
-            home_dir.join(DATABASE_FILE),
-            OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .unwrap();
-        let wrapped_conn = ConnectionWrapperReal::new(read_only_conn);
+        let wrapped_conn = make_read_only_db_connection(home_dir);
         let tx = FailedTxBuilder::default().build();
         let subject = FailedPayableDaoReal::new(Box::new(wrapped_conn));
 
@@ -497,9 +555,10 @@ mod tests {
 
     #[test]
     fn retrieve_condition_display_works() {
+        let expected_condition = "WHERE reason = 'PendingTooLong' AND rechecked = 0";
         assert_eq!(
-            FailureRetrieveCondition::ByReason(PendingTooLong).to_string(),
-            "WHERE reason IS 'PendingTooLong'"
+            FailureRetrieveCondition::UncheckedPendingTooLong.to_string(),
+            expected_condition
         );
     }
 
@@ -528,138 +587,101 @@ mod tests {
     }
 
     #[test]
-    fn can_retrieve_pending_too_long_txs() {
+    fn can_retrieve_unchecked_pending_too_long_txs() {
+        let home_dir = ensure_node_home_directory_exists(
+            "failed_payable_dao",
+            "can_retrieve_unchecked_pending_too_long_txs",
+        );
+        let wrapped_conn = DbInitializerReal::default()
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
+        let subject = FailedPayableDaoReal::new(wrapped_conn);
+        let now = current_unix_timestamp();
+        let tx1 = FailedTxBuilder::default()
+            .hash(make_tx_hash(1))
+            .reason(PendingTooLong)
+            .timestamp(now - 3600)
+            .rechecked(false)
+            .build();
+        let tx2 = FailedTxBuilder::default()
+            .hash(make_tx_hash(2))
+            .reason(NonceIssue)
+            .rechecked(false)
+            .build();
+        let tx3 = FailedTxBuilder::default()
+            .hash(make_tx_hash(3))
+            .reason(PendingTooLong)
+            .rechecked(false)
+            .timestamp(now - 3000)
+            .build();
+        subject
+            .insert_new_records(&vec![tx1.clone(), tx2, tx3.clone()])
+            .unwrap();
+
+        let result = subject.retrieve_txs(Some(FailureRetrieveCondition::UncheckedPendingTooLong));
+
+        assert_eq!(result, vec![tx1, tx3]);
+    }
+
+    #[test]
+    fn mark_as_rechecked_works() {
         let home_dir =
-            ensure_node_home_directory_exists("sent_payable_dao", "can_retrieve_pending_txs");
+            ensure_node_home_directory_exists("failed_payable_dao", "mark_as_rechecked_works");
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = FailedPayableDaoReal::new(wrapped_conn);
         let tx1 = FailedTxBuilder::default()
             .hash(make_tx_hash(1))
-            .reason(FailureReason::PendingTooLong)
-            .checked(0)
+            .reason(NonceIssue)
+            .rechecked(false)
             .build();
         let tx2 = FailedTxBuilder::default()
             .hash(make_tx_hash(2))
-            .reason(FailureReason::PendingTooLong)
-            .checked(1)
+            .reason(PendingTooLong)
+            .rechecked(false)
             .build();
         let tx3 = FailedTxBuilder::default()
             .hash(make_tx_hash(3))
-            .reason(FailureReason::NonceIssue)
+            .reason(PendingTooLong)
+            .rechecked(false)
             .build();
+        let tx1_pre_checked_state = tx1.rechecked;
+        let tx2_pre_checked_state = tx2.rechecked;
+        let tx3_pre_checked_state = tx3.rechecked;
         subject
-            .insert_new_records(&vec![tx1.clone(), tx2.clone(), tx3.clone()])
+            .insert_new_records(&vec![tx1, tx2.clone(), tx3.clone()])
             .unwrap();
 
-        let result = subject.retrieve_txs(Some(ByReason(PendingTooLong)));
-
-        assert_eq!(result, vec![tx1, tx2]);
-    }
-
-    #[test]
-    fn update_tx_failures_works() {
-        let home_dir =
-            ensure_node_home_directory_exists("failed_payable_dao", "update_tx_failures_works");
-        let wrapped_conn = DbInitializerReal::default()
-            .initialize(&home_dir, DbInitializationConfig::test_default())
-            .unwrap();
-        let subject = FailedPayableDaoReal::new(wrapped_conn);
-        let tx1 = FailedTxBuilder::default().hash(make_tx_hash(1)).build();
-        let tx2 = FailedTxBuilder::default().hash(make_tx_hash(2)).build();
-        subject
-            .insert_new_records(&vec![tx1.clone(), tx2.clone()])
-            .unwrap();
-        let hash_map = HashMap::from([(tx1.hash, PendingTooLong), (tx2.hash, NonceIssue)]);
-
-        let result = subject.update_tx_failures(&hash_map);
+        let result = subject.mark_as_rechecked();
 
         let updated_txs = subject.retrieve_txs(None);
         assert_eq!(result, Ok(()));
-        assert_eq!(updated_txs[0].reason, PendingTooLong);
-        assert_eq!(updated_txs[1].reason, NonceIssue);
+        assert_eq!(tx1_pre_checked_state, false);
+        assert_eq!(tx2_pre_checked_state, false);
+        assert_eq!(tx3_pre_checked_state, false);
+        assert_eq!(updated_txs[0].rechecked, false);
+        assert_eq!(updated_txs[1].rechecked, true);
+        assert_eq!(updated_txs[2].rechecked, true);
     }
 
     #[test]
-    fn update_tx_failures_returns_error_when_input_is_empty() {
+    fn mark_as_rechecked_handles_sql_error() {
         let home_dir = ensure_node_home_directory_exists(
             "failed_payable_dao",
-            "update_tx_failures_returns_error_when_input_is_empty",
+            "mark_as_rechecked_handles_sql_error",
         );
-        let wrapped_conn = DbInitializerReal::default()
-            .initialize(&home_dir, DbInitializationConfig::test_default())
-            .unwrap();
-        let subject = FailedPayableDaoReal::new(wrapped_conn);
-        let existent_hash = make_tx_hash(1);
-        let tx = FailedTxBuilder::default().hash(existent_hash).build();
-        subject.insert_new_records(&vec![tx]).unwrap();
-        let hash_map = HashMap::new();
-
-        let result = subject.update_tx_failures(&hash_map);
-
-        assert_eq!(result, Err(FailedPayableDaoError::EmptyInput));
-    }
-
-    #[test]
-    fn update_tx_failures_returns_error_during_partial_execution() {
-        let home_dir = ensure_node_home_directory_exists(
-            "failed_payable_dao",
-            "update_tx_failures_returns_error_during_partial_execution",
-        );
-        let wrapped_conn = DbInitializerReal::default()
-            .initialize(&home_dir, DbInitializationConfig::test_default())
-            .unwrap();
-        let subject = FailedPayableDaoReal::new(wrapped_conn);
-        let existent_hash = make_tx_hash(1);
-        let non_existent_hash = make_tx_hash(999);
-        let tx = FailedTxBuilder::default().hash(existent_hash).build();
-        subject.insert_new_records(&vec![tx]).unwrap();
-        let hash_map = HashMap::from([
-            (existent_hash, PendingTooLong),
-            (non_existent_hash, NonceIssue),
-        ]);
-
-        let result = subject.update_tx_failures(&hash_map);
-
-        assert_eq!(
-            result,
-            Err(FailedPayableDaoError::PartialExecution(format!(
-                "Failed to update failure reason for hash {:?}",
-                non_existent_hash
-            )))
-        );
-    }
-
-    #[test]
-    fn update_tx_failures_returns_error_when_an_error_occurs_while_executing_sql() {
-        let home_dir = ensure_node_home_directory_exists(
-            "failed_payable_dao",
-            "update_tx_failures_returns_error_when_an_error_occurs_while_executing_sql",
-        );
-        {
-            DbInitializerReal::default()
-                .initialize(&home_dir, DbInitializationConfig::test_default())
-                .unwrap();
-        }
-        let read_only_conn = Connection::open_with_flags(
-            home_dir.join(DATABASE_FILE),
-            OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .unwrap();
-        let wrapped_conn = ConnectionWrapperReal::new(read_only_conn);
+        let wrapped_conn = make_read_only_db_connection(home_dir);
         let subject = FailedPayableDaoReal::new(Box::new(wrapped_conn));
-        let hash = make_tx_hash(1);
-        let hash_map = HashMap::from([(hash, NonceIssue)]);
 
-        let result = subject.update_tx_failures(&hash_map);
+        let result = subject.mark_as_rechecked();
 
         assert_eq!(
             result,
             Err(FailedPayableDaoError::SqlExecutionFailed(
                 "attempt to write a readonly database".to_string()
             ))
-        )
+        );
     }
 
     #[test]
@@ -741,7 +763,7 @@ mod tests {
         assert_eq!(
             result,
             Err(FailedPayableDaoError::PartialExecution(
-                "Only 1 of the 2 hashes has been deleted.".to_string()
+                "Only 1 of 2 hashes has been deleted.".to_string()
             ))
         );
     }
@@ -752,17 +774,7 @@ mod tests {
             "failed_payable_dao",
             "delete_records_returns_a_general_error_from_sql",
         );
-        {
-            DbInitializerReal::default()
-                .initialize(&home_dir, DbInitializationConfig::test_default())
-                .unwrap();
-        }
-        let read_only_conn = Connection::open_with_flags(
-            home_dir.join(DATABASE_FILE),
-            OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .unwrap();
-        let wrapped_conn = ConnectionWrapperReal::new(read_only_conn);
+        let wrapped_conn = make_read_only_db_connection(home_dir);
         let subject = FailedPayableDaoReal::new(Box::new(wrapped_conn));
         let hashes = HashSet::from([make_tx_hash(1)]);
 

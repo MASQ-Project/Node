@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use ethereum_types::{H256, U64};
+use rusqlite::params;
 use web3::types::Address;
 use masq_lib::utils::ExpectValue;
 use crate::accountant::{checked_conversion, comma_joined_stringifiable};
@@ -60,6 +61,7 @@ pub trait SentPayableDao {
     fn insert_new_records(&self, txs: &[Tx]) -> Result<(), SentPayableDaoError>;
     fn retrieve_txs(&self, condition: Option<RetrieveCondition>) -> Vec<Tx>;
     fn update_tx_blocks(&self, hash_map: &TxUpdates) -> Result<(), SentPayableDaoError>;
+    fn replace_record(&self, hash_map: &Tx) -> Result<(), SentPayableDaoError>;
     fn delete_records(&self, hashes: &HashSet<TxHash>) -> Result<(), SentPayableDaoError>;
 }
 
@@ -106,15 +108,18 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
 
         let unique_hashes: HashSet<TxHash> = txs.iter().map(|tx| tx.hash).collect();
         if unique_hashes.len() != txs.len() {
-            return Err(SentPayableDaoError::InvalidInput(
-                "Duplicate hashes found in the input".to_string(),
-            ));
+            return Err(SentPayableDaoError::InvalidInput(format!(
+                "Duplicate hashes found in the input. Input Transactions: {:?}",
+                txs
+            )));
         }
 
-        if !self.get_tx_identifiers(&unique_hashes).is_empty() {
-            return Err(SentPayableDaoError::InvalidInput(
-                "Input hash is already present in the database".to_string(),
-            ));
+        let duplicates = self.get_tx_identifiers(&unique_hashes);
+        if !duplicates.is_empty() {
+            return Err(SentPayableDaoError::InvalidInput(format!(
+                "Duplicates detected in the database: {:?}",
+                duplicates,
+            )));
         }
 
         let sql = format!(
@@ -265,6 +270,61 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
         Ok(())
     }
 
+    fn replace_record(&self, tx: &Tx) -> Result<(), SentPayableDaoError> {
+        let amount_checked = checked_conversion::<u128, i128>(tx.amount);
+        let gas_price_wei_checked = checked_conversion::<u128, i128>(tx.gas_price_wei);
+        let (amount_high_b, amount_low_b) = BigIntDivider::deconstruct(amount_checked);
+        let (gas_price_wei_high_b, gas_price_wei_low_b) =
+            BigIntDivider::deconstruct(gas_price_wei_checked);
+
+        let sql = "UPDATE sent_payable SET
+               tx_hash = ?1,
+               receiver_address = ?2,
+               amount_high_b = ?3,
+               amount_low_b = ?4,
+               timestamp = ?5,
+               gas_price_wei_high_b = ?6,
+               gas_price_wei_low_b = ?7,
+               nonce = ?8,
+               block_hash = ?9,
+               block_number = ?10
+               WHERE nonce = ?11";
+
+        let mut stmt = self
+            .conn
+            .prepare(sql)
+            .map_err(|e| SentPayableDaoError::SqlExecutionFailed(e.to_string()))?;
+
+        let result = stmt.execute(params![
+            format!("{:?}", tx.hash),
+            format!("{:?}", tx.receiver_address),
+            amount_high_b,
+            amount_low_b,
+            tx.timestamp,
+            gas_price_wei_high_b,
+            gas_price_wei_low_b,
+            tx.nonce,
+            tx.block_opt
+                .as_ref()
+                .map(|block| format!("{:?}", block.block_hash)),
+            tx.block_opt
+                .as_ref()
+                .map(|block| block.block_number.as_u64()),
+            tx.nonce
+        ]);
+
+        match result {
+            Ok(updated_rows) => {
+                if updated_rows == 1 {
+                    Ok(())
+                } else {
+                    Err(SentPayableDaoError::NoChange)
+                }
+            }
+            Err(e) => Err(SentPayableDaoError::SqlExecutionFailed(e.to_string())),
+        }
+    }
+
     fn delete_records(&self, hashes: &HashSet<TxHash>) -> Result<(), SentPayableDaoError> {
         if hashes.is_empty() {
             return Err(SentPayableDaoError::EmptyInput);
@@ -300,15 +360,14 @@ mod tests {
     use std::collections::{HashMap, HashSet};
     use crate::accountant::db_access_objects::sent_payable_dao::{RetrieveCondition, SentPayableDao, SentPayableDaoError, SentPayableDaoReal};
     use crate::database::db_initializer::{
-        DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
+        DbInitializationConfig, DbInitializer, DbInitializerReal,
     };
-    use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::database::test_utils::ConnectionWrapperMock;
     use ethereum_types::{ H256, U64};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use rusqlite::{Connection, OpenFlags};
+    use rusqlite::{Connection};
     use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::{ByHash, IsPending};
-    use crate::accountant::db_access_objects::test_utils::TxBuilder;
+    use crate::accountant::db_access_objects::test_utils::{make_read_only_db_connection, TxBuilder};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock};
     use crate::blockchain::test_utils::{make_block_hash, make_tx_hash};
 
@@ -362,9 +421,13 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let hash = make_tx_hash(1234);
-        let tx1 = TxBuilder::default().hash(hash).build();
+        let tx1 = TxBuilder::default()
+            .hash(hash)
+            .timestamp(1749204017)
+            .build();
         let tx2 = TxBuilder::default()
             .hash(hash)
+            .timestamp(1749204020)
             .block(Default::default())
             .build();
         let subject = SentPayableDaoReal::new(wrapped_conn);
@@ -374,7 +437,20 @@ mod tests {
         assert_eq!(
             result,
             Err(SentPayableDaoError::InvalidInput(
-                "Duplicate hashes found in the input".to_string()
+                "Duplicate hashes found in the input. Input Transactions: \
+                [Tx { \
+                hash: 0x00000000000000000000000000000000000000000000000000000000000004d2, \
+                receiver_address: 0x0000000000000000000000000000000000000000, \
+                amount: 0, timestamp: 1749204017, gas_price_wei: 0, \
+                nonce: 0, block_opt: None }, \
+                Tx { \
+                hash: 0x00000000000000000000000000000000000000000000000000000000000004d2, \
+                receiver_address: 0x0000000000000000000000000000000000000000, \
+                amount: 0, timestamp: 1749204020, gas_price_wei: 0, \
+                nonce: 0, block_opt: Some(TransactionBlock { \
+                block_hash: 0x0000000000000000000000000000000000000000000000000000000000000000, \
+                block_number: 0 }) }]"
+                    .to_string()
             ))
         );
     }
@@ -403,7 +479,9 @@ mod tests {
         assert_eq!(
             result,
             Err(SentPayableDaoError::InvalidInput(
-                "Input hash is already present in the database".to_string()
+                "Duplicates detected in the database: \
+                {0x00000000000000000000000000000000000000000000000000000000000004d2: 1}"
+                    .to_string()
             ))
         );
     }
@@ -438,18 +516,8 @@ mod tests {
             "sent_payable_dao",
             "insert_new_records_can_throw_error",
         );
-        {
-            DbInitializerReal::default()
-                .initialize(&home_dir, DbInitializationConfig::test_default())
-                .unwrap();
-        }
-        let read_only_conn = Connection::open_with_flags(
-            home_dir.join(DATABASE_FILE),
-            OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .unwrap();
-        let wrapped_conn = ConnectionWrapperReal::new(read_only_conn);
         let tx = TxBuilder::default().build();
+        let wrapped_conn = make_read_only_db_connection(home_dir);
         let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
 
         let result = subject.insert_new_records(&vec![tx]);
@@ -543,7 +611,7 @@ mod tests {
             .block(Default::default())
             .build();
         subject
-            .insert_new_records(&vec![tx1.clone(), tx2.clone(), tx3.clone()])
+            .insert_new_records(&vec![tx1.clone(), tx2.clone(), tx3])
             .unwrap();
 
         let result = subject.retrieve_txs(Some(RetrieveCondition::IsPending));
@@ -561,13 +629,14 @@ mod tests {
         let subject = SentPayableDaoReal::new(wrapped_conn);
         let tx1 = TxBuilder::default().hash(make_tx_hash(1)).build();
         let tx2 = TxBuilder::default().hash(make_tx_hash(2)).build();
+        let tx3 = TxBuilder::default().hash(make_tx_hash(3)).build();
         subject
-            .insert_new_records(&vec![tx1.clone(), tx2.clone()])
+            .insert_new_records(&vec![tx1.clone(), tx2, tx3.clone()])
             .unwrap();
 
-        let result = subject.retrieve_txs(Some(ByHash(vec![tx1.hash])));
+        let result = subject.retrieve_txs(Some(ByHash(vec![tx1.hash, tx3.hash])));
 
-        assert_eq!(result, vec![tx1]);
+        assert_eq!(result, vec![tx1, tx3]);
     }
 
     #[test]
@@ -610,7 +679,6 @@ mod tests {
             ])
             .unwrap();
         }
-
         let subject = SentPayableDaoReal::new(wrapped_conn);
 
         // This should panic due to invalid block details
@@ -627,6 +695,8 @@ mod tests {
         let subject = SentPayableDaoReal::new(wrapped_conn);
         let tx1 = TxBuilder::default().hash(make_tx_hash(1)).build();
         let tx2 = TxBuilder::default().hash(make_tx_hash(2)).build();
+        let pre_assert_is_block_details_present_tx1 = tx1.block_opt.is_some();
+        let pre_assert_is_block_details_present_tx2 = tx2.block_opt.is_some();
         subject
             .insert_new_records(&vec![tx1.clone(), tx2.clone()])
             .unwrap();
@@ -647,7 +717,9 @@ mod tests {
 
         let updated_txs = subject.retrieve_txs(Some(ByHash(vec![tx1.hash, tx2.hash])));
         assert_eq!(result, Ok(()));
+        assert_eq!(pre_assert_is_block_details_present_tx1, false);
         assert_eq!(updated_txs[0].block_opt, Some(tx_block_1));
+        assert_eq!(pre_assert_is_block_details_present_tx2, false);
         assert_eq!(updated_txs[1].block_opt, Some(tx_block_2));
     }
 
@@ -719,17 +791,7 @@ mod tests {
             "sent_payable_dao",
             "update_tx_blocks_returns_error_when_an_error_occurs_while_executing_sql",
         );
-        {
-            DbInitializerReal::default()
-                .initialize(&home_dir, DbInitializationConfig::test_default())
-                .unwrap();
-        }
-        let read_only_conn = Connection::open_with_flags(
-            home_dir.join(DATABASE_FILE),
-            OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .unwrap();
-        let wrapped_conn = ConnectionWrapperReal::new(read_only_conn);
+        let wrapped_conn = make_read_only_db_connection(home_dir);
         let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
         let hash = make_tx_hash(1);
         let hash_map = HashMap::from([(
@@ -842,21 +904,79 @@ mod tests {
             "sent_payable_dao",
             "delete_records_returns_a_general_error_from_sql",
         );
-        {
-            DbInitializerReal::default()
-                .initialize(&home_dir, DbInitializationConfig::test_default())
-                .unwrap();
-        }
-        let read_only_conn = Connection::open_with_flags(
-            home_dir.join(DATABASE_FILE),
-            OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .unwrap();
-        let wrapped_conn = ConnectionWrapperReal::new(read_only_conn);
+        let wrapped_conn = make_read_only_db_connection(home_dir);
         let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
         let hashes = HashSet::from([make_tx_hash(1)]);
 
         let result = subject.delete_records(&hashes);
+
+        assert_eq!(
+            result,
+            Err(SentPayableDaoError::SqlExecutionFailed(
+                "attempt to write a readonly database".to_string()
+            ))
+        )
+    }
+
+    #[test]
+    fn replace_record_works_as_expected() {
+        let home_dir = ensure_node_home_directory_exists(
+            "sent_payable_dao",
+            "replace_record_works_as_expected",
+        );
+        let wrapped_conn = DbInitializerReal::default()
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
+        let subject = SentPayableDaoReal::new(wrapped_conn);
+        let tx1 = TxBuilder::default().hash(make_tx_hash(1)).nonce(1).build();
+        let tx2 = TxBuilder::default().hash(make_tx_hash(2)).nonce(2).build();
+        subject
+            .insert_new_records(&vec![tx1.clone(), tx2.clone()])
+            .unwrap();
+        let new_tx2 = TxBuilder::default()
+            .hash(make_tx_hash(22))
+            .block(TransactionBlock {
+                block_hash: make_block_hash(1),
+                block_number: U64::from(1),
+            })
+            .nonce(2)
+            .build();
+
+        let result = subject.replace_record(&new_tx2);
+
+        let retrieved_txs = subject.retrieve_txs(None);
+        assert_eq!(result, Ok(()));
+        assert_eq!(retrieved_txs, vec![tx1, new_tx2]);
+    }
+
+    #[test]
+    fn replace_record_returns_no_change_error_when_no_rows_updated() {
+        let home_dir = ensure_node_home_directory_exists(
+            "sent_payable_dao",
+            "replace_record_returns_no_change_error_when_no_rows_updated",
+        );
+        let wrapped_conn = DbInitializerReal::default()
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
+        let subject = SentPayableDaoReal::new(wrapped_conn);
+        let tx = TxBuilder::default().hash(make_tx_hash(1)).nonce(42).build();
+
+        let result = subject.replace_record(&tx);
+
+        assert_eq!(result, Err(SentPayableDaoError::NoChange));
+    }
+
+    #[test]
+    fn replace_record_returns_a_general_error_from_sql() {
+        let home_dir = ensure_node_home_directory_exists(
+            "sent_payable_dao",
+            "replace_record_returns_a_general_error_from_sql",
+        );
+        let wrapped_conn = make_read_only_db_connection(home_dir);
+        let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
+        let tx = TxBuilder::default().hash(make_tx_hash(1)).nonce(1).build();
+
+        let result = subject.replace_record(&tx);
 
         assert_eq!(
             result,
