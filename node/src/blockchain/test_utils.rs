@@ -185,8 +185,16 @@ pub fn make_default_signed_transaction() -> SignedTransaction {
     }
 }
 
-pub fn make_tx_hash(base: u32) -> H256 {
+pub fn make_hash(base: u32) -> Hash {
     H256::from_uint(&U256::from(base))
+}
+
+pub fn make_tx_hash(base: u32) -> H256 {
+    make_hash(base)
+}
+
+pub fn make_block_hash(base: u32) -> H256 {
+    make_hash(base + 1000000000)
 }
 
 pub fn all_chains() -> [Chain; 4] {
