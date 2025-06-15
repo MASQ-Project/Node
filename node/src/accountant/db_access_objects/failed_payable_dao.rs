@@ -57,11 +57,7 @@ impl Display for FailureRetrieveCondition {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             FailureRetrieveCondition::UncheckedPendingTooLong => {
-                write!(
-                    f,
-                    "WHERE reason = 'PendingTooLong' AND rechecked = 0 \
-                     ORDER BY timestamp DESC",
-                )
+                write!(f, "WHERE reason = 'PendingTooLong' AND rechecked = 0",)
             }
         }
     }
@@ -261,7 +257,19 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
         );
 
         match self.conn.prepare(&sql).expect("Internal error").execute([]) {
-            Ok(_rows) => Ok(()),
+            Ok(rows_changed) => {
+                if rows_changed == txs.len() {
+                    Ok(())
+                } else {
+                    // This should never occur because we retrieve transaction hashes
+                    // under the condition that all retrieved transactions are unchecked.
+                    Err(FailedPayableDaoError::PartialExecution(format!(
+                        "Only {} of {} records has been marked as rechecked.",
+                        rows_changed,
+                        txs.len(),
+                    )))
+                }
+            }
             Err(e) => Err(FailedPayableDaoError::SqlExecutionFailed(e.to_string())),
         }
     }
@@ -547,8 +555,7 @@ mod tests {
 
     #[test]
     fn retrieve_condition_display_works() {
-        let expected_condition = "WHERE reason = 'PendingTooLong' AND rechecked = 0 \
-             ORDER BY timestamp DESC";
+        let expected_condition = "WHERE reason = 'PendingTooLong' AND rechecked = 0";
         assert_eq!(
             FailureRetrieveCondition::UncheckedPendingTooLong.to_string(),
             expected_condition
@@ -602,18 +609,18 @@ mod tests {
             .rechecked(false)
             .build();
         let tx3 = FailedTxBuilder::default()
-            .hash(make_tx_hash(4))
+            .hash(make_tx_hash(3))
             .reason(PendingTooLong)
             .rechecked(false)
             .timestamp(now - 3000)
             .build();
-
         subject
             .insert_new_records(&vec![tx1.clone(), tx2, tx3.clone()])
             .unwrap();
 
         let result = subject.retrieve_txs(Some(FailureRetrieveCondition::UncheckedPendingTooLong));
-        assert_eq!(result, vec![tx3, tx1]);
+
+        assert_eq!(result, vec![tx1, tx3]);
     }
 
     #[test]

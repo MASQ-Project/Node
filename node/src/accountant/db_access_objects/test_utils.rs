@@ -37,6 +37,11 @@ impl TxBuilder {
         self
     }
 
+    pub fn nonce(mut self, nonce: u64) -> Self {
+        self.nonce_opt = Some(nonce);
+        self
+    }
+
     pub fn block(mut self, block: TransactionBlock) -> Self {
         self.block_opt = Some(block);
         self
