@@ -1,6 +1,6 @@
 [package]
 name = "masq_lib"
-version = "0.8.2"
+version = "0.9.0"
 authors = ["Dan Wiebe <dnwiebe@gmail.com>", "MASQ"]
 license = "GPL-3.0-only"
 description = "Code common to Node and masq; also, temporarily, to dns_utility"
