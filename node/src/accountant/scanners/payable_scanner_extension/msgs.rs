@@ -1,8 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::accountant::scanners::payable_scanner_extension::blockchain_agent::BlockchainAgent;
 use crate::accountant::{ResponseSkeleton, SkeletonOptHolder};
+use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use std::collections::{HashMap, HashSet};

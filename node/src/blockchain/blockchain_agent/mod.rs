@@ -1,4 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+pub mod agent_null;
+pub mod agent_web3;
 
 use crate::arbitrary_id_stamp_in_trait;
 use crate::sub_lib::blockchain_bridge::{ConsumingWalletBalances, QualifiedPayableGasPriceSetup};

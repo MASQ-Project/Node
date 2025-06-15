@@ -2,7 +2,7 @@
 
 #![cfg(test)]
 
-use crate::accountant::scanners::payable_scanner_extension::blockchain_agent::BlockchainAgent;
+use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::sub_lib::blockchain_bridge::{ConsumingWalletBalances, QualifiedPayableGasPriceSetup};
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;

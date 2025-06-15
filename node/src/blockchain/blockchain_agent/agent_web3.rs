@@ -1,9 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::scanners::payable_scanner_extension::blockchain_agent::BlockchainAgent;
 use crate::accountant::scanners::payable_scanner_extension::msgs::{
     QualifiedPayablesRawPack, QualifiedPayablesRipePack, QualifiedPayablesWithGasPrice,
 };
+use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
 use crate::sub_lib::blockchain_bridge::{ConsumingWalletBalances, QualifiedPayableGasPriceSetup};
 use crate::sub_lib::wallet::Wallet;
@@ -97,15 +97,14 @@ impl BlockchainAgentWeb3 {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::scanners::payable_scanner_extension::agent_web3::{
-        BlockchainAgentWeb3, WEB3_MAXIMAL_GAS_LIMIT_MARGIN,
-    };
-    use crate::accountant::scanners::payable_scanner_extension::blockchain_agent::BlockchainAgent;
     use crate::accountant::scanners::payable_scanner_extension::msgs::{
         QualifiedPayablesBeforeGasPricePick, QualifiedPayablesRawPack, QualifiedPayablesRipePack,
         QualifiedPayablesWithGasPrice,
     };
     use crate::accountant::test_utils::make_payable_account;
+    use crate::blockchain::blockchain_agent::agent_web3::{
+        BlockchainAgentWeb3, WEB3_MAXIMAL_GAS_LIMIT_MARGIN,
+    };
     use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
     use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use crate::test_utils::make_wallet;
