@@ -1,12 +1,16 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::fmt::Display;
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::BlockchainAgentWeb3;
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
+use crate::accountant::scanners::payable_scanner_extension::agent_web3::BlockchainAgentWeb3;
+use crate::accountant::scanners::payable_scanner_extension::blockchain_agent::BlockchainAgent;
+use crate::accountant::scanners::payable_scanner_extension::msgs::{
+    QualifiedPayablesRawPack, QualifiedPayablesRipePack,
+};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::{BlockchainInterfaceWeb3, HashAndAmount, TRANSFER_METHOD_ID};
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
+    BlockchainInterfaceWeb3, HashAndAmount, TRANSFER_METHOD_ID,
+};
 use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
 use crate::blockchain::blockchain_interface::data_structures::{
     ProcessedPayableFallible, RpcPayableFailure,
@@ -19,13 +23,13 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
 use secp256k1secrets::SecretKey;
 use serde_json::Value;
+use std::fmt::Display;
 use std::time::SystemTime;
 use thousands::Separable;
 use web3::transports::{Batch, Http};
 use web3::types::{Bytes, SignedTransaction, TransactionParameters, U256};
 use web3::Error as Web3Error;
 use web3::Web3;
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{QualifiedPayablesRawPack, QualifiedPayablesRipePack};
 
 #[derive(Debug)]
 pub struct BlockchainAgentFutureResult {
@@ -82,10 +86,7 @@ pub fn merged_output_data(
         .collect()
 }
 
-pub fn transmission_log(
-    chain: Chain,
-    accounts: &QualifiedPayablesRipePack,
-) -> String {
+pub fn transmission_log(chain: Chain, accounts: &QualifiedPayablesRipePack) -> String {
     todo!()
     // let chain_name = chain
     //     .rec()
@@ -104,7 +105,7 @@ pub fn transmission_log(
     //     \n\
     //     {:wallet_address_length$}  {:<payment_length$}  {}\n",
     //     chain_name,
-    //     "[wallet address]", 
+    //     "[wallet address]",
     //     "[payment wei]",
     //     "[gas price wei]",
     //     wallet_address_length = WALLET_ADDRESS_LENGTH,
@@ -295,11 +296,7 @@ pub fn send_payables_within_batch(
         })
         .expect("Accountant is dead");
 
-    info!(
-        logger,
-        "{}",
-        transmission_log(chain, &accounts)
-    );
+    info!(logger, "{}", transmission_log(chain, &accounts));
 
     Box::new(
         web3_batch
@@ -323,12 +320,12 @@ pub fn create_blockchain_agent_web3(
     wallet: Wallet,
     chain: Chain,
 ) -> (Box<dyn BlockchainAgent>, QualifiedPayablesRipePack) {
-    let transaction_fee_balance_in_minor_units = blockchain_agent_future_result
-        .transaction_fee_balance;
+    let transaction_fee_balance_in_minor_units =
+        blockchain_agent_future_result.transaction_fee_balance;
     let masq_token_balance_in_minor_units = blockchain_agent_future_result.masq_token_balance;
     let cons_wallet_balances = ConsumingWalletBalances::new(
         transaction_fee_balance_in_minor_units,
-        masq_token_balance_in_minor_units
+        masq_token_balance_in_minor_units,
     );
     BlockchainAgentWeb3::new(
         qualified_payables,
@@ -345,8 +342,11 @@ mod tests {
     use super::*;
     use crate::accountant::db_access_objects::utils::from_unix_timestamp;
     use crate::accountant::gwei_to_wei;
-    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
-    use crate::accountant::test_utils::{make_payable_account, make_payable_account_with_wallet_and_balance_and_timestamp_opt, make_ripe_qualified_payables};
+    use crate::accountant::scanners::payable_scanner_extension::agent_web3::WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
+    use crate::accountant::test_utils::{
+        make_payable_account, make_payable_account_with_wallet_and_balance_and_timestamp_opt,
+        make_ripe_qualified_payables,
+    };
     use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
         BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
@@ -447,7 +447,8 @@ mod tests {
         let consuming_wallet = make_paying_wallet(b"paying_wallet");
         let account_1 = make_payable_account(1);
         let account_2 = make_payable_account(2);
-        let accounts = make_ripe_qualified_payables(vec![(account_1, 111_111_111), (account_2, 222_222_222)]);
+        let accounts =
+            make_ripe_qualified_payables(vec![(account_1, 111_111_111), (account_2, 222_222_222)]);
 
         let result = sign_and_append_multiple_payments(
             &logger,
@@ -503,7 +504,11 @@ mod tests {
             amount_3,
             None,
         );
-        let accounts_to_process = make_ripe_qualified_payables(vec![(account_1, 123_456_789), (account_2, 234_567_890), (account_3, 345_678_901)]);
+        let accounts_to_process = make_ripe_qualified_payables(vec![
+            (account_1, 123_456_789),
+            (account_2, 234_567_890),
+            (account_3, 345_678_901),
+        ]);
 
         info!(
             logger,
@@ -642,7 +647,8 @@ mod tests {
 
     #[test]
     fn send_payables_within_batch_works() {
-        let account_1 = make_payable_account(1); let account_2 = make_payable_account(2);
+        let account_1 = make_payable_account(1);
+        let account_2 = make_payable_account(2);
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .begin_batch()
@@ -678,7 +684,10 @@ mod tests {
 
     #[test]
     fn send_payables_within_batch_fails_on_submit_batch_call() {
-        let accounts = make_ripe_qualified_payables(vec![(make_payable_account(1), 111_222_333), (make_payable_account(2),222_333_444)]);
+        let accounts = make_ripe_qualified_payables(vec![
+            (make_payable_account(1), 111_222_333),
+            (make_payable_account(2), 222_333_444),
+        ]);
         let os_code = transport_error_code();
         let os_msg = transport_error_message();
         let port = find_free_port();
@@ -742,7 +751,7 @@ mod tests {
 
         execute_send_payables_test(
             "send_payables_within_batch_all_payments_fail",
-            make_ripe_qualified_payables(vec![(account_1, 111_111_111), (account_2,111_111_111)]),
+            make_ripe_qualified_payables(vec![(account_1, 111_111_111), (account_2, 111_111_111)]),
             expected_result,
             port,
         );
@@ -782,7 +791,7 @@ mod tests {
 
         execute_send_payables_test(
             "send_payables_within_batch_one_payment_works_the_other_fails",
-            make_ripe_qualified_payables(vec![(account_1, 111_111_111), (account_2,111_111_111)]),
+            make_ripe_qualified_payables(vec![(account_1, 111_111_111), (account_2, 111_111_111)]),
             expected_result,
             port,
         );

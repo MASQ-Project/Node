@@ -1,5 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+extern crate core;
+
 // These must be before the rest of the modules
 // in order to be able to use the macros.
 #[macro_use]
@@ -20,8 +22,8 @@ pub mod command;
 pub mod constants;
 pub mod crash_point;
 pub mod data_version;
+pub mod exit_locations;
 pub mod shared_schema;
 pub mod test_utils;
-pub mod type_obfuscation;
 pub mod ui_gateway;
 pub mod ui_traffic_converter;

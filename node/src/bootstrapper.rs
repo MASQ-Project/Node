@@ -15,6 +15,7 @@ use crate::json_discriminator_factory::JsonDiscriminatorFactory;
 use crate::listener_handler::ListenerHandler;
 use crate::listener_handler::ListenerHandlerFactory;
 use crate::listener_handler::ListenerHandlerFactoryReal;
+use crate::neighborhood::node_location::get_node_location;
 use crate::neighborhood::DEFAULT_MIN_HOPS;
 use crate::node_configurator::node_configurator_standard::{
     NodeConfiguratorStandardPrivileged, NodeConfiguratorStandardUnprivileged,
@@ -52,7 +53,7 @@ use std::collections::HashMap;
 use std::env::var;
 use std::fmt;
 use std::fmt::{Debug, Display, Error, Formatter};
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::vec::Vec;
@@ -335,7 +336,7 @@ pub struct BootstrapperConfig {
     pub log_level: LevelFilter,
     pub dns_servers: Vec<SocketAddr>,
     pub scan_intervals_opt: Option<ScanIntervals>,
-    pub suppress_initial_scans: bool,
+    pub automatic_scans_enabled: bool,
     pub when_pending_too_long_sec: u64,
     pub crash_point: CrashPoint,
     pub clandestine_discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
@@ -371,7 +372,7 @@ impl BootstrapperConfig {
             log_level: LevelFilter::Off,
             dns_servers: vec![],
             scan_intervals_opt: None,
-            suppress_initial_scans: false,
+            automatic_scans_enabled: true,
             crash_point: CrashPoint::None,
             clandestine_discriminator_factories: vec![],
             ui_gateway_config: UiGatewayConfig {
@@ -415,7 +416,7 @@ impl BootstrapperConfig {
         self.consuming_wallet_opt = unprivileged.consuming_wallet_opt;
         self.db_password_opt = unprivileged.db_password_opt;
         self.scan_intervals_opt = unprivileged.scan_intervals_opt;
-        self.suppress_initial_scans = unprivileged.suppress_initial_scans;
+        self.automatic_scans_enabled = unprivileged.automatic_scans_enabled;
         self.payment_thresholds_opt = unprivileged.payment_thresholds_opt;
         self.when_pending_too_long_sec = unprivileged.when_pending_too_long_sec;
     }
@@ -505,6 +506,8 @@ impl ConfiguredByPrivilege for Bootstrapper {
             &alias_cryptde_null_opt,
             self.config.blockchain_bridge_config.chain,
         );
+        // initialization of CountryFinder
+        let _ = get_node_location(Some(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))));
         let node_descriptor = Bootstrapper::make_local_descriptor(
             cryptdes.main,
             self.config.neighborhood_config.mode.node_addr_opt(),
@@ -1250,7 +1253,7 @@ mod tests {
         unprivileged_config.consuming_wallet_opt = consuming_wallet_opt.clone();
         unprivileged_config.db_password_opt = db_password_opt.clone();
         unprivileged_config.scan_intervals_opt = Some(ScanIntervals::default());
-        unprivileged_config.suppress_initial_scans = false;
+        unprivileged_config.automatic_scans_enabled = true;
         unprivileged_config.when_pending_too_long_sec = DEFAULT_PENDING_TOO_LONG_SEC;
 
         privileged_config.merge_unprivileged(unprivileged_config);
@@ -1275,7 +1278,7 @@ mod tests {
             privileged_config.scan_intervals_opt,
             Some(ScanIntervals::default())
         );
-        assert_eq!(privileged_config.suppress_initial_scans, false);
+        assert_eq!(privileged_config.automatic_scans_enabled, true);
         assert_eq!(
             privileged_config.when_pending_too_long_sec,
             DEFAULT_PENDING_TOO_LONG_SEC

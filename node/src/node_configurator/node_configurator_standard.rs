@@ -1147,12 +1147,11 @@ mod tests {
     }
 
     #[test]
-    fn server_initializer_collected_params_handle_config_file_from_environment_and_real_user_from_config_file_with_data_directory(
-    ) {
+    fn config_file_from_env_and_real_user_from_config_file_with_data_directory_from_command_line() {
         running_test();
         let _guard = EnvironmentGuard::new();
         let _clap_guard = ClapGuard::new();
-        let home_dir = ensure_node_home_directory_exists( "node_configurator_standard","server_initializer_collected_params_handle_config_file_from_environment_and_real_user_from_config_file_with_data_directory");
+        let home_dir = ensure_node_home_directory_exists( "node_configurator_standard","config_file_from_env_and_real_user_from_config_file_with_data_directory_from_command_line");
         let data_dir = &home_dir.join("data_dir");
         create_dir_all(home_dir.join("config")).expect("expected directory for config");
         let config_file_relative = File::create(&home_dir.join("config/config.toml")).unwrap();

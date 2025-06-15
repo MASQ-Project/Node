@@ -6,7 +6,7 @@ pub mod lower_level_interface;
 
 use actix::Recipient;
 use ethereum_types::H256;
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
+use crate::accountant::scanners::payable_scanner_extension::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainAgentBuildError, BlockchainError, PayableTransactionError};
 use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RetrievedBlockchainTransactions};
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
@@ -16,7 +16,7 @@ use masq_lib::blockchains::chains::Chain;
 use web3::types::Address;
 use masq_lib::logger::Logger;
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{QualifiedPayablesRawPack, QualifiedPayablesRipePack};
+use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayablesRawPack, QualifiedPayablesRipePack};
 use crate::blockchain::blockchain_bridge::{BlockMarker, BlockScanRange, PendingPayableFingerprintSeeds};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionReceiptResult;
 
@@ -38,7 +38,12 @@ pub trait BlockchainInterface {
         &self,
         qualified_payables: QualifiedPayablesRawPack,
         consuming_wallet: Wallet,
-    ) -> Box<dyn Future<Item = (Box<dyn BlockchainAgent>, QualifiedPayablesRipePack), Error = BlockchainAgentBuildError>>;
+    ) -> Box<
+        dyn Future<
+            Item = (Box<dyn BlockchainAgent>, QualifiedPayablesRipePack),
+            Error = BlockchainAgentBuildError,
+        >,
+    >;
 
     fn process_transaction_receipts(
         &self,

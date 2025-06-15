@@ -16,18 +16,14 @@ use crate::accountant::db_access_objects::utils::{
     from_unix_timestamp, to_unix_timestamp, CustomQuery,
 };
 use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdjuster};
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesWithGasPrice, QualifiedPayablesBeforeGasPricePick, QualifiedPayablesMessage, QualifiedPayablesRipePack};
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::{
-    MultistagePayableScanner, PreparedAdjustment, SolvencySensitivePaymentInstructor,
+use crate::accountant::scanners::payable_scanner_extension::msgs::{
+    BlockchainAgentWithContextMessage, QualifiedPayablesBeforeGasPricePick,
+    QualifiedPayablesRawPack, QualifiedPayablesRipePack, QualifiedPayablesWithGasPrice,
 };
+use crate::accountant::scanners::payable_scanner_extension::PreparedAdjustment;
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableThresholdsGauge;
-use crate::accountant::scanners::{
-    BeginScanError, PayableScanner, PendingPayableScanner, PeriodicalScanScheduler,
-    ReceivableScanner, ScanSchedulers, Scanner,
-};
-use crate::accountant::{
-    gwei_to_wei, Accountant, ResponseSkeleton, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC,
-};
+use crate::accountant::scanners::{PayableScanner, PendingPayableScanner, ReceivableScanner};
+use crate::accountant::{gwei_to_wei, Accountant, DEFAULT_PENDING_TOO_LONG_SEC};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::HashAndAmount;
 use crate::blockchain::blockchain_interface::data_structures::BlockchainTransaction;
@@ -39,17 +35,13 @@ use crate::db_config::mocks::ConfigDaoMock;
 use crate::sub_lib::accountant::{DaoFactories, FinancialStatistics};
 use crate::sub_lib::accountant::{MessageIdGenerator, PaymentThresholds};
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
-use crate::sub_lib::utils::NotifyLaterHandle;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
 use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 use crate::test_utils::unshared_test_utils::make_bc_with_defaults;
-use actix::{Message, System};
+use actix::System;
 use ethereum_types::H256;
-use itertools::Either;
 use masq_lib::logger::Logger;
-use masq_lib::messages::ScanType;
-use masq_lib::ui_gateway::NodeToUiMessage;
 use rusqlite::{Connection, OpenFlags, Row};
 use std::any::type_name;
 use std::cell::RefCell;
@@ -57,7 +49,7 @@ use std::fmt::Debug;
 use std::path::Path;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
 pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableAccount {
     let now = to_unix_timestamp(SystemTime::now());
@@ -1258,7 +1250,7 @@ pub fn make_pending_payable_fingerprint() -> PendingPayableFingerprint {
     }
 }
 
-pub fn make_payables(
+pub fn make_qualified_and_unqualified_payables(
     now: SystemTime,
     payment_thresholds: &PaymentThresholds,
 ) -> (
@@ -1509,216 +1501,32 @@ impl PaymentAdjusterMock {
     }
 }
 
-macro_rules! formal_traits_for_payable_mid_scan_msg_handling {
-    ($scanner:ty) => {
-        impl MultistagePayableScanner<QualifiedPayablesMessage, SentPayables> for $scanner {}
-
-        impl SolvencySensitivePaymentInstructor for $scanner {
-            fn try_skipping_payment_adjustment(
-                &self,
-                _msg: BlockchainAgentWithContextMessage,
-                _logger: &Logger,
-            ) -> Result<Either<OutboundPaymentsInstructions, PreparedAdjustment>, String> {
-                intentionally_blank!()
-            }
-
-            fn perform_payment_adjustment(
-                &self,
-                _setup: PreparedAdjustment,
-                _logger: &Logger,
-            ) -> OutboundPaymentsInstructions {
-                intentionally_blank!()
-            }
-        }
-    };
-}
-
-pub struct NullScanner {}
-
-impl<BeginMessage, EndMessage> Scanner<BeginMessage, EndMessage> for NullScanner
-where
-    BeginMessage: Message,
-    EndMessage: Message,
-{
-    fn begin_scan(
-        &mut self,
-        _wallet_opt: Wallet,
-        _timestamp: SystemTime,
-        _response_skeleton_opt: Option<ResponseSkeleton>,
-        _logger: &Logger,
-    ) -> Result<BeginMessage, BeginScanError> {
-        Err(BeginScanError::CalledFromNullScanner)
-    }
-
-    fn finish_scan(&mut self, _message: EndMessage, _logger: &Logger) -> Option<NodeToUiMessage> {
-        panic!("Called finish_scan() from NullScanner");
-    }
-
-    fn scan_started_at(&self) -> Option<SystemTime> {
-        panic!("Called scan_started_at() from NullScanner");
-    }
-
-    fn mark_as_started(&mut self, _timestamp: SystemTime) {
-        panic!("Called mark_as_started() from NullScanner");
-    }
-
-    fn mark_as_ended(&mut self, _logger: &Logger) {
-        panic!("Called mark_as_ended() from NullScanner");
-    }
-
-    as_any_ref_in_trait_impl!();
-}
-
-formal_traits_for_payable_mid_scan_msg_handling!(NullScanner);
-
-impl Default for NullScanner {
-    fn default() -> Self {
-        Self::new()
+pub fn make_ripe_qualified_payables(
+    inputs: Vec<(PayableAccount, u128)>,
+) -> QualifiedPayablesRipePack {
+    QualifiedPayablesRipePack {
+        payables: inputs
+            .into_iter()
+            .map(|(payable, gas_price_minor)| QualifiedPayablesWithGasPrice {
+                payable,
+                gas_price_minor,
+            })
+            .collect(),
     }
 }
 
-impl NullScanner {
-    pub fn new() -> Self {
-        Self {}
+pub fn make_raw_qualified_payables_for_retry_mode(
+    inputs: Vec<(PayableAccount, u128)>,
+) -> QualifiedPayablesRawPack {
+    QualifiedPayablesRawPack {
+        payables: inputs
+            .into_iter()
+            .map(|(payable, previous_attempt_gas_price_minor)| {
+                QualifiedPayablesBeforeGasPricePick {
+                    payable,
+                    previous_attempt_gas_price_minor_opt: Some(previous_attempt_gas_price_minor),
+                }
+            })
+            .collect(),
     }
-}
-
-pub struct ScannerMock<BeginMessage, EndMessage> {
-    begin_scan_params: Arc<Mutex<Vec<(Wallet, SystemTime, Option<ResponseSkeleton>, Logger)>>>,
-    begin_scan_results: RefCell<Vec<Result<BeginMessage, BeginScanError>>>,
-    end_scan_params: Arc<Mutex<Vec<EndMessage>>>,
-    end_scan_results: RefCell<Vec<Option<NodeToUiMessage>>>,
-    stop_system_after_last_message: RefCell<bool>,
-}
-
-impl<BeginMessage, EndMessage> Scanner<BeginMessage, EndMessage>
-    for ScannerMock<BeginMessage, EndMessage>
-where
-    BeginMessage: Message,
-    EndMessage: Message,
-{
-    fn begin_scan(
-        &mut self,
-        wallet: Wallet,
-        timestamp: SystemTime,
-        response_skeleton_opt: Option<ResponseSkeleton>,
-        logger: &Logger,
-    ) -> Result<BeginMessage, BeginScanError> {
-        self.begin_scan_params.lock().unwrap().push((
-            wallet,
-            timestamp,
-            response_skeleton_opt,
-            logger.clone(),
-        ));
-        if self.is_allowed_to_stop_the_system() && self.is_last_message() {
-            System::current().stop();
-        }
-        self.begin_scan_results.borrow_mut().remove(0)
-    }
-
-    fn finish_scan(&mut self, message: EndMessage, _logger: &Logger) -> Option<NodeToUiMessage> {
-        self.end_scan_params.lock().unwrap().push(message);
-        if self.is_allowed_to_stop_the_system() && self.is_last_message() {
-            System::current().stop();
-        }
-        self.end_scan_results.borrow_mut().remove(0)
-    }
-
-    fn scan_started_at(&self) -> Option<SystemTime> {
-        intentionally_blank!()
-    }
-
-    fn mark_as_started(&mut self, _timestamp: SystemTime) {
-        intentionally_blank!()
-    }
-
-    fn mark_as_ended(&mut self, _logger: &Logger) {
-        intentionally_blank!()
-    }
-}
-
-impl<BeginMessage, EndMessage> Default for ScannerMock<BeginMessage, EndMessage> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<BeginMessage, EndMessage> ScannerMock<BeginMessage, EndMessage> {
-    pub fn new() -> Self {
-        Self {
-            begin_scan_params: Arc::new(Mutex::new(vec![])),
-            begin_scan_results: RefCell::new(vec![]),
-            end_scan_params: Arc::new(Mutex::new(vec![])),
-            end_scan_results: RefCell::new(vec![]),
-            stop_system_after_last_message: RefCell::new(false),
-        }
-    }
-
-    pub fn begin_scan_params(
-        mut self,
-        params: &Arc<Mutex<Vec<(Wallet, SystemTime, Option<ResponseSkeleton>, Logger)>>>,
-    ) -> Self {
-        self.begin_scan_params = params.clone();
-        self
-    }
-
-    pub fn begin_scan_result(self, result: Result<BeginMessage, BeginScanError>) -> Self {
-        self.begin_scan_results.borrow_mut().push(result);
-        self
-    }
-
-    pub fn stop_the_system_after_last_msg(self) -> Self {
-        self.stop_system_after_last_message.replace(true);
-        self
-    }
-
-    pub fn is_allowed_to_stop_the_system(&self) -> bool {
-        *self.stop_system_after_last_message.borrow()
-    }
-
-    pub fn is_last_message(&self) -> bool {
-        self.is_last_message_from_begin_scan() || self.is_last_message_from_end_scan()
-    }
-
-    pub fn is_last_message_from_begin_scan(&self) -> bool {
-        self.begin_scan_results.borrow().len() == 1 && self.end_scan_results.borrow().is_empty()
-    }
-
-    pub fn is_last_message_from_end_scan(&self) -> bool {
-        self.end_scan_results.borrow().len() == 1 && self.begin_scan_results.borrow().is_empty()
-    }
-}
-
-formal_traits_for_payable_mid_scan_msg_handling!(ScannerMock<QualifiedPayablesMessage, SentPayables>);
-
-impl ScanSchedulers {
-    pub fn update_scheduler<T: Default + 'static>(
-        &mut self,
-        scan_type: ScanType,
-        handle_opt: Option<Box<dyn NotifyLaterHandle<T, Accountant>>>,
-        interval_opt: Option<Duration>,
-    ) {
-        let scheduler = self
-            .schedulers
-            .get_mut(&scan_type)
-            .unwrap()
-            .as_any_mut()
-            .downcast_mut::<PeriodicalScanScheduler<T>>()
-            .unwrap();
-        if let Some(new_handle) = handle_opt {
-            scheduler.handle = new_handle
-        }
-        if let Some(new_interval) = interval_opt {
-            scheduler.interval = new_interval
-        }
-    }
-}
-
-pub fn make_ripe_qualified_payables(inputs: Vec<(PayableAccount, u128)>) -> QualifiedPayablesRipePack {
-    QualifiedPayablesRipePack{ payables: inputs.into_iter().map(|(payable, gas_price_minor)|{
-        QualifiedPayablesWithGasPrice{
-            payable,
-            gas_price_minor,
-        }
-    }).collect() }
 }

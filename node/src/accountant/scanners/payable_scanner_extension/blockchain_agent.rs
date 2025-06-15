@@ -1,12 +1,11 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::collections::HashMap;
-use web3::types::Address;
 use crate::arbitrary_id_stamp_in_trait;
 use crate::sub_lib::blockchain_bridge::{ConsumingWalletBalances, QualifiedPayableGasPriceSetup};
 use crate::sub_lib::wallet::Wallet;
 use masq_lib::blockchains::chains::Chain;
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{QualifiedPayablesRawPack, QualifiedPayablesRipePack};
+use std::collections::HashMap;
+use web3::types::Address;
 // Table of chains by
 //
 // a) adoption of the fee market (variations on "gas price")

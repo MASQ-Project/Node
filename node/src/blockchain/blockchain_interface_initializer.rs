@@ -43,18 +43,20 @@ impl BlockchainInterfaceInitializer {
 
 #[cfg(test)]
 mod tests {
-    use crate::blockchain::blockchain_interface_initializer::BlockchainInterfaceInitializer;
-    use masq_lib::blockchains::chains::Chain;
-    use futures::Future;
-    use std::net::Ipv4Addr;
+    use crate::accountant::scanners::payable_scanner_extension::msgs::{
+        QualifiedPayablesRawPack, QualifiedPayablesRipePack, QualifiedPayablesWithGasPrice,
+    };
+    use crate::accountant::test_utils::make_payable_account;
+    use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
     use crate::blockchain::blockchain_interface::BlockchainInterface;
+    use crate::blockchain::blockchain_interface_initializer::BlockchainInterfaceInitializer;
     use crate::test_utils::make_wallet;
+    use futures::Future;
+    use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
     use masq_lib::utils::find_free_port;
-    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{QualifiedPayablesWithGasPrice, QualifiedPayablesRawPack, QualifiedPayablesRipePack};
-    use crate::accountant::test_utils::make_payable_account;
-    use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
+    use std::net::Ipv4Addr;
 
     #[test]
     fn initialize_web3_interface_works() {
@@ -72,11 +74,12 @@ mod tests {
         let chain = Chain::PolyMainnet;
         let server_url = &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port);
 
-        let result = BlockchainInterfaceInitializer{}.initialize_interface(server_url, chain);
+        let result = BlockchainInterfaceInitializer {}.initialize_interface(server_url, chain);
 
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
-        let raw_qualified_payables = QualifiedPayablesRawPack::from(vec![account_1.clone(), account_2.clone()]);
+        let raw_qualified_payables =
+            QualifiedPayablesRawPack::from(vec![account_1.clone(), account_2.clone()]);
         let payable_wallet = make_wallet("payable");
         let (blockchain_agent, ripe_qualified_payables) = result
             .introduce_blockchain_agent(raw_qualified_payables, payable_wallet)
@@ -84,13 +87,14 @@ mod tests {
             .unwrap();
         assert_eq!(blockchain_agent.consuming_wallet(), &wallet);
         let gas_price_with_margin = increase_gas_price_by_margin(1_000_000_000, chain);
-        let expected_ripe_qualified_payables = QualifiedPayablesRipePack{ payables:
-        vec![QualifiedPayablesWithGasPrice::new(account_1, gas_price_with_margin), QualifiedPayablesWithGasPrice::new(account_2, gas_price_with_margin)]};
+        let expected_ripe_qualified_payables = QualifiedPayablesRipePack {
+            payables: vec![
+                QualifiedPayablesWithGasPrice::new(account_1, gas_price_with_margin),
+                QualifiedPayablesWithGasPrice::new(account_2, gas_price_with_margin),
+            ],
+        };
         assert_eq!(ripe_qualified_payables, expected_ripe_qualified_payables);
-        assert_eq!(
-            blockchain_agent.estimated_transaction_fee_total(),
-            todo!()
-        );
+        assert_eq!(blockchain_agent.estimated_transaction_fee_total(), todo!());
     }
 
     #[test]

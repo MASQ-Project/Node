@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::BlockchainAgentWithContextMessage;
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::PreparedAdjustment;
+use crate::accountant::scanners::payable_scanner_extension::msgs::BlockchainAgentWithContextMessage;
+use crate::accountant::scanners::payable_scanner_extension::PreparedAdjustment;
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use masq_lib::logger::Logger;
 use std::time::SystemTime;
@@ -71,9 +71,8 @@ pub enum AnalysisError {}
 #[cfg(test)]
 mod tests {
     use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
-    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::BlockchainAgentWithContextMessage;
-    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
-    use crate::accountant::scanners::test_utils::protect_payables_in_test;
+    use crate::accountant::scanners::payable_scanner_extension::msgs::BlockchainAgentWithContextMessage;
+    use crate::accountant::scanners::payable_scanner_extension::test_utils::BlockchainAgentMock;
     use crate::accountant::test_utils::{make_payable_account, make_ripe_qualified_payables};
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
@@ -82,7 +81,7 @@ mod tests {
     fn search_for_indispensable_adjustment_always_returns_none() {
         init_test_logging();
         let test_name = "search_for_indispensable_adjustment_always_returns_none";
-        let mut payable = make_payable_account(123);
+        let payable = make_payable_account(123);
         let agent = BlockchainAgentMock::default();
         let setup_msg = BlockchainAgentWithContextMessage {
             qualified_payables: make_ripe_qualified_payables(vec![(payable, 111_111_111)]),

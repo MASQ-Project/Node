@@ -5,7 +5,7 @@ mod utils;
 
 use std::cmp::PartialEq;
 use std::collections::HashMap;
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
+use crate::accountant::scanners::payable_scanner_extension::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainError, PayableTransactionError};
 use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, ProcessedPayableFallible};
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
@@ -23,14 +23,14 @@ use ethereum_types::U64;
 use web3::transports::{EventLoopHandle, Http};
 use web3::types::{Address, Log, H256, U256, FilterBuilder, TransactionReceipt, BlockNumber};
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{QualifiedPayablesRawPack, QualifiedPayablesRipePack};
+use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayablesRawPack, QualifiedPayablesRipePack};
 use crate::blockchain::blockchain_bridge::{BlockMarker, BlockScanRange, PendingPayableFingerprintSeeds};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{LowBlockchainIntWeb3, TransactionReceiptResult, TxReceipt, TxStatus};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::utils::{create_blockchain_agent_web3, send_payables_within_batch, BlockchainAgentFutureResult};
 
-// TODO We probably should begin to attach these constants more tightly to the interface, so that we aren't baffled 
-// which constant belongs to which interface. I suggest to declare them inside the inherent impl block. They will then 
-// need to be preceded by the class name if you want to use them. That could be the distinction we desire, though.    
+// TODO We probably should begin to attach these constants more tightly to the interface, so that we aren't baffled
+// which constant belongs to which interface. I suggest to declare them inside the inherent impl block. They will then
+// need to be preceded by the class name if you want to use them. That could be the distinction we desire, though.
 
 const CONTRACT_ABI: &str = indoc!(
     r#"[{
@@ -166,7 +166,12 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         &self,
         qualified_payables: QualifiedPayablesRawPack,
         consuming_wallet: Wallet,
-    ) -> Box<dyn Future<Item = (Box<dyn BlockchainAgent>, QualifiedPayablesRipePack), Error = BlockchainAgentBuildError>> {
+    ) -> Box<
+        dyn Future<
+            Item = (Box<dyn BlockchainAgent>, QualifiedPayablesRipePack),
+            Error = BlockchainAgentBuildError,
+        >,
+    > {
         let wallet_address = consuming_wallet.address();
         let gas_limit_const_part = self.gas_limit_const_part;
         // TODO: Would it be better to wrap these 3 calls into a single batch call?
@@ -436,7 +441,7 @@ impl BlockchainInterfaceWeb3 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
+    use crate::accountant::scanners::payable_scanner_extension::agent_web3::WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
         BlockchainInterfaceWeb3, CONTRACT_ABI, REQUESTS_IN_PARALLEL, TRANSACTION_LITERAL,
         TRANSFER_METHOD_ID,
@@ -463,7 +468,7 @@ mod tests {
     use std::str::FromStr;
     use web3::transports::Http;
     use web3::types::{H256, U256};
-    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{QualifiedPayablesWithGasPrice, QualifiedPayablesBeforeGasPricePick};
+    use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayablesBeforeGasPricePick, QualifiedPayablesWithGasPrice};
     use crate::accountant::test_utils::make_payable_account;
     use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt, TxStatus};
@@ -841,12 +846,23 @@ mod tests {
     fn blockchain_interface_web3_can_introduce_blockchain_agent_in_the_new_payables_mode() {
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
-        let raw_qualified_payables = QualifiedPayablesRawPack::from(vec![account_1.clone(), account_2.clone()]);
+        let raw_qualified_payables =
+            QualifiedPayablesRawPack::from(vec![account_1.clone(), account_2.clone()]);
         let gas_price_wei_from_rpc_hex = "0x3B9ACA00"; // 1000000000
-        let expected_ripe_qualified_payables = QualifiedPayablesRipePack {payables: vec![QualifiedPayablesWithGasPrice::new(account_1, 1_000_000_000), QualifiedPayablesWithGasPrice::new(account_2, 1_000_000_000)]};
+        let expected_ripe_qualified_payables = QualifiedPayablesRipePack {
+            payables: vec![
+                QualifiedPayablesWithGasPrice::new(account_1, 1_000_000_000),
+                QualifiedPayablesWithGasPrice::new(account_2, 1_000_000_000),
+            ],
+        };
         let expected_estimated_transaction_fee = todo!("fix me");
 
-        blockchain_interface_web3_can_introduce_blockchain_agent(raw_qualified_payables, gas_price_wei_from_rpc_hex, expected_ripe_qualified_payables, expected_estimated_transaction_fee);
+        blockchain_interface_web3_can_introduce_blockchain_agent(
+            raw_qualified_payables,
+            gas_price_wei_from_rpc_hex,
+            expected_ripe_qualified_payables,
+            expected_estimated_transaction_fee,
+        );
     }
 
     #[test]
@@ -854,20 +870,37 @@ mod tests {
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
         let account_3 = make_payable_account(56);
-        let raw_qualified_payables = QualifiedPayablesRawPack{payables:
-        vec![
-            QualifiedPayablesBeforeGasPricePick::new(account_1.clone(), Some(999_999_999)),
-            QualifiedPayablesBeforeGasPricePick::new(account_2.clone(), Some(1_000_000_000)),
-            QualifiedPayablesBeforeGasPricePick::new(account_3.clone(), Some(1_000_000_001))
-        ]};
+        let raw_qualified_payables = QualifiedPayablesRawPack {
+            payables: vec![
+                QualifiedPayablesBeforeGasPricePick::new(account_1.clone(), Some(999_999_999)),
+                QualifiedPayablesBeforeGasPricePick::new(account_2.clone(), Some(1_000_000_000)),
+                QualifiedPayablesBeforeGasPricePick::new(account_3.clone(), Some(1_000_000_001)),
+            ],
+        };
         let gas_price_wei_from_rpc_hex = "0x3B9ACA00"; // 1000000000
-        let expected_ripe_qualified_payables = QualifiedPayablesRipePack {payables: vec![QualifiedPayablesWithGasPrice::new(account_1, 1_000_000_000), QualifiedPayablesWithGasPrice::new(account_2, 1_000_000_000), QualifiedPayablesWithGasPrice::new(account_3, 1_000_000_001)]};
+        let expected_ripe_qualified_payables = QualifiedPayablesRipePack {
+            payables: vec![
+                QualifiedPayablesWithGasPrice::new(account_1, 1_000_000_000),
+                QualifiedPayablesWithGasPrice::new(account_2, 1_000_000_000),
+                QualifiedPayablesWithGasPrice::new(account_3, 1_000_000_001),
+            ],
+        };
         let expected_estimated_transaction_fee = todo!("fix me");
 
-        blockchain_interface_web3_can_introduce_blockchain_agent(raw_qualified_payables, gas_price_wei_from_rpc_hex, expected_ripe_qualified_payables, expected_estimated_transaction_fee);
+        blockchain_interface_web3_can_introduce_blockchain_agent(
+            raw_qualified_payables,
+            gas_price_wei_from_rpc_hex,
+            expected_ripe_qualified_payables,
+            expected_estimated_transaction_fee,
+        );
     }
 
-    fn blockchain_interface_web3_can_introduce_blockchain_agent(raw_qualified_payables: QualifiedPayablesRawPack, gas_price_wei_from_rpc_hex: &str, expected_ripe_qualified_payables: QualifiedPayablesRipePack, expected_estimated_transaction_fee: u128) {
+    fn blockchain_interface_web3_can_introduce_blockchain_agent(
+        raw_qualified_payables: QualifiedPayablesRawPack,
+        gas_price_wei_from_rpc_hex: &str,
+        expected_ripe_qualified_payables: QualifiedPayablesRipePack,
+        expected_estimated_transaction_fee: u128,
+    ) {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             // gas_price
@@ -899,7 +932,6 @@ mod tests {
                 masq_token_balance_in_minor_units: expected_masq_balance
             }
         );
-        let expected_gas_price_wei = increase_gas_price_by_margin(u128::from_str_radix(gas_price_wei_from_rpc_hex,16).unwrap(), chain);
         assert_eq!(ripe_qualified_payables, expected_ripe_qualified_payables);
         assert_eq!(
             result.estimated_transaction_fee_total(),
@@ -916,10 +948,13 @@ mod tests {
         let wallet = make_wallet("bcd");
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
-        let raw_qualified_payables = QualifiedPayablesRawPack::from(vec![account_1.clone(), account_2.clone()]);
+        let raw_qualified_payables =
+            QualifiedPayablesRawPack::from(vec![account_1.clone(), account_2.clone()]);
         let subject = make_blockchain_interface_web3(port);
 
-        let result = subject.introduce_blockchain_agent(raw_qualified_payables, wallet.clone()).wait();
+        let result = subject
+            .introduce_blockchain_agent(raw_qualified_payables, wallet.clone())
+            .wait();
 
         let err = match result {
             Err(e) => e,
@@ -933,11 +968,16 @@ mod tests {
     fn build_of_the_blockchain_agent_fails_on_fetching_gas_price() {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port).start();
-        let expected_err_factory = |_wallet:&Wallet| BlockchainAgentBuildError::GasPrice(QueryFailed(
-            "Transport error: Error(IncompleteMessage)".to_string(),
-        ));
+        let expected_err_factory = |_wallet: &Wallet| {
+            BlockchainAgentBuildError::GasPrice(QueryFailed(
+                "Transport error: Error(IncompleteMessage)".to_string(),
+            ))
+        };
 
-        build_of_the_blockchain_agent_fails_on_blockchain_interface_error(port, expected_err_factory);
+        build_of_the_blockchain_agent_fails_on_blockchain_interface_error(
+            port,
+            expected_err_factory,
+        );
     }
 
     #[test]

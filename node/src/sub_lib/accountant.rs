@@ -3,7 +3,7 @@ use crate::accountant::db_access_objects::banned_dao::BannedDaoFactory;
 use crate::accountant::db_access_objects::payable_dao::PayableDaoFactory;
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayableDaoFactory;
 use crate::accountant::db_access_objects::receivable_dao::ReceivableDaoFactory;
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::BlockchainAgentWithContextMessage;
+use crate::accountant::scanners::payable_scanner_extension::msgs::BlockchainAgentWithContextMessage;
 use crate::accountant::{
     checked_conversion, Accountant, ReceivedPayments, ReportTransactionReceipts, ScanError,
     SentPayables,
@@ -38,8 +38,8 @@ lazy_static! {
         unban_below_gwei: 500_000_000,
     };
     pub static ref DEFAULT_SCAN_INTERVALS: ScanIntervals = ScanIntervals {
-        pending_payable_scan_interval: Duration::from_secs(600),
         payable_scan_interval: Duration::from_secs(600),
+        pending_payable_scan_interval: Duration::from_secs(60),
         receivable_scan_interval: Duration::from_secs(600)
     };
 }
@@ -231,8 +231,8 @@ mod tests {
             unban_below_gwei: 500_000_000,
         };
         let scan_intervals_expected = ScanIntervals {
-            pending_payable_scan_interval: Duration::from_secs(600),
             payable_scan_interval: Duration::from_secs(600),
+            pending_payable_scan_interval: Duration::from_secs(60),
             receivable_scan_interval: Duration::from_secs(600),
         };
         assert_eq!(*DEFAULT_SCAN_INTERVALS, scan_intervals_expected);

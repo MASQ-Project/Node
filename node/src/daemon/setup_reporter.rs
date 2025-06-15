@@ -26,7 +26,7 @@ use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::neighborhood::{NeighborhoodMode as NeighborhoodModeEnum, DEFAULT_RATE_PACK};
 use crate::sub_lib::utils::make_new_multi_config;
 use crate::test_utils::main_cryptde;
-use clap::value_t;
+use clap::{value_t, App};
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain as BlockChain;
 use masq_lib::constants::DEFAULT_CHAIN;
@@ -36,8 +36,10 @@ use masq_lib::messages::{UiSetupRequestValue, UiSetupResponseValue, UiSetupRespo
 use masq_lib::multi_config::{
     CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig, VirtualCommandLine,
 };
-use masq_lib::shared_schema::{shared_app, ConfiguratorError};
-use masq_lib::utils::{add_chain_specific_directory, to_string, ExpectValue};
+use masq_lib::shared_schema::{data_directory_arg, shared_app, ConfiguratorError};
+use masq_lib::utils::{
+    add_chain_specific_directory, to_string, ExpectValue, DATA_DIRECTORY_DAEMON_HELP,
+};
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr};
@@ -65,6 +67,10 @@ pub fn setup_cluster_from(input: Vec<(&str, &str, UiSetupResponseValueStatus)>) 
         .into_iter()
         .map(|(k, v, s)| (k.to_string(), UiSetupResponseValue::new(k, v, s)))
         .collect::<SetupCluster>()
+}
+
+fn setup_reporter_shared_app() -> App<'static, 'static> {
+    shared_app(app_head()).arg(data_directory_arg(DATA_DIRECTORY_DAEMON_HELP.as_str()))
 }
 
 pub trait SetupReporter {
@@ -222,7 +228,7 @@ impl SetupReporterReal {
     }
 
     pub fn get_default_params() -> SetupCluster {
-        let schema = shared_app(app_head());
+        let schema = setup_reporter_shared_app();
         schema
             .p
             .opts
@@ -492,7 +498,7 @@ impl SetupReporterReal {
         environment: bool,
         config_file: bool,
     ) -> Result<MultiConfig<'a>, ConfiguratorError> {
-        let app = shared_app(app_head());
+        let app = setup_reporter_shared_app();
         let mut vcls: Vec<Box<dyn VirtualCommandLine>> = vec![];
         if let Some(command_line) = command_line_opt.clone() {
             vcls.push(Box::new(CommandLineVcl::new(command_line)));
@@ -3440,10 +3446,13 @@ mod tests {
     #[test]
     fn scan_intervals_computed_default_persistent_config_unequal_to_default() {
         let mut scan_intervals = *DEFAULT_SCAN_INTERVALS;
-        scan_intervals.pending_payable_scan_interval = scan_intervals
-            .pending_payable_scan_interval
+        scan_intervals.payable_scan_interval = scan_intervals
+            .payable_scan_interval
             .add(Duration::from_secs(15));
         scan_intervals.pending_payable_scan_interval = scan_intervals
+            .pending_payable_scan_interval
+            .add(Duration::from_secs(20));
+        scan_intervals.receivable_scan_interval = scan_intervals
             .receivable_scan_interval
             .sub(Duration::from_secs(33));
 

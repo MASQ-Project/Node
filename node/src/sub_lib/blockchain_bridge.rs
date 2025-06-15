@@ -1,9 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::collections::HashMap;
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{QualifiedPayablesMessage, QualifiedPayablesRipePack};
+use crate::accountant::scanners::payable_scanner_extension::blockchain_agent::BlockchainAgent;
+use crate::accountant::scanners::payable_scanner_extension::msgs::{
+    QualifiedPayablesMessage, QualifiedPayablesRipePack,
+};
 use crate::accountant::{RequestTransactionReceipts, ResponseSkeleton, SkeletonOptHolder};
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::sub_lib::peer_actors::BindMessage;
@@ -11,6 +12,7 @@ use actix::Message;
 use actix::Recipient;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::ui_gateway::NodeFromUiMessage;
+use std::collections::HashMap;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use web3::types::{Address, U256};
@@ -85,11 +87,14 @@ impl ConsumingWalletBalances {
 #[derive(Debug, PartialEq)]
 pub struct QualifiedPayableGasPriceSetup {
     pub gas_price_arranged_for_individual_txs_minor: HashMap<Address, u128>,
-    pub gas_price_from_last_rpc_minor: u128,  
+    pub gas_price_from_last_rpc_minor: u128,
 }
 
 impl QualifiedPayableGasPriceSetup {
-    pub fn new(gas_price_arranged_for_individual_txs_minor: HashMap<Address, u128>, gas_price_from_last_rpc_minor: u128) -> Self {
+    pub fn new(
+        gas_price_arranged_for_individual_txs_minor: HashMap<Address, u128>,
+        gas_price_from_last_rpc_minor: u128,
+    ) -> Self {
         todo!()
         // Self {
         //     gas_price_arranged_for_individual_txs_minor,
@@ -97,7 +102,6 @@ impl QualifiedPayableGasPriceSetup {
         // }
     }
 }
-
 
 #[cfg(test)]
 mod tests {

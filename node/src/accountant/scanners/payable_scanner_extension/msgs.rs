@@ -1,13 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::collections::{HashMap, HashSet};
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
+use crate::accountant::db_access_objects::payable_dao::PayableAccount;
+use crate::accountant::scanners::payable_scanner_extension::blockchain_agent::BlockchainAgent;
 use crate::accountant::{ResponseSkeleton, SkeletonOptHolder};
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
-use masq_lib::type_obfuscation::Obfuscated;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
-use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 
 #[derive(Debug, Message, PartialEq, Eq, Clone)]
 pub struct QualifiedPayablesMessage {
@@ -23,21 +22,29 @@ pub struct QualifiedPayablesRawPack {
 
 impl From<Vec<PayableAccount>> for QualifiedPayablesRawPack {
     fn from(qualified_payable: Vec<PayableAccount>) -> Self {
-       QualifiedPayablesRawPack{ payables: qualified_payable.into_iter().map(|payable| QualifiedPayablesBeforeGasPricePick::new(payable, None)).collect()}
+        QualifiedPayablesRawPack {
+            payables: qualified_payable
+                .into_iter()
+                .map(|payable| QualifiedPayablesBeforeGasPricePick::new(payable, None))
+                .collect(),
+        }
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct QualifiedPayablesBeforeGasPricePick {
     pub payable: PayableAccount,
-    pub previous_attempt_gas_price_minor_opt: Option<u128>
+    pub previous_attempt_gas_price_minor_opt: Option<u128>,
 }
 
 impl QualifiedPayablesBeforeGasPricePick {
-    pub fn new(payable: PayableAccount, previous_attempt_gas_price_minor_opt: Option<u128>) -> Self {
+    pub fn new(
+        payable: PayableAccount,
+        previous_attempt_gas_price_minor_opt: Option<u128>,
+    ) -> Self {
         Self {
             payable,
-            previous_attempt_gas_price_minor_opt
+            previous_attempt_gas_price_minor_opt,
         }
     }
 }
@@ -54,16 +61,16 @@ impl Into<Vec<PayableAccount>> for QualifiedPayablesRipePack {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct QualifiedPayablesWithGasPrice{
+pub struct QualifiedPayablesWithGasPrice {
     pub payable: PayableAccount,
-    pub gas_price_minor: u128
+    pub gas_price_minor: u128,
 }
 
 impl QualifiedPayablesWithGasPrice {
     pub fn new(payable: PayableAccount, gas_price_minor: u128) -> Self {
         Self {
             payable,
-            gas_price_minor
+            gas_price_minor,
         }
     }
 }
@@ -98,12 +105,12 @@ pub struct BlockchainAgentWithContextMessage {
 impl BlockchainAgentWithContextMessage {
     pub fn new(
         qualified_payables: QualifiedPayablesRipePack,
-        blockchain_agent: Box<dyn BlockchainAgent>,
+        agent: Box<dyn BlockchainAgent>,
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) -> Self {
         Self {
             qualified_payables,
-            agent: blockchain_agent,
+            agent,
             response_skeleton_opt,
         }
     }
@@ -112,8 +119,8 @@ impl BlockchainAgentWithContextMessage {
 #[cfg(test)]
 mod tests {
 
-    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::BlockchainAgentWithContextMessage;
-    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
+    use crate::accountant::scanners::payable_scanner_extension::msgs::BlockchainAgentWithContextMessage;
+    use crate::accountant::scanners::payable_scanner_extension::test_utils::BlockchainAgentMock;
 
     impl Clone for BlockchainAgentWithContextMessage {
         fn clone(&self) -> Self {

@@ -3,8 +3,10 @@
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{CURRENT_LOGFILE_NAME, DEFAULT_CHAIN, DEFAULT_UI_PORT};
-use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, node_home_directory};
-use masq_lib::utils::{add_masq_and_chain_directories, localhost};
+use masq_lib::test_utils::utils::{
+    ensure_node_home_directory_exists, node_home_directory, recreate_data_dir,
+};
+use masq_lib::utils::{add_masq_and_chain_directories, localhost, running_test};
 use node_lib::database::db_initializer::{
     DbInitializationConfig, DbInitializer, DbInitializerReal,
 };
@@ -359,18 +361,15 @@ impl MASQNode {
         ensure_start: bool,
         command_getter: F,
     ) -> MASQNode {
-        let configured_data_dir_opt = match &config_opt {
-            Some(config) => config
-                .value_of("--data-directory")
-                .map(|data_dir_str| PathBuf::from(data_dir_str)),
-            None => None,
-        };
-        let data_dir = match configured_data_dir_opt {
-            Some(data_dir) => data_dir,
-            None => match sterile_database {
-                true => ensure_node_home_directory_exists("integration", test_name),
-                false => node_home_directory("integration", test_name),
-            },
+        running_test();
+        let data_dir = match (
+            sterile_database,
+            Self::data_directory_from_config_opt(&config_opt),
+        ) {
+            (true, None) => ensure_node_home_directory_exists("integration", test_name),
+            (false, None) => node_home_directory("integration", test_name),
+            (false, Some(conf_data_dir)) => PathBuf::from(conf_data_dir),
+            (true, Some(data_dir)) => recreate_data_dir(&PathBuf::from(data_dir)),
         };
         if sterile_logfile {
             let _ = Self::remove_logfile(&data_dir);
@@ -648,6 +647,13 @@ impl MASQNode {
                 None => DEFAULT_UI_PORT,
                 Some(ui_port_string) => ui_port_string.parse::<u16>().unwrap(),
             },
+        }
+    }
+
+    fn data_directory_from_config_opt(config_opt: &Option<CommandConfig>) -> Option<String> {
+        match config_opt {
+            None => None,
+            Some(config) => config.value_of("--data-directory"),
         }
     }
 }
