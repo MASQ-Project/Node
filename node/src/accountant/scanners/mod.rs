@@ -1068,7 +1068,7 @@ mod tests {
     use crate::accountant::db_access_objects::pending_payable_dao::{
         PendingPayable, PendingPayableDaoError, TransactionHashes,
     };
-    use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t};
+    use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp};
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::QualifiedPayablesMessage;
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PendingPayableMetadata;
     use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_none_status, handle_status_with_failure, PendingPayableScanReport};
@@ -2103,11 +2103,11 @@ mod tests {
         let now = SystemTime::now();
         let payment_thresholds = PaymentThresholds::default();
         let debt = gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei + 1);
-        let time = to_time_t(now) - payment_thresholds.maturity_threshold_sec as i64 - 1;
+        let time = to_unix_timestamp(now) - payment_thresholds.maturity_threshold_sec as i64 - 1;
         let unqualified_payable_account = vec![PayableAccount {
             wallet: make_wallet("wallet0"),
             balance_wei: debt,
-            last_paid_timestamp: from_time_t(time),
+            last_paid_timestamp: from_unix_timestamp(time),
             pending_payable_opt: None,
         }];
         let subject = PayableScannerBuilder::new()
@@ -2136,7 +2136,7 @@ mod tests {
         let qualified_payable = PayableAccount {
             wallet: make_wallet("wallet0"),
             balance_wei: debt,
-            last_paid_timestamp: from_time_t(time),
+            last_paid_timestamp: from_unix_timestamp(time),
             pending_payable_opt: None,
         };
         let subject = PayableScannerBuilder::new()
@@ -2168,8 +2168,8 @@ mod tests {
         let unqualified_payable_account = vec![PayableAccount {
             wallet: make_wallet("wallet1"),
             balance_wei: gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei + 1),
-            last_paid_timestamp: from_time_t(
-                to_time_t(now) - payment_thresholds.maturity_threshold_sec as i64 + 1,
+            last_paid_timestamp: from_unix_timestamp(
+                to_unix_timestamp(now) - payment_thresholds.maturity_threshold_sec as i64 + 1,
             ),
             pending_payable_opt: None,
         }];
@@ -2194,7 +2194,7 @@ mod tests {
         let now = SystemTime::now();
         let payable_fingerprint_1 = PendingPayableFingerprint {
             rowid: 555,
-            timestamp: from_time_t(210_000_000),
+            timestamp: from_unix_timestamp(210_000_000),
             hash: make_tx_hash(45678),
             attempt: 1,
             amount: 4444,
@@ -2202,7 +2202,7 @@ mod tests {
         };
         let payable_fingerprint_2 = PendingPayableFingerprint {
             rowid: 550,
-            timestamp: from_time_t(210_000_100),
+            timestamp: from_unix_timestamp(210_000_100),
             hash: make_tx_hash(112233),
             attempt: 1,
             amount: 7999,
@@ -2682,7 +2682,7 @@ mod tests {
         let rowid_2 = 5;
         let pending_payable_fingerprint_1 = PendingPayableFingerprint {
             rowid: rowid_1,
-            timestamp: from_time_t(199_000_000),
+            timestamp: from_unix_timestamp(199_000_000),
             hash: make_tx_hash(0x123),
             attempt: 1,
             amount: 4567,
@@ -2690,7 +2690,7 @@ mod tests {
         };
         let pending_payable_fingerprint_2 = PendingPayableFingerprint {
             rowid: rowid_2,
-            timestamp: from_time_t(200_000_000),
+            timestamp: from_unix_timestamp(200_000_000),
             hash: make_tx_hash(0x567),
             attempt: 1,
             amount: 5555,
@@ -2759,7 +2759,7 @@ mod tests {
         let test_name = "total_paid_payable_rises_with_each_bill_paid";
         let fingerprint_1 = PendingPayableFingerprint {
             rowid: 5,
-            timestamp: from_time_t(189_999_888),
+            timestamp: from_unix_timestamp(189_999_888),
             hash: make_tx_hash(56789),
             attempt: 1,
             amount: 5478,
@@ -2767,7 +2767,7 @@ mod tests {
         };
         let fingerprint_2 = PendingPayableFingerprint {
             rowid: 6,
-            timestamp: from_time_t(200_000_011),
+            timestamp: from_unix_timestamp(200_000_011),
             hash: make_tx_hash(33333),
             attempt: 1,
             amount: 6543,
@@ -2816,7 +2816,7 @@ mod tests {
         };
         let fingerprint_1 = PendingPayableFingerprint {
             rowid: 5,
-            timestamp: from_time_t(200_000_000),
+            timestamp: from_unix_timestamp(200_000_000),
             hash: transaction_hash_1,
             attempt: 2,
             amount: 444,
@@ -2832,7 +2832,7 @@ mod tests {
         };
         let fingerprint_2 = PendingPayableFingerprint {
             rowid: 10,
-            timestamp: from_time_t(199_780_000),
+            timestamp: from_unix_timestamp(199_780_000),
             hash: transaction_hash_2,
             attempt: 15,
             amount: 1212,
@@ -3277,7 +3277,7 @@ mod tests {
         let test_name = "signal_scanner_completion_and_log_if_timestamp_is_correct";
         let logger = Logger::new(test_name);
         let mut subject = ScannerCommon::new(Rc::new(make_custom_payment_thresholds()));
-        let start = from_time_t(1_000_000_000);
+        let start = from_unix_timestamp(1_000_000_000);
         let end = start.checked_add(Duration::from_millis(145)).unwrap();
         subject.initiated_at_opt = Some(start);
 
