@@ -6,11 +6,11 @@ use crate::masq_node_cluster::MASQNodeCluster;
 use crate::masq_real_node::{make_consuming_wallet_info, NodeStartupConfigBuilder};
 use crate::masq_real_node::{MASQRealNode, NodeStartupConfig};
 use crate::multinode_gossip::{Standard, StandardBuilder};
+use node_lib::neighborhood::gossip::AccessibleGossipRecord;
 use node_lib::neighborhood::gossip::Gossip_0v1;
 use node_lib::neighborhood::gossip_producer::{GossipProducer, GossipProducerReal};
 use node_lib::neighborhood::neighborhood_database::NeighborhoodDatabase;
 use node_lib::neighborhood::node_record::{NodeRecord, NodeRecordMetadata};
-use node_lib::neighborhood::AccessibleGossipRecord;
 use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::sub_lib::utils::time_t_timestamp;
 use node_lib::test_utils::neighborhood_test_utils::db_from_node;
@@ -259,6 +259,8 @@ fn from_masq_node_to_node_record(masq_node: &dyn MASQNode) -> NodeRecord {
             last_update: time_t_timestamp(),
             node_addr_opt: agr.node_addr_opt.clone(),
             unreachable_hosts: Default::default(),
+            node_location_opt: None,
+            country_undesirability: 0u32,
         },
         signed_gossip: agr.signed_gossip.clone(),
         signature: agr.signature,

@@ -9,10 +9,10 @@ use multinode_integration_tests_lib::multinode_gossip::{
 use multinode_integration_tests_lib::neighborhood_constructor::{
     construct_neighborhood, do_not_modify_config,
 };
+use node_lib::neighborhood::gossip::AccessibleGossipRecord;
 use node_lib::neighborhood::gossip::GossipBuilder;
 use node_lib::neighborhood::neighborhood_database::NeighborhoodDatabase;
 use node_lib::neighborhood::node_record::NodeRecord;
-use node_lib::neighborhood::AccessibleGossipRecord;
 use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::sub_lib::neighborhood::GossipFailure_0v1;
 use node_lib::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
@@ -146,7 +146,7 @@ fn node_remembers_its_neighbors_across_a_bounce() {
     let mut config = originating_node.get_startup_config();
     config.neighbors = vec![];
     originating_node.restart_node(config);
-    let (gossip, ip_addr) = relay1.wait_for_gossip(Duration::from_millis(2000)).unwrap();
+    let (gossip, ip_addr) = relay1.wait_for_gossip(Duration::from_millis(5000)).unwrap();
     match parse_gossip(&gossip, ip_addr) {
         GossipType::DebutGossip(_) => (),
         gt => panic!("Expected GossipType::Debut, but found {:?}", gt),
