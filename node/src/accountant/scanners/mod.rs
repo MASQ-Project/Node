@@ -1395,7 +1395,7 @@ mod tests {
         PendingPayable, PendingPayableDaoError, TransactionHashes,
     };
     use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp};
-    use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayablesBeforeGasPricePick, QualifiedPayablesMessage, QualifiedPayablesRawPack};
+    use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayablesBeforeGasPriceSelection, QualifiedPayablesMessage, QualifiedPayablesRawPack};
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{OperationOutcome, PayableScanResult, PendingPayableMetadata};
     use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_none_status, handle_status_with_failure, PendingPayableScanReport, PendingPayableScanResult};
     use crate::accountant::scanners::{Scanner, StartScanError, StartableScanner, PayableScanner, PendingPayableScanner, ReceivableScanner, ScannerCommon, Scanners, MTError};
@@ -1645,7 +1645,7 @@ mod tests {
         let expected_raw_qualified_payables = QualifiedPayablesRawPack {
             payables: qualified_payable_accounts
                 .into_iter()
-                .map(|payable| QualifiedPayablesBeforeGasPricePick::new(payable, None))
+                .map(|payable| QualifiedPayablesBeforeGasPriceSelection::new(payable, None))
                 .collect::<Vec<_>>(),
         };
         assert_eq!(
@@ -1739,7 +1739,7 @@ mod tests {
     fn retry_payable_scanner_can_initiate_a_scan() {
         todo!("this must be set up under the other card");
         // TODO make sure the QualifiedPayableRawPack will express the difference from
-        // the NewPayable scanner: The QualifiedPayablesBeforeGasPricePick needs to carry
+        // the NewPayable scanner: The QualifiedPayablesBeforeGasPriceSelection needs to carry
         // `Some(<previous gas price value>)` instead of None
 
         // init_test_logging();

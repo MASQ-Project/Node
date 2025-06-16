@@ -17,7 +17,7 @@ pub struct QualifiedPayablesMessage {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct QualifiedPayablesRawPack {
-    pub payables: Vec<QualifiedPayablesBeforeGasPricePick>,
+    pub payables: Vec<QualifiedPayablesBeforeGasPriceSelection>,
 }
 
 impl From<Vec<PayableAccount>> for QualifiedPayablesRawPack {
@@ -25,19 +25,19 @@ impl From<Vec<PayableAccount>> for QualifiedPayablesRawPack {
         QualifiedPayablesRawPack {
             payables: qualified_payable
                 .into_iter()
-                .map(|payable| QualifiedPayablesBeforeGasPricePick::new(payable, None))
+                .map(|payable| QualifiedPayablesBeforeGasPriceSelection::new(payable, None))
                 .collect(),
         }
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct QualifiedPayablesBeforeGasPricePick {
+pub struct QualifiedPayablesBeforeGasPriceSelection {
     pub payable: PayableAccount,
     pub previous_attempt_gas_price_minor_opt: Option<u128>,
 }
 
-impl QualifiedPayablesBeforeGasPricePick {
+impl QualifiedPayablesBeforeGasPriceSelection {
     pub fn new(
         payable: PayableAccount,
         previous_attempt_gas_price_minor_opt: Option<u128>,

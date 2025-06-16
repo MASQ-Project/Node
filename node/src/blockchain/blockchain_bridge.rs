@@ -601,7 +601,7 @@ mod tests {
     use std::time::{Duration, SystemTime};
     use web3::types::{TransactionReceipt, H160};
     use masq_lib::constants::DEFAULT_MAX_BLOCK_COUNT;
-    use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayablesBeforeGasPricePick, QualifiedPayablesRawPack, QualifiedPayablesWithGasPrice};
+    use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayablesBeforeGasPriceSelection, QualifiedPayablesRawPack, QualifiedPayablesWithGasPrice};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt};
 
     impl Handler<AssertionsMessage<Self>> for BlockchainBridge {
@@ -685,9 +685,7 @@ mod tests {
     #[test]
     fn handles_qualified_payables_msg_in_new_payables_mode_and_sends_response_back_to_accountant() {
         let system = System::new(
-            "    fn handles_qualified_payables_msg_in_new_payables_mode_and_sends_response_back_to_accountant(
-",
-        );
+            "handles_qualified_payables_msg_in_new_payables_mode_and_sends_response_back_to_accountant");
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             // Fetching a recommended gas price
@@ -734,7 +732,7 @@ mod tests {
             payables: qualified_payables
                 .clone()
                 .into_iter()
-                .map(|payable| QualifiedPayablesBeforeGasPricePick {
+                .map(|payable| QualifiedPayablesBeforeGasPriceSelection {
                     payable,
                     previous_attempt_gas_price_minor_opt: None,
                 })
@@ -764,7 +762,7 @@ mod tests {
                 .into_iter()
                 .map(|payable| QualifiedPayablesWithGasPrice {
                     payable,
-                    gas_price_minor: 0x230000000,
+                    gas_price_minor: increase_gas_price_by_margin(0x230000000, chain),
                 })
                 .collect(),
         };
@@ -784,13 +782,11 @@ mod tests {
                 .consuming_wallet_balances(),
             ConsumingWalletBalances::new(0xAAAA.into(), 0xFFFF.into())
         );
-        let gas_limit_const_part =
-            BlockchainInterfaceWeb3::web3_gas_limit_const_part(Chain::PolyMainnet);
         assert_eq!(
             blockchain_agent_with_context_msg_actual
                 .agent
                 .estimated_transaction_fee_total(),
-            todo!()
+            1_791_228_995_698_688
         );
         assert_eq!(
             blockchain_agent_with_context_msg_actual.response_skeleton_opt,
