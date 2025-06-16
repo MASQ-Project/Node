@@ -467,7 +467,7 @@ mod tests {
     use std::str::FromStr;
     use web3::transports::Http;
     use web3::types::{H256, U256};
-    use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayablesBeforeGasPricePick, QualifiedPayablesWithGasPrice};
+    use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayablesBeforeGasPriceSelection, QualifiedPayablesWithGasPrice};
     use crate::accountant::test_utils::make_payable_account;
     use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt, TxStatus};
@@ -871,9 +871,15 @@ mod tests {
         let account_3 = make_payable_account(56);
         let raw_qualified_payables = QualifiedPayablesRawPack {
             payables: vec![
-                QualifiedPayablesBeforeGasPricePick::new(account_1.clone(), Some(999_999_999)),
-                QualifiedPayablesBeforeGasPricePick::new(account_2.clone(), Some(1_000_000_000)),
-                QualifiedPayablesBeforeGasPricePick::new(account_3.clone(), Some(1_000_000_001)),
+                QualifiedPayablesBeforeGasPriceSelection::new(account_1.clone(), Some(999_999_999)),
+                QualifiedPayablesBeforeGasPriceSelection::new(
+                    account_2.clone(),
+                    Some(1_000_000_000),
+                ),
+                QualifiedPayablesBeforeGasPriceSelection::new(
+                    account_3.clone(),
+                    Some(1_000_000_001),
+                ),
             ],
         };
         let gas_price_wei_from_rpc_hex = "0x3B9ACA00"; // 1000000000

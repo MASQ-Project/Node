@@ -18,12 +18,15 @@ use crate::blockchain::blockchain_interface::data_structures::{
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
+use bytes::Buf;
 use futures::Future;
 use masq_lib::blockchains::chains::Chain;
+use masq_lib::constants::WALLET_ADDRESS_LENGTH;
 use masq_lib::logger::Logger;
 use secp256k1secrets::SecretKey;
 use serde_json::Value;
 use std::fmt::Display;
+use std::iter::once;
 use std::time::SystemTime;
 use thousands::Separable;
 use web3::transports::{Batch, Http};
@@ -86,46 +89,62 @@ pub fn merged_output_data(
         .collect()
 }
 
-pub fn transmission_log(chain: Chain, accounts: &QualifiedPayablesRipePack) -> String {
-    todo!()
-    // let chain_name = chain
-    //     .rec()
-    //     .literal_identifier
-    //     .chars()
-    //     .skip_while(|char| char != &'-')
-    //     .skip(1)
-    //     .collect::<String>();
-    // const PAYMENT_VALUE_MAX_LENGTH_INCLUDING_COMMAS: usize = 24;
-    // let introduction = once(format!(
-    //     "\
-    //     Paying to creditors...\n\
-    //     Transactions in the batch:\n\
-    //     \n\
-    //     chain:                                       {}\n\
-    //     \n\
-    //     {:wallet_address_length$}  {:<payment_length$}  {}\n",
-    //     chain_name,
-    //     "[wallet address]",
-    //     "[payment wei]",
-    //     "[gas price wei]",
-    //     wallet_address_length = WALLET_ADDRESS_LENGTH,
-    //     payment_length = PAYMENT_VALUE_MAX_LENGTH_INCLUDING_COMMAS,
-    // ));
-    // let body = accounts.iter().map(|account| {
-    //     let gas_price_wei: &dyn Display = match gas_price_for_individual_txs_wei.get(&account.wallet.address()){
-    //         Some(value) => value,
-    //         None => &"NA"
-    //     };
-    //     format!(
-    //         "{:wallet_address_length$}  {:<payment_max_space_length$}  {}\n",
-    //         account.wallet,
-    //         account.balance_wei.separate_with_commas(),
-    //         gas_price_wei,
-    //         wallet_address_length = WALLET_ADDRESS_LENGTH,
-    //         payment_max_space_length = 24,
-    //     )
-    // });
-    // introduction.chain(body).collect()
+pub fn transmission_log(
+    chain: Chain,
+    qualified_payables_pack: &QualifiedPayablesRipePack,
+    lowest_nonce_used: U256,
+) -> String {
+    let chain_name = chain.rec().literal_identifier;
+    let account_count = qualified_payables_pack.payables.len();
+    let last_nonce_used = lowest_nonce_used + U256::from(account_count - 1);
+    let biggest_payable = qualified_payables_pack
+        .payables
+        .iter()
+        .map(|payable_with_gas_price| payable_with_gas_price.payable.balance_wei)
+        .max()
+        .unwrap();
+    let max_length_as_str = biggest_payable.separate_with_commas().len();
+    let payment_wei_label = "[payment wei]";
+    let payment_column_width = payment_wei_label.len().max(max_length_as_str);
+
+    let introduction = once(format!(
+        "\n\
+        Paying creditors\n\
+        Transactions:\n\
+        \n\
+        {:first_column_width$}   {}\n\
+        {:first_column_width$}   {}...{}\n\
+        \n\
+        {:first_column_width$}   {:<payment_column_width$}   {}\n",
+        "chain:",
+        chain_name,
+        "nonces:",
+        lowest_nonce_used.separate_with_commas(),
+        last_nonce_used.separate_with_commas(),
+        "[wallet address]",
+        "[payment wei]",
+        "[gas price wei]",
+        first_column_width = WALLET_ADDRESS_LENGTH,
+        payment_column_width = payment_column_width,
+    ));
+
+    let body = qualified_payables_pack
+        .payables
+        .iter()
+        .map(|payable_with_gas_price| {
+            let payable = &payable_with_gas_price.payable;
+            format!(
+                "{:wallet_address_length$}   {:<payment_column_width$}   {}\n",
+                payable.wallet,
+                payable.balance_wei.separate_with_commas(),
+                payable_with_gas_price
+                    .gas_price_minor
+                    .separate_with_commas(),
+                wallet_address_length = WALLET_ADDRESS_LENGTH,
+                payment_column_width = payment_column_width,
+            )
+        });
+    introduction.chain(body).collect()
 }
 
 pub fn sign_transaction_data(amount: u128, recipient_wallet: Wallet) -> [u8; 68] {
@@ -155,7 +174,8 @@ pub fn sign_transaction(
 ) -> SignedTransaction {
     let data = sign_transaction_data(amount, recipient_wallet);
     let gas_limit = gas_limit(data, chain);
-    // Warning: If you set gas_price or nonce to None in transaction_parameters, sign_transaction will start making RPC calls which we don't want (Do it at your own risk).
+    // Warning: If you set gas_price or nonce to None in transaction_parameters, sign_transaction
+    // will start making RPC calls which we don't want (Do it at your own risk).
     let transaction_parameters = TransactionParameters {
         nonce: Some(nonce),
         to: Some(chain.rec().contract),
@@ -288,7 +308,6 @@ pub fn send_payables_within_batch(
     let hashes_and_paid_amounts_error = hashes_and_paid_amounts.clone();
     let hashes_and_paid_amounts_ok = hashes_and_paid_amounts.clone();
 
-    // TODO: We are sending hashes_and_paid_amounts to the Accountant even if the payments fail.
     new_fingerprints_recipient
         .try_send(PendingPayableFingerprintSeeds {
             batch_wide_timestamp: timestamp,
@@ -296,7 +315,11 @@ pub fn send_payables_within_batch(
         })
         .expect("Accountant is dead");
 
-    info!(logger, "{}", transmission_log(chain, &accounts));
+    info!(
+        logger,
+        "{}",
+        transmission_log(chain, &accounts, pending_nonce)
+    );
 
     Box::new(
         web3_batch
@@ -481,27 +504,108 @@ mod tests {
     }
 
     #[test]
-    fn transmission_log_just_works() {
-        init_test_logging();
-        let test_name = "transmission_log_just_works";
-        let gas_price = 120;
-        let logger = Logger::new(test_name);
-        let amount_1 = gwei_to_wei(900_000_000_u64);
+    fn transmission_log_is_well_formatted() {
+        // This test only focuses on the formatting, but there are other tests asserting printing
+        // this in the logs
+
+        // Case 1
+        let payments = [
+            gwei_to_wei(900_000_000_u64),
+            123_456_789_u128,
+            gwei_to_wei(33_355_666_u64),
+        ];
+        let pending_nonce = 123456789.into();
+        let expected_format = "\n\
+        Paying creditors\n\
+        Transactions:\n\
+        \n\
+        chain:                                       base-sepolia\n\
+        nonces:                                      123,456,789...123,456,791\n\
+        \n\
+        [wallet address]                             [payment wei]             [gas price wei]\n\
+        0x0000000000000000000000000000000077313233   900,000,000,000,000,000   123,456,789\n\
+        0x0000000000000000000000000000000077353535   123,456,789               234,567,890\n\
+        0x0000000000000000000000000000000077393837   33,355,666,000,000,000    345,678,901\n";
+
+        test_transmission_log(
+            1,
+            payments,
+            Chain::BaseSepolia,
+            pending_nonce,
+            expected_format,
+        );
+
+        // Case 2
+        let payments = [
+            gwei_to_wei(5_400_u64),
+            gwei_to_wei(10_000_u64),
+            44_444_555_u128,
+        ];
+        let pending_nonce = 100.into();
+        let expected_format = "\n\
+        Paying creditors\n\
+        Transactions:\n\
+        \n\
+        chain:                                       eth-mainnet\n\
+        nonces:                                      100...102\n\
+        \n\
+        [wallet address]                             [payment wei]        [gas price wei]\n\
+        0x0000000000000000000000000000000077313233   5,400,000,000,000    123,456,789\n\
+        0x0000000000000000000000000000000077353535   10,000,000,000,000   234,567,890\n\
+        0x0000000000000000000000000000000077393837   44,444,555           345,678,901\n";
+
+        test_transmission_log(
+            2,
+            payments,
+            Chain::EthMainnet,
+            pending_nonce,
+            expected_format,
+        );
+
+        // Case 3
+        let payments = [45_000_888, 1_999_999, 444_444_555];
+        let pending_nonce = 1.into();
+        let expected_format = "\n\
+        Paying creditors\n\
+        Transactions:\n\
+        \n\
+        chain:                                       polygon-mainnet\n\
+        nonces:                                      1...3\n\
+        \n\
+        [wallet address]                             [payment wei]   [gas price wei]\n\
+        0x0000000000000000000000000000000077313233   45,000,888      123,456,789\n\
+        0x0000000000000000000000000000000077353535   1,999,999       234,567,890\n\
+        0x0000000000000000000000000000000077393837   444,444,555     345,678,901\n";
+
+        test_transmission_log(
+            3,
+            payments,
+            Chain::PolyMainnet,
+            pending_nonce,
+            expected_format,
+        );
+    }
+
+    fn test_transmission_log(
+        case: usize,
+        payments: [u128; 3],
+        chain: Chain,
+        pending_nonce: U256,
+        expected_result: &str,
+    ) {
         let account_1 = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
             make_wallet("w123"),
-            amount_1,
+            payments[0],
             None,
         );
-        let amount_2 = 123_456_789_u128;
         let account_2 = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
             make_wallet("w555"),
-            amount_2,
+            payments[1],
             None,
         );
-        let amount_3 = gwei_to_wei(33_355_666_u64);
         let account_3 = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
             make_wallet("w987"),
-            amount_3,
+            payments[2],
             None,
         );
         let accounts_to_process = make_ripe_qualified_payables(vec![
@@ -510,24 +614,12 @@ mod tests {
             (account_3, 345_678_901),
         ]);
 
-        info!(
-            logger,
-            "{}",
-            transmission_log(TEST_DEFAULT_CHAIN, &accounts_to_process)
-        );
+        let result = transmission_log(chain, &accounts_to_process, pending_nonce);
 
-        let log_handler = TestLogHandler::new();
-        log_handler.exists_log_containing(
-            "INFO: transmission_log_just_works: Paying to creditors...\n\
-        Transactions in the batch:\n\
-        \n\
-        gas price:                                   120 wei\n\
-        chain:                                       sepolia\n\
-        \n\
-        [wallet address]                             [payment in wei]\n\
-        0x0000000000000000000000000000000077313233   900,000,000,000,000,000\n\
-        0x0000000000000000000000000000000077353535   123,456,789\n\
-        0x0000000000000000000000000000000077393837   33,355,666,000,000,000\n",
+        assert_eq!(
+            result, expected_result,
+            "Test case {}: we expected this format: \"{}\", but it was: \"{}\"",
+            case, expected_result, result
         );
     }
 
@@ -588,7 +680,7 @@ mod tests {
         )
     }
 
-    fn execute_send_payables_test(
+    fn test_send_payables_within_batch(
         test_name: &str,
         accounts: QualifiedPayablesRipePack,
         expected_result: Result<Vec<ProcessedPayableFallible>, PayableTransactionError>,
@@ -640,7 +732,7 @@ mod tests {
         );
         tlh.exists_log_containing(&format!(
             "INFO: {test_name}: {}",
-            transmission_log(chain, &accounts)
+            transmission_log(chain, &accounts, pending_nonce)
         ));
         assert_eq!(result, expected_result);
     }
@@ -674,7 +766,7 @@ mod tests {
             }),
         ]);
 
-        execute_send_payables_test(
+        test_send_payables_within_batch(
             "send_payables_within_batch_works",
             make_ripe_qualified_payables(vec![(account_1, 111_111_111), (account_2, 222_222_222)]),
             expected_result,
@@ -699,7 +791,7 @@ mod tests {
             ],
         });
 
-        execute_send_payables_test(
+        test_send_payables_within_batch(
             "send_payables_within_batch_fails_on_submit_batch_call",
             accounts,
             expected_result,
@@ -749,7 +841,7 @@ mod tests {
             }),
         ]);
 
-        execute_send_payables_test(
+        test_send_payables_within_batch(
             "send_payables_within_batch_all_payments_fail",
             make_ripe_qualified_payables(vec![(account_1, 111_111_111), (account_2, 111_111_111)]),
             expected_result,
@@ -789,7 +881,7 @@ mod tests {
             }),
         ]);
 
-        execute_send_payables_test(
+        test_send_payables_within_batch(
             "send_payables_within_batch_one_payment_works_the_other_fails",
             make_ripe_qualified_payables(vec![(account_1, 111_111_111), (account_2, 111_111_111)]),
             expected_result,

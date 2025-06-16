@@ -28,14 +28,6 @@ impl BlockchainAgent for BlockchainAgentNull {
         }
     }
 
-    // fn finalize_gas_price_per_payable(&self, qualified_payables: QualifiedPayablesRawPack) -> QualifiedPayablesRipePack {
-    //     self.log_function_call("finalize_gas_price_per_payable()");
-    //     let payables = qualified_payables.payables.into_iter().map(|preconfiguration| {
-    //         QualifiedPayablesWithGasPrice{ payable: preconfiguration.payable, gas_price_minor: 0 }
-    //     }).collect();
-    //     QualifiedPayablesRipePack{ payables }
-    // }
-
     fn consuming_wallet(&self) -> &Wallet {
         self.log_function_call("consuming_wallet()");
         &self.wallet

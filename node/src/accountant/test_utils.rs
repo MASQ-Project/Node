@@ -17,7 +17,7 @@ use crate::accountant::db_access_objects::utils::{
 };
 use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdjuster};
 use crate::accountant::scanners::payable_scanner_extension::msgs::{
-    BlockchainAgentWithContextMessage, QualifiedPayablesBeforeGasPricePick,
+    BlockchainAgentWithContextMessage, QualifiedPayablesBeforeGasPriceSelection,
     QualifiedPayablesRawPack, QualifiedPayablesRipePack, QualifiedPayablesWithGasPrice,
 };
 use crate::accountant::scanners::payable_scanner_extension::PreparedAdjustment;
@@ -1522,7 +1522,7 @@ pub fn make_raw_qualified_payables_for_retry_mode(
         payables: inputs
             .into_iter()
             .map(|(payable, previous_attempt_gas_price_minor)| {
-                QualifiedPayablesBeforeGasPricePick {
+                QualifiedPayablesBeforeGasPriceSelection {
                     payable,
                     previous_attempt_gas_price_minor_opt: Some(previous_attempt_gas_price_minor),
                 }
