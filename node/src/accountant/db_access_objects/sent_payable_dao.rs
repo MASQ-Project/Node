@@ -21,7 +21,6 @@ pub enum SentPayableDaoError {
     PartialExecution(String),
     SqlExecutionFailed(String),
 }
-type TxUpdates = HashMap<TxHash, TransactionBlock>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Tx {
@@ -60,8 +59,11 @@ pub trait SentPayableDao {
     fn get_tx_identifiers(&self, hashes: &HashSet<TxHash>) -> TxIdentifiers;
     fn insert_new_records(&self, txs: &[Tx]) -> Result<(), SentPayableDaoError>;
     fn retrieve_txs(&self, condition: Option<RetrieveCondition>) -> Vec<Tx>;
-    fn update_tx_blocks(&self, hash_map: &TxUpdates) -> Result<(), SentPayableDaoError>;
-    fn replace_record(&self, hash_map: &Tx) -> Result<(), SentPayableDaoError>;
+    fn update_tx_blocks(
+        &self,
+        hash_map: &HashMap<TxHash, TransactionBlock>,
+    ) -> Result<(), SentPayableDaoError>;
+    fn replace_records(&self, new_txs: &[Tx]) -> Result<(), SentPayableDaoError>;
     fn delete_records(&self, hashes: &HashSet<TxHash>) -> Result<(), SentPayableDaoError>;
 }
 
@@ -239,7 +241,10 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
         .collect()
     }
 
-    fn update_tx_blocks(&self, hash_map: &TxUpdates) -> Result<(), SentPayableDaoError> {
+    fn update_tx_blocks(
+        &self,
+        hash_map: &HashMap<TxHash, TransactionBlock>,
+    ) -> Result<(), SentPayableDaoError> {
         if hash_map.is_empty() {
             return Err(SentPayableDaoError::EmptyInput);
         }
@@ -270,12 +275,10 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
         Ok(())
     }
 
-    fn replace_record(&self, tx: &Tx) -> Result<(), SentPayableDaoError> {
-        let amount_checked = checked_conversion::<u128, i128>(tx.amount);
-        let gas_price_wei_checked = checked_conversion::<u128, i128>(tx.gas_price_wei);
-        let (amount_high_b, amount_low_b) = BigIntDivider::deconstruct(amount_checked);
-        let (gas_price_wei_high_b, gas_price_wei_low_b) =
-            BigIntDivider::deconstruct(gas_price_wei_checked);
+    fn replace_records(&self, new_txs: &[Tx]) -> Result<(), SentPayableDaoError> {
+        if new_txs.is_empty() {
+            return Err(SentPayableDaoError::EmptyInput);
+        }
 
         let sql = "UPDATE sent_payable SET
                tx_hash = ?1,
@@ -295,33 +298,49 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
             .prepare(sql)
             .map_err(|e| SentPayableDaoError::SqlExecutionFailed(e.to_string()))?;
 
-        let result = stmt.execute(params![
-            format!("{:?}", tx.hash),
-            format!("{:?}", tx.receiver_address),
-            amount_high_b,
-            amount_low_b,
-            tx.timestamp,
-            gas_price_wei_high_b,
-            gas_price_wei_low_b,
-            tx.nonce,
-            tx.block_opt
-                .as_ref()
-                .map(|block| format!("{:?}", block.block_hash)),
-            tx.block_opt
-                .as_ref()
-                .map(|block| block.block_number.as_u64()),
-            tx.nonce
-        ]);
+        let mut updated_count = 0;
 
-        match result {
-            Ok(updated_rows) => {
-                if updated_rows == 1 {
-                    Ok(())
-                } else {
-                    Err(SentPayableDaoError::NoChange)
-                }
+        for new_tx in new_txs {
+            let amount_checked = checked_conversion::<u128, i128>(new_tx.amount);
+            let gas_price_wei_checked = checked_conversion::<u128, i128>(new_tx.gas_price_wei);
+            let (amount_high_b, amount_low_b) = BigIntDivider::deconstruct(amount_checked);
+            let (gas_price_wei_high_b, gas_price_wei_low_b) =
+                BigIntDivider::deconstruct(gas_price_wei_checked);
+
+            let result = stmt.execute(params![
+                format!("{:?}", new_tx.hash),
+                format!("{:?}", new_tx.receiver_address),
+                amount_high_b,
+                amount_low_b,
+                new_tx.timestamp,
+                gas_price_wei_high_b,
+                gas_price_wei_low_b,
+                new_tx.nonce,
+                new_tx
+                    .block_opt
+                    .as_ref()
+                    .map(|block| format!("{:?}", block.block_hash)),
+                new_tx
+                    .block_opt
+                    .as_ref()
+                    .map(|block| block.block_number.as_u64()),
+                new_tx.nonce
+            ]);
+
+            match result {
+                Ok(rows) => updated_count += rows,
+                Err(e) => return Err(SentPayableDaoError::SqlExecutionFailed(e.to_string())),
             }
-            Err(e) => Err(SentPayableDaoError::SqlExecutionFailed(e.to_string())),
+        }
+
+        match updated_count {
+            0 => Err(SentPayableDaoError::NoChange),
+            count if count == new_txs.len() => Ok(()),
+            _ => Err(SentPayableDaoError::PartialExecution(format!(
+                "Only {} out of {} records updated",
+                updated_count,
+                new_txs.len()
+            ))),
         }
     }
 
@@ -367,6 +386,7 @@ mod tests {
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::{Connection};
     use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::{ByHash, IsPending};
+    use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDaoError::{EmptyInput, PartialExecution};
     use crate::accountant::db_access_objects::test_utils::{make_read_only_db_connection, TxBuilder};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock};
     use crate::blockchain::test_utils::{make_block_hash, make_tx_hash};
@@ -919,10 +939,69 @@ mod tests {
     }
 
     #[test]
-    fn replace_record_works_as_expected() {
+    fn replace_records_works_as_expected() {
         let home_dir = ensure_node_home_directory_exists(
             "sent_payable_dao",
-            "replace_record_works_as_expected",
+            "replace_records_works_as_expected",
+        );
+        let wrapped_conn = DbInitializerReal::default()
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
+        let subject = SentPayableDaoReal::new(wrapped_conn);
+        let tx1 = TxBuilder::default().hash(make_tx_hash(1)).nonce(1).build();
+        let tx2 = TxBuilder::default().hash(make_tx_hash(2)).nonce(2).build();
+        let tx3 = TxBuilder::default().hash(make_tx_hash(3)).nonce(3).build();
+        subject
+            .insert_new_records(&vec![tx1.clone(), tx2, tx3])
+            .unwrap();
+        let new_tx2 = TxBuilder::default()
+            .hash(make_tx_hash(22))
+            .block(TransactionBlock {
+                block_hash: make_block_hash(1),
+                block_number: U64::from(1),
+            })
+            .nonce(2)
+            .build();
+        let new_tx3 = TxBuilder::default()
+            .hash(make_tx_hash(33))
+            .block(TransactionBlock {
+                block_hash: make_block_hash(1),
+                block_number: U64::from(1),
+            })
+            .nonce(3)
+            .build();
+
+        let result = subject.replace_records(&[new_tx2.clone(), new_tx3.clone()]);
+
+        let retrieved_txs = subject.retrieve_txs(None);
+        assert_eq!(result, Ok(()));
+        assert_eq!(retrieved_txs, vec![tx1, new_tx2, new_tx3]);
+    }
+
+    #[test]
+    fn replace_records_throws_error_for_empty_input() {
+        let home_dir = ensure_node_home_directory_exists(
+            "sent_payable_dao",
+            "replace_records_throws_error_for_empty_input",
+        );
+        let wrapped_conn = DbInitializerReal::default()
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
+        let subject = SentPayableDaoReal::new(wrapped_conn);
+        let tx1 = TxBuilder::default().hash(make_tx_hash(1)).nonce(1).build();
+        let tx2 = TxBuilder::default().hash(make_tx_hash(2)).nonce(2).build();
+        subject.insert_new_records(&vec![tx1, tx2]).unwrap();
+
+        let result = subject.replace_records(&[]);
+
+        assert_eq!(result, Err(EmptyInput));
+    }
+
+    #[test]
+    fn replace_records_throws_partial_execution_error() {
+        let home_dir = ensure_node_home_directory_exists(
+            "sent_payable_dao",
+            "replace_records_throws_partial_execution_error",
         );
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
@@ -941,19 +1020,30 @@ mod tests {
             })
             .nonce(2)
             .build();
+        let new_tx3 = TxBuilder::default()
+            .hash(make_tx_hash(33))
+            .block(TransactionBlock {
+                block_hash: make_block_hash(1),
+                block_number: U64::from(1),
+            })
+            .nonce(3)
+            .build();
 
-        let result = subject.replace_record(&new_tx2);
+        let result = subject.replace_records(&[new_tx2.clone(), new_tx3.clone()]);
 
-        let retrieved_txs = subject.retrieve_txs(None);
-        assert_eq!(result, Ok(()));
-        assert_eq!(retrieved_txs, vec![tx1, new_tx2]);
+        assert_eq!(
+            result,
+            Err(PartialExecution(
+                "Only 1 out of 2 records updated".to_string()
+            ))
+        );
     }
 
     #[test]
-    fn replace_record_returns_no_change_error_when_no_rows_updated() {
+    fn replace_records_returns_no_change_error_when_no_rows_updated() {
         let home_dir = ensure_node_home_directory_exists(
             "sent_payable_dao",
-            "replace_record_returns_no_change_error_when_no_rows_updated",
+            "replace_records_returns_no_change_error_when_no_rows_updated",
         );
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
@@ -961,22 +1051,22 @@ mod tests {
         let subject = SentPayableDaoReal::new(wrapped_conn);
         let tx = TxBuilder::default().hash(make_tx_hash(1)).nonce(42).build();
 
-        let result = subject.replace_record(&tx);
+        let result = subject.replace_records(&[tx]);
 
         assert_eq!(result, Err(SentPayableDaoError::NoChange));
     }
 
     #[test]
-    fn replace_record_returns_a_general_error_from_sql() {
+    fn replace_records_returns_a_general_error_from_sql() {
         let home_dir = ensure_node_home_directory_exists(
             "sent_payable_dao",
-            "replace_record_returns_a_general_error_from_sql",
+            "replace_records_returns_a_general_error_from_sql",
         );
         let wrapped_conn = make_read_only_db_connection(home_dir);
         let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
         let tx = TxBuilder::default().hash(make_tx_hash(1)).nonce(1).build();
 
-        let result = subject.replace_record(&tx);
+        let result = subject.replace_records(&[tx]);
 
         assert_eq!(
             result,
