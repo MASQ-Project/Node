@@ -539,7 +539,7 @@ struct PendingTxInfo {
 }
 
 pub fn increase_gas_price_by_margin(gas_price: u128, chain: Chain) -> u128 {
-    (gas_price * (100 + chain.rec().gas_price_recommended_margin_percents as u128)) / 100
+    (gas_price * (100 + chain.rec().gas_price_default_margin_percents as u128)) / 100
 }
 
 pub struct BlockchainBridgeSubsFactoryReal {}

@@ -12,12 +12,14 @@ use crate::constants::{
 };
 use ethereum_types::{Address, H160};
 
+// TODO these should probably be a static, and dynamic initialization should then also be allowed
 pub const CHAINS: [BlockchainRecord; 7] = [
     BlockchainRecord {
         self_id: Chain::PolyMainnet,
         num_chain_id: 137,
         literal_identifier: POLYGON_MAINNET_FULL_IDENTIFIER,
-        gas_price_recommended_margin_percents: 30,
+        gas_price_default_margin_percents: 30,
+        gas_price_safe_ceiling_minor: 200_000_000_000,
         contract: POLYGON_MAINNET_CONTRACT_ADDRESS,
         contract_creation_block: POLYGON_MAINNET_CONTRACT_CREATION_BLOCK,
     },
@@ -25,7 +27,8 @@ pub const CHAINS: [BlockchainRecord; 7] = [
         self_id: Chain::EthMainnet,
         num_chain_id: 1,
         literal_identifier: ETH_MAINNET_FULL_IDENTIFIER,
-        gas_price_recommended_margin_percents: 30,
+        gas_price_default_margin_percents: 30,
+        gas_price_safe_ceiling_minor: 100_000_000_000,
         contract: ETH_MAINNET_CONTRACT_ADDRESS,
         contract_creation_block: ETH_MAINNET_CONTRACT_CREATION_BLOCK,
     },
@@ -33,7 +36,8 @@ pub const CHAINS: [BlockchainRecord; 7] = [
         self_id: Chain::BaseMainnet,
         num_chain_id: 8453,
         literal_identifier: BASE_MAINNET_FULL_IDENTIFIER,
-        gas_price_recommended_margin_percents: 30,
+        gas_price_default_margin_percents: 30,
+        gas_price_safe_ceiling_minor: 50_000_000_000,
         contract: BASE_MAINNET_CONTRACT_ADDRESS,
         contract_creation_block: BASE_MAINNET_CONTRACT_CREATION_BLOCK,
     },
@@ -41,7 +45,8 @@ pub const CHAINS: [BlockchainRecord; 7] = [
         self_id: Chain::BaseSepolia,
         num_chain_id: 84532,
         literal_identifier: BASE_SEPOLIA_FULL_IDENTIFIER,
-        gas_price_recommended_margin_percents: 30,
+        gas_price_default_margin_percents: 30,
+        gas_price_safe_ceiling_minor: 50_000_000_000,
         contract: BASE_SEPOLIA_TESTNET_CONTRACT_ADDRESS,
         contract_creation_block: BASE_SEPOLIA_CONTRACT_CREATION_BLOCK,
     },
@@ -49,7 +54,8 @@ pub const CHAINS: [BlockchainRecord; 7] = [
         self_id: Chain::PolyAmoy,
         num_chain_id: 80002,
         literal_identifier: POLYGON_AMOY_FULL_IDENTIFIER,
-        gas_price_recommended_margin_percents: 30,
+        gas_price_default_margin_percents: 30,
+        gas_price_safe_ceiling_minor: 200_000_000_000,
         contract: POLYGON_AMOY_TESTNET_CONTRACT_ADDRESS,
         contract_creation_block: POLYGON_AMOY_CONTRACT_CREATION_BLOCK,
     },
@@ -57,7 +63,8 @@ pub const CHAINS: [BlockchainRecord; 7] = [
         self_id: Chain::EthRopsten,
         num_chain_id: 3,
         literal_identifier: ETH_ROPSTEN_FULL_IDENTIFIER,
-        gas_price_recommended_margin_percents: 30,
+        gas_price_default_margin_percents: 30,
+        gas_price_safe_ceiling_minor: 100_000_000_000,
         contract: ETH_ROPSTEN_TESTNET_CONTRACT_ADDRESS,
         contract_creation_block: ETH_ROPSTEN_CONTRACT_CREATION_BLOCK,
     },
@@ -65,7 +72,8 @@ pub const CHAINS: [BlockchainRecord; 7] = [
         self_id: Chain::Dev,
         num_chain_id: 2,
         literal_identifier: DEV_CHAIN_FULL_IDENTIFIER,
-        gas_price_recommended_margin_percents: 30,
+        gas_price_default_margin_percents: 30,
+        gas_price_safe_ceiling_minor: 200_000_000_000,
         contract: MULTINODE_TESTNET_CONTRACT_ADDRESS,
         contract_creation_block: MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK,
     },
@@ -76,7 +84,8 @@ pub struct BlockchainRecord {
     pub self_id: Chain,
     pub num_chain_id: u64,
     pub literal_identifier: &'static str,
-    pub gas_price_recommended_margin_percents: u8,
+    pub gas_price_default_margin_percents: u8,
+    pub gas_price_safe_ceiling_minor: u128,
     pub contract: Address,
     pub contract_creation_block: u64,
 }
@@ -123,7 +132,7 @@ const POLYGON_MAINNET_CONTRACT_ADDRESS: Address = H160([
 mod tests {
     use super::*;
     use crate::blockchains::chains::chain_from_chain_identifier_opt;
-    use crate::constants::BASE_MAINNET_CONTRACT_CREATION_BLOCK;
+    use crate::constants::{BASE_MAINNET_CONTRACT_CREATION_BLOCK, WEIS_IN_GWEI};
     use std::collections::HashSet;
     use std::iter::FromIterator;
 
@@ -203,7 +212,8 @@ mod tests {
                 num_chain_id: 1,
                 self_id: examined_chain,
                 literal_identifier: "eth-mainnet",
-                gas_price_recommended_margin_percents: 30,
+                gas_price_default_margin_percents: 30,
+                gas_price_safe_ceiling_minor: 100 * WEIS_IN_GWEI as u128,
                 contract: ETH_MAINNET_CONTRACT_ADDRESS,
                 contract_creation_block: ETH_MAINNET_CONTRACT_CREATION_BLOCK,
             }
@@ -220,7 +230,8 @@ mod tests {
                 num_chain_id: 3,
                 self_id: examined_chain,
                 literal_identifier: "eth-ropsten",
-                gas_price_recommended_margin_percents: 30,
+                gas_price_default_margin_percents: 30,
+                gas_price_safe_ceiling_minor: 100 * WEIS_IN_GWEI as u128,
                 contract: ETH_ROPSTEN_TESTNET_CONTRACT_ADDRESS,
                 contract_creation_block: ETH_ROPSTEN_CONTRACT_CREATION_BLOCK,
             }
@@ -237,7 +248,8 @@ mod tests {
                 num_chain_id: 137,
                 self_id: examined_chain,
                 literal_identifier: "polygon-mainnet",
-                gas_price_recommended_margin_percents: 30,
+                gas_price_default_margin_percents: 30,
+                gas_price_safe_ceiling_minor: 200 * WEIS_IN_GWEI as u128,
                 contract: POLYGON_MAINNET_CONTRACT_ADDRESS,
                 contract_creation_block: POLYGON_MAINNET_CONTRACT_CREATION_BLOCK,
             }
@@ -254,7 +266,8 @@ mod tests {
                 num_chain_id: 80002,
                 self_id: examined_chain,
                 literal_identifier: "polygon-amoy",
-                gas_price_recommended_margin_percents: 30,
+                gas_price_default_margin_percents: 30,
+                gas_price_safe_ceiling_minor: 200 * WEIS_IN_GWEI as u128,
                 contract: POLYGON_AMOY_TESTNET_CONTRACT_ADDRESS,
                 contract_creation_block: POLYGON_AMOY_CONTRACT_CREATION_BLOCK,
             }
@@ -271,7 +284,8 @@ mod tests {
                 num_chain_id: 8453,
                 self_id: examined_chain,
                 literal_identifier: "base-mainnet",
-                gas_price_recommended_margin_percents: 30,
+                gas_price_default_margin_percents: 30,
+                gas_price_safe_ceiling_minor: 50 * WEIS_IN_GWEI as u128,
                 contract: BASE_MAINNET_CONTRACT_ADDRESS,
                 contract_creation_block: BASE_MAINNET_CONTRACT_CREATION_BLOCK,
             }
@@ -288,7 +302,8 @@ mod tests {
                 num_chain_id: 84532,
                 self_id: examined_chain,
                 literal_identifier: "base-sepolia",
-                gas_price_recommended_margin_percents: 30,
+                gas_price_default_margin_percents: 30,
+                gas_price_safe_ceiling_minor: 50 * WEIS_IN_GWEI as u128,
                 contract: BASE_SEPOLIA_TESTNET_CONTRACT_ADDRESS,
                 contract_creation_block: BASE_SEPOLIA_CONTRACT_CREATION_BLOCK,
             }
@@ -305,7 +320,8 @@ mod tests {
                 num_chain_id: 2,
                 self_id: examined_chain,
                 literal_identifier: "dev",
-                gas_price_recommended_margin_percents: 30,
+                gas_price_default_margin_percents: 30,
+                gas_price_safe_ceiling_minor: 200 * WEIS_IN_GWEI as u128,
                 contract: MULTINODE_TESTNET_CONTRACT_ADDRESS,
                 contract_creation_block: MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK,
             }

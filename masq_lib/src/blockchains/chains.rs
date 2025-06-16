@@ -141,7 +141,8 @@ mod tests {
             num_chain_id: 0,
             self_id: Chain::PolyMainnet,
             literal_identifier: "",
-            gas_price_recommended_margin_percents: 0,
+            gas_price_default_margin_percents: 0,
+            gas_price_safe_ceiling_minor: 0,
             contract: Default::default(),
             contract_creation_block: 0,
         }

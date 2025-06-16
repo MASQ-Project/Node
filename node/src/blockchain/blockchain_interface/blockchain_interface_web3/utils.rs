@@ -487,14 +487,14 @@ mod tests {
             vec![
                 HashAndAmount {
                     hash: H256::from_str(
-                        "94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2"
+                        "374b7d023f4ac7d99e612d82beda494b0747116e9b9dc975b33b865f331ee934"
                     )
                     .unwrap(),
                     amount: 1000000000
                 },
                 HashAndAmount {
                     hash: H256::from_str(
-                        "3811874d2b73cecd51234c94af46bcce918d0cb4de7d946c01d7da606fe761b5"
+                        "5708afd876bc2573f9db984ec6d0e7f8ef222dd9f115643c9b9056d8bef8bbd9"
                     )
                     .unwrap(),
                     amount: 2000000000
@@ -753,14 +753,14 @@ mod tests {
             Correct(PendingPayable {
                 recipient_wallet: account_1.wallet.clone(),
                 hash: H256::from_str(
-                    "35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4",
+                    "6e7fa351eef640186f76c629cb74106b3082c8f8a1a9df75ff02fe5bfd4dd1a2",
                 )
                 .unwrap(),
             }),
             Correct(PendingPayable {
                 recipient_wallet: account_2.wallet.clone(),
                 hash: H256::from_str(
-                    "7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3",
+                    "b67a61b29c0c48d8b63a64fda73b3247e8e2af68082c710325675d4911e113d4",
                 )
                 .unwrap(),
             }),
@@ -786,8 +786,8 @@ mod tests {
         let expected_result = Err(Sending {
             msg: format!("Transport error: Error(Connect, Os {{ code: {}, kind: ConnectionRefused, message: {:?} }})", os_code, os_msg).to_string(),
             hashes: vec![
-                H256::from_str("35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4").unwrap(),
-                H256::from_str("7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3").unwrap()
+                H256::from_str("ec7ac48060b75889f949f5e8d301b386198218e60e2635c95cb6b0934a0887ea").unwrap(),
+                H256::from_str("c2d5059db0ec2fbf15f83d9157eeb0d793d6242de5e73a607935fb5660e7e925").unwrap()
             ],
         });
 
@@ -828,7 +828,7 @@ mod tests {
                     data: None,
                 }),
                 recipient_wallet: account_1.wallet.clone(),
-                hash: H256::from_str("35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4").unwrap(),
+                hash: H256::from_str("6e7fa351eef640186f76c629cb74106b3082c8f8a1a9df75ff02fe5bfd4dd1a2").unwrap(),
             }),
             Failed(RpcPayableFailure {
                 rpc_error: Rpc(Error {
@@ -837,7 +837,7 @@ mod tests {
                     data: None,
                 }),
                 recipient_wallet: account_2.wallet.clone(),
-                hash: H256::from_str("7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3").unwrap(),
+                hash: H256::from_str("ca6ad0a60daeaf31cbca7ce6e499c0f4ff5870564c5e845de11834f1fc05bd4e").unwrap(),
             }),
         ]);
 
@@ -868,7 +868,7 @@ mod tests {
         let expected_result = Ok(vec![
             Correct(PendingPayable {
                 recipient_wallet: account_1.wallet.clone(),
-                hash: H256::from_str("35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4").unwrap(),
+                hash: H256::from_str("6e7fa351eef640186f76c629cb74106b3082c8f8a1a9df75ff02fe5bfd4dd1a2").unwrap(),
             }),
             Failed(RpcPayableFailure {
                 rpc_error: Rpc(Error {
@@ -877,7 +877,7 @@ mod tests {
                     data: None,
                 }),
                 recipient_wallet: account_2.wallet.clone(),
-                hash: H256::from_str("7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3").unwrap(),
+                hash: H256::from_str("ca6ad0a60daeaf31cbca7ce6e499c0f4ff5870564c5e845de11834f1fc05bd4e").unwrap(),
             }),
         ]);
 

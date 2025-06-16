@@ -56,7 +56,10 @@ pub struct QualifiedPayablesRipePack {
 
 impl Into<Vec<PayableAccount>> for QualifiedPayablesRipePack {
     fn into(self) -> Vec<PayableAccount> {
-        todo!()
+        self.payables
+            .into_iter()
+            .map(|qualified_payable| qualified_payable.payable)
+            .collect()
     }
 }
 
