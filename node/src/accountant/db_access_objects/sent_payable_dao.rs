@@ -4,7 +4,6 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use ethereum_types::{H256, U64};
-use rusqlite::params;
 use web3::types::Address;
 use masq_lib::utils::ExpectValue;
 use crate::accountant::{checked_conversion, comma_joined_stringifiable};
@@ -280,67 +279,96 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
             return Err(SentPayableDaoError::EmptyInput);
         }
 
-        let sql = "UPDATE sent_payable SET
-               tx_hash = ?1,
-               receiver_address = ?2,
-               amount_high_b = ?3,
-               amount_low_b = ?4,
-               timestamp = ?5,
-               gas_price_wei_high_b = ?6,
-               gas_price_wei_low_b = ?7,
-               nonce = ?8,
-               block_hash = ?9,
-               block_number = ?10
-               WHERE nonce = ?11";
+        let build_case = |value_fn: fn(&Tx) -> String| {
+            new_txs
+                .iter()
+                .map(|tx| format!("WHEN nonce = {} THEN {}", tx.nonce, value_fn(tx)))
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
 
-        let mut stmt = self
-            .conn
-            .prepare(sql)
-            .map_err(|e| SentPayableDaoError::SqlExecutionFailed(e.to_string()))?;
+        let tx_hash_cases = build_case(|tx| format!("'{:?}'", tx.hash));
+        let receiver_address_cases = build_case(|tx| format!("'{:?}'", tx.receiver_address));
+        let amount_high_b_cases = build_case(|tx| {
+            let amount_checked = checked_conversion::<u128, i128>(tx.amount);
+            let (high, _) = BigIntDivider::deconstruct(amount_checked);
+            high.to_string()
+        });
+        let amount_low_b_cases = build_case(|tx| {
+            let amount_checked = checked_conversion::<u128, i128>(tx.amount);
+            let (_, low) = BigIntDivider::deconstruct(amount_checked);
+            low.to_string()
+        });
+        let timestamp_cases = build_case(|tx| tx.timestamp.to_string());
+        let gas_price_wei_high_b_cases = build_case(|tx| {
+            let gas_price_wei_checked = checked_conversion::<u128, i128>(tx.gas_price_wei);
+            let (high, _) = BigIntDivider::deconstruct(gas_price_wei_checked);
+            high.to_string()
+        });
+        let gas_price_wei_low_b_cases = build_case(|tx| {
+            let gas_price_wei_checked = checked_conversion::<u128, i128>(tx.gas_price_wei);
+            let (_, low) = BigIntDivider::deconstruct(gas_price_wei_checked);
+            low.to_string()
+        });
+        let block_hash_cases = build_case(|tx| match &tx.block_opt {
+            Some(block) => format!("'{:?}'", block.block_hash),
+            None => "NULL".to_string(),
+        });
+        let block_number_cases = build_case(|tx| match &tx.block_opt {
+            Some(block) => block.block_number.as_u64().to_string(),
+            None => "NULL".to_string(),
+        });
 
-        let mut updated_count = 0;
+        let nonces = new_txs
+            .iter()
+            .map(|tx| tx.nonce.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
 
-        for new_tx in new_txs {
-            let amount_checked = checked_conversion::<u128, i128>(new_tx.amount);
-            let gas_price_wei_checked = checked_conversion::<u128, i128>(new_tx.gas_price_wei);
-            let (amount_high_b, amount_low_b) = BigIntDivider::deconstruct(amount_checked);
-            let (gas_price_wei_high_b, gas_price_wei_low_b) =
-                BigIntDivider::deconstruct(gas_price_wei_checked);
+        let sql = format!(
+            "UPDATE sent_payable \
+             SET \
+                tx_hash = CASE \
+                    {tx_hash_cases} \
+                END, \
+                receiver_address = CASE \
+                    {receiver_address_cases} \
+                END, \
+                amount_high_b = CASE \
+                    {amount_high_b_cases} \
+                END, \
+                amount_low_b = CASE \
+                    {amount_low_b_cases} \
+                END, \
+                timestamp = CASE \
+                    {timestamp_cases} \
+                END, \
+                gas_price_wei_high_b = CASE \
+                    {gas_price_wei_high_b_cases} \
+                END, \
+                gas_price_wei_low_b = CASE \
+                    {gas_price_wei_low_b_cases} \
+                END, \
+                block_hash = CASE \
+                    {block_hash_cases} \
+                END, \
+                block_number = CASE \
+                    {block_number_cases} \
+                END \
+            WHERE nonce IN ({nonces})",
+        );
 
-            let result = stmt.execute(params![
-                format!("{:?}", new_tx.hash),
-                format!("{:?}", new_tx.receiver_address),
-                amount_high_b,
-                amount_low_b,
-                new_tx.timestamp,
-                gas_price_wei_high_b,
-                gas_price_wei_low_b,
-                new_tx.nonce,
-                new_tx
-                    .block_opt
-                    .as_ref()
-                    .map(|block| format!("{:?}", block.block_hash)),
-                new_tx
-                    .block_opt
-                    .as_ref()
-                    .map(|block| block.block_number.as_u64()),
-                new_tx.nonce
-            ]);
-
-            match result {
-                Ok(rows) => updated_count += rows,
-                Err(e) => return Err(SentPayableDaoError::SqlExecutionFailed(e.to_string())),
-            }
-        }
-
-        match updated_count {
-            0 => Err(SentPayableDaoError::NoChange),
-            count if count == new_txs.len() => Ok(()),
-            _ => Err(SentPayableDaoError::PartialExecution(format!(
-                "Only {} out of {} records updated",
-                updated_count,
-                new_txs.len()
-            ))),
+        match self.conn.prepare(&sql).expect("Internal error").execute([]) {
+            Ok(updated_rows) => match updated_rows {
+                0 => Err(SentPayableDaoError::NoChange),
+                count if count == new_txs.len() => Ok(()),
+                _ => Err(SentPayableDaoError::PartialExecution(format!(
+                    "Only {} out of {} records updated",
+                    updated_rows,
+                    new_txs.len()
+                ))),
+            },
+            Err(e) => Err(SentPayableDaoError::SqlExecutionFailed(e.to_string())),
         }
     }
 
@@ -377,6 +405,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
 #[cfg(test)]
 mod tests {
     use std::collections::{HashMap, HashSet};
+    use std::sync::{Arc, Mutex};
     use crate::accountant::db_access_objects::sent_payable_dao::{RetrieveCondition, SentPayableDao, SentPayableDaoError, SentPayableDaoReal};
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal,
@@ -979,6 +1008,43 @@ mod tests {
     }
 
     #[test]
+    fn replace_records_uses_single_sql_statement() {
+        let prepare_params = Arc::new(Mutex::new(vec![]));
+        let setup_conn = Connection::open_in_memory().unwrap();
+        setup_conn
+            .execute("CREATE TABLE example (id integer)", [])
+            .unwrap();
+        let stmt = setup_conn.prepare("SELECT id FROM example").unwrap();
+        let wrapped_conn = ConnectionWrapperMock::default()
+            .prepare_params(&prepare_params)
+            .prepare_result(Ok(stmt));
+        let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
+        let tx1 = TxBuilder::default().hash(make_tx_hash(1)).nonce(1).build();
+        let tx2 = TxBuilder::default().hash(make_tx_hash(2)).nonce(2).build();
+        let tx3 = TxBuilder::default().hash(make_tx_hash(3)).nonce(3).build();
+
+        let _ = subject.replace_records(&[tx1, tx2, tx3]);
+
+        let captured_params = prepare_params.lock().unwrap();
+        let sql = &captured_params[0];
+        assert_eq!(captured_params.len(), 1);
+        assert!(sql.starts_with("UPDATE sent_payable SET"));
+        assert!(sql.contains("tx_hash = CASE"));
+        assert!(sql.contains("receiver_address = CASE"));
+        assert!(sql.contains("amount_high_b = CASE"));
+        assert!(sql.contains("amount_low_b = CASE"));
+        assert!(sql.contains("timestamp = CASE"));
+        assert!(sql.contains("gas_price_wei_high_b = CASE"));
+        assert!(sql.contains("gas_price_wei_low_b = CASE"));
+        assert!(sql.contains("block_hash = CASE"));
+        assert!(sql.contains("block_number = CASE"));
+        assert!(sql.contains("WHERE nonce IN (1, 2, 3)"));
+        assert!(sql.contains("WHEN nonce = 1 THEN '0x0000000000000000000000000000000000000000000000000000000000000001'"));
+        assert!(sql.contains("WHEN nonce = 2 THEN '0x0000000000000000000000000000000000000000000000000000000000000002'"));
+        assert!(sql.contains("WHEN nonce = 3 THEN '0x0000000000000000000000000000000000000000000000000000000000000003'"));
+    }
+
+    #[test]
     fn replace_records_throws_error_for_empty_input() {
         let home_dir = ensure_node_home_directory_exists(
             "sent_payable_dao",
@@ -1029,7 +1095,7 @@ mod tests {
             .nonce(3)
             .build();
 
-        let result = subject.replace_records(&[new_tx2.clone(), new_tx3.clone()]);
+        let result = subject.replace_records(&[new_tx2, new_tx3]);
 
         assert_eq!(
             result,
