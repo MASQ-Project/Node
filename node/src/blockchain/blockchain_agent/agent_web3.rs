@@ -49,9 +49,6 @@ impl BlockchainAgentWeb3 {
         consuming_wallet_balances: ConsumingWalletBalances,
         chain: Chain,
     ) -> (Box<dyn BlockchainAgent>, QualifiedPayablesRipePack) {
-        let current_gas_price_with_margin =
-            increase_gas_price_by_margin(latest_gas_price_wei, chain);
-
         let fold_init = (QualifiedPayablesRipePack { payables: vec![] }, 0);
         let (ripe_qualified_payables, gas_price_aggregated_wei) =
             raw_qualified_payables.payables.into_iter().fold(
@@ -59,8 +56,9 @@ impl BlockchainAgentWeb3 {
                 |(ripe_qualified_payables, gas_price_aggregated_wei), raw_q_payable| {
                     Self::fold_guts(
                         (ripe_qualified_payables, gas_price_aggregated_wei),
+                        chain,
                         raw_q_payable,
-                        current_gas_price_with_margin,
+                        latest_gas_price_wei,
                     )
                 },
             );
@@ -83,6 +81,7 @@ impl BlockchainAgentWeb3 {
             QualifiedPayablesRipePack,
             u128,
         ),
+        chain: Chain,
         raw_q_payable: QualifiedPayablesBeforeGasPriceSelection,
         current_gas_price_with_margin: u128,
     ) -> (QualifiedPayablesRipePack, u128) {
@@ -93,12 +92,16 @@ impl BlockchainAgentWeb3 {
             }
             Some(_) => current_gas_price_with_margin,
         };
-        let ripe_qualified_payable =
-            QualifiedPayablesWithGasPrice::new(raw_q_payable.payable, selected_gas_price_wei);
+        let increased_by_margin_gas_price_wei =
+            increase_gas_price_by_margin(selected_gas_price_wei, chain);
+        let ripe_qualified_payable = QualifiedPayablesWithGasPrice::new(
+            raw_q_payable.payable,
+            increased_by_margin_gas_price_wei,
+        );
         ripe_qualified_payables
             .payables
             .push(ripe_qualified_payable);
-        gas_price_aggregated_wei += selected_gas_price_wei;
+        gas_price_aggregated_wei += increased_by_margin_gas_price_wei;
         (ripe_qualified_payables, gas_price_aggregated_wei)
     }
 }
@@ -169,7 +172,6 @@ mod tests {
         };
         let rpc_gas_price_wei = 444_555_666;
         let chain = TEST_DEFAULT_CHAIN;
-        let rpc_gas_price_with_margin_wei = increase_gas_price_by_margin(rpc_gas_price_wei, chain);
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
         let account_3 = make_payable_account(56);
@@ -179,23 +181,23 @@ mod tests {
             payables: vec![
                 QualifiedPayablesBeforeGasPriceSelection::new(
                     account_1.clone(),
-                    Some(rpc_gas_price_with_margin_wei - 1),
+                    Some(rpc_gas_price_wei - 1),
                 ),
                 QualifiedPayablesBeforeGasPriceSelection::new(
                     account_2.clone(),
-                    Some(rpc_gas_price_with_margin_wei),
+                    Some(rpc_gas_price_wei),
                 ),
                 QualifiedPayablesBeforeGasPriceSelection::new(
                     account_3.clone(),
-                    Some(rpc_gas_price_with_margin_wei + 1),
+                    Some(rpc_gas_price_wei + 1),
                 ),
                 QualifiedPayablesBeforeGasPriceSelection::new(
                     account_4.clone(),
-                    Some(rpc_gas_price_with_margin_wei - 123_456),
+                    Some(rpc_gas_price_wei - 123_456),
                 ),
                 QualifiedPayablesBeforeGasPriceSelection::new(
                     account_5.clone(),
-                    Some(rpc_gas_price_with_margin_wei + 456_789),
+                    Some(rpc_gas_price_wei + 456_789),
                 ),
             ],
         };
@@ -212,16 +214,12 @@ mod tests {
         );
 
         let expected_result = {
-            let gas_price_account_1 =
-                increase_gas_price_by_margin(rpc_gas_price_with_margin_wei, chain);
-            let gas_price_account_2 =
-                increase_gas_price_by_margin(rpc_gas_price_with_margin_wei, chain);
-            let gas_price_account_3 =
-                increase_gas_price_by_margin(rpc_gas_price_with_margin_wei + 1, chain);
-            let gas_price_account_4 =
-                increase_gas_price_by_margin(rpc_gas_price_with_margin_wei, chain);
+            let gas_price_account_1 = increase_gas_price_by_margin(rpc_gas_price_wei, chain);
+            let gas_price_account_2 = increase_gas_price_by_margin(rpc_gas_price_wei, chain);
+            let gas_price_account_3 = increase_gas_price_by_margin(rpc_gas_price_wei + 1, chain);
+            let gas_price_account_4 = increase_gas_price_by_margin(rpc_gas_price_wei, chain);
             let gas_price_account_5 =
-                increase_gas_price_by_margin(rpc_gas_price_with_margin_wei + 456_789, chain);
+                increase_gas_price_by_margin(rpc_gas_price_wei + 456_789, chain);
             QualifiedPayablesRipePack {
                 payables: vec![
                     QualifiedPayablesWithGasPrice::new(account_1, gas_price_account_1),
