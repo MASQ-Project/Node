@@ -34,9 +34,9 @@ impl ConnectionChangeNotification {
 mod tests {
     use super::*;
     use crate::test_utils::mocks::TerminalPassiveMock;
-    use masq_lib::test_utils::fake_stream_holder::ByteArrayWriter;
     use masq_lib::utils::running_test;
     use std::sync::Arc;
+    use test_utilities::byte_array_reader_writer::ByteArrayWriter;
 
     #[test]
     fn broadcasts_connected_to_neighbor() {
