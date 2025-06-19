@@ -11,6 +11,7 @@ use crate::accountant::db_access_objects::utils::{TxHash, TxIdentifiers};
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock};
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
+use itertools::Itertools;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SentPayableDaoError {
@@ -283,7 +284,6 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
             new_txs
                 .iter()
                 .map(|tx| format!("WHEN nonce = {} THEN {}", tx.nonce, value_fn(tx)))
-                .collect::<Vec<_>>()
                 .join(" ")
         };
 
