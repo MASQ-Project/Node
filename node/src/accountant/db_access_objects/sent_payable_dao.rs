@@ -319,11 +319,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
             None => "NULL".to_string(),
         });
 
-        let nonces = new_txs
-            .iter()
-            .map(|tx| tx.nonce.to_string())
-            .collect::<Vec<_>>()
-            .join(", ");
+        let nonces = comma_joined_stringifiable(&new_txs, |tx| tx.nonce.to_string());
 
         let sql = format!(
             "UPDATE sent_payable \
@@ -1027,7 +1023,6 @@ mod tests {
 
         let captured_params = prepare_params.lock().unwrap();
         let sql = &captured_params[0];
-        assert_eq!(captured_params.len(), 1);
         assert!(sql.starts_with("UPDATE sent_payable SET"));
         assert!(sql.contains("tx_hash = CASE"));
         assert!(sql.contains("receiver_address = CASE"));
@@ -1042,6 +1037,7 @@ mod tests {
         assert!(sql.contains("WHEN nonce = 1 THEN '0x0000000000000000000000000000000000000000000000000000000000000001'"));
         assert!(sql.contains("WHEN nonce = 2 THEN '0x0000000000000000000000000000000000000000000000000000000000000002'"));
         assert!(sql.contains("WHEN nonce = 3 THEN '0x0000000000000000000000000000000000000000000000000000000000000003'"));
+        assert_eq!(captured_params.len(), 1);
     }
 
     #[test]
