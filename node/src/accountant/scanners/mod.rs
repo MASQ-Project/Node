@@ -920,7 +920,7 @@ impl Scanner<ReportTransactionReceipts, PendingPayableScanResult> for PendingPay
                 let requires_payment_retry =
                     self.process_transactions_by_reported_state(scan_report, logger);
 
-                self.mark_as_ended(&logger);
+                self.mark_as_ended(logger);
 
                 requires_payment_retry
             }

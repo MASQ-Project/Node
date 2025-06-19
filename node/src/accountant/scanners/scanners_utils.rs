@@ -33,7 +33,7 @@ pub mod payable_scanner_utils {
         pub result: OperationOutcome,
     }
 
-    #[derive(Debug, PartialEq)]
+    #[derive(Debug, PartialEq, Eq)]
     pub enum OperationOutcome {
         NewPendingPayable,
         Failure,
@@ -341,7 +341,7 @@ pub mod pending_payable_scanner_utils {
         }
     }
 
-    #[derive(Debug, PartialEq)]
+    #[derive(Debug, PartialEq, Eq)]
     pub enum PendingPayableScanResult {
         NoPendingPayablesLeft(Option<NodeToUiMessage>),
         PaymentRetryRequired,

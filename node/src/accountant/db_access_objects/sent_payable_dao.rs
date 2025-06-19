@@ -319,7 +319,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
             None => "NULL".to_string(),
         });
 
-        let nonces = comma_joined_stringifiable(&new_txs, |tx| tx.nonce.to_string());
+        let nonces = comma_joined_stringifiable(new_txs, |tx| tx.nonce.to_string());
 
         let sql = format!(
             "UPDATE sent_payable \

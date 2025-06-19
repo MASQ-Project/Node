@@ -1041,7 +1041,7 @@ impl Accountant {
 
         e.log_error(&self.logger, scanner.into(), is_externally_triggered);
 
-        response_skeleton_opt.map(|skeleton| {
+        if let Some(skeleton) = response_skeleton_opt {
             self.ui_message_sub_opt
                 .as_ref()
                 .expect("UiGateway is unbound")
@@ -1050,7 +1050,7 @@ impl Accountant {
                     body: UiScanResponse {}.tmb(skeleton.context_id),
                 })
                 .expect("UiGateway is dead");
-        });
+        };
 
         self.scan_schedulers
             .reschedule_on_error_resolver
@@ -1084,7 +1084,7 @@ impl Accountant {
                     response_skeleton_opt.is_some(),
                 );
 
-                response_skeleton_opt.map(|skeleton| {
+                if let Some(skeleton) = response_skeleton_opt {
                     self.ui_message_sub_opt
                         .as_ref()
                         .expect("UiGateway is unbound")
@@ -1093,7 +1093,7 @@ impl Accountant {
                             body: UiScanResponse {}.tmb(skeleton.context_id),
                         })
                         .expect("UiGateway is dead");
-                });
+                };
             }
         }
     }
@@ -3010,8 +3010,8 @@ mod tests {
             scan_for_pending_payables_notify_later_params_arc
                 .lock()
                 .unwrap();
-        // PendingPayableScanner can only start after NewPayableScanner finishes and makes at least 
-        // one transaction. The test stops before running NewPayableScanner, missing both 
+        // PendingPayableScanner can only start after NewPayableScanner finishes and makes at least
+        // one transaction. The test stops before running NewPayableScanner, missing both
         // the second PendingPayableScanner run and its scheduling event.
         assert!(
             scan_for_pending_payables_notify_later_params.is_empty(),
