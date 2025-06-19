@@ -7,22 +7,25 @@ pub mod msgs;
 pub mod test_utils;
 
 use crate::accountant::payment_adjuster::Adjustment;
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::BlockchainAgentWithContextMessage;
-use crate::accountant::scanners::Scanner;
+use crate::accountant::scanners::payable_scanner_extension::msgs::{
+    BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
+};
+use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableScanResult;
+use crate::accountant::scanners::{Scanner, StartableScanner};
+use crate::accountant::{ScanForNewPayables, ScanForRetryPayables, SentPayables};
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
-use actix::Message;
 use itertools::Either;
 use masq_lib::logger::Logger;
 
-pub trait MultistagePayableScanner<BeginMessage, EndMessage>:
-    Scanner<BeginMessage, EndMessage> + SolvencySensitivePaymentInstructor
-where
-    BeginMessage: Message,
-    EndMessage: Message,
+pub(in crate::accountant::scanners) trait MultistageDualPayableScanner:
+    StartableScanner<ScanForNewPayables, QualifiedPayablesMessage>
+    + StartableScanner<ScanForRetryPayables, QualifiedPayablesMessage>
+    + SolvencySensitivePaymentInstructor
+    + Scanner<SentPayables, PayableScanResult>
 {
 }
 
-pub trait SolvencySensitivePaymentInstructor {
+pub(in crate::accountant::scanners) trait SolvencySensitivePaymentInstructor {
     fn try_skipping_payment_adjustment(
         &self,
         msg: BlockchainAgentWithContextMessage,
@@ -55,7 +58,7 @@ impl PreparedAdjustment {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::PreparedAdjustment;
+    use crate::accountant::scanners::payable_scanner_extension::PreparedAdjustment;
 
     impl Clone for PreparedAdjustment {
         fn clone(&self) -> Self {

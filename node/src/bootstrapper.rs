@@ -336,7 +336,7 @@ pub struct BootstrapperConfig {
     pub log_level: LevelFilter,
     pub dns_servers: Vec<SocketAddr>,
     pub scan_intervals_opt: Option<ScanIntervals>,
-    pub suppress_initial_scans: bool,
+    pub automatic_scans_enabled: bool,
     pub when_pending_too_long_sec: u64,
     pub crash_point: CrashPoint,
     pub clandestine_discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
@@ -372,7 +372,7 @@ impl BootstrapperConfig {
             log_level: LevelFilter::Off,
             dns_servers: vec![],
             scan_intervals_opt: None,
-            suppress_initial_scans: false,
+            automatic_scans_enabled: true,
             crash_point: CrashPoint::None,
             clandestine_discriminator_factories: vec![],
             ui_gateway_config: UiGatewayConfig {
@@ -416,7 +416,7 @@ impl BootstrapperConfig {
         self.consuming_wallet_opt = unprivileged.consuming_wallet_opt;
         self.db_password_opt = unprivileged.db_password_opt;
         self.scan_intervals_opt = unprivileged.scan_intervals_opt;
-        self.suppress_initial_scans = unprivileged.suppress_initial_scans;
+        self.automatic_scans_enabled = unprivileged.automatic_scans_enabled;
         self.payment_thresholds_opt = unprivileged.payment_thresholds_opt;
         self.when_pending_too_long_sec = unprivileged.when_pending_too_long_sec;
     }
@@ -1253,7 +1253,7 @@ mod tests {
         unprivileged_config.consuming_wallet_opt = consuming_wallet_opt.clone();
         unprivileged_config.db_password_opt = db_password_opt.clone();
         unprivileged_config.scan_intervals_opt = Some(ScanIntervals::default());
-        unprivileged_config.suppress_initial_scans = false;
+        unprivileged_config.automatic_scans_enabled = true;
         unprivileged_config.when_pending_too_long_sec = DEFAULT_PENDING_TOO_LONG_SEC;
 
         privileged_config.merge_unprivileged(unprivileged_config);
@@ -1278,7 +1278,7 @@ mod tests {
             privileged_config.scan_intervals_opt,
             Some(ScanIntervals::default())
         );
-        assert_eq!(privileged_config.suppress_initial_scans, false);
+        assert_eq!(privileged_config.automatic_scans_enabled, true);
         assert_eq!(
             privileged_config.when_pending_too_long_sec,
             DEFAULT_PENDING_TOO_LONG_SEC
