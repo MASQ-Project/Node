@@ -38,18 +38,18 @@ impl ScanSchedulers {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum PayableScanSchedulerError {
     ScanForNewPayableAlreadyScheduled,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum ScanRescheduleAfterEarlyStop {
     Schedule(ScanType),
     DoNotSchedule,
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum PayableSequenceScanner {
     NewPayables,
     RetryPayables,
@@ -123,7 +123,7 @@ impl PayableScanScheduler {
         } else {
             debug!(logger, "Scheduling a new-payable scan asap");
 
-            let _ = self.new_payable_notify.notify(
+            self.new_payable_notify.notify(
                 ScanForNewPayables {
                     response_skeleton_opt: None,
                 },
