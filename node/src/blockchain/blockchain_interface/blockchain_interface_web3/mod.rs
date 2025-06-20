@@ -26,9 +26,11 @@ use crate::blockchain::blockchain_bridge::{BlockMarker, BlockScanRange, PendingP
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{LowBlockchainIntWeb3, TransactionReceiptResult, TxReceipt, TxStatus};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::utils::{create_blockchain_agent_web3, send_payables_within_batch, BlockchainAgentFutureResult};
 
-// TODO We probably should begin to attach these constants more tightly to the interface, so that we aren't baffled
-// which constant belongs to which interface. I suggest to declare them inside the inherent impl block. They will then
-// need to be preceded by the class name if you want to use them. That could be the distinction we desire, though.
+// TODO We should probably begin to attach these constants to the interfaces more tightly, so that
+// we aren't baffled by which interface they belong with. I suggest to declare them inside
+// their inherent impl blocks. They will then need to be preceded by the class name
+// of the respective interface if you want to use them. This could be a distinction we desire,
+// despite the increased wordiness.
 
 const CONTRACT_ABI: &str = indoc!(
     r#"[{

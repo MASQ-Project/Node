@@ -39,15 +39,6 @@ impl BlockchainAgent for BlockchainAgentMock {
         todo!("to be implemented by GH-711")
     }
 
-    // fn gas_price_for_individual_txs(&self) -> QualifiedPayableGasPriceSetup {
-    //     todo!()
-    //     //     (&self) -> u128 {
-    //     //     self.gas_price_results
-    //     //     .borrow_mut()
-    //     //     .remove(0)
-    //     // }
-    // }
-
     fn consuming_wallet(&self) -> &Wallet {
         self.consuming_wallet_result_opt.as_ref().unwrap()
     }

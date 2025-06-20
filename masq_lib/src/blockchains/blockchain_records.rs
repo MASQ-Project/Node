@@ -12,7 +12,8 @@ use crate::constants::{
 };
 use ethereum_types::{Address, H160};
 
-// TODO these should probably be a static, and dynamic initialization should then also be allowed
+// TODO these should probably be a static (it's a shame that we construct the data every time anew
+// when we ask for the chain specs), and dynamic initialization should be allowed as well
 pub const CHAINS: [BlockchainRecord; 7] = [
     BlockchainRecord {
         self_id: Chain::PolyMainnet,

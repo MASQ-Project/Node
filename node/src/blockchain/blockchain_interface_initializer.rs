@@ -62,7 +62,7 @@ mod tests {
     fn initialize_web3_interface_works() {
         // TODO this test should definitely assert on the web3 requests sent to the server,
         // that's the best way to verify that this interface belongs to the web3 architecture
-        // (GH-543)
+        // (This test amplifies the importance of GH-543)
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .ok_response("0x3B9ACA00".to_string(), 0) // gas_price = 10000000000
