@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::blockchain::blockchain_agent::BlockchainAgent;
-use crate::sub_lib::blockchain_bridge::{ConsumingWalletBalances, QualifiedPayableGasPriceSetup};
+use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
 use ethereum_types::U256;
 use masq_lib::blockchains::chains::Chain;
@@ -71,11 +71,7 @@ impl Default for BlockchainAgentNull {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
-    use crate::sub_lib::blockchain_bridge::{
-        ConsumingWalletBalances, QualifiedPayableGasPriceSetup,
-    };
+    use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use crate::sub_lib::wallet::Wallet;
 
     use crate::blockchain::blockchain_agent::agent_null::BlockchainAgentNull;

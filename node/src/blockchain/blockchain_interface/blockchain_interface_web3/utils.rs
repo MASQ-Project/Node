@@ -18,14 +18,12 @@ use crate::blockchain::blockchain_interface::data_structures::{
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
-use bytes::Buf;
 use futures::Future;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::WALLET_ADDRESS_LENGTH;
 use masq_lib::logger::Logger;
 use secp256k1secrets::SecretKey;
 use serde_json::Value;
-use std::fmt::Display;
 use std::iter::once;
 use std::time::SystemTime;
 use thousands::Separable;
@@ -394,7 +392,6 @@ mod tests {
     use masq_lib::constants::{DEFAULT_CHAIN, DEFAULT_GAS_PRICE};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::find_free_port;
     use serde_json::Value;
     use std::net::Ipv4Addr;
@@ -465,7 +462,6 @@ mod tests {
         .unwrap();
         let web3_batch = Web3::new(Batch::new(transport));
         let chain = DEFAULT_CHAIN;
-        let gas_price_in_gwei = DEFAULT_GAS_PRICE;
         let pending_nonce = 1;
         let consuming_wallet = make_paying_wallet(b"paying_wallet");
         let account_1 = make_payable_account(1);

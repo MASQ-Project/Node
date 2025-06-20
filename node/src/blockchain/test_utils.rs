@@ -5,21 +5,18 @@
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
     BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
 };
-use crate::test_utils::make_wallet;
 use bip39::{Language, Mnemonic, Seed};
 use ethabi::Hash;
 use ethereum_types::{BigEndianHash, H160, H256, U64};
-use itertools::Itertools;
 use lazy_static::lazy_static;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::utils::to_string;
 use serde::Serialize;
 use serde_derive::Deserialize;
-use std::collections::HashMap;
 use std::fmt::Debug;
 use std::net::Ipv4Addr;
 use web3::transports::{EventLoopHandle, Http};
-use web3::types::{Address, Index, Log, SignedTransaction, TransactionReceipt, H2048, U256};
+use web3::types::{Index, Log, SignedTransaction, TransactionReceipt, H2048, U256};
 
 lazy_static! {
     static ref BIG_MEANINGLESS_PHRASE: Vec<&'static str> = vec![

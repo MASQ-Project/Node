@@ -49,7 +49,6 @@ mod tests {
     };
     use crate::accountant::test_utils::make_payable_account;
     use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
-    use crate::blockchain::blockchain_interface::BlockchainInterface;
     use crate::blockchain::blockchain_interface_initializer::BlockchainInterfaceInitializer;
     use crate::test_utils::make_wallet;
     use futures::Future;

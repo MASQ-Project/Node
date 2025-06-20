@@ -4,7 +4,6 @@ pub mod lower_level_interface_web3;
 mod utils;
 
 use std::cmp::PartialEq;
-use std::collections::HashMap;
 use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainError, PayableTransactionError};
 use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, ProcessedPayableFallible};
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
@@ -21,7 +20,6 @@ use actix::Recipient;
 use ethereum_types::U64;
 use web3::transports::{EventLoopHandle, Http};
 use web3::types::{Address, Log, H256, U256, FilterBuilder, TransactionReceipt, BlockNumber};
-use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayablesRawPack, QualifiedPayablesRipePack};
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::{BlockMarker, BlockScanRange, PendingPayableFingerprintSeeds};
@@ -867,8 +865,7 @@ mod tests {
         };
         let expected_estimated_transaction_fee = 190_652_800_000_000;
 
-        blockchain_interface_web3_can_introduce_blockchain_agent(
-            chain,
+        test_blockchain_interface_web3_can_introduce_blockchain_agent(
             raw_qualified_payables,
             gas_price_wei_from_rpc_hex,
             expected_ripe_qualified_payables,
@@ -903,30 +900,23 @@ mod tests {
         };
 
         let expected_ripe_qualified_payables = {
-            let gas_price_account_1 = increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei, chain);
-            let gas_price_account_2 = increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei, chain);
-            let gas_price_account_3 = increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei + 1, chain);
-                QualifiedPayablesRipePack {
+            let gas_price_account_1 =
+                increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei, chain);
+            let gas_price_account_2 =
+                increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei, chain);
+            let gas_price_account_3 =
+                increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei + 1, chain);
+            QualifiedPayablesRipePack {
                 payables: vec![
-                    QualifiedPayablesWithGasPrice::new(
-                        account_1,
-                        gas_price_account_1,
-                    ),
-                    QualifiedPayablesWithGasPrice::new(
-                        account_2,
-                        gas_price_account_2,
-                    ),
-                    QualifiedPayablesWithGasPrice::new(
-                        account_3,
-                        gas_price_account_3,
-                    ),
+                    QualifiedPayablesWithGasPrice::new(account_1, gas_price_account_1),
+                    QualifiedPayablesWithGasPrice::new(account_2, gas_price_account_2),
+                    QualifiedPayablesWithGasPrice::new(account_3, gas_price_account_3),
                 ],
             }
         };
         let expected_estimated_transaction_fee = 285_979_200_073_328;
 
-        blockchain_interface_web3_can_introduce_blockchain_agent(
-            chain,
+        test_blockchain_interface_web3_can_introduce_blockchain_agent(
             raw_qualified_payables,
             gas_price_wei_from_rpc_hex,
             expected_ripe_qualified_payables,
@@ -934,8 +924,7 @@ mod tests {
         );
     }
 
-    fn blockchain_interface_web3_can_introduce_blockchain_agent(
-        chain: Chain,
+    fn test_blockchain_interface_web3_can_introduce_blockchain_agent(
         raw_qualified_payables: QualifiedPayablesRawPack,
         gas_price_wei_from_rpc_hex: &str,
         expected_ripe_qualified_payables: QualifiedPayablesRipePack,

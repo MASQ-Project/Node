@@ -87,9 +87,7 @@ impl BlockchainAgentWeb3 {
     ) -> (QualifiedPayablesRipePack, u128) {
         let selected_gas_price_wei = match raw_q_payable.previous_attempt_gas_price_minor_opt {
             None => latest_gas_price,
-            Some(previous_price) if latest_gas_price < previous_price => {
-                previous_price
-            }
+            Some(previous_price) if latest_gas_price < previous_price => previous_price,
             Some(_) => latest_gas_price,
         };
 
@@ -103,10 +101,8 @@ impl BlockchainAgentWeb3 {
             gas_price_increased_by_margin_wei
         };
 
-        let ripe_qualified_payable = QualifiedPayablesWithGasPrice::new(
-            raw_q_payable.payable,
-            checked_gas_price_wei,
-        );
+        let ripe_qualified_payable =
+            QualifiedPayablesWithGasPrice::new(raw_q_payable.payable, checked_gas_price_wei);
 
         ripe_qualified_payables
             .payables
@@ -125,7 +121,6 @@ mod tests {
     };
     use crate::accountant::test_utils::{
         make_payable_account, make_raw_qualified_payables_for_retry_mode,
-        make_ripe_qualified_payables,
     };
     use crate::blockchain::blockchain_agent::agent_web3::{
         BlockchainAgentWeb3, WEB3_MAXIMAL_GAS_LIMIT_MARGIN,
@@ -213,7 +208,6 @@ mod tests {
             ],
         };
         let gas_price_from_rpc = 444_555_666;
-        let chain = TEST_DEFAULT_CHAIN;
 
         let (_, ripe_qualified_payables) = BlockchainAgentWeb3::new(
             qualified_payables,
@@ -261,7 +255,12 @@ mod tests {
             fetched_latest_gas_price_wei,
         );
 
-        assert!(check_value_wei > ceiling_gas_price_wei, "should be {} > {} but isn't", check_value_wei, ceiling_gas_price_wei);
+        assert!(
+            check_value_wei > ceiling_gas_price_wei,
+            "should be {} > {} but isn't",
+            check_value_wei,
+            ceiling_gas_price_wei
+        );
     }
 
     #[test]
@@ -342,7 +341,12 @@ mod tests {
             raw_qualified_payables,
         );
 
-        assert!(check_value_wei > ceiling_gas_price_wei, "should be {} > {} but isn't", check_value_wei, ceiling_gas_price_wei);
+        assert!(
+            check_value_wei > ceiling_gas_price_wei,
+            "should be {} > {} but isn't",
+            check_value_wei,
+            ceiling_gas_price_wei
+        );
     }
 
     #[test]
@@ -557,7 +561,6 @@ mod tests {
                 ),
             ],
         };
-        let chain = TEST_DEFAULT_CHAIN;
         let (agent, _) = BlockchainAgentWeb3::new(
             qualified_payables,
             rpc_gas_price_wei,
@@ -569,16 +572,11 @@ mod tests {
 
         let result = agent.estimated_transaction_fee_total();
 
-        let gas_price_account_1 =
-            increase_gas_price_by_margin(rpc_gas_price_wei, chain);
-        let gas_price_account_2 =
-            increase_gas_price_by_margin(rpc_gas_price_wei, chain);
-        let gas_price_account_3 =
-            increase_gas_price_by_margin(rpc_gas_price_wei + 1, chain);
-        let gas_price_account_4 =
-            increase_gas_price_by_margin(rpc_gas_price_wei, chain);
-        let gas_price_account_5 =
-            increase_gas_price_by_margin(rpc_gas_price_wei + 456_789, chain);
+        let gas_price_account_1 = increase_gas_price_by_margin(rpc_gas_price_wei, chain);
+        let gas_price_account_2 = increase_gas_price_by_margin(rpc_gas_price_wei, chain);
+        let gas_price_account_3 = increase_gas_price_by_margin(rpc_gas_price_wei + 1, chain);
+        let gas_price_account_4 = increase_gas_price_by_margin(rpc_gas_price_wei, chain);
+        let gas_price_account_5 = increase_gas_price_by_margin(rpc_gas_price_wei + 456_789, chain);
         assert_eq!(
             result,
             (gas_price_account_1

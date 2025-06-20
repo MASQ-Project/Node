@@ -5,7 +5,6 @@ use crate::accountant::{ResponseSkeleton, SkeletonOptHolder};
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
-use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 
 #[derive(Debug, Message, PartialEq, Eq, Clone)]
