@@ -83,25 +83,36 @@ impl BlockchainAgentWeb3 {
         ),
         chain: Chain,
         raw_q_payable: QualifiedPayablesBeforeGasPriceSelection,
-        current_gas_price_with_margin: u128,
+        latest_gas_price: u128,
     ) -> (QualifiedPayablesRipePack, u128) {
         let selected_gas_price_wei = match raw_q_payable.previous_attempt_gas_price_minor_opt {
-            None => current_gas_price_with_margin,
-            Some(previous_price) if current_gas_price_with_margin < previous_price => {
+            None => latest_gas_price,
+            Some(previous_price) if latest_gas_price < previous_price => {
                 previous_price
             }
-            Some(_) => current_gas_price_with_margin,
+            Some(_) => latest_gas_price,
         };
-        let increased_by_margin_gas_price_wei =
+
+        let gas_price_increased_by_margin_wei =
             increase_gas_price_by_margin(selected_gas_price_wei, chain);
+
+        let price_ceiling = chain.rec().gas_price_safe_ceiling_minor;
+        let checked_gas_price_wei = if gas_price_increased_by_margin_wei > price_ceiling {
+            price_ceiling
+        } else {
+            gas_price_increased_by_margin_wei
+        };
+
         let ripe_qualified_payable = QualifiedPayablesWithGasPrice::new(
             raw_q_payable.payable,
-            increased_by_margin_gas_price_wei,
+            checked_gas_price_wei,
         );
+
         ripe_qualified_payables
             .payables
             .push(ripe_qualified_payable);
-        gas_price_aggregated_wei += increased_by_margin_gas_price_wei;
+        gas_price_aggregated_wei += checked_gas_price_wei;
+
         (ripe_qualified_payables, gas_price_aggregated_wei)
     }
 }
@@ -238,17 +249,19 @@ mod tests {
         let chain = TEST_DEFAULT_CHAIN;
         let default_gas_price_margin_percents = chain.rec().gas_price_default_margin_percents;
         let ceiling_gas_price_wei = chain.rec().gas_price_safe_ceiling_minor;
-        // This should be the value that would surplus the ceiling just slightly if the margin is applied
-        let fetched_lastest_gas_price =
-            ((ceiling_gas_price_wei + 1) * 100) / (default_gas_price_margin_percents as u128 + 100);
-        let check_value_wei = increase_gas_price_by_margin(fetched_lastest_gas_price, chain);
+        // This should be the value that would surplus the ceiling just slightly if the margin is
+        // applied.
+        // Adding just 1 didn't work, therefore 2
+        let fetched_latest_gas_price_wei =
+            ((ceiling_gas_price_wei * 100) / (default_gas_price_margin_percents as u128 + 100)) + 2;
+        let check_value_wei = increase_gas_price_by_margin(fetched_latest_gas_price_wei, chain);
 
         test_gas_price_must_not_break_through_ceiling_value_in_the_new_payable_mode(
             chain,
-            fetched_lastest_gas_price,
+            fetched_latest_gas_price_wei,
         );
 
-        assert!(check_value_wei > ceiling_gas_price_wei);
+        assert!(check_value_wei > ceiling_gas_price_wei, "should be {} > {} but isn't", check_value_wei, ceiling_gas_price_wei);
     }
 
     #[test]
@@ -275,7 +288,7 @@ mod tests {
 
     fn test_gas_price_must_not_break_through_ceiling_value_in_the_new_payable_mode(
         chain: Chain,
-        fetched_lastest_gas_price_wei: u128,
+        fetched_latest_gas_price_wei: u128,
     ) {
         let ceiling_gas_price_wei = chain.rec().gas_price_safe_ceiling_minor;
         let consuming_wallet = make_wallet("efg");
@@ -289,7 +302,7 @@ mod tests {
             QualifiedPayablesRawPack::from(vec![account_1.clone(), account_2.clone()]);
         let (_, ripe_qualified_payables) = BlockchainAgentWeb3::new(
             qualified_payables,
-            fetched_lastest_gas_price_wei,
+            fetched_latest_gas_price_wei,
             77_777,
             consuming_wallet,
             consuming_wallet_balances,
@@ -312,9 +325,11 @@ mod tests {
         let account_2 = make_payable_account(34);
         let default_gas_price_margin_percents = chain.rec().gas_price_default_margin_percents;
         let ceiling_gas_price_wei = chain.rec().gas_price_safe_ceiling_minor;
-        // This should be the value that would surplus the ceiling just slightly if the margin is applied
+        // This should be the value that would surplus the ceiling just slightly if the margin is
+        // applied.
+        // Adding just 1 didn't work, therefore 2
         let fetched_lastest_gas_price =
-            ((ceiling_gas_price_wei + 1) * 100) / (default_gas_price_margin_percents as u128 + 100);
+            (ceiling_gas_price_wei * 100) / (default_gas_price_margin_percents as u128 + 100) + 2;
         let check_value_wei = increase_gas_price_by_margin(fetched_lastest_gas_price, chain);
         let raw_qualified_payables = make_raw_qualified_payables_for_retry_mode(vec![
             (account_1.clone(), fetched_lastest_gas_price - 1),
@@ -327,7 +342,7 @@ mod tests {
             raw_qualified_payables,
         );
 
-        assert!(check_value_wei > ceiling_gas_price_wei);
+        assert!(check_value_wei > ceiling_gas_price_wei, "should be {} > {} but isn't", check_value_wei, ceiling_gas_price_wei);
     }
 
     #[test]
@@ -340,7 +355,7 @@ mod tests {
         let ceiling_gas_price_wei = chain.rec().gas_price_safe_ceiling_minor;
         // This should be the value that would surplus the ceiling just slightly if the margin is applied
         let border_gas_price_wei =
-            ((ceiling_gas_price_wei + 1) * 100) / (default_gas_price_margin_percents as u128 + 100);
+            (ceiling_gas_price_wei * 100) / (default_gas_price_margin_percents as u128 + 100) + 2;
         let fetched_gas_price_wei = border_gas_price_wei - 1;
         let check_value_wei = increase_gas_price_by_margin(border_gas_price_wei, chain);
         let raw_qualified_payables = make_raw_qualified_payables_for_retry_mode(vec![
@@ -513,7 +528,6 @@ mod tests {
         };
         let rpc_gas_price_wei = 444_555_666;
         let chain = TEST_DEFAULT_CHAIN;
-        let rpc_gas_price_with_margin_wei = increase_gas_price_by_margin(rpc_gas_price_wei, chain);
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
         let account_3 = make_payable_account(56);
@@ -523,23 +537,23 @@ mod tests {
             payables: vec![
                 QualifiedPayablesBeforeGasPriceSelection::new(
                     account_1.clone(),
-                    Some(rpc_gas_price_with_margin_wei - 1),
+                    Some(rpc_gas_price_wei - 1),
                 ),
                 QualifiedPayablesBeforeGasPriceSelection::new(
                     account_2.clone(),
-                    Some(rpc_gas_price_with_margin_wei),
+                    Some(rpc_gas_price_wei),
                 ),
                 QualifiedPayablesBeforeGasPriceSelection::new(
                     account_3.clone(),
-                    Some(rpc_gas_price_with_margin_wei + 1),
+                    Some(rpc_gas_price_wei + 1),
                 ),
                 QualifiedPayablesBeforeGasPriceSelection::new(
                     account_4.clone(),
-                    Some(rpc_gas_price_with_margin_wei - 123_456),
+                    Some(rpc_gas_price_wei - 123_456),
                 ),
                 QualifiedPayablesBeforeGasPriceSelection::new(
                     account_5.clone(),
-                    Some(rpc_gas_price_with_margin_wei + 456_789),
+                    Some(rpc_gas_price_wei + 456_789),
                 ),
             ],
         };
@@ -556,20 +570,19 @@ mod tests {
         let result = agent.estimated_transaction_fee_total();
 
         let gas_price_account_1 =
-            increase_gas_price_by_margin(rpc_gas_price_with_margin_wei, chain);
+            increase_gas_price_by_margin(rpc_gas_price_wei, chain);
         let gas_price_account_2 =
-            increase_gas_price_by_margin(rpc_gas_price_with_margin_wei, chain);
+            increase_gas_price_by_margin(rpc_gas_price_wei, chain);
         let gas_price_account_3 =
-            increase_gas_price_by_margin(rpc_gas_price_with_margin_wei + 1, chain);
+            increase_gas_price_by_margin(rpc_gas_price_wei + 1, chain);
         let gas_price_account_4 =
-            increase_gas_price_by_margin(rpc_gas_price_with_margin_wei, chain);
+            increase_gas_price_by_margin(rpc_gas_price_wei, chain);
         let gas_price_account_5 =
-            increase_gas_price_by_margin(rpc_gas_price_with_margin_wei + 456_789, chain);
+            increase_gas_price_by_margin(rpc_gas_price_wei + 456_789, chain);
         assert_eq!(
             result,
             (gas_price_account_1
                 + gas_price_account_2
-                + gas_price_account_3
                 + gas_price_account_3
                 + gas_price_account_4
                 + gas_price_account_5)

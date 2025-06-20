@@ -1737,11 +1737,10 @@ mod tests {
 
     #[test]
     fn retry_payable_scanner_can_initiate_a_scan() {
-        todo!("this must be set up under the other card");
+        todo!("this must be set up under GH-605");
         // TODO make sure the QualifiedPayableRawPack will express the difference from
         // the NewPayable scanner: The QualifiedPayablesBeforeGasPriceSelection needs to carry
         // `Some(<previous gas price value>)` instead of None
-
         // init_test_logging();
         // let test_name = "retry_payable_scanner_can_initiate_a_scan";
         // let consuming_wallet = make_paying_wallet(b"consuming wallet");

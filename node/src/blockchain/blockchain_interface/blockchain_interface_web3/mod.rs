@@ -882,8 +882,6 @@ mod tests {
         let gas_price_wei_from_rpc_hex = "0x3B9ACA00"; // 1000000000
         let gas_price_wei_from_rpc_u128_wei =
             u128::from_str_radix(&gas_price_wei_from_rpc_hex[2..], 16).unwrap();
-        let gas_price_wei_from_rpc_u128_wei_with_margin =
-            increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei, chain);
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
         let account_3 = make_payable_account(56);
@@ -891,34 +889,39 @@ mod tests {
             payables: vec![
                 QualifiedPayablesBeforeGasPriceSelection::new(
                     account_1.clone(),
-                    Some(gas_price_wei_from_rpc_u128_wei_with_margin - 1),
+                    Some(gas_price_wei_from_rpc_u128_wei - 1),
                 ),
                 QualifiedPayablesBeforeGasPriceSelection::new(
                     account_2.clone(),
-                    Some(gas_price_wei_from_rpc_u128_wei_with_margin),
+                    Some(gas_price_wei_from_rpc_u128_wei),
                 ),
                 QualifiedPayablesBeforeGasPriceSelection::new(
                     account_3.clone(),
-                    Some(gas_price_wei_from_rpc_u128_wei_with_margin + 1),
+                    Some(gas_price_wei_from_rpc_u128_wei + 1),
                 ),
             ],
         };
 
-        let expected_ripe_qualified_payables = QualifiedPayablesRipePack {
-            payables: vec![
-                QualifiedPayablesWithGasPrice::new(
-                    account_1,
-                    gas_price_wei_from_rpc_u128_wei_with_margin,
-                ),
-                QualifiedPayablesWithGasPrice::new(
-                    account_2,
-                    gas_price_wei_from_rpc_u128_wei_with_margin,
-                ),
-                QualifiedPayablesWithGasPrice::new(
-                    account_3,
-                    gas_price_wei_from_rpc_u128_wei_with_margin + 1,
-                ),
-            ],
+        let expected_ripe_qualified_payables = {
+            let gas_price_account_1 = increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei, chain);
+            let gas_price_account_2 = increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei, chain);
+            let gas_price_account_3 = increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei + 1, chain);
+                QualifiedPayablesRipePack {
+                payables: vec![
+                    QualifiedPayablesWithGasPrice::new(
+                        account_1,
+                        gas_price_account_1,
+                    ),
+                    QualifiedPayablesWithGasPrice::new(
+                        account_2,
+                        gas_price_account_2,
+                    ),
+                    QualifiedPayablesWithGasPrice::new(
+                        account_3,
+                        gas_price_account_3,
+                    ),
+                ],
+            }
         };
         let expected_estimated_transaction_fee = 285_979_200_073_328;
 
