@@ -6,7 +6,7 @@ pub mod payable_scanner_utils {
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
         LocallyCausedError, RemotelyCausedErrors,
     };
-    use crate::accountant::{comma_joined_stringifiable, SentPayables};
+    use crate::accountant::{comma_joined_stringifiable, PendingPayable, SentPayables};
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::sub_lib::wallet::Wallet;
     use itertools::Itertools;
@@ -15,9 +15,8 @@ pub mod payable_scanner_utils {
     use std::ops::Not;
     use std::time::SystemTime;
     use thousands::Separable;
-    use web3::types::H256;
+    use web3::types::{Address, H256};
     use masq_lib::ui_gateway::NodeToUiMessage;
-    use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
     use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
     use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RpcPayableFailure};
 
@@ -234,31 +233,28 @@ pub mod payable_scanner_utils {
     }
 
     #[derive(Debug, PartialEq, Eq)]
-    pub struct PendingPayableMetadata<'a> {
-        pub recipient: &'a Wallet,
+    pub struct PendingPayableMissingInDb {
+        pub recipient: Address,
         pub hash: H256,
-        pub rowid_opt: Option<u64>,
     }
 
-    impl<'a> PendingPayableMetadata<'a> {
+    impl PendingPayableMissingInDb {
         pub fn new(
-            recipient: &'a Wallet,
+            recipient: Address,
             hash: H256,
-            rowid_opt: Option<u64>,
-        ) -> PendingPayableMetadata<'a> {
-            PendingPayableMetadata {
+        ) -> PendingPayableMissingInDb {
+            PendingPayableMissingInDb {
                 recipient,
                 hash,
-                rowid_opt,
             }
         }
     }
 
     pub fn mark_pending_payable_fatal_error(
         sent_payments: &[&PendingPayable],
-        nonexistent: &[PendingPayableMetadata],
+        nonexistent: &[PendingPayableMissingInDb],
         error: PayableDaoError,
-        missing_fingerprints_msg_maker: fn(&[PendingPayableMetadata]) -> String,
+        missing_fingerprints_msg_maker: fn(&[PendingPayableMissingInDb]) -> String,
         logger: &Logger,
     ) {
         if !nonexistent.is_empty() {
@@ -323,16 +319,16 @@ pub mod payable_scanner_utils {
 
 pub mod pending_payable_scanner_utils {
     use crate::accountant::PendingPayableId;
-    use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
     use masq_lib::logger::Logger;
     use masq_lib::ui_gateway::NodeToUiMessage;
     use std::time::SystemTime;
+    use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{ConfirmedTx, TxReceiptLocalError};
 
     #[derive(Debug, Default, PartialEq, Eq, Clone)]
     pub struct PendingPayableScanReport {
-        pub still_pending: Vec<PendingPayableId>,
-        pub failures: Vec<PendingPayableId>,
-        pub confirmed: Vec<PendingPayableFingerprint>,
+        pub failures: Vec<FailedTx>,
+        pub confirmed: Vec<ConfirmedTx>,
     }
 
     impl PendingPayableScanReport {
@@ -353,99 +349,96 @@ pub mod pending_payable_scanner_utils {
             .expect("time calculation for elapsed failed")
             .as_millis()
     }
+    //
+    // pub fn handle_none_status(
+    //     mut scan_report: PendingPayableScanReport,
+    //     fingerprint: SentTx,
+    //     max_pending_interval: u64,
+    //     logger: &Logger,
+    // ) -> PendingPayableScanReport {
+    //     info!(
+    //         logger,
+    //         "Pending transaction {:?} couldn't be confirmed at attempt \
+    //         {} at {}ms after its sending",
+    //         fingerprint.hash,
+    //         fingerprint.attempt,
+    //         elapsed_in_ms(fingerprint.timestamp)
+    //     );
+    //     let elapsed = fingerprint
+    //         .timestamp
+    //         .elapsed()
+    //         .expect("we should be older now");
+    //     let elapsed = elapsed.as_secs();
+    //     if elapsed > max_pending_interval {
+    //         error!(
+    //             logger,
+    //             "Pending transaction {:?} has exceeded the maximum pending time \
+    //             ({}sec) with the age {}sec and the confirmation process is going to be aborted now \
+    //             at the final attempt {}; manual resolution is required from the \
+    //             user to complete the transaction.",
+    //             fingerprint.hash,
+    //             max_pending_interval,
+    //             elapsed,
+    //             fingerprint.attempt
+    //         );
+    //         scan_report.failures.push(fingerprint.into())
+    //     } else {
+    //         scan_report.still_pending.push(fingerprint.into())
+    //     }
+    //     scan_report
+    // }
 
-    pub fn handle_none_status(
+    pub fn handle_successful_tx(
         mut scan_report: PendingPayableScanReport,
-        fingerprint: PendingPayableFingerprint,
-        max_pending_interval: u64,
+        confirmed_tx: ConfirmedTx,
         logger: &Logger,
     ) -> PendingPayableScanReport {
-        info!(
-            logger,
-            "Pending transaction {:?} couldn't be confirmed at attempt \
-            {} at {}ms after its sending",
-            fingerprint.hash,
-            fingerprint.attempt,
-            elapsed_in_ms(fingerprint.timestamp)
-        );
-        let elapsed = fingerprint
-            .timestamp
-            .elapsed()
-            .expect("we should be older now");
-        let elapsed = elapsed.as_secs();
-        if elapsed > max_pending_interval {
-            error!(
-                logger,
-                "Pending transaction {:?} has exceeded the maximum pending time \
-                ({}sec) with the age {}sec and the confirmation process is going to be aborted now \
-                at the final attempt {}; manual resolution is required from the \
-                user to complete the transaction.",
-                fingerprint.hash,
-                max_pending_interval,
-                elapsed,
-                fingerprint.attempt
-            );
-            scan_report.failures.push(fingerprint.into())
-        } else {
-            scan_report.still_pending.push(fingerprint.into())
-        }
-        scan_report
-    }
-
-    pub fn handle_status_with_success(
-        mut scan_report: PendingPayableScanReport,
-        fingerprint: PendingPayableFingerprint,
-        logger: &Logger,
-    ) -> PendingPayableScanReport {
-        info!(
-            logger,
-            "Transaction {:?} has been added to the blockchain; detected locally at attempt \
-            {} at {}ms after its sending",
-            fingerprint.hash,
-            fingerprint.attempt,
-            elapsed_in_ms(fingerprint.timestamp)
-        );
-        scan_report.confirmed.push(fingerprint);
-        scan_report
+        // info!(
+        //     logger,
+        //     "Transaction {:?} has been added to the blockchain; detected locally at attempt \
+        //     {} at {}ms after its sending",
+        //     fingerprint.hash,
+        //     fingerprint.attempt,
+        //     elapsed_in_ms(fingerprint.timestamp)
+        // );
+        // scan_report.confirmed.push(fingerprint);
+        // scan_report
     }
 
     //TODO: failures handling is going to need enhancement suggested by GH-693
     pub fn handle_status_with_failure(
         mut scan_report: PendingPayableScanReport,
-        fingerprint: PendingPayableFingerprint,
+        tx_failure: FailedTx,
         logger: &Logger,
     ) -> PendingPayableScanReport {
         error!(
             logger,
-            "Pending transaction {:?} announced as a failure, interpreting attempt \
-            {} after {}ms from the sending",
-            fingerprint.hash,
-            fingerprint.attempt,
-            elapsed_in_ms(fingerprint.timestamp)
+            "Pending transaction {:?} announced as a failure after {}ms from its sending",
+            tx_failure.hash,
+            todo!() //tx_failure.timestamp
         );
-        scan_report.failures.push(fingerprint.into());
+        scan_report.failures.push(tx_failure);
         scan_report
     }
 
-    pub fn handle_none_receipt(
+    pub fn handle_local_error_fetching_receipts(
         mut scan_report: PendingPayableScanReport,
-        payable: PendingPayableFingerprint,
-        error_msg: &str,
+        local_error: TxReceiptLocalError,
         logger: &Logger,
     ) -> PendingPayableScanReport {
-        debug!(
-            logger,
-            "Interpreting a receipt for transaction {:?} but {}; attempt {}, {}ms since sending",
-            payable.hash,
-            error_msg,
-            payable.attempt,
-            elapsed_in_ms(payable.timestamp)
-        );
-
-        scan_report
-            .still_pending
-            .push(PendingPayableId::new(payable.rowid, payable.hash));
-        scan_report
+        // debug!(
+        //     logger,
+        //     "Interpreting a receipt for transaction {:?} but {}; attempt {}, {}ms since sending",
+        //     payable.hash,
+        //     error_msg,
+        //     payable.attempt,
+        //     elapsed_in_ms(payable.timestamp)
+        // );
+        //
+        // scan_report
+        //     .still_pending
+        //     .push(PendingPayableId::new(payable.rowid, payable.hash));
+        // scan_report
     }
 }
 
@@ -478,7 +471,7 @@ mod tests {
         PayableThresholdsGaugeReal,
     };
     use crate::accountant::scanners::scanners_utils::receivable_scanner_utils::balance_and_age;
-    use crate::accountant::{checked_conversion, gwei_to_wei, SentPayables};
+    use crate::accountant::{checked_conversion, gwei_to_wei, PendingPayable, SentPayables};
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::test_utils::make_wallet;
@@ -486,7 +479,6 @@ mod tests {
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::time::SystemTime;
-    use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
     use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainError, PayableTransactionError};
     use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RpcPayableFailure};
 

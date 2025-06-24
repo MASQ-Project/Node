@@ -5,24 +5,23 @@ pub mod scan_schedulers;
 pub mod scanners_utils;
 pub mod test_utils;
 
-use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDao};
-use crate::accountant::db_access_objects::pending_payable_dao::{PendingPayable, PendingPayableDao};
+use crate::accountant::db_access_objects::payable_dao::{MarkOfPendingPayable, PayableAccount, PayableDao};
 use crate::accountant::db_access_objects::receivable_dao::ReceivableDao;
 use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
     LocallyCausedError, RemotelyCausedErrors,
 };
-use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{debugging_summary_after_error_separation, err_msg_for_failure_with_expected_but_missing_fingerprints, investigate_debt_extremes, mark_pending_payable_fatal_error, payables_debug_summary, separate_errors, separate_rowids_and_hashes, OperationOutcome, PayableScanResult, PayableThresholdsGauge, PayableThresholdsGaugeReal, PayableTransactingErrorEnum, PendingPayableMetadata};
-use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_none_receipt, handle_status_with_failure, handle_status_with_success, PendingPayableScanReport, PendingPayableScanResult};
+use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{debugging_summary_after_error_separation, err_msg_for_failure_with_expected_but_missing_fingerprints, investigate_debt_extremes, mark_pending_payable_fatal_error, payables_debug_summary, separate_errors, separate_rowids_and_hashes, OperationOutcome, PayableScanResult, PayableThresholdsGauge, PayableThresholdsGaugeReal, PayableTransactingErrorEnum, PendingPayableMissingInDb};
+use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_local_error_fetching_receipts, handle_status_with_failure, handle_successful_tx, PendingPayableScanReport, PendingPayableScanResult};
 use crate::accountant::scanners::scanners_utils::receivable_scanner_utils::balance_and_age;
-use crate::accountant::{PendingPayableId, ScanError, ScanForPendingPayables, ScanForRetryPayables};
+use crate::accountant::{PendingPayable, PendingPayableId, ScanError, ScanForPendingPayables, ScanForRetryPayables};
 use crate::accountant::{
     comma_joined_stringifiable, gwei_to_wei, ReceivedPayments,
     ReportTransactionReceipts, RequestTransactionReceipts, ResponseSkeleton, ScanForNewPayables,
     ScanForReceivables, SentPayables,
 };
 use crate::accountant::db_access_objects::banned_dao::BannedDao;
-use crate::blockchain::blockchain_bridge::{BlockMarker, PendingPayableFingerprint, RetrieveTransactions};
+use crate::blockchain::blockchain_bridge::{BlockMarker, RetrieveTransactions};
 use crate::sub_lib::accountant::{
     DaoFactories, FinancialStatistics, PaymentThresholds,
 };
@@ -40,13 +39,18 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::rc::Rc;
 use std::time::{SystemTime};
+use bytes::Buf;
 use time::format_description::parse;
 use time::OffsetDateTime;
 use variant_count::VariantCount;
 use web3::types::H256;
+use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
+use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
+use crate::accountant::db_access_objects::utils::{TxHash, TxIdentifiers};
 use crate::accountant::scanners::payable_scanner_extension::{MultistageDualPayableScanner, PreparedAdjustment, SolvencySensitivePaymentInstructor};
 use crate::accountant::scanners::payable_scanner_extension::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage};
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionReceiptResult, TxStatus};
+use crate::accountant::test_utils::SentPayableDao;
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{ConfirmedTx, TransactionReceiptResult, TxStatus};
 use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
 use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
 
@@ -82,14 +86,14 @@ impl Scanners {
     ) -> Self {
         let payable = Box::new(PayableScanner::new(
             dao_factories.payable_dao_factory.make(),
-            dao_factories.pending_payable_dao_factory.make(),
+            dao_factories.sent_payable_dao_factory.make(),
             Rc::clone(&payment_thresholds),
             Box::new(PaymentAdjusterReal::new()),
         ));
 
         let pending_payable = Box::new(PendingPayableScanner::new(
             dao_factories.payable_dao_factory.make(),
-            dao_factories.pending_payable_dao_factory.make(),
+            dao_factories.sent_payable_dao_factory.make(),
             Rc::clone(&payment_thresholds),
             when_pending_too_long_sec,
             Rc::clone(&financial_statistics),
@@ -461,7 +465,7 @@ pub struct PayableScanner {
     pub payable_threshold_gauge: Box<dyn PayableThresholdsGauge>,
     pub common: ScannerCommon,
     pub payable_dao: Box<dyn PayableDao>,
-    pub pending_payable_dao: Box<dyn PendingPayableDao>,
+    pub sent_payable_dao: Box<dyn SentPayableDao>,
     pub payment_adjuster: Box<dyn PaymentAdjuster>,
 }
 
@@ -597,14 +601,14 @@ impl SolvencySensitivePaymentInstructor for PayableScanner {
 impl PayableScanner {
     pub fn new(
         payable_dao: Box<dyn PayableDao>,
-        pending_payable_dao: Box<dyn PendingPayableDao>,
+        sent_payable_dao: Box<dyn SentPayableDao>,
         payment_thresholds: Rc<PaymentThresholds>,
         payment_adjuster: Box<dyn PaymentAdjuster>,
     ) -> Self {
         Self {
             common: ScannerCommon::new(payment_thresholds),
             payable_dao,
-            pending_payable_dao,
+            sent_payable_dao,
             payable_threshold_gauge: Box::new(PayableThresholdsGaugeReal::default()),
             payment_adjuster,
         }
@@ -675,34 +679,30 @@ impl PayableScanner {
     fn separate_existent_and_nonexistent_fingerprints<'a>(
         &'a self,
         sent_payables: &[&'a PendingPayable],
-    ) -> (Vec<PendingPayableMetadata>, Vec<PendingPayableMetadata>) {
-        let hashes = sent_payables
+    ) -> (Vec<MarkOfPendingPayable>, Vec<PendingPayableMissingInDb>) {
+        let actual_sent_payables_simple_total = sent_payables.len();
+
+        let actual_sent_payable_hashes_hashset = sent_payables
             .iter()
             .map(|pending_payable| pending_payable.hash)
-            .collect::<Vec<H256>>();
+            .collect::<HashSet<TxHash>>();
+
+        if actual_sent_payable_hashes_hashset.len() != actual_sent_payables_simple_total {
+            todo!("check potential duplicity")
+        }
+
         let mut sent_payables_hashmap = sent_payables
             .iter()
             .map(|payable| (payable.hash, &payable.recipient_wallet))
-            .collect::<HashMap<H256, &Wallet>>();
+            .collect::<HashMap<TxHash, &Wallet>>();
 
-        let transaction_hashes = self.pending_payable_dao.fingerprints_rowids(&hashes);
-        let mut hashes_from_db = transaction_hashes
-            .rowid_results
-            .iter()
-            .map(|(_rowid, hash)| *hash)
-            .collect::<HashSet<H256>>();
-        for hash in &transaction_hashes.no_rowid_results {
-            hashes_from_db.insert(*hash);
-        }
-        let sent_payables_hashes = hashes.iter().copied().collect::<HashSet<H256>>();
+        let transaction_hashes = self.sent_payable_dao.get_tx_identifiers(&actual_sent_payable_hashes_hashset);
+        let
+        let hashes_from_db = transaction_hashes
+            .keys()
+            .collect::<HashSet<TxHash>>();
 
-        if !Self::is_symmetrical(sent_payables_hashes, hashes_from_db) {
-            panic!(
-                "Inconsistency in two maps, they cannot be matched by hashes. Data set directly \
-                sent from BlockchainBridge: {:?}, set derived from the DB: {:?}",
-                sent_payables, transaction_hashes
-            )
-        }
+        let missing_sent_payables_hashes = actual_sent_payable_hashes_hashset.difference(&hashes_from_db).collect();
 
         let pending_payables_with_rowid = transaction_hashes
             .rowid_results
@@ -711,7 +711,7 @@ impl PayableScanner {
                 let wallet = sent_payables_hashmap
                     .remove(&hash)
                     .expect("expect transaction hash, but it disappear");
-                PendingPayableMetadata::new(wallet, hash, Some(rowid))
+                PendingPayableMissingInDb::new(wallet, hash, Some(rowid))
             })
             .collect_vec();
         let pending_payables_without_rowid = transaction_hashes
@@ -721,22 +721,15 @@ impl PayableScanner {
                 let wallet = sent_payables_hashmap
                     .remove(&hash)
                     .expect("expect transaction hash, but it disappear");
-                PendingPayableMetadata::new(wallet, hash, None)
+                PendingPayableMissingInDb::new(wallet, hash, None)
             })
             .collect_vec();
 
         (pending_payables_with_rowid, pending_payables_without_rowid)
     }
 
-    fn is_symmetrical(
-        sent_payables_hashes: HashSet<H256>,
-        fingerptint_hashes: HashSet<H256>,
-    ) -> bool {
-        sent_payables_hashes == fingerptint_hashes
-    }
-
     fn mark_pending_payable(&self, sent_payments: &[&PendingPayable], logger: &Logger) {
-        fn missing_fingerprints_msg(nonexistent: &[PendingPayableMetadata]) -> String {
+        fn missing_fingerprints_msg(nonexistent: &[PendingPayableMissingInDb]) -> String {
             format!(
                 "Expected pending payable fingerprints for {} were not found; system unreliable",
                 comma_joined_stringifiable(nonexistent, |pp_triple| format!(
@@ -746,7 +739,7 @@ impl PayableScanner {
             )
         }
         fn ready_data_for_supply<'a>(
-            existent: &'a [PendingPayableMetadata],
+            existent: &'a [PendingPayableMissingInDb],
         ) -> Vec<(&'a Wallet, u64)> {
             existent
                 .iter()
@@ -756,7 +749,8 @@ impl PayableScanner {
 
         let (existent, nonexistent) =
             self.separate_existent_and_nonexistent_fingerprints(sent_payments);
-        let mark_pp_input_data = ready_data_for_supply(&existent);
+
+        // let mark_pp_input_data = ready_data_for_supply(&existent);
         if !mark_pp_input_data.is_empty() {
             if let Err(e) = self
                 .payable_dao
@@ -815,7 +809,7 @@ impl PayableScanner {
             comma_joined_stringifiable(hashes, |hash| format!("{:?}", hash))
         }
         let existent_and_nonexistent = self
-            .pending_payable_dao
+            .sent_payable_dao
             .fingerprints_rowids(&hashes_of_failed);
         let missing_fgp_err_msg_opt = err_msg_for_failure_with_expected_but_missing_fingerprints(
             existent_and_nonexistent.no_rowid_results,
@@ -828,7 +822,7 @@ impl PayableScanner {
                 "Deleting fingerprints for failed transactions {}",
                 serialize_hashes(&hashes)
             );
-            if let Err(e) = self.pending_payable_dao.delete_fingerprints(&ids) {
+            if let Err(e) = self.sent_payable_dao.delete_fingerprints(&ids) {
                 if let Some(msg) = missing_fgp_err_msg_opt {
                     error!(logger, "{}", msg)
                 };
@@ -849,9 +843,11 @@ impl PayableScanner {
 pub struct PendingPayableScanner {
     pub common: ScannerCommon,
     pub payable_dao: Box<dyn PayableDao>,
-    pub pending_payable_dao: Box<dyn PendingPayableDao>,
+    pub sent_payable_dao: Box<dyn SentPayableDao>,
     pub when_pending_too_long_sec: u64,
     pub financial_statistics: Rc<RefCell<FinancialStatistics>>,
+    pub cached_currently_queried_tx_for_receipts: Vec<SentTx>, //TODO always delete after the scan ends
+    pub cached_previous_cycle_txs_pending_too_long_opt: Option<Vec<SentPayables>> //TODO also treat carefully
 }
 
 impl
@@ -876,7 +872,7 @@ impl StartableScanner<ScanForPendingPayables, RequestTransactionReceipts>
     ) -> Result<RequestTransactionReceipts, StartScanError> {
         self.mark_as_started(timestamp);
         info!(logger, "Scanning for pending payable");
-        let filtered_pending_payable = self.pending_payable_dao.return_all_errorless_fingerprints();
+        let filtered_pending_payable = self.sent_payable_dao.retrieve_txs(None);
         match filtered_pending_payable.is_empty() {
             true => {
                 self.mark_as_ended(logger);
@@ -888,8 +884,9 @@ impl StartableScanner<ScanForPendingPayables, RequestTransactionReceipts>
                     "Found {} pending payables to process",
                     filtered_pending_payable.len()
                 );
+                let tx_hashes = todo!();
                 Ok(RequestTransactionReceipts {
-                    pending_payable_fingerprints: filtered_pending_payable,
+                    tx_hashes,
                     response_skeleton_opt,
                 })
             }
@@ -909,6 +906,13 @@ impl Scanner<ReportTransactionReceipts, PendingPayableScanResult> for PendingPay
             true => {
                 warning!(logger, "No transaction receipts found.");
                 todo!("This requires the payment retry. GH-631 must be completed first");
+                if self.cached_currently_queried_tx_for_receipts.is_empty() {
+                    todo!("unreachable")
+                }
+                let failed_txs = self.cached_currently_queried_tx_for_receipts.drain(..)
+                    .map(|sent_tx|{todo!()})
+                    .collect();
+                self.handle_failed_transactions(failed_txs, logger)
             }
             false => {
                 debug!(
@@ -918,7 +922,7 @@ impl Scanner<ReportTransactionReceipts, PendingPayableScanResult> for PendingPay
                 );
                 let scan_report = self.handle_receipts_for_pending_transactions(message, logger);
                 let requires_payment_retry =
-                    self.process_transactions_by_reported_state(scan_report, logger);
+                    self.process_transactions_by_their_state(scan_report, logger);
 
                 self.mark_as_ended(logger);
 
@@ -945,7 +949,7 @@ impl Scanner<ReportTransactionReceipts, PendingPayableScanResult> for PendingPay
 impl PendingPayableScanner {
     pub fn new(
         payable_dao: Box<dyn PayableDao>,
-        pending_payable_dao: Box<dyn PendingPayableDao>,
+        sent_payable_dao: Box<dyn SentPayableDao>,
         payment_thresholds: Rc<PaymentThresholds>,
         when_pending_too_long_sec: u64,
         financial_statistics: Rc<RefCell<FinancialStatistics>>,
@@ -953,9 +957,11 @@ impl PendingPayableScanner {
         Self {
             common: ScannerCommon::new(payment_thresholds),
             payable_dao,
-            pending_payable_dao,
+            sent_payable_dao,
             when_pending_too_long_sec,
             financial_statistics,
+            cached_currently_queried_tx_for_receipts: todo!(),
+            cached_previous_cycle_txs_pending_too_long_opt: todo!(),
         }
     }
 
@@ -965,34 +971,27 @@ impl PendingPayableScanner {
         logger: &Logger,
     ) -> PendingPayableScanReport {
         let scan_report = PendingPayableScanReport::default();
-        msg.fingerprints_with_receipts.into_iter().fold(
+        msg.receipt_results.into_iter().fold(
             scan_report,
-            |scan_report_so_far, (receipt_result, fingerprint)| match receipt_result {
+            |scan_report_so_far, receipt_result| match receipt_result {
                 TransactionReceiptResult::RpcResponse(tx_receipt) => match tx_receipt.status {
-                    TxStatus::Pending => handle_none_receipt(
-                        scan_report_so_far,
-                        fingerprint,
-                        "none was given",
-                        logger,
-                    ),
-                    TxStatus::Failed => {
-                        handle_status_with_failure(scan_report_so_far, fingerprint, logger)
+                    TxStatus::Failed(failed_tx) => {
+                        handle_status_with_failure(scan_report_so_far, failed_tx, logger)
                     }
-                    TxStatus::Succeeded(_) => {
-                        handle_status_with_success(scan_report_so_far, fingerprint, logger)
+                    TxStatus::Succeeded(confirmed_tx) => {
+                        handle_successful_tx(scan_report_so_far, confirmed_tx, logger)
                     }
                 },
-                TransactionReceiptResult::LocalError(e) => handle_none_receipt(
+                TransactionReceiptResult::LocalError(e) => handle_local_error_fetching_receipts(
                     scan_report_so_far,
-                    fingerprint,
-                    &format!("failed due to {}", e),
+                    e,
                     logger,
                 ),
             },
         )
     }
 
-    fn process_transactions_by_reported_state(
+    fn process_transactions_by_their_state(
         &mut self,
         scan_report: PendingPayableScanReport,
         logger: &Logger,
@@ -1000,46 +999,45 @@ impl PendingPayableScanner {
         let requires_payments_retry = scan_report.requires_payments_retry();
 
         self.confirm_transactions(scan_report.confirmed, logger);
-        self.cancel_failed_transactions(scan_report.failures, logger);
-        self.update_remaining_fingerprints(scan_report.still_pending, logger);
+        self.handle_failed_transactions(scan_report.failures, logger);
 
         requires_payments_retry
     }
 
-    fn update_remaining_fingerprints(&self, ids: Vec<PendingPayableId>, logger: &Logger) {
-        if !ids.is_empty() {
-            let rowids = PendingPayableId::rowids(&ids);
-            match self.pending_payable_dao.increment_scan_attempts(&rowids) {
-                Ok(_) => trace!(
-                    logger,
-                    "Updated records for rowids: {} ",
-                    comma_joined_stringifiable(&rowids, |id| id.to_string())
-                ),
-                Err(e) => panic!(
-                    "Failure on incrementing scan attempts for fingerprints of {} due to {:?}",
-                    PendingPayableId::serialize_hashes_to_string(&ids),
-                    e
-                ),
-            }
-        }
-    }
+    // fn update_remaining_fingerprints(&self, ids: Vec<PendingPayableId>, logger: &Logger) {
+    //     if !ids.is_empty() {
+    //         let rowids = PendingPayableId::rowids(&ids);
+    //         match self.sent_payable_dao.increment_scan_attempts(&rowids) {
+    //             Ok(_) => trace!(
+    //                 logger,
+    //                 "Updated records for rowids: {} ",
+    //                 comma_joined_stringifiable(&rowids, |id| id.to_string())
+    //             ),
+    //             Err(e) => panic!(
+    //                 "Failure on incrementing scan attempts for fingerprints of {} due to {:?}",
+    //                 PendingPayableId::serialize_hashes_to_string(&ids),
+    //                 e
+    //             ),
+    //         }
+    //     }
+    // }
 
-    fn cancel_failed_transactions(&self, ids: Vec<PendingPayableId>, logger: &Logger) {
-        if !ids.is_empty() {
+    fn handle_failed_transactions(&self, failures: Vec<FailedTx>, logger: &Logger) {
+        if !failures.is_empty() {
             //TODO this function is imperfect. It waits for GH-663
-            let rowids = PendingPayableId::rowids(&ids);
-            match self.pending_payable_dao.mark_failures(&rowids) {
+            let rowids = PendingPayableId::rowids(&failures);
+            match self.sent_payable_dao.mark_failures(&rowids) {
                 Ok(_) => warning!(
                     logger,
                     "Broken transactions {} marked as an error. You should take over the care \
                  of those to make sure your debts are going to be settled properly. At the moment, \
                  there is no automated process fixing that without your assistance",
-                    PendingPayableId::serialize_hashes_to_string(&ids)
+                    PendingPayableId::serialize_hashes_to_string(&failures)
                 ),
                 Err(e) => panic!(
                     "Unsuccessful attempt for transactions {} \
                     to mark fatal error at payable fingerprint due to {:?}; database unreliable",
-                    PendingPayableId::serialize_hashes_to_string(&ids),
+                    PendingPayableId::serialize_hashes_to_string(&failures),
                     e
                 ),
             }
@@ -1048,55 +1046,56 @@ impl PendingPayableScanner {
 
     fn confirm_transactions(
         &mut self,
-        fingerprints: Vec<PendingPayableFingerprint>,
+        fingerprints: Vec<ConfirmedTx>,
         logger: &Logger,
     ) {
-        fn serialize_hashes(fingerprints: &[PendingPayableFingerprint]) -> String {
-            comma_joined_stringifiable(fingerprints, |fgp| format!("{:?}", fgp.hash))
-        }
-
-        if !fingerprints.is_empty() {
-            if let Err(e) = self.payable_dao.transactions_confirmed(&fingerprints) {
-                panic!(
-                    "Unable to cast confirmed pending payables {} into adjustment in the corresponding payable \
-                     records due to {:?}", serialize_hashes(&fingerprints), e
-                )
-            } else {
-                self.add_to_the_total_of_paid_payable(&fingerprints, serialize_hashes, logger);
-                let rowids = fingerprints
-                    .iter()
-                    .map(|fingerprint| fingerprint.rowid)
-                    .collect::<Vec<u64>>();
-                if let Err(e) = self.pending_payable_dao.delete_fingerprints(&rowids) {
-                    panic!("Unable to delete payable fingerprints {} of verified transactions due to {:?}",
-                           serialize_hashes(&fingerprints), e)
-                } else {
-                    info!(
-                        logger,
-                        "Transactions {} completed their confirmation process succeeding",
-                        serialize_hashes(&fingerprints)
-                    )
-                }
-            }
-        }
+        // fn serialize_hashes(fingerprints: &[SentTx]) -> String {
+        //     comma_joined_stringifiable(fingerprints, |fgp| format!("{:?}", fgp.hash))
+        // }
+        //
+        // if !fingerprints.is_empty() {
+        //     if let Err(e) = self.payable_dao.transactions_confirmed(&fingerprints) {
+        //         panic!(
+        //             "Unable to cast confirmed pending payables {} into adjustment in the corresponding payable \
+        //              records due to {:?}", serialize_hashes(&fingerprints), e
+        //         )
+        //     } else {
+        //         self.add_to_the_total_of_paid_payable(&fingerprints, serialize_hashes, logger);
+        //         let rowids = fingerprints
+        //             .iter()
+        //             .map(|fingerprint| fingerprint.rowid)
+        //             .collect::<Vec<u64>>();
+        //         if let Err(e) = self.sent_payable_dao.delete_fingerprints(&rowids) {
+        //             panic!("Unable to delete payable fingerprints {} of verified transactions due to {:?}",
+        //                    serialize_hashes(&fingerprints), e)
+        //         } else {
+        //             info!(
+        //                 logger,
+        //                 "Transactions {} completed their confirmation process succeeding",
+        //                 serialize_hashes(&fingerprints)
+        //             )
+        //         }
+        //     }
+        // }
     }
 
     fn add_to_the_total_of_paid_payable(
         &mut self,
-        fingerprints: &[PendingPayableFingerprint],
-        serialize_hashes: fn(&[PendingPayableFingerprint]) -> String,
+        fingerprints: &[ConfirmedTx],
+        serialize_hashes: fn(&[ConfirmedTx]) -> String,
         logger: &Logger,
     ) {
-        fingerprints.iter().for_each(|fingerprint| {
-            self.financial_statistics
-                .borrow_mut()
-                .total_paid_payable_wei += fingerprint.amount
-        });
-        debug!(
-            logger,
-            "Confirmation of transactions {}; record for total paid payable was modified",
-            serialize_hashes(fingerprints)
-        );
+        todo!()
+        // fingerprints.iter().for_each(|fingerprint| {
+        //     self.financial_statistics
+        //         .borrow_mut()
+        //         .total_paid_payable_wei += fingerprint.amount
+        // });
+        // debug!(
+        //     logger,
+        //     "Confirmation of transactions {}; record for total paid payable was modified",
+        //     serialize_hashes(fingerprints)
+        // );
     }
 }
 
@@ -1391,17 +1390,14 @@ impl_real_scanner_marker!(PayableScanner, PendingPayableScanner, ReceivableScann
 #[cfg(test)]
 mod tests {
     use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDaoError};
-    use crate::accountant::db_access_objects::pending_payable_dao::{
-        PendingPayable, PendingPayableDaoError, TransactionHashes,
-    };
     use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp};
     use crate::accountant::scanners::payable_scanner_extension::msgs::QualifiedPayablesMessage;
-    use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{OperationOutcome, PayableScanResult, PendingPayableMetadata};
-    use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_none_status, handle_status_with_failure, PendingPayableScanReport, PendingPayableScanResult};
+    use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{OperationOutcome, PayableScanResult, PendingPayableMissingInDb};
+    use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_status_with_failure, PendingPayableScanReport, PendingPayableScanResult};
     use crate::accountant::scanners::{Scanner, StartScanError, StartableScanner, PayableScanner, PendingPayableScanner, ReceivableScanner, ScannerCommon, Scanners, MTError};
-    use crate::accountant::test_utils::{make_custom_payment_thresholds, make_payable_account, make_qualified_and_unqualified_payables, make_pending_payable_fingerprint, make_receivable_account, BannedDaoFactoryMock, BannedDaoMock, ConfigDaoFactoryMock, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder, PayableThresholdsGaugeMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock, PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock, ReceivableScannerBuilder};
-    use crate::accountant::{gwei_to_wei, PendingPayableId, ReceivedPayments, ReportTransactionReceipts, RequestTransactionReceipts, ScanError, ScanForRetryPayables, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC};
-    use crate::blockchain::blockchain_bridge::{BlockMarker, PendingPayableFingerprint, RetrieveTransactions};
+    use crate::accountant::test_utils::{make_custom_payment_thresholds, make_payable_account, make_qualified_and_unqualified_payables, make_pending_payable_fingerprint, make_receivable_account, BannedDaoFactoryMock, BannedDaoMock, ConfigDaoFactoryMock, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder, PayableThresholdsGaugeMock, PendingPayableDaoFactoryMock, SentPayableDaoMock, PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock, ReceivableScannerBuilder};
+    use crate::accountant::{gwei_to_wei, PendingPayableId, ReceivedPayments, ReportTransactionReceipts, RequestTransactionReceipts, ScanError, ScanForRetryPayables, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC, PendingPayable};
+    use crate::blockchain::blockchain_bridge::{BlockMarker, RetrieveTransactions};
     use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
     use crate::blockchain::blockchain_interface::data_structures::{
         BlockchainTransaction, ProcessedPayableFallible, RpcPayableFailure,
@@ -1435,6 +1431,7 @@ mod tests {
     use web3::Error;
     use masq_lib::messages::ScanType;
     use masq_lib::ui_gateway::NodeToUiMessage;
+    use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDaoError, SentTx};
     use crate::accountant::scanners::test_utils::{assert_timestamps_from_str, parse_system_time_from_str, MarkScanner, NullScanner, ReplacementType, ScannerReplacement};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TransactionReceiptResult, TxReceipt, TxStatus};
 
@@ -1520,9 +1517,9 @@ mod tests {
         let payable_dao_factory = PayableDaoFactoryMock::new()
             .make_result(PayableDaoMock::new())
             .make_result(PayableDaoMock::new());
-        let pending_payable_dao_factory = PendingPayableDaoFactoryMock::new()
-            .make_result(PendingPayableDaoMock::new())
-            .make_result(PendingPayableDaoMock::new());
+        let sent_payable_dao_factory = PendingPayableDaoFactoryMock::new()
+            .make_result(SentPayableDaoMock::new())
+            .make_result(SentPayableDaoMock::new());
         let receivable_dao = ReceivableDaoMock::new();
         let receivable_dao_factory = ReceivableDaoFactoryMock::new().make_result(receivable_dao);
         let banned_dao_factory = BannedDaoFactoryMock::new().make_result(BannedDaoMock::new());
@@ -1543,7 +1540,7 @@ mod tests {
         let mut scanners = Scanners::new(
             DaoFactories {
                 payable_dao_factory: Box::new(payable_dao_factory),
-                pending_payable_dao_factory: Box::new(pending_payable_dao_factory),
+                sent_payable_dao_factory: Box::new(sent_payable_dao_factory),
                 receivable_dao_factory: Box::new(receivable_dao_factory),
                 banned_dao_factory: Box::new(banned_dao_factory),
                 config_dao_factory: Box::new(config_dao_factory),
@@ -1897,7 +1894,7 @@ mod tests {
         let correct_payable_wallet_3 = make_wallet("booga");
         let correct_pending_payable_3 =
             PendingPayable::new(correct_payable_wallet_3.clone(), correct_payable_hash_3);
-        let pending_payable_dao = PendingPayableDaoMock::default()
+        let sent_payable_dao = SentPayableDaoMock::default()
             .fingerprints_rowids_params(&fingerprints_rowids_params_arc)
             .fingerprints_rowids_result(TransactionHashes {
                 rowid_results: vec![
@@ -1918,7 +1915,7 @@ mod tests {
             .mark_pending_payables_rowids_result(Ok(()));
         let mut payable_scanner = PayableScannerBuilder::new()
             .payable_dao(payable_dao)
-            .pending_payable_dao(pending_payable_dao)
+            .sent_payable_dao(sent_payable_dao)
             .build();
         let logger = Logger::new(test_name);
         let sent_payable = SentPayables {
@@ -2011,13 +2008,13 @@ mod tests {
         let pending_payables_ref = pending_payables_owned
             .iter()
             .collect::<Vec<&PendingPayable>>();
-        let pending_payable_dao =
-            PendingPayableDaoMock::new().fingerprints_rowids_result(TransactionHashes {
+        let sent_payable_dao =
+            SentPayableDaoMock::new().fingerprints_rowids_result(TransactionHashes {
                 rowid_results: vec![(4, hash_4), (1, hash_1), (3, hash_3), (2, hash_2)],
                 no_rowid_results: vec![],
             });
         let subject = PayableScannerBuilder::new()
-            .pending_payable_dao(pending_payable_dao)
+            .sent_payable_dao(sent_payable_dao)
             .build();
 
         let (existent, nonexistent) =
@@ -2026,10 +2023,10 @@ mod tests {
         assert_eq!(
             existent,
             vec![
-                PendingPayableMetadata::new(&wallet_4, hash_4, Some(4)),
-                PendingPayableMetadata::new(&wallet_1, hash_1, Some(1)),
-                PendingPayableMetadata::new(&wallet_3, hash_3, Some(3)),
-                PendingPayableMetadata::new(&wallet_2, hash_2, Some(2)),
+                PendingPayableMissingInDb::new(&wallet_4, hash_4, Some(4)),
+                PendingPayableMissingInDb::new(&wallet_1, hash_1, Some(1)),
+                PendingPayableMissingInDb::new(&wallet_3, hash_3, Some(3)),
+                PendingPayableMissingInDb::new(&wallet_2, hash_2, Some(2)),
             ]
         );
         assert!(nonexistent.is_empty())
@@ -2083,8 +2080,8 @@ mod tests {
             .pending_payables
             .iter()
             .collect::<Vec<&PendingPayable>>();
-        let pending_payable_dao =
-            PendingPayableDaoMock::new().fingerprints_rowids_result(TransactionHashes {
+        let sent_payable_dao =
+            SentPayableDaoMock::new().fingerprints_rowids_result(TransactionHashes {
                 rowid_results: vec![
                     (4, vals.common_hash_1),
                     (1, vals.intruder_for_hash_2),
@@ -2093,7 +2090,7 @@ mod tests {
                 no_rowid_results: vec![],
             });
         let subject = PayableScannerBuilder::new()
-            .pending_payable_dao(pending_payable_dao)
+            .sent_payable_dao(sent_payable_dao)
             .build();
 
         subject.separate_existent_and_nonexistent_fingerprints(&pending_payables_ref);
@@ -2187,15 +2184,15 @@ mod tests {
         let payment_1 = PendingPayable::new(make_wallet("booga"), hash_1);
         let hash_2 = make_tx_hash(0x7b);
         let payment_2 = PendingPayable::new(make_wallet("agoob"), hash_2);
-        let pending_payable_dao =
-            PendingPayableDaoMock::default().fingerprints_rowids_result(TransactionHashes {
+        let sent_payable_dao =
+            SentPayableDaoMock::default().fingerprints_rowids_result(TransactionHashes {
                 rowid_results: vec![],
                 no_rowid_results: vec![hash_1, hash_2],
             });
         let payable_dao = PayableDaoMock::new();
         let mut subject = PayableScannerBuilder::new()
             .payable_dao(payable_dao)
-            .pending_payable_dao(pending_payable_dao)
+            .sent_payable_dao(sent_payable_dao)
             .build();
         let sent_payable = SentPayables {
             payment_procedure_result: Ok(vec![
@@ -2210,7 +2207,7 @@ mod tests {
 
     fn assert_panic_from_failing_to_mark_pending_payable_rowid(
         test_name: &str,
-        pending_payable_dao: PendingPayableDaoMock,
+        sent_payable_dao: SentPayableDaoMock,
         hash_1: H256,
         hash_2: H256,
     ) {
@@ -2221,7 +2218,7 @@ mod tests {
         ));
         let mut subject = PayableScannerBuilder::new()
             .payable_dao(payable_dao)
-            .pending_payable_dao(pending_payable_dao)
+            .sent_payable_dao(sent_payable_dao)
             .build();
         let sent_payables = SentPayables {
             payment_procedure_result: Ok(vec![
@@ -2251,15 +2248,15 @@ mod tests {
         let test_name = "payable_scanner_mark_pending_payable_only_panics_all_fingerprints_found";
         let hash_1 = make_tx_hash(248);
         let hash_2 = make_tx_hash(139);
-        let pending_payable_dao =
-            PendingPayableDaoMock::default().fingerprints_rowids_result(TransactionHashes {
+        let sent_payable_dao =
+            SentPayableDaoMock::default().fingerprints_rowids_result(TransactionHashes {
                 rowid_results: vec![(7879, hash_1), (7881, hash_2)],
                 no_rowid_results: vec![],
             });
 
         assert_panic_from_failing_to_mark_pending_payable_rowid(
             test_name,
-            pending_payable_dao,
+            sent_payable_dao,
             hash_1,
             hash_2,
         );
@@ -2275,15 +2272,15 @@ mod tests {
             "payable_scanner_mark_pending_payable_panics_nonexistent_fingerprints_also_found";
         let hash_1 = make_tx_hash(0xff);
         let hash_2 = make_tx_hash(0xf8);
-        let pending_payable_dao =
-            PendingPayableDaoMock::default().fingerprints_rowids_result(TransactionHashes {
+        let sent_payable_dao =
+            SentPayableDaoMock::default().fingerprints_rowids_result(TransactionHashes {
                 rowid_results: vec![(7881, hash_1)],
                 no_rowid_results: vec![hash_2],
             });
 
         assert_panic_from_failing_to_mark_pending_payable_rowid(
             test_name,
-            pending_payable_dao,
+            sent_payable_dao,
             hash_1,
             hash_2,
         );
@@ -2305,7 +2302,7 @@ mod tests {
         let first_fingerprint_rowid = 3;
         let second_fingerprint_rowid = 5;
         let system = System::new(test_name);
-        let pending_payable_dao = PendingPayableDaoMock::default()
+        let sent_payable_dao = SentPayableDaoMock::default()
             .fingerprints_rowids_params(&fingerprints_rowids_params_arc)
             .fingerprints_rowids_result(TransactionHashes {
                 rowid_results: vec![
@@ -2317,7 +2314,7 @@ mod tests {
             .delete_fingerprints_params(&delete_fingerprints_params_arc)
             .delete_fingerprints_result(Ok(()));
         let payable_scanner = PayableScannerBuilder::new()
-            .pending_payable_dao(pending_payable_dao)
+            .sent_payable_dao(sent_payable_dao)
             .build();
         let logger = Logger::new(test_name);
         let sent_payable = SentPayables {
@@ -2415,16 +2412,16 @@ mod tests {
             }),
             response_skeleton_opt: None,
         };
-        let pending_payable_dao = PendingPayableDaoMock::default()
-            .fingerprints_rowids_result(TransactionHashes {
+        let sent_payable_dao = SentPayableDaoMock::default()
+            .retrieve_txs_result(TransactionHashes {
                 rowid_results: vec![(rowid_1, hash_1), (rowid_2, hash_2)],
                 no_rowid_results: vec![],
             })
-            .delete_fingerprints_result(Err(PendingPayableDaoError::RecordDeletion(
+            .delete_fingerprints_result(Err(SentPayableDaoError::SqlExecutionFailed(
                 "Gosh, I overslept without an alarm set".to_string(),
             )));
         let mut subject = PayableScannerBuilder::new()
-            .pending_payable_dao(pending_payable_dao)
+            .sent_payable_dao(sent_payable_dao)
             .build();
 
         let caught_panic_in_err = catch_unwind(AssertUnwindSafe(|| {
@@ -2453,14 +2450,14 @@ mod tests {
         let hash_1 = make_tx_hash(0x1b669);
         let hash_2 = make_tx_hash(0x3039);
         let hash_3 = make_tx_hash(0x223d);
-        let pending_payable_dao = PendingPayableDaoMock::default()
+        let sent_payable_dao = SentPayableDaoMock::default()
             .fingerprints_rowids_result(TransactionHashes {
                 rowid_results: vec![(333, hash_1)],
                 no_rowid_results: vec![hash_2, hash_3],
             })
             .delete_fingerprints_result(Ok(()));
         let mut subject = PayableScannerBuilder::new()
-            .pending_payable_dao(pending_payable_dao)
+            .sent_payable_dao(sent_payable_dao)
             .build();
         let sent_payable = SentPayables {
             payment_procedure_result: Err(PayableTransactionError::Sending {
@@ -2501,16 +2498,16 @@ mod tests {
         let test_name = "payable_scanner_for_failed_rpcs_one_fingerprint_missing_and_deletion_of_the_other_one_fails";
         let existent_record_hash = make_tx_hash(0xb26e);
         let nonexistent_record_hash = make_tx_hash(0x4d2);
-        let pending_payable_dao = PendingPayableDaoMock::default()
+        let sent_payable_dao = SentPayableDaoMock::default()
             .fingerprints_rowids_result(TransactionHashes {
                 rowid_results: vec![(45, existent_record_hash)],
                 no_rowid_results: vec![nonexistent_record_hash],
             })
-            .delete_fingerprints_result(Err(PendingPayableDaoError::RecordDeletion(
+            .delete_fingerprints_result(Err(SentPayableDaoError::SqlExecutionFailed(
                 "Another failure. Really???".to_string(),
             )));
         let mut subject = PayableScannerBuilder::new()
-            .pending_payable_dao(pending_payable_dao)
+            .sent_payable_dao(sent_payable_dao)
             .build();
         let failed_payment_1 = RpcPayableFailure {
             rpc_error: Error::Unreachable,
@@ -2776,63 +2773,64 @@ mod tests {
 
     #[test]
     fn pending_payable_scanner_can_initiate_a_scan() {
-        init_test_logging();
-        let test_name = "pending_payable_scanner_can_initiate_a_scan";
-        let consuming_wallet = make_paying_wallet(b"consuming wallet");
-        let now = SystemTime::now();
-        let payable_fingerprint_1 = PendingPayableFingerprint {
-            rowid: 555,
-            timestamp: from_unix_timestamp(210_000_000),
-            hash: make_tx_hash(45678),
-            attempt: 1,
-            amount: 4444,
-            process_error: None,
-        };
-        let payable_fingerprint_2 = PendingPayableFingerprint {
-            rowid: 550,
-            timestamp: from_unix_timestamp(210_000_100),
-            hash: make_tx_hash(112233),
-            attempt: 1,
-            amount: 7999,
-            process_error: None,
-        };
-        let fingerprints = vec![payable_fingerprint_1, payable_fingerprint_2];
-        let pending_payable_dao = PendingPayableDaoMock::new()
-            .return_all_errorless_fingerprints_result(fingerprints.clone());
-        let mut subject = make_dull_subject();
-        let pending_payable_scanner = PendingPayableScannerBuilder::new()
-            .pending_payable_dao(pending_payable_dao)
-            .build();
-        // Important
-        subject.aware_of_unresolved_pending_payable = true;
-        subject.pending_payable = Box::new(pending_payable_scanner);
-        let payable_scanner = PayableScannerBuilder::new().build();
-        subject.payable = Box::new(payable_scanner);
-
-        let result = subject.start_pending_payable_scan_guarded(
-            &consuming_wallet,
-            now,
-            None,
-            &Logger::new(test_name),
-            true,
-        );
-
-        let no_of_pending_payables = fingerprints.len();
-        let is_scan_running = subject.pending_payable.scan_started_at().is_some();
-        assert_eq!(is_scan_running, true);
-        assert_eq!(
-            result,
-            Ok(RequestTransactionReceipts {
-                pending_payable_fingerprints: fingerprints,
-                response_skeleton_opt: None
-            })
-        );
-        TestLogHandler::new().assert_logs_match_in_order(vec![
-            &format!("INFO: {test_name}: Scanning for pending payable"),
-            &format!(
-                "DEBUG: {test_name}: Found {no_of_pending_payables} pending payables to process"
-            ),
-        ])
+        todo!("fix me");
+        // init_test_logging();
+        // let test_name = "pending_payable_scanner_can_initiate_a_scan";
+        // let consuming_wallet = make_paying_wallet(b"consuming wallet");
+        // let now = SystemTime::now();
+        // let payable_fingerprint_1 = SentTx {
+        //     rowid: 555,
+        //     timestamp: from_unix_timestamp(210_000_000),
+        //     hash: make_tx_hash(45678),
+        //     attempt: 1,
+        //     amount: 4444,
+        //     process_error: None,
+        // };
+        // let payable_fingerprint_2 = SentTx {
+        //     rowid: 550,
+        //     timestamp: from_unix_timestamp(210_000_100),
+        //     hash: make_tx_hash(112233),
+        //     attempt: 1,
+        //     amount: 7999,
+        //     process_error: None,
+        // };
+        // let payables = HashSet::from_iter(vec![payable_fingerprint_1, payable_fingerprint_2]);
+        // let sent_payable_dao = SentPayableDaoMock::new()
+        //     .return_all_errorless_fingerprints_result(payables.clone());
+        // let mut subject = make_dull_subject();
+        // let pending_payable_scanner = PendingPayableScannerBuilder::new()
+        //     .sent_payable_dao(sent_payable_dao)
+        //     .build();
+        // // Important
+        // subject.aware_of_unresolved_pending_payable = true;
+        // subject.pending_payable = Box::new(pending_payable_scanner);
+        // let payable_scanner = PayableScannerBuilder::new().build();
+        // subject.payable = Box::new(payable_scanner);
+        //
+        // let result = subject.start_pending_payable_scan_guarded(
+        //     &consuming_wallet,
+        //     now,
+        //     None,
+        //     &Logger::new(test_name),
+        //     true,
+        // );
+        //
+        // let no_of_pending_payables = payables.len();
+        // let is_scan_running = subject.pending_payable.scan_started_at().is_some();
+        // assert_eq!(is_scan_running, true);
+        // assert_eq!(
+        //     result,
+        //     Ok(RequestTransactionReceipts {
+        //         pending_payable_fingerprints: payables,
+        //         response_skeleton_opt: None
+        //     })
+        // );
+        // TestLogHandler::new().assert_logs_match_in_order(vec![
+        //     &format!("INFO: {test_name}: Scanning for pending payable"),
+        //     &format!(
+        //         "DEBUG: {test_name}: Found {no_of_pending_payables} pending payables to process"
+        //     ),
+        // ])
     }
 
     #[test]
@@ -2840,10 +2838,10 @@ mod tests {
         let now = SystemTime::now();
         let consuming_wallet = make_paying_wallet(b"consuming");
         let mut subject = make_dull_subject();
-        let pending_payable_dao = PendingPayableDaoMock::new()
+        let sent_payable_dao = SentPayableDaoMock::new()
             .return_all_errorless_fingerprints_result(vec![make_pending_payable_fingerprint()]);
         let pending_payable_scanner = PendingPayableScannerBuilder::new()
-            .pending_payable_dao(pending_payable_dao)
+            .sent_payable_dao(sent_payable_dao)
             .build();
         // Important
         subject.aware_of_unresolved_pending_payable = true;
@@ -2990,10 +2988,10 @@ mod tests {
     fn pending_payable_scanner_throws_an_error_when_no_fingerprint_is_found() {
         let now = SystemTime::now();
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
-        let pending_payable_dao =
-            PendingPayableDaoMock::new().return_all_errorless_fingerprints_result(vec![]);
+        let sent_payable_dao =
+            SentPayableDaoMock::new().return_all_errorless_fingerprints_result(vec![]);
         let mut pending_payable_scanner = PendingPayableScannerBuilder::new()
-            .pending_payable_dao(pending_payable_dao)
+            .sent_payable_dao(sent_payable_dao)
             .build();
 
         let result =
@@ -3015,28 +3013,28 @@ mod tests {
         assert_eq!(subject.initial_pending_payable_scan, true);
     }
 
-    fn assert_interpreting_none_status_for_pending_payable(
-        test_name: &str,
-        when_pending_too_long_sec: u64,
-        pending_payable_age_sec: u64,
-        rowid: u64,
-        hash: H256,
-    ) -> PendingPayableScanReport {
-        init_test_logging();
-        let when_sent = SystemTime::now().sub(Duration::from_secs(pending_payable_age_sec));
-        let fingerprint = PendingPayableFingerprint {
-            rowid,
-            timestamp: when_sent,
-            hash,
-            attempt: 1,
-            amount: 123,
-            process_error: None,
-        };
-        let logger = Logger::new(test_name);
-        let scan_report = PendingPayableScanReport::default();
-
-        handle_none_status(scan_report, fingerprint, when_pending_too_long_sec, &logger)
-    }
+    // fn assert_interpreting_none_status_for_pending_payable(
+    //     test_name: &str,
+    //     when_pending_too_long_sec: u64,
+    //     pending_payable_age_sec: u64,
+    //     rowid: u64,
+    //     hash: H256,
+    // ) -> PendingPayableScanReport {
+    //     init_test_logging();
+    //     let when_sent = SystemTime::now().sub(Duration::from_secs(pending_payable_age_sec));
+    //     let fingerprint = SentTx {
+    //         rowid,
+    //         timestamp: when_sent,
+    //         hash,
+    //         attempt: 1,
+    //         amount: 123,
+    //         process_error: None,
+    //     };
+    //     let logger = Logger::new(test_name);
+    //     let scan_report = PendingPayableScanReport::default();
+    //
+    //     handle_none_status(scan_report, fingerprint, when_pending_too_long_sec, &logger)
+    // }
 
     fn assert_log_msg_and_elapsed_time_in_log_makes_sense(
         expected_msg: &str,
@@ -3072,95 +3070,98 @@ mod tests {
     #[test]
     fn interpret_transaction_receipt_when_transaction_status_is_none_and_outside_waiting_interval()
     {
-        let test_name = "interpret_transaction_receipt_when_transaction_status_is_none_and_outside_waiting_interval";
-        let hash = make_tx_hash(0x237);
-        let rowid = 466;
-
-        let result = assert_interpreting_none_status_for_pending_payable(
-            test_name,
-            DEFAULT_PENDING_TOO_LONG_SEC,
-            DEFAULT_PENDING_TOO_LONG_SEC + 1,
-            rowid,
-            hash,
-        );
-
-        let elapsed_after = elapsed_since_secs_back(DEFAULT_PENDING_TOO_LONG_SEC + 1);
-        assert_eq!(
-            result,
-            PendingPayableScanReport {
-                still_pending: vec![],
-                failures: vec![PendingPayableId::new(rowid, hash)],
-                confirmed: vec![]
-            }
-        );
-        let capture_regex = "(\\d+){2}sec";
-        assert_log_msg_and_elapsed_time_in_log_makes_sense(&format!(
-            "ERROR: {}: Pending transaction 0x00000000000000000000000000000000000000\
-            00000000000000000000000237 has exceeded the maximum pending time \\({}sec\\) with the age \
-            \\d+sec and the confirmation process is going to be aborted now at the final attempt 1; manual \
-            resolution is required from the user to complete the transaction"
-            , test_name, DEFAULT_PENDING_TOO_LONG_SEC, ), elapsed_after, capture_regex)
+        todo!("think of if we should preserve it")
+        // let test_name = "interpret_transaction_receipt_when_transaction_status_is_none_and_outside_waiting_interval";
+        // let hash = make_tx_hash(0x237);
+        // let rowid = 466;
+        //
+        // let result = assert_interpreting_none_status_for_pending_payable(
+        //     test_name,
+        //     DEFAULT_PENDING_TOO_LONG_SEC,
+        //     DEFAULT_PENDING_TOO_LONG_SEC + 1,
+        //     rowid,
+        //     hash,
+        // );
+        //
+        // let elapsed_after = elapsed_since_secs_back(DEFAULT_PENDING_TOO_LONG_SEC + 1);
+        // assert_eq!(
+        //     result,
+        //     PendingPayableScanReport {
+        //         still_pending: vec![],
+        //         failures: vec![PendingPayableId::new(rowid, hash)],
+        //         confirmed: vec![]
+        //     }
+        // );
+        // let capture_regex = "(\\d+){2}sec";
+        // assert_log_msg_and_elapsed_time_in_log_makes_sense(&format!(
+        //     "ERROR: {}: Pending transaction 0x00000000000000000000000000000000000000\
+        //     00000000000000000000000237 has exceeded the maximum pending time \\({}sec\\) with the age \
+        //     \\d+sec and the confirmation process is going to be aborted now at the final attempt 1; manual \
+        //     resolution is required from the user to complete the transaction"
+        //     , test_name, DEFAULT_PENDING_TOO_LONG_SEC, ), elapsed_after, capture_regex)
     }
 
     #[test]
     fn interpret_transaction_receipt_when_transaction_status_is_none_and_within_waiting_interval() {
-        let test_name = "interpret_transaction_receipt_when_transaction_status_is_none_and_within_waiting_interval";
-        let hash = make_tx_hash(0x7b);
-        let rowid = 333;
-        let pending_payable_age = DEFAULT_PENDING_TOO_LONG_SEC - 1;
-
-        let result = assert_interpreting_none_status_for_pending_payable(
-            test_name,
-            DEFAULT_PENDING_TOO_LONG_SEC,
-            pending_payable_age,
-            rowid,
-            hash,
-        );
-
-        let elapsed_after_ms = elapsed_since_secs_back(pending_payable_age) * 1000;
-        assert_eq!(
-            result,
-            PendingPayableScanReport {
-                still_pending: vec![PendingPayableId::new(rowid, hash)],
-                failures: vec![],
-                confirmed: vec![]
-            }
-        );
-        let capture_regex = r#"\s(\d+)ms"#;
-        assert_log_msg_and_elapsed_time_in_log_makes_sense(&format!(
-            "INFO: {test_name}: Pending transaction 0x0000000000000000000000000000000000000000000000000\
-            00000000000007b couldn't be confirmed at attempt 1 at \\d+ms after its sending"), elapsed_after_ms, capture_regex);
+       todo!("think of we can transform it into some other test")
+        // let test_name = "interpret_transaction_receipt_when_transaction_status_is_none_and_within_waiting_interval";
+        // let hash = make_tx_hash(0x7b);
+        // let rowid = 333;
+        // let pending_payable_age = DEFAULT_PENDING_TOO_LONG_SEC - 1;
+        //
+        // let result = assert_interpreting_none_status_for_pending_payable(
+        //     test_name,
+        //     DEFAULT_PENDING_TOO_LONG_SEC,
+        //     pending_payable_age,
+        //     rowid,
+        //     hash,
+        // );
+        //
+        // let elapsed_after_ms = elapsed_since_secs_back(pending_payable_age) * 1000;
+        // assert_eq!(
+        //     result,
+        //     PendingPayableScanReport {
+        //         still_pending: vec![PendingPayableId::new(rowid, hash)],
+        //         failures: vec![],
+        //         confirmed: vec![]
+        //     }
+        // );
+        // let capture_regex = r#"\s(\d+)ms"#;
+        // assert_log_msg_and_elapsed_time_in_log_makes_sense(&format!(
+        //     "INFO: {test_name}: Pending transaction 0x0000000000000000000000000000000000000000000000000\
+        //     00000000000007b couldn't be confirmed at attempt 1 at \\d+ms after its sending"), elapsed_after_ms, capture_regex);
     }
 
     #[test]
     fn interpret_transaction_receipt_when_transaction_status_is_none_and_time_equals_the_limit() {
-        let test_name = "interpret_transaction_receipt_when_transaction_status_is_none_and_time_equals_the_limit";
-        let hash = make_tx_hash(0x237);
-        let rowid = 466;
-        let pending_payable_age = DEFAULT_PENDING_TOO_LONG_SEC;
-
-        let result = assert_interpreting_none_status_for_pending_payable(
-            test_name,
-            DEFAULT_PENDING_TOO_LONG_SEC,
-            pending_payable_age,
-            rowid,
-            hash,
-        );
-
-        let elapsed_after_ms = elapsed_since_secs_back(pending_payable_age) * 1000;
-        assert_eq!(
-            result,
-            PendingPayableScanReport {
-                still_pending: vec![PendingPayableId::new(rowid, hash)],
-                failures: vec![],
-                confirmed: vec![]
-            }
-        );
-        let capture_regex = r#"\s(\d+)ms"#;
-        assert_log_msg_and_elapsed_time_in_log_makes_sense(&format!(
-            "INFO: {test_name}: Pending transaction 0x0000000000000000000000000000000000000000000000000\
-            000000000000237 couldn't be confirmed at attempt 1 at \\d+ms after its sending",
-        ), elapsed_after_ms, capture_regex);
+        todo!("think of we can transform it into some other test")
+        // let test_name = "interpret_transaction_receipt_when_transaction_status_is_none_and_time_equals_the_limit";
+        // let hash = make_tx_hash(0x237);
+        // let rowid = 466;
+        // let pending_payable_age = DEFAULT_PENDING_TOO_LONG_SEC;
+        //
+        // let result = assert_interpreting_none_status_for_pending_payable(
+        //     test_name,
+        //     DEFAULT_PENDING_TOO_LONG_SEC,
+        //     pending_payable_age,
+        //     rowid,
+        //     hash,
+        // );
+        //
+        // let elapsed_after_ms = elapsed_since_secs_back(pending_payable_age) * 1000;
+        // assert_eq!(
+        //     result,
+        //     PendingPayableScanReport {
+        //         still_pending: vec![PendingPayableId::new(rowid, hash)],
+        //         failures: vec![],
+        //         confirmed: vec![]
+        //     }
+        // );
+        // let capture_regex = r#"\s(\d+)ms"#;
+        // assert_log_msg_and_elapsed_time_in_log_makes_sense(&format!(
+        //     "INFO: {test_name}: Pending transaction 0x0000000000000000000000000000000000000000000000000\
+        //     000000000000237 couldn't be confirmed at attempt 1 at \\d+ms after its sending",
+        // ), elapsed_after_ms, capture_regex);
     }
 
     #[test]
@@ -3170,13 +3171,14 @@ mod tests {
         let mut tx_receipt = TransactionReceipt::default();
         tx_receipt.status = Some(U64::from(0)); //failure
         let hash = make_tx_hash(0xd7);
-        let fingerprint = PendingPayableFingerprint {
-            rowid: 777777,
+        let fingerprint = SentTx {
             timestamp: SystemTime::now().sub(Duration::from_millis(150000)),
+            gas_price_wei: 0,
+            nonce: 0,
             hash,
-            attempt: 5,
             amount: 2222,
-            process_error: None,
+            receiver_address: Default::default(),
+            block_opt: None,
         };
         let logger = Logger::new(test_name);
         let scan_report = PendingPayableScanReport::default();
@@ -3205,21 +3207,21 @@ mod tests {
         let subject = PendingPayableScannerBuilder::new().build();
         let rowid = 455;
         let hash = make_tx_hash(0x913);
-        let fingerprint = PendingPayableFingerprint {
-            rowid,
+        let fingerprint = SentTx {
             timestamp: SystemTime::now().sub(Duration::from_millis(10000)),
+            gas_price_wei: 0,
+            nonce: 0,
             hash,
-            attempt: 3,
             amount: 111,
-            process_error: None,
+            receiver_address: Default::default(),
+            block_opt: None,
         };
         let msg = ReportTransactionReceipts {
-            fingerprints_with_receipts: vec![(
+            receipt_results: vec![
                 TransactionReceiptResult::RpcResponse(TxReceipt {
                     transaction_hash: hash,
-                    status: TxStatus::Pending,
-                }),
-                fingerprint.clone(),
+                    status: TxStatus::Failed(),
+                }
             )],
             response_skeleton_opt: None,
         };
@@ -3229,8 +3231,7 @@ mod tests {
         assert_eq!(
             result,
             PendingPayableScanReport {
-                still_pending: vec![PendingPayableId::new(rowid, hash)],
-                failures: vec![],
+                failures: todo!(),
                 confirmed: vec![]
             }
         );
@@ -3239,57 +3240,6 @@ mod tests {
             0x0000000000000000000000000000000000000000000000000000000000000913 \
             but none was given; attempt 3, 100\\d\\dms since sending"
         ));
-    }
-
-    #[test]
-    fn increment_scan_attempts_happy_path() {
-        let update_remaining_fingerprints_params_arc = Arc::new(Mutex::new(vec![]));
-        let hash_1 = make_tx_hash(444888);
-        let rowid_1 = 3456;
-        let hash_2 = make_tx_hash(444888);
-        let rowid_2 = 3456;
-        let pending_payable_dao = PendingPayableDaoMock::default()
-            .increment_scan_attempts_params(&update_remaining_fingerprints_params_arc)
-            .increment_scan_attempts_result(Ok(()));
-        let subject = PendingPayableScannerBuilder::new()
-            .pending_payable_dao(pending_payable_dao)
-            .build();
-        let transaction_id_1 = PendingPayableId::new(rowid_1, hash_1);
-        let transaction_id_2 = PendingPayableId::new(rowid_2, hash_2);
-
-        let _ = subject.update_remaining_fingerprints(
-            vec![transaction_id_1, transaction_id_2],
-            &Logger::new("test"),
-        );
-
-        let update_remaining_fingerprints_params =
-            update_remaining_fingerprints_params_arc.lock().unwrap();
-        assert_eq!(
-            *update_remaining_fingerprints_params,
-            vec![vec![rowid_1, rowid_2]]
-        )
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Failure on incrementing scan attempts for fingerprints of \
-                0x000000000000000000000000000000000000000000000000000000000006c9d8 \
-                due to UpdateFailed(\"yeah, bad\")"
-    )]
-    fn increment_scan_attempts_sad_path() {
-        let hash = make_tx_hash(0x6c9d8);
-        let rowid = 3456;
-        let pending_payable_dao =
-            PendingPayableDaoMock::default().increment_scan_attempts_result(Err(
-                PendingPayableDaoError::UpdateFailed("yeah, bad".to_string()),
-            ));
-        let subject = PendingPayableScannerBuilder::new()
-            .pending_payable_dao(pending_payable_dao)
-            .build();
-        let logger = Logger::new("test");
-        let transaction_id = PendingPayableId::new(rowid, hash);
-
-        let _ = subject.update_remaining_fingerprints(vec![transaction_id], &logger);
     }
 
     #[test]
@@ -3302,20 +3252,20 @@ mod tests {
     }
 
     #[test]
-    fn cancel_failed_transactions_works() {
+    fn handle_failed_transactions_works() {
         init_test_logging();
-        let test_name = "cancel_failed_transactions_works";
+        let test_name = "handle_failed_transactions_works";
         let mark_failures_params_arc = Arc::new(Mutex::new(vec![]));
-        let pending_payable_dao = PendingPayableDaoMock::default()
+        let sent_payable_dao = SentPayableDaoMock::default()
             .mark_failures_params(&mark_failures_params_arc)
             .mark_failures_result(Ok(()));
         let subject = PendingPayableScannerBuilder::new()
-            .pending_payable_dao(pending_payable_dao)
+            .sent_payable_dao(sent_payable_dao)
             .build();
         let id_1 = PendingPayableId::new(2, make_tx_hash(0x7b));
         let id_2 = PendingPayableId::new(3, make_tx_hash(0x1c8));
 
-        subject.cancel_failed_transactions(vec![id_1, id_2], &Logger::new(test_name));
+        subject.handle_failed_transactions(vec![id_1, id_2], &Logger::new(test_name));
 
         let mark_failures_params = mark_failures_params_arc.lock().unwrap();
         assert_eq!(*mark_failures_params, vec![vec![2, 3]]);
@@ -3334,25 +3284,25 @@ mod tests {
         00000001bc to mark fatal error at payable fingerprint due to UpdateFailed(\"no no no\"); \
         database unreliable"
     )]
-    fn cancel_failed_transactions_panics_when_it_fails_to_mark_failure() {
-        let pending_payable_dao = PendingPayableDaoMock::default().mark_failures_result(Err(
-            PendingPayableDaoError::UpdateFailed("no no no".to_string()),
+    fn handle_failed_transactions_panics_when_it_fails_to_mark_failure() {
+        let sent_payable_dao = SentPayableDaoMock::default().mark_failures_result(Err(
+            SentPayableDaoError::NoChange,
         ));
         let subject = PendingPayableScannerBuilder::new()
-            .pending_payable_dao(pending_payable_dao)
+            .sent_payable_dao(sent_payable_dao)
             .build();
         let transaction_id_1 = PendingPayableId::new(2, make_tx_hash(333));
         let transaction_id_2 = PendingPayableId::new(3, make_tx_hash(444));
         let transaction_ids = vec![transaction_id_1, transaction_id_2];
 
-        subject.cancel_failed_transactions(transaction_ids, &Logger::new("test"));
+        subject.handle_failed_transactions(transaction_ids, &Logger::new("test"));
     }
 
     #[test]
-    fn cancel_failed_transactions_does_nothing_if_no_tx_failures_detected() {
+    fn handle_failed_transactions_does_nothing_if_no_tx_failures_detected() {
         let subject = PendingPayableScannerBuilder::new().build();
 
-        subject.cancel_failed_transactions(vec![], &Logger::new("test"))
+        subject.handle_failed_transactions(vec![], &Logger::new("test"))
 
         //mocked pending payable DAO didn't panic which means we skipped the actual process
     }
@@ -3366,14 +3316,14 @@ mod tests {
     )]
     fn confirm_transactions_panics_while_deleting_pending_payable_fingerprint() {
         let payable_dao = PayableDaoMock::new().transactions_confirmed_result(Ok(()));
-        let pending_payable_dao = PendingPayableDaoMock::default().delete_fingerprints_result(Err(
-            PendingPayableDaoError::RecordDeletion(
+        let sent_payable_dao = SentPayableDaoMock::default().delete_fingerprints_result(Err(
+            SentPayableDaoError::SqlExecutionFailed(
                 "the database is fooling around with us".to_string(),
             ),
         ));
         let mut subject = PendingPayableScannerBuilder::new()
             .payable_dao(payable_dao)
-            .pending_payable_dao(pending_payable_dao)
+            .sent_payable_dao(sent_payable_dao)
             .build();
         let mut fingerprint_1 = make_pending_payable_fingerprint();
         fingerprint_1.rowid = 1;
@@ -3402,30 +3352,32 @@ mod tests {
         let payable_dao = PayableDaoMock::default()
             .transactions_confirmed_params(&transactions_confirmed_params_arc)
             .transactions_confirmed_result(Ok(()));
-        let pending_payable_dao = PendingPayableDaoMock::default()
+        let sent_payable_dao = SentPayableDaoMock::default()
             .delete_fingerprints_params(&delete_fingerprints_params_arc)
             .delete_fingerprints_result(Ok(()));
         let mut subject = PendingPayableScannerBuilder::new()
             .payable_dao(payable_dao)
-            .pending_payable_dao(pending_payable_dao)
+            .sent_payable_dao(sent_payable_dao)
             .build();
         let rowid_1 = 2;
         let rowid_2 = 5;
-        let pending_payable_fingerprint_1 = PendingPayableFingerprint {
-            rowid: rowid_1,
+        let pending_payable_fingerprint_1 = SentTx {
             timestamp: from_unix_timestamp(199_000_000),
+            gas_price_wei: 0,
+            nonce: 0,
             hash: make_tx_hash(0x123),
-            attempt: 1,
             amount: 4567,
-            process_error: None,
+            receiver_address: Default::default(),
+            block_opt: None,
         };
-        let pending_payable_fingerprint_2 = PendingPayableFingerprint {
-            rowid: rowid_2,
+        let pending_payable_fingerprint_2 = SentTx {
             timestamp: from_unix_timestamp(200_000_000),
+            gas_price_wei: 0,
+            nonce: 0,
             hash: make_tx_hash(0x567),
-            attempt: 1,
             amount: 5555,
-            process_error: None,
+            receiver_address: Default::default(),
+            block_opt: None,
         };
 
         subject.confirm_transactions(
@@ -3488,7 +3440,7 @@ mod tests {
     #[test]
     fn total_paid_payable_rises_with_each_bill_paid() {
         let test_name = "total_paid_payable_rises_with_each_bill_paid";
-        let fingerprint_1 = PendingPayableFingerprint {
+        let fingerprint_1 = SentTx {
             rowid: 5,
             timestamp: from_unix_timestamp(189_999_888),
             hash: make_tx_hash(56789),
@@ -3496,7 +3448,7 @@ mod tests {
             amount: 5478,
             process_error: None,
         };
-        let fingerprint_2 = PendingPayableFingerprint {
+        let fingerprint_2 = SentTx {
             rowid: 6,
             timestamp: from_unix_timestamp(200_000_011),
             hash: make_tx_hash(33333),
@@ -3505,11 +3457,11 @@ mod tests {
             process_error: None,
         };
         let payable_dao = PayableDaoMock::default().transactions_confirmed_result(Ok(()));
-        let pending_payable_dao =
-            PendingPayableDaoMock::default().delete_fingerprints_result(Ok(()));
+        let sent_payable_dao =
+            SentPayableDaoMock::default().delete_fingerprints_result(Ok(()));
         let mut subject = PendingPayableScannerBuilder::new()
             .payable_dao(payable_dao)
-            .pending_payable_dao(pending_payable_dao)
+            .sent_payable_dao(sent_payable_dao)
             .build();
         let mut financial_statistics = subject.financial_statistics.borrow().clone();
         financial_statistics.total_paid_payable_wei += 1111;
@@ -3532,10 +3484,10 @@ mod tests {
         let payable_dao = PayableDaoMock::new()
             .transactions_confirmed_params(&transactions_confirmed_params_arc)
             .transactions_confirmed_result(Ok(()));
-        let pending_payable_dao = PendingPayableDaoMock::new().delete_fingerprints_result(Ok(()));
+        let sent_payable_dao = SentPayableDaoMock::new().delete_fingerprints_result(Ok(()));
         let mut pending_payable_scanner = PendingPayableScannerBuilder::new()
             .payable_dao(payable_dao)
-            .pending_payable_dao(pending_payable_dao)
+            .sent_payable_dao(sent_payable_dao)
             .build();
         let transaction_hash_1 = make_tx_hash(4545);
         let transaction_receipt_1 = TxReceipt {
@@ -3545,7 +3497,7 @@ mod tests {
                 block_number: U64::from(1234),
             }),
         };
-        let fingerprint_1 = PendingPayableFingerprint {
+        let fingerprint_1 = SentTx {
             rowid: 5,
             timestamp: from_unix_timestamp(200_000_000),
             hash: transaction_hash_1,
@@ -3561,7 +3513,7 @@ mod tests {
                 block_number: U64::from(2345),
             }),
         };
-        let fingerprint_2 = PendingPayableFingerprint {
+        let fingerprint_2 = SentTx {
             rowid: 10,
             timestamp: from_unix_timestamp(199_780_000),
             hash: transaction_hash_2,
@@ -3570,15 +3522,9 @@ mod tests {
             process_error: None,
         };
         let msg = ReportTransactionReceipts {
-            fingerprints_with_receipts: vec![
-                (
+            receipt_results: vec![
                     TransactionReceiptResult::RpcResponse(transaction_receipt_1),
-                    fingerprint_1.clone(),
-                ),
-                (
                     TransactionReceiptResult::RpcResponse(transaction_receipt_2),
-                    fingerprint_2.clone(),
-                ),
             ],
             response_skeleton_opt: None,
         };
@@ -3614,7 +3560,7 @@ mod tests {
             "pending_payable_scanner_handles_report_transaction_receipts_message_with_empty_vector";
         let mut pending_payable_scanner = PendingPayableScannerBuilder::new().build();
         let msg = ReportTransactionReceipts {
-            fingerprints_with_receipts: vec![],
+            receipt_results: vec![],
             response_skeleton_opt: None,
         };
         pending_payable_scanner.mark_as_started(SystemTime::now());

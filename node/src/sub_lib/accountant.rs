@@ -1,7 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::db_access_objects::banned_dao::BannedDaoFactory;
 use crate::accountant::db_access_objects::payable_dao::PayableDaoFactory;
-use crate::accountant::db_access_objects::pending_payable_dao::PendingPayableDaoFactory;
 use crate::accountant::db_access_objects::receivable_dao::ReceivableDaoFactory;
 use crate::accountant::scanners::payable_scanner_extension::msgs::BlockchainAgentWithContextMessage;
 use crate::accountant::{
@@ -22,6 +21,7 @@ use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, SystemTime};
+use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDaoFactory;
 
 lazy_static! {
     pub static ref DEFAULT_EARNING_WALLET: Wallet = Wallet::from_str("0x27d9A2AC83b493f88ce9B4532EDcf74e95B9788d").expect("Internal error");
@@ -71,7 +71,7 @@ impl PaymentThresholds {
 
 pub struct DaoFactories {
     pub payable_dao_factory: Box<dyn PayableDaoFactory>,
-    pub pending_payable_dao_factory: Box<dyn PendingPayableDaoFactory>,
+    pub sent_payable_dao_factory: Box<dyn SentPayableDaoFactory>,
     pub receivable_dao_factory: Box<dyn ReceivableDaoFactory>,
     pub banned_dao_factory: Box<dyn BannedDaoFactory>,
     pub config_dao_factory: Box<dyn ConfigDaoFactory>,

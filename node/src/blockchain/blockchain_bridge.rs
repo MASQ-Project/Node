@@ -171,17 +171,17 @@ pub struct PendingPayableFingerprintSeeds {
     pub hashes_and_balances: Vec<HashAndAmount>,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct PendingPayableFingerprint {
-    // Sqlite begins counting from 1
-    pub rowid: u64,
-    pub timestamp: SystemTime,
-    pub hash: H256,
-    // We have Sqlite begin counting from 1
-    pub attempt: u16,
-    pub amount: u128,
-    pub process_error: Option<String>,
-}
+// #[derive(Debug, PartialEq, Eq, Clone)]
+// pub struct SentTx {
+//     // Sqlite begins counting from 1
+//     pub rowid: u64,
+//     pub timestamp: SystemTime,
+//     pub hash: H256,
+//     // We have Sqlite begin counting from 1
+//     pub attempt: u16,
+//     pub amount: u128,
+//     pub process_error: Option<String>,
+// }
 
 impl Handler<NodeFromUiMessage> for BlockchainBridge {
     type Result = ();
@@ -403,8 +403,7 @@ impl BlockchainBridge {
                     |(success, fail, pending), transaction_receipt| match transaction_receipt {
                         TransactionReceiptResult::RpcResponse(tx_receipt) => {
                             match tx_receipt.status {
-                                TxStatus::Failed => (success, fail + 1, pending),
-                                TxStatus::Pending => (success, fail, pending + 1),
+                                TxStatus::Failed(_) => (success, fail + 1, pending),
                                 TxStatus::Succeeded(_) => (success + 1, fail, pending),
                             }
                         }
@@ -422,40 +421,40 @@ impl BlockchainBridge {
         &mut self,
         msg: RequestTransactionReceipts,
     ) -> Box<dyn Future<Item = (), Error = String>> {
-        let logger = self.logger.clone();
-        let accountant_recipient = self
-            .pending_payable_confirmation
-            .report_transaction_receipts_sub_opt
-            .clone()
-            .expect("Accountant is unbound");
-
-        let transaction_hashes = msg
-            .pending_payable_fingerprints
-            .iter()
-            .map(|finger_print| finger_print.hash)
-            .collect::<Vec<Hash>>();
-        Box::new(
-            self.blockchain_interface
-                .process_transaction_receipts(transaction_hashes)
-                .map_err(move |e| e.to_string())
-                .and_then(move |transaction_receipts_results| {
-                    Self::log_status_of_tx_receipts(&logger, &transaction_receipts_results);
-
-                    let pairs = transaction_receipts_results
-                        .into_iter()
-                        .zip(msg.pending_payable_fingerprints.into_iter())
-                        .collect_vec();
-
-                    accountant_recipient
-                        .try_send(ReportTransactionReceipts {
-                            fingerprints_with_receipts: pairs,
-                            response_skeleton_opt: msg.response_skeleton_opt,
-                        })
-                        .expect("Accountant is dead");
-
-                    Ok(())
-                }),
-        )
+        todo!()
+        // let logger = self.logger.clone();
+        // let accountant_recipient = self
+        //     .pending_payable_confirmation
+        //     .report_transaction_receipts_sub_opt
+        //     .clone()
+        //     .expect("Accountant is unbound");
+        //
+        // let transaction_hashes = msg
+        //     .pending_payable_fingerprints
+        //     .iter()
+        //     .map(|finger_print| finger_print.hash)
+        //     .collect::<Vec<Hash>>();
+        // Box::new(
+        //     self.blockchain_interface
+        //         .process_transaction_receipts(transaction_hashes)
+        //         .map_err(move |e| e.to_string())
+        //         .and_then(move |transaction_receipts_results| {
+        //             Self::log_status_of_tx_receipts(&logger, &transaction_receipts_results);
+        //
+        //             let pairs = transaction_receipts_results
+        //                 .into_iter()
+        //                 .zip(msg.pending_payable_fingerprints.into_iter())
+        //                 .collect_vec();
+        //
+        //             accountant_recipient
+        //                 .try_send(ReportTransactionReceipts {
+        //                     response_skeleton_opt: msg.response_skeleton_opt,
+        //                 })
+        //                 .expect("Accountant is dead");
+        //
+        //             Ok(())
+        //         }),
+        // )
     }
 
     fn handle_scan_future<M, F>(&mut self, handler: F, scan_type: ScanType, msg: M)
@@ -547,7 +546,6 @@ impl SubsFactory<BlockchainBridge, BlockchainBridgeSubs> for BlockchainBridgeSub
 mod tests {
     use super::*;
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-    use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
     use crate::accountant::db_access_objects::utils::from_unix_timestamp;
     use crate::accountant::scanners::payable_scanner_extension::agent_web3::WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
     use crate::accountant::scanners::payable_scanner_extension::test_utils::BlockchainAgentMock;
@@ -1148,7 +1146,7 @@ mod tests {
         let pending_payable_fingerprint_1 = make_pending_payable_fingerprint();
         let hash_1 = pending_payable_fingerprint_1.hash;
         let hash_2 = make_tx_hash(78989);
-        let pending_payable_fingerprint_2 = PendingPayableFingerprint {
+        let pending_payable_fingerprint_2 = SentTx {
             rowid: 456,
             timestamp: SystemTime::now(),
             hash: hash_2,
@@ -1317,7 +1315,7 @@ mod tests {
         let hash_4 = make_tx_hash(11111);
         let mut fingerprint_1 = make_pending_payable_fingerprint();
         fingerprint_1.hash = hash_1;
-        let fingerprint_2 = PendingPayableFingerprint {
+        let fingerprint_2 = SentTx {
             rowid: 454,
             timestamp: SystemTime::now(),
             hash: hash_2,
@@ -1325,7 +1323,7 @@ mod tests {
             amount: 3333,
             process_error: None,
         };
-        let fingerprint_3 = PendingPayableFingerprint {
+        let fingerprint_3 = SentTx {
             rowid: 456,
             timestamp: SystemTime::now(),
             hash: hash_3,
@@ -1333,7 +1331,7 @@ mod tests {
             amount: 4565,
             process_error: None,
         };
-        let fingerprint_4 = PendingPayableFingerprint {
+        let fingerprint_4 = SentTx {
             rowid: 450,
             timestamp: from_unix_timestamp(230_000_000),
             hash: hash_4,
@@ -1410,7 +1408,7 @@ mod tests {
         let report_transaction_recipient: Recipient<ReportTransactionReceipts> =
             accountant_addr.recipient();
         let hash_1 = make_tx_hash(0x1b2e6);
-        let fingerprint_1 = PendingPayableFingerprint {
+        let fingerprint_1 = SentTx {
             rowid: 454,
             timestamp: SystemTime::now(),
             hash: hash_1,
@@ -1418,7 +1416,7 @@ mod tests {
             amount: 3333,
             process_error: None,
         };
-        let fingerprint_2 = PendingPayableFingerprint {
+        let fingerprint_2 = SentTx {
             rowid: 456,
             timestamp: SystemTime::now(),
             hash: make_tx_hash(222444),

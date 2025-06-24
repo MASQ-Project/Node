@@ -13,74 +13,20 @@ use web3::contract::{Contract, Options};
 use web3::transports::{Batch, Http};
 use web3::types::{Address, BlockNumber, Filter, Log, TransactionReceipt};
 use web3::{Error, Web3};
+use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
+use crate::accountant::db_access_objects::utils::TxHash;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TransactionReceiptResult {
     RpcResponse(TxReceipt),
-    LocalError(String),
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum TxStatus {
-    Failed,
-    Pending,
-    Succeeded(TransactionBlock),
-}
-
-impl FromStr for TxStatus {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "Pending" => Ok(TxStatus::Pending),
-            "Failed" => Ok(TxStatus::Failed), // TODO: GH-631: This should be removed
-            s if s.starts_with("Succeeded") => {
-                // The format is "Succeeded(block_number, block_hash)"
-                let parts: Vec<&str> = s[10..s.len() - 1].split(',').collect();
-                if parts.len() != 2 {
-                    return Err("Invalid Succeeded format".to_string());
-                }
-                let block_number: u64 = parts[0]
-                    .parse()
-                    .map_err(|_| "Invalid block number".to_string())?;
-                let block_hash =
-                    H256::from_str(&parts[1][2..]).map_err(|_| "Invalid block hash".to_string())?;
-                Ok(TxStatus::Succeeded(TransactionBlock {
-                    block_hash,
-                    block_number: U64::from(block_number),
-                }))
-            }
-            _ => Err(format!("Unknown status: {}", s)),
-        }
-    }
-}
-
-impl Display for TxStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            TxStatus::Failed => write!(f, "Failed"),
-            TxStatus::Pending => write!(f, "Pending"),
-            TxStatus::Succeeded(block) => {
-                write!(
-                    f,
-                    "Succeeded({},{:?})",
-                    block.block_number, block.block_hash
-                )
-            }
-        }
-    }
+    //TODO shouldn't I write this so that it would refer to the tx by its hash?
+    LocalError(TxReceiptLocalError),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct TxReceipt {
     pub transaction_hash: H256,
     pub status: TxStatus,
-}
-
-#[derive(Debug, Default, PartialEq, Eq, Clone)]
-pub struct TransactionBlock {
-    pub block_hash: H256,
-    pub block_number: U64,
 }
 
 impl From<TransactionReceipt> for TxReceipt {
@@ -101,6 +47,73 @@ impl From<TransactionReceipt> for TxReceipt {
             status,
         }
     }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum TxStatus {
+    Failed(FailedTx),
+    Succeeded(ConfirmedTx),
+}
+
+impl Display for TxStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TxStatus::Failed(failed_tx) => todo!(), // write!(f, "Failed"),
+            TxStatus::Succeeded(block) => {
+                write!(
+                    f,
+                    "Succeeded({},{:?})",
+                    block.block.block_number, block.block.block_hash
+                )
+            }
+        }
+    }
+}
+
+// impl FromStr for TxStatus {
+//     type Err = String;
+//
+//     fn from_str(s: &str) -> Result<Self, Self::Err> {
+//         match s {
+//             "Pending" => Ok(TxStatus::Pending),
+//             "Failed" => Ok(TxStatus::Failed), // TODO: GH-631: This should be removed
+//             s if s.starts_with("Succeeded") => {
+//                 // The format is "Succeeded(block_number, block_hash)"
+//                 let parts: Vec<&str> = s[10..s.len() - 1].split(',').collect();
+//                 if parts.len() != 2 {
+//                     return Err("Invalid Succeeded format".to_string());
+//                 }
+//                 let block_number: u64 = parts[0]
+//                     .parse()
+//                     .map_err(|_| "Invalid block number".to_string())?;
+//                 let block_hash =
+//                     H256::from_str(&parts[1][2..]).map_err(|_| "Invalid block hash".to_string())?;
+//                 Ok(TxStatus::Succeeded(TransactionBlock {
+//                     block_hash,
+//                     block_number: U64::from(block_number),
+//                 }))
+//             }
+//             _ => Err(format!("Unknown status: {}", s)),
+//         }
+//     }
+// }
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct TxReceiptLocalError{
+    tx_hash: TxHash,
+    err_msg: String
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct ConfirmedTx{
+    pub tx_hash: TxHash,
+    pub block: TransactionBlock
+}
+
+#[derive(Debug, Default, PartialEq, Eq, Clone)]
+pub struct TransactionBlock {
+    pub block_hash: H256,
+    pub block_number: U64,
 }
 
 pub struct LowBlockchainIntWeb3 {

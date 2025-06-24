@@ -2,7 +2,6 @@
 
 pub mod errors;
 
-use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
 use crate::blockchain::blockchain_bridge::BlockMarker;
 use crate::sub_lib::wallet::Wallet;
 use std::fmt;

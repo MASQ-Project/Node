@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 use rusqlite::{Connection, OpenFlags};
-use crate::accountant::db_access_objects::sent_payable_dao::{ Tx};
+use crate::accountant::db_access_objects::sent_payable_dao::{ SentTx};
 use crate::accountant::db_access_objects::utils::{current_unix_timestamp, TxHash};
 use web3::types::{Address};
 use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureReason};
@@ -47,8 +47,8 @@ impl TxBuilder {
         self
     }
 
-    pub fn build(self) -> Tx {
-        Tx {
+    pub fn build(self) -> SentTx {
+        SentTx {
             hash: self.hash_opt.unwrap_or_default(),
             receiver_address: self.receiver_address_opt.unwrap_or_default(),
             amount: self.amount_opt.unwrap_or_default(),

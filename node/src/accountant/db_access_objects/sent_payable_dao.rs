@@ -7,7 +7,7 @@ use ethereum_types::{H256, U64};
 use web3::types::Address;
 use masq_lib::utils::ExpectValue;
 use crate::accountant::{checked_conversion, comma_joined_stringifiable};
-use crate::accountant::db_access_objects::utils::{TxHash, TxIdentifiers};
+use crate::accountant::db_access_objects::utils::{DaoFactoryReal, TxHash, TxIdentifiers};
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock};
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
@@ -23,7 +23,7 @@ pub enum SentPayableDaoError {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Tx {
+pub struct SentTx {
     pub hash: TxHash,
     pub receiver_address: Address,
     pub amount: u128,
@@ -57,13 +57,13 @@ impl Display for RetrieveCondition {
 
 pub trait SentPayableDao {
     fn get_tx_identifiers(&self, hashes: &HashSet<TxHash>) -> TxIdentifiers;
-    fn insert_new_records(&self, txs: &[Tx]) -> Result<(), SentPayableDaoError>;
-    fn retrieve_txs(&self, condition: Option<RetrieveCondition>) -> Vec<Tx>;
+    fn insert_new_records(&self, txs: &[SentTx]) -> Result<(), SentPayableDaoError>;
+    fn retrieve_txs(&self, condition: Option<RetrieveCondition>) -> Vec<SentTx>;
     fn update_tx_blocks(
         &self,
         hash_map: &HashMap<TxHash, TransactionBlock>,
     ) -> Result<(), SentPayableDaoError>;
-    fn replace_records(&self, new_txs: &[Tx]) -> Result<(), SentPayableDaoError>;
+    fn replace_records(&self, new_txs: &[SentTx]) -> Result<(), SentPayableDaoError>;
     fn delete_records(&self, hashes: &HashSet<TxHash>) -> Result<(), SentPayableDaoError>;
 }
 
@@ -103,7 +103,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
         .collect()
     }
 
-    fn insert_new_records(&self, txs: &[Tx]) -> Result<(), SentPayableDaoError> {
+    fn insert_new_records(&self, txs: &[SentTx]) -> Result<(), SentPayableDaoError> {
         if txs.is_empty() {
             return Err(SentPayableDaoError::EmptyInput);
         }
@@ -178,7 +178,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
         }
     }
 
-    fn retrieve_txs(&self, condition_opt: Option<RetrieveCondition>) -> Vec<Tx> {
+    fn retrieve_txs(&self, condition_opt: Option<RetrieveCondition>) -> Vec<SentTx> {
         let raw_sql = "SELECT tx_hash, receiver_address, amount_high_b, amount_low_b, \
             timestamp, gas_price_wei_high_b, gas_price_wei_low_b, nonce, block_hash, block_number FROM sent_payable"
             .to_string();
@@ -226,7 +226,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
                 _ => panic!("Invalid block details"),
             };
 
-            Ok(Tx {
+            Ok(SentTx {
                 hash,
                 receiver_address,
                 amount,
@@ -275,12 +275,12 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
         Ok(())
     }
 
-    fn replace_records(&self, new_txs: &[Tx]) -> Result<(), SentPayableDaoError> {
+    fn replace_records(&self, new_txs: &[SentTx]) -> Result<(), SentPayableDaoError> {
         if new_txs.is_empty() {
             return Err(SentPayableDaoError::EmptyInput);
         }
 
-        let build_case = |value_fn: fn(&Tx) -> String| {
+        let build_case = |value_fn: fn(&SentTx) -> String| {
             new_txs
                 .iter()
                 .map(|tx| format!("WHEN nonce = {} THEN {}", tx.nonce, value_fn(tx)))
@@ -398,6 +398,17 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
     }
 }
 
+pub trait SentPayableDaoFactory {
+    fn make(&self) -> Box<dyn SentPayableDao>;
+}
+
+impl SentPayableDaoFactory for DaoFactoryReal {
+    fn make(&self) -> Box<dyn SentPayableDao> {
+        todo!()
+        //Box::new(PendingPayableDaoReal::new(self.make_connection()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::{HashMap, HashSet};
@@ -483,12 +494,12 @@ mod tests {
             result,
             Err(SentPayableDaoError::InvalidInput(
                 "Duplicate hashes found in the input. Input Transactions: \
-                [Tx { \
+                [SentTx { \
                 hash: 0x00000000000000000000000000000000000000000000000000000000000004d2, \
                 receiver_address: 0x0000000000000000000000000000000000000000, \
                 amount: 0, timestamp: 1749204017, gas_price_wei: 0, \
                 nonce: 0, block_opt: None }, \
-                Tx { \
+                SentTx { \
                 hash: 0x00000000000000000000000000000000000000000000000000000000000004d2, \
                 receiver_address: 0x0000000000000000000000000000000000000000, \
                 amount: 0, timestamp: 1749204020, gas_price_wei: 0, \

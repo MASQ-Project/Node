@@ -6,15 +6,11 @@ use crate::accountant::db_big_integer::big_int_db_processor::KeyVariants::{
 use crate::accountant::db_big_integer::big_int_db_processor::{BigIntDbProcessor, BigIntDbProcessorReal, BigIntSqlConfig, DisplayableRusqliteParamPair, ParamByUse, SQLParamsBuilder, TableNameDAO, WeiChange, WeiChangeDirection};
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::db_access_objects::utils;
-use crate::accountant::db_access_objects::utils::{
-    sum_i128_values_from_table, to_unix_timestamp, AssemblerFeeder, CustomQuery, DaoFactoryReal,
-    RangeStmConfig, TopStmConfig, VigilantRusqliteFlatten,
-};
+use crate::accountant::db_access_objects::utils::{sum_i128_values_from_table, to_unix_timestamp, AssemblerFeeder, CustomQuery, DaoFactoryReal, RangeStmConfig, TopStmConfig, VigilantRusqliteFlatten, TxHash, RowId};
 use crate::accountant::db_access_objects::payable_dao::mark_pending_payable_associated_functions::{
     compose_case_expression, execute_command, serialize_wallets,
 };
 use crate::accountant::{checked_conversion, sign_conversion, PendingPayableId};
-use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use crate::sub_lib::wallet::Wallet;
 #[cfg(test)]
@@ -26,8 +22,10 @@ use rusqlite::{Error, Row};
 use std::fmt::Debug;
 use std::str::FromStr;
 use std::time::SystemTime;
+use ethabi::Address;
 use itertools::Either;
 use web3::types::H256;
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::ConfirmedTx;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum PayableDaoError {
@@ -53,12 +51,12 @@ pub trait PayableDao: Debug + Send {
 
     fn mark_pending_payables_rowids(
         &self,
-        wallets_and_rowids: &[(&Wallet, u64)],
+        wallets_and_rowids: &[MarkOfPendingPayable],
     ) -> Result<(), PayableDaoError>;
 
     fn transactions_confirmed(
         &self,
-        confirmed_payables: &[PendingPayableFingerprint],
+        confirmed_payables: &[ConfirmedTx],
     ) -> Result<(), PayableDaoError>;
 
     fn non_pending_payables(&self) -> Vec<PayableAccount>;
@@ -78,6 +76,17 @@ pub trait PayableDaoFactory {
 impl PayableDaoFactory for DaoFactoryReal {
     fn make(&self) -> Box<dyn PayableDao> {
         Box::new(PayableDaoReal::new(self.make_connection()))
+    }
+}
+
+pub struct MarkOfPendingPayable{
+    pub wallet: Address,
+    pub rowid: RowId
+}
+
+impl MarkOfPendingPayable {
+    pub fn new(wallet: Address, rowid: RowId)-> Self {
+        todo!()
     }
 }
 
@@ -146,7 +155,7 @@ impl PayableDao for PayableDaoReal {
 
     fn transactions_confirmed(
         &self,
-        confirmed_payables: &[PendingPayableFingerprint],
+        confirmed_payables: &[ConfirmedTx],
     ) -> Result<(), PayableDaoError> {
         confirmed_payables.iter().try_for_each(|pending_payable_fingerprint| {
 
@@ -557,6 +566,7 @@ mod tests {
     use rusqlite::{ToSql};
     use std::path::Path;
     use std::str::FromStr;
+    use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
     use crate::database::test_utils::ConnectionWrapperMock;
 
     #[test]
@@ -892,15 +902,17 @@ mod tests {
     }
 
     struct TestSetupValuesHolder {
-        fingerprint_1: PendingPayableFingerprint,
-        fingerprint_2: PendingPayableFingerprint,
-        wallet_1: Wallet,
-        wallet_2: Wallet,
-        previous_timestamp_1: SystemTime,
-        previous_timestamp_2: SystemTime,
+        account_1: TxWalletAndTimestamp,
+        account_2: TxWalletAndTimestamp
     }
 
-    fn make_fingerprint_pair_and_insert_initial_payable_records(
+    struct TxWalletAndTimestamp{
+        pending_payable: SentTx,
+        wallet: Wallet,
+        previous_timestamp: SystemTime,
+    }
+
+    fn insert_initial_payable_records_and_return_pending_payable(
         conn: &dyn ConnectionWrapper,
         initial_amount_1: u128,
         initial_amount_2: u128,
@@ -933,31 +945,27 @@ mod tests {
                 Some(rowid_2 as i64),
             )
         }
-        let fingerprint_1 = PendingPayableFingerprint {
-            rowid: rowid_1,
-            timestamp: new_payable_timestamp_1,
-            hash: hash_1,
-            attempt: 1,
-            amount: balance_change_1,
-            process_error: None,
-        };
-        let fingerprint_2 = PendingPayableFingerprint {
-            rowid: rowid_2,
-            timestamp: new_payable_timestamp_2,
-            hash: hash_2,
-            attempt: 1,
-            amount: balance_change_2,
-            process_error: None,
-        };
-        let previous_timestamp_1 = from_unix_timestamp(previous_timestamp_1_s);
-        let previous_timestamp_2 = from_unix_timestamp(previous_timestamp_2_s);
+        // let fingerprint_1 = SentTx {
+        //     rowid: rowid_1,
+        //     timestamp: new_payable_timestamp_1,
+        //     hash: hash_1,
+        //     attempt: 1,
+        //     amount: balance_change_1,
+        //     process_error: None,
+        // };
+        // let fingerprint_2 = SentTx {
+        //     rowid: rowid_2,
+        //     timestamp: new_payable_timestamp_2,
+        //     hash: hash_2,
+        //     attempt: 1,
+        //     amount: balance_change_2,
+        //     process_error: None,
+        // };
+        // let previous_timestamp_1 = from_unix_timestamp(previous_timestamp_1_s);
+        // let previous_timestamp_2 = from_unix_timestamp(previous_timestamp_2_s);
         TestSetupValuesHolder {
-            fingerprint_1,
-            fingerprint_2,
-            wallet_1,
-            wallet_2,
-            previous_timestamp_1,
-            previous_timestamp_2,
+            account_1: todo!(),
+            account_2: todo!()
         }
     }
 
@@ -1000,7 +1008,7 @@ mod tests {
         let boxed_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let setup_holder = make_fingerprint_pair_and_insert_initial_payable_records(
+        let setup_holder = insert_initial_payable_records_and_return_pending_payable(
             boxed_conn.as_ref(),
             initial_amount_1,
             initial_amount_2,
@@ -1117,7 +1125,7 @@ mod tests {
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let setup_holder = make_fingerprint_pair_and_insert_initial_payable_records(
+        let setup_holder = insert_initial_payable_records_and_return_pending_payable(
             conn.as_ref(),
             1_111_111,
             2_222_222,
