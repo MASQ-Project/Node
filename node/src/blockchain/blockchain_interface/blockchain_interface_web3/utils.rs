@@ -3,7 +3,7 @@
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
 use crate::accountant::scanners::payable_scanner_extension::msgs::{
-    QualifiedPayablesRawPack, QualifiedPayablesRipePack,
+    PricedQualifiedPayables, UnpricedQualifiedPayables,
 };
 use crate::blockchain::blockchain_agent::agent_web3::BlockchainAgentWeb3;
 use crate::blockchain::blockchain_agent::BlockchainAgent;
@@ -89,13 +89,13 @@ pub fn merged_output_data(
 
 pub fn transmission_log(
     chain: Chain,
-    qualified_payables_pack: &QualifiedPayablesRipePack,
+    qualified_payables: &PricedQualifiedPayables,
     lowest_nonce_used: U256,
 ) -> String {
     let chain_name = chain.rec().literal_identifier;
-    let account_count = qualified_payables_pack.payables.len();
+    let account_count = qualified_payables.payables.len();
     let last_nonce_used = lowest_nonce_used + U256::from(account_count - 1);
-    let biggest_payable = qualified_payables_pack
+    let biggest_payable = qualified_payables
         .payables
         .iter()
         .map(|payable_with_gas_price| payable_with_gas_price.payable.balance_wei)
@@ -126,7 +126,7 @@ pub fn transmission_log(
         payment_column_width = payment_column_width,
     ));
 
-    let body = qualified_payables_pack
+    let body = qualified_payables
         .payables
         .iter()
         .map(|payable_with_gas_price| {
@@ -246,7 +246,7 @@ pub fn sign_and_append_multiple_payments(
     web3_batch: &Web3<Batch<Http>>,
     consuming_wallet: Wallet,
     mut pending_nonce: U256,
-    accounts: &QualifiedPayablesRipePack,
+    accounts: &PricedQualifiedPayables,
 ) -> Vec<HashAndAmount> {
     let mut hash_and_amount_list = vec![];
     accounts.payables.iter().for_each(|payable_pack| {
@@ -282,7 +282,7 @@ pub fn send_payables_within_batch(
     consuming_wallet: Wallet,
     pending_nonce: U256,
     new_fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
-    accounts: QualifiedPayablesRipePack,
+    accounts: PricedQualifiedPayables,
 ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError> + 'static>
 {
     debug!(
@@ -335,12 +335,11 @@ pub fn send_payables_within_batch(
 }
 
 pub fn create_blockchain_agent_web3(
-    qualified_payables: QualifiedPayablesRawPack,
-    gas_limit_const_part: u128,
     blockchain_agent_future_result: BlockchainAgentFutureResult,
+    gas_limit_const_part: u128,
     wallet: Wallet,
     chain: Chain,
-) -> (Box<dyn BlockchainAgent>, QualifiedPayablesRipePack) {
+) -> Box<dyn BlockchainAgent> {
     let transaction_fee_balance_in_minor_units =
         blockchain_agent_future_result.transaction_fee_balance;
     let masq_token_balance_in_minor_units = blockchain_agent_future_result.masq_token_balance;
@@ -348,14 +347,13 @@ pub fn create_blockchain_agent_web3(
         transaction_fee_balance_in_minor_units,
         masq_token_balance_in_minor_units,
     );
-    BlockchainAgentWeb3::new(
-        qualified_payables,
+    Box::new(BlockchainAgentWeb3::new(
         blockchain_agent_future_result.gas_price_wei.as_u128(),
         gas_limit_const_part,
         wallet,
         cons_wallet_balances,
         chain,
-    )
+    ))
 }
 
 #[cfg(test)]
@@ -365,7 +363,7 @@ mod tests {
     use crate::accountant::gwei_to_wei;
     use crate::accountant::test_utils::{
         make_payable_account, make_payable_account_with_wallet_and_balance_and_timestamp_opt,
-        make_ripe_qualified_payables,
+        make_priced_qualified_payables,
     };
     use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
     use crate::blockchain::blockchain_agent::agent_web3::WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
@@ -466,8 +464,10 @@ mod tests {
         let consuming_wallet = make_paying_wallet(b"paying_wallet");
         let account_1 = make_payable_account(1);
         let account_2 = make_payable_account(2);
-        let accounts =
-            make_ripe_qualified_payables(vec![(account_1, 111_111_111), (account_2, 222_222_222)]);
+        let accounts = make_priced_qualified_payables(vec![
+            (account_1, 111_111_111),
+            (account_2, 222_222_222),
+        ]);
 
         let result = sign_and_append_multiple_payments(
             &logger,
@@ -519,9 +519,9 @@ mod tests {
         nonces:                                      123,456,789...123,456,791\n\
         \n\
         [wallet address]                             [payment wei]             [gas price wei]\n\
-        0x0000000000000000000000000000000077313233   900,000,000,000,000,000   123,456,789\n\
-        0x0000000000000000000000000000000077353535   123,456,789               234,567,890\n\
-        0x0000000000000000000000000000000077393837   33,355,666,000,000,000    345,678,901\n";
+        0x0000000000000000000000000077616c6c657430   900,000,000,000,000,000   246,913,578\n\
+        0x0000000000000000000000000077616c6c657431   123,456,789               493,827,156\n\
+        0x0000000000000000000000000077616c6c657432   33,355,666,000,000,000    740,740,734\n";
 
         test_transmission_log(
             1,
@@ -546,9 +546,9 @@ mod tests {
         nonces:                                      100...102\n\
         \n\
         [wallet address]                             [payment wei]        [gas price wei]\n\
-        0x0000000000000000000000000000000077313233   5,400,000,000,000    123,456,789\n\
-        0x0000000000000000000000000000000077353535   10,000,000,000,000   234,567,890\n\
-        0x0000000000000000000000000000000077393837   44,444,555           345,678,901\n";
+        0x0000000000000000000000000077616c6c657430   5,400,000,000,000    246,913,578\n\
+        0x0000000000000000000000000077616c6c657431   10,000,000,000,000   493,827,156\n\
+        0x0000000000000000000000000077616c6c657432   44,444,555           740,740,734\n";
 
         test_transmission_log(
             2,
@@ -569,9 +569,9 @@ mod tests {
         nonces:                                      1...3\n\
         \n\
         [wallet address]                             [payment wei]   [gas price wei]\n\
-        0x0000000000000000000000000000000077313233   45,000,888      123,456,789\n\
-        0x0000000000000000000000000000000077353535   1,999,999       234,567,890\n\
-        0x0000000000000000000000000000000077393837   444,444,555     345,678,901\n";
+        0x0000000000000000000000000077616c6c657430   45,000,888      246,913,578\n\
+        0x0000000000000000000000000077616c6c657431   1,999,999       493,827,156\n\
+        0x0000000000000000000000000077616c6c657432   444,444,555     740,740,734\n";
 
         test_transmission_log(
             3,
@@ -589,26 +589,19 @@ mod tests {
         pending_nonce: U256,
         expected_result: &str,
     ) {
-        let account_1 = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
-            make_wallet("w123"),
-            payments[0],
-            None,
-        );
-        let account_2 = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
-            make_wallet("w555"),
-            payments[1],
-            None,
-        );
-        let account_3 = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
-            make_wallet("w987"),
-            payments[2],
-            None,
-        );
-        let accounts_to_process = make_ripe_qualified_payables(vec![
-            (account_1, 123_456_789),
-            (account_2, 234_567_890),
-            (account_3, 345_678_901),
-        ]);
+        let accounts_to_process_seeds = payments
+            .iter()
+            .enumerate()
+            .map(|(i, payment)| {
+                let wallet = make_wallet(&format!("wallet{}", i));
+                let gas_price = (i as u128 + 1) * 2 * 123_456_789;
+                let account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
+                    wallet, *payment, None,
+                );
+                (account, gas_price)
+            })
+            .collect();
+        let accounts_to_process = make_priced_qualified_payables(accounts_to_process_seeds);
 
         let result = transmission_log(chain, &accounts_to_process, pending_nonce);
 
@@ -678,7 +671,7 @@ mod tests {
 
     fn test_send_payables_within_batch(
         test_name: &str,
-        accounts: QualifiedPayablesRipePack,
+        accounts: PricedQualifiedPayables,
         expected_result: Result<Vec<ProcessedPayableFallible>, PayableTransactionError>,
         port: u16,
     ) {
@@ -764,7 +757,10 @@ mod tests {
 
         test_send_payables_within_batch(
             "send_payables_within_batch_works",
-            make_ripe_qualified_payables(vec![(account_1, 111_111_111), (account_2, 222_222_222)]),
+            make_priced_qualified_payables(vec![
+                (account_1, 111_111_111),
+                (account_2, 222_222_222),
+            ]),
             expected_result,
             port,
         );
@@ -772,7 +768,7 @@ mod tests {
 
     #[test]
     fn send_payables_within_batch_fails_on_submit_batch_call() {
-        let accounts = make_ripe_qualified_payables(vec![
+        let accounts = make_priced_qualified_payables(vec![
             (make_payable_account(1), 111_222_333),
             (make_payable_account(2), 222_333_444),
         ]);
@@ -839,7 +835,10 @@ mod tests {
 
         test_send_payables_within_batch(
             "send_payables_within_batch_all_payments_fail",
-            make_ripe_qualified_payables(vec![(account_1, 111_111_111), (account_2, 111_111_111)]),
+            make_priced_qualified_payables(vec![
+                (account_1, 111_111_111),
+                (account_2, 111_111_111),
+            ]),
             expected_result,
             port,
         );
@@ -879,7 +878,10 @@ mod tests {
 
         test_send_payables_within_batch(
             "send_payables_within_batch_one_payment_works_the_other_fails",
-            make_ripe_qualified_payables(vec![(account_1, 111_111_111), (account_2, 111_111_111)]),
+            make_priced_qualified_payables(vec![
+                (account_1, 111_111_111),
+                (account_2, 111_111_111),
+            ]),
             expected_result,
             port,
         );

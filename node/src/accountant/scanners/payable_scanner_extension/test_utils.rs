@@ -2,6 +2,9 @@
 
 #![cfg(test)]
 
+use crate::accountant::scanners::payable_scanner_extension::msgs::{
+    PricedQualifiedPayables, UnpricedQualifiedPayables,
+};
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
@@ -31,7 +34,17 @@ impl Default for BlockchainAgentMock {
 }
 
 impl BlockchainAgent for BlockchainAgentMock {
-    fn estimated_transaction_fee_total(&self) -> u128 {
+    fn price_qualified_payables(
+        &self,
+        qualified_payables: UnpricedQualifiedPayables,
+    ) -> PricedQualifiedPayables {
+        todo!()
+    }
+
+    fn estimated_transaction_fee_total(
+        &self,
+        _qualified_payables: &PricedQualifiedPayables,
+    ) -> u128 {
         todo!("to be implemented by GH-711")
     }
 

@@ -1231,7 +1231,7 @@ mod tests {
     use crate::accountant::test_utils::DaoWithDestination::{
         ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,
     };
-    use crate::accountant::test_utils::{bc_from_earning_wallet, bc_from_wallets, make_payable_account, make_pending_payable_fingerprint, make_qualified_and_unqualified_payables, make_raw_qualified_payables_for_retry_mode, make_ripe_qualified_payables, BannedDaoFactoryMock, ConfigDaoFactoryMock, MessageIdGeneratorMock, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder, PaymentAdjusterMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock, ReceivableDaoFactoryMock, ReceivableDaoMock};
+    use crate::accountant::test_utils::{bc_from_earning_wallet, bc_from_wallets, make_payable_account, make_pending_payable_fingerprint, make_qualified_and_unqualified_payables, make_unpriced_qualified_payables_for_retry_mode, make_priced_qualified_payables, BannedDaoFactoryMock, ConfigDaoFactoryMock, MessageIdGeneratorMock, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder, PaymentAdjusterMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock, ReceivableDaoFactoryMock, ReceivableDaoMock};
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
     use crate::accountant::Accountant;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::HashAndAmount;
@@ -1286,7 +1286,7 @@ mod tests {
     use std::sync::Mutex;
     use std::time::{Duration, UNIX_EPOCH};
     use std::vec;
-    use crate::accountant::scanners::payable_scanner_extension::msgs::QualifiedPayablesRawPack;
+    use crate::accountant::scanners::payable_scanner_extension::msgs::UnpricedQualifiedPayables;
     use crate::accountant::scanners::scan_schedulers::{NewPayableScanDynIntervalComputer, NewPayableScanDynIntervalComputerReal};
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{OperationOutcome, PayableScanResult};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt, TxStatus};
@@ -1542,7 +1542,7 @@ mod tests {
         assert_eq!(
             blockchain_bridge_recording.get_record::<QualifiedPayablesMessage>(0),
             &QualifiedPayablesMessage {
-                qualified_payables: QualifiedPayablesRawPack::from(vec![payable_account]),
+                qualified_payables: UnpricedQualifiedPayables::from(vec![payable_account]),
                 consuming_wallet,
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
@@ -1632,7 +1632,7 @@ mod tests {
         let system = System::new("test");
         let agent_id_stamp = ArbitraryIdStamp::new();
         let agent = BlockchainAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp);
-        let qualified_payables = make_ripe_qualified_payables(vec![
+        let qualified_payables = make_priced_qualified_payables(vec![
             (account_1, 1_000_000_001),
             (account_2, 1_000_000_002),
         ]);
@@ -1689,8 +1689,8 @@ mod tests {
         );
         assert_eq!(blockchain_bridge_recording.len(), 1);
         assert_using_the_same_logger(&logger_clone, test_name, None)
-        // adjust_payments() did not need any prepared result, which means it couldn't have been
-        // reached because otherwise this test would've panicked
+        // The adjust_payments() function doesn't require prepared results, indicating it shouldn't
+        // have been reached during the test, or it would have caused a panic.
     }
 
     fn assert_using_the_same_logger(
@@ -1739,7 +1739,7 @@ mod tests {
         let agent_id_stamp_first_phase = ArbitraryIdStamp::new();
         let agent =
             BlockchainAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp_first_phase);
-        let initial_unadjusted_accounts = make_ripe_qualified_payables(vec![
+        let initial_unadjusted_accounts = make_priced_qualified_payables(vec![
             (unadjusted_account_1.clone(), 111_222_333),
             (unadjusted_account_2.clone(), 222_333_444),
         ]);
@@ -1753,7 +1753,7 @@ mod tests {
         let agent_id_stamp_second_phase = ArbitraryIdStamp::new();
         let agent =
             BlockchainAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp_second_phase);
-        let affordable_accounts = make_ripe_qualified_payables(vec![
+        let affordable_accounts = make_priced_qualified_payables(vec![
             (adjusted_account_1.clone(), 111_222_333),
             (adjusted_account_2.clone(), 222_333_444),
         ]);
@@ -1803,7 +1803,7 @@ mod tests {
         );
         assert!(
             before <= captured_now && captured_now <= after,
-            "captured should be between {:?} and {:?} but was {:?}",
+            "timestamp should be between {:?} and {:?} but was {:?}",
             before,
             after,
             captured_now
@@ -2235,7 +2235,7 @@ mod tests {
         assert_eq!(
             message,
             &QualifiedPayablesMessage {
-                qualified_payables: QualifiedPayablesRawPack::from(qualified_payables),
+                qualified_payables: UnpricedQualifiedPayables::from(qualified_payables),
                 consuming_wallet,
                 response_skeleton_opt: None,
             }
@@ -2311,7 +2311,7 @@ mod tests {
         let consuming_wallet = make_wallet("abc");
         subject.consuming_wallet_opt = Some(consuming_wallet.clone());
         let qualified_payables_msg = QualifiedPayablesMessage {
-            qualified_payables: make_raw_qualified_payables_for_retry_mode(vec![
+            qualified_payables: make_unpriced_qualified_payables_for_retry_mode(vec![
                 (make_payable_account(789), 111_222_333),
                 (make_payable_account(888), 222_333_444),
             ]),
@@ -2724,7 +2724,7 @@ mod tests {
             // These values belong to the RetryPayableScanner
             .start_scan_params(&scan_params.payable_start_scan)
             .start_scan_result(Ok(QualifiedPayablesMessage {
-                qualified_payables: make_raw_qualified_payables_for_retry_mode(vec![(
+                qualified_payables: make_unpriced_qualified_payables_for_retry_mode(vec![(
                     make_payable_account(123),
                     555_666_777,
                 )]),
@@ -3482,12 +3482,13 @@ mod tests {
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let blockchain_bridge_addr = blockchain_bridge.start();
         let payable_account = make_payable_account(123);
-        let raw_qualified_payables = QualifiedPayablesRawPack::from(vec![payable_account.clone()]);
-        let ripe_qualified_payables =
-            make_ripe_qualified_payables(vec![(payable_account, 123_456_789)]);
+        let unpriced_qualified_payables =
+            UnpricedQualifiedPayables::from(vec![payable_account.clone()]);
+        let priced_qualified_payables =
+            make_priced_qualified_payables(vec![(payable_account, 123_456_789)]);
         let consuming_wallet = make_paying_wallet(b"consuming");
         let counter_msg_1 = BlockchainAgentWithContextMessage {
-            qualified_payables: ripe_qualified_payables.clone(),
+            qualified_payables: priced_qualified_payables.clone(),
             agent: Box::new(BlockchainAgentMock::default()),
             response_skeleton_opt: None,
         };
@@ -3519,7 +3520,7 @@ mod tests {
             response_skeleton_opt: None,
         };
         let qualified_payables_msg = QualifiedPayablesMessage {
-            qualified_payables: raw_qualified_payables,
+            qualified_payables: unpriced_qualified_payables,
             consuming_wallet: consuming_wallet.clone(),
             response_skeleton_opt: None,
         };
@@ -3590,7 +3591,7 @@ mod tests {
             blockchain_bridge_recording.get_record::<OutboundPaymentsInstructions>(1);
         assert_eq!(
             actual_outbound_payment_instructions_msg.affordable_accounts,
-            ripe_qualified_payables
+            priced_qualified_payables
         );
         let actual_requested_receipts_1 =
             blockchain_bridge_recording.get_record::<RequestTransactionReceipts>(2);
@@ -3926,7 +3927,7 @@ mod tests {
         assert_eq!(
             message,
             &QualifiedPayablesMessage {
-                qualified_payables: QualifiedPayablesRawPack::from(qualified_payables),
+                qualified_payables: UnpricedQualifiedPayables::from(qualified_payables),
                 consuming_wallet,
                 response_skeleton_opt: None,
             }

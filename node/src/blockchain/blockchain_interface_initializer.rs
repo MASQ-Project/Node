@@ -45,7 +45,7 @@ impl BlockchainInterfaceInitializer {
 #[cfg(test)]
 mod tests {
     use crate::accountant::scanners::payable_scanner_extension::msgs::{
-        QualifiedPayablesRawPack, QualifiedPayablesRipePack, QualifiedPayablesWithGasPrice,
+        PricedQualifiedPayables, QualifiedPayablesWithGasPrice, UnpricedQualifiedPayables,
     };
     use crate::accountant::test_utils::make_payable_account;
     use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
@@ -80,24 +80,29 @@ mod tests {
 
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
-        let raw_qualified_payables =
-            QualifiedPayablesRawPack::from(vec![account_1.clone(), account_2.clone()]);
+        let qualified_payables_without_price =
+            UnpricedQualifiedPayables::from(vec![account_1.clone(), account_2.clone()]);
         let payable_wallet = make_wallet("payable");
-        let (blockchain_agent, ripe_qualified_payables) = result
-            .introduce_blockchain_agent(raw_qualified_payables, payable_wallet.clone())
+        let blockchain_agent = result
+            .introduce_blockchain_agent(payable_wallet.clone())
             .wait()
             .unwrap();
         assert_eq!(blockchain_agent.consuming_wallet(), &payable_wallet);
-        let gas_price_with_margin = increase_gas_price_by_margin(1_000_000_000, chain);
-        let expected_ripe_qualified_payables = QualifiedPayablesRipePack {
+        let priced_qualified_payables =
+            blockchain_agent.price_qualified_payables(qualified_payables_without_price);
+        let gas_price_with_margin = increase_gas_price_by_margin(1_000_000_000);
+        let expected_priced_qualified_payables = PricedQualifiedPayables {
             payables: vec![
                 QualifiedPayablesWithGasPrice::new(account_1, gas_price_with_margin),
                 QualifiedPayablesWithGasPrice::new(account_2, gas_price_with_margin),
             ],
         };
-        assert_eq!(ripe_qualified_payables, expected_ripe_qualified_payables);
         assert_eq!(
-            blockchain_agent.estimated_transaction_fee_total(),
+            priced_qualified_payables,
+            expected_priced_qualified_payables
+        );
+        assert_eq!(
+            blockchain_agent.estimated_transaction_fee_total(&priced_qualified_payables),
             190_652_800_000_000
         );
     }

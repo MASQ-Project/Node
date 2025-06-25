@@ -17,8 +17,9 @@ use crate::accountant::db_access_objects::utils::{
 };
 use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdjuster};
 use crate::accountant::scanners::payable_scanner_extension::msgs::{
-    BlockchainAgentWithContextMessage, QualifiedPayablesBeforeGasPriceSelection,
-    QualifiedPayablesRawPack, QualifiedPayablesRipePack, QualifiedPayablesWithGasPrice,
+    BlockchainAgentWithContextMessage, PricedQualifiedPayables,
+    QualifiedPayablesBeforeGasPriceSelection, QualifiedPayablesWithGasPrice,
+    UnpricedQualifiedPayables,
 };
 use crate::accountant::scanners::payable_scanner_extension::PreparedAdjustment;
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableThresholdsGauge;
@@ -1501,10 +1502,10 @@ impl PaymentAdjusterMock {
     }
 }
 
-pub fn make_ripe_qualified_payables(
+pub fn make_priced_qualified_payables(
     inputs: Vec<(PayableAccount, u128)>,
-) -> QualifiedPayablesRipePack {
-    QualifiedPayablesRipePack {
+) -> PricedQualifiedPayables {
+    PricedQualifiedPayables {
         payables: inputs
             .into_iter()
             .map(|(payable, gas_price_minor)| QualifiedPayablesWithGasPrice {
@@ -1515,10 +1516,10 @@ pub fn make_ripe_qualified_payables(
     }
 }
 
-pub fn make_raw_qualified_payables_for_retry_mode(
+pub fn make_unpriced_qualified_payables_for_retry_mode(
     inputs: Vec<(PayableAccount, u128)>,
-) -> QualifiedPayablesRawPack {
-    QualifiedPayablesRawPack {
+) -> UnpricedQualifiedPayables {
+    UnpricedQualifiedPayables {
         payables: inputs
             .into_iter()
             .map(|(payable, previous_attempt_gas_price_minor)| {

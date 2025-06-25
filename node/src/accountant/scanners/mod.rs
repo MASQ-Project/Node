@@ -45,7 +45,7 @@ use time::OffsetDateTime;
 use variant_count::VariantCount;
 use web3::types::H256;
 use crate::accountant::scanners::payable_scanner_extension::{MultistageDualPayableScanner, PreparedAdjustment, SolvencySensitivePaymentInstructor};
-use crate::accountant::scanners::payable_scanner_extension::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage, QualifiedPayablesRawPack};
+use crate::accountant::scanners::payable_scanner_extension::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage, UnpricedQualifiedPayables};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionReceiptResult, TxStatus};
 use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
 use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
@@ -499,7 +499,7 @@ impl StartableScanner<ScanForNewPayables, QualifiedPayablesMessage> for PayableS
                     "Chose {} qualified debts to pay",
                     qualified_payables.len()
                 );
-                let qualified_payables = QualifiedPayablesRawPack::from(qualified_payables);
+                let qualified_payables = UnpricedQualifiedPayables::from(qualified_payables);
                 let outgoing_msg = QualifiedPayablesMessage::new(
                     qualified_payables,
                     consuming_wallet.clone(),
@@ -1395,7 +1395,7 @@ mod tests {
         PendingPayable, PendingPayableDaoError, TransactionHashes,
     };
     use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp};
-    use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayablesBeforeGasPriceSelection, QualifiedPayablesMessage, QualifiedPayablesRawPack};
+    use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayablesBeforeGasPriceSelection, QualifiedPayablesMessage, UnpricedQualifiedPayables};
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{OperationOutcome, PayableScanResult, PendingPayableMetadata};
     use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_none_status, handle_status_with_failure, PendingPayableScanReport, PendingPayableScanResult};
     use crate::accountant::scanners::{Scanner, StartScanError, StartableScanner, PayableScanner, PendingPayableScanner, ReceivableScanner, ScannerCommon, Scanners, MTError};
@@ -1642,7 +1642,7 @@ mod tests {
         let timestamp = subject.payable.scan_started_at();
         assert_eq!(timestamp, Some(now));
         let qualified_payables_count = qualified_payable_accounts.len();
-        let expected_raw_qualified_payables = QualifiedPayablesRawPack {
+        let expected_unpriced_qualified_payables = UnpricedQualifiedPayables {
             payables: qualified_payable_accounts
                 .into_iter()
                 .map(|payable| QualifiedPayablesBeforeGasPriceSelection::new(payable, None))
@@ -1651,7 +1651,7 @@ mod tests {
         assert_eq!(
             result,
             Ok(QualifiedPayablesMessage {
-                qualified_payables: expected_raw_qualified_payables,
+                qualified_payables: expected_unpriced_qualified_payables,
                 consuming_wallet,
                 response_skeleton_opt: None,
             })

@@ -19,6 +19,7 @@ pub const CURRENT_LOGFILE_NAME: &str = "MASQNode_rCURRENT.log";
 pub const MASQ_PROMPT: &str = "masq> ";
 
 pub const DEFAULT_GAS_PRICE: u64 = 1; //TODO ?? Really
+pub const DEFAULT_GAS_PRICE_MARGIN: u64 = 30;
 
 pub const WALLET_ADDRESS_LENGTH: usize = 42;
 pub const MASQ_TOTAL_SUPPLY: u64 = 37_500_000;
@@ -124,6 +125,7 @@ mod tests {
         assert_eq!(CURRENT_LOGFILE_NAME, "MASQNode_rCURRENT.log");
         assert_eq!(MASQ_PROMPT, "masq> ");
         assert_eq!(DEFAULT_GAS_PRICE, 1);
+        assert_eq!(DEFAULT_GAS_PRICE_MARGIN, 30);
         assert_eq!(WALLET_ADDRESS_LENGTH, 42);
         assert_eq!(MASQ_TOTAL_SUPPLY, 37_500_000);
         assert_eq!(WEIS_IN_GWEI, 1_000_000_000);

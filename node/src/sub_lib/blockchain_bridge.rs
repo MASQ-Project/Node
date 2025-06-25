@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::scanners::payable_scanner_extension::msgs::{
-    QualifiedPayablesMessage, QualifiedPayablesRipePack,
+    PricedQualifiedPayables, QualifiedPayablesMessage,
 };
 use crate::accountant::{RequestTransactionReceipts, ResponseSkeleton, SkeletonOptHolder};
 use crate::blockchain::blockchain_agent::BlockchainAgent;
@@ -42,14 +42,14 @@ impl Debug for BlockchainBridgeSubs {
 
 #[derive(Message)]
 pub struct OutboundPaymentsInstructions {
-    pub affordable_accounts: QualifiedPayablesRipePack,
+    pub affordable_accounts: PricedQualifiedPayables,
     pub agent: Box<dyn BlockchainAgent>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
 impl OutboundPaymentsInstructions {
     pub fn new(
-        affordable_accounts: QualifiedPayablesRipePack,
+        affordable_accounts: PricedQualifiedPayables,
         agent: Box<dyn BlockchainAgent>,
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) -> Self {

@@ -20,7 +20,7 @@ use actix::Recipient;
 use ethereum_types::U64;
 use web3::transports::{EventLoopHandle, Http};
 use web3::types::{Address, Log, H256, U256, FilterBuilder, TransactionReceipt, BlockNumber};
-use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayablesRawPack, QualifiedPayablesRipePack};
+use crate::accountant::scanners::payable_scanner_extension::msgs::{UnpricedQualifiedPayables, PricedQualifiedPayables};
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::{BlockMarker, BlockScanRange, PendingPayableFingerprintSeeds};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{LowBlockchainIntWeb3, TransactionReceiptResult, TxReceipt, TxStatus};
@@ -164,14 +164,8 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
 
     fn introduce_blockchain_agent(
         &self,
-        qualified_payables: QualifiedPayablesRawPack,
         consuming_wallet: Wallet,
-    ) -> Box<
-        dyn Future<
-            Item = (Box<dyn BlockchainAgent>, QualifiedPayablesRipePack),
-            Error = BlockchainAgentBuildError,
-        >,
-    > {
+    ) -> Box<dyn Future<Item = Box<dyn BlockchainAgent>, Error = BlockchainAgentBuildError>> {
         let wallet_address = consuming_wallet.address();
         let gas_limit_const_part = self.gas_limit_const_part;
         // TODO: Would it be better to wrap these 3 calls into a single batch call?
@@ -205,9 +199,8 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                                             masq_token_balance,
                                         };
                                     Ok(create_blockchain_agent_web3(
-                                        qualified_payables,
-                                        gas_limit_const_part,
                                         blockchain_agent_future_result,
+                                        gas_limit_const_part,
                                         consuming_wallet,
                                         chain,
                                     ))
@@ -259,7 +252,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         logger: Logger,
         agent: Box<dyn BlockchainAgent>,
         fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
-        affordable_accounts: QualifiedPayablesRipePack,
+        affordable_accounts: PricedQualifiedPayables,
     ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>
     {
         let consuming_wallet = agent.consuming_wallet().clone();
@@ -843,17 +836,16 @@ mod tests {
 
     #[test]
     fn blockchain_interface_web3_can_introduce_blockchain_agent_in_the_new_payables_mode() {
-        let chain = TEST_DEFAULT_CHAIN;
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
         let raw_qualified_payables =
-            QualifiedPayablesRawPack::from(vec![account_1.clone(), account_2.clone()]);
+            UnpricedQualifiedPayables::from(vec![account_1.clone(), account_2.clone()]);
         let gas_price_wei_from_rpc_hex = "0x3B9ACA00"; // 1000000000
         let gas_price_wei_from_rpc_u128_wei =
             u128::from_str_radix(&gas_price_wei_from_rpc_hex[2..], 16).unwrap();
         let gas_price_wei_from_rpc_u128_wei_with_margin =
-            increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei, chain);
-        let expected_ripe_qualified_payables = QualifiedPayablesRipePack {
+            increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei);
+        let expected_ripe_qualified_payables = PricedQualifiedPayables {
             payables: vec![
                 QualifiedPayablesWithGasPrice::new(
                     account_1,
@@ -877,14 +869,13 @@ mod tests {
 
     #[test]
     fn blockchain_interface_web3_can_introduce_blockchain_agent_in_the_retry_payables_mode() {
-        let chain = TEST_DEFAULT_CHAIN;
         let gas_price_wei_from_rpc_hex = "0x3B9ACA00"; // 1000000000
         let gas_price_wei_from_rpc_u128_wei =
             u128::from_str_radix(&gas_price_wei_from_rpc_hex[2..], 16).unwrap();
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
         let account_3 = make_payable_account(56);
-        let raw_qualified_payables = QualifiedPayablesRawPack {
+        let raw_qualified_payables = UnpricedQualifiedPayables {
             payables: vec![
                 QualifiedPayablesBeforeGasPriceSelection::new(
                     account_1.clone(),
@@ -902,13 +893,11 @@ mod tests {
         };
 
         let expected_ripe_qualified_payables = {
-            let gas_price_account_1 =
-                increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei, chain);
-            let gas_price_account_2 =
-                increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei, chain);
+            let gas_price_account_1 = increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei);
+            let gas_price_account_2 = increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei);
             let gas_price_account_3 =
-                increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei + 1, chain);
-            QualifiedPayablesRipePack {
+                increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei + 1);
+            PricedQualifiedPayables {
                 payables: vec![
                     QualifiedPayablesWithGasPrice::new(account_1, gas_price_account_1),
                     QualifiedPayablesWithGasPrice::new(account_2, gas_price_account_2),
@@ -927,9 +916,9 @@ mod tests {
     }
 
     fn test_blockchain_interface_web3_can_introduce_blockchain_agent(
-        raw_qualified_payables: QualifiedPayablesRawPack,
+        qualified_payables: UnpricedQualifiedPayables,
         gas_price_wei_from_rpc_hex: &str,
-        expected_ripe_qualified_payables: QualifiedPayablesRipePack,
+        expected_ripe_qualified_payables: PricedQualifiedPayables,
         expected_estimated_transaction_fee: u128,
     ) {
         let port = find_free_port();
@@ -947,8 +936,8 @@ mod tests {
         let wallet = make_wallet("abc");
         let subject = make_blockchain_interface_web3(port);
 
-        let (result, ripe_qualified_payables) = subject
-            .introduce_blockchain_agent(raw_qualified_payables, wallet.clone())
+        let result = subject
+            .introduce_blockchain_agent(wallet.clone())
             .wait()
             .unwrap();
 
@@ -962,9 +951,10 @@ mod tests {
                 masq_token_balance_in_minor_units: expected_masq_balance
             }
         );
-        assert_eq!(ripe_qualified_payables, expected_ripe_qualified_payables);
+        let priced_qualified_payables = result.price_qualified_payables(qualified_payables);
+        assert_eq!(priced_qualified_payables, expected_ripe_qualified_payables);
         assert_eq!(
-            result.estimated_transaction_fee_total(),
+            result.estimated_transaction_fee_total(&priced_qualified_payables),
             expected_estimated_transaction_fee
         )
     }
@@ -976,15 +966,9 @@ mod tests {
         F: FnOnce(&Wallet) -> BlockchainAgentBuildError,
     {
         let wallet = make_wallet("bcd");
-        let account_1 = make_payable_account(12);
-        let account_2 = make_payable_account(34);
-        let raw_qualified_payables =
-            QualifiedPayablesRawPack::from(vec![account_1.clone(), account_2.clone()]);
         let subject = make_blockchain_interface_web3(port);
 
-        let result = subject
-            .introduce_blockchain_agent(raw_qualified_payables, wallet.clone())
-            .wait();
+        let result = subject.introduce_blockchain_agent(wallet.clone()).wait();
 
         let err = match result {
             Err(e) => e,

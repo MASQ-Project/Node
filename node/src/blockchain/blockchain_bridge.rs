@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::scanners::payable_scanner_extension::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage, QualifiedPayablesRipePack};
+use crate::accountant::scanners::payable_scanner_extension::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage, PricedQualifiedPayables};
 use crate::accountant::{
     ReceivedPayments, ResponseSkeleton, ScanError,
     SentPayables, SkeletonOptHolder,
@@ -42,6 +42,7 @@ use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use ethabi::Hash;
 use web3::types::H256;
+use masq_lib::constants::DEFAULT_GAS_PRICE_MARGIN;
 use masq_lib::messages::ScanType;
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionReceiptResult, TxStatus};
@@ -260,25 +261,22 @@ impl BlockchainBridge {
         let accountant_recipient = self.payable_payments_setup_subs_opt.clone();
         Box::new(
             self.blockchain_interface
-                .introduce_blockchain_agent(
-                    incoming_message.qualified_payables,
-                    incoming_message.consuming_wallet,
-                )
+                .introduce_blockchain_agent(incoming_message.consuming_wallet)
                 .map_err(|e| format!("Blockchain agent build error: {:?}", e))
-                .and_then(
-                    move |(agent, qualified_payables_with_gas_price_finalized)| {
-                        let outgoing_message = BlockchainAgentWithContextMessage::new(
-                            qualified_payables_with_gas_price_finalized,
-                            agent,
-                            incoming_message.response_skeleton_opt,
-                        );
-                        accountant_recipient
-                            .expect("Accountant is unbound")
-                            .try_send(outgoing_message)
-                            .expect("Accountant is dead");
-                        Ok(())
-                    },
-                ),
+                .and_then(move |agent| {
+                    let priced_qualified_payables =
+                        agent.price_qualified_payables(incoming_message.qualified_payables);
+                    let outgoing_message = BlockchainAgentWithContextMessage::new(
+                        priced_qualified_payables,
+                        agent,
+                        incoming_message.response_skeleton_opt,
+                    );
+                    accountant_recipient
+                        .expect("Accountant is unbound")
+                        .try_send(outgoing_message)
+                        .expect("Accountant is dead");
+                    Ok(())
+                }),
         )
     }
 
@@ -487,7 +485,7 @@ impl BlockchainBridge {
     fn process_payments(
         &self,
         agent: Box<dyn BlockchainAgent>,
-        affordable_accounts: QualifiedPayablesRipePack,
+        affordable_accounts: PricedQualifiedPayables,
     ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>
     {
         let new_fingerprints_recipient = self.new_fingerprints_recipient();
@@ -537,8 +535,8 @@ struct PendingTxInfo {
     when_sent: SystemTime,
 }
 
-pub fn increase_gas_price_by_margin(gas_price: u128, chain: Chain) -> u128 {
-    (gas_price * (100 + chain.rec().gas_price_default_margin_percents as u128)) / 100
+pub fn increase_gas_price_by_margin(gas_price: u128) -> u128 {
+    (gas_price * (100 + DEFAULT_GAS_PRICE_MARGIN as u128)) / 100
 }
 
 pub struct BlockchainBridgeSubsFactoryReal {}
@@ -556,7 +554,7 @@ mod tests {
     use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
     use crate::accountant::db_access_objects::utils::from_unix_timestamp;
     use crate::accountant::scanners::payable_scanner_extension::test_utils::BlockchainAgentMock;
-    use crate::accountant::test_utils::{make_payable_account, make_pending_payable_fingerprint, make_ripe_qualified_payables};
+    use crate::accountant::test_utils::{make_payable_account, make_pending_payable_fingerprint, make_priced_qualified_payables};
     use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError::TransactionID;
     use crate::blockchain::blockchain_interface::data_structures::errors::{
         BlockchainAgentBuildError, PayableTransactionError,
@@ -599,7 +597,7 @@ mod tests {
     use std::time::{Duration, SystemTime};
     use web3::types::{TransactionReceipt, H160};
     use masq_lib::constants::DEFAULT_MAX_BLOCK_COUNT;
-    use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayablesBeforeGasPriceSelection, QualifiedPayablesRawPack, QualifiedPayablesWithGasPrice};
+    use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayablesBeforeGasPriceSelection, UnpricedQualifiedPayables, QualifiedPayablesWithGasPrice};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt};
 
     impl Handler<AssertionsMessage<Self>> for BlockchainBridge {
@@ -697,7 +695,6 @@ mod tests {
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let accountant_recipient = accountant.start().recipient();
         let blockchain_interface = make_blockchain_interface_web3(port);
-        let chain = blockchain_interface.get_chain();
         let consuming_wallet = make_paying_wallet(b"somewallet");
         let persistent_configuration = PersistentConfigurationMock::default();
         let wallet_1 = make_wallet("booga");
@@ -726,7 +723,7 @@ mod tests {
             false,
         );
         subject.payable_payments_setup_subs_opt = Some(accountant_recipient);
-        let raw_qualified_payables = QualifiedPayablesRawPack {
+        let qualified_payables_without_price = UnpricedQualifiedPayables {
             payables: qualified_payables
                 .clone()
                 .into_iter()
@@ -737,7 +734,7 @@ mod tests {
                 .collect(),
         };
         let qualified_payables_msg = QualifiedPayablesMessage {
-            qualified_payables: raw_qualified_payables.clone(),
+            qualified_payables: qualified_payables_without_price.clone(),
             consuming_wallet: consuming_wallet.clone(),
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 11122,
@@ -755,12 +752,12 @@ mod tests {
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
         let blockchain_agent_with_context_msg_actual: &BlockchainAgentWithContextMessage =
             accountant_received_payment.get_record(0);
-        let expected_ripe_qualified_payables = QualifiedPayablesRipePack {
+        let expected_ripe_qualified_payables = PricedQualifiedPayables {
             payables: qualified_payables
                 .into_iter()
                 .map(|payable| QualifiedPayablesWithGasPrice {
                     payable,
-                    gas_price_minor: increase_gas_price_by_margin(0x230000000, chain),
+                    gas_price_minor: increase_gas_price_by_margin(0x230000000),
                 })
                 .collect(),
         };
@@ -768,22 +765,16 @@ mod tests {
             blockchain_agent_with_context_msg_actual.qualified_payables,
             expected_ripe_qualified_payables
         );
+        let actual_agent = blockchain_agent_with_context_msg_actual.agent.as_ref();
+        assert_eq!(actual_agent.consuming_wallet(), &consuming_wallet);
         assert_eq!(
-            blockchain_agent_with_context_msg_actual
-                .agent
-                .consuming_wallet(),
-            &consuming_wallet
-        );
-        assert_eq!(
-            blockchain_agent_with_context_msg_actual
-                .agent
-                .consuming_wallet_balances(),
+            actual_agent.consuming_wallet_balances(),
             ConsumingWalletBalances::new(0xAAAA.into(), 0xFFFF.into())
         );
         assert_eq!(
-            blockchain_agent_with_context_msg_actual
-                .agent
-                .estimated_transaction_fee_total(),
+            actual_agent.estimated_transaction_fee_total(
+                &actual_agent.price_qualified_payables(qualified_payables_without_price)
+            ),
             1_791_228_995_698_688
         );
         assert_eq!(
@@ -817,7 +808,7 @@ mod tests {
             false,
         );
         subject.payable_payments_setup_subs_opt = Some(accountant_recipient);
-        let qualified_payables = QualifiedPayablesRawPack::from(vec![make_payable_account(123)]);
+        let qualified_payables = UnpricedQualifiedPayables::from(vec![make_payable_account(123)]);
         let qualified_payables_msg = QualifiedPayablesMessage {
             qualified_payables,
             consuming_wallet: consuming_wallet.clone(),
@@ -897,7 +888,7 @@ mod tests {
 
         let _ = addr
             .try_send(OutboundPaymentsInstructions {
-                affordable_accounts: make_ripe_qualified_payables(vec![(
+                affordable_accounts: make_priced_qualified_payables(vec![(
                     account.clone(),
                     111_222_333,
                 )]),
@@ -988,7 +979,7 @@ mod tests {
 
         let _ = addr
             .try_send(OutboundPaymentsInstructions {
-                affordable_accounts: make_ripe_qualified_payables(vec![(
+                affordable_accounts: make_priced_qualified_payables(vec![(
                     account.clone(),
                     111_222_333,
                 )]),
@@ -1054,7 +1045,7 @@ mod tests {
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
         let accounts_1 = make_payable_account(1);
         let accounts_2 = make_payable_account(2);
-        let affordable_qualified_payables = make_ripe_qualified_payables(vec![
+        let affordable_qualified_payables = make_priced_qualified_payables(vec![
             (accounts_1.clone(), 777_777_777),
             (accounts_2.clone(), 999_999_999),
         ]);
@@ -1122,7 +1113,7 @@ mod tests {
             .consuming_wallet_result(consuming_wallet)
             .gas_price_result(123);
         let msg = OutboundPaymentsInstructions::new(
-            make_ripe_qualified_payables(vec![(make_payable_account(111), 111_000_000)]),
+            make_priced_qualified_payables(vec![(make_payable_account(111), 111_000_000)]),
             Box::new(agent),
             None,
         );
@@ -2253,14 +2244,8 @@ mod tests {
 
     #[test]
     fn increase_gas_price_by_margin_works() {
-        assert_eq!(
-            increase_gas_price_by_margin(1_000_000_000, Chain::BaseMainnet),
-            1_300_000_000
-        );
-        assert_eq!(
-            increase_gas_price_by_margin(9_000_000_000, Chain::PolyAmoy),
-            11_700_000_000
-        );
+        assert_eq!(increase_gas_price_by_margin(1_000_000_000), 1_300_000_000);
+        assert_eq!(increase_gas_price_by_margin(9_000_000_000), 11_700_000_000);
     }
 }
 

@@ -9,19 +9,19 @@ use std::fmt::Debug;
 
 #[derive(Debug, Message, PartialEq, Eq, Clone)]
 pub struct QualifiedPayablesMessage {
-    pub qualified_payables: QualifiedPayablesRawPack,
+    pub qualified_payables: UnpricedQualifiedPayables,
     pub consuming_wallet: Wallet,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct QualifiedPayablesRawPack {
+pub struct UnpricedQualifiedPayables {
     pub payables: Vec<QualifiedPayablesBeforeGasPriceSelection>,
 }
 
-impl From<Vec<PayableAccount>> for QualifiedPayablesRawPack {
+impl From<Vec<PayableAccount>> for UnpricedQualifiedPayables {
     fn from(qualified_payable: Vec<PayableAccount>) -> Self {
-        QualifiedPayablesRawPack {
+        UnpricedQualifiedPayables {
             payables: qualified_payable
                 .into_iter()
                 .map(|payable| QualifiedPayablesBeforeGasPriceSelection::new(payable, None))
@@ -49,11 +49,11 @@ impl QualifiedPayablesBeforeGasPriceSelection {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct QualifiedPayablesRipePack {
+pub struct PricedQualifiedPayables {
     pub payables: Vec<QualifiedPayablesWithGasPrice>,
 }
 
-impl Into<Vec<PayableAccount>> for QualifiedPayablesRipePack {
+impl Into<Vec<PayableAccount>> for PricedQualifiedPayables {
     fn into(self) -> Vec<PayableAccount> {
         self.payables
             .into_iter()
@@ -79,7 +79,7 @@ impl QualifiedPayablesWithGasPrice {
 
 impl QualifiedPayablesMessage {
     pub(in crate::accountant) fn new(
-        qualified_payables: QualifiedPayablesRawPack,
+        qualified_payables: UnpricedQualifiedPayables,
         consuming_wallet: Wallet,
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) -> Self {
@@ -99,14 +99,14 @@ impl SkeletonOptHolder for QualifiedPayablesMessage {
 
 #[derive(Message)]
 pub struct BlockchainAgentWithContextMessage {
-    pub qualified_payables: QualifiedPayablesRipePack,
+    pub qualified_payables: PricedQualifiedPayables,
     pub agent: Box<dyn BlockchainAgent>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
 impl BlockchainAgentWithContextMessage {
     pub fn new(
-        qualified_payables: QualifiedPayablesRipePack,
+        qualified_payables: PricedQualifiedPayables,
         agent: Box<dyn BlockchainAgent>,
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) -> Self {
