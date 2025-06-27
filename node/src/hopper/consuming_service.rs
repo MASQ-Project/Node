@@ -148,6 +148,12 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr};
     use std::str::FromStr;
     use std::time::SystemTime;
+    use lazy_static::lazy_static;
+    use crate::bootstrapper::CryptDEPair;
+
+    lazy_static! {
+        static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
+    }
 
     #[test]
     fn converts_no_lookup_incipient_message_to_live_and_sends_to_dispatcher() {
@@ -155,7 +161,7 @@ mod tests {
         let target_key = PublicKey::new(&[1, 2]);
         let target_node_addr = NodeAddr::new(&IpAddr::from_str("1.2.1.2").unwrap(), &[1212, 2121]);
         let package = NoLookupIncipientCoresPackage::new(
-            main_cryptde(),
+            CRYPTDE_PAIR.main.as_ref(),
             &target_key,
             &target_node_addr,
             make_meaningless_message_type(),
@@ -164,7 +170,7 @@ mod tests {
         let system = System::new("");
         let peer_actors = peer_actors_builder().dispatcher(dispatcher).build();
         let subject = ConsumingService::new(
-            main_cryptde(),
+            CRYPTDE_PAIR.main.as_ref(),
             peer_actors.dispatcher.from_dispatcher_client,
             peer_actors.hopper.from_dispatcher,
         );
@@ -175,13 +181,13 @@ mod tests {
         system.run();
         let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
         let transmit_data_msg = dispatcher_recording.get_record::<TransmitDataMsg>(0);
-        let (lcp, _) = LiveCoresPackage::from_no_lookup_incipient(package, main_cryptde()).unwrap();
+        let (lcp, _) = LiveCoresPackage::from_no_lookup_incipient(package, CRYPTDE_PAIR.main.as_ref()).unwrap();
         assert_eq!(
             &TransmitDataMsg {
                 endpoint: Endpoint::Socket(SocketAddr::from_str("1.2.1.2:1212").unwrap()),
                 last_data: false,
                 sequence_number: None,
-                data: encodex(main_cryptde(), &target_key, &lcp).unwrap().into(),
+                data: encodex(CRYPTDE_PAIR.main.as_ref(), &target_key, &lcp).unwrap().into(),
             },
             transmit_data_msg
         );
@@ -200,7 +206,7 @@ mod tests {
         let system = System::new("");
         let peer_actors = peer_actors_builder().build();
         let subject = ConsumingService::new(
-            main_cryptde(),
+            CRYPTDE_PAIR.main.as_ref(),
             peer_actors.dispatcher.from_dispatcher_client,
             peer_actors.hopper.from_dispatcher,
         );
@@ -214,7 +220,7 @@ mod tests {
 
     #[test]
     fn consume_converts_incipient_message_to_live_and_sends_to_dispatcher() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let paying_wallet = make_paying_wallet(b"wallet");
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
         let destination_key = PublicKey::new(&[65, 65, 65]);
@@ -261,7 +267,7 @@ mod tests {
 
     #[test]
     fn consume_sends_zero_hop_incipient_directly_to_hopper() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let paying_wallet = make_paying_wallet(b"wallet");
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let destination_key = cryptde.public_key();
@@ -320,11 +326,11 @@ mod tests {
         let to_dispatcher = peer_actors.dispatcher.from_dispatcher_client;
         let to_hopper = peer_actors.hopper.from_dispatcher;
 
-        let subject = ConsumingService::new(main_cryptde(), to_dispatcher, to_hopper);
+        let subject = ConsumingService::new(CRYPTDE_PAIR.main.as_ref(), to_dispatcher, to_hopper);
 
         subject.consume(
             IncipientCoresPackage::new(
-                main_cryptde(),
+                CRYPTDE_PAIR.main.as_ref(),
                 Route { hops: vec![] },
                 make_meaningless_message_type(),
                 &PublicKey::new(&[1, 2]),

@@ -691,12 +691,14 @@ mod tests {
     use itertools::Itertools;
     use tiny_hderive::bip32::ExtendedPrivKey;
     use masq_lib::blockchains::chains::Chain;
+    use crate::bootstrapper::CryptDEPair;
     use crate::db_config::db_encryption_layer::DbEncryptionLayer;
     use crate::db_config::secure_config_layer::SecureConfigLayerError::DatabaseError;
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::cryptde_real::CryptDEReal;
 
     lazy_static! {
+        static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
         static ref CONFIG_TABLE_PARAMETERS: Vec<String> = list_of_config_parameters();
     }
 
@@ -1888,9 +1890,9 @@ mod tests {
         let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
         let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
         let node_descriptors = vec![
-            NodeDescriptor::try_from((main_cryptde(), "masq://eth-mainnet:AQIDBA@1.2.3.4:1234"))
+            NodeDescriptor::try_from((CRYPTDE_PAIR.main.as_ref(), "masq://eth-mainnet:AQIDBA@1.2.3.4:1234"))
                 .unwrap(),
-            NodeDescriptor::try_from((main_cryptde(), "masq://eth-ropsten:AgMEBQ@2.3.4.5:2345"))
+            NodeDescriptor::try_from((CRYPTDE_PAIR.main.as_ref(), "masq://eth-ropsten:AgMEBQ@2.3.4.5:2345"))
                 .unwrap(),
         ];
         let node_descriptors_bytes =
@@ -1930,9 +1932,9 @@ mod tests {
         let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
         let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
         let node_descriptors = vec![
-            NodeDescriptor::try_from((main_cryptde(), "masq://eth-mainnet:AQIDBA@1.2.3.4:1234"))
+            NodeDescriptor::try_from((CRYPTDE_PAIR.main.as_ref(), "masq://eth-mainnet:AQIDBA@1.2.3.4:1234"))
                 .unwrap(),
-            NodeDescriptor::try_from((main_cryptde(), "masq://eth-ropsten:AgMEBQ@2.3.4.5:2345"))
+            NodeDescriptor::try_from((CRYPTDE_PAIR.main.as_ref(), "masq://eth-ropsten:AgMEBQ@2.3.4.5:2345"))
                 .unwrap(),
         ];
         let set_params_arc = Arc::new(Mutex::new(vec![]));

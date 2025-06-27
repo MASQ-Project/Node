@@ -72,9 +72,8 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
     ) -> StreamHandlerPoolSubs {
         self.tools
             .validate_database_chain(&*persistent_config, config.blockchain_bridge_config.chain);
-        let cryptdes = self.tools.cryptdes();
         self.tools
-            .prepare_initial_messages(cryptdes, config, persistent_config, actor_factory)
+            .prepare_initial_messages(config, persistent_config, actor_factory)
     }
 }
 
@@ -87,7 +86,6 @@ impl ActorSystemFactoryReal {
 pub trait ActorSystemFactoryTools {
     fn prepare_initial_messages(
         &self,
-        cryptdes: CryptDEPair,
         config: BootstrapperConfig,
         persistent_config: Box<dyn PersistentConfiguration>,
         actor_factory: Box<dyn ActorFactory>,
@@ -103,23 +101,23 @@ pub trait ActorSystemFactoryTools {
 pub struct ActorSystemFactoryToolsReal {
     log_recipient_setter: Box<dyn LogRecipientSetter>,
     automap_control_factory: Box<dyn AutomapControlFactory>,
+    cryptde_pair: CryptDEPair,
 }
 
 impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
     fn prepare_initial_messages(
         &self,
-        cryptdes: CryptDEPair,
         config: BootstrapperConfig,
         persistent_config: Box<dyn PersistentConfiguration>,
         actor_factory: Box<dyn ActorFactory>,
     ) -> StreamHandlerPoolSubs {
         let db_initializer = DbInitializerReal::default();
         let (dispatcher_subs, pool_bind_sub) = actor_factory.make_and_start_dispatcher(&config);
-        let proxy_server_subs = actor_factory.make_and_start_proxy_server(cryptdes, &config);
+        let proxy_server_subs = actor_factory.make_and_start_proxy_server(&config);
         let proxy_client_subs_opt = if !config.neighborhood_config.mode.is_consume_only() {
             Some(
                 actor_factory.make_and_start_proxy_client(ProxyClientConfig {
-                    cryptde: cryptdes.main,
+                    cryptde: self.cryptde_pair.main.as_ref(),
                     dns_servers: config.dns_servers.clone(),
                     exit_service_rate: config
                         .neighborhood_config
@@ -135,7 +133,7 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
             None
         };
         let hopper_subs = actor_factory.make_and_start_hopper(HopperConfig {
-            cryptdes,
+            cryptde_pair: self.cryptde_pair.clone(),
             per_routing_service: config
                 .neighborhood_config
                 .mode
@@ -151,7 +149,7 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
         });
         let blockchain_bridge_subs = actor_factory
             .make_and_start_blockchain_bridge(&config, &BlockchainBridgeSubsFactoryReal {});
-        let neighborhood_subs = actor_factory.make_and_start_neighborhood(cryptdes.main, &config);
+        let neighborhood_subs = actor_factory.make_and_start_neighborhood(self.cryptde_pair.main.as_ref(), &config);
         let accountant_subs = actor_factory.make_and_start_accountant(
             config.clone(),
             &db_initializer,
@@ -222,7 +220,7 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
     }
 
     fn cryptdes(&self) -> CryptDEPair {
-        CryptDEPair::default()
+        self.cryptde_pair.clone()
     }
 
     fn validate_database_chain(
@@ -242,10 +240,11 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
 }
 
 impl ActorSystemFactoryToolsReal {
-    pub fn new() -> Self {
+    pub fn new(cryptde_pair: CryptDEPair) -> Self {
         Self {
             log_recipient_setter: Box::new(LogRecipientSetterReal::new()),
             automap_control_factory: Box::new(AutomapControlFactoryReal::new()),
+            cryptde_pair
         }
     }
 
@@ -349,7 +348,6 @@ pub trait ActorFactory {
     ) -> (DispatcherSubs, Recipient<PoolBindMessage>);
     fn make_and_start_proxy_server(
         &self,
-        cryptdes: CryptDEPair,
         config: &BootstrapperConfig,
     ) -> ProxyServerSubs;
     fn make_and_start_hopper(&self, config: HopperConfig) -> HopperSubs;
@@ -380,12 +378,14 @@ pub trait ActorFactory {
 }
 
 pub struct ActorFactoryReal {
+    cryptde_pair: CryptDEPair,
     logger: Logger,
 }
 
 impl ActorFactoryReal {
-    pub fn new() -> Self {
+    pub fn new(cryptde_pair: &CryptDEPair) -> Self {
         Self {
+            cryptde_pair: cryptde_pair.clone(),
             logger: Logger::new("ActorFactory"),
         }
     }
@@ -412,7 +412,7 @@ impl ActorFactory for ActorFactoryReal {
         let crashable = is_crashable(config);
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<Dispatcher> =
-            arbiter.start(move |_| Dispatcher::new(node_descriptor, crashable));
+            arbiter.start(move |_| Dispatcher::new(node_descriptor, self.cryptde_pair.clone(), crashable));
         (
             Dispatcher::make_subs_from(&addr),
             addr.recipient::<PoolBindMessage>(),
@@ -421,7 +421,6 @@ impl ActorFactory for ActorFactoryReal {
 
     fn make_and_start_proxy_server(
         &self,
-        cryptdes: CryptDEPair,
         config: &BootstrapperConfig,
     ) -> ProxyServerSubs {
         let is_running_in_integration_test = is_running_in_integration_test();
@@ -435,8 +434,8 @@ impl ActorFactory for ActorFactoryReal {
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<ProxyServer> = arbiter.start(move |_| {
             ProxyServer::new(
-                cryptdes.main,
-                cryptdes.alias,
+                self.cryptde_pair.main.as_ref(),
+                self.cryptde_pair.alias.as_ref(),
                 is_decentralized,
                 consuming_wallet_balance,
                 crashable,
@@ -553,7 +552,7 @@ impl ActorFactory for ActorFactoryReal {
         let crashable = is_crashable(config);
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<Configurator> =
-            arbiter.start(move |_| Configurator::new(data_directory, crashable));
+            arbiter.start(move |_| Configurator::new(data_directory, self.cryptde_pair.clone(), crashable));
         ConfiguratorSubs {
             bind: recipient!(addr, BindMessage),
             node_from_ui_sub: recipient!(addr, NodeFromUiMessage),
@@ -677,7 +676,6 @@ mod tests {
         assert_on_initialization_with_panic_on_migration, SubsFactoryTestAddrLeaker,
     };
     use crate::test_utils::{rate_pack};
-    use crate::test_utils::{make_cryptde_pair};
     use crate::{hopper, proxy_client, proxy_server, stream_handler_pool, ui_gateway};
     use actix::{Actor, Arbiter, System};
     use automap_lib::control_layer::automap_control::AutomapChange;
@@ -742,7 +740,6 @@ mod tests {
     impl ActorSystemFactoryTools for ActorSystemFactoryToolsMock {
         fn prepare_initial_messages(
             &self,
-            cryptdes: CryptDEPair,
             config: BootstrapperConfig,
             persistent_config: Box<dyn PersistentConfiguration>,
             actor_factory: Box<dyn ActorFactory>,

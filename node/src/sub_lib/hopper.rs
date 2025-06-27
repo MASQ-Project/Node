@@ -145,7 +145,7 @@ impl<T> ExpiredCoresPackage<T> {
 
 #[derive(Clone)]
 pub struct HopperConfig {
-    pub cryptdes: CryptDEPair,
+    pub cryptde_pair: CryptDEPair,
     pub per_routing_service: u64,
     pub per_routing_byte: u64,
     pub is_decentralized: bool,

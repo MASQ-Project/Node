@@ -60,6 +60,13 @@ pub fn make_node_record_f(
     result
 }
 
+pub fn make_global_cryptde_node_record(n: u16, has_ip: bool, cryptde_pair: &CryptDEPair) -> NodeRecord {
+    let mut node_record = make_node_record(n, has_ip);
+    node_record.inner.public_key = cryptde_pair.main.public_key().clone();
+    node_record.resign();
+    node_record
+}
+
 pub fn make_cryptde_node_record(n: u16, has_ip: bool, cryptde_pair: &CryptDEPair) -> NodeRecord {
     let mut node_record = make_node_record(n, has_ip);
     node_record.inner.public_key = cryptde_pair.main.public_key().clone();
