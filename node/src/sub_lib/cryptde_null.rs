@@ -293,7 +293,6 @@ impl CryptDENull {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bootstrapper::main_cryptde;
     use ethsign_crypto::Keccak256;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::panic::{catch_unwind, AssertUnwindSafe};

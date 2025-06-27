@@ -148,8 +148,13 @@ mod tests {
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::thread;
+    use lazy_static::lazy_static;
     use tokio::prelude::Async;
-    use crate::bootstrapper::main_cryptde;
+    use crate::bootstrapper::CryptDEPair;
+
+    lazy_static! {
+        static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
+    }
 
     #[test]
     fn spawn_stream_reader_handles_data() {
@@ -178,7 +183,7 @@ mod tests {
             ];
 
             let subject = StreamEstablisher {
-                cryptde: main_cryptde(),
+                cryptde: CRYPTDE_PAIR.main.as_ref(),
                 stream_adder_tx,
                 stream_killer_tx,
                 stream_connector: Box::new(StreamConnectorMock::new()), // only used in "establish_stream"

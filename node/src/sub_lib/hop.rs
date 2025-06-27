@@ -52,7 +52,6 @@ mod tests {
     use super::*;
     use crate::test_utils::{make_paying_wallet};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
-    use crate::bootstrapper::main_cryptde;
 
     #[test]
     fn can_construct_hop() {

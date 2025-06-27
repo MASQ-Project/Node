@@ -351,7 +351,6 @@ mod tests {
     use crate::test_utils::{make_paying_wallet};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use serde_cbor;
-    use crate::bootstrapper::main_cryptde;
 
     #[test]
     fn id_decodes_return_route_id() {

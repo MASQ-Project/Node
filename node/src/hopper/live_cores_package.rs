@@ -105,7 +105,6 @@ mod tests {
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::net::{IpAddr, SocketAddr};
     use std::str::FromStr;
-    use crate::bootstrapper::main_cryptde;
 
     #[test]
     fn live_cores_package_can_be_constructed_from_scratch() {

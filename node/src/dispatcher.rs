@@ -8,7 +8,6 @@ use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp};
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
-use crate::bootstrapper::main_cryptde;
 use actix::Actor;
 use actix::Addr;
 use actix::Context;

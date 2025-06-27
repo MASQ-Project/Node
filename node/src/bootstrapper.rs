@@ -59,93 +59,49 @@ use tokio::prelude::stream::futures_unordered::FuturesUnordered;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
 use tokio::prelude::Stream;
-#[cfg(test)]
-use crate::bootstrapper::cryptde_test::ensure_cryptde_initialization;
+use crate::sub_lib::cryptde_real::CryptDEReal;
 
-static mut MAIN_CRYPTDE_OPT: Option<Box<dyn CryptDE + 'static>> = None;
-static mut ALIAS_CRYPTDE_OPT: Option<Box<dyn CryptDE + 'static>> = None;
-
-pub fn main_cryptde() -> &'static dyn CryptDE {
-    #[cfg(test)]
-    ensure_cryptde_initialization();
-    unsafe {
-        MAIN_CRYPTDE_OPT.as_ref().expect("Main CryptDE not initialized").as_ref()
-    }
-}
-
-pub fn alias_cryptde() -> &'static dyn CryptDE {
-    #[cfg(test)]
-    ensure_cryptde_initialization();
-    unsafe {
-        ALIAS_CRYPTDE_OPT.as_ref().expect("Alias CryptDE not initialized").as_ref()
-    }
-}
-
-pub fn set_main_cryptde(cryptde: Box<dyn CryptDE>) {
-    unsafe {
-        MAIN_CRYPTDE_OPT = Some(cryptde);
-    }
-}
-
-pub fn set_alias_cryptde(cryptde: Box<dyn CryptDE>) {
-    unsafe {
-        ALIAS_CRYPTDE_OPT = Some(cryptde);
-    }
-}
-
-pub fn cryptdes_are_initialized() -> bool {
-    unsafe {
-        MAIN_CRYPTDE_OPT.is_some() && ALIAS_CRYPTDE_OPT.is_some()
-    }
-}
-
-#[cfg(test)]
-pub mod cryptde_test {
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
-    use crate::bootstrapper::{cryptdes_are_initialized, set_alias_cryptde, set_main_cryptde, CryptDEPair, ALIAS_CRYPTDE_OPT, MAIN_CRYPTDE_OPT};
-    use crate::sub_lib::cryptde::CryptDE;
-    use crate::sub_lib::cryptde_null::CryptDENull;
-
-    pub fn ensure_cryptde_initialization() {
-        if (!cryptdes_are_initialized()) {
-            set_main_cryptde(Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN)));
-            set_alias_cryptde(Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN)));
-        }
-    }
-
-    pub fn set_cryptdes(main_crypde_opt: Option<Box<dyn CryptDE>>, alias_cryptde_opt: Option<Box<dyn CryptDE>>) {
-        unsafe{
-            MAIN_CRYPTDE_OPT = main_crypde_opt;
-            ALIAS_CRYPTDE_OPT = alias_cryptde_opt;
-        }
-    }
-}
-
-impl Clone for CryptDEPair {
-    fn clone(&self) -> Self {
-        Self {
-            main: self.main,
-            alias: self.alias,
-        }
-    }
-}
-
-#[derive(Copy)]
 pub struct CryptDEPair {
     // This has the public key by which this Node is known to other Nodes on the network
-    pub main: &'static dyn CryptDE,
+    pub main: Box<dyn CryptDE>,
     // This has the public key with which this Node instructs exit Nodes to encrypt responses.
     // In production, it is unrelated to the main public key to prevent the exit Node from
     // identifying the originating Node. In tests using --fake-public-key, the alias public key
     // is the main public key reversed.
-    pub alias: &'static dyn CryptDE,
+    pub alias: Box<dyn CryptDE>,
 }
 
-impl Default for CryptDEPair {
-    fn default() -> Self {
+impl Clone for CryptDEPair {
+    fn clone(&self) -> Self {
         CryptDEPair {
-            main: main_cryptde(),
-            alias: alias_cryptde(),
+            main: self.main.dup(),
+            alias: self.alias.dup(),
+        }
+    }
+}
+
+impl From<Chain> for CryptDEPair {
+    fn from(chain: Chain) -> Self {
+        let main = CryptDEReal::new(chain);
+        let alias = CryptDEReal::new(chain);
+        CryptDEPair {
+            main: Box::new(main),
+            alias: Box::new(alias),
+        }
+    }
+}
+
+impl CryptDEPair {
+    pub fn new(main: Box<dyn CryptDE>, alias: Box<dyn CryptDE>) -> Self {
+        CryptDEPair { main, alias }
+    }
+
+    pub fn null() -> Self {
+        let main = CryptDENull::new(TEST_DEFAULT_CHAIN);
+        let alias = CryptDENull::new(TEST_DEFAULT_CHAIN);
+        CryptDEPair {
+            main: Box::new(main),
+            alias: Box::new(alias),
         }
     }
 }
@@ -754,7 +710,6 @@ mod tests {
     use tokio::executor::current_thread::CurrentThread;
     use tokio::prelude::stream::FuturesUnordered;
     use tokio::prelude::Async;
-    use crate::bootstrapper::cryptde_test::{ensure_cryptde_initialization, set_cryptdes};
 
     lazy_static! {
         pub static ref INITIALIZATION: Mutex<bool> = Mutex::new(false);

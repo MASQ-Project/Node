@@ -345,8 +345,6 @@ mod tests {
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::net::IpAddr;
     use std::str::FromStr;
-    use crate::bootstrapper::main_cryptde;
-
     #[test]
     fn can_create_a_node_record_from_a_reference() {
         let mut expected_node_record = make_node_record(1234, true);

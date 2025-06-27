@@ -30,7 +30,6 @@ use crate::sub_lib::neighborhood::{ConfigChange, ConfigChangeMsg, Hops, WalletPa
 use crate::sub_lib::peer_actors::{BindMessage, ConfigChangeSubs};
 use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request};
 use crate::sub_lib::wallet::Wallet;
-use crate::bootstrapper::main_cryptde;
 use bip39::{Language, Mnemonic, MnemonicType, Seed};
 use masq_lib::constants::{
     BAD_PASSWORD_ERROR, CONFIGURATOR_READ_ERROR, CONFIGURATOR_WRITE_ERROR, DERIVATION_PATH_ERROR,
@@ -41,6 +40,7 @@ use masq_lib::logger::Logger;
 use masq_lib::utils::{derivation_path, to_string};
 use rustc_hex::{FromHex, ToHex};
 use tiny_hderive::bip32::ExtendedPrivKey;
+use crate::bootstrapper::CryptDEPair;
 
 pub const CRASH_KEY: &str = "CONFIGURATOR";
 
@@ -48,6 +48,7 @@ pub struct Configurator {
     persistent_config: Box<dyn PersistentConfiguration>,
     node_to_ui_sub_opt: Option<Recipient<NodeToUiMessage>>,
     config_change_subs_opt: Option<ConfigChangeSubs>,
+    cryptde_pair: CryptDEPair,
     crashable: bool,
     logger: Logger,
 }
@@ -95,7 +96,7 @@ impl Handler<NodeFromUiMessage> for Configurator {
 type MessageError = (u64, String);
 
 impl Configurator {
-    pub fn new(data_directory: PathBuf, crashable: bool) -> Self {
+    pub fn new(data_directory: PathBuf, cryptde_pair: CryptDEPair, crashable: bool) -> Self {
         let initializer = DbInitializerReal::default();
         let conn = initializer
             .initialize(
@@ -110,6 +111,7 @@ impl Configurator {
             persistent_config,
             node_to_ui_sub_opt: None,
             config_change_subs_opt: None,
+            cryptde_pair,
             crashable,
             logger: Logger::new("Configurator"),
         }
@@ -513,7 +515,8 @@ impl Configurator {
         msg: UiConfigurationRequest,
         context_id: u64,
     ) -> MessageBody {
-        match Self::unfriendly_handle_configuration(msg, context_id, &mut self.persistent_config) {
+        match Self::unfriendly_handle_configuration(msg, context_id, &mut self.persistent_config,
+            &self.cryptde_pair) {
             Ok(message_body) => message_body,
             Err((code, msg)) => MessageBody {
                 opcode: "configuration".to_string(),
@@ -527,6 +530,7 @@ impl Configurator {
         msg: UiConfigurationRequest,
         context_id: u64,
         persistent_config: &mut Box<dyn PersistentConfiguration>,
+        cryptde_pair: &CryptDEPair,
     ) -> Result<MessageBody, MessageError> {
         let good_password_opt = match &msg.db_password_opt {
             None => None,
@@ -594,7 +598,7 @@ impl Configurator {
                         None => vec![],
                         Some(pns) => pns
                             .into_iter()
-                            .map(|nd| nd.to_string(main_cryptde()))
+                            .map(|nd| nd.to_string(cryptde_pair.main.as_ref()))
                             .collect::<Vec<String>>(),
                     };
                     (
@@ -910,12 +914,18 @@ mod tests {
     };
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use bip39::{Language, Mnemonic};
+    use lazy_static::lazy_static;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::MISSING_DATA;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::utils::{derivation_path, AutomapProtocol, NeighborhoodModeLight};
     use rustc_hex::FromHex;
     use tiny_hderive::bip32::ExtendedPrivKey;
+    use crate::bootstrapper::CryptDEPair;
+
+    lazy_static! {
+        static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
+    }
 
     #[test]
     fn constants_have_correct_values() {
@@ -932,7 +942,7 @@ mod tests {
                 .unwrap(),
         )));
         let peer_actors = peer_actors_builder().build();
-        let mut subject = Configurator::new(data_dir, false);
+        let mut subject = Configurator::new(data_dir, CRYPTDE_PAIR.clone(), false);
         subject.config_change_subs_opt = Some(peer_actors.config_change_subs());
         subject.node_to_ui_sub_opt = Some(peer_actors.ui_gateway.node_to_ui_message_sub);
 
@@ -959,7 +969,7 @@ mod tests {
         );
 
         let act = |data_dir: &Path| {
-            Configurator::new(data_dir.to_path_buf(), false);
+            Configurator::new(data_dir.to_path_buf(), CRYPTDE_PAIR.clone(), false);
         };
 
         assert_on_initialization_with_panic_on_migration(&data_dir, &act);
@@ -1018,7 +1028,7 @@ mod tests {
         assert_eq!(
             ui_gateway_recording.get_record::<NodeToUiMessage>(0),
             &NodeToUiMessage {
-                target: MessageTarget::ClientId(1234),
+                target: ClientId(1234),
                 body: UiCheckPasswordResponse { matches: false }.tmb(4321)
             }
         );
@@ -1098,7 +1108,7 @@ mod tests {
         assert_eq!(
             ui_gateway_recording.get_record::<NodeToUiMessage>(1),
             &NodeToUiMessage {
-                target: MessageTarget::ClientId(1234),
+                target: ClientId(1234),
                 body: UiChangePasswordResponse {}.tmb(4321)
             }
         );
@@ -1275,7 +1285,7 @@ mod tests {
         assert_eq!(
             ui_gateway_recording.get_record::<NodeToUiMessage>(0),
             &NodeToUiMessage {
-                target: MessageTarget::ClientId(1234),
+                target: ClientId(1234),
                 body: UiWalletAddressesResponse {
                     consuming_wallet_address: "0x1234567890123456789012345678901234567890"
                         .to_string(),
@@ -2525,13 +2535,14 @@ mod tests {
         let consuming_wallet_private_key =
             "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF".to_string();
         let earning_wallet_address = "4a5e43b54c6C56Ebf7".to_string();
+        let cryptde_pair = CryptDEPair::null();
         let public_key = PK::from(&b"xaca4sf4a56"[..]);
         let node_addr = NodeAddr::from_str("1.2.1.3:4545").unwrap();
         let node_descriptor = NodeDescriptor::from((
             &public_key,
             &node_addr,
             Chain::EthRopsten,
-            main_cryptde() as &dyn CryptDE,
+            cryptde_pair.main.as_ref(),
         ));
         let persistent_config = PersistentConfigurationMock::new()
             .blockchain_service_url_result(Ok(None))
@@ -2654,13 +2665,14 @@ mod tests {
             .address()
         );
         let earning_wallet_address = "4a5e43b54c6C56Ebf7".to_string();
+        let cryptde_pair = CryptDEPair::null();
         let public_key = PK::from(&b"xaca4sf4a56"[..]);
         let node_addr = NodeAddr::from_str("1.2.1.3:4545").unwrap();
         let node_descriptor = NodeDescriptor::from((
             &public_key,
             &node_addr,
             Chain::EthRopsten,
-            main_cryptde() as &dyn CryptDE,
+            cryptde_pair.main.as_ref(),
         ));
         let persistent_config = PersistentConfigurationMock::new()
             .blockchain_service_url_result(Ok(None))
@@ -2705,7 +2717,7 @@ mod tests {
                 consuming_wallet_address_opt: Some(consuming_wallet_address),
                 earning_wallet_address_opt: Some(earning_wallet_address),
                 port_mapping_protocol_opt: Some(AutomapProtocol::Igdp.to_string()),
-                past_neighbors: vec![node_descriptor.to_string(main_cryptde())],
+                past_neighbors: vec![node_descriptor.to_string(cryptde_pair.main.as_ref())],
                 payment_thresholds: UiPaymentThresholds {
                     threshold_interval_sec: 10_000,
                     debt_threshold_gwei: 5_000_000,
@@ -2990,12 +3002,14 @@ mod tests {
         }
     }
 
+    // For tests only. Don't move this into the production tree without significant changes.
     impl From<Box<dyn PersistentConfiguration>> for Configurator {
         fn from(persistent_config: Box<dyn PersistentConfiguration>) -> Self {
             Configurator {
                 persistent_config,
                 node_to_ui_sub_opt: None,
                 config_change_subs_opt: None,
+                cryptde_pair: CRYPTDE_PAIR.clone(),
                 crashable: false,
                 logger: Logger::new("Configurator"),
             }

@@ -72,13 +72,18 @@ impl ClientRequestPayloadFactoryReal {
 mod tests {
     use super::*;
     use crate::sub_lib::proxy_server::ProxyProtocol;
-    use crate::bootstrapper::main_cryptde;
     use masq_lib::constants::HTTP_PORT;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::time::SystemTime;
+    use lazy_static::lazy_static;
+    use crate::bootstrapper::CryptDEPair;
+
+    lazy_static! {
+        static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
+    }
 
     #[test]
     fn handles_http_with_a_port() {
@@ -92,7 +97,7 @@ mod tests {
             is_clandestine: false,
             data: data.clone().into(),
         };
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let stream_key = StreamKey::make_meaningless_stream_key();
         let logger = Logger::new("test");
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
@@ -129,7 +134,7 @@ mod tests {
             is_clandestine: false,
             data: data.clone().into(),
         };
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let logger = Logger::new(test_name);
         let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
@@ -185,7 +190,7 @@ mod tests {
             data: data.clone().into(),
         };
         let stream_key = StreamKey::make_meaningless_stream_key();
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let logger = Logger::new("test");
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
@@ -234,7 +239,7 @@ mod tests {
             sequence_number: Some(0),
             data: data.clone().into(),
         };
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let logger = Logger::new(test_name);
         let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
@@ -271,7 +276,7 @@ mod tests {
             is_clandestine: false,
             data: vec![0x10, 0x11, 0x12],
         };
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let logger = Logger::new(test_name);
         let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
@@ -297,7 +302,7 @@ mod tests {
             is_clandestine: true,
             data: vec![0x10, 0x11, 0x12],
         };
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let logger = Logger::new(test_name);
         let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
@@ -319,7 +324,7 @@ mod tests {
             data: vec![0x10, 0x11, 0x12],
             is_clandestine: false,
         };
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let logger = Logger::new("test");
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
@@ -348,7 +353,7 @@ mod tests {
             sequence_number: None,
             data: vec![1, 3, 5, 7],
         };
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let logger = Logger::new(test_name);
         let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());

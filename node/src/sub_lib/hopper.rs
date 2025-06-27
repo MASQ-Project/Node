@@ -179,7 +179,6 @@ mod tests {
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::net::IpAddr;
     use std::str::FromStr;
-    use crate::bootstrapper::main_cryptde;
 
     #[test]
     fn hopper_subs_debug() {

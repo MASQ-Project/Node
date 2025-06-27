@@ -794,7 +794,6 @@ mod tests {
     };
     use crate::sub_lib::stream_connector::ConnectionInfo;
     use crate::test_utils::channel_wrapper_mocks::SenderWrapperMock;
-    use crate::bootstrapper::main_cryptde;
     use crate::test_utils::rate_pack;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
@@ -822,7 +821,13 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::SystemTime;
+    use lazy_static::lazy_static;
     use tokio::prelude::Async;
+    use crate::bootstrapper::CryptDEPair;
+
+    lazy_static! {
+        static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
+    }
 
     #[test]
     fn constants_have_correct_values() {
@@ -1615,7 +1620,7 @@ mod tests {
     #[test]
     fn node_query_response_handler_does_not_try_to_write_when_neighbor_is_not_found() {
         init_test_logging();
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let key = cryptde.public_key().clone();
 
         thread::spawn(move || {
@@ -1663,7 +1668,7 @@ mod tests {
     #[test]
     fn node_query_response_handler_does_not_try_to_write_when_neighbor_ip_is_not_known() {
         init_test_logging();
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let key = cryptde.public_key().clone();
 
         thread::spawn(move || {
@@ -1715,7 +1720,7 @@ mod tests {
     #[test]
     fn node_query_response_handler_resends_transmit_data_msg_when_connection_is_in_progress() {
         init_test_logging();
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let key = cryptde.public_key().clone();
 
         let peer_addr = SocketAddr::from_str("5.4.3.1:8000").unwrap();
@@ -1813,7 +1818,7 @@ mod tests {
     #[test]
     fn log_an_error_when_it_fails_to_send_a_packet() {
         init_test_logging();
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let key = cryptde.public_key().clone();
         let peer_addr = SocketAddr::new(localhost(), find_free_port());
         let sw_key = StreamWriterKey::from(peer_addr);
@@ -1856,7 +1861,7 @@ mod tests {
     fn when_a_new_connection_fails_the_stream_writer_flag_is_removed_and_another_connection_is_attempted_for_the_next_message_with_the_same_stream_key(
     ) {
         init_test_logging();
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let key = cryptde.public_key().clone();
         let key_bg = key.clone();
         let peer_addr = SocketAddr::from_str("5.4.3.1:8000").unwrap();
@@ -1968,7 +1973,7 @@ mod tests {
     fn node_query_response_handler_sets_counterpart_flag_and_removes_stream_writer_if_last_data_is_true(
     ) {
         init_test_logging();
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let key = cryptde.public_key().clone();
         let peer_addr = SocketAddr::from_str("127.0.0.1:8005").unwrap();
         let sender_wrapper_unbounded_send_params_arc = Arc::new(Mutex::new(vec![]));
@@ -2023,7 +2028,7 @@ mod tests {
     )]
     fn when_node_query_response_node_addr_contains_no_ports_then_stream_handler_pool_panics() {
         init_test_logging();
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let key = cryptde.public_key();
 
         let peer_addr = SocketAddr::from_str("5.4.3.1:8000").unwrap();

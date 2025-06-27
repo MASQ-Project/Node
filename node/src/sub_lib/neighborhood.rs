@@ -620,7 +620,6 @@ mod tests {
     use super::*;
     use crate::sub_lib::cryptde_real::CryptDEReal;
     use crate::sub_lib::utils::NotifyLaterHandleReal;
-    use crate::bootstrapper::main_cryptde;
     use crate::test_utils::recorder::Recorder;
     use actix::Actor;
     use masq_lib::constants::DEFAULT_CHAIN;

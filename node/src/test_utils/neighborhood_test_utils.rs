@@ -1,5 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::bootstrapper::{main_cryptde, BootstrapperConfig};
+use crate::bootstrapper::{BootstrapperConfig};
 use crate::neighborhood::gossip::{GossipBuilder, GossipNodeRecord, Gossip_0v1};
 use crate::neighborhood::neighborhood_database::NeighborhoodDatabase;
 use crate::neighborhood::node_record::{NodeRecord, NodeRecordInner_0v1};
@@ -60,9 +60,9 @@ pub fn make_node_record_f(
     result
 }
 
-pub fn make_global_cryptde_node_record(n: u16, has_ip: bool) -> NodeRecord {
+pub fn make_cryptde_node_record(n: u16, has_ip: bool, cryptde_pair: &CryptDEPair) -> NodeRecord {
     let mut node_record = make_node_record(n, has_ip);
-    node_record.inner.public_key = main_cryptde().public_key().clone();
+    node_record.inner.public_key = cryptde_pair.main.public_key().clone();
     node_record.resign();
     node_record
 }
@@ -85,8 +85,9 @@ pub fn db_from_node(node: &NodeRecord) -> NeighborhoodDatabase {
 pub fn neighborhood_from_nodes(
     root: &NodeRecord,
     neighbor_opt: Option<&NodeRecord>,
+    cryptde_pair: &CryptDEPair,
 ) -> Neighborhood {
-    let cryptde: &dyn CryptDE = main_cryptde();
+    let cryptde: &dyn CryptDE = cryptde_pair.main.as_ref();
     if root.public_key() != cryptde.public_key() {
         panic!("Neighborhood must be built on root node with public key from cryptde()");
     }

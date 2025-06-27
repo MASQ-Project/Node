@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::bootstrapper::{set_alias_cryptde, set_main_cryptde, Bootstrapper, BootstrapperConfig, CryptDEPair};
+use crate::bootstrapper::{BootstrapperConfig, CryptDEPair};
 use crate::node_configurator::{initialize_database, DirsWrapper, FieldPair, NodeConfigurator};
 use crate::node_configurator::{ConfigInitializationData, DirsWrapperReal};
 use masq_lib::crash_point::CrashPoint;
@@ -26,7 +26,7 @@ use crate::node_configurator::{
     data_directory_from_context, determine_user_specific_data,
     real_user_data_directory_path_and_chain,
 };
-use crate::sub_lib::cryptde::PublicKey;
+use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::utils::make_new_multi_config;
 use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
@@ -34,8 +34,6 @@ use masq_lib::constants::{DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT};
 use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl};
 use std::str::FromStr;
 use masq_lib::blockchains::chains::Chain;
-use crate::bootstrapper::{alias_cryptde, main_cryptde};
-use crate::bootstrapper::cryptdes_are_initialized;
 use crate::sub_lib::cryptde_real::CryptDEReal;
 
 pub struct NodeConfiguratorStandardPrivileged {
@@ -362,51 +360,42 @@ fn configure_database(
 fn configure_cryptdes(
     persistent_config: &mut dyn PersistentConfiguration,
     db_password_opt: &Option<String>,
-) -> Result<(), ConfiguratorError> {
-    // Look at MAIN_CRYPTDE_BOX_OPT and ALIAS_CRYPTDE_BOX_OPT. If one of them is populated with
-    // a CryptDENull, then return a CryptDEPair consisting of them. If this happens, we're
-    // obviously running a test, and there's no reason to store test data in the database.
-    if cryptdes_are_initialized() {
-        let cryptde_pair = CryptDEPair::default();
-        if cryptde_pair.main.as_any().downcast_ref::<CryptDENull>().is_some() ||
-            cryptde_pair.alias.as_any().downcast_ref::<CryptDENull>().is_some() {
-            return Ok(());
-        }
-    }
-    if let Some(db_password) = db_password_opt {
+) -> Result<CryptDEPair, ConfiguratorError> {
+    let cryptde_pair = if let Some(db_password) = db_password_opt {
         let main_result = persistent_config.cryptde(db_password);
 eprintln!("main_result: {:?}", main_result.as_ref().err().clone());
         match main_result {
             Ok(Some(last_main_cryptde)) => {
-                set_main_cryptde(last_main_cryptde);
-                if !cryptdes_are_initialized() {
-                    todo! ("Invent a new alias CryptDEReal and set it")
-                }
+                CryptDEPair::new(
+                    Box::new(last_main_cryptde),
+                    Box::new(CryptDEReal::new(last_main_cryptde.chain())),
+                )
             },
             Ok(None) => {
-                persistent_config.set_cryptde(main_cryptde(), db_password)
+                let chain = Chain::from(persistent_config.chain_name().as_str());
+                let main_cryptde: Box<dyn CryptDE> = Box::new(CryptDEReal::new(chain));
+                persistent_config.set_cryptde(main_cryptde.dup(), db_password)
                     .expect("Failed to set cryptde");
+                let alias_cryptde: Box<dyn CryptDE> = Box::new(CryptDEReal::new(chain));
+                CryptDEPair::new(main_cryptde, alias_cryptde);
             },
             Err(e) => panic!("Could not read last cryptde from database: {:?}", e),
         }
     }
     else {
-        if !cryptdes_are_initialized() {
-            let chain = Chain::from(persistent_config.chain_name().as_str());
-            let main = CryptDEReal::new(chain);
-            let alias = CryptDEReal::new(chain);
-            set_main_cryptde(Box::new(main));
-            set_alias_cryptde(Box::new(alias));
-        }
-    }
-    Ok(())
+        let chain = Chain::from(persistent_config.chain_name().as_str());
+        let main_cryptde: Box<dyn CryptDE> = Box::new(CryptDEReal::new(chain));
+        let alias_cryptde: Box<dyn CryptDE> = Box::new(CryptDEReal::new(chain));
+        CryptDEPair::new(main_cryptde, alias_cryptde);
+    };
+    Ok(cryptde_pair)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
-    use crate::bootstrapper::{Bootstrapper, BootstrapperConfig, CryptDEPair, RealUser};
+    use crate::bootstrapper::{BootstrapperConfig, CryptDEPair, RealUser};
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::db_config::config_dao::ConfigDaoReal;
     use crate::db_config::persistent_configuration::PersistentConfigError;
@@ -439,23 +428,21 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
     use std::vec;
-    use trust_dns::rr::zone::TEST;
-    use crate::bootstrapper::cryptde_test::{ensure_cryptde_initialization, set_cryptdes};
+    use lazy_static::lazy_static;
     use crate::sub_lib::cryptde_real::CryptDEReal;
+
+    lazy_static! {
+        static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
+    }
 
     #[test]
     fn node_configurator_standard_unprivileged_uses_parse_args_configurator_dao_real() {
-        let _guard = EnvironmentGuard::new();
-        set_cryptdes(
-            Some(Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN))),
-            Some(Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN)))
-        );
         let home_dir = ensure_node_home_directory_exists(
             "node_configurator_standard",
             "node_configurator_standard_unprivileged_uses_parse_args_configurator_dao_real",
         );
         let neighbor = vec![NodeDescriptor::try_from((
-            main_cryptde(),
+            CRYPTDE_PAIR.main.as_ref(),
             "masq://eth-mainnet:MTEyMjMzNDQ1NTY2Nzc4ODExMjIzMzQ0NTU2Njc3ODg@1.2.3.4:1234",
         ))
         .unwrap()];
@@ -588,61 +575,21 @@ mod tests {
     }
 
     #[test]
-    fn configure_cryptdes_handles_existing_null_cryptdes() {
-        let _guard = EnvironmentGuard::new();
-        ensure_cryptde_initialization();
-        let main_null = CryptDENull::new(TEST_DEFAULT_CHAIN);
-        set_main_cryptde(main_null.dup());
-        let alias_null = CryptDENull::new(TEST_DEFAULT_CHAIN);
-        set_alias_cryptde(alias_null.dup());
-        let set_cryptde_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut persistent_config = PersistentConfigurationMock::new()
-            .set_cryptde_params(&set_cryptde_params_arc);
-
-        configure_cryptdes(&mut persistent_config, &Some("db_password".to_string())).unwrap();
-
-        let check_pair = CryptDEPair::default();
-        assert_eq!(main_null.public_key(), check_pair.main.public_key());
-        assert_eq!(alias_null.public_key(), check_pair.alias.public_key());
-        let set_cryptde_params = set_cryptde_params_arc.lock().unwrap();
-        assert_eq!(set_cryptde_params.len(), 0);
-    }
-
-    #[test]
-    fn configure_cryptdes_handles_missing_password_with_existing_cryptdes() {
-        let _guard = EnvironmentGuard::new();
-        let main = CryptDEReal::new(TEST_DEFAULT_CHAIN);
-        let alias = CryptDEReal::new(TEST_DEFAULT_CHAIN);
-        set_cryptdes(Some(main.dup()), Some(alias.dup()));
-        let mut persistent_config = PersistentConfigurationMock::new()
-            .chain_name_result(TEST_DEFAULT_CHAIN.to_string());
-
-        configure_cryptdes(&mut persistent_config, &None).unwrap();
-
-        assert_eq!(main.public_key(), main_cryptde().public_key());
-        assert_eq!(alias.public_key(), alias_cryptde().public_key());
-    }
-
-    #[test]
     fn configure_cryptdes_handles_missing_password_with_uninitialized_cryptdes() {
-        let _guard = EnvironmentGuard::new();
-        set_cryptdes(None, None);
         let mut persistent_config = PersistentConfigurationMock::new()
             .chain_name_result(TEST_DEFAULT_CHAIN.to_string());
 
-        configure_cryptdes(&mut persistent_config, &None).unwrap();
+        let _result = configure_cryptdes(&mut persistent_config, &None).unwrap();
 
-        main_cryptde();
-        alias_cryptde();
         // no panic: cryptdes are initialized
     }
 
     #[test]
     fn configure_cryptdes_handles_missing_last_cryptde() {
-        let _guard = EnvironmentGuard::new();
-        let main = CryptDEReal::new(TEST_DEFAULT_CHAIN);
-        let alias = CryptDEReal::new(TEST_DEFAULT_CHAIN);
-        set_cryptdes(Some(main.dup()), Some(alias.dup()));
+        let cryptde_pair = CryptDEPair::new(
+            Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN)),
+            Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN))
+        );
         let cryptde_params_arc = Arc::new(Mutex::new(vec![]));
         let set_cryptde_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_config = PersistentConfigurationMock::new()
@@ -651,15 +598,15 @@ mod tests {
             .set_cryptde_params(&set_cryptde_params_arc)
             .set_cryptde_result(Ok(()));
 
-        configure_cryptdes(&mut persistent_config, &Some("db_password".to_string())).unwrap();
+        let result = configure_cryptdes(&mut persistent_config, &Some("db_password".to_string())).unwrap();
 
-        assert_eq!(main_cryptde().public_key(), main.public_key());
-        assert_eq!(alias_cryptde().public_key(), alias.public_key());
+        assert_eq!(result.main.public_key(), cryptde_pair.main.public_key());
+        assert_eq!(result.alias.public_key(), cryptde_pair.alias.public_key());
         let cryptde_params = cryptde_params_arc.lock().unwrap();
         assert_eq!(*cryptde_params, vec!["db_password".to_string()]);
         let set_cryptde_params = set_cryptde_params_arc.lock().unwrap();
         let call = &set_cryptde_params[0];
-        assert_eq!(call.0.public_key(), main_cryptde().public_key());
+        assert_eq!(call.0.public_key(), cryptde_pair.main.public_key());
         assert_eq!(call.1, "db_password".to_string());
     }
 
@@ -667,7 +614,6 @@ mod tests {
     #[should_panic(expected = "Could not read last cryptde from database: NotPresent")]
     fn configure_cryptdes_panics_if_database_throws_error() {
         let _guard = EnvironmentGuard::new();
-        set_cryptdes(None, None);
         let mut persistent_config = PersistentConfigurationMock::new()
             .cryptde_result(Err(PersistentConfigError::NotPresent));
 
@@ -677,16 +623,17 @@ mod tests {
     #[test]
     fn configure_cryptdes_handles_populated_database() {
         let _guard = EnvironmentGuard::new();
-        let main = CryptDEReal::new(TEST_DEFAULT_CHAIN);
-        let alias = CryptDEReal::new(TEST_DEFAULT_CHAIN);
-        set_cryptdes(Some(main.dup()), Some(alias.dup()));
-        let original_main_cryptde_box = main_cryptde().dup();
+        let cryptde_pair = CryptDEPair::new(
+            Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN)),
+            Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN))
+        );
+        let original_main_cryptde_box = cryptde_pair.main.dup();
         let stored_main_cryptde_box = Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN));
         assert_ne!(
             original_main_cryptde_box.public_key(),
             stored_main_cryptde_box.public_key()
         );
-        let original_alias_cryptde_box = alias_cryptde().dup();
+        let original_alias_cryptde_box = cryptde_pair.alias.dup();
         let cryptde_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_config = PersistentConfigurationMock::new()
             .cryptde_params(&cryptde_params_arc)
@@ -694,8 +641,8 @@ mod tests {
 
         configure_cryptdes(&mut persistent_config, &Some("db_password".to_string())).unwrap();
 
-        assert_eq!(main_cryptde().public_key(), stored_main_cryptde_box.public_key());
-        assert_eq!(alias_cryptde().public_key(), original_alias_cryptde_box.public_key());
+        assert_eq!(cryptde_pair.main.public_key(), stored_main_cryptde_box.public_key());
+        assert_eq!(cryptde_pair.alias.public_key(), original_alias_cryptde_box.public_key());
         let cryptde_params = cryptde_params_arc.lock().unwrap();
         assert_eq!(*cryptde_params, vec!["db_password".to_string()]);
     }
@@ -1632,17 +1579,14 @@ mod tests {
     fn configure_database_with_data_specified_on_command_line_and_in_database() {
         let _guard = EnvironmentGuard::new();
         running_test();
-        set_cryptdes(
-            Some(Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN))),
-            Some(Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN)))
-        );
+        let cryptde_pair = CryptDEPair::null();
         let mut config = BootstrapperConfig::new();
         let gas_price = 4u64;
         config.clandestine_port_opt = Some(1234);
         config.blockchain_bridge_config.gas_price = gas_price;
         config.neighborhood_config.mode =
             NeighborhoodMode::ConsumeOnly(vec![NodeDescriptor::try_from((
-                main_cryptde(),
+                cryptde_pair.main.as_ref(),
                 format!(
                     "masq://{}:AQIDBA@1.2.3.4:1234/2345",
                     TEST_DEFAULT_CHAIN.rec().literal_identifier

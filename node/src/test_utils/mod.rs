@@ -19,7 +19,7 @@ pub mod tokio_wrapper_mocks;
 
 use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
 use crate::blockchain::payer::Payer;
-use crate::bootstrapper::{alias_cryptde, main_cryptde, CryptDEPair};
+use crate::bootstrapper::{CryptDEPair};
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::PlainData;
@@ -62,14 +62,6 @@ use std::thread;
 use std::time::Duration;
 use std::time::Instant;
 use web3::types::{Address, U256};
-use crate::sub_lib::null_cryptde::NullCryptDE;
-
-pub fn make_cryptde_pair() -> CryptDEPair {
-    CryptDEPair {
-        main: main_cryptde(),
-        alias: alias_cryptde(),
-    }
-}
 
 pub struct ArgsBuilder {
     args: Vec<String>,
@@ -160,34 +152,34 @@ impl Waiter {
     }
 }
 
-pub fn make_one_way_route_to_proxy_client(public_keys: Vec<&PublicKey>) -> Route {
+pub fn make_one_way_route_to_proxy_client(public_keys: Vec<&PublicKey>, cryptde_pair: &CryptDEPair) -> Route {
     Route::one_way(
         RouteSegment::new(public_keys, Component::ProxyClient),
-        main_cryptde(),
+        cryptde_pair.main.as_ref(),
         Some(make_paying_wallet(b"irrelevant")),
         Some(TEST_DEFAULT_CHAIN.rec().contract),
     )
     .unwrap()
 }
 
-pub fn make_meaningless_route() -> Route {
+pub fn make_meaningless_route(cryptde_pair: &CryptDEPair) -> Route {
     Route::one_way(
         RouteSegment::new(
             vec![
-                &make_meaningless_public_key(),
-                &make_meaningless_public_key(),
+                &make_meaningless_public_key(cryptde_pair),
+                &make_meaningless_public_key(cryptde_pair),
             ],
             Component::ProxyClient,
         ),
-        main_cryptde(),
+        cryptde_pair.main.as_ref(),
         Some(make_paying_wallet(b"irrelevant")),
         Some(TEST_DEFAULT_CHAIN.rec().contract),
     )
     .unwrap()
 }
 
-pub fn make_meaningless_public_key() -> PublicKey {
-    PublicKey::new(&make_garbage_data(main_cryptde().public_key().len()))
+pub fn make_meaningless_public_key(cryptde_pair: &CryptDEPair) -> PublicKey {
+    PublicKey::new(&make_garbage_data(cryptde_pair.main.as_ref().public_key().len()))
 }
 
 pub fn make_meaningless_wallet_private_key() -> PlainData {
@@ -1213,6 +1205,7 @@ pub mod unshared_test_utils {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::sub_lib::cryptde::CryptData;
     use crate::sub_lib::hop::LiveHop;
     use crate::sub_lib::neighborhood::ExpectedService;
@@ -1224,12 +1217,14 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
-
-    use super::*;
+    
+    lazy_static! {
+        static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
+    }
 
     #[test]
     fn characterize_zero_hop_route() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let key = cryptde.public_key();
 
         let subject = zero_hop_route_response(&key, cryptde);
@@ -1261,7 +1256,7 @@ mod tests {
 
     #[test]
     fn characterize_route_to_proxy_client() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let key = cryptde.public_key();
 
         let subject = route_to_proxy_client(&key, cryptde);
@@ -1285,7 +1280,7 @@ mod tests {
 
     #[test]
     fn characterize_route_from_proxy_client() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let key = cryptde.public_key();
 
         let subject = route_from_proxy_client(&key, cryptde);
@@ -1309,7 +1304,7 @@ mod tests {
 
     #[test]
     fn characterize_route_to_proxy_server() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let key = cryptde.public_key();
 
         let subject = route_to_proxy_server(&key, cryptde);

@@ -643,7 +643,7 @@ mod tests {
     use super::*;
     use crate::accountant::exportable_test_parts::test_accountant_is_constructed_with_upgraded_db_connection_recognizing_our_extra_sqlite_functions;
     use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
-    use crate::bootstrapper::{alias_cryptde, main_cryptde, Bootstrapper, RealUser};
+    use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::node_test_utils::{
         make_stream_handler_pool_subs_from_recorder, start_recorder_refcell_opt,
     };
@@ -708,7 +708,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
-    use crate::bootstrapper::cryptde_test::ensure_cryptde_initialization;
 
     struct LogRecipientSetterNull {}
 

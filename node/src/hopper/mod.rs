@@ -160,7 +160,6 @@ mod tests {
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::time::SystemTime;
-    use crate::bootstrapper::{alias_cryptde, main_cryptde};
 
     #[test]
     fn constants_have_correct_values() {

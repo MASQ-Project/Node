@@ -130,7 +130,6 @@ fn add_socket_addr_to_hash(mut hash: sha1::Sha1, client_addr: SocketAddr) -> sha
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bootstrapper::main_cryptde;
     use itertools::Itertools;
     use std::net::IpAddr;
     use std::str::FromStr;

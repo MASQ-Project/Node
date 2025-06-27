@@ -148,7 +148,6 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr};
     use std::str::FromStr;
     use std::time::SystemTime;
-    use crate::bootstrapper::main_cryptde;
 
     #[test]
     fn converts_no_lookup_incipient_message_to_live_and_sends_to_dispatcher() {

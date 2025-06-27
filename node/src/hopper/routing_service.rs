@@ -501,7 +501,7 @@ impl RoutingService {
 mod tests {
     use super::*;
     use crate::accountant::db_access_objects::banned_dao::BAN_CACHE;
-    use crate::bootstrapper::{alias_cryptde, main_cryptde, Bootstrapper};
+    use crate::bootstrapper::{Bootstrapper};
     use crate::neighborhood::gossip::{GossipBuilder, Gossip_0v1};
     use crate::node_test_utils::check_timestamp;
     use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
@@ -532,7 +532,6 @@ mod tests {
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::time::SystemTime;
-    use crate::bootstrapper::cryptde_test::set_cryptdes;
 
     #[test]
     fn dns_resolution_failures_are_reported_to_the_proxy_server() {

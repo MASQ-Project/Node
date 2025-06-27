@@ -678,7 +678,6 @@ mod tests {
     use crate::db_config::config_dao::ConfigDaoRecord;
     use crate::db_config::mocks::ConfigDaoMock;
     use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
-    use crate::bootstrapper::main_cryptde;
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use bip39::{Language, MnemonicType};
     use lazy_static::lazy_static;

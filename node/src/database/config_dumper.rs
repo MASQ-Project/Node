@@ -183,7 +183,6 @@ mod tests {
     use std::fs::{create_dir_all, File};
     use std::io::ErrorKind;
     use std::panic::{catch_unwind, AssertUnwindSafe};
-    use crate::bootstrapper::main_cryptde;
 
     #[test]
     fn database_must_be_created_by_node_before_dump_config_is_used() {
