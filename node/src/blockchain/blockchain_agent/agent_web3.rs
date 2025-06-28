@@ -257,6 +257,7 @@ mod tests {
         PricedQualifiedPayables, QualifiedPayableWithGasPrice,
         QualifiedPayablesBeforeGasPriceSelection, UnpricedQualifiedPayables,
     };
+    use crate::accountant::scanners::test_utils::make_zeroed_consuming_wallet_balances;
     use crate::accountant::test_utils::{
         make_payable_account, make_unpriced_qualified_payables_for_retry_mode,
     };
@@ -273,7 +274,6 @@ mod tests {
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use thousands::Separable;
-    use web3::types::U256;
 
     #[test]
     fn constants_are_correct() {
@@ -285,10 +285,7 @@ mod tests {
         init_test_logging();
         let test_name = "returns_correct_priced_qualified_payables_for_new_payable_scan";
         let consuming_wallet = make_wallet("efg");
-        let consuming_wallet_balances = ConsumingWalletBalances {
-            transaction_fee_balance_in_minor_units: Default::default(),
-            masq_token_balance_in_minor_units: Default::default(),
-        };
+        let consuming_wallet_balances = make_zeroed_consuming_wallet_balances();
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
         let address_1 = account_1.wallet.address();
@@ -335,10 +332,7 @@ mod tests {
         init_test_logging();
         let test_name = "returns_correct_priced_qualified_payables_for_retry_payable_scan";
         let consuming_wallet = make_wallet("efg");
-        let consuming_wallet_balances = ConsumingWalletBalances {
-            transaction_fee_balance_in_minor_units: Default::default(),
-            masq_token_balance_in_minor_units: Default::default(),
-        };
+        let consuming_wallet_balances = make_zeroed_consuming_wallet_balances();
         let rpc_gas_price_wei = 444_555_666;
         let chain = TEST_DEFAULT_CHAIN;
         let account_1 = make_payable_account(12);
@@ -485,10 +479,7 @@ mod tests {
         init_test_logging();
         let ceiling_gas_price_wei = chain.rec().gas_price_safe_ceiling_minor;
         let consuming_wallet = make_wallet("efg");
-        let consuming_wallet_balances = ConsumingWalletBalances {
-            transaction_fee_balance_in_minor_units: Default::default(),
-            masq_token_balance_in_minor_units: Default::default(),
-        };
+        let consuming_wallet_balances = make_zeroed_consuming_wallet_balances();
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
         let qualified_payables =
@@ -681,10 +672,7 @@ mod tests {
     ) {
         init_test_logging();
         let consuming_wallet = make_wallet("efg");
-        let consuming_wallet_balances = ConsumingWalletBalances {
-            transaction_fee_balance_in_minor_units: Default::default(),
-            masq_token_balance_in_minor_units: Default::default(),
-        };
+        let consuming_wallet_balances = make_zeroed_consuming_wallet_balances();
         let ceiling_gas_price_wei = chain.rec().gas_price_safe_ceiling_minor;
         let expected_priced_payables = PricedQualifiedPayables {
             payables: qualified_payables
@@ -719,10 +707,7 @@ mod tests {
     fn returns_correct_non_computed_values() {
         let gas_limit_const_part = 44_000;
         let consuming_wallet = make_wallet("abcde");
-        let consuming_wallet_balances = ConsumingWalletBalances {
-            transaction_fee_balance_in_minor_units: U256::from(456_789),
-            masq_token_balance_in_minor_units: U256::from(123_000_000),
-        };
+        let consuming_wallet_balances = make_zeroed_consuming_wallet_balances();
 
         let subject = BlockchainAgentWeb3::new(
             222_333_444,
@@ -743,10 +728,7 @@ mod tests {
     #[test]
     fn estimated_transaction_fee_works_for_new_payable() {
         let consuming_wallet = make_wallet("efg");
-        let consuming_wallet_balances = ConsumingWalletBalances {
-            transaction_fee_balance_in_minor_units: Default::default(),
-            masq_token_balance_in_minor_units: Default::default(),
-        };
+        let consuming_wallet_balances = make_zeroed_consuming_wallet_balances();
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
         let chain = TEST_DEFAULT_CHAIN;
@@ -772,10 +754,7 @@ mod tests {
     #[test]
     fn estimated_transaction_fee_works_for_retry_payable() {
         let consuming_wallet = make_wallet("efg");
-        let consuming_wallet_balances = ConsumingWalletBalances {
-            transaction_fee_balance_in_minor_units: Default::default(),
-            masq_token_balance_in_minor_units: Default::default(),
-        };
+        let consuming_wallet_balances = make_zeroed_consuming_wallet_balances();
         let rpc_gas_price_wei = 444_555_666;
         let chain = TEST_DEFAULT_CHAIN;
         let account_1 = make_payable_account(12);
@@ -841,10 +820,7 @@ mod tests {
             0,
             0,
             make_wallet("abcde"),
-            ConsumingWalletBalances {
-                transaction_fee_balance_in_minor_units: U256::from(0),
-                masq_token_balance_in_minor_units: U256::from(0),
-            },
+            make_zeroed_consuming_wallet_balances(),
             TEST_DEFAULT_CHAIN,
         );
 

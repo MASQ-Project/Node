@@ -23,7 +23,7 @@ use crate::accountant::{
     SentPayables,
 };
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
-use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
+use crate::sub_lib::blockchain_bridge::{ConsumingWalletBalances, OutboundPaymentsInstructions};
 use crate::sub_lib::wallet::Wallet;
 use actix::{Message, System};
 use itertools::Either;
@@ -487,4 +487,8 @@ impl RescheduleScanOnErrorResolverMock {
             .push(result);
         self
     }
+}
+
+pub fn make_zeroed_consuming_wallet_balances() -> ConsumingWalletBalances {
+    ConsumingWalletBalances::new(0.into(), 0.into())
 }
