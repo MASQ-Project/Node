@@ -267,8 +267,8 @@ mod tests {
     };
     use crate::blockchain::blockchain_agent::BlockchainAgent;
     use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
-    use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use crate::test_utils::make_wallet;
+    use itertools::Itertools;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
@@ -335,35 +335,31 @@ mod tests {
         let consuming_wallet_balances = make_zeroed_consuming_wallet_balances();
         let rpc_gas_price_wei = 444_555_666;
         let chain = TEST_DEFAULT_CHAIN;
-        let account_1 = make_payable_account(12);
-        let account_2 = make_payable_account(34);
-        let account_3 = make_payable_account(56);
-        let account_4 = make_payable_account(78);
-        let account_5 = make_payable_account(90);
-        let unpriced_qualified_payables = UnpricedQualifiedPayables {
-            payables: vec![
+        let unpriced_qualified_payables = {
+            let payables = vec![
+                rpc_gas_price_wei - 1,
+                rpc_gas_price_wei,
+                rpc_gas_price_wei + 1,
+                rpc_gas_price_wei - 123_456,
+                rpc_gas_price_wei + 456_789,
+            ]
+            .into_iter()
+            .enumerate()
+            .map(|(idx, previous_attempt_gas_price_wei)| {
+                let account = make_payable_account((idx as u64 + 1) * 3_000);
                 QualifiedPayablesBeforeGasPriceSelection::new(
-                    account_1.clone(),
-                    Some(rpc_gas_price_wei - 1),
-                ),
-                QualifiedPayablesBeforeGasPriceSelection::new(
-                    account_2.clone(),
-                    Some(rpc_gas_price_wei),
-                ),
-                QualifiedPayablesBeforeGasPriceSelection::new(
-                    account_3.clone(),
-                    Some(rpc_gas_price_wei + 1),
-                ),
-                QualifiedPayablesBeforeGasPriceSelection::new(
-                    account_4.clone(),
-                    Some(rpc_gas_price_wei - 123_456),
-                ),
-                QualifiedPayablesBeforeGasPriceSelection::new(
-                    account_5.clone(),
-                    Some(rpc_gas_price_wei + 456_789),
-                ),
-            ],
+                    account,
+                    Some(previous_attempt_gas_price_wei),
+                )
+            })
+            .collect_vec();
+            UnpricedQualifiedPayables { payables }
         };
+        let accounts_from_1_to_5 = unpriced_qualified_payables
+            .payables
+            .iter()
+            .map(|unpriced_payable| unpriced_payable.payable.clone())
+            .collect_vec();
         let mut subject = BlockchainAgentWeb3::new(
             rpc_gas_price_wei,
             77_777,
@@ -377,19 +373,24 @@ mod tests {
             subject.price_qualified_payables(unpriced_qualified_payables);
 
         let expected_result = {
-            let gas_price_account_wei_1 = increase_gas_price_by_margin(rpc_gas_price_wei);
-            let gas_price_account_wei_2 = increase_gas_price_by_margin(rpc_gas_price_wei);
-            let gas_price_account_wei_3 = increase_gas_price_by_margin(rpc_gas_price_wei + 1);
-            let gas_price_account_wei_4 = increase_gas_price_by_margin(rpc_gas_price_wei);
-            let gas_price_account_wei_5 = increase_gas_price_by_margin(rpc_gas_price_wei + 456_789);
+            let price_wei_for_accounts_from_1_to_5 = vec![
+                increase_gas_price_by_margin(rpc_gas_price_wei),
+                increase_gas_price_by_margin(rpc_gas_price_wei),
+                increase_gas_price_by_margin(rpc_gas_price_wei + 1),
+                increase_gas_price_by_margin(rpc_gas_price_wei),
+                increase_gas_price_by_margin(rpc_gas_price_wei + 456_789),
+            ];
+            if price_wei_for_accounts_from_1_to_5.len() != accounts_from_1_to_5.len() {
+                panic!("Corrupted test")
+            }
             PricedQualifiedPayables {
-                payables: vec![
-                    QualifiedPayableWithGasPrice::new(account_1, gas_price_account_wei_1),
-                    QualifiedPayableWithGasPrice::new(account_2, gas_price_account_wei_2),
-                    QualifiedPayableWithGasPrice::new(account_3, gas_price_account_wei_3),
-                    QualifiedPayableWithGasPrice::new(account_4, gas_price_account_wei_4),
-                    QualifiedPayableWithGasPrice::new(account_5, gas_price_account_wei_5),
-                ],
+                payables: accounts_from_1_to_5
+                    .into_iter()
+                    .zip(price_wei_for_accounts_from_1_to_5.into_iter())
+                    .map(|(account, previous_attempt_price_wei)| {
+                        QualifiedPayableWithGasPrice::new(account, previous_attempt_price_wei)
+                    })
+                    .collect_vec(),
             }
         };
         assert_eq!(priced_qualified_payables, expected_result);
@@ -757,34 +758,25 @@ mod tests {
         let consuming_wallet_balances = make_zeroed_consuming_wallet_balances();
         let rpc_gas_price_wei = 444_555_666;
         let chain = TEST_DEFAULT_CHAIN;
-        let account_1 = make_payable_account(12);
-        let account_2 = make_payable_account(34);
-        let account_3 = make_payable_account(56);
-        let account_4 = make_payable_account(78);
-        let account_5 = make_payable_account(90);
-        let qualified_payables = UnpricedQualifiedPayables {
-            payables: vec![
+        let unpriced_qualified_payables = {
+            let payables = vec![
+                rpc_gas_price_wei - 1,
+                rpc_gas_price_wei,
+                rpc_gas_price_wei + 1,
+                rpc_gas_price_wei - 123_456,
+                rpc_gas_price_wei + 456_789,
+            ]
+            .into_iter()
+            .enumerate()
+            .map(|(idx, previous_attempt_gas_price_wei)| {
+                let account = make_payable_account((idx as u64 + 1) * 3_000);
                 QualifiedPayablesBeforeGasPriceSelection::new(
-                    account_1.clone(),
-                    Some(rpc_gas_price_wei - 1),
-                ),
-                QualifiedPayablesBeforeGasPriceSelection::new(
-                    account_2.clone(),
-                    Some(rpc_gas_price_wei),
-                ),
-                QualifiedPayablesBeforeGasPriceSelection::new(
-                    account_3.clone(),
-                    Some(rpc_gas_price_wei + 1),
-                ),
-                QualifiedPayablesBeforeGasPriceSelection::new(
-                    account_4.clone(),
-                    Some(rpc_gas_price_wei - 123_456),
-                ),
-                QualifiedPayablesBeforeGasPriceSelection::new(
-                    account_5.clone(),
-                    Some(rpc_gas_price_wei + 456_789),
-                ),
-            ],
+                    account,
+                    Some(previous_attempt_gas_price_wei),
+                )
+            })
+            .collect_vec();
+            UnpricedQualifiedPayables { payables }
         };
         let subject = BlockchainAgentWeb3::new(
             rpc_gas_price_wei,
@@ -793,24 +785,23 @@ mod tests {
             consuming_wallet_balances,
             chain,
         );
-        let priced_qualified_payables = subject.price_qualified_payables(qualified_payables);
+        let priced_qualified_payables =
+            subject.price_qualified_payables(unpriced_qualified_payables);
 
         let result = subject.estimated_transaction_fee_total(&priced_qualified_payables);
 
-        let gas_price_account_wei_1 = increase_gas_price_by_margin(rpc_gas_price_wei);
-        let gas_price_account_wei_2 = increase_gas_price_by_margin(rpc_gas_price_wei);
-        let gas_price_account_wei_3 = increase_gas_price_by_margin(rpc_gas_price_wei + 1);
-        let gas_price_account_wei_4 = increase_gas_price_by_margin(rpc_gas_price_wei);
-        let gas_price_account_wei_5 = increase_gas_price_by_margin(rpc_gas_price_wei + 456_789);
-        assert_eq!(
-            result,
-            (gas_price_account_wei_1
-                + gas_price_account_wei_2
-                + gas_price_account_wei_3
-                + gas_price_account_wei_4
-                + gas_price_account_wei_5)
-                * (77_777 + WEB3_MAXIMAL_GAS_LIMIT_MARGIN)
-        )
+        let gas_prices_for_accounts_from_1_to_5 = vec![
+            increase_gas_price_by_margin(rpc_gas_price_wei),
+            increase_gas_price_by_margin(rpc_gas_price_wei),
+            increase_gas_price_by_margin(rpc_gas_price_wei + 1),
+            increase_gas_price_by_margin(rpc_gas_price_wei),
+            increase_gas_price_by_margin(rpc_gas_price_wei + 456_789),
+        ];
+        let expected_result = gas_prices_for_accounts_from_1_to_5
+            .into_iter()
+            .sum::<u128>()
+            * (77_777 + WEB3_MAXIMAL_GAS_LIMIT_MARGIN);
+        assert_eq!(result, expected_result)
     }
 
     #[test]
