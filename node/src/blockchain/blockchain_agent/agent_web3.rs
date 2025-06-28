@@ -270,6 +270,7 @@ mod tests {
     use crate::test_utils::make_wallet;
     use itertools::Itertools;
     use masq_lib::blockchains::chains::Chain;
+    use masq_lib::constants::DEFAULT_GAS_PRICE_MARGIN;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
@@ -419,13 +420,12 @@ mod tests {
     fn new_payables_gas_price_ceiling_test_if_latest_price_is_a_border_value() {
         let test_name = "new_payables_gas_price_ceiling_test_if_latest_price_is_a_border_value";
         let chain = TEST_DEFAULT_CHAIN;
-        let default_gas_price_margin_percents = chain.rec().gas_price_default_margin_percents;
         let ceiling_gas_price_wei = chain.rec().gas_price_safe_ceiling_minor;
         // This should be the value that would surplus the ceiling just slightly if the margin is
         // applied.
         // Adding just 1 didn't work, therefore 2
         let rpc_gas_price_wei =
-            ((ceiling_gas_price_wei * 100) / (default_gas_price_margin_percents as u128 + 100)) + 2;
+            ((ceiling_gas_price_wei * 100) / (DEFAULT_GAS_PRICE_MARGIN as u128 + 100)) + 2;
         let check_value_wei = increase_gas_price_by_margin(rpc_gas_price_wei);
 
         test_gas_price_must_not_break_through_ceiling_value_in_the_new_payable_mode(
@@ -522,13 +522,12 @@ mod tests {
         let chain = TEST_DEFAULT_CHAIN;
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
-        let default_gas_price_margin_percents = chain.rec().gas_price_default_margin_percents;
         let ceiling_gas_price_wei = chain.rec().gas_price_safe_ceiling_minor;
         // This should be the value that would surplus the ceiling just slightly if the margin is
         // applied.
         // Adding just 1 didn't work, therefore 2
         let rpc_gas_price_wei =
-            (ceiling_gas_price_wei * 100) / (default_gas_price_margin_percents as u128 + 100) + 2;
+            (ceiling_gas_price_wei * 100) / (DEFAULT_GAS_PRICE_MARGIN as u128 + 100) + 2;
         let check_value_wei = increase_gas_price_by_margin(rpc_gas_price_wei);
         let raw_qualified_payables = make_unpriced_qualified_payables_for_retry_mode(vec![
             (account_1.clone(), rpc_gas_price_wei - 1),
@@ -561,11 +560,10 @@ mod tests {
         let chain = TEST_DEFAULT_CHAIN;
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
-        let default_gas_price_margin_percents = chain.rec().gas_price_default_margin_percents;
         let ceiling_gas_price_wei = chain.rec().gas_price_safe_ceiling_minor;
         // This should be the value that would surplus the ceiling just slightly if the margin is applied
         let border_gas_price_wei =
-            (ceiling_gas_price_wei * 100) / (default_gas_price_margin_percents as u128 + 100) + 2;
+            (ceiling_gas_price_wei * 100) / (DEFAULT_GAS_PRICE_MARGIN as u128 + 100) + 2;
         let rpc_gas_price_wei = border_gas_price_wei - 1;
         let check_value_wei = increase_gas_price_by_margin(border_gas_price_wei);
         let raw_qualified_payables = make_unpriced_qualified_payables_for_retry_mode(vec![
