@@ -17,9 +17,8 @@ use crate::accountant::db_access_objects::utils::{
 };
 use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdjuster};
 use crate::accountant::scanners::payable_scanner_extension::msgs::{
-    BlockchainAgentWithContextMessage, PricedQualifiedPayables,
-    QualifiedPayablesBeforeGasPriceSelection, QualifiedPayablesWithGasPrice,
-    UnpricedQualifiedPayables,
+    BlockchainAgentWithContextMessage, PricedQualifiedPayables, QualifiedPayableWithGasPrice,
+    QualifiedPayablesBeforeGasPriceSelection, UnpricedQualifiedPayables,
 };
 use crate::accountant::scanners::payable_scanner_extension::PreparedAdjustment;
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableThresholdsGauge;
@@ -1508,7 +1507,7 @@ pub fn make_priced_qualified_payables(
     PricedQualifiedPayables {
         payables: inputs
             .into_iter()
-            .map(|(payable, gas_price_minor)| QualifiedPayablesWithGasPrice {
+            .map(|(payable, gas_price_minor)| QualifiedPayableWithGasPrice {
                 payable,
                 gas_price_minor,
             })

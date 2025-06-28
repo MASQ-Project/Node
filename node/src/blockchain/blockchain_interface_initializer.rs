@@ -45,7 +45,7 @@ impl BlockchainInterfaceInitializer {
 #[cfg(test)]
 mod tests {
     use crate::accountant::scanners::payable_scanner_extension::msgs::{
-        PricedQualifiedPayables, QualifiedPayablesWithGasPrice, UnpricedQualifiedPayables,
+        PricedQualifiedPayables, QualifiedPayableWithGasPrice, UnpricedQualifiedPayables,
     };
     use crate::accountant::test_utils::make_payable_account;
     use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
@@ -80,7 +80,7 @@ mod tests {
 
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
-        let qualified_payables_without_price =
+        let unpriced_qualified_payables =
             UnpricedQualifiedPayables::from(vec![account_1.clone(), account_2.clone()]);
         let payable_wallet = make_wallet("payable");
         let blockchain_agent = result
@@ -89,12 +89,12 @@ mod tests {
             .unwrap();
         assert_eq!(blockchain_agent.consuming_wallet(), &payable_wallet);
         let priced_qualified_payables =
-            blockchain_agent.price_qualified_payables(qualified_payables_without_price);
+            blockchain_agent.price_qualified_payables(unpriced_qualified_payables);
         let gas_price_with_margin = increase_gas_price_by_margin(1_000_000_000);
         let expected_priced_qualified_payables = PricedQualifiedPayables {
             payables: vec![
-                QualifiedPayablesWithGasPrice::new(account_1, gas_price_with_margin),
-                QualifiedPayablesWithGasPrice::new(account_2, gas_price_with_margin),
+                QualifiedPayableWithGasPrice::new(account_1, gas_price_with_margin),
+                QualifiedPayableWithGasPrice::new(account_2, gas_price_with_margin),
             ],
         };
         assert_eq!(

@@ -2,9 +2,7 @@
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
-use crate::accountant::scanners::payable_scanner_extension::msgs::{
-    PricedQualifiedPayables, UnpricedQualifiedPayables,
-};
+use crate::accountant::scanners::payable_scanner_extension::msgs::PricedQualifiedPayables;
 use crate::blockchain::blockchain_agent::agent_web3::BlockchainAgentWeb3;
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;

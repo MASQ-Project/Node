@@ -50,7 +50,7 @@ impl QualifiedPayablesBeforeGasPriceSelection {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PricedQualifiedPayables {
-    pub payables: Vec<QualifiedPayablesWithGasPrice>,
+    pub payables: Vec<QualifiedPayableWithGasPrice>,
 }
 
 impl Into<Vec<PayableAccount>> for PricedQualifiedPayables {
@@ -63,12 +63,12 @@ impl Into<Vec<PayableAccount>> for PricedQualifiedPayables {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct QualifiedPayablesWithGasPrice {
+pub struct QualifiedPayableWithGasPrice {
     pub payable: PayableAccount,
     pub gas_price_minor: u128,
 }
 
-impl QualifiedPayablesWithGasPrice {
+impl QualifiedPayableWithGasPrice {
     pub fn new(payable: PayableAccount, gas_price_minor: u128) -> Self {
         Self {
             payable,

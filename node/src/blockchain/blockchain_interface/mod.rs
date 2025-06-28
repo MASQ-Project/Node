@@ -14,7 +14,7 @@ use futures::Future;
 use masq_lib::blockchains::chains::Chain;
 use web3::types::Address;
 use masq_lib::logger::Logger;
-use crate::accountant::scanners::payable_scanner_extension::msgs::{UnpricedQualifiedPayables, PricedQualifiedPayables};
+use crate::accountant::scanners::payable_scanner_extension::msgs::{PricedQualifiedPayables};
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::{BlockMarker, BlockScanRange, PendingPayableFingerprintSeeds};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionReceiptResult;

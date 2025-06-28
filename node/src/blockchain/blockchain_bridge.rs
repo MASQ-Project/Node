@@ -597,7 +597,7 @@ mod tests {
     use std::time::{Duration, SystemTime};
     use web3::types::{TransactionReceipt, H160};
     use masq_lib::constants::DEFAULT_MAX_BLOCK_COUNT;
-    use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayablesBeforeGasPriceSelection, UnpricedQualifiedPayables, QualifiedPayablesWithGasPrice};
+    use crate::accountant::scanners::payable_scanner_extension::msgs::{UnpricedQualifiedPayables, QualifiedPayableWithGasPrice};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt};
 
     impl Handler<AssertionsMessage<Self>> for BlockchainBridge {
@@ -723,18 +723,10 @@ mod tests {
             false,
         );
         subject.payable_payments_setup_subs_opt = Some(accountant_recipient);
-        let qualified_payables_without_price = UnpricedQualifiedPayables {
-            payables: qualified_payables
-                .clone()
-                .into_iter()
-                .map(|payable| QualifiedPayablesBeforeGasPriceSelection {
-                    payable,
-                    previous_attempt_gas_price_minor_opt: None,
-                })
-                .collect(),
-        };
+        let unpriced_qualified_payables =
+            UnpricedQualifiedPayables::from(qualified_payables.clone());
         let qualified_payables_msg = QualifiedPayablesMessage {
-            qualified_payables: qualified_payables_without_price.clone(),
+            qualified_payables: unpriced_qualified_payables.clone(),
             consuming_wallet: consuming_wallet.clone(),
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 11122,
@@ -755,7 +747,7 @@ mod tests {
         let expected_ripe_qualified_payables = PricedQualifiedPayables {
             payables: qualified_payables
                 .into_iter()
-                .map(|payable| QualifiedPayablesWithGasPrice {
+                .map(|payable| QualifiedPayableWithGasPrice {
                     payable,
                     gas_price_minor: increase_gas_price_by_margin(0x230000000),
                 })
@@ -773,7 +765,7 @@ mod tests {
         );
         assert_eq!(
             actual_agent.estimated_transaction_fee_total(
-                &actual_agent.price_qualified_payables(qualified_payables_without_price)
+                &actual_agent.price_qualified_payables(unpriced_qualified_payables)
             ),
             1_791_228_995_698_688
         );

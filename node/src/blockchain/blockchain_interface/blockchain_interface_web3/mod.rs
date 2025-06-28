@@ -460,7 +460,7 @@ mod tests {
     use std::str::FromStr;
     use web3::transports::Http;
     use web3::types::{H256, U256};
-    use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayablesBeforeGasPriceSelection, QualifiedPayablesWithGasPrice};
+    use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayablesBeforeGasPriceSelection, QualifiedPayableWithGasPrice};
     use crate::accountant::test_utils::make_payable_account;
     use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt, TxStatus};
@@ -847,11 +847,11 @@ mod tests {
             increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei);
         let expected_ripe_qualified_payables = PricedQualifiedPayables {
             payables: vec![
-                QualifiedPayablesWithGasPrice::new(
+                QualifiedPayableWithGasPrice::new(
                     account_1,
                     gas_price_wei_from_rpc_u128_wei_with_margin,
                 ),
-                QualifiedPayablesWithGasPrice::new(
+                QualifiedPayableWithGasPrice::new(
                     account_2,
                     gas_price_wei_from_rpc_u128_wei_with_margin,
                 ),
@@ -899,9 +899,9 @@ mod tests {
                 increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei + 1);
             PricedQualifiedPayables {
                 payables: vec![
-                    QualifiedPayablesWithGasPrice::new(account_1, gas_price_account_1),
-                    QualifiedPayablesWithGasPrice::new(account_2, gas_price_account_2),
-                    QualifiedPayablesWithGasPrice::new(account_3, gas_price_account_3),
+                    QualifiedPayableWithGasPrice::new(account_1, gas_price_account_1),
+                    QualifiedPayableWithGasPrice::new(account_2, gas_price_account_2),
+                    QualifiedPayableWithGasPrice::new(account_3, gas_price_account_3),
                 ],
             }
         };

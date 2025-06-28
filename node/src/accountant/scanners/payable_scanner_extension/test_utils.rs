@@ -36,9 +36,9 @@ impl Default for BlockchainAgentMock {
 impl BlockchainAgent for BlockchainAgentMock {
     fn price_qualified_payables(
         &self,
-        qualified_payables: UnpricedQualifiedPayables,
+        _qualified_payables: UnpricedQualifiedPayables,
     ) -> PricedQualifiedPayables {
-        todo!()
+        unimplemented!("not needed yet")
     }
 
     fn estimated_transaction_fee_total(
