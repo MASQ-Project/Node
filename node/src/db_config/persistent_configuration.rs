@@ -24,7 +24,6 @@ use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
 use websocket::url::Url;
 use masq_lib::blockchains::chains::Chain;
-use crate::db_config::db_encryption_layer::DbEncryptionLayer;
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::cryptde_real::CryptDEReal;
 
@@ -693,8 +692,6 @@ mod tests {
     use masq_lib::blockchains::chains::Chain;
     use crate::bootstrapper::CryptDEPair;
     use crate::db_config::db_encryption_layer::DbEncryptionLayer;
-    use crate::db_config::secure_config_layer::SecureConfigLayerError::DatabaseError;
-    use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::cryptde_real::CryptDEReal;
 
     lazy_static! {
@@ -1245,7 +1242,7 @@ mod tests {
         subject.set_cryptde(&expected_cryptde, db_password.as_str()).unwrap();
 
         let mut set_params = set_params_arc.lock().unwrap();
-        let (name, crypt_text_opt) = set_params.remove(0);
+        let (_, crypt_text_opt) = set_params.remove(0);
         let plain_text = DbEncryptionLayer::decrypt_value(&crypt_text_opt, &Some(db_password.clone()), "last_cryptde")
             .unwrap()
             .unwrap();

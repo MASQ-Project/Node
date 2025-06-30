@@ -66,7 +66,7 @@ impl NodeRecord {
         accepts_connections: bool,
         routes_data: bool,
         version: u32,
-        cryptde: &dyn CryptDE, // Must be the new NodeRecord's CryptDE: used for signing
+        cryptde: &dyn CryptDE, // Do we need a separate CryptDE for each NodeRecord? Why?
     ) -> NodeRecord {
         let mut node_record = NodeRecord {
             metadata: NodeRecordMetadata::new(),

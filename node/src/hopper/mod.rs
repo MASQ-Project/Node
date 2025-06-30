@@ -44,7 +44,7 @@ impl Handler<BindMessage> for Hopper {
     fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) -> Self::Result {
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.consuming_service = Some(ConsumingService::new(
-            self.cryptde_pair.main.as_ref(),
+            self.cryptde_pair.main.dup(),
             msg.peer_actors.dispatcher.from_dispatcher_client.clone(),
             msg.peer_actors.hopper.from_dispatcher.clone(),
         ));
@@ -175,7 +175,6 @@ mod tests {
     #[should_panic(expected = "Hopper unbound: no RoutingService")]
     fn panics_if_routing_service_is_unbound() {
         let main_cryptde = CRYPTDE_PAIR.main.as_ref();
-        let alias_cryptde = CRYPTDE_PAIR.alias.as_ref();
         let client_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let route = route_to_proxy_client(&main_cryptde.public_key(), main_cryptde);
         let serialized_payload = serde_cbor::ser::to_vec(&make_meaningless_message_type()).unwrap();
@@ -221,7 +220,6 @@ mod tests {
     #[should_panic(expected = "Hopper unbound: no ConsumingService")]
     fn panics_if_consuming_service_is_unbound() {
         let main_cryptde = CRYPTDE_PAIR.main.as_ref();
-        let alias_cryptde = CRYPTDE_PAIR.alias.as_ref();
         let paying_wallet = make_paying_wallet(b"wallet");
         let next_key = PublicKey::new(&[65, 65, 65]);
         let route = Route::one_way(

@@ -38,20 +38,19 @@ impl Debug for NeighborhoodDatabase {
 
 impl NeighborhoodDatabase {
     pub fn new(
-        public_key: &PublicKey,
         neighborhood_mode: NeighborhoodMode,
         earning_wallet: Wallet,
         cryptde: &dyn CryptDE,
     ) -> NeighborhoodDatabase {
         let mut result = NeighborhoodDatabase {
-            this_node: public_key.clone(),
+            this_node: cryptde.public_key().clone(),
             by_public_key: HashMap::new(),
             by_ip_addr: HashMap::new(),
             logger: Logger::new("NeighborhoodDatabase"),
         };
 
         let mut node_record = NodeRecord::new(
-            public_key,
+            cryptde.public_key(),
             earning_wallet,
             *neighborhood_mode.rate_pack(),
             neighborhood_mode.accepts_connections(),
@@ -409,7 +408,6 @@ mod tests {
         let this_node = make_node_record(1234, true);
 
         let mut subject = NeighborhoodDatabase::new(
-            this_node.public_key(),
             (&this_node).into(),
             this_node.earning_wallet(),
             &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN),
@@ -477,7 +475,6 @@ mod tests {
         let one_node = make_node_record(4567, true);
         let another_node = make_node_record(5678, true);
         let mut subject = NeighborhoodDatabase::new(
-            this_node.public_key(),
             (&this_node).into(),
             Wallet::from_str("0x546900db8d6e0937497133d1ae6fdf5f4b75bcd0").unwrap(),
             &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN),
@@ -531,7 +528,6 @@ mod tests {
         let one_node = make_node_record(2345, false);
         let another_node = make_node_record(3456, true);
         let mut subject = NeighborhoodDatabase::new(
-            this_node.public_key(),
             (&this_node).into(),
             Wallet::from_str("0x0000000000000000000000000000000000001234").unwrap(),
             &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN),
@@ -633,7 +629,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(NeighborhoodDatabaseError::NodeKeyNotFound(
+            Err(NodeKeyNotFound(
                 nonexistent_node.public_key().clone()
             ))
         )
@@ -659,7 +655,6 @@ mod tests {
         let this_node = make_node_record(1234, true);
         let other_node = make_node_record(2345, true);
         let mut subject = NeighborhoodDatabase::new(
-            this_node.public_key(),
             (&this_node).into(),
             Wallet::from_str("0x0000000000000000000000000000000000001234").unwrap(),
             &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN),
@@ -785,7 +780,6 @@ mod tests {
         let this_node = make_node_record(1234, true);
         let old_node = this_node.clone();
         let mut subject = NeighborhoodDatabase::new(
-            this_node.public_key(),
             (&this_node).into(),
             this_node.earning_wallet(),
             &CryptDENull::from(this_node.public_key(), DEFAULT_CHAIN),
@@ -809,7 +803,6 @@ mod tests {
     fn remove_neighbor_returns_error_when_given_nonexistent_node_key() {
         let this_node = make_node_record(123, true);
         let mut subject = NeighborhoodDatabase::new(
-            this_node.public_key(),
             (&this_node).into(),
             Wallet::from_str("0x0000000000000000000000000000000000000123").unwrap(),
             &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN),
@@ -855,7 +848,6 @@ mod tests {
     fn remove_neighbor_returns_false_when_neighbor_was_not_removed() {
         let this_node = make_node_record(123, true);
         let mut subject = NeighborhoodDatabase::new(
-            this_node.public_key(),
             (&this_node).into(),
             Wallet::from_str("0x0000000000000000000000000000000000000123").unwrap(),
             &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN),

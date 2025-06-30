@@ -640,15 +640,14 @@ mod tests {
     fn logs_and_ignores_message_that_cannot_be_decrypted() {
         init_test_logging();
         let _ = EnvironmentGuard::new();
-        let main_cryptde = CRYPTDE_PAIR.main.as_ref();
-        let alias_cryptde = CRYPTDE_PAIR.alias.as_ref();
+        let main_cryptde = CryptDEReal::new(TEST_DEFAULT_CHAIN);
         let rogue_cryptde = CryptDEReal::new(TEST_DEFAULT_CHAIN);
-        let route = route_from_proxy_client(main_cryptde.public_key(), main_cryptde.as_ref());
+        let route = route_from_proxy_client(main_cryptde.public_key(), &main_cryptde);
         let lcp = LiveCoresPackage::new(
             route,
             encodex(&rogue_cryptde, rogue_cryptde.public_key(), &[42u8]).unwrap(),
         );
-        let data_enc = encodex(main_cryptde.as_ref(), main_cryptde.public_key(), &lcp).unwrap();
+        let data_enc = encodex(&main_cryptde, main_cryptde.public_key(), &lcp).unwrap();
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
@@ -659,7 +658,7 @@ mod tests {
             data: data_enc.into(),
         };
         let peer_actors = peer_actors_builder().build();
-        let cryptde_pair = CRYPTDE_PAIR.clone();
+        let cryptde_pair = CryptDEPair::new(main_cryptde.dup(), Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN)));
         let subject = RoutingService::new(
             cryptde_pair,
             RoutingServiceSubs {
@@ -686,7 +685,6 @@ mod tests {
     fn logs_and_ignores_message_that_had_invalid_destination() {
         init_test_logging();
         let main_cryptde = CRYPTDE_PAIR.main.as_ref();
-        let alias_cryptde = CRYPTDE_PAIR.alias.as_ref();
         let route = route_from_proxy_client(&main_cryptde.public_key(), main_cryptde);
         let payload = GossipBuilder::empty();
         let lcp = LiveCoresPackage::new(
@@ -732,7 +730,6 @@ mod tests {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
         let main_cryptde = CRYPTDE_PAIR.main.as_ref();
-        let alias_cryptde = CRYPTDE_PAIR.alias.as_ref();
         let (component, _, component_recording_arc) = make_recorder();
         let route = route_to_proxy_client(&main_cryptde.public_key(), main_cryptde);
         let payload = make_request_payload(0, main_cryptde);
@@ -804,7 +801,6 @@ mod tests {
         init_test_logging();
         BAN_CACHE.clear();
         let main_cryptde = CRYPTDE_PAIR.main.as_ref();
-        let alias_cryptde = CRYPTDE_PAIR.alias.as_ref();
         let route = route_to_proxy_client(&main_cryptde.public_key(), main_cryptde);
         let payload = make_request_payload(0, main_cryptde);
         let lcp = LiveCoresPackage::new(
@@ -929,7 +925,6 @@ mod tests {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
         let main_cryptde = CRYPTDE_PAIR.main.as_ref();
-        let alias_cryptde = CRYPTDE_PAIR.alias.as_ref();
         let (component, _, component_recording_arc) = make_recorder();
         let mut route = Route::one_way(
             RouteSegment::new(
@@ -1080,7 +1075,6 @@ mod tests {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
         let main_cryptde = CRYPTDE_PAIR.main.as_ref();
-        let alias_cryptde = CRYPTDE_PAIR.alias.as_ref();
         let paying_wallet = make_paying_wallet(b"wallet");
         let address_paying_wallet = Wallet::from(paying_wallet.address());
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
@@ -1175,7 +1169,6 @@ mod tests {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
         let main_cryptde = CRYPTDE_PAIR.main.as_ref();
-        let alias_cryptde = CRYPTDE_PAIR.alias.as_ref();
         let paying_wallet = make_paying_wallet(b"wallet");
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let route = Route::one_way(
@@ -1258,7 +1251,6 @@ mod tests {
         BAN_CACHE.clear();
         init_test_logging();
         let main_cryptde = CRYPTDE_PAIR.main.as_ref();
-        let alias_cryptde = CRYPTDE_PAIR.alias.as_ref();
         let origin_key = PublicKey::new(&[1, 2]);
         let origin_cryptde = CryptDENull::from(&origin_key, TEST_DEFAULT_CHAIN);
         let destination_key = PublicKey::new(&[3, 4]);
@@ -1340,7 +1332,6 @@ mod tests {
         BAN_CACHE.clear();
         init_test_logging();
         let main_cryptde = CRYPTDE_PAIR.main.as_ref();
-        let alias_cryptde = CRYPTDE_PAIR.alias.as_ref();
         let public_key = main_cryptde.public_key();
         let payload = ClientRequest(VersionedData::new(
             &crate::sub_lib::migrations::client_response_payload::MIGRATIONS,
@@ -1438,7 +1429,6 @@ mod tests {
         BAN_CACHE.clear();
         init_test_logging();
         let main_cryptde = CRYPTDE_PAIR.main.as_ref();
-        let alias_cryptde = CRYPTDE_PAIR.alias.as_ref();
         let current_key = main_cryptde.public_key();
         let origin_key = PublicKey::new(&[1, 2]);
         let destination_key = PublicKey::new(&[5, 6]);
@@ -1536,7 +1526,6 @@ mod tests {
         BAN_CACHE.clear();
         init_test_logging();
         let main_cryptde = CRYPTDE_PAIR.main.as_ref();
-        let alias_cryptde = CRYPTDE_PAIR.alias.as_ref();
         let paying_wallet = make_paying_wallet(b"wallet");
         let contract_address = TEST_DEFAULT_CHAIN.rec().contract;
         BAN_CACHE.insert(paying_wallet.clone());
@@ -1603,7 +1592,6 @@ mod tests {
         BAN_CACHE.clear();
         init_test_logging();
         let main_cryptde = CRYPTDE_PAIR.main.as_ref();
-        let alias_cryptde = CRYPTDE_PAIR.alias.as_ref();
         let paying_wallet = make_paying_wallet(b"wallet");
         BAN_CACHE.insert(paying_wallet.clone());
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
@@ -1723,7 +1711,6 @@ mod tests {
     fn route_logs_and_ignores_invalid_live_cores_package() {
         init_test_logging();
         let main_cryptde = CRYPTDE_PAIR.main.as_ref();
-        let alias_cryptde = CRYPTDE_PAIR.alias.as_ref();
         let lcp = LiveCoresPackage::new(Route { hops: vec![] }, CryptData::new(&[]));
         let data_ser = PlainData::new(&serde_cbor::ser::to_vec(&lcp).unwrap()[..]);
         let data_enc = main_cryptde

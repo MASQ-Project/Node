@@ -24,6 +24,7 @@ use masq_lib::utils::{to_string, AutomapProtocol, ExpectValue};
 use rustc_hex::FromHex;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
+use PersistentConfigError::PasswordError;
 
 pub trait UnprivilegedParseArgsConfiguration {
     // Only initialization that cannot be done with privilege should happen here.
@@ -88,7 +89,7 @@ impl UnprivilegedParseArgsConfiguration for UnprivilegedParseArgsConfigurationDa
                 Some(db_password) => match persistent_config.past_neighbors(db_password) {
                     Ok(Some(past_neighbors)) => past_neighbors,
                     Ok(None) => vec![],
-                    Err(PersistentConfigError::PasswordError) => {
+                    Err(PasswordError) => {
                         return Err(ConfiguratorError::new(vec![ParamError::new(
                             "db-password",
                             "PasswordError",
@@ -129,7 +130,7 @@ pub fn get_wallets(
     let pc_consuming_opt = if let Some(db_password) = &config.db_password_opt {
         match persistent_config.consuming_wallet_private_key(db_password.as_str()) {
             Ok(pco) => pco,
-            Err(PersistentConfigError::PasswordError) => None,
+            Err(PasswordError) => None,
             Err(e) => return Err(e.into_configurator_error("consuming-private-key")),
         }
     } else {
@@ -652,6 +653,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use lazy_static::lazy_static;
+    use PersistentConfigError::{DatabaseError, TransactionError};
     use crate::bootstrapper::CryptDEPair;
 
     lazy_static! {
@@ -743,7 +745,7 @@ mod tests {
         )
         .unwrap();
         let mut persistent_config = PersistentConfigurationMock::new()
-            .min_hops_result(Err(PersistentConfigError::NotPresent));
+            .min_hops_result(Err(NotPresent));
 
         let _result = make_neighborhood_config(
             &UnprivilegedParseArgsConfigurationDaoReal {},
@@ -1101,7 +1103,7 @@ mod tests {
         running_test();
         let mut persistent_config = PersistentConfigurationMock::new()
             .check_password_result(Ok(false))
-            .past_neighbors_result(Err(PersistentConfigError::NotPresent));
+            .past_neighbors_result(Err(NotPresent));
         let mut unprivileged_config = BootstrapperConfig::new();
         unprivileged_config.db_password_opt = Some("password".to_string());
         let subject = UnprivilegedParseArgsConfigurationDaoReal {};
@@ -1188,13 +1190,13 @@ mod tests {
         let check_password_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_config = configure_default_persistent_config(ZERO)
             .check_password_params(&check_password_params_arc)
-            .check_password_result(Err(PersistentConfigError::NotPresent));
+            .check_password_result(Err(NotPresent));
 
         let result = set_db_password_at_first_mention("password", &mut persistent_config);
 
         assert_eq!(
             result,
-            Err(PersistentConfigError::NotPresent.into_configurator_error("db-password"))
+            Err(NotPresent.into_configurator_error("db-password"))
         );
         let check_password_params = check_password_params_arc.lock().unwrap();
         assert_eq!(*check_password_params, vec![None])
@@ -1206,7 +1208,7 @@ mod tests {
         let mut persistent_config = configure_default_persistent_config(ZERO)
             .check_password_result(Ok(true))
             .change_password_params(&change_password_params_arc)
-            .change_password_result(Err(PersistentConfigError::NotPresent));
+            .change_password_result(Err(NotPresent));
 
         let result = set_db_password_at_first_mention("password", &mut persistent_config);
 
@@ -1253,13 +1255,13 @@ mod tests {
         config.db_password_opt = Some("password".to_string());
         let mut persistent_config = configure_default_persistent_config(ZERO)
             .check_password_result(Ok(true))
-            .change_password_result(Err(PersistentConfigError::NotPresent));
+            .change_password_result(Err(NotPresent));
 
         let result = get_db_password(&mut config, &mut persistent_config);
 
         assert_eq!(
             result,
-            Err(PersistentConfigError::NotPresent.into_configurator_error("db-password"))
+            Err(NotPresent.into_configurator_error("db-password"))
         );
     }
 
@@ -1444,7 +1446,7 @@ mod tests {
     fn configure_zero_hop_with_neighbors_but_setting_values_failed() {
         running_test();
         let mut persistent_config = PersistentConfigurationMock::new().set_past_neighbors_result(
-            Err(PersistentConfigError::DatabaseError("Oh yeah".to_string())),
+            Err(DatabaseError("Oh yeah".to_string())),
         );
         let descriptor_list = vec![NodeDescriptor::try_from((
             CRYPTDE_PAIR.main.as_ref(),
@@ -2254,7 +2256,7 @@ mod tests {
     fn process_combined_params_panics_on_persistent_config_getter_method_with_cli_present() {
         let multi_config = make_simplified_multi_config(["--rate-pack", "4|5|6|7"]);
         let mut persist_config = PersistentConfigurationMock::default()
-            .rate_pack_result(Err(PersistentConfigError::NotPresent));
+            .rate_pack_result(Err(NotPresent));
 
         let _ = execute_process_combined_params_for_rate_pack(&multi_config, &mut persist_config);
     }
@@ -2265,7 +2267,7 @@ mod tests {
         let multi_config = make_simplified_multi_config(["--rate-pack", "4|5|6|7"]);
         let mut persist_config = PersistentConfigurationMock::default()
             .rate_pack_result(Ok(RatePack::try_from("1|1|2|2").unwrap()))
-            .set_rate_pack_result(Err(PersistentConfigError::TransactionError));
+            .set_rate_pack_result(Err(TransactionError));
 
         let _ = execute_process_combined_params_for_rate_pack(&multi_config, &mut persist_config);
     }
@@ -2275,7 +2277,7 @@ mod tests {
     fn process_combined_params_panics_on_persistent_config_getter_method_with_cli_absent() {
         let multi_config = make_simplified_multi_config([]);
         let mut persist_config = PersistentConfigurationMock::default()
-            .rate_pack_result(Err(PersistentConfigError::NotPresent));
+            .rate_pack_result(Err(NotPresent));
 
         let _ = execute_process_combined_params_for_rate_pack(&multi_config, &mut persist_config);
     }
@@ -2300,7 +2302,7 @@ mod tests {
         let multi_config = make_simplified_multi_config([]);
         let mut persistent_config = PersistentConfigurationMock::new()
             .earning_wallet_address_result(Ok(None))
-            .consuming_wallet_private_key_result(Err(PersistentConfigError::NotPresent));
+            .consuming_wallet_private_key_result(Err(NotPresent));
         let mut config = BootstrapperConfig::new();
         config.db_password_opt = Some("password".to_string());
 
@@ -2308,7 +2310,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(PersistentConfigError::NotPresent.into_configurator_error("consuming-private-key"))
+            Err(NotPresent.into_configurator_error("consuming-private-key"))
         );
     }
 
@@ -2518,7 +2520,7 @@ mod tests {
         let multi_config = make_simplified_multi_config([]);
         let logger = Logger::new("BAD_MP_READ");
         let mut persistent_config = configure_default_persistent_config(ZERO)
-            .mapping_protocol_result(Err(PersistentConfigError::NotPresent));
+            .mapping_protocol_result(Err(NotPresent));
 
         let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
 
@@ -2536,7 +2538,7 @@ mod tests {
         let logger = Logger::new("BAD_MP_WRITE");
         let mut persistent_config = configure_default_persistent_config(ZERO)
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Pcp)))
-            .set_mapping_protocol_result(Err(PersistentConfigError::NotPresent));
+            .set_mapping_protocol_result(Err(NotPresent));
 
         let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
 

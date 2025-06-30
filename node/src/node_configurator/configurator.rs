@@ -904,7 +904,7 @@ mod tests {
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
     use crate::sub_lib::cryptde::PublicKey as PK;
-    use crate::sub_lib::cryptde::{CryptDE, PlainData};
+    use crate::sub_lib::cryptde::{PlainData};
     use crate::sub_lib::neighborhood::{ConfigChange, NodeDescriptor, RatePack};
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;

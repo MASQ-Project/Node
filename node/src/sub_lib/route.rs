@@ -345,16 +345,22 @@ pub enum RouteError {
 
 #[cfg(test)]
 mod tests {
+    use lazy_static::lazy_static;
     use super::*;
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::test_utils::make_wallet;
     use crate::test_utils::{make_paying_wallet};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use serde_cbor;
+    use crate::bootstrapper::CryptDEPair;
+
+    lazy_static! {
+        static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
+    }
 
     #[test]
     fn id_decodes_return_route_id() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
 
         let subject = Route {
             hops: vec![Route::encrypt_return_route_id(42, cryptde)],
@@ -365,7 +371,7 @@ mod tests {
 
     #[test]
     fn id_returns_empty_route_error_when_the_route_is_empty() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
 
         let subject = Route { hops: vec![] };
 
@@ -389,7 +395,7 @@ mod tests {
 
     #[test]
     fn construct_does_not_like_route_segments_with_too_few_keys() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let paying_wallet = make_wallet("wallet");
         let result = Route::one_way(
             RouteSegment::new(vec![], Component::ProxyClient),
@@ -412,7 +418,7 @@ mod tests {
         let b_key = PublicKey::new(&[66, 66, 66]);
         let c_key = PublicKey::new(&[67, 67, 67]);
         let d_key = PublicKey::new(&[68, 68, 68]);
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let paying_wallet = make_paying_wallet(b"wallet");
 
         let result = Route::round_trip(
@@ -435,7 +441,7 @@ mod tests {
     #[test]
     fn construct_can_make_single_hop_route() {
         let target_key = PublicKey::new(&[65, 65, 65]);
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
 
         let subject = Route::single_hop(&target_key, cryptde).unwrap();
 
@@ -462,7 +468,7 @@ mod tests {
         let d_key = PublicKey::new(&[68, 68, 68]);
         let e_key = PublicKey::new(&[69, 69, 69]);
         let f_key = PublicKey::new(&[70, 70, 70]);
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let paying_wallet = make_paying_wallet(b"wallet");
         let return_route_id = 4321;
         let contract_address = TEST_DEFAULT_CHAIN.rec().contract;
@@ -573,7 +579,7 @@ mod tests {
     fn construct_can_make_short_single_stop_route() {
         let a_key = PublicKey::new(&[65, 65, 65]);
         let b_key = PublicKey::new(&[66, 66, 66]);
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let paying_wallet = make_paying_wallet(b"wallet");
         let contract_address = TEST_DEFAULT_CHAIN.rec().contract;
 
@@ -609,7 +615,7 @@ mod tests {
 
     #[test]
     fn next_hop_decodes_top_hop() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let paying_wallet = make_paying_wallet(b"wallet");
         let key12 = cryptde.public_key();
         let key34 = PublicKey::new(&[3, 4]);
@@ -664,7 +670,7 @@ mod tests {
 
     #[test]
     fn shift_returns_next_hop_and_adds_garbage_at_the_bottom() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let paying_wallet = make_paying_wallet(b"wallet");
         let key12 = cryptde.public_key();
         let key34 = PublicKey::new(&[3, 4]);
@@ -716,7 +722,7 @@ mod tests {
 
     #[test]
     fn empty_route_says_none_when_asked_for_next_hop() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let subject = Route { hops: Vec::new() };
 
         let result = subject.next_hop(cryptde).err().unwrap();
@@ -726,7 +732,7 @@ mod tests {
 
     #[test]
     fn shift_says_none_when_asked_for_next_hop_on_empty_route() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let mut subject = Route { hops: Vec::new() };
 
         let result = subject.shift(cryptde).err().unwrap();
@@ -738,7 +744,7 @@ mod tests {
     fn route_serialization_deserialization() {
         let key1 = PublicKey::new(&[1, 2, 3, 4]);
         let key2 = PublicKey::new(&[4, 3, 2, 1]);
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let paying_wallet = make_paying_wallet(b"wallet");
         let original = Route::round_trip(
             RouteSegment::new(vec![&key1, &key2], Component::ProxyClient),
@@ -765,7 +771,7 @@ mod tests {
         let paying_wallet = make_paying_wallet(b"wallet");
         let subject = Route::one_way(
             RouteSegment::new(vec![&key1, &key2, &key3], Component::Neighborhood),
-            main_cryptde(),
+            CRYPTDE_PAIR.main.as_ref(),
             Some(paying_wallet),
             Some(TEST_DEFAULT_CHAIN.rec().contract),
         )

@@ -13,7 +13,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::SystemTime;
 
 pub struct ConsumingService {
-    cryptde: &'static dyn CryptDE,
+    cryptde: Box<dyn CryptDE>,
     to_dispatcher: Recipient<TransmitDataMsg>,
     to_hopper: Recipient<InboundClientData>,
     logger: Logger,
@@ -21,7 +21,7 @@ pub struct ConsumingService {
 
 impl ConsumingService {
     pub fn new(
-        cryptde: &'static dyn CryptDE,
+        cryptde: Box<dyn CryptDE>,
         to_dispatcher: Recipient<TransmitDataMsg>,
         to_hopper: Recipient<InboundClientData>,
     ) -> Self {
@@ -41,9 +41,9 @@ impl ConsumingService {
         );
         let target_key = incipient_cores_package.public_key.clone();
         let target_node_addr = incipient_cores_package.node_addr.clone();
-        match LiveCoresPackage::from_no_lookup_incipient(incipient_cores_package, self.cryptde) {
+        match LiveCoresPackage::from_no_lookup_incipient(incipient_cores_package, self.cryptde.as_ref()) {
             Ok((live_package, _)) => {
-                let encrypted_package = match encodex(self.cryptde, &target_key, &live_package) {
+                let encrypted_package = match encodex(self.cryptde.as_ref(), &target_key, &live_package) {
                     Ok(p) => p,
                     Err(e) => {
                         error!(
@@ -75,7 +75,7 @@ impl ConsumingService {
         match LiveCoresPackage::from_incipient(incipient_cores_package, self.cryptde.borrow()) {
             Ok((live_package, next_hop)) => {
                 let encrypted_package =
-                    match encodex(self.cryptde, &next_hop.public_key, &live_package) {
+                    match encodex(self.cryptde.as_ref(), &next_hop.public_key, &live_package) {
                         Ok(p) => p,
                         Err(e) => {
                             error!(self.logger, "Couldn't encode package: {:?}", e);
@@ -170,7 +170,7 @@ mod tests {
         let system = System::new("");
         let peer_actors = peer_actors_builder().dispatcher(dispatcher).build();
         let subject = ConsumingService::new(
-            CRYPTDE_PAIR.main.as_ref(),
+            CRYPTDE_PAIR.main.dup(),
             peer_actors.dispatcher.from_dispatcher_client,
             peer_actors.hopper.from_dispatcher,
         );
@@ -206,7 +206,7 @@ mod tests {
         let system = System::new("");
         let peer_actors = peer_actors_builder().build();
         let subject = ConsumingService::new(
-            CRYPTDE_PAIR.main.as_ref(),
+            CRYPTDE_PAIR.main.dup(),
             peer_actors.dispatcher.from_dispatcher_client,
             peer_actors.hopper.from_dispatcher,
         );
@@ -240,7 +240,7 @@ mod tests {
         let system = System::new("converts_incipient_message_to_live_and_sends_to_dispatcher");
         let peer_actors = peer_actors_builder().dispatcher(dispatcher).build();
         let subject = ConsumingService::new(
-            cryptde,
+            cryptde.dup(),
             peer_actors.dispatcher.from_dispatcher_client,
             peer_actors.hopper.from_dispatcher,
         );
@@ -287,7 +287,7 @@ mod tests {
         let system = System::new("consume_sends_zero_hop_incipient_directly_to_hopper");
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         let subject = ConsumingService::new(
-            cryptde,
+            cryptde.dup(),
             peer_actors.dispatcher.from_dispatcher_client,
             peer_actors.hopper.from_dispatcher,
         );
@@ -326,7 +326,7 @@ mod tests {
         let to_dispatcher = peer_actors.dispatcher.from_dispatcher_client;
         let to_hopper = peer_actors.hopper.from_dispatcher;
 
-        let subject = ConsumingService::new(CRYPTDE_PAIR.main.as_ref(), to_dispatcher, to_hopper);
+        let subject = ConsumingService::new(CRYPTDE_PAIR.main.dup(), to_dispatcher, to_hopper);
 
         subject.consume(
             IncipientCoresPackage::new(

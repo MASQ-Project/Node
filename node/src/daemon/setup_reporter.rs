@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::apps::app_head;
-use crate::bootstrapper::{main_cryptde, BootstrapperConfig};
+use crate::bootstrapper::{BootstrapperConfig, CryptDEPair};
 use crate::daemon::dns_inspector::dns_inspector_factory::{
     DnsInspectorFactory, DnsInspectorFactoryReal,
 };
@@ -42,6 +42,8 @@ use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use crate::sub_lib::cryptde::CryptDE;
+use crate::sub_lib::cryptde_real::CryptDEReal;
 
 const CONSOLE_DIAGNOSTICS: bool = false;
 
@@ -529,6 +531,12 @@ impl SetupReporterReal {
     ) {
         let mut error_so_far = ConfiguratorError::new(vec![]);
         let mut bootstrapper_config = BootstrapperConfig::new();
+        // The guts of these CryptDEs don't matter. All that matters is that they're Real
+        // instead of Null, so that the key length is correct.
+        bootstrapper_config.cryptde_pair = CryptDEPair::new(
+            Box::new(CryptDEReal::new(masq_lib::blockchains::chains::Chain::PolyMainnet)),
+            Box::new(CryptDEReal::new(masq_lib::blockchains::chains::Chain::PolyMainnet)),
+        );
         bootstrapper_config.data_directory = data_directory.to_path_buf();
         match privileged_parse_args(
             self.dirs_wrapper.as_ref(),
@@ -976,10 +984,11 @@ impl ValueRetriever for NeighborhoodMode {
     }
 }
 
-fn node_descriptors_to_neighbors(node_descriptors: Vec<NodeDescriptor>) -> String {
+// Note: no interior state from cryptde is used; the important thing is whether it's Real or Null.
+fn node_descriptors_to_neighbors(node_descriptors: Vec<NodeDescriptor>, cryptde: &dyn CryptDE) -> String {
     node_descriptors
         .into_iter()
-        .map(|nd| nd.to_string(main_cryptde()))
+        .map(|nd| nd.to_string(cryptde))
         .collect_vec()
         .join(",")
 }
@@ -992,13 +1001,14 @@ impl ValueRetriever for Neighbors {
 
     fn computed_default(
         &self,
-        _bootstrapper_config: &BootstrapperConfig,
+        bootstrapper_config: &BootstrapperConfig,
         persistent_config: &dyn PersistentConfiguration,
         db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         match db_password_opt {
             Some(pw) => match persistent_config.past_neighbors(pw) {
-                Ok(Some(pns)) => Some((node_descriptors_to_neighbors(pns), Configured)),
+                Ok(Some(pns)) =>
+                    Some((node_descriptors_to_neighbors(pns, bootstrapper_config.cryptde_pair.main.as_ref()), Configured)),
                 _ => None,
             },
             None => None,
@@ -1245,6 +1255,7 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
+    use crate::sub_lib::cryptde_real::CryptDEReal;
 
     #[test]
     fn constants_have_correct_values() {
@@ -1330,7 +1341,7 @@ mod tests {
         );
         let data_dir = home_dir.join("data_dir");
         let chain_specific_data_dir = data_dir.join(DEFAULT_CHAIN.rec().literal_identifier);
-        std::fs::create_dir_all(&chain_specific_data_dir).unwrap();
+        create_dir_all(&chain_specific_data_dir).unwrap();
         let db_initializer = DbInitializerReal::default();
         let conn = db_initializer
             .initialize(
@@ -1350,7 +1361,7 @@ mod tests {
             .unwrap();
         config.set_gas_price(1234567890).unwrap();
         let neighbor1 = NodeDescriptor {
-            encryption_public_key: PublicKey::new(b"ABCD"),
+            encryption_public_key: PublicKey::new(b"ABCD5678901234567892123456789312"),
             blockchain: Blockchain::EthMainnet,
             node_addr_opt: Some(NodeAddr::new(
                 &IpAddr::from_str("1.2.3.4").unwrap(),
@@ -1358,7 +1369,7 @@ mod tests {
             )),
         };
         let neighbor2 = NodeDescriptor {
-            encryption_public_key: PublicKey::new(b"EFGH"),
+            encryption_public_key: PublicKey::new(b"EFGH5678901234567892123456789312"),
             blockchain: Blockchain::EthMainnet,
             node_addr_opt: Some(NodeAddr::new(
                 &IpAddr::from_str("5.6.7.8").unwrap(),
@@ -1422,7 +1433,7 @@ mod tests {
             ("neighborhood-mode", "standard", Default),
             (
                 "neighbors",
-                "masq://eth-mainnet:QUJDRA@1.2.3.4:1234,masq://eth-mainnet:RUZHSA@5.6.7.8:5678",
+                "masq://eth-mainnet:QUJDRDU2Nzg5MDEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-mainnet:RUZHSDU2Nzg5MDEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678",
                 Configured,
             ),
             (
@@ -1698,7 +1709,7 @@ mod tests {
             .join("MASQ")
             .join(DEFAULT_CHAIN.rec().literal_identifier);
         {
-            std::fs::create_dir_all(mainnet_dir.clone()).unwrap();
+            create_dir_all(mainnet_dir.clone()).unwrap();
             let mut config_file = File::create(mainnet_dir.join("config.toml")).unwrap();
             config_file
                 .write_all(b"blockchain-service-url = \"https://www.mainnet.com\"\n")
@@ -3206,17 +3217,18 @@ mod tests {
 
     #[test]
     fn neighbors_computed_default_persistent_config_present_password_present_values_present() {
+        let cryptde = CryptDEReal::new(masq_lib::blockchains::chains::Chain::Dev);
         let past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
             .past_neighbors_params(&past_neighbors_params_arc)
             .past_neighbors_result(Ok(Some(vec![
                 NodeDescriptor::try_from((
-                    main_cryptde(),
+                    &cryptde as &dyn CryptDE,
                     "masq://eth-mainnet:MTEyMjMzNDQ1NTY2Nzc4ODExMjIzMzQ0NTU2Njc3ODg@1.2.3.4:1234",
                 ))
                 .unwrap(),
                 NodeDescriptor::try_from((
-                    main_cryptde(),
+                    &cryptde as &dyn CryptDE,
                     "masq://eth-mainnet:ODg3NzY2NTU0NDMzMjIxMTg4Nzc2NjU1NDQzMzIyMTE@4.3.2.1:4321",
                 ))
                 .unwrap(),

@@ -80,6 +80,17 @@ impl Clone for CryptDEPair {
     }
 }
 
+impl Debug for CryptDEPair {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "CryptDEPair {{ main: {:?}, alias: {:?} }}",
+            self.main.public_key(),
+            self.alias.public_key()
+        )
+    }
+}
+
 impl From<Chain> for CryptDEPair {
     fn from(chain: Chain) -> Self {
         let main = CryptDEReal::new(chain);
@@ -97,11 +108,18 @@ impl CryptDEPair {
     }
 
     pub fn null() -> Self {
-        let main = CryptDENull::new(TEST_DEFAULT_CHAIN);
-        let alias = CryptDENull::new(TEST_DEFAULT_CHAIN);
-        CryptDEPair {
-            main: Box::new(main),
-            alias: Box::new(alias),
+        #[cfg(test)]
+        {
+            let main = CryptDENull::new(TEST_DEFAULT_CHAIN);
+            let alias = CryptDENull::new(TEST_DEFAULT_CHAIN);
+            CryptDEPair {
+                main: Box::new(main),
+                alias: Box::new(alias),
+            }
+        }
+        #[cfg(not(test))]
+        {
+            panic!("You should not use CryptDEPair::null() in production code. It is only for testing purposes.");
         }
     }
 }
@@ -339,6 +357,8 @@ pub struct BootstrapperConfig {
     pub port_configurations: HashMap<u16, PortConfiguration>,
     pub data_directory: PathBuf,
     pub node_descriptor: NodeDescriptor,
+    pub cryptde_pair: CryptDEPair,
+    // TODO: Let's see if we can get rid of these two fields.
     pub main_cryptde_null_opt: Option<CryptDENull>,
     pub alias_cryptde_null_opt: Option<CryptDENull>,
     pub mapping_protocol_opt: Option<AutomapProtocol>,
@@ -380,6 +400,13 @@ impl BootstrapperConfig {
             port_configurations: HashMap::new(),
             data_directory: PathBuf::new(),
             node_descriptor: NodeDescriptor::default(),
+            // This value should not be used in production; it should be replaced during bootstrapping.
+            // Hence, we're creating it with a dev chain so that if it leaks through to production,
+            // its signature verification will be crippled.
+            cryptde_pair: CryptDEPair::new(
+                Box::new(CryptDEReal::new(Chain::Dev)),
+                Box::new(CryptDEReal::new(Chain::Dev)),
+            ),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             mapping_protocol_opt: None,
@@ -408,6 +435,7 @@ impl BootstrapperConfig {
         self.neighborhood_config = unprivileged.neighborhood_config;
         self.earning_wallet = unprivileged.earning_wallet;
         self.consuming_wallet_opt = unprivileged.consuming_wallet_opt;
+        self.cryptde_pair = unprivileged.cryptde_pair;
         self.db_password_opt = unprivileged.db_password_opt;
         self.scan_intervals_opt = unprivileged.scan_intervals_opt;
         self.suppress_initial_scans = unprivileged.suppress_initial_scans;
@@ -448,6 +476,7 @@ impl Future for Bootstrapper {
     type Error = ();
 
     fn poll(&mut self) -> Result<Async<<Self as Future>::Item>, <Self as Future>::Error> {
+        // TODO: The config parameter below doesn't appear to be used. At any rate, it should probably be self.config, not a new object.
         try_ready!(CrashTestDummy::new(self.config.crash_point, BootstrapperConfig::new()).poll());
         try_ready!(self.listener_handlers.poll());
         Ok(Async::Ready(()))
@@ -493,10 +522,11 @@ impl ConfiguredByPrivilege for Bootstrapper {
         let unprivileged_config =
             NodeConfiguratorStandardUnprivileged::new(&self.config)
                 .configure(multi_config)?; // this is where the CryptDEs are set up
+        let cryptde_pair = unprivileged_config.cryptde_pair.clone();
         self.config.merge_unprivileged(unprivileged_config);
         let _ = self.set_up_clandestine_port();
         let node_descriptor = Bootstrapper::make_local_descriptor(
-            main_cryptde(),
+            self.config.cryptde_pair.main.as_ref(),
             self.config.neighborhood_config.mode.node_addr_opt(),
             self.config.blockchain_bridge_config.chain,
         );
@@ -507,7 +537,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
         match &self.config.neighborhood_config.mode {
             NeighborhoodMode::Standard(node_addr, _, _)
                 if node_addr.ip_addr() == Ipv4Addr::new(0, 0, 0, 0) => {} // node_addr still coming
-            _ => Bootstrapper::report_local_descriptor(main_cryptde(), &self.config.node_descriptor), // here or not coming
+            _ => Bootstrapper::report_local_descriptor(cryptde_pair.main.as_ref(), &self.config.node_descriptor), // here or not coming
         }
         let stream_handler_pool_subs = self.start_actors_and_return_shp_subs();
         self.listener_handlers
@@ -556,7 +586,7 @@ impl Bootstrapper {
     fn start_actors_and_return_shp_subs(&self) -> StreamHandlerPoolSubs {
         self.actor_system_factory.make_and_start_actors(
             self.config.clone(),
-            Box::new(ActorFactoryReal::new()),
+            Box::new(ActorFactoryReal::new(&self.config.cryptde_pair)),
             initialize_database(
                 &self.config.data_directory,
                 DbInitializationConfig::panic_on_migration(),
@@ -643,7 +673,7 @@ impl Bootstrapper {
 mod tests {
     use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
     use crate::actor_system_factory::{ActorFactory, ActorSystemFactory};
-    use crate::bootstrapper::{main_cryptde, Bootstrapper, BootstrapperConfig, CryptDEPair, EnvironmentWrapper, PortConfiguration, RealUser};
+    use crate::bootstrapper::{Bootstrapper, BootstrapperConfig, CryptDEPair, EnvironmentWrapper, PortConfiguration, RealUser};
     use crate::database::db_initializer::DbInitializationConfig;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::db_config::config_dao::ConfigDaoReal;
@@ -712,6 +742,7 @@ mod tests {
     use tokio::prelude::Async;
 
     lazy_static! {
+        static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
         pub static ref INITIALIZATION: Mutex<bool> = Mutex::new(false);
     }
 
@@ -1130,15 +1161,8 @@ mod tests {
             .unwrap();
 
         let config = subject.config;
-        assert_eq!(
-            config.node_descriptor,
-            NodeDescriptor::from((
-                main_cryptde().public_key(),
-                &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[5123]),
-                Chain::BaseSepolia,
-                main_cryptde()
-            ))
-        );
+        assert_eq!(config.node_descriptor.blockchain, Chain::BaseSepolia);
+        assert_eq!(config.node_descriptor.node_addr_opt, Some(NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[5123])));
         TestLogHandler::new().exists_log_matching("INFO: Bootstrapper: MASQ Node local descriptor: masq://base-sepolia:.+@1\\.2\\.3\\.4:5123");
     }
 
@@ -1246,15 +1270,9 @@ mod tests {
             .unwrap();
 
         let config = subject.config;
-        assert_eq!(
-            config.node_descriptor,
-            NodeDescriptor::from((
-                main_cryptde().public_key(),
-                &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[5123]),
-                Chain::BaseSepolia,
-                main_cryptde()
-            ))
-        );
+        assert_eq!(config.node_descriptor.blockchain, Chain::BaseSepolia);
+        assert_eq!(config.node_descriptor.node_addr_opt, Some(NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[5123])));
+        // Not checking the public key, because its value is not predictable.
         TestLogHandler::new().exists_log_matching("INFO: Bootstrapper: MASQ Node local descriptor: masq://base-sepolia:.+@1\\.2\\.3\\.4:5123");
     }
 
@@ -1465,16 +1483,14 @@ mod tests {
             &[3456u16, 4567u16],
         );
         let cryptde_ref = {
-            ensure_cryptde_initialization();
-            let cryptdes = CryptDEPair::default();
             let descriptor = Bootstrapper::make_local_descriptor(
-                cryptdes.main,
+                CRYPTDE_PAIR.main.as_ref(),
                 Some(node_addr),
                 TEST_DEFAULT_CHAIN,
             );
-            Bootstrapper::report_local_descriptor(cryptdes.main, &descriptor);
+            Bootstrapper::report_local_descriptor(CRYPTDE_PAIR.main.as_ref(), &descriptor);
 
-            cryptdes.main
+            CRYPTDE_PAIR.main.as_ref()
         };
         let expected_descriptor = format!(
             "masq://base-sepolia:{}@2.3.4.5:3456/4567",
@@ -1509,13 +1525,11 @@ mod tests {
         let _lock = INITIALIZATION.lock();
         init_test_logging();
         let cryptdes = {
-            ensure_cryptde_initialization();
-            let cryptdes = CryptDEPair::default();
             let descriptor =
-                Bootstrapper::make_local_descriptor(cryptdes.main, None, TEST_DEFAULT_CHAIN);
-            Bootstrapper::report_local_descriptor(cryptdes.main, &descriptor);
+                Bootstrapper::make_local_descriptor(CRYPTDE_PAIR.main.as_ref(), None, TEST_DEFAULT_CHAIN);
+            Bootstrapper::report_local_descriptor(CRYPTDE_PAIR.main.as_ref(), &descriptor);
 
-            cryptdes
+            CRYPTDE_PAIR.clone()
         };
         let expected_descriptor = format!(
             "masq://base-sepolia:{}@:",
@@ -1547,8 +1561,8 @@ mod tests {
             ));
             assert_eq!(decrypted_data, expected_data)
         };
-        assert_round_trip(cryptdes.main);
-        assert_round_trip(cryptdes.alias);
+        assert_round_trip(cryptdes.main.as_ref());
+        assert_round_trip(cryptdes.alias.as_ref());
     }
 
     #[test]

@@ -75,7 +75,7 @@ type StreamEstablisherResult =
 impl StreamHandlerPoolReal {
     pub fn new(
         resolver: Box<dyn ResolverWrapper>,
-        cryptde: &'static dyn CryptDE,
+        cryptde: &dyn CryptDE,
         accountant_sub: Recipient<ReportExitServiceProvidedMessage>,
         proxy_client_subs: ProxyClientSubs,
         exit_service_rate: u64,
@@ -86,7 +86,7 @@ impl StreamHandlerPoolReal {
         StreamHandlerPoolReal {
             inner: Arc::new(Mutex::new(StreamHandlerPoolRealInner {
                 establisher_factory: Box::new(StreamEstablisherFactoryReal {
-                    cryptde,
+                    cryptde: cryptde.dup(),
                     stream_adder_tx,
                     stream_killer_tx,
                     proxy_client_subs: proxy_client_subs.clone(),
@@ -535,7 +535,7 @@ pub trait StreamHandlerPoolFactory {
     fn make(
         &self,
         resolver: Box<dyn ResolverWrapper>,
-        cryptde: &'static dyn CryptDE,
+        cryptde: &dyn CryptDE,
         accountant_sub: Recipient<ReportExitServiceProvidedMessage>,
         proxy_client_subs: ProxyClientSubs,
         exit_service_rate: u64,
@@ -549,7 +549,7 @@ impl StreamHandlerPoolFactory for StreamHandlerPoolFactoryReal {
     fn make(
         &self,
         resolver: Box<dyn ResolverWrapper>,
-        cryptde: &'static dyn CryptDE,
+        cryptde: &dyn CryptDE,
         accountant_sub: Recipient<ReportExitServiceProvidedMessage>,
         proxy_client_subs: ProxyClientSubs,
         exit_service_rate: u64,
@@ -651,7 +651,7 @@ mod tests {
                 ResolverWrapperMock::new().lookup_ip_failure(ResolveErrorKind::Io.into());
             let logger = Logger::new("dns_resolution_failure_sends_a_message_to_proxy_client");
             let establisher = StreamEstablisher {
-                cryptde,
+                cryptde: cryptde.dup(),
                 stream_adder_tx: unbounded().0,
                 stream_killer_tx: unbounded().0,
                 stream_connector: Box::new(StreamConnectorMock::new()),
@@ -895,7 +895,7 @@ mod tests {
             {
                 let mut inner = subject.inner.lock().unwrap();
                 let establisher = StreamEstablisher {
-                    cryptde,
+                    cryptde: cryptde.dup(),
                     stream_adder_tx,
                     stream_killer_tx,
                     stream_connector: Box::new(StreamConnectorMock::new().with_connection(
@@ -1120,7 +1120,7 @@ mod tests {
             {
                 let mut inner = subject.inner.lock().unwrap();
                 let establisher = StreamEstablisher {
-                    cryptde,
+                    cryptde: cryptde.dup(),
                     stream_adder_tx,
                     stream_killer_tx,
                     stream_connector: Box::new(StreamConnectorMock::new().with_connection(
@@ -1299,7 +1299,7 @@ mod tests {
             {
                 let mut inner = subject.inner.lock().unwrap();
                 let establisher = StreamEstablisher {
-                    cryptde,
+                    cryptde: cryptde.dup(),
                     stream_adder_tx,
                     stream_killer_tx,
                     stream_connector: Box::new(StreamConnectorMock::new().with_connection(
@@ -1399,7 +1399,7 @@ mod tests {
             subject.stream_killer_rx = stream_killer_rx;
             let (stream_adder_tx, _stream_adder_rx) = unbounded();
             let establisher = StreamEstablisher {
-                cryptde,
+                cryptde: cryptde.dup(),
                 stream_adder_tx,
                 stream_killer_tx,
                 stream_connector: Box::new(
@@ -1521,7 +1521,7 @@ mod tests {
             }
             let (stream_adder_tx, _stream_adder_rx) = unbounded();
             let establisher = StreamEstablisher {
-                cryptde,
+                cryptde: cryptde.dup(),
                 stream_adder_tx,
                 stream_killer_tx,
                 stream_connector: Box::new(
@@ -1637,7 +1637,7 @@ mod tests {
             {
                 let mut inner = subject.inner.lock().unwrap();
                 let establisher = StreamEstablisher {
-                    cryptde,
+                    cryptde: cryptde.dup(),
                     stream_adder_tx,
                     stream_killer_tx,
                     stream_connector: Box::new(

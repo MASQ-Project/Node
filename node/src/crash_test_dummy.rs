@@ -6,6 +6,7 @@ use masq_lib::logger::Logger;
 use tokio::prelude::future::Future;
 
 pub struct CrashTestDummy<C> {
+    // TODO: This does not appear to be used. Can it be removed?
     pub configuration: C,
     crash_point: CrashPoint,
     message: String,

@@ -56,6 +56,7 @@ use std::rc::Rc;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
 use tokio::prelude::Future;
+use crate::bootstrapper::CryptDEPair;
 
 pub const CRASH_KEY: &str = "PROXYSERVER";
 pub const RETURN_ROUTE_TTL: Duration = Duration::from_secs(120);
@@ -85,8 +86,7 @@ pub struct ProxyServer {
     stream_key_ttl: HashMap<StreamKey, SystemTime>,
     is_decentralized: bool,
     consuming_wallet_balance: Option<i64>,
-    main_cryptde: &'static dyn CryptDE,
-    alias_cryptde: &'static dyn CryptDE,
+    cryptde_pair: CryptDEPair,
     crashable: bool,
     logger: Logger,
     route_ids_to_return_routes: TtlHashMap<u32, AddReturnRouteMessage>,
@@ -250,8 +250,7 @@ where
 
 impl ProxyServer {
     pub fn new(
-        main_cryptde: &'static dyn CryptDE,
-        alias_cryptde: &'static dyn CryptDE,
+        cryptde_pair: CryptDEPair,
         is_decentralized: bool,
         consuming_wallet_balance: Option<i64>,
         crashable: bool,
@@ -268,8 +267,7 @@ impl ProxyServer {
             stream_key_ttl: HashMap::new(),
             is_decentralized,
             consuming_wallet_balance,
-            main_cryptde,
-            alias_cryptde,
+            cryptde_pair,
             crashable,
             logger: Logger::new("ProxyServer"),
             route_ids_to_return_routes: TtlHashMap::new(RETURN_ROUTE_TTL),
@@ -369,7 +367,7 @@ impl ProxyServer {
             };
         let exit_public_key = {
             // ugly, ugly
-            let self_public_key = self.main_cryptde.public_key();
+            let self_public_key = self.cryptde_pair.main.as_ref().public_key();
             return_route_info
                 .find_exit_node_key()
                 .unwrap_or_else(|| {
@@ -494,7 +492,7 @@ impl ProxyServer {
             self.logger,
             "ExpiredCoresPackage remaining_route: {}",
             msg.remaining_route
-                .to_string(vec![self.main_cryptde, self.main_cryptde])
+                .to_string(vec![self.cryptde_pair.main.as_ref(), self.cryptde_pair.main.as_ref()])
         );
         let payload_data_len = msg.payload_len;
         let response = msg.payload;
@@ -664,7 +662,7 @@ impl ProxyServer {
             None => {
                 let stream_key = self
                     .stream_key_factory
-                    .make(self.main_cryptde.public_key(), ibcd.client_addr);
+                    .make(self.cryptde_pair.main.as_ref().public_key(), ibcd.client_addr);
                 self.keys_and_addrs.insert(stream_key, ibcd.client_addr);
                 debug!(
                     self.logger,
@@ -704,7 +702,7 @@ impl ProxyServer {
         match self.client_request_payload_factory.make(
             &new_ibcd,
             *stream_key,
-            self.alias_cryptde,
+            self.cryptde_pair.alias.as_ref(),
             &self.logger,
         ) {
             None => Err("Couldn't create ClientRequestPayload".to_string()),
@@ -840,7 +838,7 @@ impl ProxyServer {
                 let payload_size = payload.sequenced_packet.data.len();
                 let stream_key = payload.stream_key;
                 let pkg = IncipientCoresPackage::new(
-                    args.main_cryptde,
+                    args.main_cryptde.as_ref(),
                     route,
                     payload.into(),
                     &payload_destination_key,
@@ -930,9 +928,9 @@ impl ProxyServer {
     ) -> Option<Rc<AddReturnRouteMessage>> {
         let mut mut_remaining_route = remaining_route.clone();
         mut_remaining_route
-            .shift(self.main_cryptde)
+            .shift(self.cryptde_pair.main.as_ref())
             .expect("Internal error: remaining route in ProxyServer with no hops");
-        let return_route_id = match mut_remaining_route.id(self.main_cryptde) {
+        let return_route_id = match mut_remaining_route.id(self.cryptde_pair.main.as_ref()) {
             Ok(rri) => rri,
             Err(e) => {
                 error!(self.logger, "Can't report services consumed: {}", e);
@@ -1222,7 +1220,7 @@ impl IBCDHelper for IBCDHelperReal {
 }
 
 pub struct TransmitToHopperArgs {
-    pub main_cryptde: &'static dyn CryptDE,
+    pub main_cryptde: Box<dyn CryptDE>,
     pub payload: ClientRequestPayload_0v1,
     pub client_addr: SocketAddr,
     pub timestamp: SystemTime,
@@ -1253,7 +1251,7 @@ impl TransmitToHopperArgs {
             None
         };
         Self {
-            main_cryptde: proxy_server.main_cryptde,
+            main_cryptde: proxy_server.cryptde_pair.main.dup(),
             payload,
             client_addr,
             timestamp,
@@ -1684,8 +1682,7 @@ mod tests {
                 .make_result(stream_key);
             let system = System::new(test_name);
             let mut subject = ProxyServer::new(
-                main_cryptde,
-                alias_cryptde,
+                CRYPTDE_PAIR.clone(),
                 true,
                 Some(STANDARD_CONSUMING_WALLET_BALANCE),
                 false,
@@ -1805,8 +1802,7 @@ mod tests {
                 "proxy_server_receives_connect_responds_with_ok_and_stores_stream_key_and_hostname",
             );
             let mut subject = ProxyServer::new(
-                main_cryptde,
-                alias_cryptde,
+                CRYPTDE_PAIR.clone(),
                 true,
                 Some(STANDARD_CONSUMING_WALLET_BALANCE),
                 false,
@@ -1858,8 +1854,7 @@ mod tests {
         let (dispatcher_mock, _, dispatcher_log_arc) = make_recorder();
         let cryptde = CRYPTDE_PAIR.main.as_ref();
         let mut subject = ProxyServer::new(
-            cryptde,
-            CRYPTDE_PAIR.alias.as_ref(),
+            CRYPTDE_PAIR.clone(),
             true,
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
@@ -1965,8 +1960,7 @@ mod tests {
                 "proxy_server_receives_connect_responds_with_ok_and_stores_stream_key_and_hostname",
             );
             let mut subject = ProxyServer::new(
-                cryptde,
-                CRYPTDE_PAIR.alias.as_ref(),
+                CRYPTDE_PAIR.clone(),
                 true,
                 Some(STANDARD_CONSUMING_WALLET_BALANCE),
                 false,
@@ -2037,8 +2031,7 @@ mod tests {
                 "proxy_server_receives_connect_responds_with_ok_and_stores_stream_key_and_hostname",
             );
             let mut subject = ProxyServer::new(
-                cryptde,
-                CRYPTDE_PAIR.alias.as_ref(),
+                CRYPTDE_PAIR.clone(),
                 true,
                 Some(STANDARD_CONSUMING_WALLET_BALANCE),
                 false,
@@ -2076,7 +2069,6 @@ mod tests {
     fn proxy_server_receives_http_request_with_no_consuming_wallet_and_sends_impersonated_response()
     {
         init_test_logging();
-        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
         let (hopper, _, hopper_log_arc) = make_recorder();
         let (neighborhood, _, neighborhood_log_arc) = make_recorder();
@@ -2095,7 +2087,7 @@ mod tests {
         };
         let stream_key_factory = StreamKeyFactoryMock::new(); // can't make any stream keys; shouldn't have to
         let system = System::new("proxy_server_receives_http_request_with_no_consuming_wallet_and_sends_impersonated_response");
-        let mut subject = ProxyServer::new(cryptde, CRYPTDE_PAIR.alias.as_ref(), true, None, false, false);
+        let mut subject = ProxyServer::new(CRYPTDE_PAIR.clone(), true, None, false, false);
         subject.stream_key_factory = Box::new(stream_key_factory);
         subject.keys_and_addrs.insert(stream_key, socket_addr);
         let subject_addr: Addr<ProxyServer> = subject.start();
@@ -2135,7 +2127,6 @@ mod tests {
     fn proxy_server_receives_tls_request_with_no_consuming_wallet_and_sends_impersonated_response()
     {
         init_test_logging();
-        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let tls_request = b"Fake TLS request";
         let (hopper, _, hopper_log_arc) = make_recorder();
         let (neighborhood, _, neighborhood_log_arc) = make_recorder();
@@ -2154,7 +2145,7 @@ mod tests {
         };
         let stream_key_factory = StreamKeyFactoryMock::new(); // can't make any stream keys; shouldn't have to
         let system = System::new("proxy_server_receives_tls_request_with_no_consuming_wallet_and_sends_impersonated_response");
-        let mut subject = ProxyServer::new(cryptde, CRYPTDE_PAIR.alias.as_ref(), true, None, false, false);
+        let mut subject = ProxyServer::new(CRYPTDE_PAIR.clone(), true, None, false, false);
         subject.stream_key_factory = Box::new(stream_key_factory);
         subject.keys_and_addrs.insert(stream_key, socket_addr);
         let subject_addr: Addr<ProxyServer> = subject.start();
@@ -2218,7 +2209,7 @@ mod tests {
             let stream_key_factory = StreamKeyFactoryMock::new(); // can't make any stream keys; shouldn't have to
             let system = System::new("proxy_server_receives_http_request_with_no_consuming_wallet_in_zero_hop_mode_and_handles_normally");
             let mut subject =
-                ProxyServer::new(main_cryptde, alias_cryptde, false, None, false, false);
+                ProxyServer::new(CRYPTDE_PAIR.clone(), false, None, false, false);
             subject.stream_key_factory = Box::new(stream_key_factory);
             subject.keys_and_addrs.insert(stream_key, socket_addr);
             let subject_addr: Addr<ProxyServer> = subject.start();
@@ -2298,7 +2289,7 @@ mod tests {
             let stream_key_factory = StreamKeyFactoryMock::new(); // can't make any stream keys; shouldn't have to
             let system = System::new("proxy_server_receives_tls_request_with_no_consuming_wallet_in_zero_hop_mode_and_handles_normally");
             let mut subject =
-                ProxyServer::new(main_cryptde, alias_cryptde, false, None, false, false);
+                ProxyServer::new(CRYPTDE_PAIR.clone(), false, None, false, false);
             subject.stream_key_factory = Box::new(stream_key_factory);
             subject.keys_and_addrs.insert(stream_key, socket_addr);
             let subject_addr: Addr<ProxyServer> = subject.start();
@@ -2405,8 +2396,7 @@ mod tests {
             let stream_key_factory = StreamKeyFactoryMock::new(); // can't make any stream keys; shouldn't have to
             let system = System::new("proxy_server_receives_http_request_from_dispatcher_then_sends_cores_package_to_hopper");
             let mut subject = ProxyServer::new(
-                main_cryptde,
-                alias_cryptde,
+                CRYPTDE_PAIR.clone(),
                 true,
                 Some(STANDARD_CONSUMING_WALLET_BALANCE),
                 false,
@@ -2524,8 +2514,7 @@ mod tests {
             let stream_key_factory = StreamKeyFactoryMock::new().make_result(stream_key);
             let system = System::new("proxy_server_receives_http_request_from_dispatcher_then_sends_multihop_cores_package_to_hopper");
             let mut subject = ProxyServer::new(
-                main_cryptde,
-                alias_cryptde,
+                CRYPTDE_PAIR.clone(),
                 true,
                 Some(STANDARD_CONSUMING_WALLET_BALANCE),
                 false,
@@ -2558,7 +2547,6 @@ mod tests {
 
     #[test]
     fn proxy_server_sends_a_message_when_dns_retry_found_a_route() {
-        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
         let (proxy_server_mock, proxy_server_awaiter, proxy_server_recording_arc) = make_recorder();
         let expected_service = ExpectedService::Exit(
@@ -2594,8 +2582,7 @@ mod tests {
             let stream_key_factory = StreamKeyFactoryMock::new().make_result(stream_key);
             let system = System::new("proxy_server_sends_a_message_when_dns_retry_found_a_route");
             let mut subject = ProxyServer::new(
-                cryptde,
-                CRYPTDE_PAIR.alias.as_ref(),
+                CRYPTDE_PAIR.clone(),
                 true,
                 Some(STANDARD_CONSUMING_WALLET_BALANCE),
                 false,
@@ -2630,7 +2617,6 @@ mod tests {
     #[test]
     fn proxy_server_sends_a_message_when_dns_retry_cannot_find_a_route() {
         let test_name = "proxy_server_sends_a_message_when_dns_retry_cannot_find_a_route";
-        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
         let (proxy_server_mock, _, proxy_server_recording_arc) = make_recorder();
         let proxy_server_mock =
@@ -2654,8 +2640,7 @@ mod tests {
         let stream_key_factory = StreamKeyFactoryMock::new().make_result(stream_key);
         let system = System::new(test_name);
         let mut subject = ProxyServer::new(
-            cryptde,
-            CRYPTDE_PAIR.alias.as_ref(),
+            CRYPTDE_PAIR.clone(),
             true,
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
@@ -2691,7 +2676,6 @@ mod tests {
     fn proxy_server_sends_a_message_with_error_when_quad_zeros_are_detected() {
         init_test_logging();
         let test_name = "proxy_server_sends_a_message_with_error_when_quad_zeros_are_detected";
-        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: 0.0.0.0\r\n\r\n";
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let stream_key = StreamKey::make_meaningless_stream_key();
@@ -2708,8 +2692,7 @@ mod tests {
         let stream_key_factory = StreamKeyFactoryMock::new().make_result(stream_key);
         let system = System::new(test_name);
         let mut subject = ProxyServer::new(
-            cryptde,
-            CRYPTDE_PAIR.alias.as_ref(),
+            CRYPTDE_PAIR.clone(),
             true,
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
@@ -2780,8 +2763,7 @@ mod tests {
             let stream_key_factory = StreamKeyFactoryMock::new().make_result(stream_key);
             let system = System::new("proxy_server_uses_existing_route");
             let mut subject = ProxyServer::new(
-                main_cryptde,
-                alias_cryptde,
+                CRYPTDE_PAIR.clone(),
                 true,
                 Some(STANDARD_CONSUMING_WALLET_BALANCE),
                 false,
@@ -2883,7 +2865,7 @@ mod tests {
         };
         let logger = Logger::new("test");
         let args = TransmitToHopperArgs {
-            main_cryptde: cryptde,
+            main_cryptde: cryptde.dup(),
             payload,
             client_addr: source_addr,
             timestamp: now,
@@ -2971,7 +2953,7 @@ mod tests {
         };
         let logger = Logger::new("test");
         let args = TransmitToHopperArgs {
-            main_cryptde: cryptde,
+            main_cryptde: cryptde.dup(),
             payload,
             client_addr: source_addr,
             timestamp: SystemTime::now(),
@@ -3053,8 +3035,7 @@ mod tests {
             let system =
                 System::new("proxy_server_logs_messages_when_routing_services_are_not_requested");
             let mut subject = ProxyServer::new(
-                cryptde,
-                CRYPTDE_PAIR.alias.as_ref(),
+                CRYPTDE_PAIR.clone(),
                 true,
                 Some(STANDARD_CONSUMING_WALLET_BALANCE),
                 false,
@@ -3084,8 +3065,7 @@ mod tests {
     fn route_result_message_handler_panics_when_dns_retries_hashmap_doesnt_contain_a_stream_key() {
         let system = System::new("route_result_message_handler_panics_when_dns_retries_hashmap_doesnt_contain_a_stream_key");
         let subject = ProxyServer::new(
-            CRYPTDE_PAIR.main.as_ref(),
-            CRYPTDE_PAIR.alias.as_ref(),
+            CRYPTDE_PAIR.clone(),
             true,
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
@@ -3151,7 +3131,6 @@ mod tests {
         init_test_logging();
         let test_name =
             "proxy_server_receives_http_request_from_dispatcher_but_neighborhood_cant_make_route";
-        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
         let (neighborhood_mock, _, neighborhood_recording_arc) = make_recorder();
         let neighborhood_mock = neighborhood_mock.route_query_response(None);
@@ -3173,8 +3152,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new(test_name);
             let mut subject = ProxyServer::new(
-                cryptde,
-                CRYPTDE_PAIR.alias.as_ref(),
+                CRYPTDE_PAIR.clone(),
                 true,
                 Some(STANDARD_CONSUMING_WALLET_BALANCE),
                 false,
@@ -3260,7 +3238,7 @@ mod tests {
         let logger = Logger::new("ProxyServer");
         let source_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let args = TransmitToHopperArgs {
-            main_cryptde: cryptde,
+            main_cryptde: cryptde.dup(),
             payload,
             client_addr: source_addr,
             timestamp: SystemTime::now(),
@@ -3283,11 +3261,8 @@ mod tests {
     #[should_panic(expected = "Return route has to begin with an exit service if not zero hop")]
     fn report_response_services_consumed_does_not_allow_for_other_order_than_started_at_exit_service(
     ) {
-        let main_cryptde = CRYPTDE_PAIR.main.as_ref();
-        let alias_cryptde = CRYPTDE_PAIR.alias.as_ref();
         let subject = ProxyServer::new(
-            main_cryptde,
-            alias_cryptde,
+            CRYPTDE_PAIR.clone(),
             true,
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
@@ -3354,8 +3329,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new(test_name);
             let mut subject = ProxyServer::new(
-                cryptde,
-                CRYPTDE_PAIR.alias.as_ref(),
+                CRYPTDE_PAIR.clone(),
                 true,
                 Some(STANDARD_CONSUMING_WALLET_BALANCE),
                 false,
@@ -3469,8 +3443,7 @@ mod tests {
         .unwrap();
         thread::spawn(move || {
             let mut subject = ProxyServer::new(
-                main_cryptde,
-                alias_cryptde,
+                CRYPTDE_PAIR.clone(),
                 true,
                 Some(STANDARD_CONSUMING_WALLET_BALANCE),
                 false,
@@ -3555,8 +3528,7 @@ mod tests {
         .unwrap();
         thread::spawn(move || {
             let mut subject = ProxyServer::new(
-                main_cryptde,
-                alias_cryptde,
+                CRYPTDE_PAIR.clone(),
                 true,
                 Some(STANDARD_CONSUMING_WALLET_BALANCE),
                 false,
@@ -3610,7 +3582,7 @@ mod tests {
         let expected_data = tls_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            client_addr: client_addr,
+            client_addr,
             reception_port: Some(TLS_PORT),
             sequence_number: Some(0),
             last_data: true,
@@ -3640,8 +3612,7 @@ mod tests {
         .unwrap();
         thread::spawn(move || {
             let mut subject = ProxyServer::new(
-                main_cryptde,
-                alias_cryptde,
+                CRYPTDE_PAIR.clone(),
                 true,
                 Some(STANDARD_CONSUMING_WALLET_BALANCE),
                 false,
@@ -3670,7 +3641,6 @@ mod tests {
     #[test]
     fn proxy_server_receives_tls_client_hello_from_dispatcher_but_neighborhood_cant_make_route() {
         init_test_logging();
-        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let tls_request = [
             0x16, // content_type: Handshake
             0x00, 0x00, 0x00, 0x00, // version, length: don't care
@@ -3711,8 +3681,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new(test_name);
             let mut subject = ProxyServer::new(
-                cryptde,
-                CRYPTDE_PAIR.alias.as_ref(),
+                CRYPTDE_PAIR.clone(),
                 true,
                 Some(STANDARD_CONSUMING_WALLET_BALANCE),
                 false,
@@ -3752,8 +3721,7 @@ mod tests {
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
         let cryptde = CRYPTDE_PAIR.main.as_ref();
         let mut subject = ProxyServer::new(
-            cryptde,
-            CRYPTDE_PAIR.alias.as_ref(),
+            CRYPTDE_PAIR.clone(),
             true,
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
@@ -3820,8 +3788,7 @@ mod tests {
     #[should_panic(expected = "time calculation error")]
     fn log_straggling_packet_panics_if_timestamp_is_wrong() {
         let subject = ProxyServer::new(
-            CRYPTDE_PAIR.main.as_ref(),
-            CRYPTDE_PAIR.alias.as_ref(),
+            CRYPTDE_PAIR.clone(),
             true,
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
@@ -3838,8 +3805,7 @@ mod tests {
     fn handle_client_response_payload_purges_stream_keys_for_terminal_response() {
         let cryptde = CRYPTDE_PAIR.main.as_ref();
         let mut subject = ProxyServer::new(
-            cryptde,
-            CRYPTDE_PAIR.alias.as_ref(),
+            CRYPTDE_PAIR.clone(),
             true,
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
@@ -3943,12 +3909,10 @@ mod tests {
         init_test_logging();
         let test_name =
             "proxy_server_schedules_stream_key_purge_once_shutdown_order_is_received_for_stream";
-        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let stream_key_purge_delay_in_millis = 500;
         let offset_in_millis = 100;
         let mut subject = ProxyServer::new(
-            cryptde,
-            CRYPTDE_PAIR.alias.as_ref(),
+            CRYPTDE_PAIR.clone(),
             true,
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
@@ -4050,8 +4014,7 @@ mod tests {
         let test_name = "straggling_packets_are_charged_and_dropped_as_the_browser_stopped_awaiting_them_anyway";
         let cryptde = CRYPTDE_PAIR.main.as_ref();
         let mut subject = ProxyServer::new(
-            cryptde,
-            CRYPTDE_PAIR.alias.as_ref(),
+            CRYPTDE_PAIR.clone(),
             true,
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
@@ -4155,8 +4118,7 @@ mod tests {
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let cryptde = CRYPTDE_PAIR.main.as_ref();
         let mut subject = ProxyServer::new(
-            cryptde,
-            CRYPTDE_PAIR.alias.as_ref(),
+            CRYPTDE_PAIR.clone(),
             true,
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
@@ -4362,8 +4324,7 @@ mod tests {
         let system = System::new(test_name);
         let cryptde = CRYPTDE_PAIR.main.as_ref();
         let mut subject = ProxyServer::new(
-            cryptde,
-            CRYPTDE_PAIR.alias.as_ref(),
+            CRYPTDE_PAIR.clone(),
             true,
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
@@ -4463,8 +4424,7 @@ mod tests {
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let cryptde = CRYPTDE_PAIR.main.as_ref();
         let mut subject = ProxyServer::new(
-            cryptde,
-            CRYPTDE_PAIR.alias.as_ref(),
+            CRYPTDE_PAIR.clone(),
             true,
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
@@ -4564,8 +4524,7 @@ mod tests {
         let (dispatcher_mock, _, dispatcher_log_arc) = make_recorder();
         let cryptde = CRYPTDE_PAIR.main.as_ref();
         let mut subject = ProxyServer::new(
-            cryptde,
-            CRYPTDE_PAIR.alias.as_ref(),
+            CRYPTDE_PAIR.clone(),
             true,
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
@@ -4639,8 +4598,7 @@ mod tests {
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let cryptde = CRYPTDE_PAIR.main.as_ref();
         let mut subject = ProxyServer::new(
-            cryptde,
-            CRYPTDE_PAIR.alias.as_ref(),
+            CRYPTDE_PAIR.clone(),
             true,
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
@@ -4757,8 +4715,7 @@ mod tests {
         let (neighborhood_mock, _, neighborhood_log_arc) = make_recorder();
         let cryptde = CRYPTDE_PAIR.main.as_ref();
         let mut subject = ProxyServer::new(
-            cryptde,
-            CRYPTDE_PAIR.alias.as_ref(),
+            CRYPTDE_PAIR.clone(),
             true,
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
@@ -4839,8 +4796,7 @@ mod tests {
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
         let cryptde = CRYPTDE_PAIR.main.as_ref();
         let mut subject = ProxyServer::new(
-            cryptde,
-            CRYPTDE_PAIR.alias.as_ref(),
+            CRYPTDE_PAIR.clone(),
             true,
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
@@ -4910,8 +4866,7 @@ mod tests {
         let (neighborhood_mock, _, _) = make_recorder();
         let cryptde = CRYPTDE_PAIR.main.as_ref();
         let mut subject = ProxyServer::new(
-            cryptde,
-            CRYPTDE_PAIR.alias.as_ref(),
+            CRYPTDE_PAIR.clone(),
             true,
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
@@ -4987,8 +4942,7 @@ mod tests {
         let (neighborhood_mock, _, _) = make_recorder();
         let cryptde = CRYPTDE_PAIR.main.as_ref();
         let mut subject = ProxyServer::new(
-            cryptde,
-            CRYPTDE_PAIR.alias.as_ref(),
+            CRYPTDE_PAIR.clone(),
             true,
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
@@ -5062,8 +5016,7 @@ mod tests {
         let (neighborhood_mock, _, _) = make_recorder();
         let (dispatcher_mock, _, _) = make_recorder();
         let mut subject = ProxyServer::new(
-            cryptde,
-            CRYPTDE_PAIR.alias.as_ref(),
+            CRYPTDE_PAIR.clone(),
             true,
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
@@ -5139,8 +5092,7 @@ mod tests {
         let cryptde = CRYPTDE_PAIR.main.as_ref();
         let this_node_public_key = cryptde.public_key();
         let mut subject = ProxyServer::new(
-            cryptde,
-            CRYPTDE_PAIR.alias.as_ref(),
+            CRYPTDE_PAIR.clone(),
             false, //meaning ZeroHop
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
@@ -5240,8 +5192,7 @@ mod tests {
             .route_query_response(Some(route_query_response_expected.clone()));
         let cryptde = CRYPTDE_PAIR.main.as_ref();
         let mut subject = ProxyServer::new(
-            cryptde,
-            CRYPTDE_PAIR.alias.as_ref(),
+            CRYPTDE_PAIR.clone(),
             true,
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
@@ -5337,8 +5288,7 @@ mod tests {
         )];
         let cryptde = CRYPTDE_PAIR.main.as_ref();
         let mut subject = ProxyServer::new(
-            cryptde,
-            CRYPTDE_PAIR.alias.as_ref(),
+            CRYPTDE_PAIR.clone(),
             true,
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
@@ -5414,8 +5364,7 @@ mod tests {
             .route_query_response(Some(route_query_response_expected.clone()));
         let cryptde = CRYPTDE_PAIR.main.as_ref();
         let mut subject = ProxyServer::new(
-            cryptde,
-            CRYPTDE_PAIR.alias.as_ref(),
+            CRYPTDE_PAIR.clone(),
             true,
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
@@ -5508,8 +5457,7 @@ mod tests {
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let stream_key = StreamKey::make_meaningless_stream_key();
         let mut subject = ProxyServer::new(
-            cryptde,
-            CRYPTDE_PAIR.alias.as_ref(),
+            CRYPTDE_PAIR.clone(),
             true,
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
@@ -5558,8 +5506,7 @@ mod tests {
         let system = System::new("panics_if_hopper_is_unbound");
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
         let subject = ProxyServer::new(
-            CRYPTDE_PAIR.main.as_ref(),
-            CRYPTDE_PAIR.alias.as_ref(),
+            CRYPTDE_PAIR.clone(),
             true,
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
@@ -5593,8 +5540,7 @@ mod tests {
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let system = System::new("report_response_services_consumed_complains_and_drops_package_if_return_route_id_is_unrecognized");
         let mut subject = ProxyServer::new(
-            cryptde,
-            CRYPTDE_PAIR.alias.as_ref(),
+            CRYPTDE_PAIR.clone(),
             true,
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
@@ -5644,8 +5590,7 @@ mod tests {
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let system = System::new("report_response_services_consumed_complains_and_drops_package_if_return_route_id_is_unreadable");
         let mut subject = ProxyServer::new(
-            cryptde,
-            CRYPTDE_PAIR.alias.as_ref(),
+            CRYPTDE_PAIR.clone(),
             true,
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
@@ -5700,8 +5645,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("report_response_services_consumed_complains_and_drops_package_if_return_route_id_does_not_exist");
             let mut subject = ProxyServer::new(
-                cryptde,
-                CRYPTDE_PAIR.alias.as_ref(),
+                CRYPTDE_PAIR.clone(),
                 true,
                 Some(STANDARD_CONSUMING_WALLET_BALANCE),
                 false,
@@ -5755,7 +5699,7 @@ mod tests {
     #[test]
     fn handle_stream_shutdown_msg_handles_unknown_peer_addr() {
         let mut subject =
-            ProxyServer::new(CRYPTDE_PAIR.main.as_ref(), CRYPTDE_PAIR.alias.as_ref(), true, None, false, false);
+            ProxyServer::new(CRYPTDE_PAIR.clone(), true, None, false, false);
         let unaffected_socket_addr = SocketAddr::from_str("2.3.4.5:6789").unwrap();
         let unaffected_stream_key = StreamKey::make_meaningful_stream_key("unaffected");
         subject
@@ -5796,8 +5740,7 @@ mod tests {
     fn handle_stream_shutdown_msg_reports_to_counterpart_through_tunnel_when_necessary() {
         let system = System::new("test");
         let mut subject = ProxyServer::new(
-            CRYPTDE_PAIR.main.as_ref(),
-            CRYPTDE_PAIR.alias.as_ref(),
+            CRYPTDE_PAIR.clone(),
             true,
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
@@ -5921,8 +5864,7 @@ mod tests {
             "handle_stream_shutdown_msg_reports_to_counterpart_without_tunnel_when_necessary";
         let system = System::new(test_name);
         let mut subject = ProxyServer::new(
-            CRYPTDE_PAIR.main.as_ref(),
-            CRYPTDE_PAIR.alias.as_ref(),
+            CRYPTDE_PAIR.clone(),
             true,
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
@@ -6043,7 +5985,7 @@ mod tests {
     fn handle_stream_shutdown_msg_logs_errors_from_handling_normal_client_data() {
         init_test_logging();
         let mut subject =
-            ProxyServer::new(CRYPTDE_PAIR.main.as_ref(), CRYPTDE_PAIR.alias.as_ref(), true, Some(0), false, false);
+            ProxyServer::new(CRYPTDE_PAIR.clone(), true, Some(0), false, false);
         subject.subs = Some(make_proxy_server_out_subs());
         let helper = IBCDHelperMock::default()
             .handle_normal_client_data_result(Err("Our help is not welcome".to_string()));
@@ -6069,7 +6011,7 @@ mod tests {
     fn stream_shutdown_msg_populates_correct_inbound_client_data_msg() {
         let help_to_handle_normal_client_data_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject =
-            ProxyServer::new(CRYPTDE_PAIR.main.as_ref(), CRYPTDE_PAIR.alias.as_ref(), true, Some(0), false, false);
+            ProxyServer::new(CRYPTDE_PAIR.clone(), true, Some(0), false, false);
         subject.subs = Some(make_proxy_server_out_subs());
         let icd_helper = IBCDHelperMock::default()
             .handle_normal_client_data_params(&help_to_handle_normal_client_data_params_arc)
@@ -6116,7 +6058,7 @@ mod tests {
     #[test]
     fn help_to_handle_normal_client_data_missing_consuming_wallet_and_protocol_pack_not_found() {
         let mut proxy_server =
-            ProxyServer::new(CRYPTDE_PAIR.main.as_ref(), CRYPTDE_PAIR.alias.as_ref(), true, None, false, false);
+            ProxyServer::new(CRYPTDE_PAIR.clone(), true, None, false, false);
         proxy_server.subs = Some(make_proxy_server_out_subs());
         let inbound_client_data_msg = InboundClientData {
             timestamp: SystemTime::now(),
@@ -6149,7 +6091,7 @@ mod tests {
         let addr = proxy_server.start();
         let proxy_server_sub = recipient!(&addr, AddRouteResultMessage);
         let args = TransmitToHopperArgs {
-            main_cryptde: cryptde,
+            main_cryptde: cryptde.dup(),
             payload,
             client_addr: SocketAddr::from_str("1.2.3.4:1234").unwrap(),
             timestamp: SystemTime::now(),
@@ -6212,8 +6154,7 @@ mod tests {
     #[test]
     fn help_to_handle_normal_client_data_make_payload_failed() {
         let mut proxy_server = ProxyServer::new(
-            CRYPTDE_PAIR.main.as_ref(),
-            CRYPTDE_PAIR.alias.as_ref(),
+            CRYPTDE_PAIR.clone(),
             true,
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
@@ -6246,7 +6187,6 @@ mod tests {
 
     #[test]
     fn new_http_request_creates_new_entry_inside_dns_retries_hashmap() {
-        let main_cryptde = CRYPTDE_PAIR.main.as_ref();
         let alias_cryptde = CRYPTDE_PAIR.alias.as_ref();
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
         let (neighborhood_mock, _, _) = make_recorder();
@@ -6284,8 +6224,7 @@ mod tests {
             "proxy_server_receives_http_request_from_dispatcher_then_sends_cores_package_to_hopper",
         );
         let mut subject = ProxyServer::new(
-            main_cryptde,
-            alias_cryptde,
+            CRYPTDE_PAIR.clone(),
             true,
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
@@ -6315,8 +6254,6 @@ mod tests {
 
     #[test]
     fn new_http_request_creates_new_exhausted_entry_inside_dns_retries_hashmap_zero_hop() {
-        let main_cryptde = CRYPTDE_PAIR.main.as_ref();
-        let alias_cryptde = CRYPTDE_PAIR.alias.as_ref();
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
         let (neighborhood_mock, _, _) = make_recorder();
         let destination_key = PublicKey::from(&b"our destination"[..]);
@@ -6344,7 +6281,7 @@ mod tests {
             .make(
                 &msg_from_dispatcher,
                 stream_key.clone(),
-                alias_cryptde,
+                CRYPTDE_PAIR.alias.as_ref(),
                 &Logger::new("test"),
             )
             .unwrap();
@@ -6353,8 +6290,7 @@ mod tests {
             "new_http_request_creates_new_exhausted_entry_inside_dns_retries_hashmap_zero_hop",
         );
         let mut subject = ProxyServer::new(
-            main_cryptde,
-            alias_cryptde,
+            CRYPTDE_PAIR.clone(),
             false,
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
@@ -6449,8 +6385,7 @@ mod tests {
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: localhost\r\n\r\n";
         let expected_data = http_request.to_vec();
         let mut proxy_server = ProxyServer::new(
-            CRYPTDE_PAIR.main.as_ref(),
-            CRYPTDE_PAIR.alias.as_ref(),
+            CRYPTDE_PAIR.clone(),
             true,
             Some(58),
             false,
@@ -6485,7 +6420,7 @@ mod tests {
     )]
     fn handle_stream_shutdown_complains_about_clandestine_message() {
         let system = System::new("test");
-        let subject = ProxyServer::new(CRYPTDE_PAIR.main.as_ref(), CRYPTDE_PAIR.alias.as_ref(), true, None, false, false);
+        let subject = ProxyServer::new(CRYPTDE_PAIR.clone(), true, None, false, false);
         let subject_addr = subject.start();
 
         subject_addr
@@ -6506,7 +6441,7 @@ mod tests {
     )]
     fn proxy_server_can_be_crashed_properly_but_not_improperly() {
         let proxy_server =
-            ProxyServer::new(CRYPTDE_PAIR.main.as_ref(), CRYPTDE_PAIR.alias.as_ref(), true, None, true, false);
+            ProxyServer::new(CRYPTDE_PAIR.clone(), true, None, true, false);
 
         prove_that_crash_request_handler_is_hooked_up(proxy_server, CRASH_KEY);
     }
@@ -6516,7 +6451,7 @@ mod tests {
         let socket_addr = SocketAddr::from_str("1.2.3.4:4321").unwrap();
         let stream_key = StreamKey::new(CRYPTDE_PAIR.main.as_ref().public_key(), socket_addr);
         let mut subject =
-            ProxyServer::new(CRYPTDE_PAIR.main.as_ref(), CRYPTDE_PAIR.alias.as_ref(), true, None, false, false);
+            ProxyServer::new(CRYPTDE_PAIR.clone(), true, None, false, false);
         subject.keys_and_addrs.insert(stream_key, socket_addr);
         let ibcd = InboundClientData {
             timestamp: SystemTime::now(),
@@ -6542,7 +6477,7 @@ mod tests {
         let socket_addr = SocketAddr::from_str("1.2.3.4:4321").unwrap();
         let stream_key = StreamKey::new(CRYPTDE_PAIR.main.as_ref().public_key(), socket_addr);
         let mut subject =
-            ProxyServer::new(CRYPTDE_PAIR.main.as_ref(), CRYPTDE_PAIR.alias.as_ref(), true, None, false, false);
+            ProxyServer::new(CRYPTDE_PAIR.clone(), true, None, false, false);
         let ibcd = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: socket_addr,

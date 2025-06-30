@@ -214,7 +214,6 @@ mod tests {
     use crate::bootstrapper::{BootstrapperConfig, CryptDEPair};
     use crate::node_test_utils::make_stream_handler_pool_subs_from_recorder;
     use crate::stream_messages::NonClandestineAttributes;
-    use crate::sub_lib::cryptde::CryptDE;
     use crate::sub_lib::dispatcher::Endpoint;
     use crate::sub_lib::neighborhood::NodeDescriptor;
     use crate::sub_lib::node_addr::NodeAddr;
@@ -234,15 +233,6 @@ mod tests {
     use std::thread;
     use std::time::SystemTime;
 
-    #[test]
-    fn constants_have_correct_values() {
-        assert_eq!(CRASH_KEY, "DISPATCHER");
-        assert_eq!(
-            NULL_IP_ADDRESS.to_string(),
-            IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)).to_string()
-        );
-    }
-
     lazy_static! {
         static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
         static ref NODE_DESCRIPTOR: NodeDescriptor = NodeDescriptor::try_from((
@@ -250,6 +240,15 @@ mod tests {
             "masq://eth-ropsten:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXgXEN6zQ@12.23.45.67:1234"
         ))
         .unwrap();
+    }
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(CRASH_KEY, "DISPATCHER");
+        assert_eq!(
+            NULL_IP_ADDRESS.to_string(),
+            IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)).to_string()
+        );
     }
 
     #[test]
@@ -609,7 +608,7 @@ mod tests {
         };
         // Here dispatcher takes what it needs from the BootstrapperConfig
         let (dispatcher_subs, _) =
-            ActorFactoryReal::new().make_and_start_dispatcher(&bootstrapper_config);
+            ActorFactoryReal::new(&CRYPTDE_PAIR).make_and_start_dispatcher(&bootstrapper_config);
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
         dispatcher_subs
             .bind
@@ -654,7 +653,7 @@ mod tests {
         };
         // Here dispatcher doesn't get what it needs from the BootstrapperConfig
         let (dispatcher_subs, _) =
-            ActorFactoryReal::new().make_and_start_dispatcher(&bootstrapper_config);
+            ActorFactoryReal::new(&CRYPTDE_PAIR).make_and_start_dispatcher(&bootstrapper_config);
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
         dispatcher_subs
             .bind
@@ -699,7 +698,7 @@ mod tests {
         };
         // Here dispatcher doesn't get what it needs from the BootstrapperConfig
         let (dispatcher_subs, _) =
-            ActorFactoryReal::new().make_and_start_dispatcher(&bootstrapper_config);
+            ActorFactoryReal::new(&CRYPTDE_PAIR).make_and_start_dispatcher(&bootstrapper_config);
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
         dispatcher_subs
             .bind
@@ -751,7 +750,7 @@ mod tests {
             body: UiDescriptorRequest {}.tmb(4321),
         };
         let (dispatcher_subs, _) =
-            ActorFactoryReal::new().make_and_start_dispatcher(&bootstrapper_config);
+            ActorFactoryReal::new(&CRYPTDE_PAIR).make_and_start_dispatcher(&bootstrapper_config);
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
         dispatcher_subs
             .bind

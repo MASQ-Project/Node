@@ -654,13 +654,13 @@ impl GossipHandler for IntroductionHandler {
                     ));
                 }
             }
-            let connection_progess_message = ConnectionProgressMessage {
+            let connection_progress_message = ConnectionProgressMessage {
                 peer_addr: introducer_ip_addr,
                 event: ConnectionProgressEvent::IntroductionGossipReceived(introducee_ip_addr),
             };
             neighborhood_metadata
                 .cpm_recipient
-                .try_send(connection_progess_message)
+                .try_send(connection_progress_message)
                 .expect("Neighborhood is dead");
             let (debut, target_key, target_node_addr) =
                 GossipAcceptorReal::make_debut_triple(database, &introducee)
@@ -1231,13 +1231,13 @@ pub trait GossipAcceptor: Send /* Send because lazily-written tests require it *
     ) -> GossipAcceptanceResult;
 }
 
-pub struct GossipAcceptorReal<'a> {
-    cryptde: &'a dyn CryptDE,
+pub struct GossipAcceptorReal {
+    cryptde: Box<dyn CryptDE>,
     gossip_handlers: Vec<Box<dyn GossipHandler>>,
     logger: Logger,
 }
 
-impl<'a> GossipAcceptor for GossipAcceptorReal<'a> {
+impl GossipAcceptor for GossipAcceptorReal {
     fn handle(
         &self,
         database: &mut NeighborhoodDatabase,
@@ -1259,7 +1259,7 @@ impl<'a> GossipAcceptor for GossipAcceptorReal<'a> {
                     handler_ref.type_name()
                 );
                 handler_ref.handle(
-                    self.cryptde,
+                    self.cryptde.as_ref(),
                     database,
                     agrs,
                     gossip_source,
@@ -1274,8 +1274,8 @@ impl<'a> GossipAcceptor for GossipAcceptorReal<'a> {
     }
 }
 
-impl<'a> GossipAcceptorReal<'a> {
-    pub fn new(cryptde: &'a dyn CryptDE) -> GossipAcceptorReal {
+impl GossipAcceptorReal {
+    pub fn new(cryptde: Box<dyn CryptDE>) -> GossipAcceptorReal {
         let logger = Logger::new("GossipAcceptor");
         GossipAcceptorReal {
             gossip_handlers: vec![
@@ -4262,7 +4262,7 @@ mod tests {
     }
 
     fn make_subject(crypt_de: &dyn CryptDE) -> GossipAcceptorReal {
-        GossipAcceptorReal::new(crypt_de)
+        GossipAcceptorReal::new(crypt_de.dup())
     }
 
     fn assert_node_records_eq(

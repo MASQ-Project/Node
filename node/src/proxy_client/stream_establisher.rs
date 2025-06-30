@@ -22,7 +22,7 @@ use std::net::IpAddr;
 use std::net::SocketAddr;
 
 pub struct StreamEstablisher {
-    pub cryptde: &'static dyn CryptDE,
+    pub cryptde: Box<dyn CryptDE>,
     pub stream_adder_tx: Sender<(StreamKey, StreamSenders)>,
     pub stream_killer_tx: Sender<(StreamKey, u64)>,
     pub stream_connector: Box<dyn StreamConnector>,
@@ -34,7 +34,7 @@ pub struct StreamEstablisher {
 impl Clone for StreamEstablisher {
     fn clone(&self) -> Self {
         StreamEstablisher {
-            cryptde: self.cryptde,
+            cryptde: self.cryptde.dup(),
             stream_adder_tx: self.stream_adder_tx.clone(),
             stream_killer_tx: self.stream_killer_tx.clone(),
             stream_connector: Box::new(StreamConnectorReal {}),
@@ -112,7 +112,7 @@ pub trait StreamEstablisherFactory: Send {
 }
 
 pub struct StreamEstablisherFactoryReal {
-    pub cryptde: &'static dyn CryptDE,
+    pub cryptde: Box<dyn CryptDE>,
     pub stream_adder_tx: Sender<(StreamKey, StreamSenders)>,
     pub stream_killer_tx: Sender<(StreamKey, u64)>,
     pub proxy_client_subs: ProxyClientSubs,
@@ -122,7 +122,7 @@ pub struct StreamEstablisherFactoryReal {
 impl StreamEstablisherFactory for StreamEstablisherFactoryReal {
     fn make(&self) -> StreamEstablisher {
         StreamEstablisher {
-            cryptde: self.cryptde,
+            cryptde: self.cryptde.dup(),
             stream_adder_tx: self.stream_adder_tx.clone(),
             stream_killer_tx: self.stream_killer_tx.clone(),
             stream_connector: Box::new(StreamConnectorReal {}),
@@ -183,7 +183,7 @@ mod tests {
             ];
 
             let subject = StreamEstablisher {
-                cryptde: CRYPTDE_PAIR.main.as_ref(),
+                cryptde: CRYPTDE_PAIR.main.dup(),
                 stream_adder_tx,
                 stream_killer_tx,
                 stream_connector: Box::new(StreamConnectorMock::new()), // only used in "establish_stream"

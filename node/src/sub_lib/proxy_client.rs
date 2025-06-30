@@ -1,5 +1,4 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, MessageType};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
@@ -14,6 +13,7 @@ use std::fmt::{Debug, Formatter};
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::net::SocketAddrV4;
+use crate::bootstrapper::CryptDEPair;
 
 pub fn error_socket_addr() -> SocketAddr {
     SocketAddr::from(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0))
@@ -21,7 +21,7 @@ pub fn error_socket_addr() -> SocketAddr {
 
 #[derive(Clone)]
 pub struct ProxyClientConfig {
-    pub cryptde: &'static dyn CryptDE,
+    pub cryptde_pair: CryptDEPair,
     pub dns_servers: Vec<SocketAddr>,
     pub exit_service_rate: u64,
     pub exit_byte_rate: u64,

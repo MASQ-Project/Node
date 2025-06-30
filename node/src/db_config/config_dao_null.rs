@@ -161,7 +161,6 @@ mod tests {
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::{DEFAULT_CHAIN, ETH_MAINNET_CONTRACT_CREATION_BLOCK};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use std::collections::HashSet;
 
     #[test]
     fn get_works() {

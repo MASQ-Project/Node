@@ -17,7 +17,7 @@ use log::LevelFilter;
 use crate::apps::app_node;
 use crate::bootstrapper::PortConfiguration;
 use crate::database::db_initializer::{DbInitializationConfig, ExternalData};
-use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
+use crate::db_config::persistent_configuration::{PersistentConfiguration};
 use crate::http_request_start_finder::HttpRequestDiscriminatorFactory;
 use crate::node_configurator::unprivileged_parse_args_configuration::{
     UnprivilegedParseArgsConfiguration, UnprivilegedParseArgsConfigurationDaoReal,
@@ -93,7 +93,8 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
             &self.logger,
         )?;
         configure_database(&unprivileged_config, persistent_config.as_mut())?;
-        configure_cryptdes(persistent_config.as_mut(), &unprivileged_config.db_password_opt)?;
+        let cryptde_pair = configure_cryptdes(persistent_config.as_mut(), &unprivileged_config.db_password_opt);
+        unprivileged_config.cryptde_pair = cryptde_pair;
         Ok(unprivileged_config)
     }
 }
@@ -360,24 +361,24 @@ fn configure_database(
 fn configure_cryptdes(
     persistent_config: &mut dyn PersistentConfiguration,
     db_password_opt: &Option<String>,
-) -> Result<CryptDEPair, ConfiguratorError> {
+) -> CryptDEPair {
     let cryptde_pair = if let Some(db_password) = db_password_opt {
+        let chain = Chain::from(persistent_config.chain_name().as_str());
         let main_result = persistent_config.cryptde(db_password);
 eprintln!("main_result: {:?}", main_result.as_ref().err().clone());
         match main_result {
             Ok(Some(last_main_cryptde)) => {
                 CryptDEPair::new(
-                    Box::new(last_main_cryptde),
-                    Box::new(CryptDEReal::new(last_main_cryptde.chain())),
+                    last_main_cryptde,
+                    Box::new(CryptDEReal::new(chain)),
                 )
             },
             Ok(None) => {
-                let chain = Chain::from(persistent_config.chain_name().as_str());
                 let main_cryptde: Box<dyn CryptDE> = Box::new(CryptDEReal::new(chain));
-                persistent_config.set_cryptde(main_cryptde.dup(), db_password)
+                persistent_config.set_cryptde(main_cryptde.as_ref(), db_password)
                     .expect("Failed to set cryptde");
                 let alias_cryptde: Box<dyn CryptDE> = Box::new(CryptDEReal::new(chain));
-                CryptDEPair::new(main_cryptde, alias_cryptde);
+                CryptDEPair::new(main_cryptde, alias_cryptde)
             },
             Err(e) => panic!("Could not read last cryptde from database: {:?}", e),
         }
@@ -386,9 +387,9 @@ eprintln!("main_result: {:?}", main_result.as_ref().err().clone());
         let chain = Chain::from(persistent_config.chain_name().as_str());
         let main_cryptde: Box<dyn CryptDE> = Box::new(CryptDEReal::new(chain));
         let alias_cryptde: Box<dyn CryptDE> = Box::new(CryptDEReal::new(chain));
-        CryptDEPair::new(main_cryptde, alias_cryptde);
+        CryptDEPair::new(main_cryptde, alias_cryptde)
     };
-    Ok(cryptde_pair)
+    cryptde_pair
 }
 
 #[cfg(test)]
@@ -576,37 +577,39 @@ mod tests {
 
     #[test]
     fn configure_cryptdes_handles_missing_password_with_uninitialized_cryptdes() {
-        let mut persistent_config = PersistentConfigurationMock::new()
-            .chain_name_result(TEST_DEFAULT_CHAIN.to_string());
-
-        let _result = configure_cryptdes(&mut persistent_config, &None).unwrap();
-
-        // no panic: cryptdes are initialized
-    }
-
-    #[test]
-    fn configure_cryptdes_handles_missing_last_cryptde() {
-        let cryptde_pair = CryptDEPair::new(
-            Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN)),
-            Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN))
-        );
         let cryptde_params_arc = Arc::new(Mutex::new(vec![]));
         let set_cryptde_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_config = PersistentConfigurationMock::new()
             .cryptde_params(&cryptde_params_arc)
+            .set_cryptde_params(&set_cryptde_params_arc)
+            .chain_name_result(TEST_DEFAULT_CHAIN.to_string());
+
+        let _result = configure_cryptdes(&mut persistent_config, &None);
+
+        let cryptde_params = cryptde_params_arc.lock().unwrap();
+        assert_eq!(cryptde_params.len(), 0);
+        let set_cryptde_params = set_cryptde_params_arc.lock().unwrap();
+        assert_eq!(set_cryptde_params.len(), 0);
+    }
+
+    #[test]
+    fn configure_cryptdes_handles_missing_last_cryptde() {
+        let cryptde_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_cryptde_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .cryptde_params(&cryptde_params_arc)
+            .chain_name_result(TEST_DEFAULT_CHAIN.to_string())
             .cryptde_result(Ok(None))
             .set_cryptde_params(&set_cryptde_params_arc)
             .set_cryptde_result(Ok(()));
 
-        let result = configure_cryptdes(&mut persistent_config, &Some("db_password".to_string())).unwrap();
+        let result = configure_cryptdes(&mut persistent_config, &Some("db_password".to_string()));
 
-        assert_eq!(result.main.public_key(), cryptde_pair.main.public_key());
-        assert_eq!(result.alias.public_key(), cryptde_pair.alias.public_key());
         let cryptde_params = cryptde_params_arc.lock().unwrap();
         assert_eq!(*cryptde_params, vec!["db_password".to_string()]);
         let set_cryptde_params = set_cryptde_params_arc.lock().unwrap();
         let call = &set_cryptde_params[0];
-        assert_eq!(call.0.public_key(), cryptde_pair.main.public_key());
+        assert_eq!(call.0.public_key(), result.main.public_key());
         assert_eq!(call.1, "db_password".to_string());
     }
 
@@ -615,6 +618,7 @@ mod tests {
     fn configure_cryptdes_panics_if_database_throws_error() {
         let _guard = EnvironmentGuard::new();
         let mut persistent_config = PersistentConfigurationMock::new()
+            .chain_name_result(TEST_DEFAULT_CHAIN.to_string())
             .cryptde_result(Err(PersistentConfigError::NotPresent));
 
         let _ = configure_cryptdes(&mut persistent_config, &Some("db_password".to_string()));
@@ -623,26 +627,16 @@ mod tests {
     #[test]
     fn configure_cryptdes_handles_populated_database() {
         let _guard = EnvironmentGuard::new();
-        let cryptde_pair = CryptDEPair::new(
-            Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN)),
-            Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN))
-        );
-        let original_main_cryptde_box = cryptde_pair.main.dup();
         let stored_main_cryptde_box = Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN));
-        assert_ne!(
-            original_main_cryptde_box.public_key(),
-            stored_main_cryptde_box.public_key()
-        );
-        let original_alias_cryptde_box = cryptde_pair.alias.dup();
         let cryptde_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_config = PersistentConfigurationMock::new()
             .cryptde_params(&cryptde_params_arc)
+            .chain_name_result(TEST_DEFAULT_CHAIN.to_string())
             .cryptde_result(Ok(Some(stored_main_cryptde_box.dup())));
 
-        configure_cryptdes(&mut persistent_config, &Some("db_password".to_string())).unwrap();
+        let result = configure_cryptdes(&mut persistent_config, &Some("db_password".to_string()));
 
-        assert_eq!(cryptde_pair.main.public_key(), stored_main_cryptde_box.public_key());
-        assert_eq!(cryptde_pair.alias.public_key(), original_alias_cryptde_box.public_key());
+        assert_eq!(result.main.public_key(), stored_main_cryptde_box.public_key());
         let cryptde_params = cryptde_params_arc.lock().unwrap();
         assert_eq!(*cryptde_params, vec!["db_password".to_string()]);
     }

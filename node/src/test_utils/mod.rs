@@ -24,7 +24,6 @@ use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::cryptde::PublicKey;
-use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::dispatcher::Component;
 use crate::sub_lib::neighborhood::ExpectedServices;
 use crate::sub_lib::neighborhood::RouteQueryResponse;

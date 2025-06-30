@@ -81,7 +81,6 @@ pub fn make_meaningless_db() -> NeighborhoodDatabase {
 
 pub fn db_from_node(node: &NodeRecord) -> NeighborhoodDatabase {
     NeighborhoodDatabase::new(
-        node.public_key(),
         node.into(),
         node.earning_wallet(),
         &CryptDENull::from(node.public_key(), TEST_DEFAULT_CHAIN),
@@ -116,7 +115,7 @@ pub fn neighborhood_from_nodes(
     config.earning_wallet = root.earning_wallet();
     config.consuming_wallet_opt = Some(make_paying_wallet(b"consuming"));
     config.db_password_opt = Some("password".to_string());
-    Neighborhood::new(cryptde, &config)
+    Neighborhood::new(cryptde_pair.clone(), &config)
 }
 
 impl From<&NodeRecord> for NeighborhoodMode {

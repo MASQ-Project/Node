@@ -45,6 +45,7 @@ use trust_dns_resolver::config::NameServerConfig;
 use trust_dns_resolver::config::Protocol;
 use trust_dns_resolver::config::ResolverConfig;
 use trust_dns_resolver::config::ResolverOpts;
+use crate::bootstrapper::CryptDEPair;
 
 pub const CRASH_KEY: &str = "PROXYCLIENT";
 
@@ -52,7 +53,7 @@ pub struct ProxyClient {
     dns_servers: Vec<SocketAddr>,
     resolver_wrapper_factory: Box<dyn ResolverWrapperFactory>,
     stream_handler_pool_factory: Box<dyn StreamHandlerPoolFactory>,
-    cryptde: &'static dyn CryptDE,
+    cryptde_pair: CryptDEPair,
     to_hopper: Option<Recipient<IncipientCoresPackage>>,
     to_accountant: Option<Recipient<ReportExitServiceProvidedMessage>>,
     pool: Option<Box<dyn StreamHandlerPool>>,
@@ -89,7 +90,7 @@ impl Handler<BindMessage> for ProxyClient {
         let resolver = self.resolver_wrapper_factory.make(config, opts);
         self.pool = Some(self.stream_handler_pool_factory.make(
             resolver,
-            self.cryptde,
+            self.cryptde_pair.main.as_ref(),
             self.to_accountant.clone().expect("Accountant is unbound"),
             msg.peer_actors.proxy_client_opt.unwrap(),
             self.exit_service_rate,
@@ -180,7 +181,7 @@ impl Handler<DnsResolveFailure_0v1> for ProxyClient {
         match stream_context_opt {
             Some(stream_context) => {
                 let package = IncipientCoresPackage::new(
-                    self.cryptde,
+                    self.cryptde_pair.main.as_ref(),
                     stream_context.return_route.clone(),
                     MessageType::DnsResolveFailed(VersionedData::new(
                         &crate::sub_lib::migrations::dns_resolve_failure::MIGRATIONS,
@@ -225,7 +226,7 @@ impl ProxyClient {
             dns_servers: config.dns_servers,
             resolver_wrapper_factory: Box::new(ResolverWrapperFactoryReal {}),
             stream_handler_pool_factory: Box::new(StreamHandlerPoolFactoryReal {}),
-            cryptde: config.cryptde,
+            cryptde_pair: config.cryptde_pair.clone(),
             to_hopper: None,
             to_accountant: None,
             pool: None,
@@ -276,7 +277,7 @@ impl ProxyClient {
             msg_data_len
         );
         let icp = match IncipientCoresPackage::new(
-            self.cryptde,
+            self.cryptde_pair.main.as_ref(),
             stream_context.return_route.clone(),
             payload,
             &stream_context.payload_destination_key,
@@ -420,7 +421,7 @@ mod tests {
             Mutex<
                 Vec<(
                     Box<dyn ResolverWrapper>,
-                    &'static dyn CryptDE,
+                    Box<dyn CryptDE>,
                     Recipient<ReportExitServiceProvidedMessage>,
                     ProxyClientSubs,
                     u64,
@@ -435,7 +436,7 @@ mod tests {
         fn make(
             &self,
             resolver: Box<dyn ResolverWrapper>,
-            cryptde: &'static dyn CryptDE,
+            cryptde: &dyn CryptDE,
             accountant_sub: Recipient<ReportExitServiceProvidedMessage>,
             proxy_client_subs: ProxyClientSubs,
             exit_service_rate: u64,
@@ -443,7 +444,7 @@ mod tests {
         ) -> Box<dyn StreamHandlerPool> {
             self.make_parameters.lock().unwrap().push((
                 resolver,
-                cryptde,
+                cryptde.dup(),
                 accountant_sub,
                 proxy_client_subs,
                 exit_service_rate,
@@ -467,7 +468,7 @@ mod tests {
                 Mutex<
                     Vec<(
                         Box<dyn ResolverWrapper>,
-                        &'static dyn CryptDE,
+                        Box<dyn CryptDE>,
                         Recipient<ReportExitServiceProvidedMessage>,
                         ProxyClientSubs,
                         u64,
@@ -492,7 +493,7 @@ mod tests {
     #[test]
     fn is_decentralized_flag_is_passed_through_constructor() {
         let config_factory = |is_decentralized: bool| ProxyClientConfig {
-            cryptde: CRYPTDE_PAIR.main.as_ref(),
+            cryptde_pair: CRYPTDE_PAIR.clone(),
             dns_servers: vec![SocketAddr::V4(
                 SocketAddrV4::from_str("1.2.3.4:4560").unwrap(),
             )],
@@ -515,7 +516,7 @@ mod tests {
     )]
     fn proxy_client_can_be_crashed_properly_but_not_improperly() {
         let proxy_client = ProxyClient::new(ProxyClientConfig {
-            cryptde: CRYPTDE_PAIR.main.as_ref(),
+            cryptde_pair: CRYPTDE_PAIR.clone(),
             dns_servers: vec![SocketAddr::V4(
                 SocketAddrV4::from_str("1.2.3.4:4560").unwrap(),
             )],
@@ -534,7 +535,7 @@ mod tests {
     )]
     fn at_least_one_dns_server_must_be_provided() {
         ProxyClient::new(ProxyClientConfig {
-            cryptde: CRYPTDE_PAIR.main.as_ref(),
+            cryptde_pair: CRYPTDE_PAIR.clone(),
             dns_servers: vec![],
             exit_service_rate: 100,
             exit_byte_rate: 200,
@@ -560,7 +561,7 @@ mod tests {
             .make_result(Box::new(pool));
         let peer_actors = peer_actors_builder().build();
         let mut subject = ProxyClient::new(ProxyClientConfig {
-            cryptde: CRYPTDE_PAIR.main.as_ref(),
+            cryptde_pair: CRYPTDE_PAIR.clone(),
             dns_servers: vec![
                 SocketAddr::from_str("4.3.2.1:4321").unwrap(),
                 SocketAddr::from_str("5.4.3.2:5432").unwrap(),
@@ -628,7 +629,7 @@ mod tests {
         );
         let system = System::new("panics_if_hopper_is_unbound");
         let subject = ProxyClient::new(ProxyClientConfig {
-            cryptde,
+            cryptde_pair: CRYPTDE_PAIR.clone(),
             dns_servers: dnss(),
             exit_service_rate: 100,
             exit_byte_rate: 200,
@@ -646,13 +647,12 @@ mod tests {
     #[test]
     fn logs_nonexistent_stream_key_during_dns_resolution_failure() {
         init_test_logging();
-        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let stream_key = StreamKey::make_meaningless_stream_key();
         let stream_key_inner = stream_key.clone();
         thread::spawn(move || {
             let system = System::new("logs_nonexistent_stream_key_during_dns_resolution_failure");
             let subject = ProxyClient::new(ProxyClientConfig {
-                cryptde,
+                cryptde_pair: CRYPTDE_PAIR.clone(),
                 dns_servers: vec![SocketAddr::from_str("1.1.1.1:53").unwrap()],
                 exit_service_rate: 0,
                 exit_byte_rate: 0,
@@ -693,7 +693,7 @@ mod tests {
             let system = System::new("forwards_dns_resolve_failed_to_hopper");
             let peer_actors = peer_actors_builder().hopper(hopper).build();
             let mut subject = ProxyClient::new(ProxyClientConfig {
-                cryptde,
+                cryptde_pair: CRYPTDE_PAIR.clone(),
                 dns_servers: vec![SocketAddr::from_str("1.1.1.1:53").unwrap()],
                 exit_service_rate: 0,
                 exit_byte_rate: 0,
@@ -748,7 +748,6 @@ mod tests {
 
     #[test]
     fn data_from_hopper_is_relayed_to_stream_handler_pool() {
-        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let request = ClientRequestPayload_0v1 {
             stream_key: StreamKey::make_meaningless_stream_key(),
             sequenced_packet: SequencedPacket {
@@ -785,7 +784,7 @@ mod tests {
             .lookup_ip_success(vec![IpAddr::from_str("4.3.2.1").unwrap()]);
         let resolver_factory = ResolverWrapperFactoryMock::new().new_result(Box::new(resolver));
         let mut subject = ProxyClient::new(ProxyClientConfig {
-            cryptde,
+            cryptde_pair: CRYPTDE_PAIR.clone(),
             dns_servers: dnss(),
             exit_service_rate: 100,
             exit_byte_rate: 200,
@@ -808,7 +807,6 @@ mod tests {
     #[test]
     fn refuse_to_provide_exit_services_with_no_paying_wallet() {
         init_test_logging();
-        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let request = ClientRequestPayload_0v1 {
             stream_key: StreamKey::make_meaningless_stream_key(),
             sequenced_packet: SequencedPacket {
@@ -842,7 +840,7 @@ mod tests {
             .lookup_ip_success(vec![IpAddr::from_str("4.3.2.1").unwrap()]);
         let resolver_factory = ResolverWrapperFactoryMock::new().new_result(Box::new(resolver));
         let mut subject = ProxyClient::new(ProxyClientConfig {
-            cryptde,
+            cryptde_pair: CRYPTDE_PAIR.clone(),
             dns_servers: dnss(),
             exit_service_rate: rate_pack_exit(100),
             exit_byte_rate: rate_pack_exit_byte(100),
@@ -859,7 +857,7 @@ mod tests {
         System::current().stop();
         system.run();
         assert_eq!(0, process_package_parameters.lock().unwrap().len());
-        TestLogHandler::new().exists_log_containing(format!("WARN: ProxyClient: Refusing to provide exit services for CORES package with 12-byte payload without paying wallet").as_str());
+        TestLogHandler::new().exists_log_containing("WARN: ProxyClient: Refusing to provide exit services for CORES package with 12-byte payload without paying wallet");
     }
 
     #[test]
@@ -909,7 +907,7 @@ mod tests {
             .lookup_ip_success(vec![IpAddr::from_str("4.3.2.1").unwrap()]);
         let resolver_factory = ResolverWrapperFactoryMock::new().new_result(Box::new(resolver));
         let mut subject = ProxyClient::new(ProxyClientConfig {
-            cryptde: main_cryptde,
+            cryptde_pair: CRYPTDE_PAIR.clone(),
             dns_servers: dnss(),
             exit_service_rate: rate_pack_exit(100),
             exit_byte_rate: rate_pack_exit_byte(100),
@@ -940,7 +938,7 @@ mod tests {
         let system = System::new(test_name);
         let route = make_meaningless_route(&CRYPTDE_PAIR);
         let mut subject = ProxyClient::new(ProxyClientConfig {
-            cryptde: CRYPTDE_PAIR.main.as_ref(),
+            cryptde_pair: CRYPTDE_PAIR.clone(),
             dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
             exit_service_rate: 100,
             exit_byte_rate: 200,
@@ -1089,7 +1087,7 @@ mod tests {
         let system =
             System::new("inbound_server_data_without_paying_wallet_does_not_report_exit_service");
         let mut subject = ProxyClient::new(ProxyClientConfig {
-            cryptde: CRYPTDE_PAIR.main.as_ref(),
+            cryptde_pair: CRYPTDE_PAIR.clone(),
             dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
             exit_service_rate: 100,
             exit_byte_rate: 200,
@@ -1141,7 +1139,7 @@ mod tests {
         let data: &[u8] = b"An honest politician is one who, when he is bought, will stay bought.";
         let system = System::new("error_creating_incipient_cores_package_is_logged_and_dropped");
         let mut subject = ProxyClient::new(ProxyClientConfig {
-            cryptde: CRYPTDE_PAIR.main.as_ref(),
+            cryptde_pair: CRYPTDE_PAIR.clone(),
             dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
             exit_service_rate: 100,
             exit_byte_rate: 200,
@@ -1191,7 +1189,7 @@ mod tests {
         let data: &[u8] = b"An honest politician is one who, when he is bought, will stay bought.";
         let system = System::new("new_return_route_overwrites_existing_return_route");
         let mut subject = ProxyClient::new(ProxyClientConfig {
-            cryptde,
+            cryptde_pair: CRYPTDE_PAIR.clone(),
             dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
             exit_service_rate: 100,
             exit_byte_rate: 200,
