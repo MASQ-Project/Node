@@ -397,14 +397,13 @@ pub mod tests {
     use masq_lib::crash_point::CrashPoint;
     use masq_lib::multi_config::MultiConfig;
     use masq_lib::shared_schema::{ConfiguratorError, ParamError};
-    use masq_lib::test_utils::fake_stream_holder::{
-        ByteArrayReader, ByteArrayWriter, FakeStreamHolder,
-    };
+    use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::utils::slice_of_strs_to_vec_of_strings;
     use std::cell::RefCell;
     use std::ops::Not;
     use std::sync::{Arc, Mutex};
+    use test_utilities::byte_array_reader_writer::{ByteArrayReader, ByteArrayWriter};
 
     impl<C: Send + 'static> ConfiguredByPrivilege for CrashTestDummy<C> {
         fn initialize_as_privileged(
