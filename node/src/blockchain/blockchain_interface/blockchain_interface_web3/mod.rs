@@ -4,7 +4,6 @@ pub mod lower_level_interface_web3;
 mod utils;
 
 use std::cmp::PartialEq;
-use crate::accountant::scanners::payable_scanner_extension::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainError, PayableTransactionError};
 use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, ProcessedPayableFallible};
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
@@ -21,10 +20,17 @@ use actix::Recipient;
 use ethereum_types::U64;
 use web3::transports::{EventLoopHandle, Http};
 use web3::types::{Address, Log, H256, U256, FilterBuilder, TransactionReceipt, BlockNumber};
-use crate::accountant::db_access_objects::payable_dao::PayableAccount;
+use crate::accountant::scanners::payable_scanner_extension::msgs::{UnpricedQualifiedPayables, PricedQualifiedPayables};
+use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::{BlockMarker, BlockScanRange, PendingPayableFingerprintSeeds};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{LowBlockchainIntWeb3, TransactionReceiptResult, TxReceipt, TxStatus};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::utils::{create_blockchain_agent_web3, send_payables_within_batch, BlockchainAgentFutureResult};
+
+// TODO We should probably begin to attach these constants to the interfaces more tightly, so that
+// we aren't baffled by which interface they belong with. I suggest to declare them inside
+// their inherent impl blocks. They will then need to be preceded by the class name
+// of the respective interface if you want to use them. This could be a distinction we desire,
+// despite the increased wordiness.
 
 const CONTRACT_ABI: &str = indoc!(
     r#"[{
@@ -156,7 +162,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         )
     }
 
-    fn build_blockchain_agent(
+    fn introduce_blockchain_agent(
         &self,
         consuming_wallet: Wallet,
     ) -> Box<dyn Future<Item = Box<dyn BlockchainAgent>, Error = BlockchainAgentBuildError>> {
@@ -193,8 +199,8 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                                             masq_token_balance,
                                         };
                                     Ok(create_blockchain_agent_web3(
-                                        gas_limit_const_part,
                                         blockchain_agent_future_result,
+                                        gas_limit_const_part,
                                         consuming_wallet,
                                         chain,
                                     ))
@@ -246,7 +252,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         logger: Logger,
         agent: Box<dyn BlockchainAgent>,
         fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
-        affordable_accounts: Vec<PayableAccount>,
+        affordable_accounts: PricedQualifiedPayables,
     ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>
     {
         let consuming_wallet = agent.consuming_wallet().clone();
@@ -254,7 +260,6 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         let get_transaction_id = self
             .lower_interface()
             .get_transaction_id(consuming_wallet.address());
-        let gas_price_wei = agent.agreed_fee_per_computation_unit();
         let chain = agent.get_chain();
 
         Box::new(
@@ -266,7 +271,6 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                         chain,
                         &web3_batch,
                         consuming_wallet,
-                        gas_price_wei,
                         pending_nonce,
                         fingerprints_recipient,
                         affordable_accounts,
@@ -430,7 +434,6 @@ impl BlockchainInterfaceWeb3 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::scanners::payable_scanner_extension::agent_web3::WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
         BlockchainInterfaceWeb3, CONTRACT_ABI, REQUESTS_IN_PARALLEL, TRANSACTION_LITERAL,
         TRANSFER_METHOD_ID,
@@ -441,9 +444,7 @@ mod tests {
         BlockchainAgentBuildError, BlockchainError, BlockchainInterface,
         RetrievedBlockchainTransactions,
     };
-    use crate::blockchain::test_utils::{
-        all_chains, make_blockchain_interface_web3, ReceiptResponseBuilder,
-    };
+    use crate::blockchain::test_utils::{all_chains, make_blockchain_interface_web3, ReceiptResponseBuilder};
     use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_paying_wallet;
@@ -459,6 +460,9 @@ mod tests {
     use std::str::FromStr;
     use web3::transports::Http;
     use web3::types::{H256, U256};
+    use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayablesBeforeGasPriceSelection, QualifiedPayableWithGasPrice};
+    use crate::accountant::test_utils::make_payable_account;
+    use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt, TxStatus};
 
     #[test]
@@ -831,11 +835,96 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_interface_web3_can_build_blockchain_agent() {
+    fn blockchain_interface_web3_can_introduce_blockchain_agent_in_the_new_payables_mode() {
+        let account_1 = make_payable_account(12);
+        let account_2 = make_payable_account(34);
+        let unpriced_qualified_payables =
+            UnpricedQualifiedPayables::from(vec![account_1.clone(), account_2.clone()]);
+        let gas_price_wei_from_rpc_hex = "0x3B9ACA00"; // 1000000000
+        let gas_price_wei_from_rpc_u128_wei =
+            u128::from_str_radix(&gas_price_wei_from_rpc_hex[2..], 16).unwrap();
+        let gas_price_wei_from_rpc_u128_wei_with_margin =
+            increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei);
+        let expected_priced_qualified_payables = PricedQualifiedPayables {
+            payables: vec![
+                QualifiedPayableWithGasPrice::new(
+                    account_1,
+                    gas_price_wei_from_rpc_u128_wei_with_margin,
+                ),
+                QualifiedPayableWithGasPrice::new(
+                    account_2,
+                    gas_price_wei_from_rpc_u128_wei_with_margin,
+                ),
+            ],
+        };
+        let expected_estimated_transaction_fee_total = 190_652_800_000_000;
+
+        test_blockchain_interface_web3_can_introduce_blockchain_agent(
+            unpriced_qualified_payables,
+            gas_price_wei_from_rpc_hex,
+            expected_priced_qualified_payables,
+            expected_estimated_transaction_fee_total,
+        );
+    }
+
+    #[test]
+    fn blockchain_interface_web3_can_introduce_blockchain_agent_in_the_retry_payables_mode() {
+        let gas_price_wei_from_rpc_hex = "0x3B9ACA00"; // 1000000000
+        let gas_price_wei_from_rpc_u128_wei =
+            u128::from_str_radix(&gas_price_wei_from_rpc_hex[2..], 16).unwrap();
+        let account_1 = make_payable_account(12);
+        let account_2 = make_payable_account(34);
+        let account_3 = make_payable_account(56);
+        let unpriced_qualified_payables = UnpricedQualifiedPayables {
+            payables: vec![
+                QualifiedPayablesBeforeGasPriceSelection::new(
+                    account_1.clone(),
+                    Some(gas_price_wei_from_rpc_u128_wei - 1),
+                ),
+                QualifiedPayablesBeforeGasPriceSelection::new(
+                    account_2.clone(),
+                    Some(gas_price_wei_from_rpc_u128_wei),
+                ),
+                QualifiedPayablesBeforeGasPriceSelection::new(
+                    account_3.clone(),
+                    Some(gas_price_wei_from_rpc_u128_wei + 1),
+                ),
+            ],
+        };
+
+        let expected_priced_qualified_payables = {
+            let gas_price_account_1 = increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei);
+            let gas_price_account_2 = increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei);
+            let gas_price_account_3 =
+                increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei + 1);
+            PricedQualifiedPayables {
+                payables: vec![
+                    QualifiedPayableWithGasPrice::new(account_1, gas_price_account_1),
+                    QualifiedPayableWithGasPrice::new(account_2, gas_price_account_2),
+                    QualifiedPayableWithGasPrice::new(account_3, gas_price_account_3),
+                ],
+            }
+        };
+        let expected_estimated_transaction_fee_total = 285_979_200_073_328;
+
+        test_blockchain_interface_web3_can_introduce_blockchain_agent(
+            unpriced_qualified_payables,
+            gas_price_wei_from_rpc_hex,
+            expected_priced_qualified_payables,
+            expected_estimated_transaction_fee_total,
+        );
+    }
+
+    fn test_blockchain_interface_web3_can_introduce_blockchain_agent(
+        unpriced_qualified_payables: UnpricedQualifiedPayables,
+        gas_price_wei_from_rpc_hex: &str,
+        expected_priced_qualified_payables: PricedQualifiedPayables,
+        expected_estimated_transaction_fee_total: u128,
+    ) {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             // gas_price
-            .ok_response("0x3B9ACA00".to_string(), 0) // 1000000000
+            .ok_response(gas_price_wei_from_rpc_hex.to_string(), 0)
             // transaction_fee_balance
             .ok_response("0xFFF0".to_string(), 0) // 65520
             // masq_balance
@@ -844,18 +933,16 @@ mod tests {
                 0,
             )
             .start();
-        let chain = Chain::PolyMainnet;
         let wallet = make_wallet("abc");
         let subject = make_blockchain_interface_web3(port);
 
         let result = subject
-            .build_blockchain_agent(wallet.clone())
+            .introduce_blockchain_agent(wallet.clone())
             .wait()
             .unwrap();
 
         let expected_transaction_fee_balance = U256::from(65_520);
         let expected_masq_balance = U256::from(65_535);
-        let expected_gas_price_wei = 1_000_000_000;
         assert_eq!(result.consuming_wallet(), &wallet);
         assert_eq!(
             result.consuming_wallet_balances(),
@@ -864,17 +951,15 @@ mod tests {
                 masq_token_balance_in_minor_units: expected_masq_balance
             }
         );
+        let priced_qualified_payables =
+            result.price_qualified_payables(unpriced_qualified_payables);
         assert_eq!(
-            result.agreed_fee_per_computation_unit(),
-            expected_gas_price_wei
+            priced_qualified_payables,
+            expected_priced_qualified_payables
         );
-        let expected_fee_estimation = (3
-            * (BlockchainInterfaceWeb3::web3_gas_limit_const_part(chain)
-                + WEB3_MAXIMAL_GAS_LIMIT_MARGIN)
-            * expected_gas_price_wei) as u128;
         assert_eq!(
-            result.estimated_transaction_fee_total(3),
-            expected_fee_estimation
+            result.estimate_transaction_fee_total(&priced_qualified_payables),
+            expected_estimated_transaction_fee_total
         )
     }
 
@@ -886,7 +971,9 @@ mod tests {
     {
         let wallet = make_wallet("bcd");
         let subject = make_blockchain_interface_web3(port);
-        let result = subject.build_blockchain_agent(wallet.clone()).wait();
+
+        let result = subject.introduce_blockchain_agent(wallet.clone()).wait();
+
         let err = match result {
             Err(e) => e,
             _ => panic!("we expected Err() but got Ok()"),
@@ -899,15 +986,16 @@ mod tests {
     fn build_of_the_blockchain_agent_fails_on_fetching_gas_price() {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port).start();
-        let wallet = make_wallet("abc");
-        let subject = make_blockchain_interface_web3(port);
+        let expected_err_factory = |_wallet: &Wallet| {
+            BlockchainAgentBuildError::GasPrice(QueryFailed(
+                "Transport error: Error(IncompleteMessage)".to_string(),
+            ))
+        };
 
-        let err = subject.build_blockchain_agent(wallet).wait().err().unwrap();
-
-        let expected_err = BlockchainAgentBuildError::GasPrice(QueryFailed(
-            "Transport error: Error(IncompleteMessage)".to_string(),
-        ));
-        assert_eq!(err, expected_err)
+        build_of_the_blockchain_agent_fails_on_blockchain_interface_error(
+            port,
+            expected_err_factory,
+        );
     }
 
     #[test]

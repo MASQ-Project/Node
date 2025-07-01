@@ -1,9 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::accountant::scanners::payable_scanner_extension::blockchain_agent::BlockchainAgent;
-use crate::accountant::scanners::payable_scanner_extension::msgs::QualifiedPayablesMessage;
+use crate::accountant::scanners::payable_scanner_extension::msgs::{
+    PricedQualifiedPayables, QualifiedPayablesMessage,
+};
 use crate::accountant::{RequestTransactionReceipts, ResponseSkeleton, SkeletonOptHolder};
+use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::sub_lib::peer_actors::BindMessage;
 use actix::Message;
@@ -41,14 +42,14 @@ impl Debug for BlockchainBridgeSubs {
 
 #[derive(Message)]
 pub struct OutboundPaymentsInstructions {
-    pub affordable_accounts: Vec<PayableAccount>,
+    pub affordable_accounts: PricedQualifiedPayables,
     pub agent: Box<dyn BlockchainAgent>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
 impl OutboundPaymentsInstructions {
     pub fn new(
-        affordable_accounts: Vec<PayableAccount>,
+        affordable_accounts: PricedQualifiedPayables,
         agent: Box<dyn BlockchainAgent>,
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) -> Self {

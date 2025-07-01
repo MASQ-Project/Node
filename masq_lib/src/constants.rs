@@ -19,6 +19,7 @@ pub const CURRENT_LOGFILE_NAME: &str = "MASQNode_rCURRENT.log";
 pub const MASQ_PROMPT: &str = "masq> ";
 
 pub const DEFAULT_GAS_PRICE: u64 = 1; //TODO ?? Really
+pub const DEFAULT_GAS_PRICE_MARGIN: u64 = 30;
 
 pub const WALLET_ADDRESS_LENGTH: usize = 42;
 pub const MASQ_TOTAL_SUPPLY: u64 = 37_500_000;
@@ -94,6 +95,13 @@ pub const CENTRAL_DELIMITER: char = '@';
 pub const CHAIN_IDENTIFIER_DELIMITER: char = ':';
 
 //chains
+pub const POLYGON_MAINNET_CHAIN_ID: u64 = 137;
+pub const POLYGON_AMOY_CHAIN_ID: u64 = 80002;
+pub const BASE_MAINNET_CHAIN_ID: u64 = 8453;
+pub const BASE_SEPOLIA_CHAIN_ID: u64 = 84532;
+pub const ETH_MAINNET_CHAIN_ID: u64 = 1;
+pub const ETH_ROPSTEN_CHAIN_ID: u64 = 3;
+pub const DEV_CHAIN_ID: u64 = 2;
 const POLYGON_FAMILY: &str = "polygon";
 const ETH_FAMILY: &str = "eth";
 const BASE_FAMILY: &str = "base";
@@ -106,6 +114,10 @@ pub const ETH_ROPSTEN_FULL_IDENTIFIER: &str = concatcp!(ETH_FAMILY, LINK, "ropst
 pub const BASE_MAINNET_FULL_IDENTIFIER: &str = concatcp!(BASE_FAMILY, LINK, MAINNET);
 pub const BASE_SEPOLIA_FULL_IDENTIFIER: &str = concatcp!(BASE_FAMILY, LINK, "sepolia");
 pub const DEV_CHAIN_FULL_IDENTIFIER: &str = "dev";
+pub const POLYGON_GAS_PRICE_CEILING_WEI: u128 = 200_000_000_000;
+pub const ETH_GAS_PRICE_CEILING_WEI: u128 = 100_000_000_000;
+pub const BASE_GAS_PRICE_CEILING_WEI: u128 = 50_000_000_000;
+pub const DEV_GAS_PRICE_CEILING_WEI: u128 = 200_000_000_000;
 
 #[cfg(test)]
 mod tests {
@@ -124,6 +136,7 @@ mod tests {
         assert_eq!(CURRENT_LOGFILE_NAME, "MASQNode_rCURRENT.log");
         assert_eq!(MASQ_PROMPT, "masq> ");
         assert_eq!(DEFAULT_GAS_PRICE, 1);
+        assert_eq!(DEFAULT_GAS_PRICE_MARGIN, 30);
         assert_eq!(WALLET_ADDRESS_LENGTH, 42);
         assert_eq!(MASQ_TOTAL_SUPPLY, 37_500_000);
         assert_eq!(WEIS_IN_GWEI, 1_000_000_000);
@@ -169,6 +182,13 @@ mod tests {
         assert_eq!(VALUE_EXCEEDS_ALLOWED_LIMIT, ACCOUNTANT_PREFIX | 3);
         assert_eq!(CENTRAL_DELIMITER, '@');
         assert_eq!(CHAIN_IDENTIFIER_DELIMITER, ':');
+        assert_eq!(POLYGON_MAINNET_CHAIN_ID, 137);
+        assert_eq!(POLYGON_AMOY_CHAIN_ID, 80002);
+        assert_eq!(BASE_MAINNET_CHAIN_ID, 8453);
+        assert_eq!(BASE_SEPOLIA_CHAIN_ID, 84532);
+        assert_eq!(ETH_MAINNET_CHAIN_ID, 1);
+        assert_eq!(ETH_ROPSTEN_CHAIN_ID, 3);
+        assert_eq!(DEV_CHAIN_ID, 2);
         assert_eq!(POLYGON_FAMILY, "polygon");
         assert_eq!(ETH_FAMILY, "eth");
         assert_eq!(BASE_FAMILY, "base");
@@ -180,6 +200,10 @@ mod tests {
         assert_eq!(ETH_ROPSTEN_FULL_IDENTIFIER, "eth-ropsten");
         assert_eq!(BASE_SEPOLIA_FULL_IDENTIFIER, "base-sepolia");
         assert_eq!(DEV_CHAIN_FULL_IDENTIFIER, "dev");
+        assert_eq!(POLYGON_GAS_PRICE_CEILING_WEI, 200_000_000_000);
+        assert_eq!(ETH_GAS_PRICE_CEILING_WEI, 100_000_000_000);
+        assert_eq!(BASE_GAS_PRICE_CEILING_WEI, 50_000_000_000);
+        assert_eq!(DEV_GAS_PRICE_CEILING_WEI, 200_000_000_000);
         assert_eq!(
             CLIENT_REQUEST_PAYLOAD_CURRENT_VERSION,
             DataVersion { major: 0, minor: 1 }

@@ -45,7 +45,7 @@ use time::OffsetDateTime;
 use variant_count::VariantCount;
 use web3::types::H256;
 use crate::accountant::scanners::payable_scanner_extension::{MultistageDualPayableScanner, PreparedAdjustment, SolvencySensitivePaymentInstructor};
-use crate::accountant::scanners::payable_scanner_extension::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage};
+use crate::accountant::scanners::payable_scanner_extension::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage, UnpricedQualifiedPayables};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionReceiptResult, TxStatus};
 use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
 use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
@@ -499,7 +499,7 @@ impl StartableScanner<ScanForNewPayables, QualifiedPayablesMessage> for PayableS
                     "Chose {} qualified debts to pay",
                     qualified_payables.len()
                 );
-
+                let qualified_payables = UnpricedQualifiedPayables::from(qualified_payables);
                 let outgoing_msg = QualifiedPayablesMessage::new(
                     qualified_payables,
                     consuming_wallet.clone(),
@@ -1395,7 +1395,7 @@ mod tests {
         PendingPayable, PendingPayableDaoError, TransactionHashes,
     };
     use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp};
-    use crate::accountant::scanners::payable_scanner_extension::msgs::QualifiedPayablesMessage;
+    use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayablesBeforeGasPriceSelection, QualifiedPayablesMessage, UnpricedQualifiedPayables};
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{OperationOutcome, PayableScanResult, PendingPayableMetadata};
     use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_none_status, handle_status_with_failure, PendingPayableScanReport, PendingPayableScanResult};
     use crate::accountant::scanners::{Scanner, StartScanError, StartableScanner, PayableScanner, PendingPayableScanner, ReceivableScanner, ScannerCommon, Scanners, MTError};
@@ -1641,10 +1641,17 @@ mod tests {
 
         let timestamp = subject.payable.scan_started_at();
         assert_eq!(timestamp, Some(now));
+        let qualified_payables_count = qualified_payable_accounts.len();
+        let expected_unpriced_qualified_payables = UnpricedQualifiedPayables {
+            payables: qualified_payable_accounts
+                .into_iter()
+                .map(|payable| QualifiedPayablesBeforeGasPriceSelection::new(payable, None))
+                .collect::<Vec<_>>(),
+        };
         assert_eq!(
             result,
             Ok(QualifiedPayablesMessage {
-                qualified_payables: qualified_payable_accounts.clone(),
+                qualified_payables: expected_unpriced_qualified_payables,
                 consuming_wallet,
                 response_skeleton_opt: None,
             })
@@ -1653,7 +1660,7 @@ mod tests {
             &format!("INFO: {test_name}: Scanning for new payables"),
             &format!(
                 "INFO: {test_name}: Chose {} qualified debts to pay",
-                qualified_payable_accounts.len()
+                qualified_payables_count
             ),
         ])
     }
@@ -1730,44 +1737,48 @@ mod tests {
 
     #[test]
     fn retry_payable_scanner_can_initiate_a_scan() {
-        init_test_logging();
-        let test_name = "retry_payable_scanner_can_initiate_a_scan";
-        let consuming_wallet = make_paying_wallet(b"consuming wallet");
-        let now = SystemTime::now();
-        let (qualified_payable_accounts, _, all_non_pending_payables) =
-            make_qualified_and_unqualified_payables(now, &PaymentThresholds::default());
-        let payable_dao =
-            PayableDaoMock::new().non_pending_payables_result(all_non_pending_payables);
-        let mut subject = make_dull_subject();
-        let payable_scanner = PayableScannerBuilder::new()
-            .payable_dao(payable_dao)
-            .build();
-        subject.payable = Box::new(payable_scanner);
-
-        let result = subject.start_retry_payable_scan_guarded(
-            &consuming_wallet,
-            now,
-            None,
-            &Logger::new(test_name),
-        );
-
-        let timestamp = subject.payable.scan_started_at();
-        assert_eq!(timestamp, Some(now));
-        assert_eq!(
-            result,
-            Ok(QualifiedPayablesMessage {
-                qualified_payables: qualified_payable_accounts.clone(),
-                consuming_wallet,
-                response_skeleton_opt: None,
-            })
-        );
-        TestLogHandler::new().assert_logs_match_in_order(vec![
-            &format!("INFO: {test_name}: Scanning for retry-required payables"),
-            &format!(
-                "INFO: {test_name}: Chose {} qualified debts to pay",
-                qualified_payable_accounts.len()
-            ),
-        ])
+        todo!("this must be set up under GH-605");
+        // TODO make sure the QualifiedPayableRawPack will express the difference from
+        // the NewPayable scanner: The QualifiedPayablesBeforeGasPriceSelection needs to carry
+        // `Some(<previous gas price value>)` instead of None
+        // init_test_logging();
+        // let test_name = "retry_payable_scanner_can_initiate_a_scan";
+        // let consuming_wallet = make_paying_wallet(b"consuming wallet");
+        // let now = SystemTime::now();
+        // let (qualified_payable_accounts, _, all_non_pending_payables) =
+        //     make_qualified_and_unqualified_payables(now, &PaymentThresholds::default());
+        // let payable_dao =
+        //     PayableDaoMock::new().non_pending_payables_result(all_non_pending_payables);
+        // let mut subject = make_dull_subject();
+        // let payable_scanner = PayableScannerBuilder::new()
+        //     .payable_dao(payable_dao)
+        //     .build();
+        // subject.payable = Box::new(payable_scanner);
+        //
+        // let result = subject.start_retry_payable_scan_guarded(
+        //     &consuming_wallet,
+        //     now,
+        //     None,
+        //     &Logger::new(test_name),
+        // );
+        //
+        // let timestamp = subject.payable.scan_started_at();
+        // assert_eq!(timestamp, Some(now));
+        // assert_eq!(
+        //     result,
+        //     Ok(QualifiedPayablesMessage {
+        //         qualified_payables: todo!(""),
+        //         consuming_wallet,
+        //         response_skeleton_opt: None,
+        //     })
+        // );
+        // TestLogHandler::new().assert_logs_match_in_order(vec![
+        //     &format!("INFO: {test_name}: Scanning for retry-required payables"),
+        //     &format!(
+        //         "INFO: {test_name}: Chose {} qualified debts to pay",
+        //         qualified_payable_accounts.len()
+        //     ),
+        // ])
     }
 
     #[test]
