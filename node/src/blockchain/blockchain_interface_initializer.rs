@@ -102,7 +102,7 @@ mod tests {
             expected_priced_qualified_payables
         );
         assert_eq!(
-            blockchain_agent.estimated_transaction_fee_total(&priced_qualified_payables),
+            blockchain_agent.estimate_transaction_fee_total(&priced_qualified_payables),
             190_652_800_000_000
         );
     }

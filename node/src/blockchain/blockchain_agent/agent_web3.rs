@@ -95,10 +95,7 @@ impl BlockchainAgent for BlockchainAgentWeb3 {
         }
     }
 
-    fn estimated_transaction_fee_total(
-        &self,
-        qualified_payables: &PricedQualifiedPayables,
-    ) -> u128 {
+    fn estimate_transaction_fee_total(&self, qualified_payables: &PricedQualifiedPayables) -> u128 {
         let prices_sum: u128 = qualified_payables
             .payables
             .iter()
@@ -529,7 +526,7 @@ mod tests {
         let rpc_gas_price_wei =
             (ceiling_gas_price_wei * 100) / (DEFAULT_GAS_PRICE_MARGIN as u128 + 100) + 2;
         let check_value_wei = increase_gas_price_by_margin(rpc_gas_price_wei);
-        let raw_qualified_payables = make_unpriced_qualified_payables_for_retry_mode(vec![
+        let unpriced_qualified_payables = make_unpriced_qualified_payables_for_retry_mode(vec![
             (account_1.clone(), rpc_gas_price_wei - 1),
             (account_2.clone(), rpc_gas_price_wei - 2),
         ]);
@@ -541,7 +538,7 @@ mod tests {
             test_name,
             chain,
             rpc_gas_price_wei,
-            raw_qualified_payables,
+            unpriced_qualified_payables,
             expected_surpluses_wallet_and_wei_as_text,
         );
 
@@ -566,7 +563,7 @@ mod tests {
             (ceiling_gas_price_wei * 100) / (DEFAULT_GAS_PRICE_MARGIN as u128 + 100) + 2;
         let rpc_gas_price_wei = border_gas_price_wei - 1;
         let check_value_wei = increase_gas_price_by_margin(border_gas_price_wei);
-        let raw_qualified_payables = make_unpriced_qualified_payables_for_retry_mode(vec![
+        let unpriced_qualified_payables = make_unpriced_qualified_payables_for_retry_mode(vec![
             (account_1.clone(), border_gas_price_wei),
             (account_2.clone(), border_gas_price_wei),
         ]);
@@ -578,7 +575,7 @@ mod tests {
             test_name,
             chain,
             rpc_gas_price_wei,
-            raw_qualified_payables,
+            unpriced_qualified_payables,
             expected_surpluses_wallet_and_wei_as_text,
         );
         assert!(check_value_wei > ceiling_gas_price_wei);
@@ -593,7 +590,7 @@ mod tests {
         let fetched_gas_price_wei = ceiling_gas_price_wei - 1;
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
-        let raw_qualified_payables = make_unpriced_qualified_payables_for_retry_mode(vec![
+        let unpriced_qualified_payables = make_unpriced_qualified_payables_for_retry_mode(vec![
             (account_1.clone(), fetched_gas_price_wei - 2),
             (account_2.clone(), fetched_gas_price_wei - 3),
         ]);
@@ -605,7 +602,7 @@ mod tests {
             test_name,
             chain,
             fetched_gas_price_wei,
-            raw_qualified_payables,
+            unpriced_qualified_payables,
             expected_surpluses_wallet_and_wei_as_text,
         );
     }
@@ -617,7 +614,7 @@ mod tests {
         let ceiling_gas_price_wei = chain.rec().gas_price_safe_ceiling_minor;
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
-        let raw_qualified_payables = make_unpriced_qualified_payables_for_retry_mode(vec![
+        let unpriced_qualified_payables = make_unpriced_qualified_payables_for_retry_mode(vec![
             (account_1.clone(), ceiling_gas_price_wei - 1),
             (account_2.clone(), ceiling_gas_price_wei - 2),
         ]);
@@ -629,7 +626,7 @@ mod tests {
             test_name,
             chain,
             ceiling_gas_price_wei - 3,
-            raw_qualified_payables,
+            unpriced_qualified_payables,
             expected_surpluses_wallet_and_wei_as_text,
         );
     }
@@ -644,20 +641,19 @@ mod tests {
         let account_2 = make_payable_account(34);
         // The values can never go above the ceiling, therefore, we can assume only values even or
         // smaller than that in the previous attempts
-        let raw_qualified_payables = make_unpriced_qualified_payables_for_retry_mode(vec![
+        let unpriced_qualified_payables = make_unpriced_qualified_payables_for_retry_mode(vec![
             (account_1.clone(), ceiling_gas_price_wei),
             (account_2.clone(), ceiling_gas_price_wei),
         ]);
         let expected_surpluses_wallet_and_wei_as_text =
             "650,000,000,000 wei for tx to 0x00000000000000000000\
-            000077616c6c65743132, 650,000,000,000 wei for tx to 0x00000000000000000000000077616c6c6\
-            5743334";
+            000077616c6c65743132, 650,000,000,000 wei for tx to 0x00000000000000000000000077616c6c65743334";
 
         test_gas_price_must_not_break_through_ceiling_value_in_the_retry_payable_mode(
             test_name,
             chain,
             fetched_gas_price_wei,
-            raw_qualified_payables,
+            unpriced_qualified_payables,
             expected_surpluses_wallet_and_wei_as_text,
         );
     }
@@ -725,7 +721,7 @@ mod tests {
     }
 
     #[test]
-    fn estimated_transaction_fee_works_for_new_payable() {
+    fn estimate_transaction_fee_total_works_for_new_payable() {
         let consuming_wallet = make_wallet("efg");
         let consuming_wallet_balances = make_zeroed_consuming_wallet_balances();
         let account_1 = make_payable_account(12);
@@ -741,7 +737,7 @@ mod tests {
         );
         let priced_qualified_payables = subject.price_qualified_payables(qualified_payables);
 
-        let result = subject.estimated_transaction_fee_total(&priced_qualified_payables);
+        let result = subject.estimate_transaction_fee_total(&priced_qualified_payables);
 
         assert_eq!(
             result,
@@ -751,7 +747,7 @@ mod tests {
     }
 
     #[test]
-    fn estimated_transaction_fee_works_for_retry_payable() {
+    fn estimate_transaction_fee_total_works_for_retry_payable() {
         let consuming_wallet = make_wallet("efg");
         let consuming_wallet_balances = make_zeroed_consuming_wallet_balances();
         let rpc_gas_price_wei = 444_555_666;
@@ -786,7 +782,7 @@ mod tests {
         let priced_qualified_payables =
             subject.price_qualified_payables(unpriced_qualified_payables);
 
-        let result = subject.estimated_transaction_fee_total(&priced_qualified_payables);
+        let result = subject.estimate_transaction_fee_total(&priced_qualified_payables);
 
         let gas_prices_for_accounts_from_1_to_5 = vec![
             increase_gas_price_by_margin(rpc_gas_price_wei),

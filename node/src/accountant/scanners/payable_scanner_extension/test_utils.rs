@@ -41,7 +41,7 @@ impl BlockchainAgent for BlockchainAgentMock {
         unimplemented!("not needed yet")
     }
 
-    fn estimated_transaction_fee_total(
+    fn estimate_transaction_fee_total(
         &self,
         _qualified_payables: &PricedQualifiedPayables,
     ) -> u128 {

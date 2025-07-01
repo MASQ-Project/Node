@@ -838,14 +838,14 @@ mod tests {
     fn blockchain_interface_web3_can_introduce_blockchain_agent_in_the_new_payables_mode() {
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
-        let raw_qualified_payables =
+        let unpriced_qualified_payables =
             UnpricedQualifiedPayables::from(vec![account_1.clone(), account_2.clone()]);
         let gas_price_wei_from_rpc_hex = "0x3B9ACA00"; // 1000000000
         let gas_price_wei_from_rpc_u128_wei =
             u128::from_str_radix(&gas_price_wei_from_rpc_hex[2..], 16).unwrap();
         let gas_price_wei_from_rpc_u128_wei_with_margin =
             increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei);
-        let expected_ripe_qualified_payables = PricedQualifiedPayables {
+        let expected_priced_qualified_payables = PricedQualifiedPayables {
             payables: vec![
                 QualifiedPayableWithGasPrice::new(
                     account_1,
@@ -857,13 +857,13 @@ mod tests {
                 ),
             ],
         };
-        let expected_estimated_transaction_fee = 190_652_800_000_000;
+        let expected_estimated_transaction_fee_total = 190_652_800_000_000;
 
         test_blockchain_interface_web3_can_introduce_blockchain_agent(
-            raw_qualified_payables,
+            unpriced_qualified_payables,
             gas_price_wei_from_rpc_hex,
-            expected_ripe_qualified_payables,
-            expected_estimated_transaction_fee,
+            expected_priced_qualified_payables,
+            expected_estimated_transaction_fee_total,
         );
     }
 
@@ -875,7 +875,7 @@ mod tests {
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
         let account_3 = make_payable_account(56);
-        let raw_qualified_payables = UnpricedQualifiedPayables {
+        let unpriced_qualified_payables = UnpricedQualifiedPayables {
             payables: vec![
                 QualifiedPayablesBeforeGasPriceSelection::new(
                     account_1.clone(),
@@ -892,7 +892,7 @@ mod tests {
             ],
         };
 
-        let expected_ripe_qualified_payables = {
+        let expected_priced_qualified_payables = {
             let gas_price_account_1 = increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei);
             let gas_price_account_2 = increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei);
             let gas_price_account_3 =
@@ -905,21 +905,21 @@ mod tests {
                 ],
             }
         };
-        let expected_estimated_transaction_fee = 285_979_200_073_328;
+        let expected_estimated_transaction_fee_total = 285_979_200_073_328;
 
         test_blockchain_interface_web3_can_introduce_blockchain_agent(
-            raw_qualified_payables,
+            unpriced_qualified_payables,
             gas_price_wei_from_rpc_hex,
-            expected_ripe_qualified_payables,
-            expected_estimated_transaction_fee,
+            expected_priced_qualified_payables,
+            expected_estimated_transaction_fee_total,
         );
     }
 
     fn test_blockchain_interface_web3_can_introduce_blockchain_agent(
-        qualified_payables: UnpricedQualifiedPayables,
+        unpriced_qualified_payables: UnpricedQualifiedPayables,
         gas_price_wei_from_rpc_hex: &str,
-        expected_ripe_qualified_payables: PricedQualifiedPayables,
-        expected_estimated_transaction_fee: u128,
+        expected_priced_qualified_payables: PricedQualifiedPayables,
+        expected_estimated_transaction_fee_total: u128,
     ) {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
@@ -951,11 +951,15 @@ mod tests {
                 masq_token_balance_in_minor_units: expected_masq_balance
             }
         );
-        let priced_qualified_payables = result.price_qualified_payables(qualified_payables);
-        assert_eq!(priced_qualified_payables, expected_ripe_qualified_payables);
+        let priced_qualified_payables =
+            result.price_qualified_payables(unpriced_qualified_payables);
         assert_eq!(
-            result.estimated_transaction_fee_total(&priced_qualified_payables),
-            expected_estimated_transaction_fee
+            priced_qualified_payables,
+            expected_priced_qualified_payables
+        );
+        assert_eq!(
+            result.estimate_transaction_fee_total(&priced_qualified_payables),
+            expected_estimated_transaction_fee_total
         )
     }
 

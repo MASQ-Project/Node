@@ -115,7 +115,7 @@ pub const BASE_MAINNET_FULL_IDENTIFIER: &str = concatcp!(BASE_FAMILY, LINK, MAIN
 pub const BASE_SEPOLIA_FULL_IDENTIFIER: &str = concatcp!(BASE_FAMILY, LINK, "sepolia");
 pub const DEV_CHAIN_FULL_IDENTIFIER: &str = "dev";
 pub const POLYGON_GAS_PRICE_CEILING_WEI: u128 = 200_000_000_000;
-pub const ETH_GAS_PRICE_CEIOLING_WEI: u128 = 100_000_000_000;
+pub const ETH_GAS_PRICE_CEILING_WEI: u128 = 100_000_000_000;
 pub const BASE_GAS_PRICE_CEILING_WEI: u128 = 50_000_000_000;
 pub const DEV_GAS_PRICE_CEILING_WEI: u128 = 200_000_000_000;
 
@@ -201,7 +201,7 @@ mod tests {
         assert_eq!(BASE_SEPOLIA_FULL_IDENTIFIER, "base-sepolia");
         assert_eq!(DEV_CHAIN_FULL_IDENTIFIER, "dev");
         assert_eq!(POLYGON_GAS_PRICE_CEILING_WEI, 200_000_000_000);
-        assert_eq!(ETH_GAS_PRICE_CEIOLING_WEI, 100_000_000_000);
+        assert_eq!(ETH_GAS_PRICE_CEILING_WEI, 100_000_000_000);
         assert_eq!(BASE_GAS_PRICE_CEILING_WEI, 50_000_000_000);
         assert_eq!(DEV_GAS_PRICE_CEILING_WEI, 200_000_000_000);
         assert_eq!(

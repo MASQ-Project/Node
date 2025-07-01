@@ -30,8 +30,7 @@ pub trait BlockchainAgent: Send {
         &self,
         qualified_payables: UnpricedQualifiedPayables,
     ) -> PricedQualifiedPayables;
-    fn estimated_transaction_fee_total(&self, qualified_payables: &PricedQualifiedPayables)
-        -> u128;
+    fn estimate_transaction_fee_total(&self, qualified_payables: &PricedQualifiedPayables) -> u128;
     fn consuming_wallet_balances(&self) -> ConsumingWalletBalances;
     fn consuming_wallet(&self) -> &Wallet;
     fn get_chain(&self) -> Chain;

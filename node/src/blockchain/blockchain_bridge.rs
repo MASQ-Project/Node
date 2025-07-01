@@ -744,7 +744,7 @@ mod tests {
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
         let blockchain_agent_with_context_msg_actual: &BlockchainAgentWithContextMessage =
             accountant_received_payment.get_record(0);
-        let expected_ripe_qualified_payables = PricedQualifiedPayables {
+        let expected_priced_qualified_payables = PricedQualifiedPayables {
             payables: qualified_payables
                 .into_iter()
                 .map(|payable| QualifiedPayableWithGasPrice {
@@ -755,7 +755,7 @@ mod tests {
         };
         assert_eq!(
             blockchain_agent_with_context_msg_actual.qualified_payables,
-            expected_ripe_qualified_payables
+            expected_priced_qualified_payables
         );
         let actual_agent = blockchain_agent_with_context_msg_actual.agent.as_ref();
         assert_eq!(actual_agent.consuming_wallet(), &consuming_wallet);
@@ -764,7 +764,7 @@ mod tests {
             ConsumingWalletBalances::new(0xAAAA.into(), 0xFFFF.into())
         );
         assert_eq!(
-            actual_agent.estimated_transaction_fee_total(
+            actual_agent.estimate_transaction_fee_total(
                 &actual_agent.price_qualified_payables(unpriced_qualified_payables)
             ),
             1_791_228_995_698_688
