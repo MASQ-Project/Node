@@ -2,6 +2,7 @@
 
 pub mod utils;
 
+use std::io::Read;
 use masq_lib::constants::{DEFAULT_CHAIN, NODE_NOT_RUNNING_ERROR};
 use masq_lib::messages::{
     ToMessageBody, UiFinancialsResponse, UiSetupRequest, UiSetupResponse, UiShutdownRequest,
@@ -18,6 +19,7 @@ use node_lib::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use rusqlite::{Connection, OpenFlags};
 use std::ops::Add;
 use std::time::{Duration, SystemTime};
+use regex::Regex;
 use utils::CommandConfig;
 use utils::MASQNode;
 
@@ -304,4 +306,38 @@ fn node_creates_log_file_with_heading_integration() {
 
     node.wait_for_log(&expected_heading_regex, Some(5000));
     //Node is dropped and killed
+}
+
+fn descriptor_from_logfile(test_name: &str, sterile_database: bool) -> String {
+    let descriptor_log_pattern = r"INFO: Bootstrapper: MASQ Node local descriptor: (masq://.*@:)";
+    let mut log_data = Vec::new();
+    let mut node = utils::MASQNode::start_standard(
+        test_name,
+        Some(CommandConfig::new().pair(
+            "--db-password", "test-password",
+        )),
+        sterile_database,
+        true,
+        false,
+        true,
+    );
+    node.wait_for_log(descriptor_log_pattern, Some(5000));
+    let path_to_logfile = MASQNode::path_to_logfile(&node.data_dir);
+    let mut logfile = std::fs::File::open(path_to_logfile).unwrap();
+    logfile.read_to_end(&mut log_data).unwrap();
+    let log_string = String::from_utf8(log_data).unwrap();
+    let regex = Regex::new(descriptor_log_pattern).unwrap();
+    let descriptor = regex.captures(&log_string).unwrap().get(1).unwrap().as_str();
+    node.kill().unwrap();
+    descriptor.to_string()
+}
+
+#[test]
+fn second_run_node_uses_same_public_key_as_first_run_node_integration() {
+    let test_name = "second_run_node_uses_same_public_key_as_first_run_node";
+    let first_descriptor = descriptor_from_logfile(test_name, true);
+
+    let second_descriptor = descriptor_from_logfile(test_name, false);
+
+    assert_eq!(second_descriptor, first_descriptor);
 }
