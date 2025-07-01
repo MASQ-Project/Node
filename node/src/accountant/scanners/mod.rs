@@ -676,57 +676,86 @@ impl PayableScanner {
         }
     }
 
-    fn separate_existent_and_nonexistent_fingerprints<'a>(
-        &'a self,
-        sent_payables: &[&'a PendingPayable],
-    ) -> (Vec<MarkOfPendingPayable>, Vec<PendingPayableMissingInDb>) {
+    fn check_for_missing_records(
+        &self,
+        sent_payables: &[&PendingPayable],
+    ) -> Vec<PendingPayableMissingInDb> {
         let actual_sent_payables_simple_total = sent_payables.len();
-
-        let actual_sent_payable_hashes_hashset = sent_payables
+        let hashset_with_runtime_data_sent_payable_hashes = sent_payables
             .iter()
             .map(|pending_payable| pending_payable.hash)
             .collect::<HashSet<TxHash>>();
-
-        if actual_sent_payable_hashes_hashset.len() != actual_sent_payables_simple_total {
+        if hashset_with_runtime_data_sent_payable_hashes.len() != actual_sent_payables_simple_total {
             todo!("check potential duplicity")
         }
-
+        let transaction_hashes_and_rowids_from_db = self.sent_payable_dao.get_tx_identifiers(&hashset_with_runtime_data_sent_payable_hashes);
+        let hashes_from_db = transaction_hashes_and_rowids_from_db
+            .keys()
+            .collect::<HashSet<TxHash>>();
+        let missing_sent_payables_hashes:Vec<TxHash> = hashset_with_runtime_data_sent_payable_hashes.difference(&hashes_from_db).collect();
         let mut sent_payables_hashmap = sent_payables
             .iter()
             .map(|payable| (payable.hash, &payable.recipient_wallet))
             .collect::<HashMap<TxHash, &Wallet>>();
-
-        let transaction_hashes = self.sent_payable_dao.get_tx_identifiers(&actual_sent_payable_hashes_hashset);
-        let
-        let hashes_from_db = transaction_hashes
-            .keys()
-            .collect::<HashSet<TxHash>>();
-
-        let missing_sent_payables_hashes = actual_sent_payable_hashes_hashset.difference(&hashes_from_db).collect();
-
-        let pending_payables_with_rowid = transaction_hashes
-            .rowid_results
-            .into_iter()
-            .map(|(rowid, hash)| {
-                let wallet = sent_payables_hashmap
-                    .remove(&hash)
-                    .expect("expect transaction hash, but it disappear");
-                PendingPayableMissingInDb::new(wallet, hash, Some(rowid))
-            })
-            .collect_vec();
-        let pending_payables_without_rowid = transaction_hashes
-            .no_rowid_results
-            .into_iter()
-            .map(|hash| {
-                let wallet = sent_payables_hashmap
-                    .remove(&hash)
-                    .expect("expect transaction hash, but it disappear");
-                PendingPayableMissingInDb::new(wallet, hash, None)
-            })
-            .collect_vec();
-
-        (pending_payables_with_rowid, pending_payables_without_rowid)
+        missing_sent_payables_hashes.into_iter().map(|hash| {
+            let wallet_address = sent_payables_hashmap
+                .remove(&hash)
+                .expectv("wallet")
+                .address();
+            PendingPayableMissingInDb::new(wallet_address, hash)
+        }).collect()
     }
+
+    // fn separate_existent_and_nonexistent_fingerprints<'a>(
+    //     &'a self,
+    //     sent_payables: &[&'a PendingPayable],
+    // ) -> (Vec<MarkOfPendingPayable>, Vec<PendingPayableMissingInDb>) {
+    //     let actual_sent_payables_simple_total = sent_payables.len();
+    // 
+    //     let hashset_with_actual_sent_payable_hashes = sent_payables
+    //         .iter()
+    //         .map(|pending_payable| pending_payable.hash)
+    //         .collect::<HashSet<TxHash>>();
+    // 
+    //     if hashset_with_actual_sent_payable_hashes.len() != actual_sent_payables_simple_total {
+    //         todo!("check potential duplicity")
+    //     }
+    // 
+    //     let mut sent_payables_hashmap = sent_payables
+    //         .iter()
+    //         .map(|payable| (payable.hash, &payable.recipient_wallet))
+    //         .collect::<HashMap<TxHash, &Wallet>>();
+    // 
+    //     let transaction_hashes = self.sent_payable_dao.get_tx_identifiers(&hashset_with_actual_sent_payable_hashes);
+    //     let hashes_from_db = transaction_hashes
+    //         .keys()
+    //         .collect::<HashSet<TxHash>>();
+    // 
+    //     let missing_sent_payables_hashes = hashset_with_actual_sent_payable_hashes.difference(&hashes_from_db).collect();
+    // 
+    //     let pending_payables_with_rowid = transaction_hashes
+    //         .rowid_results
+    //         .into_iter()
+    //         .map(|(rowid, hash)| {
+    //             let wallet = sent_payables_hashmap
+    //                 .remove(&hash)
+    //                 .expect("expect transaction hash, but it disappear");
+    //             PendingPayableMissingInDb::new(wallet, hash, Some(rowid))
+    //         })
+    //         .collect_vec();
+    //     let pending_payables_without_rowid = transaction_hashes
+    //         .no_rowid_results
+    //         .into_iter()
+    //         .map(|hash| {
+    //             let wallet = sent_payables_hashmap
+    //                 .remove(&hash)
+    //                 .expect("expect transaction hash, but it disappear");
+    //             PendingPayableMissingInDb::new(wallet, hash, None)
+    //         })
+    //         .collect_vec();
+    // 
+    //     (pending_payables_with_rowid, pending_payables_without_rowid)
+    // }
 
     fn mark_pending_payable(&self, sent_payments: &[&PendingPayable], logger: &Logger) {
         fn missing_fingerprints_msg(nonexistent: &[PendingPayableMissingInDb]) -> String {
@@ -748,14 +777,13 @@ impl PayableScanner {
         }
 
         let (existent, nonexistent) =
-            self.separate_existent_and_nonexistent_fingerprints(sent_payments);
+            self.check_for_missing_records(sent_payments);
 
-        // let mark_pp_input_data = ready_data_for_supply(&existent);
-        if !mark_pp_input_data.is_empty() {
+        if !existent.is_empty() {
             if let Err(e) = self
                 .payable_dao
                 .as_ref()
-                .mark_pending_payables_rowids(&mark_pp_input_data)
+                .mark_pending_payables_rowids(&existent)
             {
                 mark_pending_payable_fatal_error(
                     sent_payments,
@@ -1421,12 +1449,13 @@ mod tests {
     use regex::{Regex};
     use rusqlite::{ffi, ErrorCode};
     use std::cell::RefCell;
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet};
     use std::ops::Sub;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::rc::Rc;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
+    use secp256k1secrets::ecdh::SharedSecret;
     use web3::types::{TransactionReceipt, H256};
     use web3::Error;
     use masq_lib::messages::ScanType;
@@ -1871,9 +1900,9 @@ mod tests {
     fn payable_scanner_handles_sent_payable_message() {
         init_test_logging();
         let test_name = "payable_scanner_handles_sent_payable_message";
-        let fingerprints_rowids_params_arc = Arc::new(Mutex::new(vec![]));
+        let tx_rowids_params_arc = Arc::new(Mutex::new(vec![]));
         let mark_pending_payables_params_arc = Arc::new(Mutex::new(vec![]));
-        let delete_fingerprints_params_arc = Arc::new(Mutex::new(vec![]));
+        let delete_records_params_arc = Arc::new(Mutex::new(vec![]));
         let correct_payable_hash_1 = make_tx_hash(0x6f);
         let correct_payable_rowid_1 = 125;
         let correct_payable_wallet_1 = make_wallet("tralala");
@@ -1895,20 +1924,13 @@ mod tests {
         let correct_pending_payable_3 =
             PendingPayable::new(correct_payable_wallet_3.clone(), correct_payable_hash_3);
         let sent_payable_dao = SentPayableDaoMock::default()
-            .fingerprints_rowids_params(&fingerprints_rowids_params_arc)
-            .fingerprints_rowids_result(TransactionHashes {
-                rowid_results: vec![
-                    (correct_payable_rowid_3, correct_payable_hash_3),
-                    (correct_payable_rowid_1, correct_payable_hash_1),
-                ],
-                no_rowid_results: vec![],
-            })
-            .fingerprints_rowids_result(TransactionHashes {
-                rowid_results: vec![(failure_payable_rowid_2, failure_payable_hash_2)],
-                no_rowid_results: vec![],
-            })
-            .delete_fingerprints_params(&delete_fingerprints_params_arc)
-            .delete_fingerprints_result(Ok(()));
+            .get_tx_identifiers_params(&tx_rowids_params_arc)
+            .get_tx_identifiers_result(hashmap!(correct_payable_hash_3 => correct_payable_rowid_3,
+                correct_payable_hash_1 => correct_payable_rowid_1,
+            ))
+            .get_tx_identifiers_result(hashmap!(failure_payable_hash_2 => failure_payable_rowid_2))
+            .delete_records_params(&delete_records_params_arc)
+            .delete_records_result(Ok(()));
         let payable_dao = PayableDaoMock::new()
             .mark_pending_payables_rowids_params(&mark_pending_payables_params_arc)
             .mark_pending_payables_rowids_result(Ok(()))
@@ -1946,12 +1968,12 @@ mod tests {
         assert_eq!(is_scan_running, false);
         assert_eq!(aware_of_unresolved_pending_payable_before, false);
         assert_eq!(aware_of_unresolved_pending_payable_after, true);
-        let fingerprints_rowids_params = fingerprints_rowids_params_arc.lock().unwrap();
+        let tx_rowids_params = tx_rowids_params_arc.lock().unwrap();
         assert_eq!(
-            *fingerprints_rowids_params,
+            *tx_rowids_params,
             vec![
-                vec![correct_payable_hash_1, correct_payable_hash_3],
-                vec![failure_payable_hash_2]
+                hashset![correct_payable_hash_1, correct_payable_hash_3],
+                hashset![failure_payable_hash_2]
             ]
         );
         let mark_pending_payables_params = mark_pending_payables_params_arc.lock().unwrap();
@@ -1962,10 +1984,10 @@ mod tests {
                 (correct_payable_wallet_1, correct_payable_rowid_1),
             ]]
         );
-        let delete_fingerprints_params = delete_fingerprints_params_arc.lock().unwrap();
+        let delete_fingerprints_params = delete_records_params_arc.lock().unwrap();
         assert_eq!(
             *delete_fingerprints_params,
-            vec![vec![failure_payable_rowid_2]]
+            vec![hashset![failure_payable_hash_2]]
         );
         let log_handler = TestLogHandler::new();
         log_handler.assert_logs_contain_in_order(vec![
@@ -2009,24 +2031,21 @@ mod tests {
             .iter()
             .collect::<Vec<&PendingPayable>>();
         let sent_payable_dao =
-            SentPayableDaoMock::new().fingerprints_rowids_result(TransactionHashes {
-                rowid_results: vec![(4, hash_4), (1, hash_1), (3, hash_3), (2, hash_2)],
-                no_rowid_results: vec![],
-            });
+            SentPayableDaoMock::new().get_tx_identifiers_result(hashmap!(hash_4 => 4, hash_1 => 1, hash_3 => 3, hash_2 => 2));
         let subject = PayableScannerBuilder::new()
             .sent_payable_dao(sent_payable_dao)
             .build();
 
         let (existent, nonexistent) =
-            subject.separate_existent_and_nonexistent_fingerprints(&pending_payables_ref);
+            subject.check_for_missing_records(&pending_payables_ref);
 
         assert_eq!(
             existent,
             vec![
-                PendingPayableMissingInDb::new(&wallet_4, hash_4, Some(4)),
-                PendingPayableMissingInDb::new(&wallet_1, hash_1, Some(1)),
-                PendingPayableMissingInDb::new(&wallet_3, hash_3, Some(3)),
-                PendingPayableMissingInDb::new(&wallet_2, hash_2, Some(2)),
+                PendingPayableMissingInDb::new(wallet_4.address(), hash_4),
+                PendingPayableMissingInDb::new(wallet_1.address(), hash_1),
+                PendingPayableMissingInDb::new(wallet_3.address(), hash_3),
+                PendingPayableMissingInDb::new(wallet_2.address(), hash_2),
             ]
         );
         assert!(nonexistent.is_empty())
@@ -2075,25 +2094,26 @@ mod tests {
     no_rowid_results: [] }"
     )]
     fn two_sourced_information_of_new_pending_payables_and_their_fingerprints_is_not_symmetrical() {
-        let vals = prepare_values_for_mismatched_setting();
-        let pending_payables_ref = vals
-            .pending_payables
-            .iter()
-            .collect::<Vec<&PendingPayable>>();
-        let sent_payable_dao =
-            SentPayableDaoMock::new().fingerprints_rowids_result(TransactionHashes {
-                rowid_results: vec![
-                    (4, vals.common_hash_1),
-                    (1, vals.intruder_for_hash_2),
-                    (3, vals.common_hash_3),
-                ],
-                no_rowid_results: vec![],
-            });
-        let subject = PayableScannerBuilder::new()
-            .sent_payable_dao(sent_payable_dao)
-            .build();
-
-        subject.separate_existent_and_nonexistent_fingerprints(&pending_payables_ref);
+        todo!("rewrite me to test duplicity, mavbeeee?")
+        // let vals = prepare_values_for_mismatched_setting();
+        // let pending_payables_ref = vals
+        //     .pending_payables
+        //     .iter()
+        //     .collect::<Vec<&PendingPayable>>();
+        // // let sent_payable_dao =
+        // //     SentPayableDaoMock::new().get_tx_identifiers_result(hashmap!(vals.common_hash_1 => 1, vals.common_hash_3 => 3));
+        // //         rowid_results: vec![
+        // //             (4, vals.common_hash_1),
+        // //             (1, vals.intruder_for_hash_2),
+        // //             (3, vals.common_hash_3),
+        // //         ],
+        // //         no_rowid_results: vec![],
+        // //     });
+        // let subject = PayableScannerBuilder::new()
+        //     .sent_payable_dao(sent_payable_dao)
+        //     .build();
+        // 
+        // subject.check_for_missing_records(&pending_payables_ref);
     }
 
     #[test]
@@ -2185,10 +2205,7 @@ mod tests {
         let hash_2 = make_tx_hash(0x7b);
         let payment_2 = PendingPayable::new(make_wallet("agoob"), hash_2);
         let sent_payable_dao =
-            SentPayableDaoMock::default().fingerprints_rowids_result(TransactionHashes {
-                rowid_results: vec![],
-                no_rowid_results: vec![hash_1, hash_2],
-            });
+            SentPayableDaoMock::default().get_tx_identifiers_result(hashmap!());
         let payable_dao = PayableDaoMock::new();
         let mut subject = PayableScannerBuilder::new()
             .payable_dao(payable_dao)
@@ -2249,10 +2266,7 @@ mod tests {
         let hash_1 = make_tx_hash(248);
         let hash_2 = make_tx_hash(139);
         let sent_payable_dao =
-            SentPayableDaoMock::default().fingerprints_rowids_result(TransactionHashes {
-                rowid_results: vec![(7879, hash_1), (7881, hash_2)],
-                no_rowid_results: vec![],
-            });
+            SentPayableDaoMock::default().get_tx_identifiers_result(hashmap!(hash_1 => 7879, hash_2 => 7881));
 
         assert_panic_from_failing_to_mark_pending_payable_rowid(
             test_name,
@@ -2273,11 +2287,7 @@ mod tests {
         let hash_1 = make_tx_hash(0xff);
         let hash_2 = make_tx_hash(0xf8);
         let sent_payable_dao =
-            SentPayableDaoMock::default().fingerprints_rowids_result(TransactionHashes {
-                rowid_results: vec![(7881, hash_1)],
-                no_rowid_results: vec![hash_2],
-            });
-
+            SentPayableDaoMock::default().get_tx_identifiers_result(hashmap!(hash_1 => 7881));
         assert_panic_from_failing_to_mark_pending_payable_rowid(
             test_name,
             sent_payable_dao,
