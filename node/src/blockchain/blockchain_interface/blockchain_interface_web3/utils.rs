@@ -26,6 +26,7 @@ use web3::transports::{Batch, Http};
 use web3::types::{Bytes, SignedTransaction, TransactionParameters, U256};
 use web3::Error as Web3Error;
 use web3::Web3;
+use crate::accountant::PendingPayable;
 
 #[derive(Debug)]
 pub struct BlockchainAgentFutureResult {

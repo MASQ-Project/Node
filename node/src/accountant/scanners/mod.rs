@@ -45,12 +45,11 @@ use time::OffsetDateTime;
 use variant_count::VariantCount;
 use web3::types::H256;
 use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
-use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
+use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDao, SentTx};
 use crate::accountant::db_access_objects::utils::{TxHash, TxIdentifiers};
 use crate::accountant::scanners::payable_scanner_extension::{MultistageDualPayableScanner, PreparedAdjustment, SolvencySensitivePaymentInstructor};
 use crate::accountant::scanners::payable_scanner_extension::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage};
-use crate::accountant::test_utils::SentPayableDao;
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{ConfirmedTx, TransactionReceiptResult, TxStatus};
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionReceiptResult, TxStatus};
 use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
 use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
 
@@ -1074,7 +1073,7 @@ impl PendingPayableScanner {
 
     fn confirm_transactions(
         &mut self,
-        fingerprints: Vec<ConfirmedTx>,
+        fingerprints: Vec<SentTx>,
         logger: &Logger,
     ) {
         // fn serialize_hashes(fingerprints: &[SentTx]) -> String {
@@ -1109,8 +1108,8 @@ impl PendingPayableScanner {
 
     fn add_to_the_total_of_paid_payable(
         &mut self,
-        fingerprints: &[ConfirmedTx],
-        serialize_hashes: fn(&[ConfirmedTx]) -> String,
+        confirmed_payments: &[SentTx],
+        serialize_hashes: fn(&[SentTx]) -> String,
         logger: &Logger,
     ) {
         todo!()
@@ -1423,7 +1422,7 @@ mod tests {
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{OperationOutcome, PayableScanResult, PendingPayableMissingInDb};
     use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_status_with_failure, PendingPayableScanReport, PendingPayableScanResult};
     use crate::accountant::scanners::{Scanner, StartScanError, StartableScanner, PayableScanner, PendingPayableScanner, ReceivableScanner, ScannerCommon, Scanners, MTError};
-    use crate::accountant::test_utils::{make_custom_payment_thresholds, make_payable_account, make_qualified_and_unqualified_payables, make_pending_payable_fingerprint, make_receivable_account, BannedDaoFactoryMock, BannedDaoMock, ConfigDaoFactoryMock, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder, PayableThresholdsGaugeMock, PendingPayableDaoFactoryMock, SentPayableDaoMock, PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock, ReceivableScannerBuilder};
+    use crate::accountant::test_utils::{make_custom_payment_thresholds, make_payable_account, make_qualified_and_unqualified_payables, make_pending_payable_fingerprint, make_receivable_account, BannedDaoFactoryMock, BannedDaoMock, ConfigDaoFactoryMock, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder, PayableThresholdsGaugeMock, SentPayableDaoFactoryMock, SentPayableDaoMock, PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock, ReceivableScannerBuilder};
     use crate::accountant::{gwei_to_wei, PendingPayableId, ReceivedPayments, ReportTransactionReceipts, RequestTransactionReceipts, ScanError, ScanForRetryPayables, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC, PendingPayable};
     use crate::blockchain::blockchain_bridge::{BlockMarker, RetrieveTransactions};
     use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
@@ -1546,7 +1545,7 @@ mod tests {
         let payable_dao_factory = PayableDaoFactoryMock::new()
             .make_result(PayableDaoMock::new())
             .make_result(PayableDaoMock::new());
-        let sent_payable_dao_factory = PendingPayableDaoFactoryMock::new()
+        let sent_payable_dao_factory = SentPayableDaoFactoryMock::new()
             .make_result(SentPayableDaoMock::new())
             .make_result(SentPayableDaoMock::new());
         let receivable_dao = ReceivableDaoMock::new();
@@ -2305,24 +2304,18 @@ mod tests {
         init_test_logging();
         let test_name =
             "payable_scanner_is_facing_failed_transactions_and_their_fingerprints_exist";
-        let fingerprints_rowids_params_arc = Arc::new(Mutex::new(vec![]));
-        let delete_fingerprints_params_arc = Arc::new(Mutex::new(vec![]));
+        let get_tx_identifiers_params_arc = Arc::new(Mutex::new(vec![]));
+        let delete_records_params_arc = Arc::new(Mutex::new(vec![]));
         let hash_tx_1 = make_tx_hash(0x15b3);
         let hash_tx_2 = make_tx_hash(0x3039);
         let first_fingerprint_rowid = 3;
         let second_fingerprint_rowid = 5;
         let system = System::new(test_name);
         let sent_payable_dao = SentPayableDaoMock::default()
-            .fingerprints_rowids_params(&fingerprints_rowids_params_arc)
-            .fingerprints_rowids_result(TransactionHashes {
-                rowid_results: vec![
-                    (first_fingerprint_rowid, hash_tx_1),
-                    (second_fingerprint_rowid, hash_tx_2),
-                ],
-                no_rowid_results: vec![],
-            })
-            .delete_fingerprints_params(&delete_fingerprints_params_arc)
-            .delete_fingerprints_result(Ok(()));
+            .get_tx_identifiers_params(&get_tx_identifiers_params_arc)
+            .get_tx_identifiers_result(hashmap!(hash_tx_1 => first_fingerprint_rowid, hash_tx_2 => second_fingerprint_rowid))
+            .delete_records_params(&delete_records_params_arc)
+            .delete_records_result(Ok(()));
         let payable_scanner = PayableScannerBuilder::new()
             .sent_payable_dao(sent_payable_dao)
             .build();
@@ -2353,15 +2346,15 @@ mod tests {
         );
         assert_eq!(aware_of_unresolved_pending_payable_before, false);
         assert_eq!(aware_of_unresolved_pending_payable_after, false);
-        let fingerprints_rowids_params = fingerprints_rowids_params_arc.lock().unwrap();
+        let fingerprints_rowids_params = get_tx_identifiers_params_arc.lock().unwrap();
         assert_eq!(
             *fingerprints_rowids_params,
-            vec![vec![hash_tx_1, hash_tx_2]]
+            vec![hashset!(hash_tx_1, hash_tx_2)]
         );
-        let delete_fingerprints_params = delete_fingerprints_params_arc.lock().unwrap();
+        let delete_fingerprints_params = delete_records_params_arc.lock().unwrap();
         assert_eq!(
             *delete_fingerprints_params,
-            vec![vec![first_fingerprint_rowid, second_fingerprint_rowid]]
+            vec![hashset!(hash_tx_1, hash_tx_2)]
         );
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!("WARN: {test_name}: \
@@ -2423,11 +2416,8 @@ mod tests {
             response_skeleton_opt: None,
         };
         let sent_payable_dao = SentPayableDaoMock::default()
-            .retrieve_txs_result(TransactionHashes {
-                rowid_results: vec![(rowid_1, hash_1), (rowid_2, hash_2)],
-                no_rowid_results: vec![],
-            })
-            .delete_fingerprints_result(Err(SentPayableDaoError::SqlExecutionFailed(
+            .get_tx_identifiers_result(hashmap!(hash_1 => rowid_1, hash_2 => rowid_2))
+            .delete_records_result(Err(SentPayableDaoError::SqlExecutionFailed(
                 "Gosh, I overslept without an alarm set".to_string(),
             )));
         let mut subject = PayableScannerBuilder::new()
@@ -2461,11 +2451,8 @@ mod tests {
         let hash_2 = make_tx_hash(0x3039);
         let hash_3 = make_tx_hash(0x223d);
         let sent_payable_dao = SentPayableDaoMock::default()
-            .fingerprints_rowids_result(TransactionHashes {
-                rowid_results: vec![(333, hash_1)],
-                no_rowid_results: vec![hash_2, hash_3],
-            })
-            .delete_fingerprints_result(Ok(()));
+            .get_tx_identifiers_result(hashmap!(hash_1 => 333))
+            .delete_records_result(Ok(()));
         let mut subject = PayableScannerBuilder::new()
             .sent_payable_dao(sent_payable_dao)
             .build();
@@ -2509,11 +2496,8 @@ mod tests {
         let existent_record_hash = make_tx_hash(0xb26e);
         let nonexistent_record_hash = make_tx_hash(0x4d2);
         let sent_payable_dao = SentPayableDaoMock::default()
-            .fingerprints_rowids_result(TransactionHashes {
-                rowid_results: vec![(45, existent_record_hash)],
-                no_rowid_results: vec![nonexistent_record_hash],
-            })
-            .delete_fingerprints_result(Err(SentPayableDaoError::SqlExecutionFailed(
+            .get_tx_identifiers_result(hashmap!(existent_record_hash => 45))
+            .delete_records_result(Err(SentPayableDaoError::SqlExecutionFailed(
                 "Another failure. Really???".to_string(),
             )));
         let mut subject = PayableScannerBuilder::new()

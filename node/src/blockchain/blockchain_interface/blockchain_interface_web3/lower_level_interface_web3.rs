@@ -15,6 +15,7 @@ use web3::types::{Address, BlockNumber, Filter, Log, TransactionReceipt};
 use web3::{Error, Web3};
 use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
 use crate::accountant::db_access_objects::utils::TxHash;
+use crate::sub_lib::wallet::Wallet;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TransactionReceiptResult {
@@ -102,12 +103,6 @@ impl Display for TxStatus {
 pub struct TxReceiptLocalError{
     tx_hash: TxHash,
     err_msg: String
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct ConfirmedTx{
-    pub tx_hash: TxHash,
-    pub block: TransactionBlock
 }
 
 #[derive(Debug, Default, PartialEq, Eq, Clone)]

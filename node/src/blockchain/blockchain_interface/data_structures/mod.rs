@@ -8,6 +8,7 @@ use std::fmt;
 use std::fmt::Formatter;
 use web3::types::H256;
 use web3::Error;
+use crate::accountant::PendingPayable;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BlockchainTransaction {

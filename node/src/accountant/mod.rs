@@ -1241,7 +1241,7 @@ mod tests {
     use crate::accountant::test_utils::DaoWithDestination::{
         ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,
     };
-    use crate::accountant::test_utils::{bc_from_earning_wallet, bc_from_wallets, make_payable_account, make_qualified_and_unqualified_payables, make_pending_payable_fingerprint, BannedDaoFactoryMock, ConfigDaoFactoryMock, MessageIdGeneratorMock, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder, PaymentAdjusterMock, PendingPayableDaoFactoryMock, SentPayableDaoMock, ReceivableDaoFactoryMock, ReceivableDaoMock};
+    use crate::accountant::test_utils::{bc_from_earning_wallet, bc_from_wallets, make_payable_account, make_qualified_and_unqualified_payables, make_pending_payable_fingerprint, BannedDaoFactoryMock, ConfigDaoFactoryMock, MessageIdGeneratorMock, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder, PaymentAdjusterMock, SentPayableDaoFactoryMock, SentPayableDaoMock, ReceivableDaoFactoryMock, ReceivableDaoMock};
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
     use crate::accountant::Accountant;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::HashAndAmount;
@@ -1299,7 +1299,7 @@ mod tests {
     use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDaoError, SentTx};
     use crate::accountant::scanners::scan_schedulers::{NewPayableScanDynIntervalComputer, NewPayableScanDynIntervalComputerReal};
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{OperationOutcome, PayableScanResult};
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{ConfirmedTx, TransactionBlock, TxReceipt, TxStatus};
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt, TxStatus};
     use crate::test_utils::recorder_counter_msgs::SingleTypeCounterMsgSetup;
 
     impl Handler<AssertionsMessage<Accountant>> for Accountant {
@@ -1333,7 +1333,7 @@ mod tests {
             .make_result(PayableDaoMock::new()) // For Accountant
             .make_result(PayableDaoMock::new()) // For Payable Scanner
             .make_result(PayableDaoMock::new()); // For PendingPayable Scanner
-        let sent_payable_dao_factory = PendingPayableDaoFactoryMock::new()
+        let sent_payable_dao_factory = SentPayableDaoFactoryMock::new()
             .make_params(&pending_payable_dao_factory_params_arc)
             .make_result(SentPayableDaoMock::new()) // For Accountant
             .make_result(SentPayableDaoMock::new()) // For Payable Scanner
@@ -1386,7 +1386,7 @@ mod tests {
                 .make_result(PayableDaoMock::new()), // For PendingPayable Scanner
         );
         let sent_payable_dao_factory = Box::new(
-            PendingPayableDaoFactoryMock::new()
+            SentPayableDaoFactoryMock::new()
                 .make_result(SentPayableDaoMock::new()) // For Accountant
                 .make_result(SentPayableDaoMock::new()) // For Payable Scanner
                 .make_result(SentPayableDaoMock::new()), // For PendingPayable Scanner
@@ -1565,11 +1565,9 @@ mod tests {
     #[test]
     fn sent_payable_with_response_skeleton_sends_scan_response_to_ui_gateway() {
         let config = bc_from_earning_wallet(make_wallet("earning_wallet"));
+        let tx_hash = make_tx_hash(123);
         let sent_payable_dao =
-            SentPayableDaoMock::default().fingerprints_rowids_result(TransactionHashes {
-                rowid_results: vec![(1, make_tx_hash(123))],
-                no_rowid_results: vec![],
-            });
+            SentPayableDaoMock::default().get_tx_identifiers_result(hashmap! (tx_hash => 1));
         let payable_dao = PayableDaoMock::default().mark_pending_payables_rowids_result(Ok(()));
         let mut subject = AccountantBuilder::default()
             .pending_payable_daos(vec![ForPayableScanner(sent_payable_dao)])
@@ -1586,7 +1584,7 @@ mod tests {
         let sent_payable = SentPayables {
             payment_procedure_result: Ok(vec![ProcessedPayableFallible::Correct(PendingPayable {
                 recipient_wallet: make_wallet("blah"),
-                hash: make_tx_hash(123),
+                hash: tx_hash,
             })]),
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 1234,
@@ -4803,18 +4801,15 @@ mod tests {
 
     #[test]
     fn accountant_processes_sent_payables_and_schedules_pending_payable_scanner() {
-        let fingerprints_rowids_params_arc = Arc::new(Mutex::new(vec![]));
+        let get_tx_identifiers_params_arc = Arc::new(Mutex::new(vec![]));
         let mark_pending_payables_rowids_params_arc = Arc::new(Mutex::new(vec![]));
         let pending_payable_notify_later_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_wallet = make_wallet("paying_you");
         let expected_hash = H256::from("transaction_hash".keccak256());
         let expected_rowid = 45623;
         let sent_payable_dao = SentPayableDaoMock::default()
-            .fingerprints_rowids_params(&fingerprints_rowids_params_arc)
-            .fingerprints_rowids_result(TransactionHashes {
-                rowid_results: vec![(expected_rowid, expected_hash)],
-                no_rowid_results: vec![],
-            });
+            .get_tx_identifiers_params(&get_tx_identifiers_params_arc)
+            .get_tx_identifiers_result(hashmap! (expected_hash => expected_rowid));
         let payable_dao = PayableDaoMock::new()
             .mark_pending_payables_rowids_params(&mark_pending_payables_rowids_params_arc)
             .mark_pending_payables_rowids_result(Ok(()));
@@ -4844,8 +4839,8 @@ mod tests {
 
         System::current().stop();
         system.run();
-        let fingerprints_rowids_params = fingerprints_rowids_params_arc.lock().unwrap();
-        assert_eq!(*fingerprints_rowids_params, vec![vec![expected_hash]]);
+        let get_tx_identifiers_params = get_tx_identifiers_params_arc.lock().unwrap();
+        assert_eq!(*get_tx_identifiers_params, vec![hashset!(expected_hash)]);
         let mark_pending_payables_rowids_params =
             mark_pending_payables_rowids_params_arc.lock().unwrap();
         assert_eq!(

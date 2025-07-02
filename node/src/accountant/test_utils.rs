@@ -3,12 +3,8 @@
 #![cfg(test)]
 
 use crate::accountant::db_access_objects::banned_dao::{BannedDao, BannedDaoFactory};
-use crate::accountant::db_access_objects::payable_dao::{
-    PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory,
-};
-use crate::accountant::db_access_objects::sent_payable_dao::{
-    SentPayableDao,
-};
+use crate::accountant::db_access_objects::payable_dao::{MarkOfPendingPayable, PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory};
+use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDao, SentPayableDaoFactory};
 use crate::accountant::db_access_objects::receivable_dao::{
     ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,
 };
@@ -46,7 +42,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use crate::accountant::db_access_objects::sent_payable_dao::{RetrieveCondition, SentPayableDaoError, SentTx};
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionBlock;
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock};
 
 pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableAccount {
     let now = to_unix_timestamp(SystemTime::now());
@@ -84,13 +80,28 @@ pub fn make_payable_account_with_wallet_and_balance_and_timestamp_opt(
     }
 }
 
+pub fn make_sent_tx(num: u64)-> SentTx {
+    if num == 0 {
+        panic!("num for generating must be greater than 0");
+    }
+    SentTx{
+        hash: make_tx_hash(num as u32),
+        receiver_address: make_wallet(&format!("wallet{}", num)).address(),
+        amount: gwei_to_wei(num * num),
+        timestamp: to_unix_timestamp(SystemTime::now()) - (num as i64 * 60),
+        gas_price_wei: gwei_to_wei(num),
+        nonce: num,
+        block_opt: None,
+    }
+}
+
 pub struct AccountantBuilder {
     config_opt: Option<BootstrapperConfig>,
     consuming_wallet_opt: Option<Wallet>,
     logger_opt: Option<Logger>,
     payable_dao_factory_opt: Option<PayableDaoFactoryMock>,
     receivable_dao_factory_opt: Option<ReceivableDaoFactoryMock>,
-    pending_payable_dao_factory_opt: Option<PendingPayableDaoFactoryMock>,
+    sent_payable_dao_factory_opt: Option<SentPayableDaoFactoryMock>,
     banned_dao_factory_opt: Option<BannedDaoFactoryMock>,
     config_dao_factory_opt: Option<ConfigDaoFactoryMock>,
 }
@@ -103,7 +114,7 @@ impl Default for AccountantBuilder {
             logger_opt: None,
             payable_dao_factory_opt: None,
             receivable_dao_factory_opt: None,
-            pending_payable_dao_factory_opt: None,
+            sent_payable_dao_factory_opt: None,
             banned_dao_factory_opt: None,
             config_dao_factory_opt: None,
         }
@@ -275,8 +286,8 @@ impl AccountantBuilder {
         create_or_update_factory!(
             specially_configured_daos,
             PENDING_PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER,
-            pending_payable_dao_factory_opt,
-            PendingPayableDaoFactoryMock,
+            sent_payable_dao_factory_opt,
+            SentPayableDaoFactoryMock,
             SentPayableDao,
             self
         )
@@ -342,8 +353,8 @@ impl AccountantBuilder {
                 .make_result(ReceivableDaoMock::new())
                 .make_result(ReceivableDaoMock::new()),
         );
-        let sent_payable_dao_factory = self.pending_payable_dao_factory_opt.unwrap_or(
-            PendingPayableDaoFactoryMock::new()
+        let sent_payable_dao_factory = self.sent_payable_dao_factory_opt.unwrap_or(
+            SentPayableDaoFactoryMock::new()
                 .make_result(SentPayableDaoMock::new())
                 .make_result(SentPayableDaoMock::new())
                 .make_result(SentPayableDaoMock::new()),
@@ -543,20 +554,21 @@ impl PayableDao for PayableDaoMock {
 
     fn mark_pending_payables_rowids(
         &self,
-        wallets_and_rowids: &[(&Wallet, u64)],
+        mark_instructions: &[MarkOfPendingPayable],
     ) -> Result<(), PayableDaoError> {
-        self.mark_pending_payables_rowids_params
-            .lock()
-            .unwrap()
-            .push(
-                wallets_and_rowids
-                    .iter()
-                    .map(|(wallet, id)| ((*wallet).clone(), *id))
-                    .collect(),
-            );
-        self.mark_pending_payables_rowids_results
-            .borrow_mut()
-            .remove(0)
+        todo!()
+        // self.mark_pending_payables_rowids_params
+        //     .lock()
+        //     .unwrap()
+        //     .push(
+        //         mark_instructions
+        //             .iter()
+        //             .map(|(wallet, id)| ((*wallet).clone(), *id))
+        //             .collect(),
+        //     );
+        // self.mark_pending_payables_rowids_results
+        //     .borrow_mut()
+        //     .remove(0)
     }
 
     fn transactions_confirmed(
@@ -1171,12 +1183,12 @@ impl SentPayableDaoMock {
     }
 }
 
-pub struct PendingPayableDaoFactoryMock {
+pub struct SentPayableDaoFactoryMock {
     make_params: Arc<Mutex<Vec<()>>>,
     make_results: RefCell<Vec<Box<dyn SentPayableDao>>>,
 }
 
-impl PendingPayableDaoFactory for PendingPayableDaoFactoryMock {
+impl SentPayableDaoFactory for SentPayableDaoFactoryMock {
     fn make(&self) -> Box<dyn SentPayableDao> {
         if self.make_results.borrow().len() == 0 {
             panic!(
@@ -1188,7 +1200,7 @@ impl PendingPayableDaoFactory for PendingPayableDaoFactoryMock {
     }
 }
 
-impl PendingPayableDaoFactoryMock {
+impl SentPayableDaoFactoryMock {
     pub fn new() -> Self {
         Self {
             make_params: Arc::new(Mutex::new(vec![])),

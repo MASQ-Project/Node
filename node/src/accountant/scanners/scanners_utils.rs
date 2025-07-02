@@ -318,17 +318,17 @@ pub mod payable_scanner_utils {
 }
 
 pub mod pending_payable_scanner_utils {
-    use crate::accountant::PendingPayableId;
     use masq_lib::logger::Logger;
     use masq_lib::ui_gateway::NodeToUiMessage;
     use std::time::SystemTime;
     use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{ConfirmedTx, TxReceiptLocalError};
+    use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TxReceiptLocalError};
 
     #[derive(Debug, Default, PartialEq, Eq, Clone)]
     pub struct PendingPayableScanReport {
         pub failures: Vec<FailedTx>,
-        pub confirmed: Vec<ConfirmedTx>,
+        pub confirmed: Vec<SentTx>,
     }
 
     impl PendingPayableScanReport {
@@ -390,9 +390,10 @@ pub mod pending_payable_scanner_utils {
 
     pub fn handle_successful_tx(
         mut scan_report: PendingPayableScanReport,
-        confirmed_tx: ConfirmedTx,
+        confirmed_tx: SentTx,
         logger: &Logger,
     ) -> PendingPayableScanReport {
+        todo!()
         // info!(
         //     logger,
         //     "Transaction {:?} has been added to the blockchain; detected locally at attempt \
@@ -426,6 +427,7 @@ pub mod pending_payable_scanner_utils {
         local_error: TxReceiptLocalError,
         logger: &Logger,
     ) -> PendingPayableScanReport {
+        todo!()
         // debug!(
         //     logger,
         //     "Interpreting a receipt for transaction {:?} but {}; attempt {}, {}ms since sending",

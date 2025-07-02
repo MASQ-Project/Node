@@ -25,7 +25,7 @@ use std::time::SystemTime;
 use ethabi::Address;
 use itertools::Either;
 use web3::types::H256;
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::ConfirmedTx;
+use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum PayableDaoError {
@@ -51,12 +51,12 @@ pub trait PayableDao: Debug + Send {
 
     fn mark_pending_payables_rowids(
         &self,
-        wallets_and_rowids: &[MarkOfPendingPayable],
+        mark_instructions: &[MarkOfPendingPayable],
     ) -> Result<(), PayableDaoError>;
 
     fn transactions_confirmed(
         &self,
-        confirmed_payables: &[ConfirmedTx],
+        confirmed_payables: &[SentTx],
     ) -> Result<(), PayableDaoError>;
 
     fn non_pending_payables(&self) -> Vec<PayableAccount>;
@@ -132,55 +132,57 @@ impl PayableDao for PayableDaoReal {
 
     fn mark_pending_payables_rowids(
         &self,
-        wallets_and_rowids: &[(&Wallet, u64)],
+        mark_instructions: &[MarkOfPendingPayable],
     ) -> Result<(), PayableDaoError> {
-        if wallets_and_rowids.is_empty() {
-            panic!("broken code: empty input is not permit to enter this method")
-        }
-
-        let case_expr = compose_case_expression(wallets_and_rowids);
-        let wallets = serialize_wallets(wallets_and_rowids, Some('\''));
-        //the Wallet type is secure against SQL injections
-        let sql = format!(
-            "update payable set \
-                pending_payable_rowid = {} \
-             where
-                pending_payable_rowid is null and wallet_address in ({})
-             returning
-                pending_payable_rowid",
-            case_expr, wallets,
-        );
-        execute_command(&*self.conn, wallets_and_rowids, &sql)
+        todo!()
+        // if wallets_and_rowids.is_empty() {
+        //     panic!("broken code: empty input is not permit to enter this method")
+        // }
+        // 
+        // let case_expr = compose_case_expression(wallets_and_rowids);
+        // let wallets = serialize_wallets(wallets_and_rowids, Some('\''));
+        // //the Wallet type is secure against SQL injections
+        // let sql = format!(
+        //     "update payable set \
+        //         pending_payable_rowid = {} \
+        //      where
+        //         pending_payable_rowid is null and wallet_address in ({})
+        //      returning
+        //         pending_payable_rowid",
+        //     case_expr, wallets,
+        // );
+        // execute_command(&*self.conn, wallets_and_rowids, &sql)
     }
 
     fn transactions_confirmed(
         &self,
-        confirmed_payables: &[ConfirmedTx],
+        confirmed_payables: &[SentTx],
     ) -> Result<(), PayableDaoError> {
-        confirmed_payables.iter().try_for_each(|pending_payable_fingerprint| {
-
-            let main_sql = "update payable set \
-                    balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b, \
-                    last_paid_timestamp = :last_paid, pending_payable_rowid = null where pending_payable_rowid = :rowid";
-            let update_clause_with_compensated_overflow = "update payable set \
-                    balance_high_b = :balance_high_b, balance_low_b = :balance_low_b, last_paid_timestamp = :last_paid, \
-                    pending_payable_rowid = null where pending_payable_rowid = :rowid";
-
-            let i64_rowid = checked_conversion::<u64, i64>(pending_payable_fingerprint.rowid);
-            let last_paid = to_unix_timestamp(pending_payable_fingerprint.timestamp);
-            let params = SQLParamsBuilder::default()
-                .key( PendingPayableRowid(&i64_rowid))
-                .wei_change(WeiChange::new( "balance", pending_payable_fingerprint.amount, WeiChangeDirection::Subtraction))
-                .other_params(vec![ParamByUse::BeforeAndAfterOverflow(DisplayableRusqliteParamPair::new(":last_paid", &last_paid))])
-                .build();
-
-            self.big_int_db_processor.execute(Either::Left(self.conn.as_ref()), BigIntSqlConfig::new(
-                main_sql,
-                update_clause_with_compensated_overflow,
-                params))?;
-
-            Ok(())
-        })
+        todo!()
+        // confirmed_payables.iter().try_for_each(|pending_payable_fingerprint| {
+        // 
+        //     let main_sql = "update payable set \
+        //             balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b, \
+        //             last_paid_timestamp = :last_paid, pending_payable_rowid = null where pending_payable_rowid = :rowid";
+        //     let update_clause_with_compensated_overflow = "update payable set \
+        //             balance_high_b = :balance_high_b, balance_low_b = :balance_low_b, last_paid_timestamp = :last_paid, \
+        //             pending_payable_rowid = null where pending_payable_rowid = :rowid";
+        // 
+        //     let i64_rowid = checked_conversion::<u64, i64>(pending_payable_fingerprint.rowid);
+        //     let last_paid = to_unix_timestamp(pending_payable_fingerprint.timestamp);
+        //     let params = SQLParamsBuilder::default()
+        //         .key( PendingPayableRowid(&i64_rowid))
+        //         .wei_change(WeiChange::new( "balance", pending_payable_fingerprint.amount, WeiChangeDirection::Subtraction))
+        //         .other_params(vec![ParamByUse::BeforeAndAfterOverflow(DisplayableRusqliteParamPair::new(":last_paid", &last_paid))])
+        //         .build();
+        // 
+        //     self.big_int_db_processor.execute(Either::Left(self.conn.as_ref()), BigIntSqlConfig::new(
+        //         main_sql,
+        //         update_clause_with_compensated_overflow,
+        //         params))?;
+        // 
+        //     Ok(())
+        // })
     }
 
     fn non_pending_payables(&self) -> Vec<PayableAccount> {
@@ -553,7 +555,7 @@ mod tests {
     use crate::accountant::db_access_objects::utils::{from_unix_timestamp, current_unix_timestamp, to_unix_timestamp};
     use crate::accountant::gwei_to_wei;
     use crate::accountant::db_access_objects::payable_dao::mark_pending_payable_associated_functions::explanatory_extension;
-    use crate::accountant::test_utils::{assert_account_creation_fn_fails_on_finding_wrong_columns_and_value_types, make_pending_payable_fingerprint, trick_rusqlite_with_read_only_conn};
+    use crate::accountant::test_utils::{assert_account_creation_fn_fails_on_finding_wrong_columns_and_value_types, make_payable_account, make_pending_payable_fingerprint, make_sent_tx, trick_rusqlite_with_read_only_conn};
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::database::db_initializer::{
@@ -1016,48 +1018,43 @@ mod tests {
             balance_change_2,
         );
         let subject = PayableDaoReal::new(boxed_conn);
-        let status_1_before_opt = subject.account_status(&setup_holder.wallet_1);
-        let status_2_before_opt = subject.account_status(&setup_holder.wallet_2);
+        let status_1_before_opt = subject.account_status(&setup_holder.account_1.wallet);
+        let status_2_before_opt = subject.account_status(&setup_holder.account_2.wallet);
 
         let result = subject.transactions_confirmed(&[
-            setup_holder.fingerprint_1.clone(),
-            setup_holder.fingerprint_2.clone(),
+            setup_holder.account_1.pending_payable.clone(),
+            setup_holder.account_2.pending_payable.clone(),
         ]);
 
         assert_eq!(result, Ok(()));
+        // TODO yes these are unsensible now but it will eventually be all cleaned up with GH-662
         let expected_status_before_1 = PayableAccount {
-            wallet: setup_holder.wallet_1.clone(),
+            wallet: setup_holder.account_1.wallet.clone(),
             balance_wei: initial_amount_1,
-            last_paid_timestamp: setup_holder.previous_timestamp_1,
-            pending_payable_opt: Some(PendingPayableId::new(
-                setup_holder.fingerprint_1.rowid,
-                H256::from_uint(&U256::from(0)),
-            )), //hash is just garbage
+            last_paid_timestamp: setup_holder.account_1.previous_timestamp,
+            pending_payable_opt: None, //hash is just garbage
         };
         let expected_status_before_2 = PayableAccount {
-            wallet: setup_holder.wallet_2.clone(),
+            wallet: setup_holder.account_2.wallet.clone(),
             balance_wei: initial_amount_2,
-            last_paid_timestamp: setup_holder.previous_timestamp_2,
-            pending_payable_opt: Some(PendingPayableId::new(
-                setup_holder.fingerprint_2.rowid,
-                H256::from_uint(&U256::from(0)),
-            )), //hash is just garbage
+            last_paid_timestamp: setup_holder.account_2.previous_timestamp,
+            pending_payable_opt: None, //hash is just garbage
         };
         let expected_resulting_status_1 = PayableAccount {
-            wallet: setup_holder.wallet_1.clone(),
+            wallet: setup_holder.account_1.wallet.clone(),
             balance_wei: expected_balance_after_1,
-            last_paid_timestamp: setup_holder.fingerprint_1.timestamp,
+            last_paid_timestamp: setup_holder.account_1.previous_timestamp,
             pending_payable_opt: None,
         };
         let expected_resulting_status_2 = PayableAccount {
-            wallet: setup_holder.wallet_2.clone(),
+            wallet: setup_holder.account_2.wallet,
             balance_wei: expected_balance_after_2,
-            last_paid_timestamp: setup_holder.fingerprint_2.timestamp,
+            last_paid_timestamp: setup_holder.account_2.previous_timestamp,
             pending_payable_opt: None,
         };
         assert_eq!(status_1_before_opt, Some(expected_status_before_1));
         assert_eq!(status_2_before_opt, Some(expected_status_before_2));
-        let resulting_account_1_opt = subject.account_status(&setup_holder.wallet_1);
+        let resulting_account_1_opt = subject.account_status(&setup_holder.account_1.wallet);
         assert_eq!(resulting_account_1_opt, Some(expected_resulting_status_1));
         let resulting_account_2_opt = subject.account_status(&setup_holder.wallet_2);
         assert_eq!(resulting_account_2_opt, Some(expected_resulting_status_2))
@@ -1071,21 +1068,17 @@ mod tests {
         );
         let conn = payable_read_only_conn(&home_dir);
         let conn_wrapped = Box::new(ConnectionWrapperReal::new(conn));
-        let mut pending_payable_fingerprint = make_pending_payable_fingerprint();
-        let hash = make_tx_hash(12345);
-        let rowid = 789;
-        pending_payable_fingerprint.hash = hash;
-        pending_payable_fingerprint.rowid = rowid;
+        let confirmed_transaction = make_sent_tx(5);
+        let wallet_address = confirmed_transaction.receiver_address;
         let subject = PayableDaoReal::new(conn_wrapped);
 
-        let result = subject.transactions_confirmed(&[pending_payable_fingerprint]);
+        let result = subject.transactions_confirmed(&[confirmed_transaction]);
 
         assert_eq!(
             result,
             Err(PayableDaoError::RusqliteError(
-                "Error from invalid update command for payable table and change of -12345 wei to \
-                 'pending_payable_rowid = 789' with error 'attempt to write a readonly database'"
-                    .to_string()
+                format!("Error from invalid update command for payable table and change of -12345 wei to \
+                 creditor {} with error 'attempt to write a readonly database'", wallet_address)
             ))
         )
     }
