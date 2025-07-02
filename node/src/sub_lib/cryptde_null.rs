@@ -172,10 +172,7 @@ impl CryptDE for CryptDENull {
     }
 
     fn to_string(&self) -> String {
-        format!(
-            "{}",
-            base64::encode_config(self.private_key.as_slice(), base64::URL_SAFE_NO_PAD)
-        )
+        base64::encode_config(self.private_key.as_slice(), base64::URL_SAFE_NO_PAD)
     }
 
     fn as_any(&self) -> &dyn Any {

@@ -365,7 +365,6 @@ fn configure_cryptdes(
     let cryptde_pair = if let Some(db_password) = db_password_opt {
         let chain = Chain::from(persistent_config.chain_name().as_str());
         let main_result = persistent_config.cryptde(db_password);
-eprintln!("main_result: {:?}", main_result.as_ref().err().clone());
         match main_result {
             Ok(Some(last_main_cryptde)) => {
                 CryptDEPair::new(

@@ -14,7 +14,6 @@ use crate::proxy_client::stream_handler_pool::StreamHandlerPool;
 use crate::proxy_client::stream_handler_pool::StreamHandlerPoolFactory;
 use crate::proxy_client::stream_handler_pool::StreamHandlerPoolFactoryReal;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
-use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::hopper::MessageType;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, IncipientCoresPackage};
@@ -339,7 +338,7 @@ mod tests {
     use crate::proxy_client::stream_handler_pool::StreamHandlerPool;
     use crate::proxy_client::stream_handler_pool::StreamHandlerPoolFactory;
     use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
-    use crate::sub_lib::cryptde::CryptData;
+    use crate::sub_lib::cryptde::{CryptDE, CryptData};
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::dispatcher::Component;
     use crate::sub_lib::hopper::MessageType;

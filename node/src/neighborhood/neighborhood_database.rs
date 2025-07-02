@@ -569,7 +569,6 @@ mod tests {
         let node_a = make_node_record(2345, false);
         let node_b = make_node_record(3456, true);
         let mut subject = NeighborhoodDatabase::new(
-            root_node.public_key(),
             (&root_node).into(),
             Wallet::from_str("0x0000000000000000000000000000000000004444").unwrap(),
             &CryptDENull::from(root_node.public_key(), TEST_DEFAULT_CHAIN),

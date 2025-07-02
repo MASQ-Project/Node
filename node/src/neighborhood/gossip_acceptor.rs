@@ -3540,7 +3540,7 @@ mod tests {
         let gnr = GossipNodeRecord::from((
             root_node.inner.clone(),
             root_node.node_addr_opt(),
-            main_cryptde(),
+            CRYPTDE_PAIR.main.as_ref(),
         ));
         let debut_gossip = Gossip_0v1 {
             node_records: vec![gnr],
@@ -3589,7 +3589,7 @@ mod tests {
         let gnr = GossipNodeRecord::from((
             root_node.inner.clone(),
             root_node.node_addr_opt(),
-            main_cryptde(),
+            CRYPTDE_PAIR.main.as_ref(),
         ));
         let debut_gossip = Gossip_0v1 {
             node_records: vec![gnr],

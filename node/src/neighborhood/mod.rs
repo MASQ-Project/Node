@@ -2398,8 +2398,8 @@ mod tests {
     #[test]
     fn introduction_results_in_full_neighborship_in_debutant_db_and_enrich_db_countries_on_one_hop()
     {
-        let debut_node = make_global_cryptde_node_record(1111, true);
-        let mut debut_subject = neighborhood_from_nodes(&debut_node, None);
+        let debut_node = make_global_cryptde_node_record(1111, true, &CRYPTDE_PAIR);
+        let mut debut_subject = neighborhood_from_nodes(&debut_node, None, &CRYPTDE_PAIR);
         debut_subject.min_hops = Hops::OneHop;
         let persistent_config =
             PersistentConfigurationMock::new().set_past_neighbors_result(Ok(()));

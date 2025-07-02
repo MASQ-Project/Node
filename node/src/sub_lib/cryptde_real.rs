@@ -194,7 +194,7 @@ impl CryptDE for CryptDEReal {
             match base64::decode_config(s, base64::URL_SAFE_NO_PAD) {
                 Ok(v) => Ok(v),
                 Err(_) => {
-                    return Err(format!(
+                    Err(format!(
                         "Serialized CryptDE must have valid Base64, not '{}'",
                         s
                     ))

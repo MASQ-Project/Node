@@ -315,13 +315,11 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         ) {
             Ok(Some(text)) => text,
             Ok(None) => return Ok(None),
-            Err(_) => {
-                todo!("Test-drive me")
-            }
+            Err(_) => return Err(PersistentConfigError::PasswordError)
         };
         let chain_name = self.chain_name();
         let chain = Chain::from(chain_name.as_str());
-        if cryptde_text.contains(",") {
+        if cryptde_text.contains(',') {
             match CryptDEReal::new(chain).make_from_str(cryptde_text.as_str(), chain) {
                 Ok(c) => Ok(Some(c)),
                 Err(e) => {
@@ -1183,6 +1181,36 @@ mod tests {
         let result = subject.cryptde(db_password.as_str());
 
         assert_eq!(result.err().unwrap(), PersistentConfigError::NotPresent);
+    }
+
+    #[test]
+    fn cryptde_bad_password() {
+        let bad_password = "bad password".to_string();
+        let cryptde = CryptDEReal::new(Chain::Dev);
+        let cryptde_string = cryptde.to_string();
+        let cryptde_crypt =
+            DbEncryptionLayer::encrypt_value(&Some(cryptde_string), &Some("good_password".to_string()), "last_cryptde")
+                .unwrap()
+                .unwrap();
+        let get_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .get_params(&get_params_arc)
+            .get_result(Ok(ConfigDaoRecord::new(
+                "last_cryptde",
+                Some(cryptde_crypt.as_str()),
+                true,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                EXAMPLE_ENCRYPTED,
+                Some(cryptde_crypt.as_str()), // just has to be something encrypted with the same password
+                true,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new("chain_name", Some("dev"), false)));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.cryptde(bad_password.as_str());
+
+        assert_eq!(result.err().unwrap(), PersistentConfigError::PasswordError);
     }
 
     #[test]
