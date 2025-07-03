@@ -23,7 +23,6 @@ use std::net::SocketAddr;
 use std::net::TcpStream;
 use std::str::FromStr;
 use std::time::Duration;
-use masq_lib::test_utils::environment_guard::EnvironmentGuard;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 
@@ -65,7 +64,6 @@ fn establishes_masq_node_cluster_from_nothing() {
 
 #[test]
 fn server_relays_cores_package() {
-    let _eg = EnvironmentGuard::new();
     let cluster = MASQNodeCluster::start().unwrap();
     let masquerader = JsonMasquerader::new();
     let server = MASQCoresServer::new(cluster.chain);
@@ -106,7 +104,6 @@ fn server_relays_cores_package() {
 
 #[test]
 fn one_mock_node_talks_to_another() {
-    let _eg = EnvironmentGuard::new();
     let masquerader = JsonMasquerader::new();
     let mut cluster = MASQNodeCluster::start().unwrap();
     cluster.start_mock_node_with_public_key(vec![5550], &PublicKey::new(&[1, 2, 3, 4]));
