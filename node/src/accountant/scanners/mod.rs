@@ -522,7 +522,7 @@ impl StartableScanner<ScanForRetryPayables, QualifiedPayablesMessage> for Payabl
         todo!("Complete me under GH-605")
         // 1. Find the failed payables
         // 2. Look into the payable DAO to update the amount
-        // 3. Prepare QualifiedPayables (it may not be there)
+        // 3. Prepare UnpricedQualifiedPayables
     }
 }
 
