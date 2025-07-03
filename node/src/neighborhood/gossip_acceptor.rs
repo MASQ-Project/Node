@@ -1417,6 +1417,7 @@ impl GossipAcceptorReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bootstrapper::CryptDEPair;
     use crate::neighborhood::gossip_producer::GossipProducer;
     use crate::neighborhood::gossip_producer::GossipProducerReal;
     use crate::neighborhood::node_record::NodeRecord;
@@ -1437,6 +1438,7 @@ mod tests {
     use actix::System;
     use ip_country_lib::dbip_country::COUNTRIES;
     use itertools::Itertools;
+    use lazy_static::lazy_static;
     use masq_lib::messages::ExitLocation;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
@@ -1445,8 +1447,6 @@ mod tests {
     use std::ops::{Add, Sub};
     use std::str::FromStr;
     use std::time::Duration;
-    use lazy_static::lazy_static;
-    use crate::bootstrapper::CryptDEPair;
 
     lazy_static! {
         static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
@@ -2351,7 +2351,8 @@ mod tests {
         assert_eq!(
             result,
             Qualification::Malformed(
-                "Standard Gossip from 1.2.3.4:1234 contains a record with this Node's public key".to_string()
+                "Standard Gossip from 1.2.3.4:1234 contains a record with this Node's public key"
+                    .to_string()
             ),
         );
     }

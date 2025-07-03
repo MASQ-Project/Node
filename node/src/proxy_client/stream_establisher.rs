@@ -136,6 +136,7 @@ impl StreamEstablisherFactory for StreamEstablisherFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bootstrapper::CryptDEPair;
     use crate::sub_lib::proxy_server::ProxyProtocol;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
@@ -144,13 +145,12 @@ mod tests {
     use actix::System;
     use crossbeam_channel::unbounded;
     use futures::future::lazy;
+    use lazy_static::lazy_static;
     use std::io::ErrorKind;
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::thread;
-    use lazy_static::lazy_static;
     use tokio::prelude::Async;
-    use crate::bootstrapper::CryptDEPair;
 
     lazy_static! {
         static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();

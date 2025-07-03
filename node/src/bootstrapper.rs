@@ -28,6 +28,9 @@ use crate::sub_lib::accountant;
 use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeConfig;
 use crate::sub_lib::cryptde::CryptDE;
+#[cfg(test)]
+use crate::sub_lib::cryptde_null::CryptDENull;
+use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode};
 use crate::sub_lib::node_addr::NodeAddr;
@@ -59,9 +62,6 @@ use tokio::prelude::stream::futures_unordered::FuturesUnordered;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
 use tokio::prelude::Stream;
-#[cfg(test)]
-use crate::sub_lib::cryptde_null::CryptDENull;
-use crate::sub_lib::cryptde_real::CryptDEReal;
 
 pub struct CryptDEPair {
     // This has the public key by which this Node is known to other Nodes on the network
@@ -517,8 +517,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
         // NOTE: The following line of code is not covered by unit tests
         fdlimit::raise_fd_limit();
         let unprivileged_config =
-            NodeConfiguratorStandardUnprivileged::new(&self.config)
-                .configure(multi_config)?; // this is where the CryptDEs are set up
+            NodeConfiguratorStandardUnprivileged::new(&self.config).configure(multi_config)?; // this is where the CryptDEs are set up
         let cryptde_pair = unprivileged_config.cryptde_pair.clone();
         self.config.merge_unprivileged(unprivileged_config);
         let _ = self.set_up_clandestine_port();
@@ -536,7 +535,10 @@ impl ConfiguredByPrivilege for Bootstrapper {
         match &self.config.neighborhood_config.mode {
             NeighborhoodMode::Standard(node_addr, _, _)
                 if node_addr.ip_addr() == Ipv4Addr::new(0, 0, 0, 0) => {} // node_addr still coming
-            _ => Bootstrapper::report_local_descriptor(cryptde_pair.main.as_ref(), &self.config.node_descriptor), // here or not coming
+            _ => Bootstrapper::report_local_descriptor(
+                cryptde_pair.main.as_ref(),
+                &self.config.node_descriptor,
+            ), // here or not coming
         }
         let stream_handler_pool_subs = self.start_actors_and_return_shp_subs();
         self.listener_handlers
@@ -672,7 +674,10 @@ impl Bootstrapper {
 mod tests {
     use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
     use crate::actor_system_factory::{ActorFactory, ActorSystemFactory};
-    use crate::bootstrapper::{Bootstrapper, BootstrapperConfig, CryptDEPair, EnvironmentWrapper, PortConfiguration, RealUser};
+    use crate::bootstrapper::{
+        Bootstrapper, BootstrapperConfig, CryptDEPair, EnvironmentWrapper, PortConfiguration,
+        RealUser,
+    };
     use crate::database::db_initializer::DbInitializationConfig;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::db_config::config_dao::ConfigDaoReal;
@@ -698,6 +703,7 @@ mod tests {
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::socket_server::ConfiguredByPrivilege;
     use crate::sub_lib::stream_connector::ConnectionInfo;
+    use crate::test_utils::make_wallet;
     use crate::test_utils::neighborhood_test_utils::MIN_HOPS_FOR_TEST;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::make_recorder;
@@ -709,7 +715,6 @@ mod tests {
         assert_on_initialization_with_panic_on_migration, make_simplified_multi_config,
     };
     use crate::test_utils::{assert_contains, rate_pack};
-    use crate::test_utils::{make_wallet};
     use actix::System;
     use actix::{Actor, Recipient};
     use crossbeam_channel::unbounded;
@@ -1161,7 +1166,13 @@ mod tests {
 
         let config = subject.config;
         assert_eq!(config.node_descriptor.blockchain, Chain::BaseSepolia);
-        assert_eq!(config.node_descriptor.node_addr_opt, Some(NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[5123])));
+        assert_eq!(
+            config.node_descriptor.node_addr_opt,
+            Some(NodeAddr::new(
+                &IpAddr::from_str("1.2.3.4").unwrap(),
+                &[5123]
+            ))
+        );
         TestLogHandler::new().exists_log_matching("INFO: Bootstrapper: MASQ Node local descriptor: masq://base-sepolia:.+@1\\.2\\.3\\.4:5123");
     }
 
@@ -1270,7 +1281,13 @@ mod tests {
 
         let config = subject.config;
         assert_eq!(config.node_descriptor.blockchain, Chain::BaseSepolia);
-        assert_eq!(config.node_descriptor.node_addr_opt, Some(NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[5123])));
+        assert_eq!(
+            config.node_descriptor.node_addr_opt,
+            Some(NodeAddr::new(
+                &IpAddr::from_str("1.2.3.4").unwrap(),
+                &[5123]
+            ))
+        );
         // Not checking the public key, because its value is not predictable.
         TestLogHandler::new().exists_log_matching("INFO: Bootstrapper: MASQ Node local descriptor: masq://base-sepolia:.+@1\\.2\\.3\\.4:5123");
     }
@@ -1524,8 +1541,11 @@ mod tests {
         let _lock = INITIALIZATION.lock();
         init_test_logging();
         let cryptdes = {
-            let descriptor =
-                Bootstrapper::make_local_descriptor(CRYPTDE_PAIR.main.as_ref(), None, TEST_DEFAULT_CHAIN);
+            let descriptor = Bootstrapper::make_local_descriptor(
+                CRYPTDE_PAIR.main.as_ref(),
+                None,
+                TEST_DEFAULT_CHAIN,
+            );
             Bootstrapper::report_local_descriptor(CRYPTDE_PAIR.main.as_ref(), &descriptor);
 
             CRYPTDE_PAIR.clone()

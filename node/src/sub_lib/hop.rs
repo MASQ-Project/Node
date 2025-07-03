@@ -49,11 +49,11 @@ impl LiveHop {
 
 #[cfg(test)]
 mod tests {
-    use lazy_static::lazy_static;
     use super::*;
-    use crate::test_utils::{make_paying_wallet};
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use crate::bootstrapper::CryptDEPair;
+    use crate::test_utils::make_paying_wallet;
+    use lazy_static::lazy_static;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 
     lazy_static! {
         static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();

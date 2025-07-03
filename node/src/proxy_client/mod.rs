@@ -8,6 +8,7 @@ mod stream_handler_pool;
 mod stream_reader;
 mod stream_writer;
 
+use crate::bootstrapper::CryptDEPair;
 use crate::proxy_client::resolver_wrapper::ResolverWrapperFactory;
 use crate::proxy_client::resolver_wrapper::ResolverWrapperFactoryReal;
 use crate::proxy_client::stream_handler_pool::StreamHandlerPool;
@@ -44,7 +45,6 @@ use trust_dns_resolver::config::NameServerConfig;
 use trust_dns_resolver::config::Protocol;
 use trust_dns_resolver::config::ResolverConfig;
 use trust_dns_resolver::config::ResolverOpts;
-use crate::bootstrapper::CryptDEPair;
 
 pub const CRASH_KEY: &str = "PROXYCLIENT";
 
@@ -331,6 +331,7 @@ struct StreamContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bootstrapper::CryptDEPair;
     use crate::node_test_utils::check_timestamp;
     use crate::proxy_client::local_test_utils::ResolverWrapperFactoryMock;
     use crate::proxy_client::local_test_utils::ResolverWrapperMock;
@@ -338,8 +339,8 @@ mod tests {
     use crate::proxy_client::stream_handler_pool::StreamHandlerPool;
     use crate::proxy_client::stream_handler_pool::StreamHandlerPoolFactory;
     use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
-    use crate::sub_lib::cryptde::{CryptDE, CryptData};
     use crate::sub_lib::cryptde::PublicKey;
+    use crate::sub_lib::cryptde::{CryptDE, CryptData};
     use crate::sub_lib::dispatcher::Component;
     use crate::sub_lib::hopper::MessageType;
     use crate::sub_lib::proxy_client::ClientResponsePayload_0v1;
@@ -356,6 +357,7 @@ mod tests {
     use crate::test_utils::unshared_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::*;
     use actix::System;
+    use lazy_static::lazy_static;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::cell::RefCell;
@@ -366,8 +368,6 @@ mod tests {
     use std::sync::Mutex;
     use std::thread;
     use std::time::SystemTime;
-    use lazy_static::lazy_static;
-    use crate::bootstrapper::CryptDEPair;
 
     lazy_static! {
         static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();

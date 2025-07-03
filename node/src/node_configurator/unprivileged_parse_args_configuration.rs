@@ -625,6 +625,7 @@ mod tests {
     use crate::accountant::db_access_objects::utils::ThresholdUtils;
     use crate::apps::app_node;
     use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
+    use crate::bootstrapper::CryptDEPair;
     use crate::database::db_initializer::DbInitializationConfig;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal};
@@ -642,7 +643,8 @@ mod tests {
         make_persistent_config_real_with_config_dao_null, make_simplified_multi_config,
         ACCOUNTANT_CONFIG_PARAMS, MAPPING_PROTOCOL, RATE_PACK, ZERO,
     };
-    use crate::test_utils::{ArgsBuilder};
+    use crate::test_utils::ArgsBuilder;
+    use lazy_static::lazy_static;
     use masq_lib::constants::DEFAULT_GAS_PRICE;
     use masq_lib::multi_config::{CommandLineVcl, NameValueVclArg, VclArg, VirtualCommandLine};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
@@ -652,9 +654,7 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
-    use lazy_static::lazy_static;
     use PersistentConfigError::{DatabaseError, TransactionError};
-    use crate::bootstrapper::CryptDEPair;
 
     lazy_static! {
         static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
@@ -744,8 +744,8 @@ mod tests {
             ))],
         )
         .unwrap();
-        let mut persistent_config = PersistentConfigurationMock::new()
-            .min_hops_result(Err(NotPresent));
+        let mut persistent_config =
+            PersistentConfigurationMock::new().min_hops_result(Err(NotPresent));
 
         let _result = make_neighborhood_config(
             &UnprivilegedParseArgsConfigurationDaoReal {},
@@ -1445,9 +1445,8 @@ mod tests {
     #[test]
     fn configure_zero_hop_with_neighbors_but_setting_values_failed() {
         running_test();
-        let mut persistent_config = PersistentConfigurationMock::new().set_past_neighbors_result(
-            Err(DatabaseError("Oh yeah".to_string())),
-        );
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .set_past_neighbors_result(Err(DatabaseError("Oh yeah".to_string())));
         let descriptor_list = vec![NodeDescriptor::try_from((
             CRYPTDE_PAIR.main.as_ref(),
             "masq://eth-ropsten:UJNoZW5p-PDVqEjpr3b_8jZ_93yPG8i5dOAgE1bhK_A@2.3.4.5:2345",
@@ -2255,8 +2254,8 @@ mod tests {
     #[should_panic(expected = "rate-pack: database query failed due to NotPresent")]
     fn process_combined_params_panics_on_persistent_config_getter_method_with_cli_present() {
         let multi_config = make_simplified_multi_config(["--rate-pack", "4|5|6|7"]);
-        let mut persist_config = PersistentConfigurationMock::default()
-            .rate_pack_result(Err(NotPresent));
+        let mut persist_config =
+            PersistentConfigurationMock::default().rate_pack_result(Err(NotPresent));
 
         let _ = execute_process_combined_params_for_rate_pack(&multi_config, &mut persist_config);
     }
@@ -2276,8 +2275,8 @@ mod tests {
     #[should_panic(expected = "rate-pack: database query failed due to NotPresent")]
     fn process_combined_params_panics_on_persistent_config_getter_method_with_cli_absent() {
         let multi_config = make_simplified_multi_config([]);
-        let mut persist_config = PersistentConfigurationMock::default()
-            .rate_pack_result(Err(NotPresent));
+        let mut persist_config =
+            PersistentConfigurationMock::default().rate_pack_result(Err(NotPresent));
 
         let _ = execute_process_combined_params_for_rate_pack(&multi_config, &mut persist_config);
     }
@@ -2519,8 +2518,8 @@ mod tests {
         init_test_logging();
         let multi_config = make_simplified_multi_config([]);
         let logger = Logger::new("BAD_MP_READ");
-        let mut persistent_config = configure_default_persistent_config(ZERO)
-            .mapping_protocol_result(Err(NotPresent));
+        let mut persistent_config =
+            configure_default_persistent_config(ZERO).mapping_protocol_result(Err(NotPresent));
 
         let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
 

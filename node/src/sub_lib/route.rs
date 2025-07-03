@@ -345,14 +345,14 @@ pub enum RouteError {
 
 #[cfg(test)]
 mod tests {
-    use lazy_static::lazy_static;
     use super::*;
+    use crate::bootstrapper::CryptDEPair;
     use crate::sub_lib::cryptde_null::CryptDENull;
+    use crate::test_utils::make_paying_wallet;
     use crate::test_utils::make_wallet;
-    use crate::test_utils::{make_paying_wallet};
+    use lazy_static::lazy_static;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use serde_cbor;
-    use crate::bootstrapper::CryptDEPair;
 
     lazy_static! {
         static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();

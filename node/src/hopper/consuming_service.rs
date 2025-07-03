@@ -41,18 +41,22 @@ impl ConsumingService {
         );
         let target_key = incipient_cores_package.public_key.clone();
         let target_node_addr = incipient_cores_package.node_addr.clone();
-        match LiveCoresPackage::from_no_lookup_incipient(incipient_cores_package, self.cryptde.as_ref()) {
+        match LiveCoresPackage::from_no_lookup_incipient(
+            incipient_cores_package,
+            self.cryptde.as_ref(),
+        ) {
             Ok((live_package, _)) => {
-                let encrypted_package = match encodex(self.cryptde.as_ref(), &target_key, &live_package) {
-                    Ok(p) => p,
-                    Err(e) => {
-                        error!(
-                            self.logger,
-                            "Could not accept CORES package for transmission: {:?}", e
-                        );
-                        return;
-                    }
-                };
+                let encrypted_package =
+                    match encodex(self.cryptde.as_ref(), &target_key, &live_package) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            error!(
+                                self.logger,
+                                "Could not accept CORES package for transmission: {:?}", e
+                            );
+                            return;
+                        }
+                    };
                 // This port should eventually be chosen by the Traffic Analyzer somehow.
                 let socket_addrs: Vec<SocketAddr> = target_node_addr.into();
                 self.launch_lcp(encrypted_package, Endpoint::Socket(socket_addrs[0]));
@@ -132,6 +136,7 @@ impl ConsumingService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bootstrapper::CryptDEPair;
     use crate::node_test_utils::check_timestamp;
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::dispatcher::{Component, InboundClientData};
@@ -142,14 +147,13 @@ mod tests {
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::{make_meaningless_message_type, make_paying_wallet};
     use actix::System;
+    use lazy_static::lazy_static;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::net::{IpAddr, Ipv4Addr};
     use std::str::FromStr;
     use std::time::SystemTime;
-    use lazy_static::lazy_static;
-    use crate::bootstrapper::CryptDEPair;
 
     lazy_static! {
         static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
@@ -181,13 +185,17 @@ mod tests {
         system.run();
         let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
         let transmit_data_msg = dispatcher_recording.get_record::<TransmitDataMsg>(0);
-        let (lcp, _) = LiveCoresPackage::from_no_lookup_incipient(package, CRYPTDE_PAIR.main.as_ref()).unwrap();
+        let (lcp, _) =
+            LiveCoresPackage::from_no_lookup_incipient(package, CRYPTDE_PAIR.main.as_ref())
+                .unwrap();
         assert_eq!(
             &TransmitDataMsg {
                 endpoint: Endpoint::Socket(SocketAddr::from_str("1.2.1.2:1212").unwrap()),
                 last_data: false,
                 sequence_number: None,
-                data: encodex(CRYPTDE_PAIR.main.as_ref(), &target_key, &lcp).unwrap().into(),
+                data: encodex(CRYPTDE_PAIR.main.as_ref(), &target_key, &lcp)
+                    .unwrap()
+                    .into(),
             },
             transmit_data_msg
         );

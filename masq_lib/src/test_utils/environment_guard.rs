@@ -19,7 +19,9 @@ pub struct ConcurrencyPreventer<'a> {
 impl<'a> ConcurrencyPreventer<'a> {
     pub fn new(mutex: &'a Mutex<()>) -> ConcurrencyPreventer<'a> {
         ConcurrencyPreventer {
-            _lock: mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner()),
+            _lock: mutex
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
         }
     }
 }
@@ -59,7 +61,10 @@ impl<'a> EnvironmentGuard<'a> {
                 match *thread_id_guard {
                     Some(id) => {
                         if id == current_thread_id {
-                            panic!("Thread {:?} is trying to claim multiple EnvironmentGuards", current_thread_id);
+                            panic!(
+                                "Thread {:?} is trying to claim multiple EnvironmentGuards",
+                                current_thread_id
+                            );
                         }
                     }
                     None => {
@@ -68,7 +73,7 @@ impl<'a> EnvironmentGuard<'a> {
                         return EnvironmentGuard {
                             _preventer: ConcurrencyPreventer::new(&ENVIRONMENT_GUARD_MUTEX),
                             environment: std::env::vars_os().collect(),
-                        }
+                        };
                     }
                 }
             }
@@ -79,7 +84,9 @@ impl<'a> EnvironmentGuard<'a> {
     }
 
     pub fn thread_id_guard() -> MutexGuard<'a, Option<ThreadId>> {
-        ENVIRONMENT_GUARD_THREAD_ID.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        ENVIRONMENT_GUARD_THREAD_ID
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 }
 

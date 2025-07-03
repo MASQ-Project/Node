@@ -619,6 +619,7 @@ impl Default for NeighborhoodTools {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bootstrapper::CryptDEPair;
     use crate::sub_lib::cryptde_real::CryptDEReal;
     use crate::sub_lib::utils::NotifyLaterHandleReal;
     use crate::test_utils::recorder::Recorder;
@@ -627,7 +628,6 @@ mod tests {
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::{localhost, NeighborhoodModeLight};
     use std::str::FromStr;
-    use crate::bootstrapper::CryptDEPair;
 
     lazy_static! {
         static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
@@ -904,7 +904,8 @@ mod tests {
 
     #[test]
     fn from_str_complains_about_blank_public_key() {
-        let result = NodeDescriptor::try_from((CRYPTDE_PAIR.main.as_ref(), "masq://dev:@1.2.3.4:1234/2345"));
+        let result =
+            NodeDescriptor::try_from((CRYPTDE_PAIR.main.as_ref(), "masq://dev:@1.2.3.4:1234/2345"));
 
         assert_eq!(result, Err(String::from("Public key cannot be empty")));
     }
@@ -941,7 +942,10 @@ mod tests {
 
     #[test]
     fn from_str_handles_the_happy_path_without_node_addr() {
-        let result = NodeDescriptor::try_from((CRYPTDE_PAIR.main.as_ref(), "masq://eth-mainnet:R29vZEtleQ@:"));
+        let result = NodeDescriptor::try_from((
+            CRYPTDE_PAIR.main.as_ref(),
+            "masq://eth-mainnet:R29vZEtleQ@:",
+        ));
 
         assert_eq!(
             result.unwrap(),
@@ -1072,12 +1076,16 @@ mod tests {
 
     #[test]
     fn standard_mode_results() {
-        let one_neighbor =
-            NodeDescriptor::try_from((CRYPTDE_PAIR.main.as_ref(), "masq://eth-mainnet:AQIDBA@1.2.3.4:1234"))
-                .unwrap();
-        let another_neighbor =
-            NodeDescriptor::try_from((CRYPTDE_PAIR.main.as_ref(), "masq://eth-mainnet:AgMEBQ@2.3.4.5:2345"))
-                .unwrap();
+        let one_neighbor = NodeDescriptor::try_from((
+            CRYPTDE_PAIR.main.as_ref(),
+            "masq://eth-mainnet:AQIDBA@1.2.3.4:1234",
+        ))
+        .unwrap();
+        let another_neighbor = NodeDescriptor::try_from((
+            CRYPTDE_PAIR.main.as_ref(),
+            "masq://eth-mainnet:AgMEBQ@2.3.4.5:2345",
+        ))
+        .unwrap();
         let subject = NeighborhoodMode::Standard(
             NodeAddr::new(&localhost(), &[1234, 2345]),
             vec![one_neighbor.clone(), another_neighbor.clone()],
@@ -1103,12 +1111,16 @@ mod tests {
 
     #[test]
     fn originate_only_mode_results() {
-        let one_neighbor =
-            NodeDescriptor::try_from((CRYPTDE_PAIR.main.as_ref(), "masq://eth-ropsten:AQIDBA@1.2.3.4:1234"))
-                .unwrap();
-        let another_neighbor =
-            NodeDescriptor::try_from((CRYPTDE_PAIR.main.as_ref(), "masq://eth-ropsten:AgMEBQ@2.3.4.5:2345"))
-                .unwrap();
+        let one_neighbor = NodeDescriptor::try_from((
+            CRYPTDE_PAIR.main.as_ref(),
+            "masq://eth-ropsten:AQIDBA@1.2.3.4:1234",
+        ))
+        .unwrap();
+        let another_neighbor = NodeDescriptor::try_from((
+            CRYPTDE_PAIR.main.as_ref(),
+            "masq://eth-ropsten:AgMEBQ@2.3.4.5:2345",
+        ))
+        .unwrap();
         let subject = NeighborhoodMode::OriginateOnly(
             vec![one_neighbor.clone(), another_neighbor.clone()],
             rate_pack(100),
@@ -1130,12 +1142,16 @@ mod tests {
 
     #[test]
     fn consume_only_mode_results() {
-        let one_neighbor =
-            NodeDescriptor::try_from((CRYPTDE_PAIR.main.as_ref(), "masq://eth-mainnet:AQIDBA@1.2.3.4:1234"))
-                .unwrap();
-        let another_neighbor =
-            NodeDescriptor::try_from((CRYPTDE_PAIR.main.as_ref(), "masq://eth-mainnet:AgMEBQ@2.3.4.5:2345"))
-                .unwrap();
+        let one_neighbor = NodeDescriptor::try_from((
+            CRYPTDE_PAIR.main.as_ref(),
+            "masq://eth-mainnet:AQIDBA@1.2.3.4:1234",
+        ))
+        .unwrap();
+        let another_neighbor = NodeDescriptor::try_from((
+            CRYPTDE_PAIR.main.as_ref(),
+            "masq://eth-mainnet:AgMEBQ@2.3.4.5:2345",
+        ))
+        .unwrap();
         let subject =
             NeighborhoodMode::ConsumeOnly(vec![one_neighbor.clone(), another_neighbor.clone()]);
 

@@ -22,6 +22,8 @@ use crate::node_configurator::{
 };
 use crate::sub_lib::accountant::PaymentThresholds as PaymentThresholdsFromAccountant;
 use crate::sub_lib::accountant::DEFAULT_SCAN_INTERVALS;
+use crate::sub_lib::cryptde::CryptDE;
+use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::neighborhood::{NeighborhoodMode as NeighborhoodModeEnum, DEFAULT_RATE_PACK};
 use crate::sub_lib::utils::make_new_multi_config;
@@ -44,8 +46,6 @@ use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use crate::sub_lib::cryptde::CryptDE;
-use crate::sub_lib::cryptde_real::CryptDEReal;
 
 const CONSOLE_DIAGNOSTICS: bool = false;
 
@@ -540,8 +540,12 @@ impl SetupReporterReal {
         // The guts of these CryptDEs don't matter. All that matters is that they're Real
         // instead of Null, so that the key length is correct.
         bootstrapper_config.cryptde_pair = CryptDEPair::new(
-            Box::new(CryptDEReal::new(masq_lib::blockchains::chains::Chain::PolyMainnet)),
-            Box::new(CryptDEReal::new(masq_lib::blockchains::chains::Chain::PolyMainnet)),
+            Box::new(CryptDEReal::new(
+                masq_lib::blockchains::chains::Chain::PolyMainnet,
+            )),
+            Box::new(CryptDEReal::new(
+                masq_lib::blockchains::chains::Chain::PolyMainnet,
+            )),
         );
         bootstrapper_config.data_directory = data_directory.to_path_buf();
         match privileged_parse_args(
@@ -991,7 +995,10 @@ impl ValueRetriever for NeighborhoodMode {
 }
 
 // Note: no interior state from cryptde is used; the important thing is whether it's Real or Null.
-fn node_descriptors_to_neighbors(node_descriptors: Vec<NodeDescriptor>, cryptde: &dyn CryptDE) -> String {
+fn node_descriptors_to_neighbors(
+    node_descriptors: Vec<NodeDescriptor>,
+    cryptde: &dyn CryptDE,
+) -> String {
     node_descriptors
         .into_iter()
         .map(|nd| nd.to_string(cryptde))
@@ -1013,8 +1020,13 @@ impl ValueRetriever for Neighbors {
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         match db_password_opt {
             Some(pw) => match persistent_config.past_neighbors(pw) {
-                Ok(Some(pns)) =>
-                    Some((node_descriptors_to_neighbors(pns, bootstrapper_config.cryptde_pair.main.as_ref()), Configured)),
+                Ok(Some(pns)) => Some((
+                    node_descriptors_to_neighbors(
+                        pns,
+                        bootstrapper_config.cryptde_pair.main.as_ref(),
+                    ),
+                    Configured,
+                )),
                 _ => None,
             },
             None => None,
@@ -1229,6 +1241,7 @@ mod tests {
         PaymentThresholds as PaymentThresholdsFromAccountant, DEFAULT_PAYMENT_THRESHOLDS,
     };
     use crate::sub_lib::cryptde::PublicKey;
+    use crate::sub_lib::cryptde_real::CryptDEReal;
     use crate::sub_lib::neighborhood::Hops;
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
@@ -1261,7 +1274,6 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
-    use crate::sub_lib::cryptde_real::CryptDEReal;
 
     #[test]
     fn constants_have_correct_values() {

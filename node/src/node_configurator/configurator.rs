@@ -20,6 +20,7 @@ use masq_lib::ui_gateway::{
 
 use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
 use crate::blockchain::bip39::Bip39;
+use crate::bootstrapper::CryptDEPair;
 use crate::database::db_initializer::DbInitializationConfig;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::db_config::config_dao::ConfigDaoReal;
@@ -40,7 +41,6 @@ use masq_lib::logger::Logger;
 use masq_lib::utils::{derivation_path, to_string};
 use rustc_hex::{FromHex, ToHex};
 use tiny_hderive::bip32::ExtendedPrivKey;
-use crate::bootstrapper::CryptDEPair;
 
 pub const CRASH_KEY: &str = "CONFIGURATOR";
 
@@ -515,8 +515,12 @@ impl Configurator {
         msg: UiConfigurationRequest,
         context_id: u64,
     ) -> MessageBody {
-        match Self::unfriendly_handle_configuration(msg, context_id, &mut self.persistent_config,
-            &self.cryptde_pair) {
+        match Self::unfriendly_handle_configuration(
+            msg,
+            context_id,
+            &mut self.persistent_config,
+            &self.cryptde_pair,
+        ) {
             Ok(message_body) => message_body,
             Err((code, msg)) => MessageBody {
                 opcode: "configuration".to_string(),
@@ -901,10 +905,11 @@ mod tests {
     use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
     use crate::blockchain::bip39::Bip39;
     use crate::blockchain::test_utils::make_meaningless_phrase_words;
+    use crate::bootstrapper::CryptDEPair;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
+    use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::cryptde::PublicKey as PK;
-    use crate::sub_lib::cryptde::{PlainData};
     use crate::sub_lib::neighborhood::{ConfigChange, NodeDescriptor, RatePack};
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
@@ -921,7 +926,6 @@ mod tests {
     use masq_lib::utils::{derivation_path, AutomapProtocol, NeighborhoodModeLight};
     use rustc_hex::FromHex;
     use tiny_hderive::bip32::ExtendedPrivKey;
-    use crate::bootstrapper::CryptDEPair;
 
     lazy_static! {
         static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();

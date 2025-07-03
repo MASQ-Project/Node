@@ -91,6 +91,7 @@ impl LiveCoresPackage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bootstrapper::CryptDEPair;
     use crate::sub_lib::cryptde::encodex;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::cryptde_null::CryptDENull;
@@ -102,11 +103,10 @@ mod tests {
     use crate::test_utils::{
         make_meaningless_message_type, make_meaningless_route, make_paying_wallet,
     };
+    use lazy_static::lazy_static;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::net::{IpAddr, SocketAddr};
     use std::str::FromStr;
-    use lazy_static::lazy_static;
-    use crate::bootstrapper::CryptDEPair;
 
     lazy_static! {
         static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
@@ -407,8 +407,10 @@ mod tests {
 
     #[test]
     fn live_cores_package_serialization_deserialization() {
-        let original =
-            LiveCoresPackage::new(make_meaningless_route(&CRYPTDE_PAIR), CryptData::new(&[1, 2, 3, 4]));
+        let original = LiveCoresPackage::new(
+            make_meaningless_route(&CRYPTDE_PAIR),
+            CryptData::new(&[1, 2, 3, 4]),
+        );
 
         let serialized = serde_cbor::ser::to_vec(&original).unwrap();
 

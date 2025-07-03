@@ -7,6 +7,7 @@ pub mod server_impersonator_http;
 pub mod server_impersonator_tls;
 pub mod tls_protocol_pack;
 
+use crate::bootstrapper::CryptDEPair;
 use crate::proxy_server::client_request_payload_factory::{
     ClientRequestPayloadFactory, ClientRequestPayloadFactoryReal,
 };
@@ -56,7 +57,6 @@ use std::rc::Rc;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
 use tokio::prelude::Future;
-use crate::bootstrapper::CryptDEPair;
 
 pub const CRASH_KEY: &str = "PROXYSERVER";
 pub const RETURN_ROUTE_TTL: Duration = Duration::from_secs(120);
@@ -491,8 +491,10 @@ impl ProxyServer {
         debug!(
             self.logger,
             "ExpiredCoresPackage remaining_route: {}",
-            msg.remaining_route
-                .to_string(vec![self.cryptde_pair.main.as_ref(), self.cryptde_pair.main.as_ref()])
+            msg.remaining_route.to_string(vec![
+                self.cryptde_pair.main.as_ref(),
+                self.cryptde_pair.main.as_ref()
+            ])
         );
         let payload_data_len = msg.payload_len;
         let response = msg.payload;
@@ -660,9 +662,10 @@ impl ProxyServer {
                 stream_key
             }
             None => {
-                let stream_key = self
-                    .stream_key_factory
-                    .make(self.cryptde_pair.main.as_ref().public_key(), ibcd.client_addr);
+                let stream_key = self.stream_key_factory.make(
+                    self.cryptde_pair.main.as_ref().public_key(),
+                    ibcd.client_addr,
+                );
                 self.keys_and_addrs.insert(stream_key, ibcd.client_addr);
                 debug!(
                     self.logger,
@@ -1351,6 +1354,7 @@ impl Hostname {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bootstrapper::CryptDEPair;
     use crate::match_every_type_id;
     use crate::proxy_server::protocol_pack::ServerImpersonator;
     use crate::proxy_server::server_impersonator_http::ServerImpersonatorHttp;
@@ -1373,8 +1377,10 @@ mod tests {
     use crate::sub_lib::sequence_buffer::SequencedPacket;
     use crate::sub_lib::ttl_hashmap::TtlHashMap;
     use crate::sub_lib::versioned_data::VersionedData;
+    use crate::test_utils::make_meaningless_route;
     use crate::test_utils::make_paying_wallet;
     use crate::test_utils::make_wallet;
+    use crate::test_utils::rate_pack;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
@@ -1383,10 +1389,9 @@ mod tests {
         make_request_payload, prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
     };
     use crate::test_utils::zero_hop_route_response;
-    use crate::test_utils::{rate_pack};
-    use crate::test_utils::{make_meaningless_route};
     use actix::System;
     use crossbeam_channel::unbounded;
+    use lazy_static::lazy_static;
     use masq_lib::constants::{HTTP_PORT, TLS_PORT};
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
@@ -1398,8 +1403,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::SystemTime;
-    use lazy_static::lazy_static;
-    use crate::bootstrapper::CryptDEPair;
 
     lazy_static! {
         static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
@@ -2208,8 +2211,7 @@ mod tests {
             };
             let stream_key_factory = StreamKeyFactoryMock::new(); // can't make any stream keys; shouldn't have to
             let system = System::new("proxy_server_receives_http_request_with_no_consuming_wallet_in_zero_hop_mode_and_handles_normally");
-            let mut subject =
-                ProxyServer::new(CRYPTDE_PAIR.clone(), false, None, false, false);
+            let mut subject = ProxyServer::new(CRYPTDE_PAIR.clone(), false, None, false, false);
             subject.stream_key_factory = Box::new(stream_key_factory);
             subject.keys_and_addrs.insert(stream_key, socket_addr);
             let subject_addr: Addr<ProxyServer> = subject.start();
@@ -2288,8 +2290,7 @@ mod tests {
             };
             let stream_key_factory = StreamKeyFactoryMock::new(); // can't make any stream keys; shouldn't have to
             let system = System::new("proxy_server_receives_tls_request_with_no_consuming_wallet_in_zero_hop_mode_and_handles_normally");
-            let mut subject =
-                ProxyServer::new(CRYPTDE_PAIR.clone(), false, None, false, false);
+            let mut subject = ProxyServer::new(CRYPTDE_PAIR.clone(), false, None, false, false);
             subject.stream_key_factory = Box::new(stream_key_factory);
             subject.keys_and_addrs.insert(stream_key, socket_addr);
             let subject_addr: Addr<ProxyServer> = subject.start();
@@ -5698,8 +5699,7 @@ mod tests {
 
     #[test]
     fn handle_stream_shutdown_msg_handles_unknown_peer_addr() {
-        let mut subject =
-            ProxyServer::new(CRYPTDE_PAIR.clone(), true, None, false, false);
+        let mut subject = ProxyServer::new(CRYPTDE_PAIR.clone(), true, None, false, false);
         let unaffected_socket_addr = SocketAddr::from_str("2.3.4.5:6789").unwrap();
         let unaffected_stream_key = StreamKey::make_meaningful_stream_key("unaffected");
         subject
@@ -5766,11 +5766,17 @@ mod tests {
         );
         let affected_route = Route::round_trip(
             RouteSegment::new(
-                vec![CRYPTDE_PAIR.main.as_ref().public_key(), affected_cryptde.public_key()],
+                vec![
+                    CRYPTDE_PAIR.main.as_ref().public_key(),
+                    affected_cryptde.public_key(),
+                ],
                 Component::ProxyClient,
             ),
             RouteSegment::new(
-                vec![affected_cryptde.public_key(), CRYPTDE_PAIR.main.as_ref().public_key()],
+                vec![
+                    affected_cryptde.public_key(),
+                    CRYPTDE_PAIR.main.as_ref().public_key(),
+                ],
                 Component::ProxyServer,
             ),
             CRYPTDE_PAIR.main.as_ref(),
@@ -5890,11 +5896,17 @@ mod tests {
         );
         let affected_route = Route::round_trip(
             RouteSegment::new(
-                vec![CRYPTDE_PAIR.main.as_ref().public_key(), affected_cryptde.public_key()],
+                vec![
+                    CRYPTDE_PAIR.main.as_ref().public_key(),
+                    affected_cryptde.public_key(),
+                ],
                 Component::ProxyClient,
             ),
             RouteSegment::new(
-                vec![affected_cryptde.public_key(), CRYPTDE_PAIR.main.as_ref().public_key()],
+                vec![
+                    affected_cryptde.public_key(),
+                    CRYPTDE_PAIR.main.as_ref().public_key(),
+                ],
                 Component::ProxyServer,
             ),
             CRYPTDE_PAIR.main.as_ref(),
@@ -5984,8 +5996,7 @@ mod tests {
     #[test]
     fn handle_stream_shutdown_msg_logs_errors_from_handling_normal_client_data() {
         init_test_logging();
-        let mut subject =
-            ProxyServer::new(CRYPTDE_PAIR.clone(), true, Some(0), false, false);
+        let mut subject = ProxyServer::new(CRYPTDE_PAIR.clone(), true, Some(0), false, false);
         subject.subs = Some(make_proxy_server_out_subs());
         let helper = IBCDHelperMock::default()
             .handle_normal_client_data_result(Err("Our help is not welcome".to_string()));
@@ -6010,8 +6021,7 @@ mod tests {
     #[test]
     fn stream_shutdown_msg_populates_correct_inbound_client_data_msg() {
         let help_to_handle_normal_client_data_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut subject =
-            ProxyServer::new(CRYPTDE_PAIR.clone(), true, Some(0), false, false);
+        let mut subject = ProxyServer::new(CRYPTDE_PAIR.clone(), true, Some(0), false, false);
         subject.subs = Some(make_proxy_server_out_subs());
         let icd_helper = IBCDHelperMock::default()
             .handle_normal_client_data_params(&help_to_handle_normal_client_data_params_arc)
@@ -6057,8 +6067,7 @@ mod tests {
 
     #[test]
     fn help_to_handle_normal_client_data_missing_consuming_wallet_and_protocol_pack_not_found() {
-        let mut proxy_server =
-            ProxyServer::new(CRYPTDE_PAIR.clone(), true, None, false, false);
+        let mut proxy_server = ProxyServer::new(CRYPTDE_PAIR.clone(), true, None, false, false);
         proxy_server.subs = Some(make_proxy_server_out_subs());
         let inbound_client_data_msg = InboundClientData {
             timestamp: SystemTime::now(),
@@ -6440,8 +6449,7 @@ mod tests {
         expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
     )]
     fn proxy_server_can_be_crashed_properly_but_not_improperly() {
-        let proxy_server =
-            ProxyServer::new(CRYPTDE_PAIR.clone(), true, None, true, false);
+        let proxy_server = ProxyServer::new(CRYPTDE_PAIR.clone(), true, None, true, false);
 
         prove_that_crash_request_handler_is_hooked_up(proxy_server, CRASH_KEY);
     }
@@ -6450,8 +6458,7 @@ mod tests {
     fn find_or_generate_stream_key_prioritizes_existing_stream_key_first() {
         let socket_addr = SocketAddr::from_str("1.2.3.4:4321").unwrap();
         let stream_key = StreamKey::new(CRYPTDE_PAIR.main.as_ref().public_key(), socket_addr);
-        let mut subject =
-            ProxyServer::new(CRYPTDE_PAIR.clone(), true, None, false, false);
+        let mut subject = ProxyServer::new(CRYPTDE_PAIR.clone(), true, None, false, false);
         subject.keys_and_addrs.insert(stream_key, socket_addr);
         let ibcd = InboundClientData {
             timestamp: SystemTime::now(),
@@ -6476,8 +6483,7 @@ mod tests {
     fn find_or_generate_stream_key_creates_stream_key_if_necessary() {
         let socket_addr = SocketAddr::from_str("1.2.3.4:4321").unwrap();
         let stream_key = StreamKey::new(CRYPTDE_PAIR.main.as_ref().public_key(), socket_addr);
-        let mut subject =
-            ProxyServer::new(CRYPTDE_PAIR.clone(), true, None, false, false);
+        let mut subject = ProxyServer::new(CRYPTDE_PAIR.clone(), true, None, false, false);
         let ibcd = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: socket_addr,

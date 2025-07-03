@@ -144,14 +144,21 @@ impl Handler<NewPublicIp> for Dispatcher {
             Some(node_addr) => {
                 let ports = &node_addr.ports();
                 self.node_descriptor.node_addr_opt = Some(NodeAddr::new(&msg.new_ip, ports));
-                Bootstrapper::report_local_descriptor(self.cryptde_pair.main.as_ref(), &self.node_descriptor);
+                Bootstrapper::report_local_descriptor(
+                    self.cryptde_pair.main.as_ref(),
+                    &self.node_descriptor,
+                );
             }
         }
     }
 }
 
 impl Dispatcher {
-    pub fn new(node_descriptor: NodeDescriptor, cryptde_pair: CryptDEPair, crashable: bool) -> Dispatcher {
+    pub fn new(
+        node_descriptor: NodeDescriptor,
+        cryptde_pair: CryptDEPair,
+        crashable: bool,
+    ) -> Dispatcher {
         Dispatcher {
             subs: None,
             crashable,
@@ -190,7 +197,10 @@ impl Dispatcher {
     fn handle_descriptor_request(&mut self, client_id: u64, context_id: u64) {
         let node_desc_str_opt = match &self.node_descriptor.node_addr_opt {
             Some(node_addr) if node_addr.ip_addr() == *NULL_IP_ADDRESS => None,
-            Some(_) => Some(self.node_descriptor.to_string(self.cryptde_pair.main.as_ref())),
+            Some(_) => Some(
+                self.node_descriptor
+                    .to_string(self.cryptde_pair.main.as_ref()),
+            ),
             None => None,
         };
         let response_inner = UiDescriptorResponse {
@@ -254,7 +264,7 @@ mod tests {
     #[test]
     fn sends_inbound_data_for_proxy_server_to_proxy_server() {
         let system = System::new("test");
-        let subject = Dispatcher::new(NODE_DESCRIPTOR.clone(), CRYPTDE_PAIR.clone(),false);
+        let subject = Dispatcher::new(NODE_DESCRIPTOR.clone(), CRYPTDE_PAIR.clone(), false);
         let subject_addr = subject.start();
         let subject_ibcd = subject_addr.clone().recipient::<InboundClientData>();
         let proxy_server = Recorder::new();
@@ -576,7 +586,9 @@ mod tests {
             &NodeToUiMessage {
                 target: MessageTarget::ClientId(1234),
                 body: UiDescriptorResponse {
-                    node_descriptor_opt: Some(new_node_descriptor.to_string(CRYPTDE_PAIR.main.as_ref())),
+                    node_descriptor_opt: Some(
+                        new_node_descriptor.to_string(CRYPTDE_PAIR.main.as_ref())
+                    ),
                 }
                 .tmb(4321)
             }
@@ -627,7 +639,9 @@ mod tests {
             &NodeToUiMessage {
                 target: MessageTarget::ClientId(1234),
                 body: UiDescriptorResponse {
-                    node_descriptor_opt: Some(node_descriptor.to_string(CRYPTDE_PAIR.main.as_ref())),
+                    node_descriptor_opt: Some(
+                        node_descriptor.to_string(CRYPTDE_PAIR.main.as_ref())
+                    ),
                 }
                 .tmb(4321)
             }

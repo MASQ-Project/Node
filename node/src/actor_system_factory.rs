@@ -338,15 +338,9 @@ pub trait ActorFactory {
         &self,
         config: &BootstrapperConfig,
     ) -> (DispatcherSubs, Recipient<PoolBindMessage>);
-    fn make_and_start_proxy_server(
-        &self,
-        config: &BootstrapperConfig,
-    ) -> ProxyServerSubs;
+    fn make_and_start_proxy_server(&self, config: &BootstrapperConfig) -> ProxyServerSubs;
     fn make_and_start_hopper(&self, config: HopperConfig) -> HopperSubs;
-    fn make_and_start_neighborhood(
-        &self,
-        config: &BootstrapperConfig,
-    ) -> NeighborhoodSubs;
+    fn make_and_start_neighborhood(&self, config: &BootstrapperConfig) -> NeighborhoodSubs;
     fn make_and_start_accountant(
         &self,
         config: BootstrapperConfig,
@@ -403,18 +397,15 @@ impl ActorFactory for ActorFactoryReal {
         let cryptde_pair_thread = self.cryptde_pair.clone();
         let crashable = is_crashable(config);
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
-        let addr: Addr<Dispatcher> =
-            arbiter.start(move |_| Dispatcher::new(node_descriptor, cryptde_pair_thread, crashable));
+        let addr: Addr<Dispatcher> = arbiter
+            .start(move |_| Dispatcher::new(node_descriptor, cryptde_pair_thread, crashable));
         (
             Dispatcher::make_subs_from(&addr),
             addr.recipient::<PoolBindMessage>(),
         )
     }
 
-    fn make_and_start_proxy_server(
-        &self,
-        config: &BootstrapperConfig,
-    ) -> ProxyServerSubs {
+    fn make_and_start_proxy_server(&self, config: &BootstrapperConfig) -> ProxyServerSubs {
         let is_running_in_integration_test = is_running_in_integration_test();
         let is_decentralized = config.neighborhood_config.mode.is_decentralized();
         let consuming_wallet_balance = if config.consuming_wallet_opt.is_some() {
@@ -443,10 +434,7 @@ impl ActorFactory for ActorFactoryReal {
         Hopper::make_subs_from(&addr)
     }
 
-    fn make_and_start_neighborhood(
-        &self,
-        config: &BootstrapperConfig,
-    ) -> NeighborhoodSubs {
+    fn make_and_start_neighborhood(&self, config: &BootstrapperConfig) -> NeighborhoodSubs {
         let config_clone = config.clone();
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let cryptde_pair_thread = config.cryptde_pair.clone();
@@ -544,8 +532,8 @@ impl ActorFactory for ActorFactoryReal {
         let crashable = is_crashable(config);
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let cryptde_pair_thread = self.cryptde_pair.clone();
-        let addr: Addr<Configurator> =
-            arbiter.start(move |_| Configurator::new(data_directory, cryptde_pair_thread, crashable));
+        let addr: Addr<Configurator> = arbiter
+            .start(move |_| Configurator::new(data_directory, cryptde_pair_thread, crashable));
         ConfiguratorSubs {
             bind: recipient!(addr, BindMessage),
             node_from_ui_sub: recipient!(addr, NodeFromUiMessage),
@@ -635,7 +623,7 @@ mod tests {
     use super::*;
     use crate::accountant::exportable_test_parts::test_accountant_is_constructed_with_upgraded_db_connection_recognizing_our_extra_sqlite_functions;
     use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
-    use crate::bootstrapper::{RealUser};
+    use crate::bootstrapper::RealUser;
     use crate::node_test_utils::{
         make_stream_handler_pool_subs_from_recorder, start_recorder_refcell_opt,
     };
@@ -656,6 +644,7 @@ mod tests {
     use crate::test_utils::make_wallet;
     use crate::test_utils::neighborhood_test_utils::MIN_HOPS_FOR_TEST;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+    use crate::test_utils::rate_pack;
     use crate::test_utils::recorder::{
         make_accountant_subs_from_recorder, make_blockchain_bridge_subs_from_recorder,
         make_configurator_subs_from_recorder, make_hopper_subs_from_recorder,
@@ -668,7 +657,6 @@ mod tests {
     use crate::test_utils::unshared_test_utils::{
         assert_on_initialization_with_panic_on_migration, SubsFactoryTestAddrLeaker,
     };
-    use crate::test_utils::{rate_pack};
     use crate::{hopper, proxy_client, proxy_server, stream_handler_pool, ui_gateway};
     use actix::{Actor, Arbiter, System};
     use automap_lib::control_layer::automap_control::AutomapChange;
@@ -677,6 +665,7 @@ mod tests {
         parameterizable_automap_control, TransactorMock, PUBLIC_IP, ROUTER_IP,
     };
     use crossbeam_channel::unbounded;
+    use lazy_static::lazy_static;
     use log::LevelFilter;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::crash_point::CrashPoint;
@@ -699,7 +688,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
-    use lazy_static::lazy_static;
 
     lazy_static! {
         static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
@@ -835,10 +823,7 @@ mod tests {
             (dispatcher_subs, addr.recipient::<PoolBindMessage>())
         }
 
-        fn make_and_start_proxy_server(
-            &self,
-            config: &BootstrapperConfig,
-        ) -> ProxyServerSubs {
+        fn make_and_start_proxy_server(&self, config: &BootstrapperConfig) -> ProxyServerSubs {
             self.parameters
                 .proxy_server_params
                 .lock()
@@ -858,10 +843,7 @@ mod tests {
             make_hopper_subs_from_recorder(&addr)
         }
 
-        fn make_and_start_neighborhood(
-            &self,
-            config: &BootstrapperConfig,
-        ) -> NeighborhoodSubs {
+        fn make_and_start_neighborhood(&self, config: &BootstrapperConfig) -> NeighborhoodSubs {
             self.parameters
                 .neighborhood_params
                 .lock()
@@ -1082,17 +1064,16 @@ mod tests {
         assert!(validate_database_chain_params.is_empty());
         let mut prepare_initial_messages_params =
             prepare_initial_messages_params_arc.lock().unwrap();
-        let (
-            bootstrapper_config_actual,
-            actor_factory_actual,
-            persistent_config_actual,
-        ) = prepare_initial_messages_params.remove(0);
-        let main_cryptde_public_key_actual = pk_from_cryptde_null(bootstrapper_config_actual.cryptde_pair.main.as_ref());
+        let (bootstrapper_config_actual, actor_factory_actual, persistent_config_actual) =
+            prepare_initial_messages_params.remove(0);
+        let main_cryptde_public_key_actual =
+            pk_from_cryptde_null(bootstrapper_config_actual.cryptde_pair.main.as_ref());
         assert_eq!(
             main_cryptde_public_key_actual,
             main_cryptde_public_key_expected
         );
-        let alias_cryptde_public_key_actual = pk_from_cryptde_null(bootstrapper_config_actual.cryptde_pair.alias.as_ref());
+        let alias_cryptde_public_key_actual =
+            pk_from_cryptde_null(bootstrapper_config_actual.cryptde_pair.alias.as_ref());
         assert_eq!(
             alias_cryptde_public_key_actual,
             alias_cryptde_public_key_expected
@@ -1291,8 +1272,7 @@ mod tests {
         assert_eq!(proxy_client_config.exit_byte_rate, 103);
         assert_eq!(proxy_client_config.dns_servers, config.dns_servers);
         assert_eq!(proxy_client_config.is_decentralized, true);
-        let bootstrapper_config =
-            Parameters::get(parameters.proxy_server_params);
+        let bootstrapper_config = Parameters::get(parameters.proxy_server_params);
         check_cryptde(bootstrapper_config.cryptde_pair.main.as_ref());
         check_cryptde(bootstrapper_config.cryptde_pair.alias.as_ref());
         assert_ne!(
@@ -1455,8 +1435,7 @@ mod tests {
     #[test]
     fn automap_protocol_is_not_saved_if_indifferent_from_last_time() {
         let config_entry = Some(Igdp);
-        let automap_control =
-            AutomapControlMock::default().get_mapping_protocol_result(Some(Igdp));
+        let automap_control = AutomapControlMock::default().get_mapping_protocol_result(Some(Igdp));
 
         ActorSystemFactoryToolsReal::maybe_save_usual_protocol(
             &automap_control,
@@ -1474,8 +1453,7 @@ mod tests {
             .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
             .set_mapping_protocol_result(Ok(()));
         let config_entry = Some(AutomapProtocol::Pmp);
-        let automap_control =
-            AutomapControlMock::default().get_mapping_protocol_result(Some(Igdp));
+        let automap_control = AutomapControlMock::default().get_mapping_protocol_result(Some(Igdp));
 
         ActorSystemFactoryToolsReal::maybe_save_usual_protocol(
             &automap_control,
@@ -1765,7 +1743,8 @@ mod tests {
                 crashable: true,
                 exit_byte_rate: 50,
             };
-            let subscribers = ActorFactoryReal::new(&CRYPTDE_PAIR).make_and_start_proxy_client(proxy_cl_config);
+            let subscribers =
+                ActorFactoryReal::new(&CRYPTDE_PAIR).make_and_start_proxy_client(proxy_cl_config);
             subscribers.node_from_ui
         };
 
@@ -1782,7 +1761,8 @@ mod tests {
                 is_decentralized: false,
                 crashable: true,
             };
-            let subscribers = ActorFactoryReal::new(&CRYPTDE_PAIR).make_and_start_hopper(hopper_config);
+            let subscribers =
+                ActorFactoryReal::new(&CRYPTDE_PAIR).make_and_start_hopper(hopper_config);
             subscribers.node_from_ui
         };
 
@@ -1794,8 +1774,8 @@ mod tests {
         let closure = || {
             let mut bootstrapper_config = BootstrapperConfig::default();
             bootstrapper_config.crash_point = CrashPoint::Message;
-            let subscribers =
-                ActorFactoryReal::new(&CRYPTDE_PAIR).make_and_start_ui_gateway(&bootstrapper_config);
+            let subscribers = ActorFactoryReal::new(&CRYPTDE_PAIR)
+                .make_and_start_ui_gateway(&bootstrapper_config);
             subscribers.node_from_ui_message_sub
         };
 
@@ -1807,8 +1787,8 @@ mod tests {
         let closure = || {
             let mut bootstrapper_config = BootstrapperConfig::default();
             bootstrapper_config.crash_point = CrashPoint::Message;
-            let subscribers =
-                ActorFactoryReal::new(&CRYPTDE_PAIR).make_and_start_stream_handler_pool(&bootstrapper_config);
+            let subscribers = ActorFactoryReal::new(&CRYPTDE_PAIR)
+                .make_and_start_stream_handler_pool(&bootstrapper_config);
             subscribers.node_from_ui_sub
         };
 

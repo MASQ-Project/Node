@@ -17,7 +17,7 @@ use log::LevelFilter;
 use crate::apps::app_node;
 use crate::bootstrapper::PortConfiguration;
 use crate::database::db_initializer::{DbInitializationConfig, ExternalData};
-use crate::db_config::persistent_configuration::{PersistentConfiguration};
+use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::http_request_start_finder::HttpRequestDiscriminatorFactory;
 use crate::node_configurator::unprivileged_parse_args_configuration::{
     UnprivilegedParseArgsConfiguration, UnprivilegedParseArgsConfigurationDaoReal,
@@ -28,13 +28,13 @@ use crate::node_configurator::{
 };
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::cryptde_null::CryptDENull;
+use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::utils::make_new_multi_config;
 use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
+use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT};
 use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl};
 use std::str::FromStr;
-use masq_lib::blockchains::chains::Chain;
-use crate::sub_lib::cryptde_real::CryptDEReal;
 
 pub struct NodeConfiguratorStandardPrivileged {
     dirs_wrapper: Box<dyn DirsWrapper>,
@@ -94,27 +94,33 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
         )?;
         configure_database(&unprivileged_config, persistent_config.as_mut())?;
         if multi_config.occurrences_of("fake-public-key") == 0 {
-            let cryptde_pair = configure_cryptdes(persistent_config.as_mut(), &unprivileged_config.db_password_opt);
+            let cryptde_pair = configure_cryptdes(
+                persistent_config.as_mut(),
+                &unprivileged_config.db_password_opt,
+            );
             unprivileged_config.cryptde_pair = cryptde_pair;
-        }
-        else {
-            let public_key_str = value_m!(multi_config, "fake-public-key", String).expect("fake-public-key disappeared");
-            let main_public_key_data = base64::decode(&public_key_str).expect("fake-public-key: invalid Base64");
+        } else {
+            let public_key_str = value_m!(multi_config, "fake-public-key", String)
+                .expect("fake-public-key disappeared");
+            let main_public_key_data =
+                base64::decode(&public_key_str).expect("fake-public-key: invalid Base64");
             let main_public_key = PublicKey::new(&main_public_key_data);
             let main_cryptde = CryptDENull::from(
                 &main_public_key,
                 unprivileged_config.blockchain_bridge_config.chain,
             );
-            let alias_public_key_data = main_public_key_data.iter().rev().cloned().collect::<Vec<u8>>();
+            let alias_public_key_data = main_public_key_data
+                .iter()
+                .rev()
+                .cloned()
+                .collect::<Vec<u8>>();
             let alias_public_key = PublicKey::new(&alias_public_key_data);
             let alias_cryptde = CryptDENull::from(
                 &alias_public_key,
                 unprivileged_config.blockchain_bridge_config.chain,
             );
-            unprivileged_config.cryptde_pair = CryptDEPair::new(
-                Box::new(main_cryptde),
-                Box::new(alias_cryptde),
-            );
+            unprivileged_config.cryptde_pair =
+                CryptDEPair::new(Box::new(main_cryptde), Box::new(alias_cryptde));
         }
         Ok(unprivileged_config)
     }
@@ -340,10 +346,8 @@ pub fn privileged_parse_args(
             &alias_public_key,
             privileged_config.blockchain_bridge_config.chain,
         );
-        privileged_config.cryptde_pair = CryptDEPair::new(
-            Box::new(main_cryptde_null),
-            Box::new(alias_cryptde_null),
-        );
+        privileged_config.cryptde_pair =
+            CryptDEPair::new(Box::new(main_cryptde_null), Box::new(alias_cryptde_null));
     }
     Ok(())
 }
@@ -390,22 +394,19 @@ fn configure_cryptdes(
         let main_result = persistent_config.cryptde(db_password);
         match main_result {
             Ok(Some(last_main_cryptde)) => {
-                CryptDEPair::new(
-                    last_main_cryptde,
-                    Box::new(CryptDEReal::new(chain)),
-                )
-            },
+                CryptDEPair::new(last_main_cryptde, Box::new(CryptDEReal::new(chain)))
+            }
             Ok(None) => {
                 let main_cryptde: Box<dyn CryptDE> = Box::new(CryptDEReal::new(chain));
-                persistent_config.set_cryptde(main_cryptde.as_ref(), db_password)
+                persistent_config
+                    .set_cryptde(main_cryptde.as_ref(), db_password)
                     .expect("Failed to set cryptde");
                 let alias_cryptde: Box<dyn CryptDE> = Box::new(CryptDEReal::new(chain));
                 CryptDEPair::new(main_cryptde, alias_cryptde)
-            },
+            }
             Err(e) => panic!("Could not read last cryptde from database: {:?}", e),
         }
-    }
-    else {
+    } else {
         let chain = Chain::from(persistent_config.chain_name().as_str());
         let main_cryptde: Box<dyn CryptDE> = Box::new(CryptDEReal::new(chain));
         let alias_cryptde: Box<dyn CryptDE> = Box::new(CryptDEReal::new(chain));
@@ -426,6 +427,7 @@ mod tests {
     use crate::node_configurator::unprivileged_parse_args_configuration::UnprivilegedParseArgsConfigurationDaoNull;
     use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::cryptde::CryptDE;
+    use crate::sub_lib::cryptde_real::CryptDEReal;
     use crate::sub_lib::neighborhood::NeighborhoodMode::ZeroHop;
     use crate::sub_lib::neighborhood::{
         Hops, NeighborhoodConfig, NeighborhoodMode, NodeDescriptor,
@@ -436,6 +438,7 @@ mod tests {
         make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
     };
     use crate::test_utils::{assert_string_contains, ArgsBuilder};
+    use lazy_static::lazy_static;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::multi_config::VirtualCommandLine;
@@ -451,8 +454,6 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
     use std::vec;
-    use lazy_static::lazy_static;
-    use crate::sub_lib::cryptde_real::CryptDEReal;
 
     lazy_static! {
         static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
@@ -515,12 +516,8 @@ mod tests {
             "node_configurator_standard",
             "node_configurator_standard_unprivileged_handles_fake_public_key",
         );
-        let multi_config = make_simplified_multi_config([
-            "--chain",
-            "eth-mainnet",
-            "--fake-public-key",
-            "AQIDBA",
-        ]);
+        let multi_config =
+            make_simplified_multi_config(["--chain", "eth-mainnet", "--fake-public-key", "AQIDBA"]);
         let mut privileged_config = BootstrapperConfig::default();
         privileged_config.data_directory = home_dir;
         let subject = NodeConfiguratorStandardUnprivileged {
@@ -683,7 +680,10 @@ mod tests {
 
         let result = configure_cryptdes(&mut persistent_config, &Some("db_password".to_string()));
 
-        assert_eq!(result.main.public_key(), stored_main_cryptde_box.public_key());
+        assert_eq!(
+            result.main.public_key(),
+            stored_main_cryptde_box.public_key()
+        );
         let cryptde_params = cryptde_params_arc.lock().unwrap();
         assert_eq!(*cryptde_params, vec!["db_password".to_string()]);
     }

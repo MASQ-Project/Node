@@ -1,4 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use crate::bootstrapper::CryptDEPair;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, MessageType};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
@@ -13,7 +14,6 @@ use std::fmt::{Debug, Formatter};
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::net::SocketAddrV4;
-use crate::bootstrapper::CryptDEPair;
 
 pub fn error_socket_addr() -> SocketAddr {
     SocketAddr::from(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0))

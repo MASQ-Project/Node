@@ -479,15 +479,18 @@ impl RoutingService {
                 }
                 Ok(p) => p,
             };
-        let next_live_package_enc =
-            match encodex(self.cryptde_pair.main.as_ref(), &next_hop.public_key, &next_live_package) {
-                Ok(nlpe) => nlpe,
-                Err(e) => {
-                    let msg = format!("Couldn't serialize or encrypt outgoing LCP: {:?}", e);
-                    error!(self.logger, "{}", &msg);
-                    return Err(CryptdecError::OtherError(msg));
-                }
-            };
+        let next_live_package_enc = match encodex(
+            self.cryptde_pair.main.as_ref(),
+            &next_hop.public_key,
+            &next_live_package,
+        ) {
+            Ok(nlpe) => nlpe,
+            Err(e) => {
+                let msg = format!("Couldn't serialize or encrypt outgoing LCP: {:?}", e);
+                error!(self.logger, "{}", &msg);
+                return Err(CryptdecError::OtherError(msg));
+            }
+        };
         Ok(TransmitDataMsg {
             endpoint: Endpoint::Key(next_hop.public_key),
             last_data,
@@ -520,18 +523,18 @@ mod tests {
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
     use crate::test_utils::unshared_test_utils::{make_request_payload, make_response_payload};
     use crate::test_utils::{
-        make_meaningless_message_type,
-        make_paying_wallet, rate_pack_routing, rate_pack_routing_byte, route_from_proxy_client,
-        route_to_proxy_client, route_to_proxy_server,
+        make_meaningless_message_type, make_paying_wallet, rate_pack_routing,
+        rate_pack_routing_byte, route_from_proxy_client, route_to_proxy_client,
+        route_to_proxy_server,
     };
     use actix::System;
+    use lazy_static::lazy_static;
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::time::SystemTime;
-    use lazy_static::lazy_static;
 
     lazy_static! {
         static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
@@ -540,7 +543,8 @@ mod tests {
     #[test]
     fn dns_resolution_failures_are_reported_to_the_proxy_server() {
         let cryptde_pair = CRYPTDE_PAIR.clone();
-        let route = route_to_proxy_server(&cryptde_pair.main.public_key(), cryptde_pair.main.as_ref());
+        let route =
+            route_to_proxy_server(&cryptde_pair.main.public_key(), cryptde_pair.main.as_ref());
         let stream_key = StreamKey::make_meaningless_stream_key();
         let dns_resolve_failure = DnsResolveFailure_0v1::new(stream_key);
         let lcp = LiveCoresPackage::new(
@@ -555,7 +559,12 @@ mod tests {
             )
             .unwrap(),
         );
-        let data_enc = encodex(cryptde_pair.main.as_ref(), &cryptde_pair.main.public_key(), &lcp).unwrap();
+        let data_enc = encodex(
+            cryptde_pair.main.as_ref(),
+            &cryptde_pair.main.public_key(),
+            &lcp,
+        )
+        .unwrap();
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
@@ -658,7 +667,10 @@ mod tests {
             data: data_enc.into(),
         };
         let peer_actors = peer_actors_builder().build();
-        let cryptde_pair = CryptDEPair::new(main_cryptde.dup(), Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN)));
+        let cryptde_pair = CryptDEPair::new(
+            main_cryptde.dup(),
+            Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN)),
+        );
         let subject = RoutingService::new(
             cryptde_pair,
             RoutingServiceSubs {
@@ -1825,7 +1837,8 @@ mod tests {
             200,
             true,
         );
-        let route = Route::single_hop(&PublicKey::new(b"1234"), subject.cryptde_pair.main.as_ref()).unwrap();
+        let route = Route::single_hop(&PublicKey::new(b"1234"), subject.cryptde_pair.main.as_ref())
+            .unwrap();
         let payload = payload_factory(&subject.cryptde_pair);
         let live_package = LiveCoresPackage::new(route, payload);
 

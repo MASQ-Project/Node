@@ -19,7 +19,7 @@ pub mod tokio_wrapper_mocks;
 
 use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
 use crate::blockchain::payer::Payer;
-use crate::bootstrapper::{CryptDEPair};
+use crate::bootstrapper::CryptDEPair;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::PlainData;
@@ -150,7 +150,10 @@ impl Waiter {
     }
 }
 
-pub fn make_one_way_route_to_proxy_client(public_keys: Vec<&PublicKey>, cryptde_pair: &CryptDEPair) -> Route {
+pub fn make_one_way_route_to_proxy_client(
+    public_keys: Vec<&PublicKey>,
+    cryptde_pair: &CryptDEPair,
+) -> Route {
     Route::one_way(
         RouteSegment::new(public_keys, Component::ProxyClient),
         cryptde_pair.main.as_ref(),
@@ -177,7 +180,9 @@ pub fn make_meaningless_route(cryptde_pair: &CryptDEPair) -> Route {
 }
 
 pub fn make_meaningless_public_key(cryptde_pair: &CryptDEPair) -> PublicKey {
-    PublicKey::new(&make_garbage_data(cryptde_pair.main.as_ref().public_key().len()))
+    PublicKey::new(&make_garbage_data(
+        cryptde_pair.main.as_ref().public_key().len(),
+    ))
 }
 
 pub fn make_meaningless_wallet_private_key() -> PlainData {
@@ -1210,12 +1215,12 @@ mod tests {
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::{
         ArbitraryIdStamp, FirstTraitMock, SecondTraitMock, TestSubject,
     };
+    use lazy_static::lazy_static;
     use std::borrow::BorrowMut;
     use std::iter;
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
-    use lazy_static::lazy_static;
 
     lazy_static! {
         static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();

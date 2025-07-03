@@ -783,6 +783,7 @@ impl TrafficAnalyzerReal {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bootstrapper::CryptDEPair;
     use crate::http_request_start_finder::HttpRequestDiscriminatorFactory;
     use crate::json_discriminator_factory::JsonDiscriminatorFactory;
     use crate::json_masquerader::JsonMasquerader;
@@ -808,6 +809,7 @@ mod tests {
     use actix::Addr;
     use actix::System;
     use crossbeam_channel::unbounded;
+    use lazy_static::lazy_static;
     use masq_lib::constants::HTTP_PORT;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
@@ -821,9 +823,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::SystemTime;
-    use lazy_static::lazy_static;
     use tokio::prelude::Async;
-    use crate::bootstrapper::CryptDEPair;
 
     lazy_static! {
         static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();

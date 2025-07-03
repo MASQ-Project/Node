@@ -372,17 +372,17 @@ impl NodeRecordMetadata {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bootstrapper::CryptDEPair;
     use crate::neighborhood::gossip::GossipBuilder;
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::neighborhood::ZERO_RATE_PACK;
     use crate::test_utils::make_wallet;
     use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
     use crate::test_utils::{assert_contains, rate_pack};
+    use lazy_static::lazy_static;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::net::IpAddr;
     use std::str::FromStr;
-    use lazy_static::lazy_static;
-    use crate::bootstrapper::CryptDEPair;
 
     lazy_static! {
         static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
@@ -473,11 +473,8 @@ mod tests {
 
         assert_eq!(
             result,
-            NodeDescriptor::try_from((
-                cryptde,
-                "masq://base-sepolia:AQIDBA@1.2.3.4:1234/2345"
-            ))
-            .unwrap()
+            NodeDescriptor::try_from((cryptde, "masq://base-sepolia:AQIDBA@1.2.3.4:1234/2345"))
+                .unwrap()
         );
     }
 

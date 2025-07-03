@@ -2,7 +2,6 @@
 
 pub mod utils;
 
-use std::io::Read;
 use masq_lib::constants::{DEFAULT_CHAIN, NODE_NOT_RUNNING_ERROR};
 use masq_lib::messages::{
     ToMessageBody, UiFinancialsResponse, UiSetupRequest, UiSetupResponse, UiShutdownRequest,
@@ -16,10 +15,11 @@ use node_lib::daemon::launch_verifier::{VerifierTools, VerifierToolsReal};
 use node_lib::database::db_initializer::DATABASE_FILE;
 #[cfg(not(target_os = "windows"))]
 use node_lib::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
+use regex::Regex;
 use rusqlite::{Connection, OpenFlags};
+use std::io::Read;
 use std::ops::Add;
 use std::time::{Duration, SystemTime};
-use regex::Regex;
 use utils::CommandConfig;
 use utils::MASQNode;
 
@@ -313,9 +313,7 @@ fn descriptor_from_logfile(test_name: &str, sterile_database: bool) -> String {
     let mut log_data = Vec::new();
     let mut node = utils::MASQNode::start_standard(
         test_name,
-        Some(CommandConfig::new().pair(
-            "--db-password", "test-password",
-        )),
+        Some(CommandConfig::new().pair("--db-password", "test-password")),
         sterile_database,
         true,
         false,
@@ -327,7 +325,12 @@ fn descriptor_from_logfile(test_name: &str, sterile_database: bool) -> String {
     logfile.read_to_end(&mut log_data).unwrap();
     let log_string = String::from_utf8(log_data).unwrap();
     let regex = Regex::new(descriptor_log_pattern).unwrap();
-    let descriptor = regex.captures(&log_string).unwrap().get(1).unwrap().as_str();
+    let descriptor = regex
+        .captures(&log_string)
+        .unwrap()
+        .get(1)
+        .unwrap()
+        .as_str();
     node.kill().unwrap();
     descriptor.to_string()
 }

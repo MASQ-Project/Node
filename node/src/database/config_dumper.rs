@@ -159,6 +159,7 @@ fn distill_args(
 mod tests {
     use super::*;
     use crate::blockchain::bip39::Bip39;
+    use crate::bootstrapper::CryptDEPair;
     use crate::database::db_initializer::ExternalData;
     use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::db_config::config_dao::ConfigDao;
@@ -172,7 +173,8 @@ mod tests {
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::neighborhood::{NodeDescriptor, DEFAULT_RATE_PACK};
     use crate::test_utils::database_utils::bring_db_0_back_to_life_and_return_connection;
-    use crate::test_utils::{ArgsBuilder};
+    use crate::test_utils::ArgsBuilder;
+    use lazy_static::lazy_static;
     use masq_lib::constants::CURRENT_SCHEMA_VERSION;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
@@ -183,8 +185,6 @@ mod tests {
     use std::fs::{create_dir_all, File};
     use std::io::ErrorKind;
     use std::panic::{catch_unwind, AssertUnwindSafe};
-    use lazy_static::lazy_static;
-    use crate::bootstrapper::CryptDEPair;
 
     lazy_static! {
         static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
@@ -317,9 +317,7 @@ mod tests {
             data_dir_result: Some(PathBuf::from("/home/booga/.local/share".to_string())),
             home_dir_result: Some(PathBuf::from("/home/booga".to_string())),
         }));
-        let subject = DumpConfigRunnerReal {
-            dirs_wrapper,
-        };
+        let subject = DumpConfigRunnerReal { dirs_wrapper };
 
         let result = subject.go(&mut holder.streams(), args_vec.as_slice());
 

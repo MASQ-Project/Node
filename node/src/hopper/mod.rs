@@ -151,16 +151,15 @@ mod tests {
     use crate::sub_lib::route::RouteSegment;
     use crate::test_utils::unshared_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::{
-        make_meaningless_message_type,
-        make_paying_wallet, route_to_proxy_client,
+        make_meaningless_message_type, make_paying_wallet, route_to_proxy_client,
     };
     use actix::Actor;
     use actix::System;
+    use lazy_static::lazy_static;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::time::SystemTime;
-    use lazy_static::lazy_static;
 
     lazy_static! {
         static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();

@@ -2,6 +2,7 @@
 
 use crate::database::db_initializer::ExternalData;
 use crate::database::db_migrations::migrations::migration_0_to_1::Migrate_0_to_1;
+use crate::database::db_migrations::migrations::migration_10_to_11::Migrate_10_to_11;
 use crate::database::db_migrations::migrations::migration_1_to_2::Migrate_1_to_2;
 use crate::database::db_migrations::migrations::migration_2_to_3::Migrate_2_to_3;
 use crate::database::db_migrations::migrations::migration_3_to_4::Migrate_3_to_4;
@@ -11,7 +12,6 @@ use crate::database::db_migrations::migrations::migration_6_to_7::Migrate_6_to_7
 use crate::database::db_migrations::migrations::migration_7_to_8::Migrate_7_to_8;
 use crate::database::db_migrations::migrations::migration_8_to_9::Migrate_8_to_9;
 use crate::database::db_migrations::migrations::migration_9_to_10::Migrate_9_to_10;
-use crate::database::db_migrations::migrations::migration_10_to_11::Migrate_10_to_11;
 use crate::database::db_migrations::migrator_utils::{
     DBMigDeclarator, DBMigrationUtilities, DBMigrationUtilitiesReal, DBMigratorInnerConfiguration,
 };

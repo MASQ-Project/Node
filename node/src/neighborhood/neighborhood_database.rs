@@ -712,9 +712,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(NodeKeyNotFound(
-                nonexistent_node.public_key().clone()
-            ))
+            Err(NodeKeyNotFound(nonexistent_node.public_key().clone()))
         )
     }
 

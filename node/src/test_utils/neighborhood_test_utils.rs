@@ -1,5 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::bootstrapper::{BootstrapperConfig};
+use crate::bootstrapper::BootstrapperConfig;
 use crate::neighborhood::gossip::{
     AccessibleGossipRecord, GossipBuilder, GossipNodeRecord, Gossip_0v1,
 };
@@ -87,7 +87,11 @@ pub fn make_node_record_f(
     result
 }
 
-pub fn make_global_cryptde_node_record(n: u16, has_ip: bool, cryptde_pair: &CryptDEPair) -> NodeRecord {
+pub fn make_global_cryptde_node_record(
+    n: u16,
+    has_ip: bool,
+    cryptde_pair: &CryptDEPair,
+) -> NodeRecord {
     let mut node_record = make_node_record(n, has_ip);
     node_record.inner.public_key = cryptde_pair.main.public_key().clone();
     node_record.resign();

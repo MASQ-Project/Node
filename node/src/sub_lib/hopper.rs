@@ -176,10 +176,10 @@ mod tests {
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::{make_meaningless_message_type, make_paying_wallet};
     use actix::Actor;
+    use lazy_static::lazy_static;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::net::IpAddr;
     use std::str::FromStr;
-    use lazy_static::lazy_static;
 
     lazy_static! {
         static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
