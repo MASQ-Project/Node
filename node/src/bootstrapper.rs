@@ -28,7 +28,6 @@ use crate::sub_lib::accountant;
 use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeConfig;
 use crate::sub_lib::cryptde::CryptDE;
-use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode};
 use crate::sub_lib::node_addr::NodeAddr;
@@ -60,6 +59,8 @@ use tokio::prelude::stream::futures_unordered::FuturesUnordered;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
 use tokio::prelude::Stream;
+#[cfg(test)]
+use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::cryptde_real::CryptDEReal;
 
 pub struct CryptDEPair {
@@ -359,9 +360,6 @@ pub struct BootstrapperConfig {
     pub data_directory: PathBuf,
     pub node_descriptor: NodeDescriptor,
     pub cryptde_pair: CryptDEPair,
-    // TODO: Let's see if we can get rid of these two fields.
-    pub main_cryptde_null_opt: Option<CryptDENull>,
-    pub alias_cryptde_null_opt: Option<CryptDENull>,
     pub mapping_protocol_opt: Option<AutomapProtocol>,
     pub real_user: RealUser,
     pub payment_thresholds_opt: Option<PaymentThresholds>,
@@ -408,8 +406,6 @@ impl BootstrapperConfig {
                 Box::new(CryptDEReal::new(Chain::Dev)),
                 Box::new(CryptDEReal::new(Chain::Dev)),
             ),
-            main_cryptde_null_opt: None,
-            alias_cryptde_null_opt: None,
             mapping_protocol_opt: None,
             real_user: RealUser::new(None, None, None),
             payment_thresholds_opt: Default::default(),

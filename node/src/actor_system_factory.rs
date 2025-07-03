@@ -1158,8 +1158,6 @@ mod tests {
             cryptde_pair: CRYPTDE_PAIR.clone(),
             data_directory: PathBuf::new(),
             node_descriptor: NodeDescriptor::default(),
-            main_cryptde_null_opt: None,
-            alias_cryptde_null_opt: None,
             mapping_protocol_opt: None,
             real_user: RealUser::null(),
             neighborhood_config: NeighborhoodConfig {
@@ -1230,8 +1228,6 @@ mod tests {
             data_directory: PathBuf::new(),
             node_descriptor: NodeDescriptor::try_from((CRYPTDE_PAIR.main.as_ref(), "masq://polygon-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@172.50.48.6:9342")).unwrap(),
             cryptde_pair: CRYPTDE_PAIR.clone(),
-            main_cryptde_null_opt: None,
-            alias_cryptde_null_opt: None,
             mapping_protocol_opt: Some(Igdp),
             real_user: RealUser::null(),
             neighborhood_config: NeighborhoodConfig {
@@ -1531,8 +1527,6 @@ mod tests {
             data_directory: PathBuf::new(),
             node_descriptor: NodeDescriptor::try_from((CRYPTDE_PAIR.main.as_ref(), "masq://polygon-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@172.50.48.6:9342")).unwrap(),
             cryptde_pair: CRYPTDE_PAIR.clone(),
-            main_cryptde_null_opt: None,
-            alias_cryptde_null_opt: None,
             mapping_protocol_opt: None,
             real_user: RealUser::null(),
             neighborhood_config: NeighborhoodConfig {
@@ -1716,8 +1710,6 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             data_directory: PathBuf::new(),
             cryptde_pair: CRYPTDE_PAIR.clone(),
-            main_cryptde_null_opt: None,
-            alias_cryptde_null_opt: None,
             mapping_protocol_opt: None,
             real_user: RealUser::null(),
             neighborhood_config: NeighborhoodConfig {

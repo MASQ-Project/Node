@@ -93,8 +93,29 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
             &self.logger,
         )?;
         configure_database(&unprivileged_config, persistent_config.as_mut())?;
-        let cryptde_pair = configure_cryptdes(persistent_config.as_mut(), &unprivileged_config.db_password_opt);
-        unprivileged_config.cryptde_pair = cryptde_pair;
+        if multi_config.occurrences_of("fake-public-key") == 0 {
+            let cryptde_pair = configure_cryptdes(persistent_config.as_mut(), &unprivileged_config.db_password_opt);
+            unprivileged_config.cryptde_pair = cryptde_pair;
+        }
+        else {
+            let public_key_str = value_m!(multi_config, "fake-public-key", String).expect("fake-public-key disappeared");
+            let main_public_key_data = base64::decode(&public_key_str).expect("fake-public-key: invalid Base64");
+            let main_public_key = PublicKey::new(&main_public_key_data);
+            let main_cryptde = CryptDENull::from(
+                &main_public_key,
+                unprivileged_config.blockchain_bridge_config.chain,
+            );
+            let alias_public_key_data = main_public_key_data.iter().rev().cloned().collect::<Vec<u8>>();
+            let alias_public_key = PublicKey::new(&alias_public_key_data);
+            let alias_cryptde = CryptDENull::from(
+                &alias_public_key,
+                unprivileged_config.blockchain_bridge_config.chain,
+            );
+            unprivileged_config.cryptde_pair = CryptDEPair::new(
+                Box::new(main_cryptde),
+                Box::new(alias_cryptde),
+            );
+        }
         Ok(unprivileged_config)
     }
 }
@@ -319,8 +340,10 @@ pub fn privileged_parse_args(
             &alias_public_key,
             privileged_config.blockchain_bridge_config.chain,
         );
-        privileged_config.main_cryptde_null_opt = Some(main_cryptde_null);
-        privileged_config.alias_cryptde_null_opt = Some(alias_cryptde_null);
+        privileged_config.cryptde_pair = CryptDEPair::new(
+            Box::new(main_cryptde_null),
+            Box::new(alias_cryptde_null),
+        );
     }
     Ok(())
 }
@@ -484,6 +507,31 @@ mod tests {
             )
         };
         assert_eq!(set_neighbors, neighbor)
+    }
+
+    #[test]
+    fn node_configurator_standard_unprivileged_handles_fake_public_key() {
+        let home_dir = ensure_node_home_directory_exists(
+            "node_configurator_standard",
+            "node_configurator_standard_unprivileged_handles_fake_public_key",
+        );
+        let multi_config = make_simplified_multi_config([
+            "--chain",
+            "eth-mainnet",
+            "--fake-public-key",
+            "AQIDBA",
+        ]);
+        let mut privileged_config = BootstrapperConfig::default();
+        privileged_config.data_directory = home_dir;
+        let subject = NodeConfiguratorStandardUnprivileged {
+            privileged_config,
+            logger: Logger::new("test"),
+        };
+
+        let result = subject.configure(&multi_config).unwrap();
+
+        assert_eq!(result.cryptde_pair.main.public_key().to_string(), "AQIDBA");
+        assert_eq!(result.cryptde_pair.alias.public_key().to_string(), "BAMCAQ");
     }
 
     #[test]
@@ -812,8 +860,12 @@ mod tests {
         );
         assert_eq!(config.data_directory, home_dir);
         assert_eq!(
-            config.main_cryptde_null_opt.unwrap().public_key(),
+            config.cryptde_pair.main.public_key(),
             &PublicKey::new(&[1, 2, 3, 4]),
+        );
+        assert_eq!(
+            config.cryptde_pair.alias.public_key(),
+            &PublicKey::new(&[4, 3, 2, 1]),
         );
         assert_eq!(
             config.real_user,
@@ -840,7 +892,6 @@ mod tests {
         );
         assert_eq!(config.crash_point, CrashPoint::None);
         assert_eq!(config.ui_gateway_config.ui_port, DEFAULT_UI_PORT);
-        assert!(config.main_cryptde_null_opt.is_none());
         assert_eq!(
             config.real_user,
             RealUser::new(None, None, None).populate(&DirsWrapperReal::default())
@@ -896,7 +947,6 @@ mod tests {
         );
         assert_eq!(config.crash_point, CrashPoint::None);
         assert_eq!(config.ui_gateway_config.ui_port, DEFAULT_UI_PORT);
-        assert!(config.main_cryptde_null_opt.is_none());
         assert_eq!(
             config.real_user,
             RealUser::new(None, None, None).populate(&DirsWrapperReal::default())
