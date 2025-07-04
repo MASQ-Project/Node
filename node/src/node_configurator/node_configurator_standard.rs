@@ -327,28 +327,6 @@ pub fn privileged_parse_args(
 
     privileged_config.crash_point =
         value_m!(multi_config, "crash-point", CrashPoint).unwrap_or(CrashPoint::None);
-
-    if let Some(public_key_str) = value_m!(multi_config, "fake-public-key", String) {
-        let (main_public_key, alias_public_key) = match base64::decode(&public_key_str) {
-            Ok(mut key) => {
-                let main_public_key = PublicKey::new(&key);
-                key.reverse();
-                let alias_public_key = PublicKey::new(&key);
-                (main_public_key, alias_public_key)
-            }
-            Err(e) => panic!("Invalid fake public key: {} ({:?})", public_key_str, e),
-        };
-        let main_cryptde_null = CryptDENull::from(
-            &main_public_key,
-            privileged_config.blockchain_bridge_config.chain,
-        );
-        let alias_cryptde_null = CryptDENull::from(
-            &alias_public_key,
-            privileged_config.blockchain_bridge_config.chain,
-        );
-        privileged_config.cryptde_pair =
-            CryptDEPair::new(Box::new(main_cryptde_null), Box::new(alias_cryptde_null));
-    }
     Ok(())
 }
 
@@ -816,7 +794,6 @@ mod tests {
             .param("--data-directory", home_dir.to_str().unwrap())
             .param("--blockchain-service-url", "http://127.0.0.1:8545")
             .param("--log-level", "trace")
-            .param("--fake-public-key", "AQIDBA")
             .param("--db-password", "secret-db-password")
             .param(
                 "--earning-wallet",
@@ -859,14 +836,6 @@ mod tests {
             None,
         );
         assert_eq!(config.data_directory, home_dir);
-        assert_eq!(
-            config.cryptde_pair.main.public_key(),
-            &PublicKey::new(&[1, 2, 3, 4]),
-        );
-        assert_eq!(
-            config.cryptde_pair.alias.public_key(),
-            &PublicKey::new(&[4, 3, 2, 1]),
-        );
         assert_eq!(
             config.real_user,
             RealUser::new(Some(999), Some(999), Some(PathBuf::from("/home/booga")))

@@ -517,7 +517,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
         // NOTE: The following line of code is not covered by unit tests
         fdlimit::raise_fd_limit();
         let unprivileged_config =
-            NodeConfiguratorStandardUnprivileged::new(&self.config).configure(multi_config)?; // this is where the CryptDEs are set up
+            NodeConfiguratorStandardUnprivileged::new(&self.config).configure(multi_config)?;
         let cryptde_pair = unprivileged_config.cryptde_pair.clone();
         self.config.merge_unprivileged(unprivileged_config);
         let _ = self.set_up_clandestine_port();
