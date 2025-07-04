@@ -474,7 +474,7 @@ impl Future for Bootstrapper {
 
     fn poll(&mut self) -> Result<Async<<Self as Future>::Item>, <Self as Future>::Error> {
         // TODO: The config parameter below doesn't appear to be used. At any rate, it should probably be self.config, not a new object.
-        try_ready!(CrashTestDummy::new(self.config.crash_point, BootstrapperConfig::new()).poll());
+        try_ready!(CrashTestDummy::new(self.config.crash_point).poll());
         try_ready!(self.listener_handlers.poll());
         Ok(Async::Ready(()))
     }
