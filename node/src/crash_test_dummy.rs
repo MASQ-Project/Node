@@ -11,8 +11,7 @@ pub struct CrashTestDummy {
     logger: Logger,
 }
 
-impl CrashTestDummy
-{
+impl CrashTestDummy {
     pub fn new(crash_point: CrashPoint) -> CrashTestDummy {
         CrashTestDummy {
             crash_point,
@@ -31,8 +30,7 @@ impl CrashTestDummy
     }
 }
 
-impl Future for CrashTestDummy
-{
+impl Future for CrashTestDummy {
     type Item = ();
     type Error = ();
 
@@ -84,8 +82,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "CrashTestDummy Mmm Mmm Mmm Mmm")]
     fn should_panic_with_provided_message() {
-        let crash_future =
-            CrashTestDummy::panic(String::from("CrashTestDummy Mmm Mmm Mmm Mmm"));
+        let crash_future = CrashTestDummy::panic(String::from("CrashTestDummy Mmm Mmm Mmm Mmm"));
 
         crash_future.wait().ok();
     }
