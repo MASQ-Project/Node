@@ -279,7 +279,7 @@ impl AccountantBuilder {
         self
     }
 
-    pub fn pending_payable_daos(
+    pub fn sent_payable_daos(
         mut self,
         specially_configured_daos: Vec<DaoWithDestination<SentPayableDaoMock>>,
     ) -> Self {
@@ -1070,7 +1070,7 @@ pub struct SentPayableDaoMock {
 
 impl SentPayableDao for SentPayableDaoMock {
     fn get_tx_identifiers(&self, hashes: &HashSet<TxHash>) -> TxIdentifiers{
-        self.get_tx_identifiers_params.push(hashes);
+        self.get_tx_identifiers_params.lock().unwrap().push(hashes.clone());
         self. get_tx_identifiers_results.borrow_mut().remove(0)
     }
     fn insert_new_records(&self, txs: &[SentTx]) -> Result<(), SentPayableDaoError>{
@@ -1310,6 +1310,7 @@ impl PendingPayableScannerBuilder {
         PendingPayableScanner::new(
             Box::new(self.payable_dao),
             Box::new(self.sent_payable_dao),
+            todo!("Utkarsh?"),
             Rc::new(self.payment_thresholds),
             self.when_pending_too_long_sec,
             Rc::new(RefCell::new(self.financial_statistics)),
@@ -1378,17 +1379,6 @@ pub fn make_custom_payment_thresholds() -> PaymentThresholds {
         maturity_threshold_sec: 86_400,
         permanent_debt_allowed_gwei: 10_000_000,
         unban_below_gwei: 10_000_000,
-    }
-}
-
-pub fn make_pending_payable_fingerprint() -> SentTx {
-    SentTx {
-        rowid: 33,
-        timestamp: from_unix_timestamp(222_222_222),
-        hash: make_tx_hash(456),
-        attempt: 1,
-        amount: 12345,
-        process_error: None,
     }
 }
 

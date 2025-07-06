@@ -1,9 +1,10 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use std::collections::HashSet;
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::payable_scanner_extension::agent_web3::BlockchainAgentWeb3;
 use crate::accountant::scanners::payable_scanner_extension::blockchain_agent::BlockchainAgent;
-use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
+use crate::blockchain::blockchain_bridge::RegisterNewPendingSentTxMessage;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
     BlockchainInterfaceWeb3, HashAndAmount, TRANSFER_METHOD_ID,
 };
@@ -26,6 +27,8 @@ use web3::transports::{Batch, Http};
 use web3::types::{Bytes, SignedTransaction, TransactionParameters, U256};
 use web3::Error as Web3Error;
 use web3::Web3;
+use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
+use crate::accountant::db_access_objects::utils::TxHash;
 use crate::accountant::PendingPayable;
 
 #[derive(Debug)]
@@ -40,43 +43,31 @@ pub fn advance_used_nonce(current_nonce: U256) -> U256 {
         .expect("unexpected limits")
 }
 
-fn error_with_hashes(
-    error: Web3Error,
-    hashes_and_paid_amounts: Vec<HashAndAmount>,
-) -> PayableTransactionError {
-    let hashes = hashes_and_paid_amounts
-        .into_iter()
-        .map(|hash_and_amount| hash_and_amount.hash)
-        .collect();
-    PayableTransactionError::Sending {
-        msg: error.to_string(),
-        hashes,
-    }
-}
-
+// TODO using these three vectors like this is dangerous; who guarantees that all three have their 
+// items sorted in the right order?
 pub fn merged_output_data(
     responses: Vec<web3::transports::Result<Value>>,
-    hashes_and_paid_amounts: Vec<HashAndAmount>,
+    sent_tx_hashes: Vec<TxHash>,
     accounts: Vec<PayableAccount>,
 ) -> Vec<ProcessedPayableFallible> {
     let iterator_with_all_data = responses
         .into_iter()
-        .zip(hashes_and_paid_amounts.into_iter())
+        .zip(sent_tx_hashes.into_iter())
         .zip(accounts.iter());
     iterator_with_all_data
         .map(
-            |((rpc_result, hash_and_amount), account)| match rpc_result {
+            |((rpc_result, hash), account)| match rpc_result {
                 Ok(_rpc_result) => {
                     // TODO: GH-547: This rpc_result should be validated
                     ProcessedPayableFallible::Correct(PendingPayable {
                         recipient_wallet: account.wallet.clone(),
-                        hash: hash_and_amount.hash,
+                        hash,
                     })
                 }
                 Err(rpc_error) => ProcessedPayableFallible::Failed(RpcPayableFailure {
                     rpc_error,
                     recipient_wallet: account.wallet.clone(),
-                    hash: hash_and_amount.hash,
+                    hash,
                 }),
             },
         )
@@ -218,7 +209,7 @@ pub fn sign_and_append_multiple_payments(
     gas_price_in_wei: u128,
     mut pending_nonce: U256,
     accounts: &[PayableAccount],
-) -> Vec<HashAndAmount> {
+) -> Vec<SentTx> {
     let mut hash_and_amount_list = vec![];
     accounts.iter().for_each(|payable| {
         debug!(
@@ -241,7 +232,8 @@ pub fn sign_and_append_multiple_payments(
         pending_nonce = advance_used_nonce(pending_nonce);
         hash_and_amount_list.push(hash_and_amount);
     });
-    hash_and_amount_list
+    
+    todo!()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -252,7 +244,7 @@ pub fn send_payables_within_batch(
     consuming_wallet: Wallet,
     gas_price_in_wei: u128,
     pending_nonce: U256,
-    new_fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
+    new_fingerprints_recipient: Recipient<RegisterNewPendingSentTxMessage>,
     accounts: Vec<PayableAccount>,
 ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError> + 'static>
 {
@@ -265,7 +257,7 @@ pub fn send_payables_within_batch(
             gas_price_in_wei
         );
 
-    let hashes_and_paid_amounts = sign_and_append_multiple_payments(
+    let prepared_sent_txs_records = sign_and_append_multiple_payments(
         logger,
         chain,
         web3_batch,
@@ -275,16 +267,13 @@ pub fn send_payables_within_batch(
         &accounts,
     );
 
-    let timestamp = SystemTime::now();
-    let hashes_and_paid_amounts_error = hashes_and_paid_amounts.clone();
-    let hashes_and_paid_amounts_ok = hashes_and_paid_amounts.clone();
-
-    // TODO: We are sending hashes_and_paid_amounts to the Accountant even if the payments fail.
+    let sent_txs_hashes: Vec<TxHash> = prepared_sent_txs_records.iter().map(|sent_tx|sent_tx.hash).collect();
+    let planned_sent_txs_hashes = HashSet::from_iter(sent_txs_hashes.clone().into_iter());
+    
+    let new_pending_sent_tx_message = RegisterNewPendingSentTxMessage::new(prepared_sent_txs_records);
+    
     new_fingerprints_recipient
-        .try_send(PendingPayableFingerprintSeeds {
-            batch_wide_timestamp: timestamp,
-            hashes_and_balances: hashes_and_paid_amounts,
-        })
+        .try_send(new_pending_sent_tx_message)
         .expect("Accountant is dead");
 
     info!(
@@ -297,11 +286,15 @@ pub fn send_payables_within_batch(
         web3_batch
             .transport()
             .submit_batch()
-            .map_err(|e| error_with_hashes(e, hashes_and_paid_amounts_error))
-            .and_then(move |batch_response| {
+            .map_err(move |e|
+                             PayableTransactionError::Sending {
+                                 msg: e.to_string(),
+                                 hashes: planned_sent_txs_hashes,
+                             }
+            ).and_then(move |batch_response| {
                 Ok(merged_output_data(
                     batch_response,
-                    hashes_and_paid_amounts_ok,
+                    sent_txs_hashes,
                     accounts,
                 ))
             }),
@@ -612,11 +605,16 @@ mod tests {
         system.run();
         let timestamp_after = SystemTime::now();
         let accountant_recording_result = accountant_recording.lock().unwrap();
-        let ppfs_message =
-            accountant_recording_result.get_record::<PendingPayableFingerprintSeeds>(0);
+        let rnpst_message =
+            accountant_recording_result.get_record::<RegisterNewPendingSentTxMessage>(0);
         assert_eq!(accountant_recording_result.len(), 1);
-        assert!(timestamp_before <= ppfs_message.batch_wide_timestamp);
-        assert!(timestamp_after >= ppfs_message.batch_wide_timestamp);
+        rnpst_message.new_sent_tx.iter().for_each(|tx| {
+
+
+            todo!("add more assertions");
+            assert!(timestamp_before <= from_unix_timestamp(tx.timestamp));
+            assert!(timestamp_after >= from_unix_timestamp(tx.timestamp));
+        });
         let tlh = TestLogHandler::new();
         tlh.exists_log_containing(
             &format!("DEBUG: {test_name}: Common attributes of payables to be transacted: sender wallet: {}, contract: {:?}, chain_id: {}, gas_price: {}",

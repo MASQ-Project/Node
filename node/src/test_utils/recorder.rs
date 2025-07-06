@@ -7,8 +7,8 @@ use crate::accountant::{
     ReceivedPayments, RequestTransactionReceipts, ScanError, ScanForNewPayables,
     ScanForReceivables, SentPayables,
 };
-use crate::accountant::{ReportTransactionReceipts, ScanForPendingPayables, ScanForRetryPayables};
-use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
+use crate::accountant::{TxStatusReport, ScanForPendingPayables, ScanForRetryPayables};
+use crate::blockchain::blockchain_bridge::RegisterNewPendingSentTxMessage;
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::daemon::crash_notification::CrashNotification;
 use crate::daemon::DaemonBindMessage;
@@ -153,7 +153,7 @@ recorder_message_handler_t_m_p!(NodeFromUiMessage);
 recorder_message_handler_t_m_p!(NodeToUiMessage);
 recorder_message_handler_t_m_p!(NoLookupIncipientCoresPackage);
 recorder_message_handler_t_p!(OutboundPaymentsInstructions);
-recorder_message_handler_t_m_p!(PendingPayableFingerprintSeeds);
+recorder_message_handler_t_m_p!(RegisterNewPendingSentTxMessage);
 recorder_message_handler_t_m_p!(PoolBindMessage);
 recorder_message_handler_t_m_p!(QualifiedPayablesMessage);
 recorder_message_handler_t_m_p!(ReceivedPayments);
@@ -162,7 +162,7 @@ recorder_message_handler_t_m_p!(RemoveStreamMsg);
 recorder_message_handler_t_m_p!(ReportExitServiceProvidedMessage);
 recorder_message_handler_t_m_p!(ReportRoutingServiceProvidedMessage);
 recorder_message_handler_t_m_p!(ReportServicesConsumedMessage);
-recorder_message_handler_t_m_p!(ReportTransactionReceipts);
+recorder_message_handler_t_m_p!(TxStatusReport);
 recorder_message_handler_t_m_p!(RequestTransactionReceipts);
 recorder_message_handler_t_m_p!(RetrieveTransactions);
 recorder_message_handler_t_m_p!(ScanError);
@@ -529,8 +529,8 @@ pub fn make_accountant_subs_from_recorder(addr: &Addr<Recorder>) -> AccountantSu
         report_services_consumed: recipient!(addr, ReportServicesConsumedMessage),
         report_payable_payments_setup: recipient!(addr, BlockchainAgentWithContextMessage),
         report_inbound_payments: recipient!(addr, ReceivedPayments),
-        init_pending_payable_fingerprints: recipient!(addr, PendingPayableFingerprintSeeds),
-        report_transaction_receipts: recipient!(addr, ReportTransactionReceipts),
+        init_pending_payable_fingerprints: recipient!(addr, RegisterNewPendingSentTxMessage),
+        report_transaction_status: recipient!(addr, TxStatusReport),
         report_sent_payments: recipient!(addr, SentPayables),
         scan_errors: recipient!(addr, ScanError),
         ui_message_sub: recipient!(addr, NodeFromUiMessage),

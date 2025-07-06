@@ -5,7 +5,6 @@ pub mod data_structures;
 pub mod lower_level_interface;
 
 use actix::Recipient;
-use ethereum_types::H256;
 use crate::accountant::scanners::payable_scanner_extension::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainAgentBuildError, BlockchainError, PayableTransactionError};
 use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RetrievedBlockchainTransactions};
@@ -16,8 +15,9 @@ use masq_lib::blockchains::chains::Chain;
 use web3::types::Address;
 use masq_lib::logger::Logger;
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::blockchain::blockchain_bridge::{BlockMarker, BlockScanRange, PendingPayableFingerprintSeeds};
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionReceiptResult;
+use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
+use crate::blockchain::blockchain_bridge::{BlockMarker, BlockScanRange, RegisterNewPendingSentTxMessage};
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TxReceiptResult;
 
 pub trait BlockchainInterface {
     fn contract_address(&self) -> Address;
@@ -40,14 +40,14 @@ pub trait BlockchainInterface {
 
     fn process_transaction_receipts(
         &self,
-        transaction_hashes: Vec<H256>,
-    ) -> Box<dyn Future<Item = Vec<TransactionReceiptResult>, Error = BlockchainError>>;
+        sent_tx: Vec<SentTx>,
+    ) -> Box<dyn Future<Item = Vec<TxReceiptResult>, Error = BlockchainError>>;
 
     fn submit_payables_in_batch(
         &self,
         logger: Logger,
         agent: Box<dyn BlockchainAgent>,
-        fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
+        fingerprints_recipient: Recipient<RegisterNewPendingSentTxMessage>,
         affordable_accounts: Vec<PayableAccount>,
     ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>;
 

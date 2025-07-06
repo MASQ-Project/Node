@@ -1,11 +1,13 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use std::collections::HashSet;
 use crate::accountant::comma_joined_stringifiable;
-use itertools::Either;
+use itertools::{Either, Itertools};
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use variant_count::VariantCount;
 use web3::types::{Address, H256};
+use crate::accountant::db_access_objects::utils::TxHash;
 
 const BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED: &str = "Uninitialized blockchain interface. To avoid \
 being delinquency-banned, you should restart the Node with a value for blockchain-service-url";
@@ -41,7 +43,7 @@ pub enum PayableTransactionError {
     TransactionID(BlockchainError),
     UnusableWallet(String),
     Signing(String),
-    Sending { msg: String, hashes: Vec<H256> },
+    Sending { msg: String, hashes: HashSet<TxHash> },
     UninitializedBlockchainInterface,
 }
 
@@ -63,12 +65,14 @@ impl Display for PayableTransactionError {
                 msg
             ),
             Self::Signing(msg) => write!(f, "Signing phase: \"{}\"", msg),
-            Self::Sending { msg, hashes } => write!(
+            Self::Sending { msg, hashes } => {
+                let hashes = hashes.iter().map(|hash| *hash).collect_vec();
+                write!(
                 f,
                 "Sending phase: \"{}\". Signed and hashed transactions: {}",
                 msg,
-                comma_joined_stringifiable(hashes, |hash| format!("{:?}", hash))
-            ),
+                comma_joined_stringifiable(&hashes, |hash| format!("{:?}", hash))
+            )},
             Self::UninitializedBlockchainInterface => {
                 write!(f, "{}", BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED)
             }

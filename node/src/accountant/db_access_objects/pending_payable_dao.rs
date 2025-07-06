@@ -178,7 +178,7 @@ impl SentPayableDao for PendingPayableDaoReal<'_> {
         {
             Ok(x) if x == ids.len() => Ok(()),
             Ok(num) => panic!(
-                "deleting fingerprint, expected {} rows to be changed, but the actual number is {}",
+                "deleting sent tx record, expected {} rows to be changed, but the actual number is {}",
                 ids.len(),
                 num
             ),
@@ -681,7 +681,7 @@ mod tests {
     //
     // #[test]
     // #[should_panic(
-    //     expected = "deleting fingerprint, expected 2 rows to be changed, but the actual number is 1"
+    //     expected = "deleting sent tx record, expected 2 rows to be changed, but the actual number is 1"
     // )]
     // fn delete_fingerprints_changed_different_number_of_rows_than_expected() {
     //     let home_dir = ensure_node_home_directory_exists(

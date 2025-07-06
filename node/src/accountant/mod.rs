@@ -14,7 +14,7 @@ use masq_lib::constants::{SCAN_ERROR, WEIS_IN_GWEI};
 use std::cell::{Ref, RefCell};
 
 use crate::accountant::db_access_objects::payable_dao::{PayableDao, PayableDaoError};
-use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDao;
+use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDao, SentTx};
 use crate::accountant::db_access_objects::receivable_dao::{ReceivableDao, ReceivableDaoError};
 use crate::accountant::db_access_objects::utils::{remap_payable_accounts, remap_receivable_accounts, CustomQuery, DaoFactoryReal, TxHash};
 use crate::accountant::financials::visibility_restricted_module::{
@@ -24,7 +24,7 @@ use crate::accountant::scanners::payable_scanner_extension::msgs::{
     BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
 };
 use crate::accountant::scanners::{StartScanError, Scanners};
-use crate::blockchain::blockchain_bridge::{BlockMarker, PendingPayableFingerprintSeeds, RetrieveTransactions};
+use crate::blockchain::blockchain_bridge::{BlockMarker, RegisterNewPendingSentTxMessage, RetrieveTransactions};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::HashAndAmount;
 use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
 use crate::blockchain::blockchain_interface::data_structures::{
@@ -77,7 +77,7 @@ use web3::types::H256;
 use crate::accountant::scanners::scan_schedulers::{PayableSequenceScanner, ScanRescheduleAfterEarlyStop, ScanSchedulers};
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::OperationOutcome;
 use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::PendingPayableScanResult;
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionReceiptResult;
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TxReceiptResult;
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
 pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; //6 hours
@@ -135,8 +135,8 @@ pub struct ReceivedPayments {
 }
 
 #[derive(Debug, PartialEq, Eq, Message, Clone)]
-pub struct ReportTransactionReceipts {
-    pub receipt_results: Vec<TransactionReceiptResult>,
+pub struct TxStatusReport {
+    pub results: Vec<TxReceiptResult>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
@@ -306,10 +306,10 @@ impl Handler<ScanForReceivables> for Accountant {
     }
 }
 
-impl Handler<ReportTransactionReceipts> for Accountant {
+impl Handler<TxStatusReport> for Accountant {
     type Result = ();
 
-    fn handle(&mut self, msg: ReportTransactionReceipts, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: TxStatusReport, ctx: &mut Self::Context) -> Self::Result {
         let response_skeleton_opt = msg.response_skeleton_opt;
         match self.scanners.finish_pending_payable_scan(msg, &self.logger) {
             PendingPayableScanResult::NoPendingPayablesLeft(ui_msg_opt) => {
@@ -467,7 +467,7 @@ pub trait SkeletonOptHolder {
 
 #[derive(Debug, PartialEq, Eq, Message, Clone)]
 pub struct RequestTransactionReceipts {
-    pub tx_hashes: Vec<TxHash>,
+    pub sent_tx: Vec<SentTx>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
@@ -477,14 +477,14 @@ impl SkeletonOptHolder for RequestTransactionReceipts {
     }
 }
 
-impl Handler<PendingPayableFingerprintSeeds> for Accountant {
+impl Handler<RegisterNewPendingSentTxMessage> for Accountant {
     type Result = ();
     fn handle(
         &mut self,
-        msg: PendingPayableFingerprintSeeds,
+        msg: RegisterNewPendingSentTxMessage,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        self.handle_new_pending_payable_fingerprints(msg)
+        self.register_new_pending_sent_tx(msg)
     }
 }
 
@@ -559,8 +559,8 @@ impl Accountant {
             report_services_consumed: recipient!(addr, ReportServicesConsumedMessage),
             report_payable_payments_setup: recipient!(addr, BlockchainAgentWithContextMessage),
             report_inbound_payments: recipient!(addr, ReceivedPayments),
-            init_pending_payable_fingerprints: recipient!(addr, PendingPayableFingerprintSeeds),
-            report_transaction_receipts: recipient!(addr, ReportTransactionReceipts),
+            init_pending_payable_fingerprints: recipient!(addr, RegisterNewPendingSentTxMessage),
+            report_transaction_status: recipient!(addr, TxStatusReport),
             report_sent_payments: recipient!(addr, SentPayables),
             scan_errors: recipient!(addr, ScanError),
             ui_message_sub: recipient!(addr, NodeFromUiMessage),
@@ -1117,27 +1117,28 @@ impl Accountant {
         }
     }
 
-    fn handle_new_pending_payable_fingerprints(&self, msg: PendingPayableFingerprintSeeds) {
-        fn serialize_hashes(fingerprints_data: &[HashAndAmount]) -> String {
-            comma_joined_stringifiable(fingerprints_data, |hash_and_amount| {
-                format!("{:?}", hash_and_amount.hash)
+    fn register_new_pending_sent_tx(&self, msg: RegisterNewPendingSentTxMessage) {
+        fn serialize_hashes(fingerprints_data: &[SentTx]) -> String {
+            comma_joined_stringifiable(fingerprints_data, |sent_tx| {
+                format!("{:?}", sent_tx.hash)
             })
         }
+        
         match self
             .sent_payable_dao
-            .insert_new_fingerprints(&msg.hashes_and_balances, msg.batch_wide_timestamp)
+            .insert_new_records(&msg.new_sent_tx)
         {
             Ok(_) => debug!(
                 self.logger,
                 "Saved new pending payable fingerprints for: {}",
-                serialize_hashes(&msg.hashes_and_balances)
+                serialize_hashes(&msg.new_sent_tx)
             ),
             Err(e) => error!(
                 self.logger,
                 "Failed to process new pending payable fingerprints due to '{:?}', \
                  disabling the automated confirmation for all these transactions: {}",
                 e,
-                serialize_hashes(&msg.hashes_and_balances)
+                serialize_hashes(&msg.new_sent_tx)
             ),
         }
     }
@@ -1150,11 +1151,11 @@ impl Accountant {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PendingPayable {
     pub recipient_wallet: Wallet,
-    pub hash: H256,
+    pub hash: TxHash,
 }
 
 impl PendingPayable {
-    pub fn new(recipient_wallet: Wallet, hash: H256) -> Self {
+    pub fn new(recipient_wallet: Wallet, hash: TxHash) -> Self {
         Self {
             recipient_wallet,
             hash,
@@ -1165,11 +1166,11 @@ impl PendingPayable {
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct PendingPayableId {
     pub rowid: u64,
-    pub hash: H256,
+    pub hash: TxHash,
 }
 
 impl PendingPayableId {
-    pub fn new(rowid: u64, hash: H256) -> Self {
+    pub fn new(rowid: u64, hash: TxHash) -> Self {
         Self { rowid, hash }
     }
 
@@ -1241,7 +1242,7 @@ mod tests {
     use crate::accountant::test_utils::DaoWithDestination::{
         ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,
     };
-    use crate::accountant::test_utils::{bc_from_earning_wallet, bc_from_wallets, make_payable_account, make_qualified_and_unqualified_payables, make_pending_payable_fingerprint, BannedDaoFactoryMock, ConfigDaoFactoryMock, MessageIdGeneratorMock, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder, PaymentAdjusterMock, SentPayableDaoFactoryMock, SentPayableDaoMock, ReceivableDaoFactoryMock, ReceivableDaoMock};
+    use crate::accountant::test_utils::{bc_from_earning_wallet, bc_from_wallets, make_payable_account, make_qualified_and_unqualified_payables, BannedDaoFactoryMock, ConfigDaoFactoryMock, MessageIdGeneratorMock, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder, PaymentAdjusterMock, SentPayableDaoFactoryMock, SentPayableDaoMock, ReceivableDaoFactoryMock, ReceivableDaoMock, make_sent_tx};
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
     use crate::accountant::Accountant;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::HashAndAmount;
@@ -1299,7 +1300,7 @@ mod tests {
     use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDaoError, SentTx};
     use crate::accountant::scanners::scan_schedulers::{NewPayableScanDynIntervalComputer, NewPayableScanDynIntervalComputerReal};
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{OperationOutcome, PayableScanResult};
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt, TxStatus};
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{SentTxWithLatestStatus, TransactionBlock, TxBlockchainFailure, TxStatus};
     use crate::test_utils::recorder_counter_msgs::SingleTypeCounterMsgSetup;
 
     impl Handler<AssertionsMessage<Accountant>> for Accountant {
@@ -1570,7 +1571,7 @@ mod tests {
             SentPayableDaoMock::default().get_tx_identifiers_result(hashmap! (tx_hash => 1));
         let payable_dao = PayableDaoMock::default().mark_pending_payables_rowids_result(Ok(()));
         let mut subject = AccountantBuilder::default()
-            .pending_payable_daos(vec![ForPayableScanner(sent_payable_dao)])
+            .sent_payable_daos(vec![ForPayableScanner(sent_payable_dao)])
             .payable_daos(vec![ForPayableScanner(payable_dao)])
             .bootstrapper_config(config)
             .build();
@@ -1833,7 +1834,7 @@ mod tests {
             receivable_scan_interval: Duration::from_millis(10_000),
             pending_payable_scan_interval: Duration::from_secs(100),
         });
-        let fingerprint = SentTx {
+        let sent_tx = SentTx {
             timestamp: SystemTime::now(),
             gas_price_wei: 0,
             nonce: 0,
@@ -1843,11 +1844,11 @@ mod tests {
             block_opt: None,
         };
         let sent_payable_dao = SentPayableDaoMock::default()
-            .retrieve_txs_result(vec![fingerprint.clone()]);
+            .retrieve_txs_result(vec![sent_tx.clone()]);
         let mut subject = AccountantBuilder::default()
             .consuming_wallet(make_paying_wallet(b"consuming"))
             .bootstrapper_config(config)
-            .pending_payable_daos(vec![ForPendingPayableScanner(sent_payable_dao)])
+            .sent_payable_daos(vec![ForPendingPayableScanner(sent_payable_dao)])
             .build();
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let blockchain_bridge = blockchain_bridge
@@ -1877,7 +1878,7 @@ mod tests {
         assert_eq!(
             blockchain_bridge_recording.get_record::<RequestTransactionReceipts>(0),
             &RequestTransactionReceipts {
-                pending_payable_fingerprints: vec![fingerprint],
+                pending_payable_fingerprints: vec![sent_tx],
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321,
@@ -1897,10 +1898,10 @@ mod tests {
             .transactions_confirmed_params(&transaction_confirmed_params_arc)
             .transactions_confirmed_result(Ok(()));
         let sent_payable_dao =
-            SentPayableDaoMock::default().delete_fingerprints_result(Ok(()));
+            SentPayableDaoMock::default().delete_records_result(Ok(()));
         let mut subject = AccountantBuilder::default()
             .payable_daos(vec![ForPendingPayableScanner(payable_dao)])
-            .pending_payable_daos(vec![ForPendingPayableScanner(sent_payable_dao)])
+            .sent_payable_daos(vec![ForPendingPayableScanner(sent_payable_dao)])
             .build();
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let ui_gateway =
@@ -1917,18 +1918,16 @@ mod tests {
             Box::new(NotifyHandleMock::default().panic_on_schedule_attempt());
         subject.ui_message_sub_opt = Some(ui_gateway_addr.recipient());
         let subject_addr = subject.start();
-        let tx_fingerprint = make_pending_payable_fingerprint();
-        let report_tx_receipts = ReportTransactionReceipts {
-            fingerprints_with_receipts: vec![(
-                TransactionReceiptResult::RpcResponse(TxReceipt {
-                    transaction_hash: make_tx_hash(777),
-                    status: TxStatus::Succeeded(TransactionBlock {
+        let sent_tx = make_sent_tx(123);
+        let report_tx_receipts = TxStatusReport {
+            results: vec![
+                TxReceiptResult::RpcResponse(SentTxWithLatestStatus::new(
+                    sent_tx.clone(),
+                    TxStatus::Succeeded(TransactionBlock {
                         block_hash: make_tx_hash(456),
                         block_number: 78901234.into(),
-                    }),
-                }),
-                tx_fingerprint.clone(),
-            )],
+                    })
+                ))],
             response_skeleton_opt,
         };
 
@@ -1936,7 +1935,7 @@ mod tests {
 
         system.run();
         let transaction_confirmed_params = transaction_confirmed_params_arc.lock().unwrap();
-        assert_eq!(*transaction_confirmed_params, vec![vec![tx_fingerprint]]);
+        assert_eq!(*transaction_confirmed_params, vec![vec![sent_tx]]);
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         assert_eq!(
             ui_gateway_recording.get_record::<NodeToUiMessage>(0),
@@ -2116,13 +2115,15 @@ mod tests {
         // TODO when we have more logic in place with the other cards taken in, we'll need to configure these
         // accordingly
         let payable_dao = PayableDaoMock::default().transactions_confirmed_result(Ok(()));
-        let pending_payable = SentPayableDaoMock::default()
-            .return_all_errorless_fingerprints_result(vec![make_pending_payable_fingerprint()])
-            .mark_failures_result(Ok(()));
+        let sent_tx = make_sent_tx(123);
+        let sent_payable_dao = SentPayableDaoMock::default()
+            .retrieve_txs_result(vec![sent_tx.clone()])
+            // TODO: params assertion??
+            .delete_records_result(Ok(()));
         let mut subject = AccountantBuilder::default()
             .consuming_wallet(make_wallet("consuming"))
             .payable_daos(vec![ForPendingPayableScanner(payable_dao)])
-            .pending_payable_daos(vec![ForPendingPayableScanner(pending_payable)])
+            .sent_payable_daos(vec![ForPendingPayableScanner(sent_payable_dao)])
             .build();
         subject.scan_schedulers.automatic_scans_enabled = false;
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
@@ -2137,14 +2138,13 @@ mod tests {
         let system = System::new("test");
         let first_counter_msg_setup = setup_for_counter_msg_triggered_via_type_id!(
             RequestTransactionReceipts,
-            ReportTransactionReceipts {
-                fingerprints_with_receipts: vec![(
-                    TransactionReceiptResult::RpcResponse(TxReceipt {
-                        transaction_hash: make_tx_hash(234),
-                        status: TxStatus::Failed
-                    }),
-                    make_pending_payable_fingerprint()
-                )],
+            TxStatusReport {
+                results: vec![
+                    TxReceiptResult::RpcResponse(SentTxWithLatestStatus::new(
+                        sent_tx,
+                        TxStatus::Failed(TxBlockchainFailure::Unknown)
+                    )),
+                ],
                 response_skeleton_opt
             },
             &subject_addr
@@ -2712,7 +2712,7 @@ mod tests {
         let system = System::new(test_name);
         let _ = SystemKillerActor::new(Duration::from_secs(10)).start();
         let config = bc_from_wallets(consuming_wallet.clone(), earning_wallet.clone());
-        let pp_fingerprint = make_pending_payable_fingerprint();
+        let sent_tx = make_sent_tx(456);
         let payable_scanner = ScannerMock::new()
             .scan_started_at_result(None)
             .scan_started_at_result(None)
@@ -2732,7 +2732,7 @@ mod tests {
             .scan_started_at_result(None)
             .start_scan_params(&scan_params.pending_payable_start_scan)
             .start_scan_result(Ok(RequestTransactionReceipts {
-                pending_payable_fingerprints: vec![pp_fingerprint],
+                sent_tx: vec![sent_tx],
                 response_skeleton_opt: None,
             }))
             .finish_scan_params(&scan_params.pending_payable_finish_scan)
@@ -2753,14 +2753,13 @@ mod tests {
         let (peer_actors, addresses) = peer_actors_builder().build_and_provide_addresses();
         let subject_addr: Addr<Accountant> = subject.start();
         let subject_subs = Accountant::make_subs_from(&subject_addr);
-        let expected_report_transaction_receipts = ReportTransactionReceipts {
-            fingerprints_with_receipts: vec![(
-                TransactionReceiptResult::RpcResponse(TxReceipt {
-                    transaction_hash: make_tx_hash(789),
-                    status: TxStatus::Failed,
-                }),
-                make_pending_payable_fingerprint(),
-            )],
+        let expected_tx_status_report = TxStatusReport {
+            results: vec![
+                TxReceiptResult::RpcResponse(SentTxWithLatestStatus::new(
+                    sent_tx,
+                    TxStatus::Failed(TxBlockchainFailure::Unknown),
+                ))
+            ],
             response_skeleton_opt: None,
         };
         let expected_sent_payables = SentPayables {
@@ -2772,7 +2771,7 @@ mod tests {
         };
         let blockchain_bridge_counter_msg_setup_for_pending_payable_scanner = setup_for_counter_msg_triggered_via_type_id!(
             RequestTransactionReceipts,
-            expected_report_transaction_receipts.clone(),
+            expected_tx_status_report.clone(),
             &subject_addr
         );
         let blockchain_bridge_counter_msg_setup_for_payable_scanner = setup_for_counter_msg_triggered_via_type_id!(
@@ -2801,7 +2800,7 @@ mod tests {
             &scan_params,
             &notify_and_notify_later_params.pending_payables_notify_later,
             pending_payable_expected_notify_later_interval,
-            expected_report_transaction_receipts,
+            expected_tx_status_report,
             before,
             after,
         );
@@ -2831,7 +2830,7 @@ mod tests {
         payable_finish_scan: Arc<Mutex<Vec<(SentPayables, Logger)>>>,
         pending_payable_start_scan:
             Arc<Mutex<Vec<(Wallet, SystemTime, Option<ResponseSkeleton>, Logger, String)>>>,
-        pending_payable_finish_scan: Arc<Mutex<Vec<(ReportTransactionReceipts, Logger)>>>,
+        pending_payable_finish_scan: Arc<Mutex<Vec<(TxStatusReport, Logger)>>>,
         receivable_start_scan:
             Arc<Mutex<Vec<(Wallet, SystemTime, Option<ResponseSkeleton>, Logger, String)>>>,
         // receivable_finish_scan ... not needed
@@ -2853,7 +2852,7 @@ mod tests {
         config: BootstrapperConfig,
         pending_payable_scanner: ScannerMock<
             RequestTransactionReceipts,
-            ReportTransactionReceipts,
+            TxStatusReport,
             PendingPayableScanResult,
         >,
         receivable_scanner: ScannerMock<
@@ -2912,7 +2911,7 @@ mod tests {
         payable_scanner: ScannerMock<QualifiedPayablesMessage, SentPayables, PayableScanResult>,
         pending_payable_scanner: ScannerMock<
             RequestTransactionReceipts,
-            ReportTransactionReceipts,
+            TxStatusReport,
             PendingPayableScanResult,
         >,
         receivable_scanner: ScannerMock<
@@ -2966,7 +2965,7 @@ mod tests {
         config: BootstrapperConfig,
         pending_payable_scanner: ScannerMock<
             RequestTransactionReceipts,
-            ReportTransactionReceipts,
+            TxStatusReport,
             PendingPayableScanResult,
         >,
         receivable_scanner: ScannerMock<
@@ -3039,7 +3038,7 @@ mod tests {
             Mutex<Vec<(ScanForPendingPayables, Duration)>>,
         >,
         pending_payable_expected_notify_later_interval: Duration,
-        expected_report_tx_receipts_msg: ReportTransactionReceipts,
+        expected_report_tx_receipts_msg: TxStatusReport,
         act_started_at: SystemTime,
         act_finished_at: SystemTime,
     ) {
@@ -3279,10 +3278,10 @@ mod tests {
     #[test]
     fn initial_pending_payable_scan_if_some_payables_found() {
         let sent_payable_dao = SentPayableDaoMock::default()
-            .return_all_errorless_fingerprints_result(vec![make_pending_payable_fingerprint()]);
+            .retrieve_txs_result(vec![make_sent_tx(789)]);
         let mut subject = AccountantBuilder::default()
             .consuming_wallet(make_wallet("consuming"))
-            .pending_payable_daos(vec![ForPendingPayableScanner(sent_payable_dao)])
+            .sent_payable_daos(vec![ForPendingPayableScanner(sent_payable_dao)])
             .build();
         let system = System::new("test");
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
@@ -3305,10 +3304,10 @@ mod tests {
     #[test]
     fn initial_pending_payable_scan_if_no_payables_found() {
         let sent_payable_dao =
-            SentPayableDaoMock::default().return_all_errorless_fingerprints_result(vec![]);
+            SentPayableDaoMock::default().retrieve_txs_result(vec![]);
         let mut subject = AccountantBuilder::default()
             .consuming_wallet(make_wallet("consuming"))
-            .pending_payable_daos(vec![ForPendingPayableScanner(sent_payable_dao)])
+            .sent_payable_daos(vec![ForPendingPayableScanner(sent_payable_dao)])
             .build();
         let flag_before = subject.scanners.initial_pending_payable_scan();
 
@@ -3481,6 +3480,7 @@ mod tests {
             response_skeleton_opt: None,
         };
         let transaction_hash = make_tx_hash(789);
+        let sent_tx = make_sent_tx(456);
         let creditor_wallet = make_wallet("blah");
         let counter_msg_2 = SentPayables {
             payment_procedure_result: Ok(vec![ProcessedPayableFallible::Correct(
@@ -3488,23 +3488,23 @@ mod tests {
             )]),
             response_skeleton_opt: None,
         };
-        let tx_receipt = TxReceipt {
-            transaction_hash,
-            status: TxStatus::Succeeded(ConfirmedTx{
-                tx_hash: make_tx_hash(369369),
-                block: 4444444444u64.into(),
+        let tx_with_status = SentTxWithLatestStatus {
+            sent_tx: sent_tx.clone(),
+            status: TxStatus::Succeeded(TransactionBlock{
+                block_hash: make_tx_hash(369369),
+                block_number: 4444444444u64.into(),
             }),
         };
         let requested_tx = make_tx_hash(
             234
         );
-        let counter_msg_3 = ReportTransactionReceipts {
-            receipt_results: vec![
-                TransactionReceiptResult::RpcResponse(tx_receipt)],
+        let counter_msg_3 = TxStatusReport {
+            results: vec![
+                TxReceiptResult::RpcResponse(tx_with_status)],
             response_skeleton_opt: None,
         };
         let request_transaction_receipts_msg = RequestTransactionReceipts {
-            tx_hashes: vec![requested_tx],
+            sent_tx: vec![sent_tx],
             response_skeleton_opt: None,
         };
         let qualified_payables_msg = QualifiedPayablesMessage {
@@ -4072,7 +4072,7 @@ mod tests {
         let system = System::new("pending payable scan");
         let mut subject = AccountantBuilder::default()
             .consuming_wallet(make_paying_wallet(b"consuming"))
-            .pending_payable_daos(vec![ForPendingPayableScanner(sent_payable_dao)])
+            .sent_payable_daos(vec![ForPendingPayableScanner(sent_payable_dao)])
             .bootstrapper_config(config)
             .build();
 
@@ -4818,7 +4818,7 @@ mod tests {
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(make_wallet("some_wallet_address")))
             .payable_daos(vec![ForPayableScanner(payable_dao)])
-            .pending_payable_daos(vec![ForPayableScanner(sent_payable_dao)])
+            .sent_payable_daos(vec![ForPayableScanner(sent_payable_dao)])
             .build();
         let pending_payable_interval = Duration::from_millis(55);
         subject.scan_schedulers.pending_payable.interval = pending_payable_interval;
@@ -4943,7 +4943,7 @@ mod tests {
             Box::new(NotifyHandleMock::default().notify_params(&retry_payable_notify_params_arc));
         let system = System::new(test_name);
         let (mut msg, _) =
-            make_report_transaction_receipts_msg(vec![TxStatus::Pending, TxStatus::Failed]);
+            make_tx_status_report_msg(vec![TxStatus::Pending, TxStatus::Failed]);
         let response_skeleton_opt = Some(ResponseSkeleton {
             client_id: 45,
             context_id: 7,
@@ -4982,7 +4982,7 @@ mod tests {
         let system = System::new("new_payable_scanner_timely");
         let mut subject = AccountantBuilder::default()
             .payable_daos(vec![ForPendingPayableScanner(payable_dao)])
-            .pending_payable_daos(vec![ForPendingPayableScanner(sent_payable_dao)])
+            .sent_payable_daos(vec![ForPendingPayableScanner(sent_payable_dao)])
             .build();
         let last_new_payable_scan_timestamp = SystemTime::now()
             .checked_sub(Duration::from_secs(3))
@@ -5007,7 +5007,7 @@ mod tests {
         subject.scan_schedulers.payable.new_payable_notify =
             Box::new(NotifyHandleMock::default().notify_params(&new_payable_notify_arc));
         let subject_addr = subject.start();
-        let (msg, two_fingerprints) = make_report_transaction_receipts_msg(vec![
+        let (msg, two_fingerprints) = make_tx_status_report_msg(vec![
             TxStatus::Succeeded(TransactionBlock {
                 block_hash: make_tx_hash(123),
                 block_number: U64::from(100),
@@ -5059,7 +5059,7 @@ mod tests {
             SentPayableDaoMock::default().delete_fingerprints_result(Ok(()));
         let mut subject = AccountantBuilder::default()
             .payable_daos(vec![ForPendingPayableScanner(payable_dao)])
-            .pending_payable_daos(vec![ForPendingPayableScanner(sent_payable_dao)])
+            .sent_payable_daos(vec![ForPendingPayableScanner(sent_payable_dao)])
             .build();
         let last_new_payable_scan_timestamp = SystemTime::now()
             .checked_sub(Duration::from_secs(8))
@@ -5083,7 +5083,7 @@ mod tests {
         subject.scan_schedulers.payable.new_payable_notify =
             Box::new(NotifyHandleMock::default().notify_params(&new_payable_notify_arc));
         let subject_addr = subject.start();
-        let (msg, two_fingerprints) = make_report_transaction_receipts_msg(vec![
+        let (msg, two_fingerprints) = make_tx_status_report_msg(vec![
             TxStatus::Succeeded(TransactionBlock {
                 block_hash: make_tx_hash(123),
                 block_number: U64::from(100),
@@ -5125,11 +5125,11 @@ mod tests {
         let new_payable_notify_later_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao = PayableDaoMock::default().transactions_confirmed_result(Ok(()));
         let sent_payable_dao =
-            SentPayableDaoMock::default().delete_fingerprints_result(Ok(()));
+            SentPayableDaoMock::default().delete_records_result(Ok(()));
         let system = System::new("scheduler_for_new_payables_operates_with_proper_now_timestamp");
         let mut subject = AccountantBuilder::default()
             .payable_daos(vec![ForPendingPayableScanner(payable_dao)])
-            .pending_payable_daos(vec![ForPendingPayableScanner(sent_payable_dao)])
+            .sent_payable_daos(vec![ForPendingPayableScanner(sent_payable_dao)])
             .build();
         let last_new_payable_scan_timestamp = SystemTime::now()
             .checked_sub(Duration::from_millis(3500))
@@ -5147,7 +5147,7 @@ mod tests {
             NotifyLaterHandleMock::default().notify_later_params(&new_payable_notify_later_arc),
         );
         let subject_addr = subject.start();
-        let (msg, _) = make_report_transaction_receipts_msg(vec![
+        let (msg, _) = make_tx_status_report_msg(vec![
             TxStatus::Succeeded(TransactionBlock {
                 block_hash: make_tx_hash(123),
                 block_number: U64::from(100),
@@ -5186,42 +5186,33 @@ mod tests {
         );
     }
 
-    fn make_report_transaction_receipts_msg(
+    fn make_tx_status_report_msg(
         status_txs: Vec<TxStatus>,
-    ) -> (ReportTransactionReceipts, Vec<SentTx>) {
-        let (receipt_result_fingerprint_pairs, fingerprints): (Vec<_>, Vec<_>) = status_txs
+    ) -> (TxStatusReport, Vec<SentTx>) {
+        let (tx_receipt_results, sent_tx_vec) = status_txs
             .into_iter()
             .enumerate()
-            .map(|(idx, status)| {
-                let transaction_hash = make_tx_hash(idx as u32);
-                let transaction_receipt_result = TransactionReceiptResult::RpcResponse(TxReceipt {
-                    transaction_hash,
+            .fold((vec![], vec![]),|(mut tx_receipt_results, mut sent_tx_vec), (idx, status)| {
+                let sent_tx = make_sent_tx(idx as u64);
+                let hash = sent_tx.hash;
+                let tx_receipt_result = TxReceiptResult::RpcResponse(SentTxWithLatestStatus::new(
+                    sent_tx.clone(),
                     status,
-                });
-                let fingerprint = SentTx {
-
-                    timestamp: from_unix_timestamp(1_000_000_000 * idx as i64),
-                    gas_price_wei: 0,
-                    nonce: 0,
-                    hash: transaction_hash,
-                    amount: 1_000_000 * idx as u128 * idx as u128,
-                    receiver_address: Default::default(),
-                    block_opt: None,
-                };
+                ));
+                tx_receipt_results.push(tx_receipt_result);
+                sent_tx_vec.push(sent_tx);
                 (
-                    (transaction_receipt_result, fingerprint.clone()),
-                    fingerprint,
+                    tx_receipt_results,
+                    sent_tx_vec,
                 )
-            })
-            .unzip();
+            });
 
-        let msg = ReportTransactionReceipts {
-            receipt_results: todo!(),
-            //fingerprints_with_receipts: receipt_result_fingerprint_pairs,
+        let msg = TxStatusReport {
+            results: tx_receipt_results,
             response_skeleton_opt: None,
         };
 
-        (msg, fingerprints)
+        (msg, sent_tx_vec)
     }
 
     #[test]
@@ -5232,7 +5223,7 @@ mod tests {
             .insert_fingerprints_params(&insert_fingerprint_params_arc)
             .insert_fingerprints_result(Ok(()));
         let subject = AccountantBuilder::default()
-            .pending_payable_daos(vec![ForAccountantBody(sent_payable_dao)])
+            .sent_payable_daos(vec![ForAccountantBody(sent_payable_dao)])
             .build();
         let accountant_addr = subject.start();
         let accountant_subs = Accountant::make_subs_from(&accountant_addr);
@@ -5250,7 +5241,7 @@ mod tests {
             amount: amount_2,
         };
         let init_params = vec![hash_and_amount_1, hash_and_amount_2];
-        let init_fingerprints_msg = PendingPayableFingerprintSeeds {
+        let init_fingerprints_msg = RegisterNewPendingSentTxMessage {
             batch_wide_timestamp: timestamp,
             hashes_and_balances: init_params.clone(),
         };
@@ -5260,7 +5251,7 @@ mod tests {
             .try_send(init_fingerprints_msg)
             .unwrap();
 
-        let system = System::new("ordering payment fingerprint test");
+        let system = System::new("ordering payment sent tx record test");
         System::current().stop();
         assert_eq!(system.run(), 0);
         let insert_fingerprint_params = insert_fingerprint_params_arc.lock().unwrap();
@@ -5291,15 +5282,15 @@ mod tests {
             amount,
         };
         let subject = AccountantBuilder::default()
-            .pending_payable_daos(vec![ForAccountantBody(sent_payable_dao)])
+            .sent_payable_daos(vec![ForAccountantBody(sent_payable_dao)])
             .build();
         let timestamp = SystemTime::now();
-        let report_new_fingerprints = PendingPayableFingerprintSeeds {
+        let report_new_fingerprints = RegisterNewPendingSentTxMessage {
             batch_wide_timestamp: timestamp,
             hashes_and_balances: vec![hash_and_amount],
         };
 
-        let _ = subject.handle_new_pending_payable_fingerprints(report_new_fingerprints);
+        let _ = subject.register_new_pending_sent_tx(report_new_fingerprints);
 
         let insert_fingerprint_params = insert_new_records_params_arc.lock().unwrap();
         assert_eq!(

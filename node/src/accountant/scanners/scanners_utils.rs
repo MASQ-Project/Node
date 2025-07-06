@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 pub mod payable_scanner_utils {
-    use crate::accountant::db_access_objects::utils::ThresholdUtils;
+    use crate::accountant::db_access_objects::utils::{ThresholdUtils, TxHash};
     use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDaoError};
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
         LocallyCausedError, RemotelyCausedErrors,
@@ -12,6 +12,7 @@ pub mod payable_scanner_utils {
     use itertools::Itertools;
     use masq_lib::logger::Logger;
     use std::cmp::Ordering;
+    use std::collections::HashSet;
     use std::ops::Not;
     use std::time::SystemTime;
     use thousands::Separable;
@@ -23,7 +24,7 @@ pub mod payable_scanner_utils {
     #[derive(Debug, PartialEq, Eq)]
     pub enum PayableTransactingErrorEnum {
         LocallyCausedError(PayableTransactionError),
-        RemotelyCausedErrors(Vec<H256>),
+        RemotelyCausedErrors(HashSet<TxHash>),
     }
 
     #[derive(Debug, PartialEq)]
@@ -101,6 +102,7 @@ pub mod payable_scanner_utils {
                 oldest.balance_wei, oldest.age)
     }
 
+    // TODO lifetimes simplification???
     pub fn separate_errors<'a, 'b>(
         sent_payables: &'a SentPayables,
         logger: &'b Logger,
@@ -110,15 +112,19 @@ pub mod payable_scanner_utils {
                 if individual_batch_responses.is_empty() {
                     panic!("Broken code: An empty vector of processed payments claiming to be an Ok value")
                 }
-                let (oks, err_hashes_opt) =
+                
+                let separated_txs_by_result =
                     separate_rpc_results(individual_batch_responses, logger);
-                let remote_errs_opt = err_hashes_opt.map(RemotelyCausedErrors);
+                
+                let remote_errs_opt = if separated_txs_by_result.err_results.is_empty() {None} else {Some(RemotelyCausedErrors(separated_txs_by_result.err_results))};
+                let oks = separated_txs_by_result.ok_results;
+                
                 (oks, remote_errs_opt)
             }
             Err(e) => {
                 warning!(
                     logger,
-                    "Any persisted data from failed process will be deleted. Caused by: {}",
+                    "Any persisted data from the failed process will be deleted. Caused by: {}",
                     e
                 );
 
@@ -127,55 +133,46 @@ pub mod payable_scanner_utils {
         }
     }
 
-    fn separate_rpc_results<'a, 'b>(
+    fn separate_rpc_results<'a>(
         batch_request_responses: &'a [ProcessedPayableFallible],
-        logger: &'b Logger,
-    ) -> (Vec<&'a PendingPayable>, Option<Vec<H256>>) {
+        logger: &Logger,
+    ) -> SeparatedTxsByResult<'a> {
         //TODO maybe we can return not tuple but struct with remote_errors_opt member
-        let (oks, errs) = batch_request_responses
+        let init = SeparatedTxsByResult::default();
+        batch_request_responses
             .iter()
-            .fold((vec![], vec![]), |acc, rpc_result| {
-                fold_guts(acc, rpc_result, logger)
-            });
-
-        let errs_opt = if !errs.is_empty() { Some(errs) } else { None };
-
-        (oks, errs_opt)
+            .fold(init, |acc, rpc_result| {
+                separate_rpc_results_fold_guts(acc, rpc_result, logger)
+            })
     }
 
-    fn add_pending_payable<'a>(
-        (mut oks, errs): (Vec<&'a PendingPayable>, Vec<H256>),
-        pending_payable: &'a PendingPayable,
-    ) -> SeparateTxsByResult<'a> {
-        oks.push(pending_payable);
-        (oks, errs)
+    #[derive(Default)]
+    pub struct SeparatedTxsByResult<'a> {
+        pub ok_results: Vec<&'a PendingPayable>,
+        pub err_results: HashSet<TxHash>
     }
 
-    fn add_rpc_failure((oks, mut errs): SeparateTxsByResult, hash: H256) -> SeparateTxsByResult {
-        errs.push(hash);
-        (oks, errs)
-    }
-
-    type SeparateTxsByResult<'a> = (Vec<&'a PendingPayable>, Vec<H256>);
-
-    fn fold_guts<'a, 'b>(
-        acc: SeparateTxsByResult<'a>,
+    fn separate_rpc_results_fold_guts<'a>(
+        mut acc: SeparatedTxsByResult<'a>,
         rpc_result: &'a ProcessedPayableFallible,
-        logger: &'b Logger,
-    ) -> SeparateTxsByResult<'a> {
+        logger: &Logger,
+    ) -> SeparatedTxsByResult<'a> {
         match rpc_result {
             ProcessedPayableFallible::Correct(pending_payable) => {
-                add_pending_payable(acc, pending_payable)
+                acc.ok_results.push(pending_payable);
+                acc
             }
             ProcessedPayableFallible::Failed(RpcPayableFailure {
                 rpc_error,
                 recipient_wallet,
                 hash,
             }) => {
-                warning!(logger, "Remote transaction failure: '{}' for payment to {} and transaction hash {:?}. \
-                      Please check your blockchain service URL configuration.", rpc_error, recipient_wallet, hash
+                warning!(logger, "Remote transaction failure: '{}' for payment to {} and \
+                transaction hash {:?}. Please check your blockchain service URL configuration.",
+                    rpc_error, recipient_wallet, hash
                 );
-                add_rpc_failure(acc, *hash)
+                acc.err_results.insert(*hash);
+                acc
             }
         }
     }
@@ -323,7 +320,7 @@ pub mod pending_payable_scanner_utils {
     use std::time::SystemTime;
     use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
     use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TxReceiptLocalError};
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TxBlockchainFailure, TxReceiptRequestError};
 
     #[derive(Debug, Default, PartialEq, Eq, Clone)]
     pub struct PendingPayableScanReport {
@@ -352,7 +349,7 @@ pub mod pending_payable_scanner_utils {
     //
     // pub fn handle_none_status(
     //     mut scan_report: PendingPayableScanReport,
-    //     fingerprint: SentTx,
+    //     sent_tx: SentTx,
     //     max_pending_interval: u64,
     //     logger: &Logger,
     // ) -> PendingPayableScanReport {
@@ -360,11 +357,11 @@ pub mod pending_payable_scanner_utils {
     //         logger,
     //         "Pending transaction {:?} couldn't be confirmed at attempt \
     //         {} at {}ms after its sending",
-    //         fingerprint.hash,
-    //         fingerprint.attempt,
-    //         elapsed_in_ms(fingerprint.timestamp)
+    //         sent_tx.hash,
+    //         sent_tx.attempt,
+    //         elapsed_in_ms(sent_tx.timestamp)
     //     );
-    //     let elapsed = fingerprint
+    //     let elapsed = sent_tx
     //         .timestamp
     //         .elapsed()
     //         .expect("we should be older now");
@@ -376,14 +373,14 @@ pub mod pending_payable_scanner_utils {
     //             ({}sec) with the age {}sec and the confirmation process is going to be aborted now \
     //             at the final attempt {}; manual resolution is required from the \
     //             user to complete the transaction.",
-    //             fingerprint.hash,
+    //             sent_tx.hash,
     //             max_pending_interval,
     //             elapsed,
-    //             fingerprint.attempt
+    //             sent_tx.attempt
     //         );
-    //         scan_report.failures.push(fingerprint.into())
+    //         scan_report.failures.push(sent_tx.into())
     //     } else {
-    //         scan_report.still_pending.push(fingerprint.into())
+    //         scan_report.still_pending.push(sent_tx.into())
     //     }
     //     scan_report
     // }
@@ -398,11 +395,11 @@ pub mod pending_payable_scanner_utils {
         //     logger,
         //     "Transaction {:?} has been added to the blockchain; detected locally at attempt \
         //     {} at {}ms after its sending",
-        //     fingerprint.hash,
-        //     fingerprint.attempt,
-        //     elapsed_in_ms(fingerprint.timestamp)
+        //     sent_tx.hash,
+        //     sent_tx.attempt,
+        //     elapsed_in_ms(sent_tx.timestamp)
         // );
-        // scan_report.confirmed.push(fingerprint);
+        // scan_report.confirmed.push(sent_tx);
         // scan_report
     }
 
@@ -422,9 +419,9 @@ pub mod pending_payable_scanner_utils {
         scan_report
     }
 
-    pub fn handle_local_error_fetching_receipts(
+    pub fn handle_request_error_fetching_receipts(
         mut scan_report: PendingPayableScanReport,
-        local_error: TxReceiptLocalError,
+        local_error: TxReceiptRequestError,
         logger: &Logger,
     ) -> PendingPayableScanReport {
         todo!()
@@ -441,6 +438,12 @@ pub mod pending_payable_scanner_utils {
         //     .still_pending
         //     .push(PendingPayableId::new(payable.rowid, payable.hash));
         // scan_report
+    }
+
+    impl From<(SentTx, TxBlockchainFailure)> for FailedTx {
+        fn from(_: (SentTx, TxBlockchainFailure)) -> Self {
+            todo!()
+        }
     }
 }
 

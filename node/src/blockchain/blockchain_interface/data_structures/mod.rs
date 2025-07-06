@@ -8,6 +8,7 @@ use std::fmt;
 use std::fmt::Formatter;
 use web3::types::H256;
 use web3::Error;
+use crate::accountant::db_access_objects::utils::TxHash;
 use crate::accountant::PendingPayable;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -37,7 +38,7 @@ pub struct RetrievedBlockchainTransactions {
 pub struct RpcPayableFailure {
     pub rpc_error: Error,
     pub recipient_wallet: Wallet,
-    pub hash: H256,
+    pub hash: TxHash,
 }
 
 #[derive(Debug, PartialEq, Clone)]

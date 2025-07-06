@@ -4,11 +4,11 @@ use crate::accountant::db_access_objects::payable_dao::PayableDaoFactory;
 use crate::accountant::db_access_objects::receivable_dao::ReceivableDaoFactory;
 use crate::accountant::scanners::payable_scanner_extension::msgs::BlockchainAgentWithContextMessage;
 use crate::accountant::{
-    checked_conversion, Accountant, ReceivedPayments, ReportTransactionReceipts, ScanError,
+    checked_conversion, Accountant, ReceivedPayments, TxStatusReport, ScanError,
     SentPayables,
 };
 use crate::actor_system_factory::SubsFactory;
-use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
+use crate::blockchain::blockchain_bridge::RegisterNewPendingSentTxMessage;
 use crate::db_config::config_dao::ConfigDaoFactory;
 use crate::sub_lib::neighborhood::ConfigChangeMsg;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
@@ -100,8 +100,8 @@ pub struct AccountantSubs {
     pub report_services_consumed: Recipient<ReportServicesConsumedMessage>,
     pub report_payable_payments_setup: Recipient<BlockchainAgentWithContextMessage>,
     pub report_inbound_payments: Recipient<ReceivedPayments>,
-    pub init_pending_payable_fingerprints: Recipient<PendingPayableFingerprintSeeds>,
-    pub report_transaction_receipts: Recipient<ReportTransactionReceipts>,
+    pub init_pending_payable_fingerprints: Recipient<RegisterNewPendingSentTxMessage>,
+    pub report_transaction_status: Recipient<TxStatusReport>,
     pub report_sent_payments: Recipient<SentPayables>,
     pub scan_errors: Recipient<ScanError>,
     pub ui_message_sub: Recipient<NodeFromUiMessage>,
