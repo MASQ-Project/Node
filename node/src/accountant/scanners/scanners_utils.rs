@@ -320,15 +320,15 @@ pub mod pending_payable_scanner_utils {
     use std::time::SystemTime;
     use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
     use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TxBlockchainFailure, TxReceiptRequestError};
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TxBlockchainFailure, TxReceiptRequestError, TxStatus};
 
     #[derive(Debug, Default, PartialEq, Eq, Clone)]
-    pub struct PendingPayableScanReport {
+    pub struct PendingPayableScanFinalReport {
         pub failures: Vec<FailedTx>,
         pub confirmed: Vec<SentTx>,
     }
 
-    impl PendingPayableScanReport {
+    impl PendingPayableScanFinalReport {
         pub fn requires_payments_retry(&self) -> bool {
             todo!("complete my within GH-642")
         }
@@ -348,11 +348,11 @@ pub mod pending_payable_scanner_utils {
     }
     //
     // pub fn handle_none_status(
-    //     mut scan_report: PendingPayableScanReport,
+    //     mut scan_report: PendingPayableScanFinalReport,
     //     sent_tx: SentTx,
     //     max_pending_interval: u64,
     //     logger: &Logger,
-    // ) -> PendingPayableScanReport {
+    // ) -> PendingPayableScanFinalReport {
     //     info!(
     //         logger,
     //         "Pending transaction {:?} couldn't be confirmed at attempt \
@@ -386,10 +386,10 @@ pub mod pending_payable_scanner_utils {
     // }
 
     pub fn handle_successful_tx(
-        mut scan_report: PendingPayableScanReport,
+        mut scan_report: PendingPayableScanFinalReport,
         confirmed_tx: SentTx,
         logger: &Logger,
-    ) -> PendingPayableScanReport {
+    ) -> PendingPayableScanFinalReport {
         todo!()
         // info!(
         //     logger,
@@ -405,10 +405,10 @@ pub mod pending_payable_scanner_utils {
 
     //TODO: failures handling is going to need enhancement suggested by GH-693
     pub fn handle_status_with_failure(
-        mut scan_report: PendingPayableScanReport,
+        mut scan_report: PendingPayableScanFinalReport,
         tx_failure: FailedTx,
         logger: &Logger,
-    ) -> PendingPayableScanReport {
+    ) -> PendingPayableScanFinalReport {
         error!(
             logger,
             "Pending transaction {:?} announced as a failure after {}ms from its sending",
@@ -420,10 +420,10 @@ pub mod pending_payable_scanner_utils {
     }
 
     pub fn handle_request_error_fetching_receipts(
-        mut scan_report: PendingPayableScanReport,
+        mut scan_report: PendingPayableScanFinalReport,
         local_error: TxReceiptRequestError,
         logger: &Logger,
-    ) -> PendingPayableScanReport {
+    ) -> PendingPayableScanFinalReport {
         todo!()
         // debug!(
         //     logger,
@@ -440,8 +440,15 @@ pub mod pending_payable_scanner_utils {
         // scan_report
     }
 
+    // Should be used only for pending txs that linger too long
+    impl From<SentTx> for FailedTx {
+        fn from(_: SentTx) -> Self {
+            todo!()
+        }
+    }
+
     impl From<(SentTx, TxBlockchainFailure)> for FailedTx {
-        fn from(_: (SentTx, TxBlockchainFailure)) -> Self {
+        fn from((sent_tx, blockchain_failure): (SentTx, TxBlockchainFailure)) -> Self {
             todo!()
         }
     }
@@ -572,7 +579,7 @@ mod tests {
         init_test_logging();
         let error = PayableTransactionError::Sending {
             msg: "Bad luck".to_string(),
-            hashes: vec![make_tx_hash(0x7b)],
+            hashes: hashset![make_tx_hash(0x7b)],
         };
         let sent_payable = SentPayables {
             payment_procedure_result: Err(error.clone()),
@@ -613,7 +620,7 @@ mod tests {
         let (oks, errs) = separate_errors(&sent_payable, &Logger::new("test_logger"));
 
         assert_eq!(oks, vec![&payable_ok]);
-        assert_eq!(errs, Some(RemotelyCausedErrors(vec![make_tx_hash(0x315)])));
+        assert_eq!(errs, Some(RemotelyCausedErrors(hashset![make_tx_hash(0x315)])));
         TestLogHandler::new().exists_log_containing("WARN: test_logger: Remote transaction failure: \
         'Got invalid response: That jackass screwed it up' for payment to 0x000000000000000000000000\
         00000077686f6f61 and transaction hash 0x0000000000000000000000000000000000000000000000000000\
@@ -823,7 +830,7 @@ mod tests {
     fn count_total_errors_works_correctly_for_local_error_after_signing() {
         let error = PayableTransactionError::Sending {
             msg: "Ouuuups".to_string(),
-            hashes: vec![make_tx_hash(333), make_tx_hash(666)],
+            hashes: hashset![make_tx_hash(333), make_tx_hash(666)],
         };
         let sent_payable = Some(LocallyCausedError(error));
 
@@ -834,7 +841,7 @@ mod tests {
 
     #[test]
     fn count_total_errors_works_correctly_for_remote_errors() {
-        let sent_payable = Some(RemotelyCausedErrors(vec![
+        let sent_payable = Some(RemotelyCausedErrors(hashset![
             make_tx_hash(123),
             make_tx_hash(456),
         ]));
@@ -871,32 +878,32 @@ mod tests {
     fn requires_payments_retry_says_yes() {
         todo!("complete this test with GH-604")
         // let cases = vec![
-        //     PendingPayableScanReport {
+        //     PendingPayableScanFinalReport {
         //         still_pending: vec![PendingPayableId::new(12, make_tx_hash(456))],
         //         failures: vec![],
         //         confirmed: vec![],
         //     },
-        //     PendingPayableScanReport {
+        //     PendingPayableScanFinalReport {
         //         still_pending: vec![],
         //         failures: vec![PendingPayableId::new(456, make_tx_hash(1234))],
         //         confirmed: vec![],
         //     },
-        //     PendingPayableScanReport {
+        //     PendingPayableScanFinalReport {
         //         still_pending: vec![PendingPayableId::new(12, make_tx_hash(456))],
         //         failures: vec![PendingPayableId::new(456, make_tx_hash(1234))],
         //         confirmed: vec![],
         //     },
-        //     PendingPayableScanReport {
+        //     PendingPayableScanFinalReport {
         //         still_pending: vec![PendingPayableId::new(12, make_tx_hash(456))],
         //         failures: vec![PendingPayableId::new(456, make_tx_hash(1234))],
         //         confirmed: vec![make_pending_payable_fingerprint()],
         //     },
-        //     PendingPayableScanReport {
+        //     PendingPayableScanFinalReport {
         //         still_pending: vec![PendingPayableId::new(12, make_tx_hash(456))],
         //         failures: vec![],
         //         confirmed: vec![make_pending_payable_fingerprint()],
         //     },
-        //     PendingPayableScanReport {
+        //     PendingPayableScanFinalReport {
         //         still_pending: vec![],
         //         failures: vec![PendingPayableId::new(456, make_tx_hash(1234))],
         //         confirmed: vec![make_pending_payable_fingerprint()],
@@ -916,7 +923,7 @@ mod tests {
     #[test]
     fn requires_payments_retry_says_no() {
         todo!("complete this test with GH-604")
-        // let report = PendingPayableScanReport {
+        // let report = PendingPayableScanFinalReport {
         //     still_pending: vec![],
         //     failures: vec![],
         //     confirmed: vec![make_pending_payable_fingerprint()],

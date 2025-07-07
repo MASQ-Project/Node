@@ -326,9 +326,7 @@ mod tests {
     use crate::accountant::db_access_objects::utils::from_unix_timestamp;
     use crate::accountant::gwei_to_wei;
     use crate::accountant::scanners::payable_scanner_extension::agent_web3::WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
-    use crate::accountant::test_utils::{
-        make_payable_account, make_payable_account_with_wallet_and_balance_and_timestamp_opt,
-    };
+    use crate::accountant::test_utils::{make_payable_account, make_payable_account_with_wallet_and_balance_and_timestamp_opt, make_sent_tx};
     use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
         BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
@@ -414,9 +412,9 @@ mod tests {
     }
 
     #[test]
-    fn send_and_append_multiple_payments_works() {
+    fn sign_and_append_multiple_payments_works() {
         let port = find_free_port();
-        let logger = Logger::new("send_and_append_multiple_payments_works");
+        let logger = Logger::new("sign_and_append_multiple_payments_works");
         let (_event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
@@ -429,7 +427,7 @@ mod tests {
         let consuming_wallet = make_paying_wallet(b"paying_wallet");
         let account_1 = make_payable_account(1);
         let account_2 = make_payable_account(2);
-        let accounts = vec![account_1, account_2];
+        let accounts = vec![account_1.clone(), account_2.clone()];
 
         let result = sign_and_append_multiple_payments(
             &logger,
@@ -441,14 +439,28 @@ mod tests {
             &accounts,
         );
 
+        let mut expected_prepared_sent_tx_1 = make_sent_tx(123);
+        expected_prepared_sent_tx_1.hash = H256::from_str(
+            "94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2"
+        )
+            .unwrap();
+        expected_prepared_sent_tx_1.amount = account_1.balance_wei;
+        expected_prepared_sent_tx_1.nonce = 1;
+        expected_prepared_sent_tx_1.receiver_address = account_1.wallet.address();
+        SentTx{
+            hash: Default::default(),
+            receiver_address: Default::default(),
+            amount: 0,
+            timestamp: 0,
+            gas_price_wei: 0,
+            nonce: 0,
+            block_opt: None,
+        }
         assert_eq!(
             result,
             vec![
                 HashAndAmount {
-                    hash: H256::from_str(
-                        "94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2"
-                    )
-                    .unwrap(),
+                    hash: ,
                     amount: 1000000000
                 },
                 HashAndAmount {

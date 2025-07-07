@@ -1835,12 +1835,12 @@ mod tests {
             pending_payable_scan_interval: Duration::from_secs(100),
         });
         let sent_tx = SentTx {
-            timestamp: SystemTime::now(),
-            gas_price_wei: 0,
-            nonce: 0,
-            hash: Default::default(),
+            timestamp: to_unix_timestamp(SystemTime::now()) - 1234,
+            gas_price_wei: 456_000_000,
+            nonce: 45,
+            hash: make_tx_hash(123),
             amount: 1_000_000,
-            receiver_address: Default::default(),
+            receiver_address: make_wallet("receiver_address").address(),
             block_opt: None,
         };
         let sent_payable_dao = SentPayableDaoMock::default()
@@ -1878,7 +1878,7 @@ mod tests {
         assert_eq!(
             blockchain_bridge_recording.get_record::<RequestTransactionReceipts>(0),
             &RequestTransactionReceipts {
-                pending_payable_fingerprints: vec![sent_tx],
+                sent_tx: vec![sent_tx],
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321,
@@ -4041,12 +4041,13 @@ mod tests {
     #[test]
     fn scan_for_pending_payables_finds_still_pending_payables() {
         init_test_logging();
+        let now = SystemTime::now();
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let blockchain_bridge_addr = blockchain_bridge
             .system_stop_conditions(match_lazily_every_type_id!(RequestTransactionReceipts))
             .start();
-        let payable_fingerprint_1 = SentTx {
-            timestamp: from_unix_timestamp(210_000_000),
+        let sent_tx_1 = SentTx {
+            timestamp: to_unix_timestamp(now.checked_sub(Duration::from_secs(1234)).unwrap()),
             gas_price_wei: 0,
             nonce: 0,
             hash: make_tx_hash(45678),
@@ -4054,8 +4055,8 @@ mod tests {
             receiver_address: Default::default(),
             block_opt: None,
         };
-        let payable_fingerprint_2 = SentTx {
-            timestamp: from_unix_timestamp(210_000_100),
+        let sent_tx_2 = SentTx {
+            timestamp: to_unix_timestamp(now.checked_sub(Duration::from_secs(3456)).unwrap()),
             gas_price_wei: 0,
             nonce: 0,
             hash: make_tx_hash(112233),
@@ -4064,9 +4065,9 @@ mod tests {
             block_opt: None,
         };
         let sent_payable_dao = SentPayableDaoMock::default()
-            .return_all_errorless_fingerprints_result(vec![
-                payable_fingerprint_1.clone(),
-                payable_fingerprint_2.clone(),
+            .retrieve_txs_result(vec![
+                sent_tx_1.clone(),
+                sent_tx_2.clone(),
             ]);
         let config = bc_from_earning_wallet(make_wallet("mine"));
         let system = System::new("pending payable scan");
@@ -4091,8 +4092,7 @@ mod tests {
         assert_eq!(
             received_msg,
             &RequestTransactionReceipts {
-                tx_hashes: todo!(),
-                // pending_payable_fingerprints: vec![payable_fingerprint_1, payable_fingerprint_2],
+                sent_tx: vec![sent_tx_1, sent_tx_2],
                 response_skeleton_opt: None,
             }
         );
@@ -4896,7 +4896,7 @@ mod tests {
         let sent_payable = SentPayables {
             payment_procedure_result: Err(PayableTransactionError::Sending {
                 msg: "booga".to_string(),
-                hashes: vec![make_tx_hash(456)],
+                hashes: hashset![make_tx_hash(456)],
             }),
             response_skeleton_opt: None,
         };
@@ -4943,7 +4943,7 @@ mod tests {
             Box::new(NotifyHandleMock::default().notify_params(&retry_payable_notify_params_arc));
         let system = System::new(test_name);
         let (mut msg, _) =
-            make_tx_status_report_msg(vec![TxStatus::Pending, TxStatus::Failed]);
+            make_tx_status_report_msg(vec![TxStatus::Pending, TxStatus::Failed(TxBlockchainFailure::Unknown)]);
         let response_skeleton_opt = Some(ResponseSkeleton {
             client_id: 45,
             context_id: 7,

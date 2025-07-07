@@ -568,6 +568,9 @@ mod tests {
     use rusqlite::{ToSql};
     use std::path::Path;
     use std::str::FromStr;
+    use std::time::{Duration, UNIX_EPOCH};
+    use itertools::Itertools;
+    use libc::iovec;
     use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
     use crate::database::test_utils::ConnectionWrapperMock;
 
@@ -913,64 +916,62 @@ mod tests {
 
     struct TxWalletAndTimestamp{
         pending_payable: SentTx,
-        wallet: Wallet,
         previous_timestamp: SystemTime,
     }
+    
+    struct TestInputs{
+        hash: TxHash,
+        rowid: u64,
+        previous_timestamp: SystemTime,
+        new_payable_timestamp: SystemTime,
+        wallet: Address,
+        initial_amount_wei: u128,
+        balance_change: u128,
+    }
 
-    fn insert_initial_payable_records_and_return_pending_payable(
+    fn insert_initial_payable_records_and_return_sent_txs(
         conn: &dyn ConnectionWrapper,
-        initial_amount_1: u128,
-        initial_amount_2: u128,
-        balance_change_1: u128,
-        balance_change_2: u128,
+        (initial_amount_1, balance_change_1): (u128,u128),
+        (initial_amount_2, balance_change_2): (u128,u128)
     ) -> TestSetupValuesHolder {
-        let hash_1 = make_tx_hash(12345);
-        let rowid_1 = 789;
-        let previous_timestamp_1_s = 190_000_000;
-        let new_payable_timestamp_1 = from_unix_timestamp(199_000_000);
-        let wallet_1 = make_wallet("bobble");
-        let hash_2 = make_tx_hash(54321);
-        let rowid_2 = 792;
-        let previous_timestamp_2_s = 187_100_000;
-        let new_payable_timestamp_2 = from_unix_timestamp(191_333_000);
-        let wallet_2 = make_wallet("booble bobble");
-        {
+        let now = SystemTime::now();
+        let (account_1,account_2) = [TestInputs {
+            hash: make_tx_hash(12345),
+            rowid: 789,
+            previous_timestamp: now.checked_sub(Duration::from_secs(45_000)).unwrap(),
+            new_payable_timestamp: now.checked_sub(Duration::from_secs(2)).unwrap(),
+            wallet: make_wallet("bobbles").address(),
+            initial_amount_wei: initial_amount_1,
+            balance_change: balance_change_1,
+        },
+            TestInputs{
+                hash: make_tx_hash(54321),
+                rowid: 792,
+                previous_timestamp: now.checked_sub(Duration::from_secs(22_000)).unwrap(),
+                new_payable_timestamp: now.checked_sub(Duration::from_secs(2)).unwrap(),
+                wallet: make_wallet("yet more bobbles").address(),
+                initial_amount_wei: initial_amount_2,
+                balance_change: balance_change_2,
+            }].into_iter().enumerate().map(|(idx, test_inputs)|{
+
             insert_payable_record_fn(
                 conn,
-                &wallet_1.to_string(),
-                i128::try_from(initial_amount_1).unwrap(),
-                previous_timestamp_1_s,
-                Some(rowid_1 as i64),
+                &test_inputs.wallet.to_string(),
+                i128::try_from(test_inputs.initial_amount_wei).unwrap(),
+                to_unix_timestamp(test_inputs.previous_timestamp),
+                // TODO argument will be eliminated in GH-662
+                None
             );
-            insert_payable_record_fn(
-                conn,
-                &wallet_2.to_string(),
-                i128::try_from(initial_amount_2).unwrap(),
-                previous_timestamp_2_s,
-                Some(rowid_2 as i64),
-            )
-        }
-        // let fingerprint_1 = SentTx {
-        //     rowid: rowid_1,
-        //     timestamp: new_payable_timestamp_1,
-        //     hash: hash_1,
-        //     attempt: 1,
-        //     amount: balance_change_1,
-        //     process_error: None,
-        // };
-        // let fingerprint_2 = SentTx {
-        //     rowid: rowid_2,
-        //     timestamp: new_payable_timestamp_2,
-        //     hash: hash_2,
-        //     attempt: 1,
-        //     amount: balance_change_2,
-        //     process_error: None,
-        // };
-        // let previous_timestamp_1 = from_unix_timestamp(previous_timestamp_1_s);
-        // let previous_timestamp_2 = from_unix_timestamp(previous_timestamp_2_s);
+            
+            let mut sent_tx = make_sent_tx(idx as u64 * 1234);
+            sent_tx.amount = test_inputs.balance_change;
+
+            TxWalletAndTimestamp{ pending_payable: sent_tx, previous_timestamp: test_inputs.previous_timestamp }
+        }).collect_tuple().unwrap();
+        
         TestSetupValuesHolder {
-            account_1: todo!(),
-            account_2: todo!()
+            account_1,
+            account_2
         }
     }
 
@@ -981,7 +982,7 @@ mod tests {
         //initial (1, 9999)
         let initial_changing_end_resulting_values = (initial, 11111, initial as u128 - 11111);
         //change (-1, abs(i64::MIN) - 11111)
-        transaction_confirmed_works(
+        test_transaction_confirmed_works(
             "transaction_confirmed_works_without_overflow",
             initial_changing_end_resulting_values,
         )
@@ -994,35 +995,35 @@ mod tests {
         //initial (0, 10000)
         //change (-1, abs(i64::MIN) - 111)
         //10000 + (abs(i64::MIN) - 111) > i64::MAX -> overflow
-        transaction_confirmed_works(
+        test_transaction_confirmed_works(
             "transaction_confirmed_works_hitting_overflow",
             initial_changing_end_resulting_values,
         )
     }
 
-    fn transaction_confirmed_works(
+    fn test_transaction_confirmed_works(
         test_name: &str,
         (initial_amount_1, balance_change_1, expected_balance_after_1): (u128, u128, u128),
     ) {
         let home_dir = ensure_node_home_directory_exists("payable_dao", test_name);
-        //a hardcoded set that just makes a complement to the crucial, supplied one; this points to the ability of
-        //handling multiple transactions together
+        // A hardcoded set that just makes a complement to the crucial, supplied first one; this 
+        // shows the ability to handle multiple transactions together
         let initial_amount_2 = 5_678_901;
         let balance_change_2 = 678_902;
         let expected_balance_after_2 = 4_999_999;
         let boxed_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let setup_holder = insert_initial_payable_records_and_return_pending_payable(
+        let setup_holder = insert_initial_payable_records_and_return_sent_txs(
             boxed_conn.as_ref(),
-            initial_amount_1,
-            initial_amount_2,
-            balance_change_1,
-            balance_change_2,
+            (initial_amount_1, balance_change_1),
+            (initial_amount_2, balance_change_2),
         );
         let subject = PayableDaoReal::new(boxed_conn);
-        let status_1_before_opt = subject.account_status(&setup_holder.account_1.wallet);
-        let status_2_before_opt = subject.account_status(&setup_holder.account_2.wallet);
+        let wallet_1 = Wallet::from(setup_holder.account_1.pending_payable.receiver_address);
+        let wallet_2 = Wallet::from(setup_holder.account_2.pending_payable.receiver_address);
+        let status_1_before_opt = subject.account_status(&wallet_1);
+        let status_2_before_opt = subject.account_status(&wallet_2);
 
         let result = subject.transactions_confirmed(&[
             setup_holder.account_1.pending_payable.clone(),
@@ -1032,34 +1033,34 @@ mod tests {
         assert_eq!(result, Ok(()));
         // TODO yes these are unsensible now but it will eventually be all cleaned up with GH-662
         let expected_status_before_1 = PayableAccount {
-            wallet: setup_holder.account_1.wallet.clone(),
+            wallet: wallet_1.clone(),
             balance_wei: initial_amount_1,
             last_paid_timestamp: setup_holder.account_1.previous_timestamp,
             pending_payable_opt: None, //hash is just garbage
         };
         let expected_status_before_2 = PayableAccount {
-            wallet: setup_holder.account_2.wallet.clone(),
+            wallet: wallet_2.clone(),
             balance_wei: initial_amount_2,
             last_paid_timestamp: setup_holder.account_2.previous_timestamp,
             pending_payable_opt: None, //hash is just garbage
         };
         let expected_resulting_status_1 = PayableAccount {
-            wallet: setup_holder.account_1.wallet.clone(),
+            wallet: wallet_1.clone(),
             balance_wei: expected_balance_after_1,
             last_paid_timestamp: setup_holder.account_1.previous_timestamp,
             pending_payable_opt: None,
         };
         let expected_resulting_status_2 = PayableAccount {
-            wallet: setup_holder.account_2.wallet,
+            wallet: wallet_2.clone(),
             balance_wei: expected_balance_after_2,
             last_paid_timestamp: setup_holder.account_2.previous_timestamp,
             pending_payable_opt: None,
         };
         assert_eq!(status_1_before_opt, Some(expected_status_before_1));
         assert_eq!(status_2_before_opt, Some(expected_status_before_2));
-        let resulting_account_1_opt = subject.account_status(&setup_holder.account_1.wallet);
+        let resulting_account_1_opt = subject.account_status(&wallet_1);
         assert_eq!(resulting_account_1_opt, Some(expected_resulting_status_1));
-        let resulting_account_2_opt = subject.account_status(&setup_holder.account_2.wallet);
+        let resulting_account_2_opt = subject.account_status(&wallet_2);
         assert_eq!(resulting_account_2_opt, Some(expected_resulting_status_2))
     }
 
@@ -1117,27 +1118,27 @@ mod tests {
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let setup_holder = insert_initial_payable_records_and_return_pending_payable(
+        let setup_holder = insert_initial_payable_records_and_return_sent_txs(
             conn.as_ref(),
-            1_111_111,
-            2_222_222,
-            111_111,
-            222_222,
+            (1_111_111,111_111),
+            (2_222_222,222_222)
         );
+        let wallet_1 = Wallet::from(setup_holder.account_1.pending_payable.receiver_address);
+        let wallet_2 = Wallet::from(setup_holder.account_2.pending_payable.receiver_address);
         conn.prepare("delete from payable where wallet_address = ?")
             .unwrap()
-            .execute(&[&setup_holder.wallet_2])
+            .execute(&[&wallet_1.to_string()])
             .unwrap();
         let subject = PayableDaoReal::new(conn);
         let expected_account = PayableAccount {
-            wallet: setup_holder.wallet_1.clone(),
-            balance_wei: 1_111_111 - setup_holder.fingerprint_1.amount,
-            last_paid_timestamp: setup_holder.fingerprint_1.timestamp,
+            wallet: wallet_1.clone(),
+            balance_wei: 1_111_111 - setup_holder.account_1.pending_payable.amount,
+            last_paid_timestamp: from_unix_timestamp(setup_holder.account_1.pending_payable.timestamp),
             pending_payable_opt: None,
         };
 
         let result = subject
-            .transactions_confirmed(&[setup_holder.fingerprint_1, setup_holder.fingerprint_2]);
+            .transactions_confirmed(&[setup_holder.account_1.pending_payable, setup_holder.account_2.pending_payable]);
 
         assert_eq!(
             result,
@@ -1146,9 +1147,9 @@ mod tests {
                     .to_string()
             ))
         );
-        let account_1_opt = subject.account_status(&setup_holder.wallet_1);
+        let account_1_opt = subject.account_status(&wallet_1);
         assert_eq!(account_1_opt, Some(expected_account));
-        let account_2_opt = subject.account_status(&setup_holder.wallet_2);
+        let account_2_opt = subject.account_status(&wallet_2);
         assert_eq!(account_2_opt, None);
     }
 
