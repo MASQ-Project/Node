@@ -1,5 +1,7 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::db_access_objects::utils::{TxHash, TxIdentifiers, VigilantRusqliteFlatten};
+use crate::accountant::db_access_objects::utils::{
+    DaoFactoryReal, TxHash, TxIdentifiers, VigilantRusqliteFlatten,
+};
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::{checked_conversion, comma_joined_stringifiable};
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
@@ -331,6 +333,16 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
             }
             Err(e) => Err(FailedPayableDaoError::SqlExecutionFailed(e.to_string())),
         }
+    }
+}
+
+pub trait FailedPayableDaoFactory {
+    fn make(&self) -> Box<dyn FailedPayableDao>;
+}
+
+impl FailedPayableDaoFactory for DaoFactoryReal {
+    fn make(&self) -> Box<dyn FailedPayableDao> {
+        Box::new(FailedPayableDaoReal::new(self.make_connection()))
     }
 }
 
