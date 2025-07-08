@@ -113,7 +113,9 @@ impl FailedTxBuilder {
             reason: self
                 .reason_opt
                 .unwrap_or_else(|| FailureReason::PendingTooLong),
-            status: self.status_opt.unwrap_or_else(|| FailureStatus::Retry),
+            status: self
+                .status_opt
+                .unwrap_or_else(|| FailureStatus::RetryRequired),
         }
     }
 }

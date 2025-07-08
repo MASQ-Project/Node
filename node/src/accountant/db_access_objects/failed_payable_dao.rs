@@ -30,8 +30,8 @@ pub enum FailureReason {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FailureStatus {
-    Retry,
-    Recheck,
+    RetryRequired,
+    RecheckRequired,
     Concluded,
 }
 
@@ -39,8 +39,8 @@ impl FromStr for FailureStatus {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "Retry" => Ok(FailureStatus::Retry),
-            "Recheck" => Ok(FailureStatus::Recheck),
+            "RetryRequired" => Ok(FailureStatus::RetryRequired),
+            "RecheckRequired" => Ok(FailureStatus::RecheckRequired),
             "Concluded" => Ok(FailureStatus::Concluded),
             _ => Err(format!("Invalid FailureStatus: {}", s)),
         }
@@ -73,14 +73,14 @@ pub struct FailedTx {
 }
 
 pub enum FailureRetrieveCondition {
-    ToRetry,
+    ByStatus(FailureStatus),
 }
 
 impl Display for FailureRetrieveCondition {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            FailureRetrieveCondition::ToRetry => {
-                write!(f, "WHERE status = 'Retry'",)
+            FailureRetrieveCondition::ByStatus(status) => {
+                write!(f, "WHERE status = '{:?}'", status)
             }
         }
     }
@@ -277,7 +277,6 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
         let case_statements = status_updates
             .iter()
             .map(|(hash, status)| format!("WHEN tx_hash = '{:?}' THEN '{:?}'", hash, status))
-            .collect::<Vec<String>>()
             .join(" ");
         let tx_hashes = comma_joined_stringifiable(&status_updates.keys().collect_vec(), |hash| {
             format!("'{:?}'", hash)
@@ -354,7 +353,7 @@ mod tests {
         General, NonceIssue, PendingTooLong,
     };
     use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::{
-        Concluded, Recheck, Retry,
+        Concluded, RecheckRequired, RetryRequired,
     };
     use crate::accountant::db_access_objects::failed_payable_dao::{
         FailedPayableDao, FailedPayableDaoError, FailedPayableDaoReal, FailureReason,
@@ -426,10 +425,13 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let hash = make_tx_hash(123);
-        let tx1 = FailedTxBuilder::default().hash(hash).status(Retry).build();
+        let tx1 = FailedTxBuilder::default()
+            .hash(hash)
+            .status(RetryRequired)
+            .build();
         let tx2 = FailedTxBuilder::default()
             .hash(hash)
-            .status(Recheck)
+            .status(RecheckRequired)
             .build();
         let subject = FailedPayableDaoReal::new(wrapped_conn);
 
@@ -443,12 +445,12 @@ mod tests {
                 hash: 0x000000000000000000000000000000000000000000000000000000000000007b, \
                 receiver_address: 0x0000000000000000000000000000000000000000, \
                 amount: 0, timestamp: 0, gas_price_wei: 0, \
-                nonce: 0, reason: PendingTooLong, status: Retry }, \
+                nonce: 0, reason: PendingTooLong, status: RetryRequired }, \
                 FailedTx { \
                 hash: 0x000000000000000000000000000000000000000000000000000000000000007b, \
                 receiver_address: 0x0000000000000000000000000000000000000000, \
                 amount: 0, timestamp: 0, gas_price_wei: 0, \
-                nonce: 0, reason: PendingTooLong, status: Recheck }]"
+                nonce: 0, reason: PendingTooLong, status: RecheckRequired }]"
                     .to_string()
             ))
         );
@@ -464,10 +466,13 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let hash = make_tx_hash(123);
-        let tx1 = FailedTxBuilder::default().hash(hash).status(Retry).build();
+        let tx1 = FailedTxBuilder::default()
+            .hash(hash)
+            .status(RetryRequired)
+            .build();
         let tx2 = FailedTxBuilder::default()
             .hash(hash)
-            .status(Recheck)
+            .status(RecheckRequired)
             .build();
         let subject = FailedPayableDaoReal::new(wrapped_conn);
         let initial_insertion_result = subject.insert_new_records(&vec![tx1]);
@@ -572,8 +577,11 @@ mod tests {
 
     #[test]
     fn failure_status_from_str_works() {
-        assert_eq!(FailureStatus::from_str("Retry"), Ok(Retry));
-        assert_eq!(FailureStatus::from_str("Recheck"), Ok(Recheck));
+        assert_eq!(FailureStatus::from_str("RetryRequired"), Ok(RetryRequired));
+        assert_eq!(
+            FailureStatus::from_str("RecheckRequired"),
+            Ok(RecheckRequired)
+        );
         assert_eq!(FailureStatus::from_str("Concluded"), Ok(Concluded));
         assert_eq!(
             FailureStatus::from_str("InvalidStatus"),
@@ -584,8 +592,8 @@ mod tests {
     #[test]
     fn retrieve_condition_display_works() {
         assert_eq!(
-            FailureRetrieveCondition::ToRetry.to_string(),
-            "WHERE status = 'Retry'"
+            FailureRetrieveCondition::ByStatus(RetryRequired).to_string(),
+            "WHERE status = 'RetryRequired'"
         );
     }
 
@@ -628,18 +636,18 @@ mod tests {
             .hash(make_tx_hash(1))
             .reason(PendingTooLong)
             .timestamp(now - 3600)
-            .status(Retry)
+            .status(RetryRequired)
             .build();
         let tx2 = FailedTxBuilder::default()
             .hash(make_tx_hash(2))
             .reason(NonceIssue)
             .timestamp(now - 3600)
-            .status(Retry)
+            .status(RetryRequired)
             .build();
         let tx3 = FailedTxBuilder::default()
             .hash(make_tx_hash(3))
             .reason(PendingTooLong)
-            .status(Recheck)
+            .status(RecheckRequired)
             .build();
         let tx4 = FailedTxBuilder::default()
             .hash(make_tx_hash(4))
@@ -651,7 +659,7 @@ mod tests {
             .insert_new_records(&vec![tx1.clone(), tx2.clone(), tx3, tx4])
             .unwrap();
 
-        let result = subject.retrieve_txs(Some(FailureRetrieveCondition::ToRetry));
+        let result = subject.retrieve_txs(Some(FailureRetrieveCondition::ByStatus(RetryRequired)));
 
         assert_eq!(result, vec![tx1, tx2]);
     }
@@ -667,29 +675,29 @@ mod tests {
         let tx1 = FailedTxBuilder::default()
             .hash(make_tx_hash(1))
             .reason(NonceIssue)
-            .status(Retry)
+            .status(RetryRequired)
             .build();
         let tx2 = FailedTxBuilder::default()
             .hash(make_tx_hash(2))
             .reason(PendingTooLong)
-            .status(Retry)
+            .status(RetryRequired)
             .build();
         let tx3 = FailedTxBuilder::default()
             .hash(make_tx_hash(3))
             .reason(PendingTooLong)
-            .status(Recheck)
+            .status(RecheckRequired)
             .build();
         let tx4 = FailedTxBuilder::default()
             .hash(make_tx_hash(4))
             .reason(PendingTooLong)
-            .status(Recheck)
+            .status(RecheckRequired)
             .build();
         subject
             .insert_new_records(&vec![tx1.clone(), tx2.clone(), tx3.clone(), tx4])
             .unwrap();
         let hashmap = HashMap::from([
             (tx1.hash, Concluded),
-            (tx2.hash, Recheck),
+            (tx2.hash, RecheckRequired),
             (tx3.hash, Concluded),
         ]);
 
@@ -697,14 +705,14 @@ mod tests {
 
         let updated_txs = subject.retrieve_txs(None);
         assert_eq!(result, Ok(()));
-        assert_eq!(tx1.status, Retry);
+        assert_eq!(tx1.status, RetryRequired);
         assert_eq!(updated_txs[0].status, Concluded);
-        assert_eq!(tx2.status, Retry);
-        assert_eq!(updated_txs[1].status, Recheck);
-        assert_eq!(tx3.status, Recheck);
+        assert_eq!(tx2.status, RetryRequired);
+        assert_eq!(updated_txs[1].status, RecheckRequired);
+        assert_eq!(tx3.status, RecheckRequired);
         assert_eq!(updated_txs[2].status, Concluded);
-        assert_eq!(tx3.status, Recheck);
-        assert_eq!(updated_txs[3].status, Recheck);
+        assert_eq!(tx3.status, RecheckRequired);
+        assert_eq!(updated_txs[3].status, RecheckRequired);
     }
 
     #[test]
@@ -732,7 +740,7 @@ mod tests {
         let wrapped_conn = make_read_only_db_connection(home_dir);
         let subject = FailedPayableDaoReal::new(Box::new(wrapped_conn));
 
-        let result = subject.update_statuses(HashMap::from([(make_tx_hash(1), Recheck)]));
+        let result = subject.update_statuses(HashMap::from([(make_tx_hash(1), RecheckRequired)]));
 
         assert_eq!(
             result,

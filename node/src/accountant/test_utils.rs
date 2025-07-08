@@ -1199,6 +1199,7 @@ impl FailedPayableDaoMock {
         self
     }
 }
+
 pub struct FailedPayableDaoFactoryMock {
     make_params: Arc<Mutex<Vec<()>>>,
     make_results: RefCell<Vec<Box<dyn FailedPayableDao>>>,
