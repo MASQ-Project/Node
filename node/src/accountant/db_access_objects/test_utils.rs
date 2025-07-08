@@ -6,7 +6,7 @@ use rusqlite::{Connection, OpenFlags};
 use crate::accountant::db_access_objects::sent_payable_dao::{ Tx};
 use crate::accountant::db_access_objects::utils::{current_unix_timestamp, TxHash};
 use web3::types::{Address};
-use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureReason};
+use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureReason, FailureStatus};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionBlock;
 use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE};
 use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
@@ -69,7 +69,7 @@ pub struct FailedTxBuilder {
     gas_price_wei_opt: Option<u128>,
     nonce_opt: Option<u64>,
     reason_opt: Option<FailureReason>,
-    rechecked_opt: Option<bool>,
+    status_opt: Option<FailureStatus>,
 }
 
 impl FailedTxBuilder {
@@ -97,8 +97,8 @@ impl FailedTxBuilder {
         self
     }
 
-    pub fn rechecked(mut self, rechecked: bool) -> Self {
-        self.rechecked_opt = Some(rechecked);
+    pub fn status(mut self, failure_status: FailureStatus) -> Self {
+        self.status_opt = Some(failure_status);
         self
     }
 
@@ -113,7 +113,9 @@ impl FailedTxBuilder {
             reason: self
                 .reason_opt
                 .unwrap_or_else(|| FailureReason::PendingTooLong),
-            rechecked: self.rechecked_opt.unwrap_or_else(|| false),
+            status: self
+                .status_opt
+                .unwrap_or_else(|| FailureStatus::RetryRequired),
         }
     }
 }

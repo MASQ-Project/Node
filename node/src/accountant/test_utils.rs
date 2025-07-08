@@ -3,6 +3,10 @@
 #![cfg(test)]
 
 use crate::accountant::db_access_objects::banned_dao::{BannedDao, BannedDaoFactory};
+use crate::accountant::db_access_objects::failed_payable_dao::{
+    FailedPayableDao, FailedPayableDaoError, FailedPayableDaoFactory, FailedTx,
+    FailureRetrieveCondition, FailureStatus,
+};
 use crate::accountant::db_access_objects::payable_dao::{
     PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory,
 };
@@ -13,7 +17,7 @@ use crate::accountant::db_access_objects::receivable_dao::{
     ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,
 };
 use crate::accountant::db_access_objects::utils::{
-    from_unix_timestamp, to_unix_timestamp, CustomQuery,
+    from_unix_timestamp, to_unix_timestamp, CustomQuery, TxHash, TxIdentifiers,
 };
 use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdjuster};
 use crate::accountant::scanners::payable_scanner_extension::msgs::{
@@ -45,6 +49,7 @@ use masq_lib::logger::Logger;
 use rusqlite::{Connection, OpenFlags, Row};
 use std::any::type_name;
 use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::path::Path;
 use std::rc::Rc;
@@ -1072,6 +1077,158 @@ impl PendingPayableDaoFactoryMock {
     }
 
     pub fn make_result(self, result: PendingPayableDaoMock) -> Self {
+        self.make_results.borrow_mut().push(Box::new(result));
+        self
+    }
+}
+
+#[derive(Default)]
+pub struct FailedPayableDaoMock {
+    get_tx_identifiers_params: Arc<Mutex<Vec<HashSet<TxHash>>>>,
+    get_tx_identifiers_results: RefCell<Vec<TxIdentifiers>>,
+    insert_new_records_params: Arc<Mutex<Vec<Vec<FailedTx>>>>,
+    insert_new_records_results: RefCell<Vec<Result<(), FailedPayableDaoError>>>,
+    retrieve_txs_params: Arc<Mutex<Vec<Option<FailureRetrieveCondition>>>>,
+    retrieve_txs_results: RefCell<Vec<Vec<FailedTx>>>,
+    update_statuses_params: Arc<Mutex<Vec<HashMap<TxHash, FailureStatus>>>>,
+    update_statuses_results: RefCell<Vec<Result<(), FailedPayableDaoError>>>,
+    delete_records_params: Arc<Mutex<Vec<HashSet<TxHash>>>>,
+    delete_records_results: RefCell<Vec<Result<(), FailedPayableDaoError>>>,
+}
+
+impl FailedPayableDao for FailedPayableDaoMock {
+    fn get_tx_identifiers(&self, hashes: &HashSet<TxHash>) -> TxIdentifiers {
+        self.get_tx_identifiers_params
+            .lock()
+            .unwrap()
+            .push(hashes.clone());
+        self.get_tx_identifiers_results.borrow_mut().remove(0)
+    }
+
+    fn insert_new_records(&self, txs: &[FailedTx]) -> Result<(), FailedPayableDaoError> {
+        self.insert_new_records_params
+            .lock()
+            .unwrap()
+            .push(txs.to_vec());
+        self.insert_new_records_results.borrow_mut().remove(0)
+    }
+
+    fn retrieve_txs(&self, condition: Option<FailureRetrieveCondition>) -> Vec<FailedTx> {
+        self.retrieve_txs_params.lock().unwrap().push(condition);
+        self.retrieve_txs_results.borrow_mut().remove(0)
+    }
+
+    fn update_statuses(
+        &self,
+        status_updates: HashMap<TxHash, FailureStatus>,
+    ) -> Result<(), FailedPayableDaoError> {
+        self.update_statuses_params
+            .lock()
+            .unwrap()
+            .push(status_updates);
+        self.update_statuses_results.borrow_mut().remove(0)
+    }
+
+    fn delete_records(&self, hashes: &HashSet<TxHash>) -> Result<(), FailedPayableDaoError> {
+        self.delete_records_params
+            .lock()
+            .unwrap()
+            .push(hashes.clone());
+        self.delete_records_results.borrow_mut().remove(0)
+    }
+}
+
+impl FailedPayableDaoMock {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn get_tx_identifiers_params(mut self, params: &Arc<Mutex<Vec<HashSet<TxHash>>>>) -> Self {
+        self.get_tx_identifiers_params = params.clone();
+        self
+    }
+
+    pub fn get_tx_identifiers_result(self, result: TxIdentifiers) -> Self {
+        self.get_tx_identifiers_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn insert_new_records_params(mut self, params: &Arc<Mutex<Vec<Vec<FailedTx>>>>) -> Self {
+        self.insert_new_records_params = params.clone();
+        self
+    }
+
+    pub fn insert_new_records_result(self, result: Result<(), FailedPayableDaoError>) -> Self {
+        self.insert_new_records_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn retrieve_txs_params(
+        mut self,
+        params: &Arc<Mutex<Vec<Option<FailureRetrieveCondition>>>>,
+    ) -> Self {
+        self.retrieve_txs_params = params.clone();
+        self
+    }
+
+    pub fn retrieve_txs_result(self, result: Vec<FailedTx>) -> Self {
+        self.retrieve_txs_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn update_statuses_params(
+        mut self,
+        params: &Arc<Mutex<Vec<HashMap<TxHash, FailureStatus>>>>,
+    ) -> Self {
+        self.update_statuses_params = params.clone();
+        self
+    }
+
+    pub fn update_statuses_result(self, result: Result<(), FailedPayableDaoError>) -> Self {
+        self.update_statuses_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn delete_records_params(mut self, params: &Arc<Mutex<Vec<HashSet<TxHash>>>>) -> Self {
+        self.delete_records_params = params.clone();
+        self
+    }
+
+    pub fn delete_records_result(self, result: Result<(), FailedPayableDaoError>) -> Self {
+        self.delete_records_results.borrow_mut().push(result);
+        self
+    }
+}
+
+pub struct FailedPayableDaoFactoryMock {
+    make_params: Arc<Mutex<Vec<()>>>,
+    make_results: RefCell<Vec<Box<dyn FailedPayableDao>>>,
+}
+
+impl FailedPayableDaoFactory for FailedPayableDaoFactoryMock {
+    fn make(&self) -> Box<dyn FailedPayableDao> {
+        if self.make_results.borrow().len() == 0 {
+            panic!("FailedPayableDao Missing.")
+        };
+        self.make_params.lock().unwrap().push(());
+        self.make_results.borrow_mut().remove(0)
+    }
+}
+
+impl FailedPayableDaoFactoryMock {
+    pub fn new() -> Self {
+        Self {
+            make_params: Arc::new(Mutex::new(vec![])),
+            make_results: RefCell::new(vec![]),
+        }
+    }
+
+    pub fn make_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+        self.make_params = params.clone();
+        self
+    }
+
+    pub fn make_result(self, result: FailedPayableDaoMock) -> Self {
         self.make_results.borrow_mut().push(Box::new(result));
         self
     }

@@ -529,7 +529,6 @@ mod tests {
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
-    use std::fmt::format;
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::time::SystemTime;
