@@ -25,6 +25,7 @@ pub enum FailedPayableDaoError {
 pub enum FailureReason {
     PendingTooLong,
     NonceIssue,
+    General,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
