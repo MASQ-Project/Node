@@ -1740,6 +1740,17 @@ mod tests {
 
     #[test]
     fn retry_payable_scanner_can_initiate_a_scan() {
+        //
+        // Setup Part:
+        // DAOs: PayableDao, FailedPayableDao
+        // Fetch data from FailedPayableDao (inject it into Payable Scanner -- allow the change in production code).
+        // Scanners constructor will require to create it with the Factory -- try it
+        // Configure it such that it returns at least 2 failed tx
+        // Once I get those 2 records, I should get hold of those identifiers used in the Payable DAO
+        // Update the new balance for those transactions
+        // Modify Payable DAO and add another method, that will return just the corresponding payments
+        // The account which I get from the PayableDAO can go straight to the QualifiedPayableBeforePriceSelection
+
         todo!("this must be set up under GH-605");
         // TODO make sure the QualifiedPayableRawPack will express the difference from
         // the NewPayable scanner: The QualifiedPayablesBeforeGasPriceSelection needs to carry
