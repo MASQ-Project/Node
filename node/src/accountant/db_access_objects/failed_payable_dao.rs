@@ -54,6 +54,7 @@ impl FromStr for FailureReason {
         match s {
             "PendingTooLong" => Ok(FailureReason::PendingTooLong),
             "NonceIssue" => Ok(FailureReason::NonceIssue),
+            "General" => Ok(FailureReason::General),
             _ => Err(format!("Invalid FailureReason: {}", s)),
         }
     }
@@ -350,7 +351,7 @@ impl FailedPayableDaoFactory for DaoFactoryReal {
 #[cfg(test)]
 mod tests {
     use crate::accountant::db_access_objects::failed_payable_dao::FailureReason::{
-        NonceIssue, PendingTooLong,
+        General, NonceIssue, PendingTooLong,
     };
     use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::{
         Concluded, Recheck, Retry,
@@ -562,6 +563,7 @@ mod tests {
             Ok(PendingTooLong)
         );
         assert_eq!(FailureReason::from_str("NonceIssue"), Ok(NonceIssue));
+        assert_eq!(FailureReason::from_str("General"), Ok(General));
         assert_eq!(
             FailureReason::from_str("InvalidReason"),
             Err("Invalid FailureReason: InvalidReason".to_string())
