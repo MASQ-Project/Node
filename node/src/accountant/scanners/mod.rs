@@ -461,6 +461,7 @@ pub struct PayableScanner {
     pub payable_threshold_gauge: Box<dyn PayableThresholdsGauge>,
     pub common: ScannerCommon,
     pub payable_dao: Box<dyn PayableDao>,
+    // TODO: GH-605: Insert FailedPayableDao, maybe introduce SentPayableDao once you eliminate PendingPayableDao
     pub pending_payable_dao: Box<dyn PendingPayableDao>,
     pub payment_adjuster: Box<dyn PaymentAdjuster>,
 }
@@ -538,6 +539,8 @@ impl Scanner<SentPayables, PayableScanResult> for PayableScanner {
         if !sent_payables.is_empty() {
             self.mark_pending_payable(&sent_payables, logger);
         }
+
+        // TODO: GH-605: We should transfer the payables to the FailedPayableDao
         self.handle_sent_payable_errors(err_opt, logger);
 
         self.mark_as_ended(logger);

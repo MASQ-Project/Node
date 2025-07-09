@@ -361,6 +361,7 @@ impl Handler<SentPayables> for Accountant {
                     .scan_schedulers
                     .pending_payable
                     .schedule(ctx, &self.logger),
+                // TODO: GH-605: These txs were never sent to the blockchain, so we should retry them
                 OperationOutcome::Failure => self
                     .scan_schedulers
                     .payable
