@@ -2,7 +2,10 @@
 
 #![cfg(test)]
 
-use crate::accountant::scanners::payable_scanner_extension::blockchain_agent::BlockchainAgent;
+use crate::accountant::scanners::payable_scanner_extension::msgs::{
+    PricedQualifiedPayables, UnpricedQualifiedPayables,
+};
+use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
@@ -12,7 +15,7 @@ use std::cell::RefCell;
 
 pub struct BlockchainAgentMock {
     consuming_wallet_balances_results: RefCell<Vec<ConsumingWalletBalances>>,
-    agreed_fee_per_computation_unit_results: RefCell<Vec<u128>>,
+    gas_price_results: RefCell<Vec<u128>>,
     consuming_wallet_result_opt: Option<Wallet>,
     arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
     get_chain_result_opt: Option<Chain>,
@@ -22,7 +25,7 @@ impl Default for BlockchainAgentMock {
     fn default() -> Self {
         BlockchainAgentMock {
             consuming_wallet_balances_results: RefCell::new(vec![]),
-            agreed_fee_per_computation_unit_results: RefCell::new(vec![]),
+            gas_price_results: RefCell::new(vec![]),
             consuming_wallet_result_opt: None,
             arbitrary_id_stamp_opt: None,
             get_chain_result_opt: None,
@@ -31,18 +34,22 @@ impl Default for BlockchainAgentMock {
 }
 
 impl BlockchainAgent for BlockchainAgentMock {
-    fn estimated_transaction_fee_total(&self, _number_of_transactions: usize) -> u128 {
+    fn price_qualified_payables(
+        &self,
+        _qualified_payables: UnpricedQualifiedPayables,
+    ) -> PricedQualifiedPayables {
+        unimplemented!("not needed yet")
+    }
+
+    fn estimate_transaction_fee_total(
+        &self,
+        _qualified_payables: &PricedQualifiedPayables,
+    ) -> u128 {
         todo!("to be implemented by GH-711")
     }
 
     fn consuming_wallet_balances(&self) -> ConsumingWalletBalances {
         todo!("to be implemented by GH-711")
-    }
-
-    fn agreed_fee_per_computation_unit(&self) -> u128 {
-        self.agreed_fee_per_computation_unit_results
-            .borrow_mut()
-            .remove(0)
     }
 
     fn consuming_wallet(&self) -> &Wallet {
@@ -68,10 +75,8 @@ impl BlockchainAgentMock {
         self
     }
 
-    pub fn agreed_fee_per_computation_unit_result(self, result: u128) -> Self {
-        self.agreed_fee_per_computation_unit_results
-            .borrow_mut()
-            .push(result);
+    pub fn gas_price_result(self, result: u128) -> Self {
+        self.gas_price_results.borrow_mut().push(result);
         self
     }
 

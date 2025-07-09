@@ -1,22 +1,85 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::accountant::scanners::payable_scanner_extension::blockchain_agent::BlockchainAgent;
 use crate::accountant::{ResponseSkeleton, SkeletonOptHolder};
+use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use std::fmt::Debug;
 
 #[derive(Debug, Message, PartialEq, Eq, Clone)]
 pub struct QualifiedPayablesMessage {
-    pub qualified_payables: Vec<PayableAccount>,
+    pub qualified_payables: UnpricedQualifiedPayables,
     pub consuming_wallet: Wallet,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct UnpricedQualifiedPayables {
+    pub payables: Vec<QualifiedPayablesBeforeGasPriceSelection>,
+}
+
+impl From<Vec<PayableAccount>> for UnpricedQualifiedPayables {
+    fn from(qualified_payable: Vec<PayableAccount>) -> Self {
+        UnpricedQualifiedPayables {
+            payables: qualified_payable
+                .into_iter()
+                .map(|payable| QualifiedPayablesBeforeGasPriceSelection::new(payable, None))
+                .collect(),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct QualifiedPayablesBeforeGasPriceSelection {
+    pub payable: PayableAccount,
+    pub previous_attempt_gas_price_minor_opt: Option<u128>,
+}
+
+impl QualifiedPayablesBeforeGasPriceSelection {
+    pub fn new(
+        payable: PayableAccount,
+        previous_attempt_gas_price_minor_opt: Option<u128>,
+    ) -> Self {
+        Self {
+            payable,
+            previous_attempt_gas_price_minor_opt,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct PricedQualifiedPayables {
+    pub payables: Vec<QualifiedPayableWithGasPrice>,
+}
+
+impl Into<Vec<PayableAccount>> for PricedQualifiedPayables {
+    fn into(self) -> Vec<PayableAccount> {
+        self.payables
+            .into_iter()
+            .map(|qualified_payable| qualified_payable.payable)
+            .collect()
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct QualifiedPayableWithGasPrice {
+    pub payable: PayableAccount,
+    pub gas_price_minor: u128,
+}
+
+impl QualifiedPayableWithGasPrice {
+    pub fn new(payable: PayableAccount, gas_price_minor: u128) -> Self {
+        Self {
+            payable,
+            gas_price_minor,
+        }
+    }
+}
+
 impl QualifiedPayablesMessage {
     pub(in crate::accountant) fn new(
-        qualified_payables: Vec<PayableAccount>,
+        qualified_payables: UnpricedQualifiedPayables,
         consuming_wallet: Wallet,
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) -> Self {
@@ -36,14 +99,14 @@ impl SkeletonOptHolder for QualifiedPayablesMessage {
 
 #[derive(Message)]
 pub struct BlockchainAgentWithContextMessage {
-    pub qualified_payables: Vec<PayableAccount>,
+    pub qualified_payables: PricedQualifiedPayables,
     pub agent: Box<dyn BlockchainAgent>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
 impl BlockchainAgentWithContextMessage {
     pub fn new(
-        qualified_payables: Vec<PayableAccount>,
+        qualified_payables: PricedQualifiedPayables,
         agent: Box<dyn BlockchainAgent>,
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) -> Self {

@@ -10,8 +10,9 @@ use web3::transports::Http;
 pub(in crate::blockchain) struct BlockchainInterfaceInitializer {}
 
 impl BlockchainInterfaceInitializer {
-    // TODO when we have multiple chains of fundamentally different architectures and are able to switch them,
-    // this should probably be replaced by a HashMap of distinct interfaces for each chain
+    // TODO if we ever have multiple chains of fundamentally different architectures and are able
+    // to switch them, this should probably be replaced by a HashMap of distinct interfaces for
+    // each chain
     pub fn initialize_interface(
         &self,
         blockchain_service_url: &str,
@@ -43,24 +44,25 @@ impl BlockchainInterfaceInitializer {
 
 #[cfg(test)]
 mod tests {
-    use crate::blockchain::blockchain_interface_initializer::BlockchainInterfaceInitializer;
-    use masq_lib::blockchains::chains::Chain;
-
-    use futures::Future;
-    use std::net::Ipv4Addr;
-    use web3::transports::Http;
-
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
-        BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
+    use crate::accountant::scanners::payable_scanner_extension::msgs::{
+        PricedQualifiedPayables, QualifiedPayableWithGasPrice, UnpricedQualifiedPayables,
     };
-    use crate::blockchain::blockchain_interface::BlockchainInterface;
+    use crate::accountant::test_utils::make_payable_account;
+    use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
+    use crate::blockchain::blockchain_interface_initializer::BlockchainInterfaceInitializer;
     use crate::test_utils::make_wallet;
+    use futures::Future;
+    use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
     use masq_lib::utils::find_free_port;
+    use std::net::Ipv4Addr;
 
     #[test]
     fn initialize_web3_interface_works() {
+        // TODO this test should definitely assert on the web3 requests sent to the server,
+        // that's the best way to verify that this interface belongs to the web3 architecture
+        // (This test amplifies the importance of GH-543)
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .ok_response("0x3B9ACA00".to_string(), 0) // gas_price = 10000000000
@@ -71,22 +73,37 @@ mod tests {
             )
             .ok_response("0x23".to_string(), 1)
             .start();
-        let wallet = make_wallet("123");
         let chain = Chain::PolyMainnet;
         let server_url = &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port);
-        let (event_loop_handle, transport) =
-            Http::with_max_parallel(server_url, REQUESTS_IN_PARALLEL).unwrap();
-        let subject = BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain);
 
-        let blockchain_agent = subject
-            .build_blockchain_agent(wallet.clone())
+        let result = BlockchainInterfaceInitializer {}.initialize_interface(server_url, chain);
+
+        let account_1 = make_payable_account(12);
+        let account_2 = make_payable_account(34);
+        let unpriced_qualified_payables =
+            UnpricedQualifiedPayables::from(vec![account_1.clone(), account_2.clone()]);
+        let payable_wallet = make_wallet("payable");
+        let blockchain_agent = result
+            .introduce_blockchain_agent(payable_wallet.clone())
             .wait()
             .unwrap();
-
-        assert_eq!(blockchain_agent.consuming_wallet(), &wallet);
+        assert_eq!(blockchain_agent.consuming_wallet(), &payable_wallet);
+        let priced_qualified_payables =
+            blockchain_agent.price_qualified_payables(unpriced_qualified_payables);
+        let gas_price_with_margin = increase_gas_price_by_margin(1_000_000_000);
+        let expected_priced_qualified_payables = PricedQualifiedPayables {
+            payables: vec![
+                QualifiedPayableWithGasPrice::new(account_1, gas_price_with_margin),
+                QualifiedPayableWithGasPrice::new(account_2, gas_price_with_margin),
+            ],
+        };
         assert_eq!(
-            blockchain_agent.agreed_fee_per_computation_unit(),
-            1_000_000_000
+            priced_qualified_payables,
+            expected_priced_qualified_payables
+        );
+        assert_eq!(
+            blockchain_agent.estimate_transaction_fee_total(&priced_qualified_payables),
+            190_652_800_000_000
         );
     }
 

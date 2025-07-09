@@ -1,8 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::scanners::payable_scanner_extension::msgs::{
-    BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
-};
+use crate::accountant::scanners::payable_scanner_extension::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage, PricedQualifiedPayables};
 use crate::accountant::{
     ReceivedPayments, ResponseSkeleton, ScanError,
     SentPayables, SkeletonOptHolder,
@@ -44,11 +42,12 @@ use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use ethabi::Hash;
 use web3::types::H256;
+use masq_lib::constants::DEFAULT_GAS_PRICE_MARGIN;
 use masq_lib::messages::ScanType;
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
-use crate::accountant::scanners::payable_scanner_extension::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TxReceiptResult, TxStatus};
+use crate::blockchain::blockchain_agent::BlockchainAgent;
 
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
 pub const DEFAULT_BLOCKCHAIN_SERVICE_URL: &str = "https://0.0.0.0";
@@ -168,7 +167,7 @@ impl Handler<OutboundPaymentsInstructions> for BlockchainBridge {
 
 #[derive(Debug, Clone, PartialEq, Eq, Message)]
 pub struct RegisterNewPendingSentTxMessage {
-    pub new_sent_tx: Vec<SentTx>
+    pub new_sent_txs: Vec<SentTx>
 }
 
 impl RegisterNewPendingSentTxMessage {
@@ -257,11 +256,13 @@ impl BlockchainBridge {
         let accountant_recipient = self.payable_payments_setup_subs_opt.clone();
         Box::new(
             self.blockchain_interface
-                .build_blockchain_agent(incoming_message.consuming_wallet)
+                .introduce_blockchain_agent(incoming_message.consuming_wallet)
                 .map_err(|e| format!("Blockchain agent build error: {:?}", e))
                 .and_then(move |agent| {
+                    let priced_qualified_payables =
+                        agent.price_qualified_payables(incoming_message.qualified_payables);
                     let outgoing_message = BlockchainAgentWithContextMessage::new(
-                        incoming_message.qualified_payables,
+                        priced_qualified_payables,
                         agent,
                         incoming_message.response_skeleton_opt,
                     );
@@ -479,7 +480,7 @@ impl BlockchainBridge {
     fn process_payments(
         &self,
         agent: Box<dyn BlockchainAgent>,
-        affordable_accounts: Vec<PayableAccount>,
+        affordable_accounts: PricedQualifiedPayables,
     ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>
     {
         let new_fingerprints_recipient = self.new_fingerprints_recipient();
@@ -529,6 +530,10 @@ struct PendingTxInfo {
     when_sent: SystemTime,
 }
 
+pub fn increase_gas_price_by_margin(gas_price: u128) -> u128 {
+    (gas_price * (100 + DEFAULT_GAS_PRICE_MARGIN as u128)) / 100
+}
+
 pub struct BlockchainBridgeSubsFactoryReal {}
 
 impl SubsFactory<BlockchainBridge, BlockchainBridgeSubs> for BlockchainBridgeSubsFactoryReal {
@@ -542,10 +547,9 @@ mod tests {
     use super::*;
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::db_access_objects::utils::from_unix_timestamp;
-    use crate::accountant::scanners::payable_scanner_extension::agent_web3::WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
     use crate::accountant::scanners::payable_scanner_extension::test_utils::BlockchainAgentMock;
     use crate::accountant::test_utils::{make_payable_account, make_sent_tx};
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::BlockchainInterfaceWeb3;
+    use crate::accountant::test_utils::{make_priced_qualified_payables};
     use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError::TransactionID;
     use crate::blockchain::blockchain_interface::data_structures::errors::{
         BlockchainAgentBuildError, PayableTransactionError,
@@ -586,11 +590,13 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
+    use libc::time;
     use web3::types::{TransactionReceipt, H160};
     use masq_lib::constants::DEFAULT_MAX_BLOCK_COUNT;
     use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
     use crate::accountant::PendingPayable;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{SentTxWithLatestStatus, TransactionBlock, TxReceiptRequestError};
+    use crate::accountant::scanners::payable_scanner_extension::msgs::{UnpricedQualifiedPayables, QualifiedPayableWithGasPrice};
 
     impl Handler<AssertionsMessage<Self>> for BlockchainBridge {
         type Result = ();
@@ -671,15 +677,14 @@ mod tests {
     }
 
     #[test]
-    fn qualified_payables_msg_is_handled_and_new_msg_with_an_added_blockchain_agent_returns_to_accountant(
-    ) {
+    fn handles_qualified_payables_msg_in_new_payables_mode_and_sends_response_back_to_accountant() {
         let system = System::new(
-            "qualified_payables_msg_is_handled_and_new_msg_with_an_added_blockchain_agent_returns_to_accountant",
-        );
+            "handles_qualified_payables_msg_in_new_payables_mode_and_sends_response_back_to_accountant");
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .ok_response("0x230000000".to_string(), 1) // 9395240960
-            .ok_response("0x23".to_string(), 1)
+            // Fetching a recommended gas price
+            .ok_response("0x230000000".to_string(), 1)
+            .ok_response("0xAAAA".to_string(), 1)
             .ok_response(
                 "0x000000000000000000000000000000000000000000000000000000000000FFFF".to_string(),
                 0,
@@ -716,8 +721,10 @@ mod tests {
             false,
         );
         subject.payable_payments_setup_subs_opt = Some(accountant_recipient);
+        let unpriced_qualified_payables =
+            UnpricedQualifiedPayables::from(qualified_payables.clone());
         let qualified_payables_msg = QualifiedPayablesMessage {
-            qualified_payables: qualified_payables.clone(),
+            qualified_payables: unpriced_qualified_payables.clone(),
             consuming_wallet: consuming_wallet.clone(),
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 11122,
@@ -732,42 +739,33 @@ mod tests {
 
         System::current().stop();
         system.run();
-
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
         let blockchain_agent_with_context_msg_actual: &BlockchainAgentWithContextMessage =
             accountant_received_payment.get_record(0);
+        let expected_priced_qualified_payables = PricedQualifiedPayables {
+            payables: qualified_payables
+                .into_iter()
+                .map(|payable| QualifiedPayableWithGasPrice {
+                    payable,
+                    gas_price_minor: increase_gas_price_by_margin(0x230000000),
+                })
+                .collect(),
+        };
         assert_eq!(
             blockchain_agent_with_context_msg_actual.qualified_payables,
-            qualified_payables
+            expected_priced_qualified_payables
+        );
+        let actual_agent = blockchain_agent_with_context_msg_actual.agent.as_ref();
+        assert_eq!(actual_agent.consuming_wallet(), &consuming_wallet);
+        assert_eq!(
+            actual_agent.consuming_wallet_balances(),
+            ConsumingWalletBalances::new(0xAAAA.into(), 0xFFFF.into())
         );
         assert_eq!(
-            blockchain_agent_with_context_msg_actual
-                .agent
-                .consuming_wallet(),
-            &consuming_wallet
-        );
-        assert_eq!(
-            blockchain_agent_with_context_msg_actual
-                .agent
-                .agreed_fee_per_computation_unit(),
-            0x230000000
-        );
-        assert_eq!(
-            blockchain_agent_with_context_msg_actual
-                .agent
-                .consuming_wallet_balances(),
-            ConsumingWalletBalances::new(
-                35.into(),
-                0x000000000000000000000000000000000000000000000000000000000000FFFF.into()
-            )
-        );
-        let gas_limit_const_part =
-            BlockchainInterfaceWeb3::web3_gas_limit_const_part(Chain::PolyMainnet);
-        assert_eq!(
-            blockchain_agent_with_context_msg_actual
-                .agent
-                .estimated_transaction_fee_total(1),
-            (1 * 0x230000000 * (gas_limit_const_part + WEB3_MAXIMAL_GAS_LIMIT_MARGIN))
+            actual_agent.estimate_transaction_fee_total(
+                &actual_agent.price_qualified_payables(unpriced_qualified_payables)
+            ),
+            1_791_228_995_698_688
         );
         assert_eq!(
             blockchain_agent_with_context_msg_actual.response_skeleton_opt,
@@ -780,9 +778,10 @@ mod tests {
     }
 
     #[test]
-    fn qualified_payables_msg_is_handled_but_fails_on_build_blockchain_agent() {
-        let system =
-            System::new("qualified_payables_msg_is_handled_but_fails_on_build_blockchain_agent");
+    fn qualified_payables_msg_is_handled_but_fails_on_introduce_blockchain_agent() {
+        let system = System::new(
+            "qualified_payables_msg_is_handled_but_fails_on_introduce_blockchain_agent",
+        );
         let port = find_free_port();
         // build blockchain agent fails by not providing the third response.
         let _blockchain_client_server = MBCSBuilder::new(port)
@@ -799,8 +798,9 @@ mod tests {
             false,
         );
         subject.payable_payments_setup_subs_opt = Some(accountant_recipient);
+        let qualified_payables = UnpricedQualifiedPayables::from(vec![make_payable_account(123)]);
         let qualified_payables_msg = QualifiedPayablesMessage {
-            qualified_payables: vec![make_payable_account(123)],
+            qualified_payables,
             consuming_wallet: consuming_wallet.clone(),
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 11122,
@@ -815,7 +815,6 @@ mod tests {
 
         System::current().stop();
         system.run();
-
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 0);
         let service_fee_balance_error = BlockchainAgentBuildError::ServiceFeeBalance(
@@ -834,10 +833,10 @@ mod tests {
     }
 
     #[test]
-    fn handle_outbound_payments_instructions_sees_payments_happen_and_sends_payment_results_back_to_accountant(
+    fn handle_outbound_payments_instructions_sees_payment_happen_and_sends_payment_results_back_to_accountant(
     ) {
         let system = System::new(
-            "handle_outbound_payments_instructions_sees_payments_happen_and_sends_payment_results_back_to_accountant",
+            "handle_outbound_payments_instructions_sees_payment_happen_and_sends_payment_results_back_to_accountant",
         );
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
@@ -863,16 +862,15 @@ mod tests {
         let subject_subs = BlockchainBridge::make_subs_from(&addr);
         let mut peer_actors = peer_actors_builder().build();
         peer_actors.accountant = make_accountant_subs_from_recorder(&accountant_addr);
-        let accounts = vec![PayableAccount {
+        let account = PayableAccount {
             wallet: wallet_account,
             balance_wei: 111_420_204,
             last_paid_timestamp: from_unix_timestamp(150_000_000),
             pending_payable_opt: None,
-        }];
+        };
         let agent_id_stamp = ArbitraryIdStamp::new();
         let agent = BlockchainAgentMock::default()
             .set_arbitrary_id_stamp(agent_id_stamp)
-            .agreed_fee_per_computation_unit_result(123)
             .consuming_wallet_result(consuming_wallet)
             .get_chain_result(Chain::PolyMainnet);
 
@@ -880,7 +878,10 @@ mod tests {
 
         let _ = addr
             .try_send(OutboundPaymentsInstructions {
-                affordable_accounts: accounts.clone(),
+                affordable_accounts: make_priced_qualified_payables(vec![(
+                    account.clone(),
+                    111_222_333,
+                )]),
                 agent: Box::new(agent),
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
@@ -893,18 +894,19 @@ mod tests {
         system.run();
         let time_after = SystemTime::now();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
-        let pending_payable_fingerprint_seeds_msg =
+        let register_new_pending_sent_tx_msg =
             accountant_recording.get_record::<RegisterNewPendingSentTxMessage>(0);
         let sent_payables_msg = accountant_recording.get_record::<SentPayables>(1);
+        let expected_hash = H256::from_str(
+            "81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c"
+        )
+            .unwrap();
         assert_eq!(
             sent_payables_msg,
             &SentPayables {
                 payment_procedure_result: Ok(vec![Correct(PendingPayable {
-                    recipient_wallet: accounts[0].wallet.clone(),
-                    hash: H256::from_str(
-                        "36e9d7cdd657181317dd461192d537d9944c57a51ee950607de5a618b00e57a1"
-                    )
-                    .unwrap()
+                    recipient_wallet: account.wallet,
+                    hash:expected_hash
                 })]),
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
@@ -912,18 +914,15 @@ mod tests {
                 })
             }
         );
-        assert!(pending_payable_fingerprint_seeds_msg.batch_wide_timestamp >= time_before);
-        assert!(pending_payable_fingerprint_seeds_msg.batch_wide_timestamp <= time_after);
-        assert_eq!(
-            pending_payable_fingerprint_seeds_msg.hashes_and_balances,
-            vec![HashAndAmount {
-                hash: H256::from_str(
-                    "36e9d7cdd657181317dd461192d537d9944c57a51ee950607de5a618b00e57a1"
-                )
-                .unwrap(),
-                amount: accounts[0].balance_wei
-            }]
-        );
+        let first_actual_sent_tx = &register_new_pending_sent_tx_msg.new_sent_txs[0];
+        let second_actual_sent_tx = &register_new_pending_sent_tx_msg.new_sent_txs[0];
+        assert_eq!(first_actual_sent_tx.receiver_address, account.wallet.address());
+        assert_eq!(first_actual_sent_tx.hash, expected_hash);
+        assert_eq!(first_actual_sent_tx.amount, account.balance_wei);
+        assert_eq!(first_actual_sent_tx.gas_price_wei, 111_222_333);
+        assert_eq!(first_actual_sent_tx.nonce,0);
+        assert_eq!(first_actual_sent_tx.block_opt, None);
+        assert!(time_before <= from_unix_timestamp(first_actual_sent_tx.timestamp) && from_unix_timestamp(first_actual_sent_tx.timestamp) <= time_after, "We thought the timestamp was between {:?} and {:?}, but it was {:?}", time_before, time_after, from_unix_timestamp(first_actual_sent_tx.timestamp));
         assert_eq!(accountant_recording.len(), 2);
     }
 
@@ -941,7 +940,7 @@ mod tests {
         let accountant_addr = accountant
             .system_stop_conditions(match_lazily_every_type_id!(SentPayables))
             .start();
-        let wallet_account = make_wallet("blah");
+        let account_wallet = make_wallet("blah");
         let blockchain_interface = make_blockchain_interface_web3(port);
         let persistent_configuration_mock = PersistentConfigurationMock::default();
         let subject = BlockchainBridge::new(
@@ -953,22 +952,25 @@ mod tests {
         let subject_subs = BlockchainBridge::make_subs_from(&addr);
         let mut peer_actors = peer_actors_builder().build();
         peer_actors.accountant = make_accountant_subs_from_recorder(&accountant_addr);
-        let accounts = vec![PayableAccount {
-            wallet: wallet_account,
+        let account = PayableAccount {
+            wallet: account_wallet.clone(),
             balance_wei: 111_420_204,
             last_paid_timestamp: from_unix_timestamp(150_000_000),
             pending_payable_opt: None,
-        }];
+        };
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
         let agent = BlockchainAgentMock::default()
             .consuming_wallet_result(consuming_wallet)
-            .agreed_fee_per_computation_unit_result(123)
+            .gas_price_result(123)
             .get_chain_result(Chain::PolyMainnet);
         send_bind_message!(subject_subs, peer_actors);
 
         let _ = addr
             .try_send(OutboundPaymentsInstructions {
-                affordable_accounts: accounts.clone(),
+                affordable_accounts: make_priced_qualified_payables(vec![(
+                    account.clone(),
+                    111_222_333,
+                )]),
                 agent: Box::new(agent),
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
@@ -979,7 +981,7 @@ mod tests {
 
         system.run();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
-        let pending_payable_fingerprint_seeds_msg =
+        let actual_pending_payable_fingerprint_seeds_msg =
             accountant_recording.get_record::<RegisterNewPendingSentTxMessage>(0);
         let sent_payables_msg = accountant_recording.get_record::<SentPayables>(1);
         let scan_error_msg = accountant_recording.get_record::<ScanError>(2);
@@ -990,16 +992,14 @@ mod tests {
                 .unwrap_err(),
             "Transport error: Error(IncompleteMessage)",
         );
-        assert_eq!(
-            pending_payable_fingerprint_seeds_msg.hashes_and_balances,
-            vec![HashAndAmount {
-                hash: H256::from_str(
-                    "36e9d7cdd657181317dd461192d537d9944c57a51ee950607de5a618b00e57a1"
-                )
-                .unwrap(),
-                amount: accounts[0].balance_wei
-            }]
-        );
+        assert_eq!(actual_pending_payable_fingerprint_seeds_msg.new_sent_txs[0].receiver_address, account_wallet.address());
+        assert_eq!(actual_pending_payable_fingerprint_seeds_msg.new_sent_txs[0].hash, H256::from_str(
+            "81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c"
+        )
+            .unwrap());
+        assert_eq!(actual_pending_payable_fingerprint_seeds_msg.new_sent_txs[0].amount, account.balance_wei);
+        let number_of_requested_txs = actual_pending_payable_fingerprint_seeds_msg.new_sent_txs.len();
+        assert_eq!(number_of_requested_txs, 1, "We expected only one sent tx, but got {}", number_of_requested_txs);
         assert_eq!(
             *scan_error_msg,
             ScanError {
@@ -1009,7 +1009,7 @@ mod tests {
                     context_id: 4321
                 }),
                 msg: format!(
-                    "ReportAccountsPayable: Sending phase: \"Transport error: Error(IncompleteMessage)\". Signed and hashed transactions: 0x36e9d7cdd657181317dd461192d537d9944c57a51ee950607de5a618b00e57a1"
+                    "ReportAccountsPayable: Sending phase: \"Transport error: Error(IncompleteMessage)\". Signed and hashed transactions: 0x81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c"
                 )
             }
         );
@@ -1031,13 +1031,17 @@ mod tests {
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
         let accounts_1 = make_payable_account(1);
         let accounts_2 = make_payable_account(2);
-        let accounts = vec![accounts_1.clone(), accounts_2.clone()];
+        let affordable_qualified_payables = make_priced_qualified_payables(vec![
+            (accounts_1.clone(), 777_777_777),
+            (accounts_2.clone(), 999_999_999),
+        ]);
         let system = System::new(test_name);
         let agent = BlockchainAgentMock::default()
             .consuming_wallet_result(consuming_wallet)
-            .agreed_fee_per_computation_unit_result(1)
+            .gas_price_result(1)
             .get_chain_result(Chain::PolyMainnet);
-        let msg = OutboundPaymentsInstructions::new(accounts, Box::new(agent), None);
+        let msg =
+            OutboundPaymentsInstructions::new(affordable_qualified_payables, Box::new(agent), None);
         let persistent_config = PersistentConfigurationMock::new();
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface_web3),
@@ -1061,7 +1065,7 @@ mod tests {
             Correct(PendingPayable {
                 recipient_wallet: accounts_1.wallet,
                 hash: H256::from_str(
-                    "cc73f3d5fe9fc3dac28b510ddeb157b0f8030b201e809014967396cdf365488a"
+                    "c0756e8da662cee896ed979456c77931668b7f8456b9f978fc3305671f8f82ad"
                 )
                 .unwrap()
             })
@@ -1071,7 +1075,7 @@ mod tests {
             Correct(PendingPayable {
                 recipient_wallet: accounts_2.wallet,
                 hash: H256::from_str(
-                    "891d9ffa838aedc0bb2f6f7e9737128ce98bb33d07b4c8aa5645871e20d6cd13"
+                    "9ba19f88ce43297d700b1f57ed8bc6274d01a5c366b78dd05167f9874c867ba0"
                 )
                 .unwrap()
             })
@@ -1093,8 +1097,12 @@ mod tests {
         let agent = BlockchainAgentMock::default()
             .get_chain_result(TEST_DEFAULT_CHAIN)
             .consuming_wallet_result(consuming_wallet)
-            .agreed_fee_per_computation_unit_result(123);
-        let msg = OutboundPaymentsInstructions::new(vec![], Box::new(agent), None);
+            .gas_price_result(123);
+        let msg = OutboundPaymentsInstructions::new(
+            make_priced_qualified_payables(vec![(make_payable_account(111), 111_000_000)]),
+            Box::new(agent),
+            None,
+        );
         let persistent_config = configure_default_persistent_config(ZERO);
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface_web3),
@@ -1372,7 +1380,7 @@ mod tests {
             accountant_addr.recipient();
         let hash_1 = make_tx_hash(0x1b2e6);
         let sent_tx_1 = make_sent_tx(123);
-        let sent_tx_2 = make_sent_tx(456); 
+        let sent_tx_2 = make_sent_tx(456);
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port).start();
         let blockchain_interface = make_blockchain_interface_web3(port);
@@ -2170,6 +2178,12 @@ mod tests {
         };
 
         assert_on_initialization_with_panic_on_migration(&data_dir, &act);
+    }
+
+    #[test]
+    fn increase_gas_price_by_margin_works() {
+        assert_eq!(increase_gas_price_by_margin(1_000_000_000), 1_300_000_000);
+        assert_eq!(increase_gas_price_by_margin(9_000_000_000), 11_700_000_000);
     }
 }
 

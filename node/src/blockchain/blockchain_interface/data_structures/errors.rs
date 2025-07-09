@@ -184,7 +184,7 @@ mod tests {
             ),
             PayableTransactionError::Sending {
                 msg: "Sending to cosmos belongs elsewhere".to_string(),
-                hashes: vec![make_tx_hash(0x6f), make_tx_hash(0xde)],
+                hashes: hashset![make_tx_hash(0x6f), make_tx_hash(0xde)],
             },
             PayableTransactionError::UninitializedBlockchainInterface,
         ];

@@ -36,12 +36,6 @@ impl SentTxWithLatestStatus {
     }
 }
 
-// #[derive(Debug, PartialEq, Eq, Clone)]
-// pub struct LightweightTxReceipt {
-//     pub transaction_hash: H256,
-//     pub status: TxStatus,
-// }
-
 impl From<TransactionReceipt> for TxStatus {
     fn from(receipt: TransactionReceipt) -> Self {
         match (receipt.status, receipt.block_hash, receipt.block_number) {
