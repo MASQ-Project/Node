@@ -21,6 +21,7 @@ use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, SystemTime};
+use crate::accountant::db_access_objects::failed_payable_dao::FailedPayableDaoFactory;
 use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDaoFactory;
 
 lazy_static! {
@@ -72,6 +73,7 @@ impl PaymentThresholds {
 pub struct DaoFactories {
     pub payable_dao_factory: Box<dyn PayableDaoFactory>,
     pub sent_payable_dao_factory: Box<dyn SentPayableDaoFactory>,
+    pub failed_payable_dao_factory: Box<dyn FailedPayableDaoFactory>,
     pub receivable_dao_factory: Box<dyn ReceivableDaoFactory>,
     pub banned_dao_factory: Box<dyn BannedDaoFactory>,
     pub config_dao_factory: Box<dyn ConfigDaoFactory>,

@@ -93,7 +93,7 @@ impl Scanners {
         let pending_payable = Box::new(PendingPayableScanner::new(
             dao_factories.payable_dao_factory.make(),
             dao_factories.sent_payable_dao_factory.make(),
-            todo!("Utkarsh could theoretically finish this earlier"),
+            dao_factories.failed_payable_dao_factory.make(),
             Rc::clone(&payment_thresholds),
             when_pending_too_long_sec,
             Rc::clone(&financial_statistics),
@@ -524,6 +524,9 @@ impl StartableScanner<ScanForRetryPayables, QualifiedPayablesMessage> for Payabl
         _logger: &Logger,
     ) -> Result<QualifiedPayablesMessage, StartScanError> {
         todo!("Complete me under GH-605")
+        // 1. Find the failed payables
+        // 2. Look into the payable DAO to update the amount
+        // 3. Prepare UnpricedQualifiedPayables
     }
 }
 
@@ -909,8 +912,7 @@ pub struct PendingPayableScanner {
     pub failed_payable_dao: Box<dyn FailedPayableDao>,
     pub when_pending_too_long_sec: u64,
     pub financial_statistics: Rc<RefCell<FinancialStatistics>>,
-    pub cached_currently_queried_tx_for_receipts: Vec<SentTx>, //TODO always delete after the scan ends
-    pub cached_previous_cycle_txs_pending_too_long_opt: Option<Vec<SentPayables>> //TODO also treat carefully
+    pub cached_txs_pending_too_long_from_previous_cycle_opt: Option<Vec<SentPayables>> //TODO also treat carefully
 }
 
 impl
@@ -1025,8 +1027,7 @@ impl PendingPayableScanner {
             failed_payable_dao,
             when_pending_too_long_sec,
             financial_statistics,
-            cached_currently_queried_tx_for_receipts: todo!(),
-            cached_previous_cycle_txs_pending_too_long_opt: todo!(),
+            cached_txs_pending_too_long_from_previous_cycle_opt: todo!(),
         }
     }
 
@@ -1818,6 +1819,17 @@ mod tests {
 
     #[test]
     fn retry_payable_scanner_can_initiate_a_scan() {
+        //
+        // Setup Part:
+        // DAOs: PayableDao, FailedPayableDao
+        // Fetch data from FailedPayableDao (inject it into Payable Scanner -- allow the change in production code).
+        // Scanners constructor will require to create it with the Factory -- try it
+        // Configure it such that it returns at least 2 failed tx
+        // Once I get those 2 records, I should get hold of those identifiers used in the Payable DAO
+        // Update the new balance for those transactions
+        // Modify Payable DAO and add another method, that will return just the corresponding payments
+        // The account which I get from the PayableDAO can go straight to the QualifiedPayableBeforePriceSelection
+
         todo!("this must be set up under GH-605");
         // TODO make sure the QualifiedPayableRawPack will express the difference from
         // the NewPayable scanner: The QualifiedPayablesBeforeGasPriceSelection needs to carry
