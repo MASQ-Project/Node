@@ -83,6 +83,7 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
         let mut persistent_config = initialize_database(
             &self.privileged_config.data_directory,
             DbInitializationConfig::create_or_migrate(ExternalData::from((self, multi_config))),
+            &value_m!(multi_config, "db-password", String),
         );
         let mut unprivileged_config = BootstrapperConfig::new();
         let parse_args_configurator = UnprivilegedParseArgsConfigurationDaoReal {};
@@ -93,35 +94,12 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
             &self.logger,
         )?;
         configure_database(&unprivileged_config, persistent_config.as_mut())?;
-        if multi_config.occurrences_of("fake-public-key") == 0 {
-            let cryptde_pair = configure_cryptdes(
-                persistent_config.as_mut(),
-                &unprivileged_config.db_password_opt,
-            );
-            unprivileged_config.cryptde_pair = cryptde_pair;
+        let cryptde_pair = if multi_config.occurrences_of("fake-public-key") == 0 {
+            configure_cryptdes(persistent_config.as_mut(), &unprivileged_config.db_password_opt)
         } else {
-            let public_key_str = value_m!(multi_config, "fake-public-key", String)
-                .expect("fake-public-key disappeared");
-            let main_public_key_data =
-                base64::decode(&public_key_str).expect("fake-public-key: invalid Base64");
-            let main_public_key = PublicKey::new(&main_public_key_data);
-            let main_cryptde = CryptDENull::from(
-                &main_public_key,
-                unprivileged_config.blockchain_bridge_config.chain,
-            );
-            let alias_public_key_data = main_public_key_data
-                .iter()
-                .rev()
-                .cloned()
-                .collect::<Vec<u8>>();
-            let alias_public_key = PublicKey::new(&alias_public_key_data);
-            let alias_cryptde = CryptDENull::from(
-                &alias_public_key,
-                unprivileged_config.blockchain_bridge_config.chain,
-            );
-            unprivileged_config.cryptde_pair =
-                CryptDEPair::new(Box::new(main_cryptde), Box::new(alias_cryptde));
-        }
+            configure_fake_cryptdes(multi_config, &mut unprivileged_config)
+        };
+        unprivileged_config.cryptde_pair = cryptde_pair;
         Ok(unprivileged_config)
     }
 }
@@ -393,6 +371,29 @@ fn configure_cryptdes(
     cryptde_pair
 }
 
+fn configure_fake_cryptdes(multi_config: &MultiConfig, unprivileged_config: &mut BootstrapperConfig) -> CryptDEPair {
+    let public_key_str = value_m!(multi_config, "fake-public-key", String)
+        .expect("fake-public-key disappeared");
+    let main_public_key_data =
+        base64::decode(&public_key_str).expect("fake-public-key: invalid Base64");
+    let main_public_key = PublicKey::new(&main_public_key_data);
+    let main_cryptde = CryptDENull::from(
+        &main_public_key,
+        unprivileged_config.blockchain_bridge_config.chain,
+    );
+    let alias_public_key_data = main_public_key_data
+        .iter()
+        .rev()
+        .cloned()
+        .collect::<Vec<u8>>();
+    let alias_public_key = PublicKey::new(&alias_public_key_data);
+    let alias_cryptde = CryptDENull::from(
+        &alias_public_key,
+        unprivileged_config.blockchain_bridge_config.chain,
+    );
+    CryptDEPair::new(Box::new(main_cryptde), Box::new(alias_cryptde))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -486,6 +487,39 @@ mod tests {
             )
         };
         assert_eq!(set_neighbors, neighbor)
+    }
+
+    #[test]
+    fn node_configurator_standard_unprivileged_sets_db_password_for_the_first_time() {
+        let home_dir = ensure_node_home_directory_exists(
+            "node_configurator_standard",
+            "node_configurator_standard_unprivileged_sets_db_password_for_the_first_time",
+        );
+        let persistent_config = {
+            let conn = DbInitializerReal::default()
+                .initialize(home_dir.as_path(), DbInitializationConfig::test_default())
+                .unwrap();
+            PersistentConfigurationReal::from(conn)
+        };
+        let multi_config = make_simplified_multi_config([
+            "--chain",
+            "eth-mainnet",
+            "--db-password",
+            "password",
+            "--ip",
+            "1.2.3.4",
+        ]);
+        let mut privileged_config = BootstrapperConfig::default();
+        privileged_config.data_directory = home_dir;
+        let subject = NodeConfiguratorStandardUnprivileged {
+            privileged_config,
+            logger: Logger::new("test"),
+        };
+
+        let result = subject.configure(&multi_config).unwrap();
+
+        assert_eq!(result.db_password_opt, Some("password".to_string()));
+        assert_eq!(persistent_config.check_password(Some("password".to_string())).unwrap(), true);
     }
 
     #[test]

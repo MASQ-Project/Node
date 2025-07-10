@@ -85,7 +85,7 @@ impl UnprivilegedParseArgsConfiguration for UnprivilegedParseArgsConfigurationDa
         unprivileged_config: &mut BootstrapperConfig,
     ) -> Result<Vec<NodeDescriptor>, ConfiguratorError> {
         Ok(
-            match &get_db_password(unprivileged_config, persistent_config)? {
+            match &unprivileged_config.db_password_opt {
                 Some(db_password) => match persistent_config.past_neighbors(db_password) {
                     Ok(Some(past_neighbors)) => past_neighbors,
                     Ok(None) => vec![],
@@ -588,31 +588,6 @@ where
             }),
         },
     )
-}
-
-fn get_db_password(
-    config: &mut BootstrapperConfig,
-    persistent_config: &mut dyn PersistentConfiguration,
-) -> Result<Option<String>, ConfiguratorError> {
-    if let Some(db_password) = &config.db_password_opt {
-        set_db_password_at_first_mention(db_password, persistent_config)?;
-        return Ok(Some(db_password.clone()));
-    }
-    Ok(None)
-}
-
-fn set_db_password_at_first_mention(
-    db_password: &str,
-    persistent_config: &mut dyn PersistentConfiguration,
-) -> Result<bool, ConfiguratorError> {
-    match persistent_config.check_password(None) {
-        Ok(true) => match persistent_config.change_password(None, db_password) {
-            Ok(_) => Ok(true),
-            Err(e) => Err(e.into_configurator_error("db-password")),
-        },
-        Ok(false) => Ok(false),
-        Err(e) => Err(e.into_configurator_error("db-password")),
-    }
 }
 
 fn is_user_specified(multi_config: &MultiConfig, parameter: &str) -> bool {
@@ -1151,118 +1126,6 @@ mod tests {
 
         assert_eq!(result, Ok(vec![]));
         //Nothing panicked so we could not call real persistent config's methods.
-    }
-
-    #[test]
-    fn set_db_password_at_first_mention_handles_existing_password() {
-        let check_password_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut persistent_config = configure_default_persistent_config(ZERO)
-            .check_password_params(&check_password_params_arc)
-            .check_password_result(Ok(false));
-
-        let result = set_db_password_at_first_mention("password", &mut persistent_config);
-
-        assert_eq!(result, Ok(false));
-        let check_password_params = check_password_params_arc.lock().unwrap();
-        assert_eq!(*check_password_params, vec![None])
-    }
-
-    #[test]
-    fn set_db_password_at_first_mention_sets_password_correctly() {
-        let change_password_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut persistent_config = configure_default_persistent_config(ZERO)
-            .check_password_result(Ok(true))
-            .change_password_params(&change_password_params_arc)
-            .change_password_result(Ok(()));
-
-        let result = set_db_password_at_first_mention("password", &mut persistent_config);
-
-        assert_eq!(result, Ok(true));
-        let change_password_params = change_password_params_arc.lock().unwrap();
-        assert_eq!(
-            *change_password_params,
-            vec![(None, "password".to_string())]
-        )
-    }
-
-    #[test]
-    fn set_db_password_at_first_mention_handles_password_check_error() {
-        let check_password_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut persistent_config = configure_default_persistent_config(ZERO)
-            .check_password_params(&check_password_params_arc)
-            .check_password_result(Err(NotPresent));
-
-        let result = set_db_password_at_first_mention("password", &mut persistent_config);
-
-        assert_eq!(
-            result,
-            Err(NotPresent.into_configurator_error("db-password"))
-        );
-        let check_password_params = check_password_params_arc.lock().unwrap();
-        assert_eq!(*check_password_params, vec![None])
-    }
-
-    #[test]
-    fn set_db_password_at_first_mention_handles_password_set_error() {
-        let change_password_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut persistent_config = configure_default_persistent_config(ZERO)
-            .check_password_result(Ok(true))
-            .change_password_params(&change_password_params_arc)
-            .change_password_result(Err(NotPresent));
-
-        let result = set_db_password_at_first_mention("password", &mut persistent_config);
-
-        assert_eq!(
-            result,
-            Err(NotPresent.into_configurator_error("db-password"))
-        );
-        let change_password_params = change_password_params_arc.lock().unwrap();
-        assert_eq!(
-            *change_password_params,
-            vec![(None, "password".to_string())]
-        )
-    }
-
-    #[test]
-    fn get_db_password_if_supplied() {
-        running_test();
-        let mut config = BootstrapperConfig::new();
-        let mut persistent_config =
-            configure_default_persistent_config(ZERO).check_password_result(Ok(false));
-        config.db_password_opt = Some("password".to_string());
-
-        let result = get_db_password(&mut config, &mut persistent_config);
-
-        assert_eq!(result, Ok(Some("password".to_string())));
-    }
-
-    #[test]
-    fn get_db_password_doesnt_bother_if_database_has_no_password_yet() {
-        running_test();
-        let mut config = BootstrapperConfig::new();
-        let mut persistent_config =
-            configure_default_persistent_config(ZERO).check_password_result(Ok(true));
-
-        let result = get_db_password(&mut config, &mut persistent_config);
-
-        assert_eq!(result, Ok(None));
-    }
-
-    #[test]
-    fn get_db_password_handles_database_write_error() {
-        running_test();
-        let mut config = BootstrapperConfig::new();
-        config.db_password_opt = Some("password".to_string());
-        let mut persistent_config = configure_default_persistent_config(ZERO)
-            .check_password_result(Ok(true))
-            .change_password_result(Err(NotPresent));
-
-        let result = get_db_password(&mut config, &mut persistent_config);
-
-        assert_eq!(
-            result,
-            Err(NotPresent.into_configurator_error("db-password"))
-        );
     }
 
     #[test]

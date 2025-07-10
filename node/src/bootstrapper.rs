@@ -591,6 +591,7 @@ impl Bootstrapper {
             initialize_database(
                 &self.config.data_directory,
                 DbInitializationConfig::panic_on_migration(),
+                &self.config.db_password_opt
             ),
         )
     }
