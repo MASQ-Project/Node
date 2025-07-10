@@ -9,7 +9,7 @@ use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
     BlockchainInterfaceWeb3, HashAndAmount, TRANSFER_METHOD_ID,
 };
-use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
+use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
 use crate::blockchain::blockchain_interface::data_structures::{
     ProcessedPayableFallible, RpcPayableFailure,
 };
@@ -45,12 +45,12 @@ pub fn advance_used_nonce(current_nonce: U256) -> U256 {
 fn error_with_hashes(
     error: Web3Error,
     hashes_and_paid_amounts: Vec<HashAndAmount>,
-) -> PayableTransactionError {
+) -> LocalPayableError {
     let hashes = hashes_and_paid_amounts
         .into_iter()
         .map(|hash_and_amount| hash_and_amount.hash)
         .collect();
-    PayableTransactionError::Sending {
+    LocalPayableError::Sending {
         msg: error.to_string(),
         hashes,
     }
@@ -281,8 +281,7 @@ pub fn send_payables_within_batch(
     pending_nonce: U256,
     new_fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
     accounts: PricedQualifiedPayables,
-) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError> + 'static>
-{
+) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = LocalPayableError> + 'static> {
     debug!(
             logger,
             "Common attributes of payables to be transacted: sender wallet: {}, contract: {:?}, chain_id: {}",
@@ -368,7 +367,7 @@ mod tests {
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
         BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
     };
-    use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError::Sending;
+    use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError::Sending;
     use crate::blockchain::blockchain_interface::data_structures::ProcessedPayableFallible::{
         Correct, Failed,
     };
@@ -670,7 +669,7 @@ mod tests {
     fn test_send_payables_within_batch(
         test_name: &str,
         accounts: PricedQualifiedPayables,
-        expected_result: Result<Vec<ProcessedPayableFallible>, PayableTransactionError>,
+        expected_result: Result<Vec<ProcessedPayableFallible>, LocalPayableError>,
         port: u16,
     ) {
         init_test_logging();

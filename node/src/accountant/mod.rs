@@ -28,7 +28,7 @@ use crate::accountant::scanners::payable_scanner_extension::msgs::{
 use crate::accountant::scanners::{StartScanError, Scanners};
 use crate::blockchain::blockchain_bridge::{BlockMarker, PendingPayableFingerprint, PendingPayableFingerprintSeeds, RetrieveTransactions};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::HashAndAmount;
-use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
+use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
 use crate::blockchain::blockchain_interface::data_structures::{
     BlockchainTransaction, ProcessedPayableFallible,
 };
@@ -144,7 +144,7 @@ pub struct ReportTransactionReceipts {
 
 #[derive(Debug, Message, PartialEq, Clone)]
 pub struct SentPayables {
-    pub payment_procedure_result: Result<Vec<ProcessedPayableFallible>, PayableTransactionError>,
+    pub payment_procedure_result: Either<Vec<ProcessedPayableFallible>, LocalPayableError>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
@@ -1579,10 +1579,12 @@ mod tests {
         let system = System::new("test");
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
         let sent_payable = SentPayables {
-            payment_procedure_result: Ok(vec![ProcessedPayableFallible::Correct(PendingPayable {
-                recipient_wallet: make_wallet("blah"),
-                hash: make_tx_hash(123),
-            })]),
+            payment_procedure_result: Either::Left(vec![ProcessedPayableFallible::Correct(
+                PendingPayable {
+                    recipient_wallet: make_wallet("blah"),
+                    hash: make_tx_hash(123),
+                },
+            )]),
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 1234,
                 context_id: 4321,
@@ -2159,7 +2161,7 @@ mod tests {
         let second_counter_msg_setup = setup_for_counter_msg_triggered_via_type_id!(
             QualifiedPayablesMessage,
             SentPayables {
-                payment_procedure_result: Ok(vec![ProcessedPayableFallible::Correct(
+                payment_procedure_result: Either::Left(vec![ProcessedPayableFallible::Correct(
                     PendingPayable {
                         recipient_wallet: make_wallet("abc"),
                         hash: make_tx_hash(789)
@@ -2778,10 +2780,12 @@ mod tests {
             response_skeleton_opt: None,
         };
         let expected_sent_payables = SentPayables {
-            payment_procedure_result: Ok(vec![ProcessedPayableFallible::Correct(PendingPayable {
-                recipient_wallet: make_wallet("bcd"),
-                hash: make_tx_hash(890),
-            })]),
+            payment_procedure_result: Either::Left(vec![ProcessedPayableFallible::Correct(
+                PendingPayable {
+                    recipient_wallet: make_wallet("bcd"),
+                    hash: make_tx_hash(890),
+                },
+            )]),
             response_skeleton_opt: None,
         };
         let blockchain_bridge_counter_msg_setup_for_pending_payable_scanner = setup_for_counter_msg_triggered_via_type_id!(
@@ -3500,7 +3504,7 @@ mod tests {
         let transaction_hash = make_tx_hash(789);
         let creditor_wallet = make_wallet("blah");
         let counter_msg_2 = SentPayables {
-            payment_procedure_result: Ok(vec![ProcessedPayableFallible::Correct(
+            payment_procedure_result: Either::Left(vec![ProcessedPayableFallible::Correct(
                 PendingPayable::new(creditor_wallet, transaction_hash),
             )]),
             response_skeleton_opt: None,
@@ -4025,7 +4029,7 @@ mod tests {
         // the first message. Now we reset the state by ending the first scan by a failure and see
         // that the third scan request is going to be accepted willingly again.
         addr.try_send(SentPayables {
-            payment_procedure_result: Err(PayableTransactionError::Signing("bluh".to_string())),
+            payment_procedure_result: Either::Right(LocalPayableError::Signing("bluh".to_string())),
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 1122,
                 context_id: 7788,
@@ -4845,7 +4849,7 @@ mod tests {
         );
         let expected_payable = PendingPayable::new(expected_wallet.clone(), expected_hash.clone());
         let sent_payable = SentPayables {
-            payment_procedure_result: Ok(vec![ProcessedPayableFallible::Correct(
+            payment_procedure_result: Either::Left(vec![ProcessedPayableFallible::Correct(
                 expected_payable.clone(),
             )]),
             response_skeleton_opt: None,
@@ -4911,7 +4915,7 @@ mod tests {
         subject.scan_schedulers.pending_payable.handle =
             Box::new(NotifyLaterHandleMock::default().panic_on_schedule_attempt());
         let sent_payable = SentPayables {
-            payment_procedure_result: Err(PayableTransactionError::Sending {
+            payment_procedure_result: Either::Right(LocalPayableError::Sending {
                 msg: "booga".to_string(),
                 hashes: vec![make_tx_hash(456)],
             }),

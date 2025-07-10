@@ -9,7 +9,7 @@ pub mod payable_scanner_utils {
     use crate::accountant::{comma_joined_stringifiable, SentPayables};
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::sub_lib::wallet::Wallet;
-    use itertools::Itertools;
+    use itertools::{Either, Itertools};
     use masq_lib::logger::Logger;
     use std::cmp::Ordering;
     use std::ops::Not;
@@ -18,12 +18,12 @@ pub mod payable_scanner_utils {
     use web3::types::H256;
     use masq_lib::ui_gateway::NodeToUiMessage;
     use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
-    use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
     use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RpcPayableFailure};
+    use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
 
     #[derive(Debug, PartialEq, Eq)]
     pub enum PayableTransactingErrorEnum {
-        LocallyCausedError(PayableTransactionError),
+        LocallyCausedError(LocalPayableError),
         RemotelyCausedErrors(Vec<H256>),
     }
 
@@ -108,7 +108,7 @@ pub mod payable_scanner_utils {
         logger: &'b Logger,
     ) -> (Vec<&'a PendingPayable>, Option<PayableTransactingErrorEnum>) {
         match &sent_payables.payment_procedure_result {
-            Ok(individual_batch_responses) => {
+            Either::Left(individual_batch_responses) => {
                 if individual_batch_responses.is_empty() {
                     panic!("Broken code: An empty vector of processed payments claiming to be an Ok value")
                 }
@@ -117,7 +117,7 @@ pub mod payable_scanner_utils {
                 let remote_errs_opt = err_hashes_opt.map(RemotelyCausedErrors);
                 (oks, remote_errs_opt)
             }
-            Err(e) => {
+            Either::Right(e) => {
                 warning!(
                     logger,
                     "Any persisted data from failed process will be deleted. Caused by: {}",
@@ -225,7 +225,7 @@ pub mod payable_scanner_utils {
         match full_set_of_errors {
             Some(errors) => match errors {
                 LocallyCausedError(blockchain_error) => match blockchain_error {
-                    PayableTransactionError::Sending { hashes, .. } => Some(hashes.len()),
+                    LocalPayableError::Sending { hashes, .. } => Some(hashes.len()),
                     _ => None,
                 },
                 RemotelyCausedErrors(hashes) => Some(hashes.len()),
@@ -487,8 +487,9 @@ mod tests {
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::time::SystemTime;
+    use itertools::Either;
     use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
-    use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainError, PayableTransactionError};
+    use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainError, LocalPayableError};
     use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RpcPayableFailure};
 
     #[test]
@@ -558,7 +559,7 @@ mod tests {
             hash: make_tx_hash(456),
         };
         let sent_payable = SentPayables {
-            payment_procedure_result: Ok(vec![
+            payment_procedure_result: Either::Left(vec![
                 ProcessedPayableFallible::Correct(correct_payment_1.clone()),
                 ProcessedPayableFallible::Correct(correct_payment_2.clone()),
             ]),
@@ -574,12 +575,12 @@ mod tests {
     #[test]
     fn separate_errors_works_for_local_error() {
         init_test_logging();
-        let error = PayableTransactionError::Sending {
+        let error = LocalPayableError::Sending {
             msg: "Bad luck".to_string(),
             hashes: vec![make_tx_hash(0x7b)],
         };
         let sent_payable = SentPayables {
-            payment_procedure_result: Err(error.clone()),
+            payment_procedure_result: Either::Right(error.clone()),
             response_skeleton_opt: None,
         };
 
@@ -607,7 +608,7 @@ mod tests {
             hash: make_tx_hash(0x315),
         };
         let sent_payable = SentPayables {
-            payment_procedure_result: Ok(vec![
+            payment_procedure_result: Either::Left(vec![
                 ProcessedPayableFallible::Correct(payable_ok.clone()),
                 ProcessedPayableFallible::Failed(bad_rpc_call.clone()),
             ]),
@@ -807,15 +808,13 @@ mod tests {
     #[test]
     fn count_total_errors_says_unknown_number_for_early_local_errors() {
         let early_local_errors = [
-            PayableTransactionError::TransactionID(BlockchainError::QueryFailed(
-                "blah".to_string(),
-            )),
-            PayableTransactionError::MissingConsumingWallet,
-            PayableTransactionError::GasPriceQueryFailed(BlockchainError::QueryFailed(
+            LocalPayableError::TransactionID(BlockchainError::QueryFailed("blah".to_string())),
+            LocalPayableError::MissingConsumingWallet,
+            LocalPayableError::GasPriceQueryFailed(BlockchainError::QueryFailed(
                 "ouch".to_string(),
             )),
-            PayableTransactionError::UnusableWallet("fooo".to_string()),
-            PayableTransactionError::Signing("tsss".to_string()),
+            LocalPayableError::UnusableWallet("fooo".to_string()),
+            LocalPayableError::Signing("tsss".to_string()),
         ];
 
         early_local_errors
@@ -825,7 +824,7 @@ mod tests {
 
     #[test]
     fn count_total_errors_works_correctly_for_local_error_after_signing() {
-        let error = PayableTransactionError::Sending {
+        let error = LocalPayableError::Sending {
             msg: "Ouuuups".to_string(),
             hashes: vec![make_tx_hash(333), make_tx_hash(666)],
         };
@@ -860,7 +859,7 @@ mod tests {
     #[test]
     fn debug_summary_after_error_separation_says_the_count_cannot_be_known() {
         let oks = vec![];
-        let error = PayableTransactionError::MissingConsumingWallet;
+        let error = LocalPayableError::MissingConsumingWallet;
         let errs = Some(LocallyCausedError(error));
 
         let result = debugging_summary_after_error_separation(&oks, &errs);

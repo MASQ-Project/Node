@@ -48,7 +48,7 @@ use crate::accountant::db_access_objects::failed_payable_dao::FailedPayableDao;
 use crate::accountant::scanners::payable_scanner_extension::{MultistageDualPayableScanner, PreparedAdjustment, SolvencySensitivePaymentInstructor};
 use crate::accountant::scanners::payable_scanner_extension::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage, UnpricedQualifiedPayables};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionReceiptResult, TxStatus};
-use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
+use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
 use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
 
 // Leave the individual scanner objects private!
@@ -531,11 +531,11 @@ impl StartableScanner<ScanForRetryPayables, QualifiedPayablesMessage> for Payabl
 impl Scanner<SentPayables, PayableScanResult> for PayableScanner {
     fn finish_scan(&mut self, message: SentPayables, logger: &Logger) -> PayableScanResult {
         match message.payment_procedure_result {
-            Ok(payment_procedure_result) => {
-                todo!("Segregate transactions and insert them into the SentPayableDao and FailedPayableDao");
+            Either::Left(payment_procedure_result) => {
+                todo!("Segregate transactions and migrate them from the SentPayableDao to the FailedPayableDao");
             }
-            Err(err) => {
-                todo!("Retrieve hashes from the error and insert into FailedPayableDao");
+            Either::Right(err) => {
+                todo!("No need to update the FailedPayableDao as the error was local");
             }
         }
 
@@ -811,7 +811,7 @@ impl PayableScanner {
     ) {
         if let Some(err) = err_opt {
             match err {
-                LocallyCausedError(PayableTransactionError::Sending { hashes, .. })
+                LocallyCausedError(LocalPayableError::Sending { hashes, .. })
                 | RemotelyCausedErrors(hashes) => {
                     self.discard_failed_transactions_with_possible_fingerprints(hashes, logger)
                 }
@@ -1423,7 +1423,7 @@ mod tests {
     use crate::accountant::test_utils::{make_custom_payment_thresholds, make_payable_account, make_qualified_and_unqualified_payables, make_pending_payable_fingerprint, make_receivable_account, BannedDaoFactoryMock, BannedDaoMock, ConfigDaoFactoryMock, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder, PayableThresholdsGaugeMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock, PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock, ReceivableScannerBuilder, FailedPayableDaoMock, FailedPayableDaoFactoryMock};
     use crate::accountant::{gwei_to_wei, PendingPayableId, ReceivedPayments, ReportTransactionReceipts, RequestTransactionReceipts, ScanError, ScanForRetryPayables, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC};
     use crate::blockchain::blockchain_bridge::{BlockMarker, PendingPayableFingerprint, RetrieveTransactions};
-    use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
+    use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
     use crate::blockchain::blockchain_interface::data_structures::{
         BlockchainTransaction, ProcessedPayableFallible, RpcPayableFailure,
     };
@@ -1452,6 +1452,7 @@ mod tests {
     use std::rc::Rc;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
+    use itertools::Either;
     use web3::types::{TransactionReceipt, H256};
     use web3::Error;
     use masq_lib::messages::ScanType;
@@ -1968,7 +1969,7 @@ mod tests {
             .build();
         let logger = Logger::new(test_name);
         let sent_payable = SentPayables {
-            payment_procedure_result: Ok(vec![
+            payment_procedure_result: Either::Left(vec![
                 ProcessedPayableFallible::Correct(correct_pending_payable_1),
                 ProcessedPayableFallible::Failed(failure_payable_2),
                 ProcessedPayableFallible::Correct(correct_pending_payable_3),
@@ -2247,7 +2248,7 @@ mod tests {
             .failed_payable_dao(failed_payable_dao)
             .build();
         let sent_payable = SentPayables {
-            payment_procedure_result: Ok(vec![
+            payment_procedure_result: Either::Left(vec![
                 ProcessedPayableFallible::Correct(payment_1),
                 ProcessedPayableFallible::Correct(payment_2),
             ]),
@@ -2273,7 +2274,7 @@ mod tests {
             .failed_payable_dao(failed_payable_dao)
             .build();
         let sent_payables = SentPayables {
-            payment_procedure_result: Ok(vec![
+            payment_procedure_result: Either::Left(vec![
                 ProcessedPayableFallible::Correct(payable_1),
                 ProcessedPayableFallible::Correct(payable_2),
             ]),
@@ -2373,7 +2374,7 @@ mod tests {
             .build();
         let logger = Logger::new(test_name);
         let sent_payable = SentPayables {
-            payment_procedure_result: Err(PayableTransactionError::Sending {
+            payment_procedure_result: Either::Right(LocalPayableError::Sending {
                 msg: "Attempt failed".to_string(),
                 hashes: vec![hash_tx_1, hash_tx_2],
             }),
@@ -2426,7 +2427,7 @@ mod tests {
         init_test_logging();
         let test_name = "payable_scanner_handles_error_born_too_early_to_see_transaction_hash";
         let sent_payable = SentPayables {
-            payment_procedure_result: Err(PayableTransactionError::Signing(
+            payment_procedure_result: Either::Right(LocalPayableError::Signing(
                 "Some error".to_string(),
             )),
             response_skeleton_opt: None,
@@ -2461,7 +2462,7 @@ mod tests {
         let rowid_2 = 6;
         let hash_2 = make_tx_hash(0x315);
         let sent_payable = SentPayables {
-            payment_procedure_result: Err(PayableTransactionError::Sending {
+            payment_procedure_result: Either::Right(LocalPayableError::Sending {
                 msg: "blah".to_string(),
                 hashes: vec![hash_1, hash_2],
             }),
@@ -2517,7 +2518,7 @@ mod tests {
             .failed_payable_dao(failed_payable_dao)
             .build();
         let sent_payable = SentPayables {
-            payment_procedure_result: Err(PayableTransactionError::Sending {
+            payment_procedure_result: Either::Right(LocalPayableError::Sending {
                 msg: "SQLite migraine".to_string(),
                 hashes: vec![hash_1, hash_2, hash_3],
             }),
@@ -2578,7 +2579,7 @@ mod tests {
             hash: nonexistent_record_hash,
         };
         let sent_payable = SentPayables {
-            payment_procedure_result: Ok(vec![
+            payment_procedure_result: Either::Left(vec![
                 ProcessedPayableFallible::Failed(failed_payment_1),
                 ProcessedPayableFallible::Failed(failed_payment_2),
             ]),

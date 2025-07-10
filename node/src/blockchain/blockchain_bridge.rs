@@ -9,7 +9,7 @@ use crate::accountant::{ReportTransactionReceipts, RequestTransactionReceipts};
 use crate::actor_system_factory::SubsFactory;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::HashAndAmount;
 use crate::blockchain::blockchain_interface::data_structures::errors::{
-    BlockchainError, PayableTransactionError,
+    BlockchainError, LocalPayableError,
 };
 use crate::blockchain::blockchain_interface::data_structures::ProcessedPayableFallible;
 use crate::blockchain::blockchain_interface::BlockchainInterface;
@@ -31,7 +31,7 @@ use actix::Handler;
 use actix::Message;
 use actix::{Addr, Recipient};
 use futures::Future;
-use itertools::Itertools;
+use itertools::{Either, Itertools};
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeFromUiMessage;
@@ -298,16 +298,16 @@ impl BlockchainBridge {
 
         Box::new(
             self.process_payments(msg.agent, msg.affordable_accounts)
-                .map_err(move |e: PayableTransactionError| {
+                .map_err(move |e: LocalPayableError| {
                     send_message_if_failure(SentPayables {
-                        payment_procedure_result: Err(e.clone()),
+                        payment_procedure_result: Either::Right(e.clone()),
                         response_skeleton_opt: skeleton_opt,
                     });
                     format!("ReportAccountsPayable: {}", e)
                 })
                 .and_then(move |payment_result| {
                     send_message_if_successful(SentPayables {
-                        payment_procedure_result: Ok(payment_result),
+                        payment_procedure_result: Either::Left(payment_result),
                         response_skeleton_opt: skeleton_opt,
                     });
                     Ok(())
@@ -486,8 +486,7 @@ impl BlockchainBridge {
         &self,
         agent: Box<dyn BlockchainAgent>,
         affordable_accounts: PricedQualifiedPayables,
-    ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>
-    {
+    ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = LocalPayableError>> {
         let new_fingerprints_recipient = self.new_fingerprints_recipient();
         let logger = self.logger.clone();
         self.blockchain_interface.submit_payables_in_batch(
@@ -555,9 +554,9 @@ mod tests {
     use crate::accountant::db_access_objects::utils::from_unix_timestamp;
     use crate::accountant::scanners::payable_scanner_extension::test_utils::BlockchainAgentMock;
     use crate::accountant::test_utils::{make_payable_account, make_pending_payable_fingerprint, make_priced_qualified_payables};
-    use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError::TransactionID;
+    use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError::TransactionID;
     use crate::blockchain::blockchain_interface::data_structures::errors::{
-        BlockchainAgentBuildError, PayableTransactionError,
+        BlockchainAgentBuildError, LocalPayableError,
     };
     use crate::blockchain::blockchain_interface::data_structures::ProcessedPayableFallible::Correct;
     use crate::blockchain::blockchain_interface::data_structures::{
@@ -902,7 +901,7 @@ mod tests {
         assert_eq!(
             sent_payables_msg,
             &SentPayables {
-                payment_procedure_result: Ok(vec![Correct(PendingPayable {
+                payment_procedure_result: Either::Left(vec![Correct(PendingPayable {
                     recipient_wallet: account.wallet,
                     hash: H256::from_str(
                         "81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c"
@@ -989,13 +988,11 @@ mod tests {
             accountant_recording.get_record::<PendingPayableFingerprintSeeds>(0);
         let sent_payables_msg = accountant_recording.get_record::<SentPayables>(1);
         let scan_error_msg = accountant_recording.get_record::<ScanError>(2);
-        assert_sending_error(
-            sent_payables_msg
-                .payment_procedure_result
-                .as_ref()
-                .unwrap_err(),
-            "Transport error: Error(IncompleteMessage)",
-        );
+        let error_message = sent_payables_msg
+            .payment_procedure_result
+            .as_ref()
+            .right_or_else(|left| panic!("Expected Right, got Left: {:?}", left));
+        assert_sending_error(error_message, "Transport error: Error(IncompleteMessage)");
         assert_eq!(
             pending_payable_fingerprint_seeds_msg.hashes_and_balances,
             vec![HashAndAmount {
@@ -1137,8 +1134,8 @@ mod tests {
         assert_eq!(recording.len(), 0);
     }
 
-    fn assert_sending_error(error: &PayableTransactionError, error_msg: &str) {
-        if let PayableTransactionError::Sending { msg, .. } = error {
+    fn assert_sending_error(error: &LocalPayableError, error_msg: &str) {
+        if let LocalPayableError::Sending { msg, .. } = error {
             assert!(
                 msg.contains(error_msg),
                 "Actual Error message: {} does not contain this fragment {}",

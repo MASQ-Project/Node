@@ -35,7 +35,7 @@ impl Display for BlockchainError {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, VariantCount)]
-pub enum PayableTransactionError {
+pub enum LocalPayableError {
     MissingConsumingWallet,
     GasPriceQueryFailed(BlockchainError),
     TransactionID(BlockchainError),
@@ -45,7 +45,7 @@ pub enum PayableTransactionError {
     UninitializedBlockchainInterface,
 }
 
-impl Display for PayableTransactionError {
+impl Display for LocalPayableError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::MissingConsumingWallet => {
@@ -117,7 +117,7 @@ impl Display for BlockchainAgentBuildError {
 #[cfg(test)]
 mod tests {
     use crate::blockchain::blockchain_interface::data_structures::errors::{
-        PayableTransactionError, BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED,
+        LocalPayableError, BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED,
     };
     use crate::blockchain::blockchain_interface::{BlockchainAgentBuildError, BlockchainError};
     use crate::blockchain::test_utils::make_tx_hash;
@@ -167,29 +167,29 @@ mod tests {
     #[test]
     fn payable_payment_error_implements_display() {
         let original_errors = [
-            PayableTransactionError::MissingConsumingWallet,
-            PayableTransactionError::GasPriceQueryFailed(BlockchainError::QueryFailed(
+            LocalPayableError::MissingConsumingWallet,
+            LocalPayableError::GasPriceQueryFailed(BlockchainError::QueryFailed(
                 "Gas halves shut, no drop left".to_string(),
             )),
-            PayableTransactionError::TransactionID(BlockchainError::InvalidResponse),
-            PayableTransactionError::UnusableWallet(
+            LocalPayableError::TransactionID(BlockchainError::InvalidResponse),
+            LocalPayableError::UnusableWallet(
                 "This is a LEATHER wallet, not LEDGER wallet, stupid.".to_string(),
             ),
-            PayableTransactionError::Signing(
+            LocalPayableError::Signing(
                 "You cannot sign with just three crosses here, clever boy".to_string(),
             ),
-            PayableTransactionError::Sending {
+            LocalPayableError::Sending {
                 msg: "Sending to cosmos belongs elsewhere".to_string(),
                 hashes: vec![make_tx_hash(0x6f), make_tx_hash(0xde)],
             },
-            PayableTransactionError::UninitializedBlockchainInterface,
+            LocalPayableError::UninitializedBlockchainInterface,
         ];
 
         let actual_error_msgs = original_errors.iter().map(to_string).collect::<Vec<_>>();
 
         assert_eq!(
             original_errors.len(),
-            PayableTransactionError::VARIANT_COUNT,
+            LocalPayableError::VARIANT_COUNT,
             "you forgot to add all variants in this test"
         );
         assert_eq!(
