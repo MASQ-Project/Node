@@ -47,25 +47,6 @@ impl FromStr for FailureStatus {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum FailureStatus {
-    Retry,
-    Recheck,
-    Concluded,
-}
-
-impl FromStr for FailureStatus {
-    type Err = String;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "Retry" => Ok(FailureStatus::Retry),
-            "Recheck" => Ok(FailureStatus::Recheck),
-            "Concluded" => Ok(FailureStatus::Concluded),
-            _ => Err(format!("Invalid FailureStatus: {}", s)),
-        }
-    }
-}
-
 impl FromStr for FailureReason {
     type Err = String;
 
@@ -374,9 +355,6 @@ mod tests {
     use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::{
         Concluded, RecheckRequired, RetryRequired,
     };
-    use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::{
-        Concluded, Recheck, Retry,
-    };
     use crate::accountant::db_access_objects::failed_payable_dao::{
         FailedPayableDao, FailedPayableDaoError, FailedPayableDaoReal, FailureReason,
         FailureRetrieveCondition, FailureStatus,
@@ -450,7 +428,7 @@ mod tests {
         let tx1 = FailedTxBuilder::default()
             .hash(hash)
             .status(RetryRequired)
-            .status(Retry).build();
+            .build();
         let tx2 = FailedTxBuilder::default()
             .hash(hash)
             .status(RecheckRequired)
@@ -490,7 +468,8 @@ mod tests {
         let hash = make_tx_hash(123);
         let tx1 = FailedTxBuilder::default()
             .hash(hash)
-            .status(RetryRequired).build();
+            .status(RetryRequired)
+            .build();
         let tx2 = FailedTxBuilder::default()
             .hash(hash)
             .status(RecheckRequired)
