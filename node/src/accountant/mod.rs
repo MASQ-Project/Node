@@ -1579,7 +1579,7 @@ mod tests {
         let system = System::new("test");
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
         let sent_payable = SentPayables {
-            payment_procedure_result: Either::Left(vec![IndividualBatchResult::Correct(
+            payment_procedure_result: Either::Left(vec![IndividualBatchResult::Pending(
                 PendingPayable {
                     recipient_wallet: make_wallet("blah"),
                     hash: make_tx_hash(123),
@@ -2161,7 +2161,7 @@ mod tests {
         let second_counter_msg_setup = setup_for_counter_msg_triggered_via_type_id!(
             QualifiedPayablesMessage,
             SentPayables {
-                payment_procedure_result: Either::Left(vec![IndividualBatchResult::Correct(
+                payment_procedure_result: Either::Left(vec![IndividualBatchResult::Pending(
                     PendingPayable {
                         recipient_wallet: make_wallet("abc"),
                         hash: make_tx_hash(789)
@@ -2780,7 +2780,7 @@ mod tests {
             response_skeleton_opt: None,
         };
         let expected_sent_payables = SentPayables {
-            payment_procedure_result: Either::Left(vec![IndividualBatchResult::Correct(
+            payment_procedure_result: Either::Left(vec![IndividualBatchResult::Pending(
                 PendingPayable {
                     recipient_wallet: make_wallet("bcd"),
                     hash: make_tx_hash(890),
@@ -3504,7 +3504,7 @@ mod tests {
         let transaction_hash = make_tx_hash(789);
         let creditor_wallet = make_wallet("blah");
         let counter_msg_2 = SentPayables {
-            payment_procedure_result: Either::Left(vec![IndividualBatchResult::Correct(
+            payment_procedure_result: Either::Left(vec![IndividualBatchResult::Pending(
                 PendingPayable::new(creditor_wallet, transaction_hash),
             )]),
             response_skeleton_opt: None,
@@ -4849,7 +4849,7 @@ mod tests {
         );
         let expected_payable = PendingPayable::new(expected_wallet.clone(), expected_hash.clone());
         let sent_payable = SentPayables {
-            payment_procedure_result: Either::Left(vec![IndividualBatchResult::Correct(
+            payment_procedure_result: Either::Left(vec![IndividualBatchResult::Pending(
                 expected_payable.clone(),
             )]),
             response_skeleton_opt: None,

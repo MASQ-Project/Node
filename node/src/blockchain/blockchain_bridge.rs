@@ -558,7 +558,7 @@ mod tests {
     use crate::blockchain::blockchain_interface::data_structures::errors::{
         BlockchainAgentBuildError, LocalPayableError,
     };
-    use crate::blockchain::blockchain_interface::data_structures::IndividualBatchResult::Correct;
+    use crate::blockchain::blockchain_interface::data_structures::IndividualBatchResult::Pending;
     use crate::blockchain::blockchain_interface::data_structures::{
         BlockchainTransaction, RetrievedBlockchainTransactions,
     };
@@ -901,7 +901,7 @@ mod tests {
         assert_eq!(
             sent_payables_msg,
             &SentPayables {
-                payment_procedure_result: Either::Left(vec![Correct(PendingPayable {
+                payment_procedure_result: Either::Left(vec![Pending(PendingPayable {
                     recipient_wallet: account.wallet,
                     hash: H256::from_str(
                         "81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c"
@@ -1065,7 +1065,7 @@ mod tests {
         let processed_payments = result.unwrap();
         assert_eq!(
             processed_payments[0],
-            Correct(PendingPayable {
+            Pending(PendingPayable {
                 recipient_wallet: accounts_1.wallet,
                 hash: H256::from_str(
                     "c0756e8da662cee896ed979456c77931668b7f8456b9f978fc3305671f8f82ad"
@@ -1075,7 +1075,7 @@ mod tests {
         );
         assert_eq!(
             processed_payments[1],
-            Correct(PendingPayable {
+            Pending(PendingPayable {
                 recipient_wallet: accounts_2.wallet,
                 hash: H256::from_str(
                     "9ba19f88ce43297d700b1f57ed8bc6274d01a5c366b78dd05167f9874c867ba0"

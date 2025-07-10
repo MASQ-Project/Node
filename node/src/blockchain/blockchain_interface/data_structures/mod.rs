@@ -42,6 +42,6 @@ pub struct RpcPayableFailure {
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum IndividualBatchResult {
-    Correct(PendingPayable),
+    Pending(PendingPayable),
     Failed(RpcPayableFailure),
 }

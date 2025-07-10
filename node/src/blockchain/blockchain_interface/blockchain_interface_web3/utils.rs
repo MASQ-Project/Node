@@ -70,7 +70,7 @@ pub fn merged_output_data(
             |((rpc_result, hash_and_amount), account)| match rpc_result {
                 Ok(_rpc_result) => {
                     // TODO: GH-547: This rpc_result should be validated
-                    IndividualBatchResult::Correct(PendingPayable {
+                    IndividualBatchResult::Pending(PendingPayable {
                         recipient_wallet: account.wallet.clone(),
                         hash: hash_and_amount.hash,
                     })
@@ -369,7 +369,7 @@ mod tests {
     };
     use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError::Sending;
     use crate::blockchain::blockchain_interface::data_structures::IndividualBatchResult::{
-        Correct, Failed,
+        Failed, Pending,
     };
     use crate::blockchain::test_utils::{
         make_tx_hash, transport_error_code, transport_error_message,
@@ -649,7 +649,7 @@ mod tests {
         assert_eq!(
             result,
             vec![
-                Correct(PendingPayable {
+                Pending(PendingPayable {
                     recipient_wallet: make_wallet("4567"),
                     hash: make_tx_hash(444)
                 }),
@@ -736,14 +736,14 @@ mod tests {
             .end_batch()
             .start();
         let expected_result = Ok(vec![
-            Correct(PendingPayable {
+            Pending(PendingPayable {
                 recipient_wallet: account_1.wallet.clone(),
                 hash: H256::from_str(
                     "6e7fa351eef640186f76c629cb74106b3082c8f8a1a9df75ff02fe5bfd4dd1a2",
                 )
                 .unwrap(),
             }),
-            Correct(PendingPayable {
+            Pending(PendingPayable {
                 recipient_wallet: account_2.wallet.clone(),
                 hash: H256::from_str(
                     "b67a61b29c0c48d8b63a64fda73b3247e8e2af68082c710325675d4911e113d4",
@@ -858,7 +858,7 @@ mod tests {
             .end_batch()
             .start();
         let expected_result = Ok(vec![
-            Correct(PendingPayable {
+            Pending(PendingPayable {
                 recipient_wallet: account_1.wallet.clone(),
                 hash: H256::from_str("6e7fa351eef640186f76c629cb74106b3082c8f8a1a9df75ff02fe5bfd4dd1a2").unwrap(),
             }),

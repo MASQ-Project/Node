@@ -166,7 +166,7 @@ pub mod payable_scanner_utils {
         logger: &'b Logger,
     ) -> SeparateTxsByResult<'a> {
         match rpc_result {
-            IndividualBatchResult::Correct(pending_payable) => {
+            IndividualBatchResult::Pending(pending_payable) => {
                 add_pending_payable(acc, pending_payable)
             }
             IndividualBatchResult::Failed(RpcPayableFailure {
@@ -560,8 +560,8 @@ mod tests {
         };
         let sent_payable = SentPayables {
             payment_procedure_result: Either::Left(vec![
-                IndividualBatchResult::Correct(correct_payment_1.clone()),
-                IndividualBatchResult::Correct(correct_payment_2.clone()),
+                IndividualBatchResult::Pending(correct_payment_1.clone()),
+                IndividualBatchResult::Pending(correct_payment_2.clone()),
             ]),
             response_skeleton_opt: None,
         };
@@ -609,7 +609,7 @@ mod tests {
         };
         let sent_payable = SentPayables {
             payment_procedure_result: Either::Left(vec![
-                IndividualBatchResult::Correct(payable_ok.clone()),
+                IndividualBatchResult::Pending(payable_ok.clone()),
                 IndividualBatchResult::Failed(bad_rpc_call.clone()),
             ]),
             response_skeleton_opt: None,

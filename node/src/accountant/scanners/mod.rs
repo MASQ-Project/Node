@@ -1970,9 +1970,9 @@ mod tests {
         let logger = Logger::new(test_name);
         let sent_payable = SentPayables {
             payment_procedure_result: Either::Left(vec![
-                IndividualBatchResult::Correct(correct_pending_payable_1),
+                IndividualBatchResult::Pending(correct_pending_payable_1),
                 IndividualBatchResult::Failed(failure_payable_2),
-                IndividualBatchResult::Correct(correct_pending_payable_3),
+                IndividualBatchResult::Pending(correct_pending_payable_3),
             ]),
             response_skeleton_opt: None,
         };
@@ -2249,8 +2249,8 @@ mod tests {
             .build();
         let sent_payable = SentPayables {
             payment_procedure_result: Either::Left(vec![
-                IndividualBatchResult::Correct(payment_1),
-                IndividualBatchResult::Correct(payment_2),
+                IndividualBatchResult::Pending(payment_1),
+                IndividualBatchResult::Pending(payment_2),
             ]),
             response_skeleton_opt: None,
         };
@@ -2275,8 +2275,8 @@ mod tests {
             .build();
         let sent_payables = SentPayables {
             payment_procedure_result: Either::Left(vec![
-                IndividualBatchResult::Correct(payable_1),
-                IndividualBatchResult::Correct(payable_2),
+                IndividualBatchResult::Pending(payable_1),
+                IndividualBatchResult::Pending(payable_2),
             ]),
             response_skeleton_opt: None,
         };
