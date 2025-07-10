@@ -99,6 +99,7 @@ pub struct AccountantBuilder {
     payable_dao_factory_opt: Option<PayableDaoFactoryMock>,
     receivable_dao_factory_opt: Option<ReceivableDaoFactoryMock>,
     pending_payable_dao_factory_opt: Option<PendingPayableDaoFactoryMock>,
+    failed_payable_dao_factory_opt: Option<FailedPayableDaoFactoryMock>,
     banned_dao_factory_opt: Option<BannedDaoFactoryMock>,
     config_dao_factory_opt: Option<ConfigDaoFactoryMock>,
 }
@@ -112,6 +113,7 @@ impl Default for AccountantBuilder {
             payable_dao_factory_opt: None,
             receivable_dao_factory_opt: None,
             pending_payable_dao_factory_opt: None,
+            failed_payable_dao_factory_opt: None,
             banned_dao_factory_opt: None,
             config_dao_factory_opt: None,
         }
@@ -356,6 +358,10 @@ impl AccountantBuilder {
                 .make_result(PendingPayableDaoMock::new())
                 .make_result(PendingPayableDaoMock::new()),
         );
+        // TODO: GH-605: Consider inserting more mocks as we are doing it with other factories
+        let failed_payable_dao_factory = self
+            .failed_payable_dao_factory_opt
+            .unwrap_or(FailedPayableDaoFactoryMock::new());
         let banned_dao_factory = self
             .banned_dao_factory_opt
             .unwrap_or(BannedDaoFactoryMock::new().make_result(BannedDaoMock::new()));
@@ -367,6 +373,7 @@ impl AccountantBuilder {
             DaoFactories {
                 payable_dao_factory: Box::new(payable_dao_factory),
                 pending_payable_dao_factory: Box::new(pending_payable_dao_factory),
+                failed_payable_dao_factory: Box::new(failed_payable_dao_factory),
                 receivable_dao_factory: Box::new(receivable_dao_factory),
                 banned_dao_factory: Box::new(banned_dao_factory),
                 config_dao_factory: Box::new(config_dao_factory),
@@ -1235,7 +1242,7 @@ impl FailedPayableDaoFactoryMock {
 
 pub struct PayableScannerBuilder {
     payable_dao: PayableDaoMock,
-    pending_payable_dao: PendingPayableDaoMock,
+    failed_payable_dao: FailedPayableDaoMock,
     payment_thresholds: PaymentThresholds,
     payment_adjuster: PaymentAdjusterMock,
 }
@@ -1244,7 +1251,7 @@ impl PayableScannerBuilder {
     pub fn new() -> Self {
         Self {
             payable_dao: PayableDaoMock::new(),
-            pending_payable_dao: PendingPayableDaoMock::new(),
+            failed_payable_dao: FailedPayableDaoMock::new(),
             payment_thresholds: PaymentThresholds::default(),
             payment_adjuster: PaymentAdjusterMock::default(),
         }
@@ -1268,18 +1275,18 @@ impl PayableScannerBuilder {
         self
     }
 
-    pub fn pending_payable_dao(
+    pub fn failed_payable_dao(
         mut self,
-        pending_payable_dao: PendingPayableDaoMock,
+        failed_payable_dao: FailedPayableDaoMock,
     ) -> PayableScannerBuilder {
-        self.pending_payable_dao = pending_payable_dao;
+        self.failed_payable_dao = failed_payable_dao;
         self
     }
 
     pub fn build(self) -> PayableScanner {
         PayableScanner::new(
             Box::new(self.payable_dao),
-            Box::new(self.pending_payable_dao),
+            Box::new(self.failed_payable_dao),
             Rc::new(self.payment_thresholds),
             Box::new(self.payment_adjuster),
         )

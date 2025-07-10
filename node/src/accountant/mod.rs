@@ -1313,58 +1313,60 @@ mod tests {
 
     #[test]
     fn new_calls_factories_properly() {
-        let config = make_bc_with_defaults();
-        let payable_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
-        let pending_payable_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
-        let receivable_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
-        let banned_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
-        let config_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
-        let payable_dao_factory = PayableDaoFactoryMock::new()
-            .make_params(&payable_dao_factory_params_arc)
-            .make_result(PayableDaoMock::new()) // For Accountant
-            .make_result(PayableDaoMock::new()) // For Payable Scanner
-            .make_result(PayableDaoMock::new()); // For PendingPayable Scanner
-        let pending_payable_dao_factory = PendingPayableDaoFactoryMock::new()
-            .make_params(&pending_payable_dao_factory_params_arc)
-            .make_result(PendingPayableDaoMock::new()) // For Accountant
-            .make_result(PendingPayableDaoMock::new()) // For Payable Scanner
-            .make_result(PendingPayableDaoMock::new()); // For PendingPayable Scanner
-        let receivable_dao_factory = ReceivableDaoFactoryMock::new()
-            .make_params(&receivable_dao_factory_params_arc)
-            .make_result(ReceivableDaoMock::new()) // For Accountant
-            .make_result(ReceivableDaoMock::new()); // For Receivable Scanner
-        let banned_dao_factory = BannedDaoFactoryMock::new()
-            .make_params(&banned_dao_factory_params_arc)
-            .make_result(BannedDaoMock::new()); // For Receivable Scanner
-        let config_dao_factory = ConfigDaoFactoryMock::new()
-            .make_params(&config_dao_factory_params_arc)
-            .make_result(ConfigDaoMock::new()); // For receivable scanner
-
-        let _ = Accountant::new(
-            config,
-            DaoFactories {
-                payable_dao_factory: Box::new(payable_dao_factory),
-                pending_payable_dao_factory: Box::new(pending_payable_dao_factory),
-                receivable_dao_factory: Box::new(receivable_dao_factory),
-                banned_dao_factory: Box::new(banned_dao_factory),
-                config_dao_factory: Box::new(config_dao_factory),
-            },
-        );
-
-        assert_eq!(
-            *payable_dao_factory_params_arc.lock().unwrap(),
-            vec![(), (), ()]
-        );
-        assert_eq!(
-            *pending_payable_dao_factory_params_arc.lock().unwrap(),
-            vec![(), (), ()]
-        );
-        assert_eq!(
-            *receivable_dao_factory_params_arc.lock().unwrap(),
-            vec![(), ()]
-        );
-        assert_eq!(*banned_dao_factory_params_arc.lock().unwrap(), vec![()]);
-        assert_eq!(*config_dao_factory_params_arc.lock().unwrap(), vec![()]);
+        // let config = make_bc_with_defaults();
+        // let payable_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
+        // let pending_payable_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
+        // let receivable_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
+        // let banned_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
+        // let config_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
+        // let payable_dao_factory = PayableDaoFactoryMock::new()
+        //     .make_params(&payable_dao_factory_params_arc)
+        //     .make_result(PayableDaoMock::new()) // For Accountant
+        //     .make_result(PayableDaoMock::new()) // For Payable Scanner
+        //     .make_result(PayableDaoMock::new()); // For PendingPayable Scanner
+        // let pending_payable_dao_factory = PendingPayableDaoFactoryMock::new()
+        //     .make_params(&pending_payable_dao_factory_params_arc)
+        //     .make_result(PendingPayableDaoMock::new()) // For Accountant
+        //     .make_result(PendingPayableDaoMock::new()) // For Payable Scanner
+        //     .make_result(PendingPayableDaoMock::new()); // For PendingPayable Scanner
+        let failed_payable_dao_factory = todo!("create failed payable dao factory");
+        // let receivable_dao_factory = ReceivableDaoFactoryMock::new()
+        //     .make_params(&receivable_dao_factory_params_arc)
+        //     .make_result(ReceivableDaoMock::new()) // For Accountant
+        //     .make_result(ReceivableDaoMock::new()); // For Receivable Scanner
+        // let banned_dao_factory = BannedDaoFactoryMock::new()
+        //     .make_params(&banned_dao_factory_params_arc)
+        //     .make_result(BannedDaoMock::new()); // For Receivable Scanner
+        // let config_dao_factory = ConfigDaoFactoryMock::new()
+        //     .make_params(&config_dao_factory_params_arc)
+        //     .make_result(ConfigDaoMock::new()); // For receivable scanner
+        //
+        // let _ = Accountant::new(
+        //     config,
+        //     DaoFactories {
+        //         payable_dao_factory: Box::new(payable_dao_factory),
+        //         pending_payable_dao_factory: Box::new(pending_payable_dao_factory),
+        //         failed_payable_dao_factory: Box::new(failed_payable_dao_factory),
+        //         receivable_dao_factory: Box::new(receivable_dao_factory),
+        //         banned_dao_factory: Box::new(banned_dao_factory),
+        //         config_dao_factory: Box::new(config_dao_factory),
+        //     },
+        // );
+        //
+        // assert_eq!(
+        //     *payable_dao_factory_params_arc.lock().unwrap(),
+        //     vec![(), (), ()]
+        // );
+        // assert_eq!(
+        //     *pending_payable_dao_factory_params_arc.lock().unwrap(),
+        //     vec![(), (), ()]
+        // );
+        // assert_eq!(
+        //     *receivable_dao_factory_params_arc.lock().unwrap(),
+        //     vec![(), ()]
+        // );
+        // assert_eq!(*banned_dao_factory_params_arc.lock().unwrap(), vec![()]);
+        // assert_eq!(*config_dao_factory_params_arc.lock().unwrap(), vec![()]);
     }
 
     #[test]
@@ -1382,6 +1384,7 @@ mod tests {
                 .make_result(PendingPayableDaoMock::new()) // For Payable Scanner
                 .make_result(PendingPayableDaoMock::new()), // For PendingPayable Scanner
         );
+        let failed_payable_dao_factory = todo!("create failed payable dao factory");
         let receivable_dao_factory = Box::new(
             ReceivableDaoFactoryMock::new()
                 .make_result(ReceivableDaoMock::new()) // For Accountant
@@ -1397,6 +1400,7 @@ mod tests {
             DaoFactories {
                 payable_dao_factory,
                 pending_payable_dao_factory,
+                failed_payable_dao_factory,
                 receivable_dao_factory,
                 banned_dao_factory,
                 config_dao_factory,

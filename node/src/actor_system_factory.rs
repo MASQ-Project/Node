@@ -474,6 +474,7 @@ impl ActorFactory for ActorFactoryReal {
         let data_directory = config.data_directory.as_path();
         let payable_dao_factory = Box::new(Accountant::dao_factory(data_directory));
         let pending_payable_dao_factory = Box::new(Accountant::dao_factory(data_directory));
+        let failed_payable_dao_factory = Box::new(Accountant::dao_factory(data_directory));
         let receivable_dao_factory = Box::new(Accountant::dao_factory(data_directory));
         let banned_dao_factory = Box::new(Accountant::dao_factory(data_directory));
         let config_dao_factory = Box::new(Accountant::dao_factory(data_directory));
@@ -485,6 +486,7 @@ impl ActorFactory for ActorFactoryReal {
                 DaoFactories {
                     payable_dao_factory,
                     pending_payable_dao_factory,
+                    failed_payable_dao_factory,
                     receivable_dao_factory,
                     banned_dao_factory,
                     config_dao_factory,

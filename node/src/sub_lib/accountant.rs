@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::db_access_objects::banned_dao::BannedDaoFactory;
+use crate::accountant::db_access_objects::failed_payable_dao::FailedPayableDaoFactory;
 use crate::accountant::db_access_objects::payable_dao::PayableDaoFactory;
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayableDaoFactory;
 use crate::accountant::db_access_objects::receivable_dao::ReceivableDaoFactory;
@@ -71,7 +72,8 @@ impl PaymentThresholds {
 
 pub struct DaoFactories {
     pub payable_dao_factory: Box<dyn PayableDaoFactory>,
-    pub pending_payable_dao_factory: Box<dyn PendingPayableDaoFactory>,
+    pub pending_payable_dao_factory: Box<dyn PendingPayableDaoFactory>, // TODO: This should go away
+    pub failed_payable_dao_factory: Box<dyn FailedPayableDaoFactory>,
     pub receivable_dao_factory: Box<dyn ReceivableDaoFactory>,
     pub banned_dao_factory: Box<dyn BannedDaoFactory>,
     pub config_dao_factory: Box<dyn ConfigDaoFactory>,
