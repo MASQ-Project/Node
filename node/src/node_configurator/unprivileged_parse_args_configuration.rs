@@ -84,27 +84,25 @@ impl UnprivilegedParseArgsConfiguration for UnprivilegedParseArgsConfigurationDa
         persistent_config: &mut dyn PersistentConfiguration,
         unprivileged_config: &mut BootstrapperConfig,
     ) -> Result<Vec<NodeDescriptor>, ConfiguratorError> {
-        Ok(
-            match &unprivileged_config.db_password_opt {
-                Some(db_password) => match persistent_config.past_neighbors(db_password) {
-                    Ok(Some(past_neighbors)) => past_neighbors,
-                    Ok(None) => vec![],
-                    Err(PasswordError) => {
-                        return Err(ConfiguratorError::new(vec![ParamError::new(
-                            "db-password",
-                            "PasswordError",
-                        )]))
-                    }
-                    Err(e) => {
-                        return Err(ConfiguratorError::new(vec![ParamError::new(
-                            "[past neighbors]",
-                            &format!("{:?}", e),
-                        )]))
-                    }
-                },
-                None => vec![],
+        Ok(match &unprivileged_config.db_password_opt {
+            Some(db_password) => match persistent_config.past_neighbors(db_password) {
+                Ok(Some(past_neighbors)) => past_neighbors,
+                Ok(None) => vec![],
+                Err(PasswordError) => {
+                    return Err(ConfiguratorError::new(vec![ParamError::new(
+                        "db-password",
+                        "PasswordError",
+                    )]))
+                }
+                Err(e) => {
+                    return Err(ConfiguratorError::new(vec![ParamError::new(
+                        "[past neighbors]",
+                        &format!("{:?}", e),
+                    )]))
+                }
             },
-        )
+            None => vec![],
+        })
     }
 }
 

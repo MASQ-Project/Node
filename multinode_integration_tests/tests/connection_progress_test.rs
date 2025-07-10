@@ -21,7 +21,7 @@ fn connection_progress_is_properly_broadcast() {
     let relay_2 = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
             .db_password(Some("relay_2"))
-            .build()
+            .build(),
     );
     let relay_1 = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()

@@ -251,8 +251,13 @@ pub fn initialize_database(
         .unwrap_or_else(|e| db_connection_launch_panic(e, data_directory));
     let mut persistent_config = Box::new(PersistentConfigurationReal::from(conn));
     if let Some(password) = db_password_opt {
-        if persistent_config.check_password(None).expect("Failed to check password") {
-            persistent_config.change_password(None, password).expect("Failed to establish password")
+        if persistent_config
+            .check_password(None)
+            .expect("Failed to check password")
+        {
+            persistent_config
+                .change_password(None, password)
+                .expect("Failed to establish password")
         }
     }
     persistent_config
@@ -596,7 +601,9 @@ mod tests {
                 .initialize(&data_directory, DbInitializationConfig::test_default())
                 .unwrap();
             let mut persistent_config = Box::new(PersistentConfigurationReal::from(conn));
-            persistent_config.change_password(None, "existing password").unwrap();
+            persistent_config
+                .change_password(None, "existing password")
+                .unwrap();
         }
         let db_password = Some("command-line password".to_string());
 
@@ -606,11 +613,15 @@ mod tests {
             &db_password,
         );
 
-        assert_eq!(persistent_config.check_password(Some("existing password".to_string())), Ok(true));
+        assert_eq!(
+            persistent_config.check_password(Some("existing password".to_string())),
+            Ok(true)
+        );
     }
 
     #[test]
-    fn initialize_database_handles_preexisting_database_with_existing_password_but_nothing_on_the_command_line() {
+    fn initialize_database_handles_preexisting_database_with_existing_password_but_nothing_on_the_command_line(
+    ) {
         let data_directory = ensure_node_home_directory_exists(
             "node_configurator",
             "initialize_database_handles_preexisting_database_with_existing_password_but_nothing_on_the_command_line",
@@ -620,7 +631,9 @@ mod tests {
                 .initialize(&data_directory, DbInitializationConfig::test_default())
                 .unwrap();
             let mut persistent_config = Box::new(PersistentConfigurationReal::from(conn));
-            persistent_config.change_password(None, "existing password").unwrap();
+            persistent_config
+                .change_password(None, "existing password")
+                .unwrap();
         }
         let db_password = None;
 
@@ -630,7 +643,10 @@ mod tests {
             &db_password,
         );
 
-        assert_eq!(persistent_config.check_password(Some("existing password".to_string())), Ok(true));
+        assert_eq!(
+            persistent_config.check_password(Some("existing password".to_string())),
+            Ok(true)
+        );
     }
 
     #[test]

@@ -95,7 +95,10 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
         )?;
         configure_database(&unprivileged_config, persistent_config.as_mut())?;
         let cryptde_pair = if multi_config.occurrences_of("fake-public-key") == 0 {
-            configure_cryptdes(persistent_config.as_mut(), &unprivileged_config.db_password_opt)
+            configure_cryptdes(
+                persistent_config.as_mut(),
+                &unprivileged_config.db_password_opt,
+            )
         } else {
             configure_fake_cryptdes(multi_config, &mut unprivileged_config)
         };
@@ -371,9 +374,12 @@ fn configure_cryptdes(
     cryptde_pair
 }
 
-fn configure_fake_cryptdes(multi_config: &MultiConfig, unprivileged_config: &mut BootstrapperConfig) -> CryptDEPair {
-    let public_key_str = value_m!(multi_config, "fake-public-key", String)
-        .expect("fake-public-key disappeared");
+fn configure_fake_cryptdes(
+    multi_config: &MultiConfig,
+    unprivileged_config: &mut BootstrapperConfig,
+) -> CryptDEPair {
+    let public_key_str =
+        value_m!(multi_config, "fake-public-key", String).expect("fake-public-key disappeared");
     let main_public_key_data =
         base64::decode(&public_key_str).expect("fake-public-key: invalid Base64");
     let main_public_key = PublicKey::new(&main_public_key_data);
@@ -519,7 +525,12 @@ mod tests {
         let result = subject.configure(&multi_config).unwrap();
 
         assert_eq!(result.db_password_opt, Some("password".to_string()));
-        assert_eq!(persistent_config.check_password(Some("password".to_string())).unwrap(), true);
+        assert_eq!(
+            persistent_config
+                .check_password(Some("password".to_string()))
+                .unwrap(),
+            true
+        );
     }
 
     #[test]
