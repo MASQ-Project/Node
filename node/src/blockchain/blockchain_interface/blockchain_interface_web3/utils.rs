@@ -11,7 +11,7 @@ use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
 };
 use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
 use crate::blockchain::blockchain_interface::data_structures::{
-    ProcessedPayableFallible, RpcPayableFailure,
+    IndividualBatchResult, RpcPayableFailure,
 };
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
@@ -60,7 +60,7 @@ pub fn merged_output_data(
     responses: Vec<web3::transports::Result<Value>>,
     hashes_and_paid_amounts: Vec<HashAndAmount>,
     accounts: Vec<PayableAccount>,
-) -> Vec<ProcessedPayableFallible> {
+) -> Vec<IndividualBatchResult> {
     let iterator_with_all_data = responses
         .into_iter()
         .zip(hashes_and_paid_amounts.into_iter())
@@ -70,12 +70,12 @@ pub fn merged_output_data(
             |((rpc_result, hash_and_amount), account)| match rpc_result {
                 Ok(_rpc_result) => {
                     // TODO: GH-547: This rpc_result should be validated
-                    ProcessedPayableFallible::Correct(PendingPayable {
+                    IndividualBatchResult::Correct(PendingPayable {
                         recipient_wallet: account.wallet.clone(),
                         hash: hash_and_amount.hash,
                     })
                 }
-                Err(rpc_error) => ProcessedPayableFallible::Failed(RpcPayableFailure {
+                Err(rpc_error) => IndividualBatchResult::Failed(RpcPayableFailure {
                     rpc_error,
                     recipient_wallet: account.wallet.clone(),
                     hash: hash_and_amount.hash,
@@ -281,7 +281,7 @@ pub fn send_payables_within_batch(
     pending_nonce: U256,
     new_fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
     accounts: PricedQualifiedPayables,
-) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = LocalPayableError> + 'static> {
+) -> Box<dyn Future<Item = Vec<IndividualBatchResult>, Error = LocalPayableError> + 'static> {
     debug!(
             logger,
             "Common attributes of payables to be transacted: sender wallet: {}, contract: {:?}, chain_id: {}",
@@ -368,7 +368,7 @@ mod tests {
         BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
     };
     use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError::Sending;
-    use crate::blockchain::blockchain_interface::data_structures::ProcessedPayableFallible::{
+    use crate::blockchain::blockchain_interface::data_structures::IndividualBatchResult::{
         Correct, Failed,
     };
     use crate::blockchain::test_utils::{
@@ -669,7 +669,7 @@ mod tests {
     fn test_send_payables_within_batch(
         test_name: &str,
         accounts: PricedQualifiedPayables,
-        expected_result: Result<Vec<ProcessedPayableFallible>, LocalPayableError>,
+        expected_result: Result<Vec<IndividualBatchResult>, LocalPayableError>,
         port: u16,
     ) {
         init_test_logging();

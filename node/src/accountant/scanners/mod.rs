@@ -1425,7 +1425,7 @@ mod tests {
     use crate::blockchain::blockchain_bridge::{BlockMarker, PendingPayableFingerprint, RetrieveTransactions};
     use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
     use crate::blockchain::blockchain_interface::data_structures::{
-        BlockchainTransaction, ProcessedPayableFallible, RpcPayableFailure,
+        BlockchainTransaction, IndividualBatchResult, RpcPayableFailure,
     };
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
@@ -1970,9 +1970,9 @@ mod tests {
         let logger = Logger::new(test_name);
         let sent_payable = SentPayables {
             payment_procedure_result: Either::Left(vec![
-                ProcessedPayableFallible::Correct(correct_pending_payable_1),
-                ProcessedPayableFallible::Failed(failure_payable_2),
-                ProcessedPayableFallible::Correct(correct_pending_payable_3),
+                IndividualBatchResult::Correct(correct_pending_payable_1),
+                IndividualBatchResult::Failed(failure_payable_2),
+                IndividualBatchResult::Correct(correct_pending_payable_3),
             ]),
             response_skeleton_opt: None,
         };
@@ -2249,8 +2249,8 @@ mod tests {
             .build();
         let sent_payable = SentPayables {
             payment_procedure_result: Either::Left(vec![
-                ProcessedPayableFallible::Correct(payment_1),
-                ProcessedPayableFallible::Correct(payment_2),
+                IndividualBatchResult::Correct(payment_1),
+                IndividualBatchResult::Correct(payment_2),
             ]),
             response_skeleton_opt: None,
         };
@@ -2275,8 +2275,8 @@ mod tests {
             .build();
         let sent_payables = SentPayables {
             payment_procedure_result: Either::Left(vec![
-                ProcessedPayableFallible::Correct(payable_1),
-                ProcessedPayableFallible::Correct(payable_2),
+                IndividualBatchResult::Correct(payable_1),
+                IndividualBatchResult::Correct(payable_2),
             ]),
             response_skeleton_opt: None,
         };
@@ -2580,8 +2580,8 @@ mod tests {
         };
         let sent_payable = SentPayables {
             payment_procedure_result: Either::Left(vec![
-                ProcessedPayableFallible::Failed(failed_payment_1),
-                ProcessedPayableFallible::Failed(failed_payment_2),
+                IndividualBatchResult::Failed(failed_payment_1),
+                IndividualBatchResult::Failed(failed_payment_2),
             ]),
             response_skeleton_opt: None,
         };

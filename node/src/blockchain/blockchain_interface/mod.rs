@@ -7,7 +7,7 @@ pub mod lower_level_interface;
 use actix::Recipient;
 use ethereum_types::H256;
 use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainAgentBuildError, BlockchainError, LocalPayableError};
-use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RetrievedBlockchainTransactions};
+use crate::blockchain::blockchain_interface::data_structures::{IndividualBatchResult, RetrievedBlockchainTransactions};
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use crate::sub_lib::wallet::Wallet;
 use futures::Future;
@@ -49,7 +49,7 @@ pub trait BlockchainInterface {
         agent: Box<dyn BlockchainAgent>,
         fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
         affordable_accounts: PricedQualifiedPayables,
-    ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = LocalPayableError>>;
+    ) -> Box<dyn Future<Item = Vec<IndividualBatchResult>, Error = LocalPayableError>>;
 
     as_any_ref_in_trait!();
 }

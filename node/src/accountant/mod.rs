@@ -30,7 +30,7 @@ use crate::blockchain::blockchain_bridge::{BlockMarker, PendingPayableFingerprin
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::HashAndAmount;
 use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
 use crate::blockchain::blockchain_interface::data_structures::{
-    BlockchainTransaction, ProcessedPayableFallible,
+    BlockchainTransaction, IndividualBatchResult,
 };
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::DbInitializationConfig;
@@ -144,7 +144,7 @@ pub struct ReportTransactionReceipts {
 
 #[derive(Debug, Message, PartialEq, Clone)]
 pub struct SentPayables {
-    pub payment_procedure_result: Either<Vec<ProcessedPayableFallible>, LocalPayableError>,
+    pub payment_procedure_result: Either<Vec<IndividualBatchResult>, LocalPayableError>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
@@ -1579,7 +1579,7 @@ mod tests {
         let system = System::new("test");
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
         let sent_payable = SentPayables {
-            payment_procedure_result: Either::Left(vec![ProcessedPayableFallible::Correct(
+            payment_procedure_result: Either::Left(vec![IndividualBatchResult::Correct(
                 PendingPayable {
                     recipient_wallet: make_wallet("blah"),
                     hash: make_tx_hash(123),
@@ -2161,7 +2161,7 @@ mod tests {
         let second_counter_msg_setup = setup_for_counter_msg_triggered_via_type_id!(
             QualifiedPayablesMessage,
             SentPayables {
-                payment_procedure_result: Either::Left(vec![ProcessedPayableFallible::Correct(
+                payment_procedure_result: Either::Left(vec![IndividualBatchResult::Correct(
                     PendingPayable {
                         recipient_wallet: make_wallet("abc"),
                         hash: make_tx_hash(789)
@@ -2780,7 +2780,7 @@ mod tests {
             response_skeleton_opt: None,
         };
         let expected_sent_payables = SentPayables {
-            payment_procedure_result: Either::Left(vec![ProcessedPayableFallible::Correct(
+            payment_procedure_result: Either::Left(vec![IndividualBatchResult::Correct(
                 PendingPayable {
                     recipient_wallet: make_wallet("bcd"),
                     hash: make_tx_hash(890),
@@ -3504,7 +3504,7 @@ mod tests {
         let transaction_hash = make_tx_hash(789);
         let creditor_wallet = make_wallet("blah");
         let counter_msg_2 = SentPayables {
-            payment_procedure_result: Either::Left(vec![ProcessedPayableFallible::Correct(
+            payment_procedure_result: Either::Left(vec![IndividualBatchResult::Correct(
                 PendingPayable::new(creditor_wallet, transaction_hash),
             )]),
             response_skeleton_opt: None,
@@ -4849,7 +4849,7 @@ mod tests {
         );
         let expected_payable = PendingPayable::new(expected_wallet.clone(), expected_hash.clone());
         let sent_payable = SentPayables {
-            payment_procedure_result: Either::Left(vec![ProcessedPayableFallible::Correct(
+            payment_procedure_result: Either::Left(vec![IndividualBatchResult::Correct(
                 expected_payable.clone(),
             )]),
             response_skeleton_opt: None,

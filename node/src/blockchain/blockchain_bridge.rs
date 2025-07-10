@@ -11,7 +11,7 @@ use crate::blockchain::blockchain_interface::blockchain_interface_web3::HashAndA
 use crate::blockchain::blockchain_interface::data_structures::errors::{
     BlockchainError, LocalPayableError,
 };
-use crate::blockchain::blockchain_interface::data_structures::ProcessedPayableFallible;
+use crate::blockchain::blockchain_interface::data_structures::IndividualBatchResult;
 use crate::blockchain::blockchain_interface::BlockchainInterface;
 use crate::blockchain::blockchain_interface_initializer::BlockchainInterfaceInitializer;
 use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DbInitializerReal};
@@ -486,7 +486,7 @@ impl BlockchainBridge {
         &self,
         agent: Box<dyn BlockchainAgent>,
         affordable_accounts: PricedQualifiedPayables,
-    ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = LocalPayableError>> {
+    ) -> Box<dyn Future<Item = Vec<IndividualBatchResult>, Error = LocalPayableError>> {
         let new_fingerprints_recipient = self.new_fingerprints_recipient();
         let logger = self.logger.clone();
         self.blockchain_interface.submit_payables_in_batch(
@@ -558,7 +558,7 @@ mod tests {
     use crate::blockchain::blockchain_interface::data_structures::errors::{
         BlockchainAgentBuildError, LocalPayableError,
     };
-    use crate::blockchain::blockchain_interface::data_structures::ProcessedPayableFallible::Correct;
+    use crate::blockchain::blockchain_interface::data_structures::IndividualBatchResult::Correct;
     use crate::blockchain::blockchain_interface::data_structures::{
         BlockchainTransaction, RetrievedBlockchainTransactions,
     };

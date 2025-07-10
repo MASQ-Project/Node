@@ -18,7 +18,7 @@ pub mod payable_scanner_utils {
     use web3::types::H256;
     use masq_lib::ui_gateway::NodeToUiMessage;
     use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
-    use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RpcPayableFailure};
+    use crate::blockchain::blockchain_interface::data_structures::{IndividualBatchResult, RpcPayableFailure};
     use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
 
     #[derive(Debug, PartialEq, Eq)]
@@ -130,7 +130,7 @@ pub mod payable_scanner_utils {
     }
 
     fn separate_rpc_results<'a, 'b>(
-        batch_request_responses: &'a [ProcessedPayableFallible],
+        batch_request_responses: &'a [IndividualBatchResult],
         logger: &'b Logger,
     ) -> (Vec<&'a PendingPayable>, Option<Vec<H256>>) {
         //TODO maybe we can return not tuple but struct with remote_errors_opt member
@@ -162,14 +162,14 @@ pub mod payable_scanner_utils {
 
     fn fold_guts<'a, 'b>(
         acc: SeparateTxsByResult<'a>,
-        rpc_result: &'a ProcessedPayableFallible,
+        rpc_result: &'a IndividualBatchResult,
         logger: &'b Logger,
     ) -> SeparateTxsByResult<'a> {
         match rpc_result {
-            ProcessedPayableFallible::Correct(pending_payable) => {
+            IndividualBatchResult::Correct(pending_payable) => {
                 add_pending_payable(acc, pending_payable)
             }
-            ProcessedPayableFallible::Failed(RpcPayableFailure {
+            IndividualBatchResult::Failed(RpcPayableFailure {
                 rpc_error,
                 recipient_wallet,
                 hash,
@@ -490,7 +490,7 @@ mod tests {
     use itertools::Either;
     use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
     use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainError, LocalPayableError};
-    use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RpcPayableFailure};
+    use crate::blockchain::blockchain_interface::data_structures::{IndividualBatchResult, RpcPayableFailure};
 
     #[test]
     fn investigate_debt_extremes_picks_the_most_relevant_records() {
@@ -560,8 +560,8 @@ mod tests {
         };
         let sent_payable = SentPayables {
             payment_procedure_result: Either::Left(vec![
-                ProcessedPayableFallible::Correct(correct_payment_1.clone()),
-                ProcessedPayableFallible::Correct(correct_payment_2.clone()),
+                IndividualBatchResult::Correct(correct_payment_1.clone()),
+                IndividualBatchResult::Correct(correct_payment_2.clone()),
             ]),
             response_skeleton_opt: None,
         };
@@ -609,8 +609,8 @@ mod tests {
         };
         let sent_payable = SentPayables {
             payment_procedure_result: Either::Left(vec![
-                ProcessedPayableFallible::Correct(payable_ok.clone()),
-                ProcessedPayableFallible::Failed(bad_rpc_call.clone()),
+                IndividualBatchResult::Correct(payable_ok.clone()),
+                IndividualBatchResult::Failed(bad_rpc_call.clone()),
             ]),
             response_skeleton_opt: None,
         };
