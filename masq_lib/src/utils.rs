@@ -501,7 +501,6 @@ macro_rules! hashset {
     };
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -863,7 +862,7 @@ mod tests {
             expected_hashmap_with_trailing_comma
         );
         assert_eq!(hashmap_of_string, expected_hashmap_of_string);
-        assert_eq!(hashmap_with_duplicate, expected_hashmap_with_duplicate);        
+        assert_eq!(hashmap_with_duplicate, expected_hashmap_with_duplicate);
     }
 
     #[test]
@@ -872,7 +871,7 @@ mod tests {
         let hashset_with_one_element = hashset!(2);
         let hashset_with_multiple_elements = hashset!(2, 20, 42);
         let hashset_with_trailing_comma = hashset!(2, 20,);
-        let hashset_of_string = hashset!("val_a","val_b");
+        let hashset_of_string = hashset!("val_a", "val_b");
         let hashset_with_duplicate = hashset!(2, 2);
 
         let expected_empty_hashset: HashSet<i32> = HashSet::new();
@@ -901,6 +900,6 @@ mod tests {
             expected_hashset_with_trailing_comma
         );
         assert_eq!(hashset_of_string, expected_hashset_of_string);
-        assert_eq!(hashset_with_duplicate, expected_hashset_with_duplicate);       
+        assert_eq!(hashset_with_duplicate, expected_hashset_with_duplicate);
     }
 }

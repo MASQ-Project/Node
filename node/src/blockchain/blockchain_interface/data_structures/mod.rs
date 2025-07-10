@@ -2,14 +2,14 @@
 
 pub mod errors;
 
+use crate::accountant::db_access_objects::utils::TxHash;
+use crate::accountant::PendingPayable;
 use crate::blockchain::blockchain_bridge::BlockMarker;
 use crate::sub_lib::wallet::Wallet;
 use std::fmt;
 use std::fmt::Formatter;
 use web3::types::H256;
 use web3::Error;
-use crate::accountant::db_access_objects::utils::TxHash;
-use crate::accountant::PendingPayable;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BlockchainTransaction {

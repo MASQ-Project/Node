@@ -7,7 +7,7 @@ use crate::accountant::{
     ReceivedPayments, RequestTransactionReceipts, ScanError, ScanForNewPayables,
     ScanForReceivables, SentPayables,
 };
-use crate::accountant::{TxStatusReport, ScanForPendingPayables, ScanForRetryPayables};
+use crate::accountant::{ScanForPendingPayables, ScanForRetryPayables, TxStatusReport};
 use crate::blockchain::blockchain_bridge::RegisterNewPendingSentTxMessage;
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::daemon::crash_notification::CrashNotification;

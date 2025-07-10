@@ -112,13 +112,17 @@ pub mod payable_scanner_utils {
                 if individual_batch_responses.is_empty() {
                     panic!("Broken code: An empty vector of processed payments claiming to be an Ok value")
                 }
-                
+
                 let separated_txs_by_result =
                     separate_rpc_results(individual_batch_responses, logger);
-                
-                let remote_errs_opt = if separated_txs_by_result.err_results.is_empty() {None} else {Some(RemotelyCausedErrors(separated_txs_by_result.err_results))};
+
+                let remote_errs_opt = if separated_txs_by_result.err_results.is_empty() {
+                    None
+                } else {
+                    Some(RemotelyCausedErrors(separated_txs_by_result.err_results))
+                };
                 let oks = separated_txs_by_result.ok_results;
-                
+
                 (oks, remote_errs_opt)
             }
             Err(e) => {
@@ -149,7 +153,7 @@ pub mod payable_scanner_utils {
     #[derive(Default)]
     pub struct SeparatedTxsByResult<'a> {
         pub ok_results: Vec<&'a PendingPayable>,
-        pub err_results: HashSet<TxHash>
+        pub err_results: HashSet<TxHash>,
     }
 
     fn separate_rpc_results_fold_guts<'a>(
@@ -167,9 +171,13 @@ pub mod payable_scanner_utils {
                 recipient_wallet,
                 hash,
             }) => {
-                warning!(logger, "Remote transaction failure: '{}' for payment to {} and \
+                warning!(
+                    logger,
+                    "Remote transaction failure: '{}' for payment to {} and \
                 transaction hash {:?}. Please check your blockchain service URL configuration.",
-                    rpc_error, recipient_wallet, hash
+                    rpc_error,
+                    recipient_wallet,
+                    hash
                 );
                 acc.err_results.insert(*hash);
                 acc
@@ -236,14 +244,8 @@ pub mod payable_scanner_utils {
     }
 
     impl PendingPayableMissingInDb {
-        pub fn new(
-            recipient: Address,
-            hash: H256,
-        ) -> PendingPayableMissingInDb {
-            PendingPayableMissingInDb {
-                recipient,
-                hash,
-            }
+        pub fn new(recipient: Address, hash: H256) -> PendingPayableMissingInDb {
+            PendingPayableMissingInDb { recipient, hash }
         }
     }
 
@@ -620,7 +622,10 @@ mod tests {
         let (oks, errs) = separate_errors(&sent_payable, &Logger::new("test_logger"));
 
         assert_eq!(oks, vec![&payable_ok]);
-        assert_eq!(errs, Some(RemotelyCausedErrors(hashset![make_tx_hash(0x315)])));
+        assert_eq!(
+            errs,
+            Some(RemotelyCausedErrors(hashset![make_tx_hash(0x315)]))
+        );
         TestLogHandler::new().exists_log_containing("WARN: test_logger: Remote transaction failure: \
         'Got invalid response: That jackass screwed it up' for payment to 0x000000000000000000000000\
         00000077686f6f61 and transaction hash 0x0000000000000000000000000000000000000000000000000000\

@@ -51,9 +51,9 @@ impl TxBuilder {
         SentTx {
             hash: self.hash_opt.unwrap_or_default(),
             receiver_address: self.receiver_address_opt.unwrap_or_default(),
-            amount: self.amount_opt.unwrap_or_default(),
+            amount_minor: self.amount_opt.unwrap_or_default(),
             timestamp: self.timestamp_opt.unwrap_or_else(current_unix_timestamp),
-            gas_price_wei: self.gas_price_wei_opt.unwrap_or_default(),
+            gas_price_minor: self.gas_price_wei_opt.unwrap_or_default(),
             nonce: self.nonce_opt.unwrap_or_default(),
             block_opt: self.block_opt,
         }
@@ -106,9 +106,9 @@ impl FailedTxBuilder {
         FailedTx {
             hash: self.hash_opt.unwrap_or_default(),
             receiver_address: self.receiver_address_opt.unwrap_or_default(),
-            amount: self.amount_opt.unwrap_or_default(),
+            amount_minor: self.amount_opt.unwrap_or_default(),
             timestamp: self.timestamp_opt.unwrap_or_default(),
-            gas_price_wei: self.gas_price_wei_opt.unwrap_or_default(),
+            gas_price_minor: self.gas_price_wei_opt.unwrap_or_default(),
             nonce: self.nonce_opt.unwrap_or_default(),
             reason: self
                 .reason_opt

@@ -1,11 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::db_access_objects::banned_dao::BannedDaoFactory;
+use crate::accountant::db_access_objects::failed_payable_dao::FailedPayableDaoFactory;
 use crate::accountant::db_access_objects::payable_dao::PayableDaoFactory;
 use crate::accountant::db_access_objects::receivable_dao::ReceivableDaoFactory;
+use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDaoFactory;
 use crate::accountant::scanners::payable_scanner_extension::msgs::BlockchainAgentWithContextMessage;
 use crate::accountant::{
-    checked_conversion, Accountant, ReceivedPayments, TxStatusReport, ScanError,
-    SentPayables,
+    checked_conversion, Accountant, ReceivedPayments, ScanError, SentPayables, TxStatusReport,
 };
 use crate::actor_system_factory::SubsFactory;
 use crate::blockchain::blockchain_bridge::RegisterNewPendingSentTxMessage;
@@ -21,8 +22,6 @@ use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, SystemTime};
-use crate::accountant::db_access_objects::failed_payable_dao::FailedPayableDaoFactory;
-use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDaoFactory;
 
 lazy_static! {
     pub static ref DEFAULT_EARNING_WALLET: Wallet = Wallet::from_str("0x27d9A2AC83b493f88ce9B4532EDcf74e95B9788d").expect("Internal error");

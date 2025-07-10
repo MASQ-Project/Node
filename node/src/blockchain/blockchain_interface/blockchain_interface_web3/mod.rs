@@ -182,7 +182,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         Box::new(
             get_gas_price
                 .map_err(BlockchainAgentBuildError::GasPrice)
-                .and_then(move |gas_price_wei| {
+                .and_then(move |gas_price_minor| {
                     get_transaction_fee_balance
                         .map_err(move |e| {
                             BlockchainAgentBuildError::TransactionFeeBalance(wallet_address, e)
@@ -195,7 +195,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                                 .and_then(move |masq_token_balance| {
                                     let blockchain_agent_future_result =
                                         BlockchainAgentFutureResult {
-                                            gas_price_wei,
+                                            gas_price_minor,
                                             transaction_fee_balance,
                                             masq_token_balance,
                                         };
@@ -227,19 +227,32 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                         .map(|(response, sent_tx)| match response {
                             Ok(result) => {
                                 match serde_json::from_value::<TransactionReceipt>(result) {
-                                    Ok(receipt) => {
-                                        TxReceiptResult::RpcResponse(SentTxWithLatestStatus::new(sent_tx, receipt.into()))
-                                    }
+                                    Ok(receipt) => TxReceiptResult::RpcResponse(
+                                        SentTxWithLatestStatus::new(sent_tx, receipt.into()),
+                                    ),
                                     Err(e) => {
                                         if e.to_string().contains("invalid type: null") {
-                                            TxReceiptResult::RpcResponse(SentTxWithLatestStatus::new(sent_tx, TxStatus::Pending))
+                                            TxReceiptResult::RpcResponse(
+                                                SentTxWithLatestStatus::new(
+                                                    sent_tx,
+                                                    TxStatus::Pending,
+                                                ),
+                                            )
                                         } else {
-                                            TxReceiptResult::RequestError(TxReceiptRequestError::new(sent_tx.hash, e.to_string()))
+                                            TxReceiptResult::RequestError(
+                                                TxReceiptRequestError::new(
+                                                    sent_tx.hash,
+                                                    e.to_string(),
+                                                ),
+                                            )
                                         }
                                     }
                                 }
                             }
-                            Err(e) => TxReceiptResult::RequestError(TxReceiptRequestError::new(sent_tx.hash, e.to_string())),
+                            Err(e) => TxReceiptResult::RequestError(TxReceiptRequestError::new(
+                                sent_tx.hash,
+                                e.to_string(),
+                            )),
                         })
                         .collect::<Vec<TxReceiptResult>>())
                 }),
@@ -282,7 +295,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub struct HashAndAmount {
     pub hash: H256,
-    pub amount: u128,
+    pub amount_minor: u128,
 }
 
 impl BlockchainInterfaceWeb3 {
@@ -1046,17 +1059,19 @@ mod tests {
     fn process_transaction_receipts_works() {
         let port = find_free_port();
         let sent_tx_1 = make_sent_tx(3300);
-        let sent_tx_2 =
-            make_sent_tx(3401);
-        let sent_tx_3 =
-            make_sent_tx(3502);
-        let sent_tx_4 =
-           make_sent_tx(3603);
+        let sent_tx_2 = make_sent_tx(3401);
+        let sent_tx_3 = make_sent_tx(3502);
+        let sent_tx_4 = make_sent_tx(3603);
         let sent_tx_5 = make_sent_tx(3704);
         let sent_tx_6 = make_sent_tx(3805);
         let sent_tx_vec = vec![
-            sent_tx_1, sent_tx_2, sent_tx_3, sent_tx_4.clone(), sent_tx_5.clone(), sent_tx_6.clone(),
-        ];
+            &sent_tx_1,
+            &sent_tx_2,
+            &sent_tx_3,
+            &sent_tx_4,
+            &sent_tx_5,
+            &sent_tx_6,
+        ].into_iter().cloned().collect();
         let block_hash =
             H256::from_str("6d0abccae617442c26104c2bc63d1bc05e1e002e555aec4ab62a46e826b18f18")
                 .unwrap();
@@ -1108,31 +1123,26 @@ mod tests {
             "RPC error: Error { code: ServerError(429), message: \"The requests per second (RPS) of your requests are higher than your plan allows.\", data: None }".to_string())));
         assert_eq!(
             result[1],
-            TxReceiptResult::RpcResponse(SentTxWithLatestStatus::new(
-                sent_tx_2,
-                TxStatus::Pending
-            ))
+            TxReceiptResult::RpcResponse(SentTxWithLatestStatus::new(sent_tx_2, TxStatus::Pending))
         );
         assert_eq!(
             result[2],
             TxReceiptResult::RequestError(TxReceiptRequestError::new(
                 sent_tx_3.hash,
                 "invalid type: string \"trash\", expected struct Receipt".to_string()
-            )
-        ));
+            ))
+        );
         assert_eq!(
             result[3],
-            TxReceiptResult::RpcResponse(SentTxWithLatestStatus::new(
-                                         sent_tx_4, TxStatus::Pending
-            )
-        ));
+            TxReceiptResult::RpcResponse(SentTxWithLatestStatus::new(sent_tx_4, TxStatus::Pending))
+        );
         assert_eq!(
             result[4],
             TxReceiptResult::RpcResponse(SentTxWithLatestStatus::new(
                 sent_tx_5,
                 TxStatus::Failed(TxBlockchainFailure::Unknown)
-            )
-        ));
+            ))
+        );
         assert_eq!(
             result[5],
             TxReceiptResult::RpcResponse(SentTxWithLatestStatus::new(
@@ -1141,8 +1151,7 @@ mod tests {
                     block_hash,
                     block_number,
                 }),
-            )
-            )
+            ))
         )
     }
 
@@ -1151,10 +1160,8 @@ mod tests {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port).start();
         let subject = make_blockchain_interface_web3(port);
-        let sent_tx_1 =
-            make_sent_tx(789);
-        let sent_tx_2 =
-            make_sent_tx(123);
+        let sent_tx_1 = make_sent_tx(789);
+        let sent_tx_2 = make_sent_tx(123);
         let tx_hash_vec = vec![sent_tx_1, sent_tx_2];
 
         let error = subject

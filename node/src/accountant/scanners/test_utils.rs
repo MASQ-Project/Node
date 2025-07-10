@@ -19,8 +19,7 @@ use crate::accountant::scanners::{
     Scanner, StartScanError, StartableScanner,
 };
 use crate::accountant::{
-    ReceivedPayments, TxStatusReport, RequestTransactionReceipts, ResponseSkeleton,
-    SentPayables,
+    ReceivedPayments, RequestTransactionReceipts, ResponseSkeleton, SentPayables, TxStatusReport,
 };
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::sub_lib::blockchain_bridge::{ConsumingWalletBalances, OutboundPaymentsInstructions};
@@ -367,11 +366,7 @@ pub enum ScannerReplacement {
     PendingPayable(
         ReplacementType<
             PendingPayableScanner,
-            ScannerMock<
-                RequestTransactionReceipts,
-                TxStatusReport,
-                PendingPayableScanResult,
-            >,
+            ScannerMock<RequestTransactionReceipts, TxStatusReport, PendingPayableScanResult>,
         >,
     ),
     Receivable(

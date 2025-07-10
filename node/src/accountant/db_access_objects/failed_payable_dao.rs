@@ -11,6 +11,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use web3::types::Address;
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionBlock;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum FailedPayableDaoError {
@@ -64,9 +65,9 @@ impl FromStr for FailureReason {
 pub struct FailedTx {
     pub hash: TxHash,
     pub receiver_address: Address,
-    pub amount: u128,
+    pub amount_minor: u128,
     pub timestamp: i64,
-    pub gas_price_wei: u128,
+    pub gas_price_minor: u128,
     pub nonce: u64,
     pub reason: FailureReason,
     pub status: FailureStatus,
@@ -168,8 +169,8 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
              status
              ) VALUES {}",
             comma_joined_stringifiable(txs, |tx| {
-                let amount_checked = checked_conversion::<u128, i128>(tx.amount);
-                let gas_price_wei_checked = checked_conversion::<u128, i128>(tx.gas_price_wei);
+                let amount_checked = checked_conversion::<u128, i128>(tx.amount_minor);
+                let gas_price_wei_checked = checked_conversion::<u128, i128>(tx.gas_price_minor);
                 let (amount_high_b, amount_low_b) = BigIntDivider::deconstruct(amount_checked);
                 let (gas_price_wei_high_b, gas_price_wei_low_b) =
                     BigIntDivider::deconstruct(gas_price_wei_checked);
@@ -236,11 +237,11 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
                 Address::from_str(&receiver_address_str[2..]).expect("Failed to parse Address");
             let amount_high_b = row.get(2).expectv("amount_high_b");
             let amount_low_b = row.get(3).expectv("amount_low_b");
-            let amount = BigIntDivider::reconstitute(amount_high_b, amount_low_b) as u128;
+            let amount_minor = BigIntDivider::reconstitute(amount_high_b, amount_low_b) as u128;
             let timestamp = row.get(4).expectv("timestamp");
             let gas_price_wei_high_b = row.get(5).expectv("gas_price_wei_high_b");
             let gas_price_wei_low_b = row.get(6).expectv("gas_price_wei_low_b");
-            let gas_price_wei =
+            let gas_price_minor =
                 BigIntDivider::reconstitute(gas_price_wei_high_b, gas_price_wei_low_b) as u128;
             let nonce = row.get(7).expectv("nonce");
             let reason_str: String = row.get(8).expectv("reason");
@@ -253,9 +254,9 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
             Ok(FailedTx {
                 hash,
                 receiver_address,
-                amount,
+                amount_minor,
                 timestamp,
-                gas_price_wei,
+                gas_price_minor,
                 nonce,
                 reason,
                 status,
@@ -444,12 +445,12 @@ mod tests {
                 [FailedTx { \
                 hash: 0x000000000000000000000000000000000000000000000000000000000000007b, \
                 receiver_address: 0x0000000000000000000000000000000000000000, \
-                amount: 0, timestamp: 0, gas_price_wei: 0, \
+                amount_minor: 0, timestamp: 0, gas_price_minor: 0, \
                 nonce: 0, reason: PendingTooLong, status: RetryRequired }, \
                 FailedTx { \
                 hash: 0x000000000000000000000000000000000000000000000000000000000000007b, \
                 receiver_address: 0x0000000000000000000000000000000000000000, \
-                amount: 0, timestamp: 0, gas_price_wei: 0, \
+                amount_minor: 0, timestamp: 0, gas_price_minor: 0, \
                 nonce: 0, reason: PendingTooLong, status: RecheckRequired }]"
                     .to_string()
             ))

@@ -167,7 +167,7 @@ impl Handler<OutboundPaymentsInstructions> for BlockchainBridge {
 
 #[derive(Debug, Clone, PartialEq, Eq, Message)]
 pub struct RegisterNewPendingSentTxMessage {
-    pub new_sent_txs: Vec<SentTx>
+    pub new_sent_txs: Vec<SentTx>,
 }
 
 impl RegisterNewPendingSentTxMessage {
@@ -396,13 +396,11 @@ impl BlockchainBridge {
                 transaction_receipts_results.iter().fold(
                     (0, 0, 0),
                     |(success, fail, pending), transaction_receipt| match transaction_receipt {
-                        TxReceiptResult::RpcResponse(tx_receipt) => {
-                            match tx_receipt.status {
-                                TxStatus::Failed(_) => (success, fail + 1, pending),
-                                TxStatus::Succeeded(_) => (success + 1, fail, pending),
-                                TxStatus::Pending => (success, fail, pending + 1),
-                            }
-                        }
+                        TxReceiptResult::RpcResponse(tx_receipt) => match tx_receipt.status {
+                            TxStatus::Failed(_) => (success, fail + 1, pending),
+                            TxStatus::Succeeded(_) => (success + 1, fail, pending),
+                            TxStatus::Pending => (success, fail, pending + 1),
+                        },
                         TxReceiptResult::RequestError(_) => (success, fail, pending + 1),
                     },
                 );
@@ -897,16 +895,15 @@ mod tests {
         let register_new_pending_sent_tx_msg =
             accountant_recording.get_record::<RegisterNewPendingSentTxMessage>(0);
         let sent_payables_msg = accountant_recording.get_record::<SentPayables>(1);
-        let expected_hash = H256::from_str(
-            "81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c"
-        )
-            .unwrap();
+        let expected_hash =
+            H256::from_str("81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c")
+                .unwrap();
         assert_eq!(
             sent_payables_msg,
             &SentPayables {
                 payment_procedure_result: Ok(vec![Correct(PendingPayable {
-                    recipient_wallet: account.wallet,
-                    hash:expected_hash
+                    recipient_wallet: account.wallet.clone(),
+                    hash: expected_hash
                 })]),
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
@@ -916,13 +913,23 @@ mod tests {
         );
         let first_actual_sent_tx = &register_new_pending_sent_tx_msg.new_sent_txs[0];
         let second_actual_sent_tx = &register_new_pending_sent_tx_msg.new_sent_txs[0];
-        assert_eq!(first_actual_sent_tx.receiver_address, account.wallet.address());
+        assert_eq!(
+            first_actual_sent_tx.receiver_address,
+            account.wallet.address()
+        );
         assert_eq!(first_actual_sent_tx.hash, expected_hash);
-        assert_eq!(first_actual_sent_tx.amount, account.balance_wei);
-        assert_eq!(first_actual_sent_tx.gas_price_wei, 111_222_333);
-        assert_eq!(first_actual_sent_tx.nonce,0);
+        assert_eq!(first_actual_sent_tx.amount_minor, account.balance_wei);
+        assert_eq!(first_actual_sent_tx.gas_price_minor, 111_222_333);
+        assert_eq!(first_actual_sent_tx.nonce, 0);
         assert_eq!(first_actual_sent_tx.block_opt, None);
-        assert!(time_before <= from_unix_timestamp(first_actual_sent_tx.timestamp) && from_unix_timestamp(first_actual_sent_tx.timestamp) <= time_after, "We thought the timestamp was between {:?} and {:?}, but it was {:?}", time_before, time_after, from_unix_timestamp(first_actual_sent_tx.timestamp));
+        assert!(
+            time_before <= from_unix_timestamp(first_actual_sent_tx.timestamp)
+                && from_unix_timestamp(first_actual_sent_tx.timestamp) <= time_after,
+            "We thought the timestamp was between {:?} and {:?}, but it was {:?}",
+            time_before,
+            time_after,
+            from_unix_timestamp(first_actual_sent_tx.timestamp)
+        );
         assert_eq!(accountant_recording.len(), 2);
     }
 
@@ -992,14 +999,27 @@ mod tests {
                 .unwrap_err(),
             "Transport error: Error(IncompleteMessage)",
         );
-        assert_eq!(actual_pending_payable_fingerprint_seeds_msg.new_sent_txs[0].receiver_address, account_wallet.address());
-        assert_eq!(actual_pending_payable_fingerprint_seeds_msg.new_sent_txs[0].hash, H256::from_str(
-            "81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c"
-        )
-            .unwrap());
-        assert_eq!(actual_pending_payable_fingerprint_seeds_msg.new_sent_txs[0].amount, account.balance_wei);
-        let number_of_requested_txs = actual_pending_payable_fingerprint_seeds_msg.new_sent_txs.len();
-        assert_eq!(number_of_requested_txs, 1, "We expected only one sent tx, but got {}", number_of_requested_txs);
+        assert_eq!(
+            actual_pending_payable_fingerprint_seeds_msg.new_sent_txs[0].receiver_address,
+            account_wallet.address()
+        );
+        assert_eq!(
+            actual_pending_payable_fingerprint_seeds_msg.new_sent_txs[0].hash,
+            H256::from_str("81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c")
+                .unwrap()
+        );
+        assert_eq!(
+            actual_pending_payable_fingerprint_seeds_msg.new_sent_txs[0].amount_minor,
+            account.balance_wei
+        );
+        let number_of_requested_txs = actual_pending_payable_fingerprint_seeds_msg
+            .new_sent_txs
+            .len();
+        assert_eq!(
+            number_of_requested_txs, 1,
+            "We expected only one sent tx, but got {}",
+            number_of_requested_txs
+        );
         assert_eq!(
             *scan_error_msg,
             ScanError {
@@ -1175,10 +1195,7 @@ mod tests {
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         send_bind_message!(subject_subs, peer_actors);
         let msg = RequestTransactionReceipts {
-            sent_tx: vec![
-                sent_tx_1.clone(),
-                sent_tx_2.clone(),
-            ],
+            sent_tx: vec![sent_tx_1.clone(), sent_tx_2.clone()],
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 1234,
                 context_id: 4321,
@@ -1191,8 +1208,7 @@ mod tests {
         system.run();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 1);
-        let tx_status_report_message =
-            accountant_recording.get_record::<TxStatusReport>(0);
+        let tx_status_report_message = accountant_recording.get_record::<TxStatusReport>(0);
         let mut expected_receipt = TransactionReceipt::default();
         expected_receipt.transaction_hash = hash_1;
         expected_receipt.status = Some(U64::from(1));
@@ -1200,12 +1216,14 @@ mod tests {
             tx_status_report_message,
             &TxStatusReport {
                 results: vec![
-                        TxReceiptResult::RpcResponse(
-                            SentTxWithLatestStatus::new(sent_tx_1, expected_receipt.into())),
-                        TxReceiptResult::RpcResponse(SentTxWithLatestStatus::new(
-                            sent_tx_2,
-                            TxStatus::Pending
-                        ))
+                    TxReceiptResult::RpcResponse(SentTxWithLatestStatus::new(
+                        sent_tx_1,
+                        expected_receipt.into()
+                    )),
+                    TxReceiptResult::RpcResponse(SentTxWithLatestStatus::new(
+                        sent_tx_2,
+                        TxStatus::Pending
+                    ))
                 ],
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
@@ -1294,10 +1312,7 @@ mod tests {
             .start();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let accountant_addr = accountant
-            .system_stop_conditions(match_lazily_every_type_id!(
-                TxStatusReport,
-                ScanError
-            ))
+            .system_stop_conditions(match_lazily_every_type_id!(TxStatusReport, ScanError))
             .start();
         let report_transaction_receipt_recipient: Recipient<TxStatusReport> =
             accountant_addr.clone().recipient();
@@ -1376,8 +1391,7 @@ mod tests {
             .system_stop_conditions(match_lazily_every_type_id!(ScanError))
             .start();
         let scan_error_recipient: Recipient<ScanError> = accountant_addr.clone().recipient();
-        let report_transaction_recipient: Recipient<TxStatusReport> =
-            accountant_addr.recipient();
+        let report_transaction_recipient: Recipient<TxStatusReport> = accountant_addr.recipient();
         let hash_1 = make_tx_hash(0x1b2e6);
         let sent_tx_1 = make_sent_tx(123);
         let sent_tx_2 = make_sent_tx(456);

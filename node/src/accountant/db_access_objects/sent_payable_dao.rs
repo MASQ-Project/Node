@@ -26,9 +26,9 @@ pub enum SentPayableDaoError {
 pub struct SentTx {
     pub hash: TxHash,
     pub receiver_address: Address,
-    pub amount: u128,
+    pub amount_minor: u128,
     pub timestamp: i64,
-    pub gas_price_wei: u128,
+    pub gas_price_minor: u128,
     pub nonce: u64,
     pub block_opt: Option<TransactionBlock>,
 }
@@ -138,8 +138,8 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
              block_number
              ) VALUES {}",
             comma_joined_stringifiable(txs, |tx| {
-                let amount_checked = checked_conversion::<u128, i128>(tx.amount);
-                let gas_price_wei_checked = checked_conversion::<u128, i128>(tx.gas_price_wei);
+                let amount_checked = checked_conversion::<u128, i128>(tx.amount_minor);
+                let gas_price_wei_checked = checked_conversion::<u128, i128>(tx.gas_price_minor);
                 let (amount_high_b, amount_low_b) = BigIntDivider::deconstruct(amount_checked);
                 let (gas_price_wei_high_b, gas_price_wei_low_b) =
                     BigIntDivider::deconstruct(gas_price_wei_checked);
@@ -200,11 +200,11 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
                 Address::from_str(&receiver_address_str[2..]).expect("Failed to parse H160");
             let amount_high_b = row.get(2).expectv("amount_high_b");
             let amount_low_b = row.get(3).expectv("amount_low_b");
-            let amount = BigIntDivider::reconstitute(amount_high_b, amount_low_b) as u128;
+            let amount_minor = BigIntDivider::reconstitute(amount_high_b, amount_low_b) as u128;
             let timestamp = row.get(4).expectv("timestamp");
             let gas_price_wei_high_b = row.get(5).expectv("gas_price_wei_high_b");
             let gas_price_wei_low_b = row.get(6).expectv("gas_price_wei_low_b");
-            let gas_price_wei =
+            let gas_price_minor =
                 BigIntDivider::reconstitute(gas_price_wei_high_b, gas_price_wei_low_b) as u128;
             let nonce = row.get(7).expectv("nonce");
             let block_hash_opt: Option<H256> = {
@@ -229,9 +229,9 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
             Ok(SentTx {
                 hash,
                 receiver_address,
-                amount,
+                amount_minor,
                 timestamp,
-                gas_price_wei,
+                gas_price_minor,
                 nonce,
                 block_opt,
             })
@@ -290,23 +290,23 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
         let tx_hash_cases = build_case(|tx| format!("'{:?}'", tx.hash));
         let receiver_address_cases = build_case(|tx| format!("'{:?}'", tx.receiver_address));
         let amount_high_b_cases = build_case(|tx| {
-            let amount_checked = checked_conversion::<u128, i128>(tx.amount);
+            let amount_checked = checked_conversion::<u128, i128>(tx.amount_minor);
             let (high, _) = BigIntDivider::deconstruct(amount_checked);
             high.to_string()
         });
         let amount_low_b_cases = build_case(|tx| {
-            let amount_checked = checked_conversion::<u128, i128>(tx.amount);
+            let amount_checked = checked_conversion::<u128, i128>(tx.amount_minor);
             let (_, low) = BigIntDivider::deconstruct(amount_checked);
             low.to_string()
         });
         let timestamp_cases = build_case(|tx| tx.timestamp.to_string());
         let gas_price_wei_high_b_cases = build_case(|tx| {
-            let gas_price_wei_checked = checked_conversion::<u128, i128>(tx.gas_price_wei);
+            let gas_price_wei_checked = checked_conversion::<u128, i128>(tx.gas_price_minor);
             let (high, _) = BigIntDivider::deconstruct(gas_price_wei_checked);
             high.to_string()
         });
         let gas_price_wei_low_b_cases = build_case(|tx| {
-            let gas_price_wei_checked = checked_conversion::<u128, i128>(tx.gas_price_wei);
+            let gas_price_wei_checked = checked_conversion::<u128, i128>(tx.gas_price_minor);
             let (_, low) = BigIntDivider::deconstruct(gas_price_wei_checked);
             low.to_string()
         });
@@ -497,12 +497,12 @@ mod tests {
                 [SentTx { \
                 hash: 0x00000000000000000000000000000000000000000000000000000000000004d2, \
                 receiver_address: 0x0000000000000000000000000000000000000000, \
-                amount: 0, timestamp: 1749204017, gas_price_wei: 0, \
+                amount_minor: 0, timestamp: 1749204017, gas_price_minor: 0, \
                 nonce: 0, block_opt: None }, \
                 SentTx { \
                 hash: 0x00000000000000000000000000000000000000000000000000000000000004d2, \
                 receiver_address: 0x0000000000000000000000000000000000000000, \
-                amount: 0, timestamp: 1749204020, gas_price_wei: 0, \
+                amount_minor: 0, timestamp: 1749204020, gas_price_minor: 0, \
                 nonce: 0, block_opt: Some(TransactionBlock { \
                 block_hash: 0x0000000000000000000000000000000000000000000000000000000000000000, \
                 block_number: 0 }) }]"

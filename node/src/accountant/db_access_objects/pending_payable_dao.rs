@@ -111,7 +111,7 @@ impl SentPayableDao for PendingPayableDaoReal<'_> {
     //                 )
     //             }),
     //             attempt,
-    //             amount: checked_conversion::<i128, u128>(BigIntDivider::reconstitute(
+    //             amount_minor: checked_conversion::<i128, u128>(BigIntDivider::reconstitute(
     //                 amount_high_bytes,
     //                 amount_low_bytes,
     //             )),
@@ -291,11 +291,11 @@ mod tests {
     //     let subject = PendingPayableDaoReal::new(wrapped_conn);
     //     let hash_and_amount_1 = HashAndAmount {
     //         hash: hash_1,
-    //         amount: amount_1,
+    //         amount_minor: amount_1,
     //     };
     //     let hash_and_amount_2 = HashAndAmount {
     //         hash: hash_2,
-    //         amount: amount_2,
+    //         amount_minor: amount_2,
     //     };
     //
     //     let _ = subject
@@ -314,7 +314,7 @@ mod tests {
     //                 timestamp: batch_wide_timestamp,
     //                 hash: hash_and_amount_1.hash,
     //                 attempt: 1,
-    //                 amount: hash_and_amount_1.amount,
+    //                 amount_minor: hash_and_amount_1.amount,
     //                 process_error: None
     //             },
     //             SentTx {
@@ -322,7 +322,7 @@ mod tests {
     //                 timestamp: batch_wide_timestamp,
     //                 hash: hash_and_amount_2.hash,
     //                 attempt: 1,
-    //                 amount: hash_and_amount_2.amount,
+    //                 amount_minor: hash_and_amount_2.amount,
     //                 process_error: None
     //             }
     //         ]
@@ -381,7 +381,7 @@ mod tests {
     //     let subject = PendingPayableDaoReal::new(Box::new(wrapped_conn));
     //     let hash_and_amount = HashAndAmount {
     //         hash: hash_1,
-    //         amount: amount_1,
+    //         amount_minor: amount_1,
     //     };
     //
     //     let _ = subject.insert_new_fingerprints(&[hash_and_amount], batch_wide_timestamp);
@@ -408,11 +408,11 @@ mod tests {
     //             .unwrap();
     //     let hash_and_amount_1 = HashAndAmount {
     //         hash: hash_1,
-    //         amount: 4567,
+    //         amount_minor: 4567,
     //     };
     //     let hash_and_amount_2 = HashAndAmount {
     //         hash: hash_2,
-    //         amount: 6789,
+    //         amount_minor: 6789,
     //     };
     //     let fingerprints_init_input = vec![hash_and_amount_1, hash_and_amount_2];
     //     {
@@ -461,7 +461,7 @@ mod tests {
     //         .insert_new_fingerprints(
     //             &[HashAndAmount {
     //                 hash: hash_2,
-    //                 amount: 8901234,
+    //                 amount_minor: 8901234,
     //             }],
     //             SystemTime::now(),
     //         )
@@ -470,7 +470,7 @@ mod tests {
     //         .insert_new_fingerprints(
     //             &[HashAndAmount {
     //                 hash: hash_3,
-    //                 amount: 1234567,
+    //                 amount_minor: 1234567,
     //             }],
     //             SystemTime::now(),
     //         )
@@ -500,11 +500,11 @@ mod tests {
     //     let amount_2 = 333;
     //     let hash_and_amount_1 = HashAndAmount {
     //         hash: hash_1,
-    //         amount: amount_1,
+    //         amount_minor: amount_1,
     //     };
     //     let hash_and_amount_2 = HashAndAmount {
     //         hash: hash_2,
-    //         amount: amount_2,
+    //         amount_minor: amount_2,
     //     };
     //
     //     {
@@ -526,7 +526,7 @@ mod tests {
     //                 timestamp: batch_wide_timestamp,
     //                 hash: hash_1,
     //                 attempt: 1,
-    //                 amount: amount_1,
+    //                 amount_minor: amount_1,
     //                 process_error: None
     //             },
     //             SentTx {
@@ -534,7 +534,7 @@ mod tests {
     //                 timestamp: batch_wide_timestamp,
     //                 hash: hash_2,
     //                 attempt: 1,
-    //                 amount: amount_2,
+    //                 amount_minor: amount_2,
     //                 process_error: None
     //             }
     //         ]
@@ -556,7 +556,7 @@ mod tests {
     //     let amount = 333;
     //     let hash_and_amount_1 = HashAndAmount {
     //         hash: make_tx_hash(11119),
-    //         amount: 2000,
+    //         amount_minor: 2000,
     //     };
     //     let hash_and_amount_2 = HashAndAmount { hash, amount };
     //     {
@@ -623,15 +623,15 @@ mod tests {
     //                 &[
     //                     HashAndAmount {
     //                         hash: make_tx_hash(1234),
-    //                         amount: 1111,
+    //                         amount_minor: 1111,
     //                     },
     //                     HashAndAmount {
     //                         hash: make_tx_hash(2345),
-    //                         amount: 5555,
+    //                         amount_minor: 5555,
     //                     },
     //                     HashAndAmount {
     //                         hash: make_tx_hash(3456),
-    //                         amount: 2222,
+    //                         amount_minor: 2222,
     //                     },
     //                 ],
     //                 SystemTime::now(),
@@ -699,7 +699,7 @@ mod tests {
     //             .insert_new_fingerprints(
     //                 &[HashAndAmount {
     //                     hash: make_tx_hash(666666),
-    //                     amount: 5555,
+    //                     amount_minor: 5555,
     //                 }],
     //                 SystemTime::now(),
     //             )
@@ -723,15 +723,15 @@ mod tests {
     //     let hash_3 = make_tx_hash(567);
     //     let hash_and_amount_1 = HashAndAmount {
     //         hash: hash_1,
-    //         amount: 1122,
+    //         amount_minor: 1122,
     //     };
     //     let hash_and_amount_2 = HashAndAmount {
     //         hash: hash_2,
-    //         amount: 2233,
+    //         amount_minor: 2233,
     //     };
     //     let hash_and_amount_3 = HashAndAmount {
     //         hash: hash_3,
-    //         amount: 3344,
+    //         amount_minor: 3344,
     //     };
     //     let timestamp = from_unix_timestamp(190_000_000);
     //     let subject = PendingPayableDaoReal::new(conn);
@@ -819,11 +819,11 @@ mod tests {
     //     let amount_2 = 2345;
     //     let hash_and_amount_1 = HashAndAmount {
     //         hash: hash_1,
-    //         amount: amount_1,
+    //         amount_minor: amount_1,
     //     };
     //     let hash_and_amount_2 = HashAndAmount {
     //         hash: hash_2,
-    //         amount: amount_2,
+    //         amount_minor: amount_2,
     //     };
     //     let timestamp = from_unix_timestamp(190_000_000);
     //     let subject = PendingPayableDaoReal::new(conn);
@@ -854,7 +854,7 @@ mod tests {
     //                 timestamp: from_unix_timestamp(timestamp),
     //                 hash: H256::from_str(&transaction_hash[2..]).unwrap(),
     //                 attempt,
-    //                 amount: checked_conversion::<i128, u128>(BigIntDivider::reconstitute(
+    //                 amount_minor: checked_conversion::<i128, u128>(BigIntDivider::reconstitute(
     //                     amount_high_b,
     //                     amount_low_b,
     //                 )),
@@ -872,7 +872,7 @@ mod tests {
     //                 timestamp,
     //                 hash: hash_1,
     //                 attempt: 1,
-    //                 amount: amount_1,
+    //                 amount_minor: amount_1,
     //                 process_error: None
     //             },
     //             SentTx {
@@ -880,7 +880,7 @@ mod tests {
     //                 timestamp,
     //                 hash: hash_2,
     //                 attempt: 1,
-    //                 amount: amount_2,
+    //                 amount_minor: amount_2,
     //                 process_error: Some("ERROR".to_string())
     //             }
     //         ]
