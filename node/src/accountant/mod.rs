@@ -1189,7 +1189,6 @@ where
 
 pub fn join_with_separator<T, F, I>(collection: I, stringify: F, separator: &str) -> String
 where
-    T: Hash + Eq,
     F: Fn(&T) -> String,
     I: IntoIterator<Item = T>,
 {

@@ -3,7 +3,7 @@ use crate::accountant::db_access_objects::utils::{
     DaoFactoryReal, TxHash, TxIdentifiers, VigilantRusqliteFlatten,
 };
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
-use crate::accountant::{checked_conversion, comma_joined_stringifiable};
+use crate::accountant::{checked_conversion, join_with_separator};
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use itertools::Itertools;
 use masq_lib::utils::ExpectValue;
@@ -112,10 +112,9 @@ impl<'a> FailedPayableDaoReal<'a> {
 
 impl FailedPayableDao for FailedPayableDaoReal<'_> {
     fn get_tx_identifiers(&self, hashes: &HashSet<TxHash>) -> TxIdentifiers {
-        let hashes_vec: Vec<TxHash> = hashes.iter().copied().collect();
         let sql = format!(
             "SELECT tx_hash, rowid FROM failed_payable WHERE tx_hash IN ({})",
-            comma_joined_stringifiable(&hashes_vec, |hash| format!("'{:?}'", hash))
+            join_with_separator(hashes, |hash| format!("'{:?}'", hash), ", ")
         );
 
         let mut stmt = self
@@ -169,26 +168,30 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
              reason, \
              status
              ) VALUES {}",
-            comma_joined_stringifiable(txs, |tx| {
-                let amount_checked = checked_conversion::<u128, i128>(tx.amount);
-                let gas_price_wei_checked = checked_conversion::<u128, i128>(tx.gas_price_wei);
-                let (amount_high_b, amount_low_b) = BigIntDivider::deconstruct(amount_checked);
-                let (gas_price_wei_high_b, gas_price_wei_low_b) =
-                    BigIntDivider::deconstruct(gas_price_wei_checked);
-                format!(
-                    "('{:?}', '{:?}', {}, {}, {}, {}, {}, {}, '{:?}', '{:?}')",
-                    tx.hash,
-                    tx.receiver_address,
-                    amount_high_b,
-                    amount_low_b,
-                    tx.timestamp,
-                    gas_price_wei_high_b,
-                    gas_price_wei_low_b,
-                    tx.nonce,
-                    tx.reason,
-                    tx.status
-                )
-            })
+            join_with_separator(
+                txs,
+                |tx| {
+                    let amount_checked = checked_conversion::<u128, i128>(tx.amount);
+                    let gas_price_wei_checked = checked_conversion::<u128, i128>(tx.gas_price_wei);
+                    let (amount_high_b, amount_low_b) = BigIntDivider::deconstruct(amount_checked);
+                    let (gas_price_wei_high_b, gas_price_wei_low_b) =
+                        BigIntDivider::deconstruct(gas_price_wei_checked);
+                    format!(
+                        "('{:?}', '{:?}', {}, {}, {}, {}, {}, {}, '{:?}', '{:?}')",
+                        tx.hash,
+                        tx.receiver_address,
+                        amount_high_b,
+                        amount_low_b,
+                        tx.timestamp,
+                        gas_price_wei_high_b,
+                        gas_price_wei_low_b,
+                        tx.nonce,
+                        tx.reason,
+                        tx.status
+                    )
+                },
+                ", "
+            )
         );
 
         match self.conn.prepare(&sql).expect("Internal error").execute([]) {
@@ -276,13 +279,13 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
             return Err(FailedPayableDaoError::EmptyInput);
         }
 
-        let case_statements = status_updates
-            .iter()
-            .map(|(hash, status)| format!("WHEN tx_hash = '{:?}' THEN '{:?}'", hash, status))
-            .join(" ");
-        let tx_hashes = comma_joined_stringifiable(&status_updates.keys().collect_vec(), |hash| {
-            format!("'{:?}'", hash)
-        });
+        let case_statements = join_with_separator(
+            &status_updates,
+            |(hash, status)| format!("WHEN tx_hash = '{:?}' THEN '{:?}'", hash, status),
+            " ",
+        );
+        let tx_hashes =
+            join_with_separator(status_updates.keys(), |hash| format!("'{:?}'", hash), ", ");
 
         let sql = format!(
             "UPDATE failed_payable \
@@ -314,10 +317,9 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
             return Err(FailedPayableDaoError::EmptyInput);
         }
 
-        let hashes_vec: Vec<TxHash> = hashes.iter().cloned().collect();
         let sql = format!(
             "DELETE FROM failed_payable WHERE tx_hash IN ({})",
-            comma_joined_stringifiable(&hashes_vec, |hash| { format!("'{:?}'", hash) })
+            join_with_separator(hashes, |hash| { format!("'{:?}'", hash) }, ", ")
         );
 
         match self.conn.prepare(&sql).expect("Internal error").execute([]) {
