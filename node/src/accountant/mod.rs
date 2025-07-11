@@ -71,6 +71,7 @@ use std::any::type_name;
 #[cfg(test)]
 use std::default::Default;
 use std::fmt::Display;
+use std::hash::Hash;
 use std::ops::{Div, Mul};
 use std::path::Path;
 use std::rc::Rc;
@@ -1184,6 +1185,19 @@ where
     F: FnMut(&T) -> String,
 {
     collection.iter().map(stringify).join(", ")
+}
+
+pub fn join_with_separator<T, F, I>(collection: I, stringify: F, separator: &str) -> String
+where
+    T: Hash + Eq,
+    F: Fn(&T) -> String,
+    I: IntoIterator<Item = T>,
+{
+    collection
+        .into_iter()
+        .map(|item| stringify(&item))
+        .collect::<Vec<String>>()
+        .join(separator)
 }
 
 pub fn sign_conversion<T: Copy, S: TryFrom<T>>(num: T) -> Result<S, T> {
@@ -6259,6 +6273,7 @@ pub mod exportable_test_parts {
         check_if_source_code_is_attached, ensure_node_home_directory_exists, ShouldWeRunTheTest,
     };
     use regex::Regex;
+    use std::collections::HashSet;
     use std::env::current_dir;
     use std::fs::File;
     use std::io::{BufRead, BufReader};
@@ -6434,5 +6449,28 @@ pub mod exportable_test_parts {
         assert_eq!(system.run(), 0);
         // We didn't blow up, it recognized the functions.
         // This is an example of the error: "no such function: slope_drop_high_bytes"
+    }
+
+    #[test]
+    fn join_with_separator_works() {
+        // With a Vec
+        let vec = vec![1, 2, 3];
+        let result_vec = join_with_separator(vec, |&num| num.to_string(), ", ");
+        assert_eq!(result_vec, "1, 2, 3".to_string());
+
+        // With a HashSet
+        let set = HashSet::from([1, 2, 3]);
+        let result_set = join_with_separator(set, |&num| num.to_string(), ", ");
+        assert_eq!(result_vec, "1, 2, 3".to_string());
+
+        // With a slice
+        let slice = &[1, 2, 3];
+        let result_slice = join_with_separator(slice.to_vec(), |&num| num.to_string(), ", ");
+        assert_eq!(result_vec, "1, 2, 3".to_string());
+
+        // With an array
+        let array = [1, 2, 3];
+        let result_array = join_with_separator(array.to_vec(), |&num| num.to_string(), ", ");
+        assert_eq!(result_vec, "1, 2, 3".to_string());
     }
 }
