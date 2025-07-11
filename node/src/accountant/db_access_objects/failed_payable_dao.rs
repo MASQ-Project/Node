@@ -138,13 +138,15 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
             return Err(FailedPayableDaoError::EmptyInput);
         }
 
-        let unique_hashes: HashSet<TxHash> = txs
-            .iter()
-            .map(|tx| {
-                eprintln!("Hash: {}", tx.hash);
-                tx.hash
-            })
-            .collect();
+        // Sorted by timestamp and nonce (in descending order)
+        let mut txs: Vec<&FailedTx> = txs.iter().collect();
+        txs.sort_by(|a, b| {
+            b.timestamp
+                .cmp(&a.timestamp)
+                .then_with(|| b.nonce.cmp(&a.nonce))
+        });
+
+        let unique_hashes: HashSet<TxHash> = txs.iter().map(|tx| tx.hash).collect();
         if unique_hashes.len() != txs.len() {
             return Err(FailedPayableDaoError::InvalidInput(format!(
                 "Duplicate hashes found in the input. Input Transactions: {:?}",
@@ -160,14 +162,6 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
             )));
         }
 
-        // Sorted by timestamp and nonce (in descending order)
-        let mut sorted_txs: Vec<&FailedTx> = txs.iter().collect();
-        sorted_txs.sort_by(|a, b| {
-            b.timestamp
-                .cmp(&a.timestamp)
-                .then_with(|| b.nonce.cmp(&a.nonce))
-        });
-
         let sql = format!(
             "INSERT INTO failed_payable (\
              tx_hash, \
@@ -182,7 +176,7 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
              status
              ) VALUES {}",
             join_with_separator(
-                sorted_txs,
+                &txs,
                 |tx| {
                     let amount_checked = checked_conversion::<u128, i128>(tx.amount);
                     let gas_price_wei_checked = checked_conversion::<u128, i128>(tx.gas_price_wei);
@@ -463,16 +457,16 @@ mod tests {
             result,
             Err(FailedPayableDaoError::InvalidInput(
                 "Duplicate hashes found in the input. Input Transactions: \
-                {FailedTx { \
+                [FailedTx { \
                 hash: 0x000000000000000000000000000000000000000000000000000000000000007b, \
                 receiver_address: 0x0000000000000000000000000000000000000000, \
                 amount: 0, timestamp: 1719990000, gas_price_wei: 0, \
-                nonce: 1, reason: PendingTooLong, status: RetryRequired }, \
+                nonce: 2, reason: PendingTooLong, status: RecheckRequired }, \
                 FailedTx { \
                 hash: 0x000000000000000000000000000000000000000000000000000000000000007b, \
                 receiver_address: 0x0000000000000000000000000000000000000000, \
                 amount: 0, timestamp: 1719990000, gas_price_wei: 0, \
-                nonce: 2, reason: PendingTooLong, status: RecheckRequired }}"
+                nonce: 1, reason: PendingTooLong, status: RetryRequired }]"
                     .to_string()
             ))
         );
