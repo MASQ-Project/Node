@@ -44,7 +44,7 @@ use time::format_description::parse;
 use time::OffsetDateTime;
 use variant_count::VariantCount;
 use web3::types::H256;
-use crate::accountant::db_access_objects::failed_payable_dao::{FailedPayableDao, FailedTx, FailureReason, FailureStatus};
+use crate::accountant::db_access_objects::failed_payable_dao::{FailedPayableDao, FailedPayableDaoError, FailedTx, FailureReason, FailureStatus};
 use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::ByHash;
 use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDao;
 use crate::accountant::db_access_objects::utils::{RowId, TxHash, TxIdentifiers};
@@ -857,12 +857,41 @@ impl PayableScanner {
         }
     }
 
-    // fn migrate_from_sent_payable_to_failed_payable(
-    //     &self,
-    //     failed_txs: &[FailedTx],
-    // ) -> Result<(), String> {
-    //
-    // }
+    fn migrate_from_sent_payable_to_failed_payable(
+        &self,
+        hashes: &HashSet<TxHash>,
+    ) -> Result<(), String> {
+        let hashes_vec = hashes.clone().into_iter().collect();
+        let failed_txs: Vec<FailedTx> = self
+            .sent_payable_dao
+            .retrieve_txs(Some(ByHash(hashes_vec)))
+            .into_iter()
+            .map(|tx| FailedTx {
+                hash: tx.hash,
+                receiver_address: tx.receiver_address,
+                amount: tx.amount,
+                timestamp: tx.timestamp,
+                gas_price_wei: tx.gas_price_wei,
+                nonce: tx.nonce,
+                reason: FailureReason::LocalSendingFailed,
+                status: FailureStatus::RetryRequired,
+            })
+            .collect();
+
+        if let Err(e) = self.failed_payable_dao.insert_new_records(&failed_txs) {
+            return Err(format!("During Insertion in FailedPayable Table: {:?}", e));
+        }
+
+        if let Err(e) = self.sent_payable_dao.delete_records(hashes) {
+            return Err(format!("During Deletion in FailedPayable Table: {:?}", e));
+        };
+
+        Ok(())
+    }
+
+    fn serialize_hashes(hashes: &[H256]) -> String {
+        comma_joined_stringifiable(hashes, |hash| format!("{:?}", hash))
+    }
 
     fn discard_failed_transactions_with_possible_fingerprints(
         &self,
@@ -870,97 +899,28 @@ impl PayableScanner {
         logger: &Logger,
     ) {
         // TODO: GH-605: We should transfer the payables to the FailedPayableDao
-        fn serialize_hashes(hashes: &[H256]) -> String {
-            comma_joined_stringifiable(hashes, |hash| format!("{:?}", hash))
-        }
         let hashset = hashes_of_failed.iter().cloned().collect::<HashSet<H256>>();
         if hashset.len() < hashes_of_failed.len() {
             warning!(
                 logger,
                 "Some hashes were duplicated, this may be due to a bug in our code: {}",
-                serialize_hashes(&hashes_of_failed)
+                Self::serialize_hashes(&hashes_of_failed)
             )
         }
         let tx_identifiers = self.sent_payable_dao.get_tx_identifiers(&hashset);
-        if let Some(absent_hashes) = Self::find_absent_tx_hashes(&tx_identifiers, hashset) {
-            panic!(
-                "Ran into failed transactions {} with missing fingerprints. System no longer reliable",
-                serialize_hashes(&absent_hashes.into_iter().collect::<Vec<TxHash>>())
-            )
-        };
-
         if !tx_identifiers.is_empty() {
-            // let (ids, hashes): (Vec<RowId>, Vec<TxHash>) = tx_identifiers
-            //     .into_iter()
-            //     .collect::<Vec<(TxHash, RowId)>>()
-            //     .into_iter()
-            //     .unzip();
-            let (hashes, ids): (Vec<TxHash>, Vec<RowId>) = tx_identifiers.into_iter().unzip();
-            warning!(
-                logger,
-                "Deleting fingerprints for failed transactions {}",
-                serialize_hashes(&hashes)
-            );
-            let sent_txs = self
-                .sent_payable_dao
-                .retrieve_txs(Some(ByHash(hashes.clone())));
-            let failed_txs: Vec<FailedTx> = sent_txs
-                .iter()
-                .map(|tx| FailedTx {
-                    hash: tx.hash,
-                    receiver_address: tx.receiver_address,
-                    amount: tx.amount,
-                    timestamp: tx.timestamp,
-                    gas_price_wei: tx.gas_price_wei,
-                    nonce: tx.nonce,
-                    reason: FailureReason::LocalSendingFailed,
-                    status: FailureStatus::RetryRequired,
-                })
-                .collect();
+            let tx_hashes: HashSet<TxHash> = tx_identifiers.keys().cloned().collect();
+            if let Err(e) = self.migrate_from_sent_payable_to_failed_payable(&tx_hashes) {
+                panic!("While migrating transactions from SentPayable table to FailedPayable Table: {}", e);
+            }
 
-            self.failed_payable_dao
-                .insert_new_records(&failed_txs)
-                .unwrap();
-
-            self.sent_payable_dao
-                .delete_records(&hashes.clone().into_iter().collect())
-                .unwrap()
-
-            // if let Err(e) = self.pending_payable_dao.delete_fingerprints(&ids) {
-            //     if let Some(msg) = missing_fgp_err_msg_opt {
-            //         error!(logger, "{}", msg)
-            //     };
-            //     panic!(
-            //         "Database corrupt: payable fingerprint deletion for transactions {} \
-            //             failed due to {:?}",
-            //         serialize_hashes(&hashes),
-            //         e
-            //     )
-            // }
+            if let Some(absent_hashes) = Self::find_absent_tx_hashes(&tx_identifiers, hashset) {
+                panic!(
+                    "Ran into failed transactions {} with missing fingerprints. System no longer reliable",
+                    Self::serialize_hashes(&absent_hashes.into_iter().collect::<Vec<TxHash>>())
+                )
+            };
         }
-
-        // if !existent_and_nonexistent.rowid_results.is_empty() {
-        //     let (ids, hashes) = separate_rowids_and_hashes(existent_and_nonexistent.rowid_results);
-        //     warning!(
-        //         logger,
-        //         "Deleting fingerprints for failed transactions {}",
-        //         serialize_hashes(&hashes)
-        //     );
-        //     if let Err(e) = self.pending_payable_dao.delete_fingerprints(&ids) {
-        //         if let Some(msg) = missing_fgp_err_msg_opt {
-        //             error!(logger, "{}", msg)
-        //         };
-        //         panic!(
-        //             "Database corrupt: payable fingerprint deletion for transactions {} \
-        //             failed due to {:?}",
-        //             serialize_hashes(&hashes),
-        //             e
-        //         )
-        //     }
-        // }
-        // if let Some(msg) = missing_fgp_err_msg_opt {
-        //     panic!("{}", msg)
-        // };
     }
 }
 
