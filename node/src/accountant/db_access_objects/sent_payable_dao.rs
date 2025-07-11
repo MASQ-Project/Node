@@ -6,7 +6,7 @@ use std::str::FromStr;
 use ethereum_types::{H256, U64};
 use web3::types::Address;
 use masq_lib::utils::ExpectValue;
-use crate::accountant::{checked_conversion, comma_joined_stringifiable};
+use crate::accountant::{checked_conversion, join_with_separator};
 use crate::accountant::db_access_objects::utils::{DaoFactoryReal, TxHash, TxIdentifiers};
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock};
@@ -49,7 +49,7 @@ impl Display for RetrieveCondition {
                 write!(
                     f,
                     "WHERE tx_hash IN ({})",
-                    comma_joined_stringifiable(tx_hashes, |hash| format!("'{:?}'", hash))
+                    join_with_separator(tx_hashes, |hash| format!("'{:?}'", hash), ", ")
                 )
             }
         }
@@ -81,10 +81,9 @@ impl<'a> SentPayableDaoReal<'a> {
 
 impl SentPayableDao for SentPayableDaoReal<'_> {
     fn get_tx_identifiers(&self, hashes: &HashSet<TxHash>) -> TxIdentifiers {
-        let hashes_vec: Vec<TxHash> = hashes.iter().copied().collect();
         let sql = format!(
             "SELECT tx_hash, rowid FROM sent_payable WHERE tx_hash IN ({})",
-            comma_joined_stringifiable(&hashes_vec, |hash| format!("'{:?}'", hash))
+            join_with_separator(hashes, |hash| format!("'{:?}'", hash), ", ")
         );
 
         let mut stmt = self
@@ -138,29 +137,33 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
              block_hash, \
              block_number
              ) VALUES {}",
-            comma_joined_stringifiable(txs, |tx| {
-                let amount_checked = checked_conversion::<u128, i128>(tx.amount);
-                let gas_price_wei_checked = checked_conversion::<u128, i128>(tx.gas_price_wei);
-                let (amount_high_b, amount_low_b) = BigIntDivider::deconstruct(amount_checked);
-                let (gas_price_wei_high_b, gas_price_wei_low_b) =
-                    BigIntDivider::deconstruct(gas_price_wei_checked);
-                let block_details = match &tx.block_opt {
-                    Some(block) => format!("'{:?}', {}", block.block_hash, block.block_number),
-                    None => "null, null".to_string(),
-                };
-                format!(
-                    "('{:?}', '{:?}', {}, {}, {}, {}, {}, {}, {})",
-                    tx.hash,
-                    tx.receiver_address,
-                    amount_high_b,
-                    amount_low_b,
-                    tx.timestamp,
-                    gas_price_wei_high_b,
-                    gas_price_wei_low_b,
-                    tx.nonce,
-                    block_details
-                )
-            })
+            join_with_separator(
+                txs,
+                |tx| {
+                    let amount_checked = checked_conversion::<u128, i128>(tx.amount);
+                    let gas_price_wei_checked = checked_conversion::<u128, i128>(tx.gas_price_wei);
+                    let (amount_high_b, amount_low_b) = BigIntDivider::deconstruct(amount_checked);
+                    let (gas_price_wei_high_b, gas_price_wei_low_b) =
+                        BigIntDivider::deconstruct(gas_price_wei_checked);
+                    let block_details = match &tx.block_opt {
+                        Some(block) => format!("'{:?}', {}", block.block_hash, block.block_number),
+                        None => "null, null".to_string(),
+                    };
+                    format!(
+                        "('{:?}', '{:?}', {}, {}, {}, {}, {}, {}, {})",
+                        tx.hash,
+                        tx.receiver_address,
+                        amount_high_b,
+                        amount_low_b,
+                        tx.timestamp,
+                        gas_price_wei_high_b,
+                        gas_price_wei_low_b,
+                        tx.nonce,
+                        block_details
+                    )
+                },
+                ", "
+            )
         );
 
         match self.conn.prepare(&sql).expect("Internal error").execute([]) {
@@ -282,10 +285,11 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
         }
 
         let build_case = |value_fn: fn(&Tx) -> String| {
-            new_txs
-                .iter()
-                .map(|tx| format!("WHEN nonce = {} THEN {}", tx.nonce, value_fn(tx)))
-                .join(" ")
+            join_with_separator(
+                new_txs,
+                |tx| format!("WHEN nonce = {} THEN {}", tx.nonce, value_fn(tx)),
+                " ",
+            )
         };
 
         let tx_hash_cases = build_case(|tx| format!("'{:?}'", tx.hash));
@@ -320,7 +324,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
             None => "NULL".to_string(),
         });
 
-        let nonces = comma_joined_stringifiable(new_txs, |tx| tx.nonce.to_string());
+        let nonces = join_with_separator(new_txs, |tx| tx.nonce.to_string(), ", ");
 
         let sql = format!(
             "UPDATE sent_payable \
@@ -374,10 +378,9 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
             return Err(SentPayableDaoError::EmptyInput);
         }
 
-        let hashes_vec: Vec<TxHash> = hashes.iter().cloned().collect();
         let sql = format!(
             "DELETE FROM sent_payable WHERE tx_hash IN ({})",
-            comma_joined_stringifiable(&hashes_vec, |hash| { format!("'{:?}'", hash) })
+            join_with_separator(hashes, |hash| { format!("'{:?}'", hash) }, ", ")
         );
 
         match self.conn.prepare(&sql).expect("Internal error").execute([]) {
