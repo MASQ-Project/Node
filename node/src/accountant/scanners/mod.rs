@@ -530,49 +530,59 @@ impl StartableScanner<ScanForRetryPayables, QualifiedPayablesMessage> for Payabl
 
 impl Scanner<SentPayables, PayableScanResult> for PayableScanner {
     fn finish_scan(&mut self, message: SentPayables, logger: &Logger) -> PayableScanResult {
-        match message.payment_procedure_result {
-            Either::Left(payment_procedure_result) => {
+        let result = match message.payment_procedure_result {
+            Either::Left(batch_results) => {
+                // let (sent_payables, err_opt) = separate_errors(&message, logger);
+                // debug!(
+                //     logger,
+                //     "{}",
+                //     debugging_summary_after_error_separation(&sent_payables, &err_opt)
+                // );
+
+                // if !sent_payables.is_empty() {
+                //     self.mark_pending_payable(&sent_payables, logger);
+                // }
+
+                // self.handle_sent_payable_errors(err_opt, logger);
+
                 todo!("Segregate transactions and migrate them from the SentPayableDao to the FailedPayableDao");
             }
-            Either::Right(err) => {
-                todo!("No need to update the FailedPayableDao as the error was local");
-            }
-        }
+            Either::Right(local_err) => {
+                // No need to update the FailedPayableDao as the error was local
+                warning!(
+                    logger,
+                    "Any persisted data from failed process will be deleted. Caused by: {}",
+                    local_err
+                );
 
-        // let (sent_payables, err_opt) = separate_errors(&message, logger);
-        // debug!(
-        //     logger,
-        //     "{}",
-        //     debugging_summary_after_error_separation(&sent_payables, &err_opt)
-        // );
-        //
-        // if !sent_payables.is_empty() {
-        //     self.mark_pending_payable(&sent_payables, logger);
-        // }
-        //
-        // // TODO: GH-605: We should transfer the payables to the FailedPayableDao
-        // self.handle_sent_payable_errors(err_opt, logger);
-        //
-        // self.mark_as_ended(logger);
-        //
-        // let ui_response_opt =
-        //     message
-        //         .response_skeleton_opt
-        //         .map(|response_skeleton| NodeToUiMessage {
-        //             target: MessageTarget::ClientId(response_skeleton.client_id),
-        //             body: UiScanResponse {}.tmb(response_skeleton.context_id),
-        //         });
-        //
-        // let result = if !sent_payables.is_empty() {
-        //     OperationOutcome::NewPendingPayable
-        // } else {
-        //     OperationOutcome::Failure
-        // };
-        //
-        // PayableScanResult {
-        //     ui_response_opt,
-        //     result,
-        // }
+                if let LocalPayableError::Sending { hashes, .. } = local_err {
+                    self.discard_failed_transactions_with_possible_fingerprints(hashes, logger)
+                } else {
+                    debug!(
+                        logger,
+                        "Ignoring a non-fatal error on our end from before the transactions are hashed: {:?}",
+                        local_err
+                    )
+                }
+
+                OperationOutcome::Failure
+            }
+        };
+
+        self.mark_as_ended(logger);
+
+        let ui_response_opt =
+            message
+                .response_skeleton_opt
+                .map(|response_skeleton| NodeToUiMessage {
+                    target: MessageTarget::ClientId(response_skeleton.client_id),
+                    body: UiScanResponse {}.tmb(response_skeleton.context_id),
+                });
+
+        PayableScanResult {
+            ui_response_opt,
+            result,
+        }
     }
 
     time_marking_methods!(Payables);
@@ -830,6 +840,7 @@ impl PayableScanner {
         hashes_of_failed: Vec<H256>,
         logger: &Logger,
     ) {
+        // TODO: GH-605: We should transfer the payables to the FailedPayableDao
         fn serialize_hashes(hashes: &[H256]) -> String {
             comma_joined_stringifiable(hashes, |hash| format!("{:?}", hash))
         }
