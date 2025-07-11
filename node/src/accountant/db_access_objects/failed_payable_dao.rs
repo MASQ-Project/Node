@@ -5,7 +5,6 @@ use crate::accountant::db_access_objects::utils::{
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::{checked_conversion, join_with_separator};
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
-use itertools::Itertools;
 use masq_lib::utils::ExpectValue;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
@@ -21,7 +20,7 @@ pub enum FailedPayableDaoError {
     SqlExecutionFailed(String),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum FailureReason {
     PendingTooLong,
     NonceIssue,
@@ -43,7 +42,7 @@ impl FromStr for FailureReason {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum FailureStatus {
     RetryRequired,
     RecheckRequired,
@@ -62,7 +61,7 @@ impl FromStr for FailureStatus {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct FailedTx {
     pub hash: TxHash,
     pub receiver_address: Address,
@@ -90,7 +89,7 @@ impl Display for FailureRetrieveCondition {
 
 pub trait FailedPayableDao {
     fn get_tx_identifiers(&self, hashes: &HashSet<TxHash>) -> TxIdentifiers;
-    fn insert_new_records(&self, txs: &[FailedTx]) -> Result<(), FailedPayableDaoError>;
+    fn insert_new_records(&self, txs: &HashSet<FailedTx>) -> Result<(), FailedPayableDaoError>;
     fn retrieve_txs(&self, condition: Option<FailureRetrieveCondition>) -> Vec<FailedTx>;
     fn update_statuses(
         &self,
@@ -134,12 +133,18 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
         .collect()
     }
 
-    fn insert_new_records(&self, txs: &[FailedTx]) -> Result<(), FailedPayableDaoError> {
+    fn insert_new_records(&self, txs: &HashSet<FailedTx>) -> Result<(), FailedPayableDaoError> {
         if txs.is_empty() {
             return Err(FailedPayableDaoError::EmptyInput);
         }
 
-        let unique_hashes: HashSet<TxHash> = txs.iter().map(|tx| tx.hash).collect();
+        let unique_hashes: HashSet<TxHash> = txs
+            .iter()
+            .map(|tx| {
+                eprintln!("Hash: {}", tx.hash);
+                tx.hash
+            })
+            .collect();
         if unique_hashes.len() != txs.len() {
             return Err(FailedPayableDaoError::InvalidInput(format!(
                 "Duplicate hashes found in the input. Input Transactions: {:?}",
@@ -155,6 +160,14 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
             )));
         }
 
+        // Sorted by timestamp and nonce (in descending order)
+        let mut sorted_txs: Vec<&FailedTx> = txs.iter().collect();
+        sorted_txs.sort_by(|a, b| {
+            b.timestamp
+                .cmp(&a.timestamp)
+                .then_with(|| b.nonce.cmp(&a.nonce))
+        });
+
         let sql = format!(
             "INSERT INTO failed_payable (\
              tx_hash, \
@@ -169,7 +182,7 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
              status
              ) VALUES {}",
             join_with_separator(
-                txs,
+                sorted_txs,
                 |tx| {
                     let amount_checked = checked_conversion::<u128, i128>(tx.amount);
                     let gas_price_wei_checked = checked_conversion::<u128, i128>(tx.gas_price_wei);
@@ -227,6 +240,7 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
             None => raw_sql,
             Some(condition) => format!("{} {}", raw_sql, condition),
         };
+        let sql = format!("{} ORDER BY timestamp DESC, nonce DESC", sql);
 
         let mut stmt = self
             .conn
@@ -386,20 +400,22 @@ mod tests {
             .unwrap();
         let tx1 = FailedTxBuilder::default()
             .hash(make_tx_hash(1))
+            .nonce(1)
             .reason(NonceIssue)
             .build();
         let tx2 = FailedTxBuilder::default()
             .hash(make_tx_hash(2))
+            .nonce(2)
             .reason(PendingTooLong)
             .build();
         let subject = FailedPayableDaoReal::new(wrapped_conn);
-        let txs = vec![tx1, tx2];
+        let hashset = HashSet::from([tx1.clone(), tx2.clone()]);
 
-        let result = subject.insert_new_records(&txs);
+        let result = subject.insert_new_records(&hashset);
 
         let retrieved_txs = subject.retrieve_txs(None);
         assert_eq!(result, Ok(()));
-        assert_eq!(retrieved_txs, txs);
+        assert_eq!(retrieved_txs, vec![tx2, tx1]);
     }
 
     #[test]
@@ -412,7 +428,7 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = FailedPayableDaoReal::new(wrapped_conn);
-        let empty_input = vec![];
+        let empty_input = HashSet::new();
 
         let result = subject.insert_new_records(&empty_input);
 
@@ -432,29 +448,31 @@ mod tests {
         let tx1 = FailedTxBuilder::default()
             .hash(hash)
             .status(RetryRequired)
+            .nonce(1)
             .build();
         let tx2 = FailedTxBuilder::default()
             .hash(hash)
             .status(RecheckRequired)
+            .nonce(2)
             .build();
         let subject = FailedPayableDaoReal::new(wrapped_conn);
 
-        let result = subject.insert_new_records(&vec![tx1, tx2]);
+        let result = subject.insert_new_records(&HashSet::from([tx1, tx2]));
 
         assert_eq!(
             result,
             Err(FailedPayableDaoError::InvalidInput(
                 "Duplicate hashes found in the input. Input Transactions: \
-                [FailedTx { \
+                {FailedTx { \
                 hash: 0x000000000000000000000000000000000000000000000000000000000000007b, \
                 receiver_address: 0x0000000000000000000000000000000000000000, \
-                amount: 0, timestamp: 0, gas_price_wei: 0, \
-                nonce: 0, reason: PendingTooLong, status: RetryRequired }, \
+                amount: 0, timestamp: 1719990000, gas_price_wei: 0, \
+                nonce: 1, reason: PendingTooLong, status: RetryRequired }, \
                 FailedTx { \
                 hash: 0x000000000000000000000000000000000000000000000000000000000000007b, \
                 receiver_address: 0x0000000000000000000000000000000000000000, \
-                amount: 0, timestamp: 0, gas_price_wei: 0, \
-                nonce: 0, reason: PendingTooLong, status: RecheckRequired }]"
+                amount: 0, timestamp: 1719990000, gas_price_wei: 0, \
+                nonce: 2, reason: PendingTooLong, status: RecheckRequired }}"
                     .to_string()
             ))
         );
@@ -479,9 +497,9 @@ mod tests {
             .status(RecheckRequired)
             .build();
         let subject = FailedPayableDaoReal::new(wrapped_conn);
-        let initial_insertion_result = subject.insert_new_records(&vec![tx1]);
+        let initial_insertion_result = subject.insert_new_records(&HashSet::from([tx1]));
 
-        let result = subject.insert_new_records(&vec![tx2]);
+        let result = subject.insert_new_records(&HashSet::from([tx2]));
 
         assert_eq!(initial_insertion_result, Ok(()));
         assert_eq!(
@@ -508,7 +526,7 @@ mod tests {
         let tx = FailedTxBuilder::default().build();
         let subject = FailedPayableDaoReal::new(Box::new(wrapped_conn));
 
-        let result = subject.insert_new_records(&vec![tx]);
+        let result = subject.insert_new_records(&HashSet::from([tx]));
 
         assert_eq!(
             result,
@@ -528,7 +546,7 @@ mod tests {
         let tx = FailedTxBuilder::default().build();
         let subject = FailedPayableDaoReal::new(Box::new(wrapped_conn));
 
-        let result = subject.insert_new_records(&vec![tx]);
+        let result = subject.insert_new_records(&HashSet::from([tx]));
 
         assert_eq!(
             result,
@@ -550,19 +568,24 @@ mod tests {
         let absent_hash = make_tx_hash(2);
         let another_present_hash = make_tx_hash(3);
         let hashset = HashSet::from([present_hash, absent_hash, another_present_hash]);
-        let present_tx = FailedTxBuilder::default().hash(present_hash).build();
+        let present_tx = FailedTxBuilder::default()
+            .hash(present_hash)
+            .nonce(1)
+            .build();
         let another_present_tx = FailedTxBuilder::default()
             .hash(another_present_hash)
+            .nonce(2)
             .build();
         subject
-            .insert_new_records(&vec![present_tx, another_present_tx])
+            .insert_new_records(&HashSet::from([present_tx, another_present_tx]))
             .unwrap();
 
         let result = subject.get_tx_identifiers(&hashset);
+        eprintln!("{:?}", result);
 
-        assert_eq!(result.get(&present_hash), Some(&1u64));
+        assert_eq!(result.get(&present_hash), Some(&2u64));
         assert_eq!(result.get(&absent_hash), None);
-        assert_eq!(result.get(&another_present_hash), Some(&2u64));
+        assert_eq!(result.get(&another_present_hash), Some(&1u64));
     }
 
     #[test]
@@ -606,31 +629,50 @@ mod tests {
     }
 
     #[test]
-    fn can_retrieve_all_txs() {
-        let home_dir =
-            ensure_node_home_directory_exists("failed_payable_dao", "can_retrieve_all_txs");
+    fn can_retrieve_all_txs_ordered_by_timestamp_and_nonce() {
+        let home_dir = ensure_node_home_directory_exists(
+            "failed_payable_dao",
+            "can_retrieve_all_txs_ordered_by_timestamp_and_nonce",
+        );
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = FailedPayableDaoReal::new(wrapped_conn);
-        let tx1 = FailedTxBuilder::default().hash(make_tx_hash(1)).build();
-        let tx2 = FailedTxBuilder::default()
-            .hash(make_tx_hash(2))
+        let tx1 = FailedTxBuilder::default()
+            .hash(make_tx_hash(1))
+            .timestamp(1000)
             .nonce(1)
             .build();
-        let tx3 = FailedTxBuilder::default().hash(make_tx_hash(3)).build();
+        let tx2 = FailedTxBuilder::default()
+            .hash(make_tx_hash(2))
+            .timestamp(1000)
+            .nonce(2)
+            .build();
+        let tx3 = FailedTxBuilder::default()
+            .hash(make_tx_hash(3))
+            .timestamp(1001)
+            .nonce(1)
+            .build();
+        let tx4 = FailedTxBuilder::default()
+            .hash(make_tx_hash(4))
+            .timestamp(1001)
+            .nonce(2)
+            .build();
+
         subject
-            .insert_new_records(&vec![tx1.clone(), tx2.clone()])
+            .insert_new_records(&HashSet::from([tx2.clone(), tx4.clone()]))
             .unwrap();
-        subject.insert_new_records(&vec![tx3.clone()]).unwrap();
+        subject
+            .insert_new_records(&HashSet::from([tx1.clone(), tx3.clone()]))
+            .unwrap();
 
         let result = subject.retrieve_txs(None);
 
-        assert_eq!(result, vec![tx1, tx2, tx3]);
+        assert_eq!(result, vec![tx4, tx3, tx2, tx1]);
     }
 
     #[test]
-    fn can_retrieve_unchecked_pending_too_long_txs() {
+    fn can_retrieve_txs_to_retry() {
         let home_dir = ensure_node_home_directory_exists(
             "failed_payable_dao",
             "can_retrieve_unchecked_pending_too_long_txs",
@@ -642,34 +684,39 @@ mod tests {
         let now = current_unix_timestamp();
         let tx1 = FailedTxBuilder::default()
             .hash(make_tx_hash(1))
-            .reason(PendingTooLong)
+            .nonce(1)
             .timestamp(now - 3600)
+            .reason(PendingTooLong)
             .status(RetryRequired)
             .build();
         let tx2 = FailedTxBuilder::default()
             .hash(make_tx_hash(2))
-            .reason(NonceIssue)
+            .nonce(2)
             .timestamp(now - 3600)
+            .reason(NonceIssue)
             .status(RetryRequired)
             .build();
         let tx3 = FailedTxBuilder::default()
             .hash(make_tx_hash(3))
+            .nonce(3)
+            .timestamp(now - 3000)
             .reason(PendingTooLong)
             .status(RecheckRequired)
             .build();
         let tx4 = FailedTxBuilder::default()
             .hash(make_tx_hash(4))
+            .nonce(4)
             .reason(PendingTooLong)
             .status(Concluded)
             .timestamp(now - 3000)
             .build();
         subject
-            .insert_new_records(&vec![tx1.clone(), tx2.clone(), tx3, tx4])
+            .insert_new_records(&HashSet::from([tx1.clone(), tx2.clone(), tx3, tx4]))
             .unwrap();
 
         let result = subject.retrieve_txs(Some(FailureRetrieveCondition::ByStatus(RetryRequired)));
 
-        assert_eq!(result, vec![tx1, tx2]);
+        assert_eq!(result, vec![tx2, tx1]);
     }
 
     #[test]
@@ -684,24 +731,28 @@ mod tests {
             .hash(make_tx_hash(1))
             .reason(NonceIssue)
             .status(RetryRequired)
+            .nonce(4)
             .build();
         let tx2 = FailedTxBuilder::default()
             .hash(make_tx_hash(2))
             .reason(PendingTooLong)
             .status(RetryRequired)
+            .nonce(3)
             .build();
         let tx3 = FailedTxBuilder::default()
             .hash(make_tx_hash(3))
             .reason(PendingTooLong)
             .status(RecheckRequired)
+            .nonce(2)
             .build();
         let tx4 = FailedTxBuilder::default()
             .hash(make_tx_hash(4))
             .reason(PendingTooLong)
             .status(RecheckRequired)
+            .nonce(1)
             .build();
         subject
-            .insert_new_records(&vec![tx1.clone(), tx2.clone(), tx3.clone(), tx4])
+            .insert_new_records(&HashSet::from([tx1.clone(), tx2.clone(), tx3.clone(), tx4]))
             .unwrap();
         let hashmap = HashMap::from([
             (tx1.hash, Concluded),
@@ -766,12 +817,29 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = FailedPayableDaoReal::new(wrapped_conn);
-        let tx1 = FailedTxBuilder::default().hash(make_tx_hash(1)).build();
-        let tx2 = FailedTxBuilder::default().hash(make_tx_hash(2)).build();
-        let tx3 = FailedTxBuilder::default().hash(make_tx_hash(3)).build();
-        let tx4 = FailedTxBuilder::default().hash(make_tx_hash(4)).build();
+        let tx1 = FailedTxBuilder::default()
+            .hash(make_tx_hash(1))
+            .nonce(1)
+            .build();
+        let tx2 = FailedTxBuilder::default()
+            .hash(make_tx_hash(2))
+            .nonce(2)
+            .build();
+        let tx3 = FailedTxBuilder::default()
+            .hash(make_tx_hash(3))
+            .nonce(3)
+            .build();
+        let tx4 = FailedTxBuilder::default()
+            .hash(make_tx_hash(4))
+            .nonce(4)
+            .build();
         subject
-            .insert_new_records(&vec![tx1.clone(), tx2.clone(), tx3.clone(), tx4.clone()])
+            .insert_new_records(&HashSet::from([
+                tx1.clone(),
+                tx2.clone(),
+                tx3.clone(),
+                tx4.clone(),
+            ]))
             .unwrap();
         let hashset = HashSet::from([tx1.hash, tx3.hash]);
 
@@ -779,7 +847,7 @@ mod tests {
 
         let remaining_records = subject.retrieve_txs(None);
         assert_eq!(result, Ok(()));
-        assert_eq!(remaining_records, vec![tx2, tx4]);
+        assert_eq!(remaining_records, vec![tx4, tx2]);
     }
 
     #[test]
@@ -829,7 +897,7 @@ mod tests {
         let present_hash = make_tx_hash(1);
         let absent_hash = make_tx_hash(2);
         let tx = FailedTxBuilder::default().hash(present_hash).build();
-        subject.insert_new_records(&vec![tx]).unwrap();
+        subject.insert_new_records(&HashSet::from([tx])).unwrap();
         let hashset = HashSet::from([present_hash, absent_hash]);
 
         let result = subject.delete_records(&hashset);

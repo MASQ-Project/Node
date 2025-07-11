@@ -15,7 +15,7 @@ use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableT
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{debugging_summary_after_error_separation, err_msg_for_failure_with_expected_but_missing_fingerprints, investigate_debt_extremes, mark_pending_payable_fatal_error, payables_debug_summary, separate_errors, separate_rowids_and_hashes, OperationOutcome, PayableScanResult, PayableThresholdsGauge, PayableThresholdsGaugeReal, PayableTransactingErrorEnum, PendingPayableMetadata};
 use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_none_receipt, handle_status_with_failure, handle_status_with_success, PendingPayableScanReport, PendingPayableScanResult};
 use crate::accountant::scanners::scanners_utils::receivable_scanner_utils::balance_and_age;
-use crate::accountant::{PendingPayableId, ScanError, ScanForPendingPayables, ScanForRetryPayables};
+use crate::accountant::{join_with_separator, PendingPayableId, ScanError, ScanForPendingPayables, ScanForRetryPayables};
 use crate::accountant::{
     comma_joined_stringifiable, gwei_to_wei, ReceivedPayments,
     ReportTransactionReceipts, RequestTransactionReceipts, ResponseSkeleton, ScanForNewPayables,
@@ -861,10 +861,9 @@ impl PayableScanner {
         &self,
         hashes: &HashSet<TxHash>,
     ) -> Result<(), String> {
-        let hashes_vec = hashes.clone().into_iter().collect();
-        let failed_txs: Vec<FailedTx> = self
+        let failed_txs: HashSet<FailedTx> = self
             .sent_payable_dao
-            .retrieve_txs(Some(ByHash(hashes_vec)))
+            .retrieve_txs(Some(ByHash(hashes.clone())))
             .into_iter()
             .map(|tx| FailedTx {
                 hash: tx.hash,
@@ -904,7 +903,7 @@ impl PayableScanner {
             warning!(
                 logger,
                 "Some hashes were duplicated, this may be due to a bug in our code: {}",
-                Self::serialize_hashes(&hashes_of_failed)
+                join_with_separator(&hashes_of_failed, |hash| format!("{:?}", hash), ", ")
             )
         }
         let tx_identifiers = self.sent_payable_dao.get_tx_identifiers(&hashset);
@@ -917,7 +916,7 @@ impl PayableScanner {
             if let Some(absent_hashes) = Self::find_absent_tx_hashes(&tx_identifiers, hashset) {
                 panic!(
                     "Ran into failed transactions {} with missing fingerprints. System no longer reliable",
-                    Self::serialize_hashes(&absent_hashes.into_iter().collect::<Vec<TxHash>>())
+                    join_with_separator(&absent_hashes, |hash| format!("{:?}", hash), ", ")
                 )
             };
         }

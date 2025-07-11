@@ -1101,7 +1101,7 @@ impl PendingPayableDaoFactoryMock {
 pub struct FailedPayableDaoMock {
     get_tx_identifiers_params: Arc<Mutex<Vec<HashSet<TxHash>>>>,
     get_tx_identifiers_results: RefCell<Vec<TxIdentifiers>>,
-    insert_new_records_params: Arc<Mutex<Vec<Vec<FailedTx>>>>,
+    insert_new_records_params: Arc<Mutex<Vec<HashSet<FailedTx>>>>,
     insert_new_records_results: RefCell<Vec<Result<(), FailedPayableDaoError>>>,
     retrieve_txs_params: Arc<Mutex<Vec<Option<FailureRetrieveCondition>>>>,
     retrieve_txs_results: RefCell<Vec<Vec<FailedTx>>>,
@@ -1120,11 +1120,11 @@ impl FailedPayableDao for FailedPayableDaoMock {
         self.get_tx_identifiers_results.borrow_mut().remove(0)
     }
 
-    fn insert_new_records(&self, txs: &[FailedTx]) -> Result<(), FailedPayableDaoError> {
+    fn insert_new_records(&self, txs: &HashSet<FailedTx>) -> Result<(), FailedPayableDaoError> {
         self.insert_new_records_params
             .lock()
             .unwrap()
-            .push(txs.to_vec());
+            .push(txs.clone());
         self.insert_new_records_results.borrow_mut().remove(0)
     }
 
@@ -1168,7 +1168,10 @@ impl FailedPayableDaoMock {
         self
     }
 
-    pub fn insert_new_records_params(mut self, params: &Arc<Mutex<Vec<Vec<FailedTx>>>>) -> Self {
+    pub fn insert_new_records_params(
+        mut self,
+        params: &Arc<Mutex<Vec<HashSet<FailedTx>>>>,
+    ) -> Self {
         self.insert_new_records_params = params.clone();
         self
     }

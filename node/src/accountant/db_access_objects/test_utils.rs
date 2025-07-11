@@ -107,7 +107,7 @@ impl FailedTxBuilder {
             hash: self.hash_opt.unwrap_or_default(),
             receiver_address: self.receiver_address_opt.unwrap_or_default(),
             amount: self.amount_opt.unwrap_or_default(),
-            timestamp: self.timestamp_opt.unwrap_or_default(),
+            timestamp: self.timestamp_opt.unwrap_or_else(|| 1719990000),
             gas_price_wei: self.gas_price_wei_opt.unwrap_or_default(),
             nonce: self.nonce_opt.unwrap_or_default(),
             reason: self

@@ -36,7 +36,7 @@ pub struct Tx {
 
 pub enum RetrieveCondition {
     IsPending,
-    ByHash(HashSet<TxHash>),
+    ByHash(HashSet<TxHash>), // TODO: GH-605: Want to implement lifetime here?
 }
 
 impl Display for RetrieveCondition {
