@@ -36,7 +36,7 @@ pub struct Tx {
 
 pub enum RetrieveCondition {
     IsPending,
-    ByHash(Vec<TxHash>),
+    ByHash(HashSet<TxHash>),
 }
 
 impl Display for RetrieveCondition {
@@ -618,10 +618,10 @@ mod tests {
     fn retrieve_condition_display_works() {
         assert_eq!(IsPending.to_string(), "WHERE block_hash IS NULL");
         assert_eq!(
-            ByHash(vec![
+            ByHash(HashSet::from([
                 H256::from_low_u64_be(0x123456789),
                 H256::from_low_u64_be(0x987654321),
-            ])
+            ]))
             .to_string(),
             "WHERE tx_hash IN (\
             '0x0000000000000000000000000000000000000000000000000000000123456789', \
@@ -693,7 +693,7 @@ mod tests {
             .insert_new_records(&vec![tx1.clone(), tx2, tx3.clone()])
             .unwrap();
 
-        let result = subject.retrieve_txs(Some(ByHash(vec![tx1.hash, tx3.hash])));
+        let result = subject.retrieve_txs(Some(ByHash(HashSet::from([tx1.hash, tx3.hash]))));
 
         assert_eq!(result, vec![tx1, tx3]);
     }
@@ -774,7 +774,7 @@ mod tests {
 
         let result = subject.update_tx_blocks(&hash_map);
 
-        let updated_txs = subject.retrieve_txs(Some(ByHash(vec![tx1.hash, tx2.hash])));
+        let updated_txs = subject.retrieve_txs(Some(ByHash(HashSet::from([tx1.hash, tx2.hash]))));
         assert_eq!(result, Ok(()));
         assert_eq!(pre_assert_is_block_details_present_tx1, false);
         assert_eq!(updated_txs[0].block_opt, Some(tx_block_1));
