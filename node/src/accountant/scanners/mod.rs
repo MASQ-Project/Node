@@ -44,8 +44,10 @@ use time::format_description::parse;
 use time::OffsetDateTime;
 use variant_count::VariantCount;
 use web3::types::H256;
-use crate::accountant::db_access_objects::failed_payable_dao::FailedPayableDao;
+use crate::accountant::db_access_objects::failed_payable_dao::{FailedPayableDao, FailedTx, FailureReason, FailureStatus};
+use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::ByHash;
 use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDao;
+use crate::accountant::db_access_objects::utils::{RowId, TxHash, TxIdentifiers};
 use crate::accountant::scanners::payable_scanner_extension::{MultistageDualPayableScanner, PreparedAdjustment, SolvencySensitivePaymentInstructor};
 use crate::accountant::scanners::payable_scanner_extension::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage, UnpricedQualifiedPayables};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionReceiptResult, TxStatus};
@@ -839,24 +841,104 @@ impl PayableScanner {
         }
     }
 
+    fn find_absent_tx_hashes(
+        tx_identifiers: &TxIdentifiers,
+        hashset: HashSet<TxHash>,
+    ) -> Option<HashSet<TxHash>> {
+        let absent_hashes: HashSet<TxHash> = hashset
+            .into_iter()
+            .filter(|hash| !tx_identifiers.contains_key(hash))
+            .collect();
+
+        if absent_hashes.is_empty() {
+            None
+        } else {
+            Some(absent_hashes)
+        }
+    }
+
+    // fn migrate_from_sent_payable_to_failed_payable(
+    //     &self,
+    //     failed_txs: &[FailedTx],
+    // ) -> Result<(), String> {
+    //
+    // }
+
     fn discard_failed_transactions_with_possible_fingerprints(
         &self,
-        hashes_of_failed: Vec<H256>,
+        hashes_of_failed: Vec<H256>, // TODO: GH-605: This should be a hashset
         logger: &Logger,
     ) {
         // TODO: GH-605: We should transfer the payables to the FailedPayableDao
         fn serialize_hashes(hashes: &[H256]) -> String {
             comma_joined_stringifiable(hashes, |hash| format!("{:?}", hash))
         }
-        // let existent_and_nonexistent = self
-        //     .pending_payable_dao
-        //     .fingerprints_rowids(&hashes_of_failed);
-        let existent_and_nonexistent =
-            todo!("retrieve it from the FailedPayableDao or SentPayableDao");
-        // let missing_fgp_err_msg_opt = err_msg_for_failure_with_expected_but_missing_fingerprints(
-        //     existent_and_nonexistent.no_rowid_results,
-        //     serialize_hashes,
-        // );
+        let hashset = hashes_of_failed.iter().cloned().collect::<HashSet<H256>>();
+        if hashset.len() < hashes_of_failed.len() {
+            warning!(
+                logger,
+                "Some hashes were duplicated, this may be due to a bug in our code: {}",
+                serialize_hashes(&hashes_of_failed)
+            )
+        }
+        let tx_identifiers = self.sent_payable_dao.get_tx_identifiers(&hashset);
+        if let Some(absent_hashes) = Self::find_absent_tx_hashes(&tx_identifiers, hashset) {
+            panic!(
+                "Ran into failed transactions {} with missing fingerprints. System no longer reliable",
+                serialize_hashes(&absent_hashes.into_iter().collect::<Vec<TxHash>>())
+            )
+        };
+
+        if !tx_identifiers.is_empty() {
+            // let (ids, hashes): (Vec<RowId>, Vec<TxHash>) = tx_identifiers
+            //     .into_iter()
+            //     .collect::<Vec<(TxHash, RowId)>>()
+            //     .into_iter()
+            //     .unzip();
+            let (hashes, ids): (Vec<TxHash>, Vec<RowId>) = tx_identifiers.into_iter().unzip();
+            warning!(
+                logger,
+                "Deleting fingerprints for failed transactions {}",
+                serialize_hashes(&hashes)
+            );
+            let sent_txs = self
+                .sent_payable_dao
+                .retrieve_txs(Some(ByHash(hashes.clone())));
+            let failed_txs: Vec<FailedTx> = sent_txs
+                .iter()
+                .map(|tx| FailedTx {
+                    hash: tx.hash,
+                    receiver_address: tx.receiver_address,
+                    amount: tx.amount,
+                    timestamp: tx.timestamp,
+                    gas_price_wei: tx.gas_price_wei,
+                    nonce: tx.nonce,
+                    reason: FailureReason::LocalSendingFailed,
+                    status: FailureStatus::RetryRequired,
+                })
+                .collect();
+
+            self.failed_payable_dao
+                .insert_new_records(&failed_txs)
+                .unwrap();
+
+            self.sent_payable_dao
+                .delete_records(&hashes.clone().into_iter().collect())
+                .unwrap()
+
+            // if let Err(e) = self.pending_payable_dao.delete_fingerprints(&ids) {
+            //     if let Some(msg) = missing_fgp_err_msg_opt {
+            //         error!(logger, "{}", msg)
+            //     };
+            //     panic!(
+            //         "Database corrupt: payable fingerprint deletion for transactions {} \
+            //             failed due to {:?}",
+            //         serialize_hashes(&hashes),
+            //         e
+            //     )
+            // }
+        }
+
         // if !existent_and_nonexistent.rowid_results.is_empty() {
         //     let (ids, hashes) = separate_rowids_and_hashes(existent_and_nonexistent.rowid_results);
         //     warning!(
@@ -1435,7 +1517,7 @@ mod tests {
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{OperationOutcome, PayableScanResult, PendingPayableMetadata};
     use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_none_status, handle_status_with_failure, PendingPayableScanReport, PendingPayableScanResult};
     use crate::accountant::scanners::{Scanner, StartScanError, StartableScanner, PayableScanner, PendingPayableScanner, ReceivableScanner, ScannerCommon, Scanners, MTError};
-    use crate::accountant::test_utils::{make_custom_payment_thresholds, make_payable_account, make_qualified_and_unqualified_payables, make_pending_payable_fingerprint, make_receivable_account, BannedDaoFactoryMock, BannedDaoMock, ConfigDaoFactoryMock, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder, PayableThresholdsGaugeMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock, PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock, ReceivableScannerBuilder, FailedPayableDaoMock, FailedPayableDaoFactoryMock, SentPayableDaoFactoryMock};
+    use crate::accountant::test_utils::{make_custom_payment_thresholds, make_payable_account, make_qualified_and_unqualified_payables, make_pending_payable_fingerprint, make_receivable_account, BannedDaoFactoryMock, BannedDaoMock, ConfigDaoFactoryMock, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder, PayableThresholdsGaugeMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock, PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock, ReceivableScannerBuilder, FailedPayableDaoMock, FailedPayableDaoFactoryMock, SentPayableDaoFactoryMock, SentPayableDaoMock};
     use crate::accountant::{gwei_to_wei, PendingPayableId, ReceivedPayments, ReportTransactionReceipts, RequestTransactionReceipts, ScanError, ScanForRetryPayables, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC};
     use crate::blockchain::blockchain_bridge::{BlockMarker, PendingPayableFingerprint, RetrieveTransactions};
     use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
@@ -2367,26 +2449,28 @@ mod tests {
         init_test_logging();
         let test_name =
             "payable_scanner_is_facing_failed_transactions_and_their_fingerprints_exist";
-        let fingerprints_rowids_params_arc = Arc::new(Mutex::new(vec![]));
-        let delete_fingerprints_params_arc = Arc::new(Mutex::new(vec![]));
+        // let fingerprints_rowids_params_arc = Arc::new(Mutex::new(vec![]));
+        // let delete_fingerprints_params_arc = Arc::new(Mutex::new(vec![]));
         let hash_tx_1 = make_tx_hash(0x15b3);
         let hash_tx_2 = make_tx_hash(0x3039);
         let first_fingerprint_rowid = 3;
         let second_fingerprint_rowid = 5;
         let system = System::new(test_name);
-        let pending_payable_dao = PendingPayableDaoMock::default()
-            .fingerprints_rowids_params(&fingerprints_rowids_params_arc)
-            .fingerprints_rowids_result(TransactionHashes {
-                rowid_results: vec![
-                    (first_fingerprint_rowid, hash_tx_1),
-                    (second_fingerprint_rowid, hash_tx_2),
-                ],
-                no_rowid_results: vec![],
-            })
-            .delete_fingerprints_params(&delete_fingerprints_params_arc)
-            .delete_fingerprints_result(Ok(()));
-        let failed_payable_dao = todo!("replace pending payable dao with failed payable dao");
+        // let pending_payable_dao = PendingPayableDaoMock::default()
+        //     .fingerprints_rowids_params(&fingerprints_rowids_params_arc)
+        //     .fingerprints_rowids_result(TransactionHashes {
+        //         rowid_results: vec![
+        //             (first_fingerprint_rowid, hash_tx_1),
+        //             (second_fingerprint_rowid, hash_tx_2),
+        //         ],
+        //         no_rowid_results: vec![],
+        //     })
+        //     .delete_fingerprints_params(&delete_fingerprints_params_arc)
+        //     .delete_fingerprints_result(Ok(()));
+        let sent_payable_dao = SentPayableDaoMock::default();
+        let failed_payable_dao = FailedPayableDaoMock::default();
         let payable_scanner = PayableScannerBuilder::new()
+            .sent_payable_dao(sent_payable_dao)
             .failed_payable_dao(failed_payable_dao)
             .build();
         let logger = Logger::new(test_name);
@@ -2416,16 +2500,16 @@ mod tests {
         );
         assert_eq!(aware_of_unresolved_pending_payable_before, false);
         assert_eq!(aware_of_unresolved_pending_payable_after, false);
-        let fingerprints_rowids_params = fingerprints_rowids_params_arc.lock().unwrap();
-        assert_eq!(
-            *fingerprints_rowids_params,
-            vec![vec![hash_tx_1, hash_tx_2]]
-        );
-        let delete_fingerprints_params = delete_fingerprints_params_arc.lock().unwrap();
-        assert_eq!(
-            *delete_fingerprints_params,
-            vec![vec![first_fingerprint_rowid, second_fingerprint_rowid]]
-        );
+        // let fingerprints_rowids_params = fingerprints_rowids_params_arc.lock().unwrap();
+        // assert_eq!(
+        //     *fingerprints_rowids_params,
+        //     vec![vec![hash_tx_1, hash_tx_2]]
+        // );
+        // let delete_fingerprints_params = delete_fingerprints_params_arc.lock().unwrap();
+        // assert_eq!(
+        //     *delete_fingerprints_params,
+        //     vec![vec![first_fingerprint_rowid, second_fingerprint_rowid]]
+        // );
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!("WARN: {test_name}: \
          Any persisted data from failed process will be deleted. Caused by: Sending phase: \"Attempt failed\". \

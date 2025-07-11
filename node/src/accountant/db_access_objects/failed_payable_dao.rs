@@ -26,6 +26,21 @@ pub enum FailureReason {
     PendingTooLong,
     NonceIssue,
     General,
+    LocalSendingFailed,
+}
+
+impl FromStr for FailureReason {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "PendingTooLong" => Ok(FailureReason::PendingTooLong),
+            "NonceIssue" => Ok(FailureReason::NonceIssue),
+            "General" => Ok(FailureReason::General),
+            "LocalSendingFailed" => Ok(FailureReason::LocalSendingFailed),
+            _ => Err(format!("Invalid FailureReason: {}", s)),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -43,19 +58,6 @@ impl FromStr for FailureStatus {
             "RecheckRequired" => Ok(FailureStatus::RecheckRequired),
             "Concluded" => Ok(FailureStatus::Concluded),
             _ => Err(format!("Invalid FailureStatus: {}", s)),
-        }
-    }
-}
-
-impl FromStr for FailureReason {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "PendingTooLong" => Ok(FailureReason::PendingTooLong),
-            "NonceIssue" => Ok(FailureReason::NonceIssue),
-            "General" => Ok(FailureReason::General),
-            _ => Err(format!("Invalid FailureReason: {}", s)),
         }
     }
 }
@@ -350,7 +352,7 @@ impl FailedPayableDaoFactory for DaoFactoryReal {
 #[cfg(test)]
 mod tests {
     use crate::accountant::db_access_objects::failed_payable_dao::FailureReason::{
-        General, NonceIssue, PendingTooLong,
+        General, LocalSendingFailed, NonceIssue, PendingTooLong,
     };
     use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::{
         Concluded, RecheckRequired, RetryRequired,
@@ -569,6 +571,10 @@ mod tests {
         );
         assert_eq!(FailureReason::from_str("NonceIssue"), Ok(NonceIssue));
         assert_eq!(FailureReason::from_str("General"), Ok(General));
+        assert_eq!(
+            FailureReason::from_str("LocalSendingFailed"),
+            Ok(LocalSendingFailed)
+        );
         assert_eq!(
             FailureReason::from_str("InvalidReason"),
             Err("Invalid FailureReason: InvalidReason".to_string())
