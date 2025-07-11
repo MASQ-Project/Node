@@ -16,6 +16,7 @@ use crate::accountant::db_access_objects::pending_payable_dao::{
 use crate::accountant::db_access_objects::receivable_dao::{
     ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,
 };
+use crate::accountant::db_access_objects::sent_payable_dao::{RetrieveCondition, SentPayableDao, SentPayableDaoError, SentPayableDaoFactory, Tx};
 use crate::accountant::db_access_objects::utils::{
     from_unix_timestamp, to_unix_timestamp, CustomQuery, TxHash, TxIdentifiers,
 };
@@ -55,6 +56,7 @@ use std::path::Path;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionBlock;
 
 pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableAccount {
     let now = to_unix_timestamp(SystemTime::now());
@@ -99,6 +101,7 @@ pub struct AccountantBuilder {
     payable_dao_factory_opt: Option<PayableDaoFactoryMock>,
     receivable_dao_factory_opt: Option<ReceivableDaoFactoryMock>,
     pending_payable_dao_factory_opt: Option<PendingPayableDaoFactoryMock>,
+    sent_payable_dao_factory_opt: Option<SentPayableDaoFactoryMock>,
     failed_payable_dao_factory_opt: Option<FailedPayableDaoFactoryMock>,
     banned_dao_factory_opt: Option<BannedDaoFactoryMock>,
     config_dao_factory_opt: Option<ConfigDaoFactoryMock>,
@@ -113,6 +116,7 @@ impl Default for AccountantBuilder {
             payable_dao_factory_opt: None,
             receivable_dao_factory_opt: None,
             pending_payable_dao_factory_opt: None,
+            sent_payable_dao_factory_opt: None,
             failed_payable_dao_factory_opt: None,
             banned_dao_factory_opt: None,
             config_dao_factory_opt: None,
@@ -359,6 +363,9 @@ impl AccountantBuilder {
                 .make_result(PendingPayableDaoMock::new()),
         );
         // TODO: GH-605: Consider inserting more mocks as we are doing it with other factories
+        let sent_payable_dao_factory = self
+            .sent_payable_dao_factory_opt
+            .unwrap_or(SentPayableDaoFactoryMock::new());
         let failed_payable_dao_factory = self
             .failed_payable_dao_factory_opt
             .unwrap_or(FailedPayableDaoFactoryMock::new());
@@ -372,6 +379,7 @@ impl AccountantBuilder {
             config,
             DaoFactories {
                 payable_dao_factory: Box::new(payable_dao_factory),
+                sent_payable_dao_factory: Box::new(sent_payable_dao_factory),
                 pending_payable_dao_factory: Box::new(pending_payable_dao_factory),
                 failed_payable_dao_factory: Box::new(failed_payable_dao_factory),
                 receivable_dao_factory: Box::new(receivable_dao_factory),
@@ -1241,8 +1249,181 @@ impl FailedPayableDaoFactoryMock {
     }
 }
 
+#[derive(Default)]
+pub struct SentPayableDaoMock {
+    get_tx_identifiers_params: Arc<Mutex<Vec<HashSet<TxHash>>>>,
+    get_tx_identifiers_results: RefCell<Vec<TxIdentifiers>>,
+    insert_new_records_params: Arc<Mutex<Vec<Vec<Tx>>>>,
+    insert_new_records_results: RefCell<Vec<Result<(), SentPayableDaoError>>>,
+    retrieve_txs_params: Arc<Mutex<Vec<Option<RetrieveCondition>>>>,
+    retrieve_txs_results: RefCell<Vec<Vec<Tx>>>,
+    update_tx_blocks_params: Arc<Mutex<Vec<HashMap<TxHash, TransactionBlock>>>>,
+    update_tx_blocks_results: RefCell<Vec<Result<(), SentPayableDaoError>>>,
+    replace_records_params: Arc<Mutex<Vec<Vec<Tx>>>>,
+    replace_records_results: RefCell<Vec<Result<(), SentPayableDaoError>>>,
+    delete_records_params: Arc<Mutex<Vec<HashSet<TxHash>>>>,
+    delete_records_results: RefCell<Vec<Result<(), SentPayableDaoError>>>,
+}
+
+impl SentPayableDao for SentPayableDaoMock {
+    fn get_tx_identifiers(&self, hashes: &HashSet<TxHash>) -> TxIdentifiers {
+        self.get_tx_identifiers_params
+            .lock()
+            .unwrap()
+            .push(hashes.clone());
+        self.get_tx_identifiers_results.borrow_mut().remove(0)
+    }
+
+    fn insert_new_records(&self, txs: &[Tx]) -> Result<(), SentPayableDaoError> {
+        self.insert_new_records_params
+            .lock()
+            .unwrap()
+            .push(txs.to_vec());
+        self.insert_new_records_results.borrow_mut().remove(0)
+    }
+
+    fn retrieve_txs(&self, condition: Option<RetrieveCondition>) -> Vec<Tx> {
+        self.retrieve_txs_params.lock().unwrap().push(condition);
+        self.retrieve_txs_results.borrow_mut().remove(0)
+    }
+
+    fn update_tx_blocks(
+        &self,
+        hash_map: &HashMap<TxHash, TransactionBlock>,
+    ) -> Result<(), SentPayableDaoError> {
+        self.update_tx_blocks_params
+            .lock()
+            .unwrap()
+            .push(hash_map.clone());
+        self.update_tx_blocks_results.borrow_mut().remove(0)
+    }
+
+    fn replace_records(&self, new_txs: &[Tx]) -> Result<(), SentPayableDaoError> {
+        self.replace_records_params
+            .lock()
+            .unwrap()
+            .push(new_txs.to_vec());
+        self.replace_records_results.borrow_mut().remove(0)
+    }
+
+    fn delete_records(&self, hashes: &HashSet<TxHash>) -> Result<(), SentPayableDaoError> {
+        self.delete_records_params
+            .lock()
+            .unwrap()
+            .push(hashes.clone());
+        self.delete_records_results.borrow_mut().remove(0)
+    }
+}
+
+impl SentPayableDaoMock {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn get_tx_identifiers_params(mut self, params: &Arc<Mutex<Vec<HashSet<TxHash>>>>) -> Self {
+        self.get_tx_identifiers_params = params.clone();
+        self
+    }
+
+    pub fn get_tx_identifiers_result(self, result: TxIdentifiers) -> Self {
+        self.get_tx_identifiers_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn insert_new_records_params(mut self, params: &Arc<Mutex<Vec<Vec<Tx>>>>) -> Self {
+        self.insert_new_records_params = params.clone();
+        self
+    }
+
+    pub fn insert_new_records_result(self, result: Result<(), SentPayableDaoError>) -> Self {
+        self.insert_new_records_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn retrieve_txs_params(
+        mut self,
+        params: &Arc<Mutex<Vec<Option<RetrieveCondition>>>>,
+    ) -> Self {
+        self.retrieve_txs_params = params.clone();
+        self
+    }
+
+    pub fn retrieve_txs_result(self, result: Vec<Tx>) -> Self {
+        self.retrieve_txs_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn update_tx_blocks_params(
+        mut self,
+        params: &Arc<Mutex<Vec<HashMap<TxHash, TransactionBlock>>>>,
+    ) -> Self {
+        self.update_tx_blocks_params = params.clone();
+        self
+    }
+
+    pub fn update_tx_blocks_result(self, result: Result<(), SentPayableDaoError>) -> Self {
+        self.update_tx_blocks_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn replace_records_params(mut self, params: &Arc<Mutex<Vec<Vec<Tx>>>>) -> Self {
+        self.replace_records_params = params.clone();
+        self
+    }
+
+    pub fn replace_records_result(self, result: Result<(), SentPayableDaoError>) -> Self {
+        self.replace_records_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn delete_records_params(mut self, params: &Arc<Mutex<Vec<HashSet<TxHash>>>>) -> Self {
+        self.delete_records_params = params.clone();
+        self
+    }
+
+    pub fn delete_records_result(self, result: Result<(), SentPayableDaoError>) -> Self {
+        self.delete_records_results.borrow_mut().push(result);
+        self
+    }
+}
+
+pub struct SentPayableDaoFactoryMock {
+    make_params: Arc<Mutex<Vec<()>>>,
+    make_results: RefCell<Vec<Box<dyn SentPayableDao>>>,
+}
+
+impl SentPayableDaoFactory for SentPayableDaoFactoryMock {
+    fn make(&self) -> Box<dyn SentPayableDao> {
+        if self.make_results.borrow().len() == 0 {
+            panic!("SentPayableDao Missing.")
+        };
+        self.make_params.lock().unwrap().push(());
+        self.make_results.borrow_mut().remove(0)
+    }
+}
+
+impl SentPayableDaoFactoryMock {
+    pub fn new() -> Self {
+        Self {
+            make_params: Arc::new(Mutex::new(vec![])),
+            make_results: RefCell::new(vec![]),
+        }
+    }
+
+    pub fn make_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+        self.make_params = params.clone();
+        self
+    }
+
+    pub fn make_result(self, result: SentPayableDaoMock) -> Self {
+        self.make_results.borrow_mut().push(Box::new(result));
+        self
+    }
+}
+
 pub struct PayableScannerBuilder {
     payable_dao: PayableDaoMock,
+    sent_payable_dao: SentPayableDaoMock,
     failed_payable_dao: FailedPayableDaoMock,
     payment_thresholds: PaymentThresholds,
     payment_adjuster: PaymentAdjusterMock,
@@ -1252,6 +1433,7 @@ impl PayableScannerBuilder {
     pub fn new() -> Self {
         Self {
             payable_dao: PayableDaoMock::new(),
+            sent_payable_dao: SentPayableDaoMock::new(),
             failed_payable_dao: FailedPayableDaoMock::new(),
             payment_thresholds: PaymentThresholds::default(),
             payment_adjuster: PaymentAdjusterMock::default(),
@@ -1260,6 +1442,22 @@ impl PayableScannerBuilder {
 
     pub fn payable_dao(mut self, payable_dao: PayableDaoMock) -> PayableScannerBuilder {
         self.payable_dao = payable_dao;
+        self
+    }
+
+    pub fn sent_payable_dao(
+        mut self,
+        sent_payable_dao: SentPayableDaoMock,
+    ) -> PayableScannerBuilder {
+        self.sent_payable_dao = sent_payable_dao;
+        self
+    }
+
+    pub fn failed_payable_dao(
+        mut self,
+        failed_payable_dao: FailedPayableDaoMock,
+    ) -> PayableScannerBuilder {
+        self.failed_payable_dao = failed_payable_dao;
         self
     }
 
@@ -1276,17 +1474,10 @@ impl PayableScannerBuilder {
         self
     }
 
-    pub fn failed_payable_dao(
-        mut self,
-        failed_payable_dao: FailedPayableDaoMock,
-    ) -> PayableScannerBuilder {
-        self.failed_payable_dao = failed_payable_dao;
-        self
-    }
-
     pub fn build(self) -> PayableScanner {
         PayableScanner::new(
             Box::new(self.payable_dao),
+            Box::new(self.sent_payable_dao),
             Box::new(self.failed_payable_dao),
             Rc::new(self.payment_thresholds),
             Box::new(self.payment_adjuster),

@@ -45,6 +45,7 @@ use time::OffsetDateTime;
 use variant_count::VariantCount;
 use web3::types::H256;
 use crate::accountant::db_access_objects::failed_payable_dao::FailedPayableDao;
+use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDao;
 use crate::accountant::scanners::payable_scanner_extension::{MultistageDualPayableScanner, PreparedAdjustment, SolvencySensitivePaymentInstructor};
 use crate::accountant::scanners::payable_scanner_extension::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage, UnpricedQualifiedPayables};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionReceiptResult, TxStatus};
@@ -83,6 +84,7 @@ impl Scanners {
     ) -> Self {
         let payable = Box::new(PayableScanner::new(
             dao_factories.payable_dao_factory.make(),
+            dao_factories.sent_payable_dao_factory.make(),
             dao_factories.failed_payable_dao_factory.make(),
             Rc::clone(&payment_thresholds),
             Box::new(PaymentAdjusterReal::new()),
@@ -462,6 +464,7 @@ pub struct PayableScanner {
     pub payable_threshold_gauge: Box<dyn PayableThresholdsGauge>,
     pub common: ScannerCommon,
     pub payable_dao: Box<dyn PayableDao>,
+    pub sent_payable_dao: Box<dyn SentPayableDao>,
     pub failed_payable_dao: Box<dyn FailedPayableDao>,
     // TODO: GH-605: Insert FailedPayableDao, maybe introduce SentPayableDao once you eliminate PendingPayableDao
     pub payment_adjuster: Box<dyn PaymentAdjuster>,
@@ -623,14 +626,15 @@ impl SolvencySensitivePaymentInstructor for PayableScanner {
 impl PayableScanner {
     pub fn new(
         payable_dao: Box<dyn PayableDao>,
+        sent_payable_dao: Box<dyn SentPayableDao>,
         failed_payable_dao: Box<dyn FailedPayableDao>,
-        // pending_payable_dao: Box<dyn PendingPayableDao>,
         payment_thresholds: Rc<PaymentThresholds>,
         payment_adjuster: Box<dyn PaymentAdjuster>,
     ) -> Self {
         Self {
             common: ScannerCommon::new(payment_thresholds),
             payable_dao,
+            sent_payable_dao,
             failed_payable_dao,
             payable_threshold_gauge: Box::new(PayableThresholdsGaugeReal::default()),
             payment_adjuster,
@@ -1431,7 +1435,7 @@ mod tests {
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{OperationOutcome, PayableScanResult, PendingPayableMetadata};
     use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_none_status, handle_status_with_failure, PendingPayableScanReport, PendingPayableScanResult};
     use crate::accountant::scanners::{Scanner, StartScanError, StartableScanner, PayableScanner, PendingPayableScanner, ReceivableScanner, ScannerCommon, Scanners, MTError};
-    use crate::accountant::test_utils::{make_custom_payment_thresholds, make_payable_account, make_qualified_and_unqualified_payables, make_pending_payable_fingerprint, make_receivable_account, BannedDaoFactoryMock, BannedDaoMock, ConfigDaoFactoryMock, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder, PayableThresholdsGaugeMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock, PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock, ReceivableScannerBuilder, FailedPayableDaoMock, FailedPayableDaoFactoryMock};
+    use crate::accountant::test_utils::{make_custom_payment_thresholds, make_payable_account, make_qualified_and_unqualified_payables, make_pending_payable_fingerprint, make_receivable_account, BannedDaoFactoryMock, BannedDaoMock, ConfigDaoFactoryMock, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder, PayableThresholdsGaugeMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock, PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock, ReceivableScannerBuilder, FailedPayableDaoMock, FailedPayableDaoFactoryMock, SentPayableDaoFactoryMock};
     use crate::accountant::{gwei_to_wei, PendingPayableId, ReceivedPayments, ReportTransactionReceipts, RequestTransactionReceipts, ScanError, ScanForRetryPayables, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC};
     use crate::blockchain::blockchain_bridge::{BlockMarker, PendingPayableFingerprint, RetrieveTransactions};
     use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
@@ -1556,6 +1560,7 @@ mod tests {
         let pending_payable_dao_factory = PendingPayableDaoFactoryMock::new()
             .make_result(PendingPayableDaoMock::new())
             .make_result(PendingPayableDaoMock::new());
+        let sent_payable_dao_factory = SentPayableDaoFactoryMock::new();
         let failed_payable_dao_factory = FailedPayableDaoFactoryMock::new();
         let receivable_dao = ReceivableDaoMock::new();
         let receivable_dao_factory = ReceivableDaoFactoryMock::new().make_result(receivable_dao);
@@ -1578,6 +1583,7 @@ mod tests {
             DaoFactories {
                 payable_dao_factory: Box::new(payable_dao_factory),
                 pending_payable_dao_factory: Box::new(pending_payable_dao_factory),
+                sent_payable_dao_factory: Box::new(sent_payable_dao_factory),
                 failed_payable_dao_factory: Box::new(failed_payable_dao_factory),
                 receivable_dao_factory: Box::new(receivable_dao_factory),
                 banned_dao_factory: Box::new(banned_dao_factory),

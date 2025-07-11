@@ -1399,6 +1399,7 @@ mod tests {
             bootstrapper_config,
             DaoFactories {
                 payable_dao_factory,
+                sent_payable_dao_factory: todo!(),
                 pending_payable_dao_factory,
                 failed_payable_dao_factory,
                 receivable_dao_factory,

@@ -4,6 +4,7 @@ use crate::accountant::db_access_objects::failed_payable_dao::FailedPayableDaoFa
 use crate::accountant::db_access_objects::payable_dao::PayableDaoFactory;
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayableDaoFactory;
 use crate::accountant::db_access_objects::receivable_dao::ReceivableDaoFactory;
+use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDaoFactory;
 use crate::accountant::scanners::payable_scanner_extension::msgs::BlockchainAgentWithContextMessage;
 use crate::accountant::{
     checked_conversion, Accountant, ReceivedPayments, ReportTransactionReceipts, ScanError,
@@ -72,6 +73,7 @@ impl PaymentThresholds {
 
 pub struct DaoFactories {
     pub payable_dao_factory: Box<dyn PayableDaoFactory>,
+    pub sent_payable_dao_factory: Box<dyn SentPayableDaoFactory>,
     pub pending_payable_dao_factory: Box<dyn PendingPayableDaoFactory>, // TODO: This should go away
     pub failed_payable_dao_factory: Box<dyn FailedPayableDaoFactory>,
     pub receivable_dao_factory: Box<dyn ReceivableDaoFactory>,

@@ -7,11 +7,12 @@ use ethereum_types::{H256, U64};
 use web3::types::Address;
 use masq_lib::utils::ExpectValue;
 use crate::accountant::{checked_conversion, comma_joined_stringifiable};
-use crate::accountant::db_access_objects::utils::{TxHash, TxIdentifiers};
+use crate::accountant::db_access_objects::utils::{DaoFactoryReal, TxHash, TxIdentifiers};
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock};
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use itertools::Itertools;
+use crate::accountant::db_access_objects::failed_payable_dao::{FailedPayableDao, FailedPayableDaoReal};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SentPayableDaoError {
@@ -395,6 +396,16 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
             }
             Err(e) => Err(SentPayableDaoError::SqlExecutionFailed(e.to_string())),
         }
+    }
+}
+
+pub trait SentPayableDaoFactory {
+    fn make(&self) -> Box<dyn SentPayableDao>;
+}
+
+impl SentPayableDaoFactory for DaoFactoryReal {
+    fn make(&self) -> Box<dyn SentPayableDao> {
+        Box::new(SentPayableDaoReal::new(self.make_connection()))
     }
 }
 
