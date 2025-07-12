@@ -24,7 +24,7 @@ use crate::accountant::scanners::payable_scanner_extension::msgs::{UnpricedQuali
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
 use crate::blockchain::blockchain_bridge::{BlockMarker, BlockScanRange, RegisterNewPendingSentTxMessage};
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{LowBlockchainIntWeb3, TxReceiptResult, TxStatus, SentTxWithLatestStatus, TxReceiptRequestError};
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{LowBlockchainIntWeb3, TxReceiptResult, TxStatus, TxWithStatus, TxReceiptRequestError};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::utils::{create_blockchain_agent_web3, send_payables_within_batch, BlockchainAgentFutureResult};
 
 // TODO We should probably begin to attach these constants to the interfaces more tightly, so that
@@ -227,17 +227,16 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                         .map(|(response, sent_tx)| match response {
                             Ok(result) => {
                                 match serde_json::from_value::<TransactionReceipt>(result) {
-                                    Ok(receipt) => TxReceiptResult::RpcResponse(
-                                        SentTxWithLatestStatus::new(sent_tx, receipt.into()),
-                                    ),
+                                    Ok(receipt) => TxReceiptResult::RpcResponse(TxWithStatus::new(
+                                        sent_tx,
+                                        receipt.into(),
+                                    )),
                                     Err(e) => {
                                         if e.to_string().contains("invalid type: null") {
-                                            TxReceiptResult::RpcResponse(
-                                                SentTxWithLatestStatus::new(
-                                                    sent_tx,
-                                                    TxStatus::Pending,
-                                                ),
-                                            )
+                                            TxReceiptResult::RpcResponse(TxWithStatus::new(
+                                                sent_tx,
+                                                TxStatus::Pending,
+                                            ))
                                         } else {
                                             TxReceiptResult::RequestError(
                                                 TxReceiptRequestError::new(
@@ -1065,13 +1064,11 @@ mod tests {
         let sent_tx_5 = make_sent_tx(3704);
         let sent_tx_6 = make_sent_tx(3805);
         let sent_tx_vec = vec![
-            &sent_tx_1,
-            &sent_tx_2,
-            &sent_tx_3,
-            &sent_tx_4,
-            &sent_tx_5,
-            &sent_tx_6,
-        ].into_iter().cloned().collect();
+            &sent_tx_1, &sent_tx_2, &sent_tx_3, &sent_tx_4, &sent_tx_5, &sent_tx_6,
+        ]
+        .into_iter()
+        .cloned()
+        .collect();
         let block_hash =
             H256::from_str("6d0abccae617442c26104c2bc63d1bc05e1e002e555aec4ab62a46e826b18f18")
                 .unwrap();
@@ -1123,7 +1120,7 @@ mod tests {
             "RPC error: Error { code: ServerError(429), message: \"The requests per second (RPS) of your requests are higher than your plan allows.\", data: None }".to_string())));
         assert_eq!(
             result[1],
-            TxReceiptResult::RpcResponse(SentTxWithLatestStatus::new(sent_tx_2, TxStatus::Pending))
+            TxReceiptResult::RpcResponse(TxWithStatus::new(sent_tx_2, TxStatus::Pending))
         );
         assert_eq!(
             result[2],
@@ -1134,18 +1131,18 @@ mod tests {
         );
         assert_eq!(
             result[3],
-            TxReceiptResult::RpcResponse(SentTxWithLatestStatus::new(sent_tx_4, TxStatus::Pending))
+            TxReceiptResult::RpcResponse(TxWithStatus::new(sent_tx_4, TxStatus::Pending))
         );
         assert_eq!(
             result[4],
-            TxReceiptResult::RpcResponse(SentTxWithLatestStatus::new(
+            TxReceiptResult::RpcResponse(TxWithStatus::new(
                 sent_tx_5,
                 TxStatus::Failed(TxBlockchainFailure::Unknown)
             ))
         );
         assert_eq!(
             result[5],
-            TxReceiptResult::RpcResponse(SentTxWithLatestStatus::new(
+            TxReceiptResult::RpcResponse(TxWithStatus::new(
                 sent_tx_6,
                 TxStatus::Succeeded(TransactionBlock {
                     block_hash,

@@ -20,7 +20,7 @@ use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableT
 use crate::accountant::scanners::{PayableScanner, PendingPayableScanner, ReceivableScanner};
 use crate::accountant::{gwei_to_wei, Accountant, DEFAULT_PENDING_TOO_LONG_SEC};
 use crate::blockchain::blockchain_interface::data_structures::BlockchainTransaction;
-use crate::blockchain::test_utils::make_tx_hash;
+use crate::blockchain::test_utils::{make_block_hash, make_tx_hash};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
@@ -42,6 +42,7 @@ use std::path::Path;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
+use ethereum_types::U64;
 use web3::types::{Address};
 use crate::accountant::db_access_objects::sent_payable_dao::{RetrieveCondition, SentPayableDaoError, SentTx};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock};
@@ -109,6 +110,13 @@ pub fn make_failed_tx(num: u64) -> FailedTx {
         nonce: params.nonce,
         reason: FailureReason::PendingTooLong,
         status: FailureStatus::RetryRequired,
+    }
+}
+
+pub fn make_transaction_block(num: u64) -> TransactionBlock {
+    TransactionBlock {
+        block_hash: make_block_hash(num as u32),
+        block_number: U64::from(num * num * num),
     }
 }
 

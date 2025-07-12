@@ -1297,7 +1297,7 @@ mod tests {
     use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDaoError, SentTx};
     use crate::accountant::scanners::scan_schedulers::{NewPayableScanDynIntervalComputer, NewPayableScanDynIntervalComputerReal};
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{OperationOutcome, PayableScanResult};
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{SentTxWithLatestStatus, TransactionBlock, TxBlockchainFailure, TxStatus};
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TxWithStatus, TransactionBlock, TxBlockchainFailure, TxStatus};
     use crate::test_utils::recorder_counter_msgs::SingleTypeCounterMsgSetup;
 
     impl Handler<AssertionsMessage<Accountant>> for Accountant {
@@ -1939,7 +1939,7 @@ mod tests {
         let subject_addr = subject.start();
         let sent_tx = make_sent_tx(123);
         let report_tx_receipts = TxStatusReport {
-            results: vec![TxReceiptResult::RpcResponse(SentTxWithLatestStatus::new(
+            results: vec![TxReceiptResult::RpcResponse(TxWithStatus::new(
                 sent_tx.clone(),
                 TxStatus::Succeeded(TransactionBlock {
                     block_hash: make_tx_hash(456),
@@ -2157,7 +2157,7 @@ mod tests {
         let first_counter_msg_setup = setup_for_counter_msg_triggered_via_type_id!(
             RequestTransactionReceipts,
             TxStatusReport {
-                results: vec![TxReceiptResult::RpcResponse(SentTxWithLatestStatus::new(
+                results: vec![TxReceiptResult::RpcResponse(TxWithStatus::new(
                     sent_tx,
                     TxStatus::Failed(TxBlockchainFailure::Unknown)
                 )),],
@@ -2777,7 +2777,7 @@ mod tests {
         let subject_addr: Addr<Accountant> = subject.start();
         let subject_subs = Accountant::make_subs_from(&subject_addr);
         let expected_tx_status_report = TxStatusReport {
-            results: vec![TxReceiptResult::RpcResponse(SentTxWithLatestStatus::new(
+            results: vec![TxReceiptResult::RpcResponse(TxWithStatus::new(
                 sent_tx.clone(),
                 TxStatus::Failed(TxBlockchainFailure::Unknown),
             ))],
@@ -3511,7 +3511,7 @@ mod tests {
             )]),
             response_skeleton_opt: None,
         };
-        let tx_with_status = SentTxWithLatestStatus {
+        let tx_with_status = TxWithStatus {
             sent_tx: sent_tx.clone(),
             status: TxStatus::Succeeded(TransactionBlock {
                 block_hash: make_tx_hash(369369),
@@ -5043,17 +5043,11 @@ mod tests {
 
         System::current().stop();
         system.run();
-        let hashes = two_sent_txs
-            .iter()
-            .map(|sent_tx| sent_tx.hash)
-            .collect();
+        let hashes = two_sent_txs.iter().map(|sent_tx| sent_tx.hash).collect();
         let transactions_confirmed_params = transactions_confirmed_params_arc.lock().unwrap();
         assert_eq!(*transactions_confirmed_params, vec![two_sent_txs.clone()]);
         let delete_records_params = delete_records_params_arc.lock().unwrap();
-        assert_eq!(
-            *delete_records_params,
-            vec![hashes]
-        );
+        assert_eq!(*delete_records_params, vec![hashes]);
         let mut compute_interval_params = compute_interval_params_arc.lock().unwrap();
         let (_, last_new_payable_timestamp_actual, scan_interval_actual) =
             compute_interval_params.remove(0);
@@ -5078,6 +5072,7 @@ mod tests {
 
     #[test]
     fn accountant_confirms_payable_txs_and_schedules_the_delayed_new_payable_scanner_asap() {
+        init_test_logging();
         let transactions_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
         let delete_records_params_arc = Arc::new(Mutex::new(vec![]));
         let compute_interval_params_arc = Arc::new(Mutex::new(vec![]));
@@ -5118,11 +5113,11 @@ mod tests {
         let (msg, two_sent_txs) = make_tx_status_report_msg(vec![
             TxStatus::Succeeded(TransactionBlock {
                 block_hash: make_tx_hash(123),
-                block_number: U64::from(100),
+                block_number: U64::from(111),
             }),
             TxStatus::Succeeded(TransactionBlock {
                 block_hash: make_tx_hash(234),
-                block_number: U64::from(200),
+                block_number: U64::from(787),
             }),
         ]);
 
@@ -5131,17 +5126,11 @@ mod tests {
         let system = System::new("new_payable_scanner_asap");
         System::current().stop();
         system.run();
-        let hashes = two_sent_txs
-            .iter()
-            .map(|sent_tx| sent_tx.hash)
-            .collect();
+        let hashes = two_sent_txs.iter().map(|sent_tx| sent_tx.hash).collect();
         let transactions_confirmed_params = transactions_confirmed_params_arc.lock().unwrap();
         assert_eq!(*transactions_confirmed_params, vec![two_sent_txs]);
         let delete_records_params = delete_records_params_arc.lock().unwrap();
-        assert_eq!(
-            *delete_records_params,
-            vec![hashes]
-        );
+        assert_eq!(*delete_records_params, vec![hashes]);
         let mut compute_interval_params = compute_interval_params_arc.lock().unwrap();
         let (_, last_new_payable_timestamp_actual, scan_interval_actual) =
             compute_interval_params.remove(0);
@@ -5158,7 +5147,8 @@ mod tests {
             new_payable_notify_later
         );
         let new_payable_notify = new_payable_notify_arc.lock().unwrap();
-        assert_eq!(*new_payable_notify, vec![ScanForNewPayables::default()])
+        assert_eq!(*new_payable_notify, vec![ScanForNewPayables::default()]);
+        TestLogHandler::new().exists_log_containing("bluuuu");
     }
 
     #[test]
@@ -5230,12 +5220,10 @@ mod tests {
         let (tx_receipt_results, sent_tx_vec) = status_txs.into_iter().enumerate().fold(
             (vec![], vec![]),
             |(mut tx_receipt_results, mut sent_tx_vec), (idx, status)| {
-                let sent_tx = make_sent_tx(idx as u64);
+                let sent_tx = make_sent_tx(1 + idx as u64);
                 let hash = sent_tx.hash;
-                let tx_receipt_result = TxReceiptResult::RpcResponse(SentTxWithLatestStatus::new(
-                    sent_tx.clone(),
-                    status,
-                ));
+                let tx_receipt_result =
+                    TxReceiptResult::RpcResponse(TxWithStatus::new(sent_tx.clone(), status));
                 tx_receipt_results.push(tx_receipt_result);
                 sent_tx_vec.push(sent_tx);
                 (tx_receipt_results, sent_tx_vec)

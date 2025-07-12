@@ -593,7 +593,7 @@ mod tests {
     use masq_lib::constants::DEFAULT_MAX_BLOCK_COUNT;
     use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
     use crate::accountant::PendingPayable;
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{SentTxWithLatestStatus, TransactionBlock, TxReceiptRequestError};
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TxWithStatus, TransactionBlock, TxReceiptRequestError};
     use crate::accountant::scanners::payable_scanner_extension::msgs::{UnpricedQualifiedPayables, QualifiedPayableWithGasPrice};
 
     impl Handler<AssertionsMessage<Self>> for BlockchainBridge {
@@ -1216,14 +1216,11 @@ mod tests {
             tx_status_report_message,
             &TxStatusReport {
                 results: vec![
-                    TxReceiptResult::RpcResponse(SentTxWithLatestStatus::new(
+                    TxReceiptResult::RpcResponse(TxWithStatus::new(
                         sent_tx_1,
                         expected_receipt.into()
                     )),
-                    TxReceiptResult::RpcResponse(SentTxWithLatestStatus::new(
-                        sent_tx_2,
-                        TxStatus::Pending
-                    ))
+                    TxReceiptResult::RpcResponse(TxWithStatus::new(sent_tx_2, TxStatus::Pending))
                 ],
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
@@ -1361,12 +1358,12 @@ mod tests {
             *report_receipts_msg,
             TxStatusReport {
                 results: vec![
-                    TxReceiptResult::RpcResponse(SentTxWithLatestStatus::new(sent_tx_1, TxStatus::Pending)),
-                    TxReceiptResult::RpcResponse(SentTxWithLatestStatus::new(sent_tx_2,  TxStatus::Succeeded(TransactionBlock {
+                    TxReceiptResult::RpcResponse(TxWithStatus::new(sent_tx_1, TxStatus::Pending)),
+                    TxReceiptResult::RpcResponse(TxWithStatus::new(sent_tx_2,  TxStatus::Succeeded(TransactionBlock {
                         block_hash: Default::default(),
                         block_number,
                     }))),
-                    TxReceiptResult::RpcResponse(SentTxWithLatestStatus::new(sent_tx_3, TxStatus::Pending)),
+                    TxReceiptResult::RpcResponse(TxWithStatus::new(sent_tx_3, TxStatus::Pending)),
                     TxReceiptResult::RequestError(
                         TxReceiptRequestError::new(
                             sent_tx_4.hash,

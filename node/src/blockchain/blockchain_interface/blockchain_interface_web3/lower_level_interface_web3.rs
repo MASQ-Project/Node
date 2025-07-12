@@ -20,19 +20,19 @@ use web3::{Error, Web3};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TxReceiptResult {
-    RpcResponse(SentTxWithLatestStatus),
+    RpcResponse(TxWithStatus),
     RequestError(TxReceiptRequestError),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct SentTxWithLatestStatus {
+pub struct TxWithStatus {
     pub sent_tx: SentTx,
     pub status: TxStatus,
 }
 
-impl SentTxWithLatestStatus {
+impl TxWithStatus {
     pub fn new(sent_tx: SentTx, status: TxStatus) -> Self {
-        todo!()
+        Self { sent_tx, status }
     }
 }
 
@@ -58,7 +58,7 @@ pub enum TxStatus {
     Pending,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TxBlockchainFailure {
     Unknown,
 }
@@ -126,7 +126,7 @@ impl TxReceiptRequestError {
     }
 }
 
-#[derive(Debug, Default, PartialEq, Eq, Clone)]
+#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub struct TransactionBlock {
     pub block_hash: H256,
     pub block_number: U64,
@@ -261,7 +261,7 @@ mod tests {
     use web3::types::{BlockNumber, Bytes, FilterBuilder, Log, TransactionReceipt, U256};
     use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
     use crate::accountant::test_utils::make_sent_tx;
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{SentTxWithLatestStatus, TransactionBlock, TxBlockchainFailure, TxStatus};
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TxWithStatus, TransactionBlock, TxBlockchainFailure, TxStatus};
 
     #[test]
     fn get_transaction_fee_balance_works() {
@@ -630,7 +630,7 @@ mod tests {
             Some(U64::from(10)),
             H256::from_low_u64_be(0x5678),
         );
-        
+
         match tx_status {
             TxStatus::Succeeded(ref block) => {
                 assert_eq!(block.block_hash, H256::from_low_u64_be(0x1234));
@@ -648,14 +648,18 @@ mod tests {
             None,
             H256::from_low_u64_be(0x5678),
         );
-        
+
         assert_eq!(tx_status, TxStatus::Failed(TxBlockchainFailure::Unknown));
     }
 
     #[test]
     fn transaction_receipt_can_be_converted_to_pending_transaction_no_status() {
-        let tx_status =
-            test_deriving_tx_status_from_tx_receipt_and_adding_to_sent_tx(None, None, None, H256::from_low_u64_be(0x5678));
+        let tx_status = test_deriving_tx_status_from_tx_receipt_and_adding_to_sent_tx(
+            None,
+            None,
+            None,
+            H256::from_low_u64_be(0x5678),
+        );
 
         assert_eq!(tx_status, TxStatus::Pending);
     }
@@ -674,13 +678,12 @@ mod tests {
 
     #[test]
     fn transaction_receipt_can_be_converted_to_pending_transaction_no_status_and_block_info() {
-        let tx_status =
-            test_deriving_tx_status_from_tx_receipt_and_adding_to_sent_tx(
-                Some(U64::from(1)),
-                Some(H256::from_low_u64_be(0x1234)),
-                None,
-                H256::from_low_u64_be(0x5678),
-            );
+        let tx_status = test_deriving_tx_status_from_tx_receipt_and_adding_to_sent_tx(
+            Some(U64::from(1)),
+            Some(H256::from_low_u64_be(0x1234)),
+            None,
+            H256::from_low_u64_be(0x5678),
+        );
 
         assert_eq!(tx_status, TxStatus::Pending);
     }
@@ -688,7 +691,10 @@ mod tests {
     #[test]
     fn tx_status_display_works() {
         // Test Failed
-        assert_eq!(TxStatus::Failed(TxBlockchainFailure::Unknown).to_string(), "Failed");
+        assert_eq!(
+            TxStatus::Failed(TxBlockchainFailure::Unknown).to_string(),
+            "Failed"
+        );
 
         // Test Pending
         assert_eq!(TxStatus::Pending.to_string(), "Pending");
