@@ -853,17 +853,25 @@ impl PayableScanner {
         err_opt: Option<PayableTransactingErrorEnum>,
         logger: &Logger,
     ) {
+        fn decide_on_tx_error_handling(
+            err: &PayableTransactingErrorEnum,
+        ) -> Option<&HashSet<TxHash>> {
+            match err {
+                LocallyCausedError(PayableTransactionError::Sending { hashes, .. })
+                | RemotelyCausedErrors(hashes) => Some(hashes),
+                _ => None,
+            }
+        }
+
         if let Some(err) = err_opt {
-            if let LocallyCausedError(PayableTransactionError::Sending { hashes, .. })
-            | RemotelyCausedErrors(hashes) = &err
-            {
+            if let Some(hashes) = decide_on_tx_error_handling(&err) {
                 self.discard_failed_transactions_with_possible_sent_tx_records(hashes, logger)
             } else {
                 debug!(
-                        logger,
-                        "Ignoring a non-fatal error on our end from before the transactions are hashed: {:?}",
-                        err
-                    )
+                    logger,
+                    "A non-fatal error on our end from before the tx hashing will be ignored: {:?}",
+                    err
+                )
             }
         }
     }
@@ -1169,31 +1177,35 @@ impl PendingPayableScanner {
     }
 
     fn handle_failed_transactions(&self, failures: Vec<FailedTx>, logger: &Logger) {
+        fn joint_hashes(hashes: &HashSet<TxHash>) -> String {
+            comma_joined_stringifiable(&hashes.iter().collect_vec(), |hash| format!("{:?}", hash))
+        }
+
         if !failures.is_empty() {
-            let hashes = failures.iter().map(|failed_tx| failed_tx.hash).collect();
+            let hashes = failures
+                .iter()
+                .map(|failed_tx| failed_tx.hash)
+                .collect::<HashSet<TxHash>>();
             match self.failed_payable_dao.insert_new_records(&failures) {
                 Ok(_) => {
-                    todo!()
+                    debug!(logger, "Failed txs {:?} recorded", hashes);
                 }
-                Err(e) => todo!(),
+                Err(e) => panic!(
+                    "Unable to record failed txs {} due to {:?}",
+                    joint_hashes(&hashes),
+                    e
+                ),
             }
             match self.sent_payable_dao.delete_records(&hashes) {
-                //     Ok(_) => warning!(
-                //         logger,
-                //         "Broken transactions {} marked as an error. You should take over the care \
-                //      of those to make sure your debts are going to be settled properly. At the moment, \
-                //      there is no automated process fixing that without your assistance",
-                //         PendingPayableId::serialize_hashes_to_string(&failures)
-                //     ),
-                //     Err(e) => panic!(
-                //         "Unsuccessful attempt for transactions {} \
-                //         to mark fatal error at sent tx record due to {:?}; database unreliable",
-                //         PendingPayableId::serialize_hashes_to_string(&failures),
-                //         e
-                //     ),
-                // }
-                Ok(_) => todo!(),
-                Err(e) => todo!(),
+                Ok(_) => debug!(
+                    logger,
+                    "Deleted sent payable records for failed txs {:?}", hashes
+                ),
+                Err(e) => panic!(
+                    "Unable to delete sent_payable entries for failed txs {} due to {:?}",
+                    joint_hashes(&hashes),
+                    e
+                ),
             };
         }
     }
@@ -3323,8 +3335,6 @@ mod tests {
 
     #[test]
     fn handle_failed_transactions_works() {
-        init_test_logging();
-        let test_name = "handle_failed_transactions_works";
         let insert_new_records_params_arc = Arc::new(Mutex::new(vec![]));
         let delete_records_params_arc = Arc::new(Mutex::new(vec![]));
         let failed_payable_dao = FailedPayableDaoMock::default()
@@ -3344,27 +3354,45 @@ mod tests {
         let mut failed_tx_2 = make_failed_tx(456);
         failed_tx_2.hash = hash_2;
 
-        subject.handle_failed_transactions(vec![failed_tx_1, failed_tx_2], &Logger::new(test_name));
+        subject.handle_failed_transactions(vec![failed_tx_1, failed_tx_2], &Logger::new("test"));
 
         let delete_records_params = delete_records_params_arc.lock().unwrap();
         assert_eq!(*delete_records_params, vec![hashset![hash_1, hash_2]]);
-        TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: {test_name}: Broken transactions 0x0000000000000000000000000000000000000000000000000000000000000321, \
-            0x0000000000000000000000000000000000000000000000000000000000000654 bluh bluh"
-        ));
     }
 
     #[test]
-    #[should_panic(
-        expected = "Unsuccessful attempt for transactions 0x00000000000000000000000000000000000\
-        0000000000000000000000000014d, 0x000000000000000000000000000000000000000000000000000000\
-        00000001bc bluh bluh UpdateFailed(\"no no no\")"
-    )]
+    #[should_panic(expected = "Unable to record failed txs \
+        0x000000000000000000000000000000000000000000000000000000000000014d, \
+        0x00000000000000000000000000000000000000000000000000000000000001bc due to NoChange")]
     fn handle_failed_transactions_panics_when_it_fails_to_insert_failed_tx_record() {
         let failed_payable_dao = FailedPayableDaoMock::default()
             .insert_new_records_result(Err(FailedPayableDaoError::NoChange));
         let subject = PendingPayableScannerBuilder::new()
             .failed_payable_dao(failed_payable_dao)
+            .build();
+        let hash_1 = make_tx_hash(0x14d);
+        let hash_2 = make_tx_hash(0x1bc);
+        let mut failed_tx_1 = make_failed_tx(789);
+        failed_tx_1.hash = hash_1;
+        let mut failed_tx_2 = make_failed_tx(456);
+        failed_tx_2.hash = hash_2;
+        let failed_txs = vec![failed_tx_1, failed_tx_2];
+
+        subject.handle_failed_transactions(failed_txs, &Logger::new("test"));
+    }
+
+    #[test]
+    #[should_panic(expected = "Unable to delete sent_payable entries for failed txs \
+        0x000000000000000000000000000000000000000000000000000000000000014d, \
+        0x00000000000000000000000000000000000000000000000000000000000001bc due to \
+        InvalidInput(\"Booga\")")]
+    fn handle_failed_transactions_panics_when_it_fails_to_delete_obsolete_sent_tx_records() {
+        let failed_payable_dao = FailedPayableDaoMock::default().insert_new_records_result(Ok(()));
+        let sent_payable_dao = SentPayableDaoMock::default()
+            .delete_records_result(Err(SentPayableDaoError::InvalidInput("Booga".to_string())));
+        let subject = PendingPayableScannerBuilder::new()
+            .failed_payable_dao(failed_payable_dao)
+            .sent_payable_dao(sent_payable_dao)
             .build();
         let hash_1 = make_tx_hash(0x14d);
         let hash_2 = make_tx_hash(0x1bc);

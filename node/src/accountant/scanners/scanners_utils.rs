@@ -424,9 +424,11 @@ pub mod pending_payable_scanner_utils {
         let failed_tx = FailedTx::from((sent_tx, failure_reason));
 
         todo!("add to log assertions");
-        error!(
+        warning!(
             logger,
-            "Failure of tx {:?} detected: {:?}.", failed_tx.hash, failure_reason
+            "Failure of tx {:?} detected: {:?}.",
+            failed_tx.hash,
+            failure_reason
         );
 
         scan_report.failures.push(failed_tx);
