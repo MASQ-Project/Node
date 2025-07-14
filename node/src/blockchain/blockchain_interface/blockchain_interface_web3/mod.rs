@@ -476,7 +476,7 @@ mod tests {
     use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxStatus};
     use crate::accountant::test_utils::make_sent_tx;
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TxBlockchainFailure};
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{BlockchainTxFailure};
 
     #[test]
     fn constants_are_correct() {
@@ -1137,7 +1137,7 @@ mod tests {
             result[4],
             TxReceiptResult::RpcResponse(TxWithStatus::new(
                 sent_tx_5,
-                TxStatus::Failed(TxBlockchainFailure::Unknown)
+                TxStatus::Failed(BlockchainTxFailure::Unrecognized)
             ))
         );
         assert_eq!(

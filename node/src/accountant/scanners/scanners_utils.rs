@@ -320,10 +320,12 @@ pub mod pending_payable_scanner_utils {
     use masq_lib::logger::Logger;
     use masq_lib::ui_gateway::NodeToUiMessage;
     use std::time::SystemTime;
+    use thousands::Separable;
     use masq_lib::utils::ExpectValue;
-    use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
+    use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureReason, FailureStatus};
     use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxBlockchainFailure, TxReceiptRequestError, TxStatus};
+    use crate::accountant::db_access_objects::utils::from_unix_timestamp;
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, BlockchainTxFailure, TxReceiptRequestError, TxStatus};
 
     #[derive(Debug, Default, PartialEq, Eq, Clone)]
     pub struct PendingPayableScanSummary {
@@ -354,44 +356,24 @@ pub mod pending_payable_scanner_utils {
             .expect("time calculation for elapsed failed")
             .as_millis()
     }
-    //
-    // pub fn handle_none_status(
-    //     mut scan_report: PendingPayableScanSummary,
-    //     sent_tx: SentTx,
-    //     max_pending_interval: u64,
-    //     logger: &Logger,
-    // ) -> PendingPayableScanSummary {
-    //     info!(
-    //         logger,
-    //         "Pending transaction {:?} couldn't be confirmed at attempt \
-    //         {} at {}ms after its sending",
-    //         sent_tx.hash,
-    //         sent_tx.attempt,
-    //         elapsed_in_ms(sent_tx.timestamp)
-    //     );
-    //     let elapsed = sent_tx
-    //         .timestamp
-    //         .elapsed()
-    //         .expect("we should be older now");
-    //     let elapsed = elapsed.as_secs();
-    //     if elapsed > max_pending_interval {
-    //         error!(
-    //             logger,
-    //             "Pending transaction {:?} has exceeded the maximum pending time \
-    //             ({}sec) with the age {}sec and the confirmation process is going to be aborted now \
-    //             at the final attempt {}; manual resolution is required from the \
-    //             user to complete the transaction.",
-    //             sent_tx.hash,
-    //             max_pending_interval,
-    //             elapsed,
-    //             sent_tx.attempt
-    //         );
-    //         scan_report.failures.push(sent_tx.into())
-    //     } else {
-    //         scan_report.still_pending.push(sent_tx.into())
-    //     }
-    //     scan_report
-    // }
+
+    pub fn handle_still_pending_tx(
+        mut scan_report: PendingPayableScanSummary,
+        sent_tx: SentTx,
+        logger: &Logger,
+    ) -> PendingPayableScanSummary {
+        warning!(
+            logger,
+            "Pending tx {:?} could not be confirmed yet after {} ms and will be retried with a more \
+            optimized gas price",
+            sent_tx.hash,
+            elapsed_in_ms(from_unix_timestamp(sent_tx.timestamp)).separate_with_commas()
+        );
+
+        let failed_tx = FailedTx::from(sent_tx);
+        scan_report.failures.push(failed_tx);
+        scan_report
+    }
 
     pub fn handle_successful_tx(
         mut scan_report: PendingPayableScanSummary,
@@ -401,9 +383,7 @@ pub mod pending_payable_scanner_utils {
     ) -> PendingPayableScanSummary {
         info!(
             logger,
-            "Acknowledging that tx {:?} was added to block {}.",
-            sent_tx.hash,
-            tx_block.block_number,
+            "Detected tx {:?} added to block {}.", sent_tx.hash, tx_block.block_number,
         );
 
         let completed_sent_tx = SentTx {
@@ -418,15 +398,14 @@ pub mod pending_payable_scanner_utils {
     pub fn handle_status_with_failure(
         mut scan_report: PendingPayableScanSummary,
         sent_tx: SentTx,
-        failure_reason: TxBlockchainFailure,
+        failure_reason: BlockchainTxFailure,
         logger: &Logger,
     ) -> PendingPayableScanSummary {
         let failed_tx = FailedTx::from((sent_tx, failure_reason));
 
-        todo!("add to log assertions");
         warning!(
             logger,
-            "Failure of tx {:?} detected: {:?}.",
+            "Tx {:?} failed on blockchain due to: {}",
             failed_tx.hash,
             failure_reason
         );
@@ -435,37 +414,42 @@ pub mod pending_payable_scanner_utils {
         scan_report
     }
 
-    pub fn handle_request_error_fetching_receipts(
-        mut scan_report: PendingPayableScanSummary,
-        local_error: TxReceiptRequestError,
-        logger: &Logger,
-    ) -> PendingPayableScanSummary {
-        todo!()
-        // debug!(
-        //     logger,
-        //     "Interpreting a receipt for transaction {:?} but {}; attempt {}, {}ms since sending",
-        //     payable.hash,
-        //     error_msg,
-        //     payable.attempt,
-        //     elapsed_in_ms(payable.timestamp)
-        // );
-        //
-        // scan_report
-        //     .still_pending
-        //     .push(PendingPayableId::new(payable.rowid, payable.hash));
-        // scan_report
-    }
-
     // Should be used only for pending txs that linger too long
     impl From<SentTx> for FailedTx {
-        fn from(_: SentTx) -> Self {
-            todo!()
+        fn from(sent_tx: SentTx) -> Self {
+            FailedTx {
+                hash: sent_tx.hash,
+                receiver_address: sent_tx.receiver_address,
+                amount_minor: sent_tx.amount_minor,
+                timestamp: sent_tx.timestamp,
+                gas_price_minor: sent_tx.gas_price_minor,
+                nonce: sent_tx.nonce,
+                reason: FailureReason::PendingTooLong,
+                status: FailureStatus::RetryRequired,
+            }
         }
     }
 
-    impl From<(SentTx, TxBlockchainFailure)> for FailedTx {
-        fn from((sent_tx, blockchain_failure): (SentTx, TxBlockchainFailure)) -> Self {
-            todo!()
+    impl From<BlockchainTxFailure> for FailureReason {
+        fn from(failure: BlockchainTxFailure) -> Self {
+            match failure {
+                BlockchainTxFailure::Unrecognized => FailureReason::General,
+            }
+        }
+    }
+
+    impl From<(SentTx, BlockchainTxFailure)> for FailedTx {
+        fn from((sent_tx, blockchain_failure): (SentTx, BlockchainTxFailure)) -> Self {
+            FailedTx {
+                hash: sent_tx.hash,
+                receiver_address: sent_tx.receiver_address,
+                amount_minor: sent_tx.amount_minor,
+                timestamp: sent_tx.timestamp,
+                gas_price_minor: sent_tx.gas_price_minor,
+                nonce: sent_tx.nonce,
+                reason: blockchain_failure.into(),
+                status: FailureStatus::RetryRequired,
+            }
         }
     }
 }
@@ -506,9 +490,14 @@ mod tests {
     use masq_lib::constants::WEIS_IN_GWEI;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use std::time::SystemTime;
+    use std::time::{Duration, SystemTime};
+    use itertools::Itertools;
+    use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureReason, FailureStatus};
+    use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
     use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::PendingPayableScanSummary;
     use crate::accountant::test_utils::{make_failed_tx, make_sent_tx};
+    use crate::assert_on_testing_enum_with_all_its_variants;
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::BlockchainTxFailure;
     use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainError, PayableTransactionError};
     use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RpcPayableFailure};
 
@@ -826,6 +815,75 @@ mod tests {
             PayableThresholdsGaugeReal::default().is_innocent_balance(payable_balance, 1000);
 
         assert_eq!(result, false)
+    }
+
+    #[test]
+    fn conversion_between_blockchain_tx_failure_and_failure_reason_works() {
+        let input_and_expected_results =
+            vec![(BlockchainTxFailure::Unrecognized, FailureReason::General)];
+        let inputs_len = input_and_expected_results.len();
+
+        let check_nums = input_and_expected_results
+            .into_iter()
+            .map(|(input, failure_reason)| match input {
+                BlockchainTxFailure::Unrecognized => {
+                    let result = FailureReason::from(input);
+                    assert_eq!(result, failure_reason);
+                    1
+                }
+            })
+            .collect_vec();
+
+        assert_on_testing_enum_with_all_its_variants!(BlockchainTxFailure, check_nums, inputs_len)
+    }
+
+    #[test]
+    fn conversion_from_sent_tx_and_blockchain_tx_failure_to_failed_tx_works() {
+        let sent_tx = set_up_exemplary_sent_tx_for_tx_failure_conversion_test();
+
+        let result = FailedTx::from((sent_tx.clone(), BlockchainTxFailure::Unrecognized));
+
+        assert_conversion_into_failed_tx(result, sent_tx, FailureReason::General)
+    }
+
+    #[test]
+    fn conversion_from_sent_tx_straight_into_failed_tx_works() {
+        let sent_tx = set_up_exemplary_sent_tx_for_tx_failure_conversion_test();
+
+        let result = FailedTx::from(sent_tx.clone());
+
+        assert_conversion_into_failed_tx(result, sent_tx, FailureReason::PendingTooLong)
+    }
+
+    fn set_up_exemplary_sent_tx_for_tx_failure_conversion_test() -> SentTx {
+        SentTx {
+            hash: make_tx_hash(789),
+            receiver_address: make_wallet("receiver").address(),
+            amount_minor: 123_456_789,
+            timestamp: to_unix_timestamp(
+                SystemTime::now()
+                    .checked_sub(Duration::from_secs(10_000))
+                    .unwrap(),
+            ),
+            gas_price_minor: gwei_to_wei(424_u64),
+            nonce: 456_u64.into(),
+            block_opt: None,
+        }
+    }
+
+    fn assert_conversion_into_failed_tx(
+        result: FailedTx,
+        original_sent_tx: SentTx,
+        expected_failure_reason: FailureReason,
+    ) {
+        assert_eq!(result.hash, original_sent_tx.hash);
+        assert_eq!(result.receiver_address, original_sent_tx.receiver_address);
+        assert_eq!(result.amount_minor, original_sent_tx.amount_minor);
+        assert_eq!(result.timestamp, original_sent_tx.timestamp);
+        assert_eq!(result.gas_price_minor, original_sent_tx.gas_price_minor);
+        assert_eq!(result.nonce, original_sent_tx.nonce);
+        assert_eq!(result.status, FailureStatus::RetryRequired);
+        assert_eq!(result.reason, expected_failure_reason);
     }
 
     #[test]

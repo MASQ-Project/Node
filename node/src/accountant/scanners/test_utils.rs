@@ -382,8 +382,8 @@ pub enum MarkScanner<'a> {
     Started(SystemTime),
 }
 
-// Cautious: Don't compare to another timestamp on a full match; this timestamp is trimmed in
-// nanoseconds down to three digits
+// Cautious: Don't compare to another timestamp on an exact match. This timestamp is trimmed in
+// nanoseconds down to three digits. Works only for the format bound by TIME_FORMATTING_STRING
 pub fn parse_system_time_from_str(examined_str: &str) -> Vec<SystemTime> {
     let regex = Regex::new(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})").unwrap();
     let captures = regex.captures_iter(examined_str);

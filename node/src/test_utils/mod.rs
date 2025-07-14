@@ -563,10 +563,49 @@ pub mod unshared_test_utils {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use std::vec;
+    use variant_count::VariantCount;
 
     #[derive(Message)]
     pub struct AssertionsMessage<A: Actor> {
         pub assertions: Box<dyn FnOnce(&mut A) + Send>,
+    }
+
+    pub fn capture_numbers_with_separators_from_str(
+        surveyed_str: &str,
+        digit_grouped_by: usize,
+        separator: char,
+    ) -> Vec<String> {
+        let regex =
+            format!("(\\d{{1,{digit_grouped_by}}}(?:{separator}\\d{{{digit_grouped_by}}})+)");
+        let re = regex::Regex::new(&regex).unwrap();
+        let captures = re.captures_iter(surveyed_str);
+        captures.map(|capture| capture[1].to_string()).collect()
+    }
+
+    #[macro_export]
+    macro_rules! assert_on_testing_enum_with_all_its_variants {
+        ($enum_type: ty, $check_nums: expr, $inputs_len: expr) => {{
+            let mut check_nums = $check_nums;
+            let initially = check_nums.len();
+            check_nums.dedup();
+            let deduped = check_nums.len();
+            let official_variant_count = <$enum_type>::VARIANT_COUNT;
+            assert_eq!(
+                deduped, initially,
+                "Some variants were processed more than once. Expected: {}, actual: {}",
+                initially, deduped
+            );
+            assert_eq!(
+                $inputs_len, official_variant_count,
+                "Input should contain one example from each variant. Expected: {}, actual: {}",
+                official_variant_count, $inputs_len
+            );
+            assert_eq!(
+                deduped, official_variant_count,
+                "We should've gotten one result for each variant. Expected: {}, actual: {}",
+                official_variant_count, deduped
+            )
+        }};
     }
 
     pub fn assert_on_initialization_with_panic_on_migration<A>(data_dir: &Path, act: &A)

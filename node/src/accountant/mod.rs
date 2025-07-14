@@ -594,12 +594,12 @@ impl Accountant {
                     byte_rate,
                     payload_size
                 ),
-                Err(e) => panic!("Recording services provided for {} but has hit fatal database error: {:?}", wallet, e)
+                Err(e) => panic!("Was recording services provided for {} but hit a fatal database error: {:?}", wallet, e)
             };
         } else {
             warning!(
                 self.logger,
-                "Declining to record a receivable against our wallet {} for service we provided",
+                "Declining to record a receivable against our wallet {} for services we provided",
                 wallet
             );
         }
@@ -1237,7 +1237,7 @@ mod tests {
     use crate::accountant::test_utils::DaoWithDestination::{
         ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,
     };
-    use crate::accountant::test_utils::{bc_from_earning_wallet, bc_from_wallets, make_payable_account, make_qualified_and_unqualified_payables, BannedDaoFactoryMock, ConfigDaoFactoryMock, MessageIdGeneratorMock, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder, PaymentAdjusterMock, SentPayableDaoFactoryMock, SentPayableDaoMock, ReceivableDaoFactoryMock, ReceivableDaoMock, make_sent_tx, FailedPayableDaoMock, FailedPayableDaoFactoryMock};
+    use crate::accountant::test_utils::{bc_from_earning_wallet, bc_from_wallets, make_payable_account, make_qualified_and_unqualified_payables, BannedDaoFactoryMock, ConfigDaoFactoryMock, MessageIdGeneratorMock, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder, PaymentAdjusterMock, SentPayableDaoFactoryMock, SentPayableDaoMock, ReceivableDaoFactoryMock, ReceivableDaoMock, make_sent_tx, FailedPayableDaoMock, FailedPayableDaoFactoryMock, make_transaction_block};
     use crate::accountant::test_utils::{make_unpriced_qualified_payables_for_retry_mode, make_priced_qualified_payables};
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
     use crate::accountant::Accountant;
@@ -1288,6 +1288,7 @@ mod tests {
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_gateway::{MessageBody, MessagePath, NodeFromUiMessage, NodeToUiMessage};
     use std::any::{TypeId};
+    use std::fmt::format;
     use std::ops::{Sub};
     use std::sync::Arc;
     use std::sync::Mutex;
@@ -1297,7 +1298,7 @@ mod tests {
     use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDaoError, SentTx};
     use crate::accountant::scanners::scan_schedulers::{NewPayableScanDynIntervalComputer, NewPayableScanDynIntervalComputerReal};
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{OperationOutcome, PayableScanResult};
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TxWithStatus, TransactionBlock, TxBlockchainFailure, TxStatus};
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TxWithStatus, TransactionBlock, BlockchainTxFailure, TxStatus};
     use crate::test_utils::recorder_counter_msgs::SingleTypeCounterMsgSetup;
 
     impl Handler<AssertionsMessage<Accountant>> for Accountant {
@@ -2159,7 +2160,7 @@ mod tests {
             TxStatusReport {
                 results: vec![TxReceiptResult::RpcResponse(TxWithStatus::new(
                     sent_tx,
-                    TxStatus::Failed(TxBlockchainFailure::Unknown)
+                    TxStatus::Failed(BlockchainTxFailure::Unrecognized)
                 )),],
                 response_skeleton_opt
             },
@@ -2779,7 +2780,7 @@ mod tests {
         let expected_tx_status_report = TxStatusReport {
             results: vec![TxReceiptResult::RpcResponse(TxWithStatus::new(
                 sent_tx.clone(),
-                TxStatus::Failed(TxBlockchainFailure::Unknown),
+                TxStatus::Failed(BlockchainTxFailure::Unrecognized),
             ))],
             response_skeleton_opt: None,
         };
@@ -4275,7 +4276,7 @@ mod tests {
             .is_empty());
 
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: Accountant: Declining to record a receivable against our wallet {} for service we provided",
+            "WARN: Accountant: Declining to record a receivable against our wallet {} for services we provided",
             consuming_wallet,
         ));
     }
@@ -4320,7 +4321,7 @@ mod tests {
             .is_empty());
 
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: Accountant: Declining to record a receivable against our wallet {} for service we provided",
+            "WARN: Accountant: Declining to record a receivable against our wallet {} for services we provided",
             earning_wallet,
         ));
     }
@@ -4412,7 +4413,7 @@ mod tests {
             .is_empty());
 
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: Accountant: Declining to record a receivable against our wallet {} for service we provided",
+            "WARN: Accountant: Declining to record a receivable against our wallet {} for services we provided",
             consuming_wallet
         ));
     }
@@ -4457,7 +4458,7 @@ mod tests {
             .is_empty());
 
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: Accountant: Declining to record a receivable against our wallet {} for service we provided",
+            "WARN: Accountant: Declining to record a receivable against our wallet {} for services we provided",
             earning_wallet,
         ));
     }
@@ -4726,8 +4727,8 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Recording services provided for 0x000000000000000000000000000000626f6f6761 \
-    but has hit fatal database error: RusqliteError(\"we cannot help ourselves; this is baaad\")"
+        expected = "Was recording services provided for 0x000000000000000000000000000000626f6f6761 \
+    but hit a fatal database error: RusqliteError(\"we cannot help ourselves; this is baaad\")"
     )]
     fn record_service_provided_panics_on_fatal_errors() {
         init_test_logging();
@@ -4961,7 +4962,7 @@ mod tests {
         let system = System::new(test_name);
         let (mut msg, _) = make_tx_status_report_msg(vec![
             TxStatus::Pending,
-            TxStatus::Failed(TxBlockchainFailure::Unknown),
+            TxStatus::Failed(BlockchainTxFailure::Unrecognized),
         ]);
         let response_skeleton_opt = Some(ResponseSkeleton {
             client_id: 45,
@@ -5073,8 +5074,10 @@ mod tests {
     #[test]
     fn accountant_confirms_payable_txs_and_schedules_the_delayed_new_payable_scanner_asap() {
         init_test_logging();
+        let test_name =
+            "accountant_confirms_payable_txs_and_schedules_the_delayed_new_payable_scanner_asap";
         let transactions_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
-        let delete_records_params_arc = Arc::new(Mutex::new(vec![]));
+        let update_tx_blocks_params_arc = Arc::new(Mutex::new(vec![]));
         let compute_interval_params_arc = Arc::new(Mutex::new(vec![]));
         let new_payable_notify_later_arc = Arc::new(Mutex::new(vec![]));
         let new_payable_notify_arc = Arc::new(Mutex::new(vec![]));
@@ -5082,11 +5085,12 @@ mod tests {
             .transactions_confirmed_params(&transactions_confirmed_params_arc)
             .transactions_confirmed_result(Ok(()));
         let sent_payable_dao = SentPayableDaoMock::default()
-            .delete_records_params(&delete_records_params_arc)
-            .delete_records_result(Ok(()));
+            .update_tx_blocks_params(&update_tx_blocks_params_arc)
+            .update_tx_blocks_result(Ok(()));
         let mut subject = AccountantBuilder::default()
             .payable_daos(vec![ForPendingPayableScanner(payable_dao)])
             .sent_payable_daos(vec![ForPendingPayableScanner(sent_payable_dao)])
+            .logger(Logger::new(test_name))
             .build();
         let last_new_payable_scan_timestamp = SystemTime::now()
             .checked_sub(Duration::from_secs(8))
@@ -5109,28 +5113,26 @@ mod tests {
         );
         subject.scan_schedulers.payable.new_payable_notify =
             Box::new(NotifyHandleMock::default().notify_params(&new_payable_notify_arc));
+        let tx_block_1 = make_transaction_block(4567);
+        let tx_block_2 = make_transaction_block(1234);
         let subject_addr = subject.start();
         let (msg, two_sent_txs) = make_tx_status_report_msg(vec![
-            TxStatus::Succeeded(TransactionBlock {
-                block_hash: make_tx_hash(123),
-                block_number: U64::from(111),
-            }),
-            TxStatus::Succeeded(TransactionBlock {
-                block_hash: make_tx_hash(234),
-                block_number: U64::from(787),
-            }),
+            TxStatus::Succeeded(tx_block_1),
+            TxStatus::Succeeded(tx_block_2),
         ]);
 
         subject_addr.try_send(msg).unwrap();
 
-        let system = System::new("new_payable_scanner_asap");
+        let system = System::new(test_name);
         System::current().stop();
         system.run();
-        let hashes = two_sent_txs.iter().map(|sent_tx| sent_tx.hash).collect();
         let transactions_confirmed_params = transactions_confirmed_params_arc.lock().unwrap();
-        assert_eq!(*transactions_confirmed_params, vec![two_sent_txs]);
-        let delete_records_params = delete_records_params_arc.lock().unwrap();
-        assert_eq!(*delete_records_params, vec![hashes]);
+        assert_eq!(*transactions_confirmed_params, vec![two_sent_txs.clone()]);
+        let update_tx_blocks_params = update_tx_blocks_params_arc.lock().unwrap();
+        assert_eq!(
+            *update_tx_blocks_params,
+            vec![hashmap![two_sent_txs[0].hash => tx_block_1, two_sent_txs[1].hash => tx_block_2]]
+        );
         let mut compute_interval_params = compute_interval_params_arc.lock().unwrap();
         let (_, last_new_payable_timestamp_actual, scan_interval_actual) =
             compute_interval_params.remove(0);
@@ -5148,7 +5150,10 @@ mod tests {
         );
         let new_payable_notify = new_payable_notify_arc.lock().unwrap();
         assert_eq!(*new_payable_notify, vec![ScanForNewPayables::default()]);
-        TestLogHandler::new().exists_log_containing("bluuuu");
+        TestLogHandler::new().exists_log_containing(&format!("INFO: {test_name}: \
+        Txs 0x0000000000000000000000000000000000000000000000000000000000000001 (block 95256152263), \
+        0x0000000000000000000000000000000000000000000000000000000000000002 (block 1879080904) have \
+        completed"));
     }
 
     #[test]
@@ -5220,11 +5225,15 @@ mod tests {
         let (tx_receipt_results, sent_tx_vec) = status_txs.into_iter().enumerate().fold(
             (vec![], vec![]),
             |(mut tx_receipt_results, mut sent_tx_vec), (idx, status)| {
-                let sent_tx = make_sent_tx(1 + idx as u64);
-                let hash = sent_tx.hash;
-                let tx_receipt_result =
+                let mut sent_tx = make_sent_tx(1 + idx as u64);
+                if let TxStatus::Succeeded(block) = &status {
+                    sent_tx.block_opt = Some(block.clone());
+                }
+
+                let result =
                     TxReceiptResult::RpcResponse(TxWithStatus::new(sent_tx.clone(), status));
-                tx_receipt_results.push(tx_receipt_result);
+
+                tx_receipt_results.push(result);
                 sent_tx_vec.push(sent_tx);
                 (tx_receipt_results, sent_tx_vec)
             },

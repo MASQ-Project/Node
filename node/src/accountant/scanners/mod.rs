@@ -12,7 +12,7 @@ use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableT
     LocallyCausedError, RemotelyCausedErrors,
 };
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{debugging_summary_after_error_separation, err_msg_for_failure_with_expected_but_missing_fingerprints, investigate_debt_extremes, mark_pending_payable_fatal_error, payables_debug_summary, separate_errors, separate_rowids_and_hashes, OperationOutcome, PayableScanResult, PayableThresholdsGauge, PayableThresholdsGaugeReal, PayableTransactingErrorEnum, PendingPayableMissingInDb};
-use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_request_error_fetching_receipts, handle_status_with_failure, handle_successful_tx, PendingPayableScanSummary, PendingPayableScanResult};
+use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_status_with_failure, handle_successful_tx, PendingPayableScanSummary, PendingPayableScanResult, handle_still_pending_tx};
 use crate::accountant::scanners::scanners_utils::receivable_scanner_utils::balance_and_age;
 use crate::accountant::{PendingPayable, PendingPayableId, ScanError, ScanForPendingPayables, ScanForRetryPayables};
 use crate::accountant::{
@@ -433,7 +433,7 @@ impl ScannerCommon {
             None => {
                 error!(
                     logger,
-                    "Called scan_finished() for {:?} scanner but timestamp was not found",
+                    "Called scan_finished() for {:?} scanner but could not find any timestamp",
                     scan_type
                 );
             }
@@ -987,8 +987,7 @@ impl Scanner<TxStatusReport, PendingPayableScanResult> for PendingPayableScanner
         let response_skeleton_opt = message.response_skeleton_opt;
 
         if message.results.is_empty() {
-            todo!("test me");
-            unreachable!("We should not have received an empty list of results")
+            unreachable!("We should never receive an empty list of results. Even missing receipts can be interpreted")
         }
 
         debug!(
@@ -1065,13 +1064,23 @@ impl PendingPayableScanner {
                                 reason,
                                 logger,
                             ),
-                            TxStatus::Pending => {
-                                todo!()
-                            }
+                            TxStatus::Pending => handle_still_pending_tx(
+                                scan_report_so_far,
+                                sent_tx_with_status.sent_tx,
+                                logger,
+                            ),
                         }
                     }
                     TxReceiptResult::RequestError(e) => {
-                        handle_request_error_fetching_receipts(scan_report_so_far, e, logger)
+                        todo!()
+                        // debug!(
+                        //     logger,
+                        //     "Interpreting a receipt for transaction {:?} but {}; attempt {}, {}ms since sending",
+                        //     payable.hash,
+                        //     error_msg,
+                        //     payable.attempt,
+                        //     elapsed_in_ms(payable.timestamp)
+                        // );
                     }
                 },
             )
@@ -1082,11 +1091,11 @@ impl PendingPayableScanner {
         scan_report: PendingPayableScanSummary,
         logger: &Logger,
     ) {
-        self.confirm_transactions(scan_report.confirmed, logger);
+        self.handle_confirmed_transactions(scan_report.confirmed, logger);
         self.handle_failed_transactions(scan_report.failures, logger);
     }
 
-    fn confirm_transactions(&mut self, confirmed_txs: Vec<SentTx>, logger: &Logger) {
+    fn handle_confirmed_transactions(&mut self, confirmed_txs: Vec<SentTx>, logger: &Logger) {
         fn transaction_confirmed_panic(confirmed_txs: &[SentTx], e: PayableDaoError) -> ! {
             let wallets = confirmed_txs
                 .iter()
@@ -1119,9 +1128,8 @@ impl PendingPayableScanner {
             logger.info(|| {
                 let pretty_pairs = tx_hashes_and_tx_blocks
                     .iter()
-                    .map(|(hash, block)| {
-                        format!("{:?} (block number: {})", hash, block.block_number)
-                    })
+                    .sorted()
+                    .map(|(hash, block)| format!("{:?} (block {})", hash, block.block_number))
                     .join(", ");
                 format!("Txs {} have completed", pretty_pairs)
             });
@@ -1548,7 +1556,8 @@ mod tests {
     use crate::accountant::db_access_objects::failed_payable_dao::{FailedPayableDaoError, FailedTx, FailureReason};
     use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDaoError, SentTx};
     use crate::accountant::scanners::test_utils::{assert_timestamps_from_str, parse_system_time_from_str, MarkScanner, NullScanner, ReplacementType, ScannerReplacement};
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TxWithStatus, TransactionBlock, TxReceiptResult, TxStatus, TxBlockchainFailure};
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TxWithStatus, TransactionBlock, TxReceiptResult, TxStatus, BlockchainTxFailure};
+    use crate::test_utils::unshared_test_utils::capture_numbers_with_separators_from_str;
 
     impl Scanners {
         pub fn replace_scanner(&mut self, replacement: ScannerReplacement) {
@@ -3175,110 +3184,13 @@ mod tests {
     }
 
     #[test]
-    fn interpret_transaction_receipt_when_transaction_status_is_none_and_outside_waiting_interval()
-    {
-        todo!("think of if we should preserve it")
-        // let test_name = "interpret_transaction_receipt_when_transaction_status_is_none_and_outside_waiting_interval";
-        // let hash = make_tx_hash(0x237);
-        // let rowid = 466;
-        //
-        // let result = assert_interpreting_none_status_for_pending_payable(
-        //     test_name,
-        //     DEFAULT_PENDING_TOO_LONG_SEC,
-        //     DEFAULT_PENDING_TOO_LONG_SEC + 1,
-        //     rowid,
-        //     hash,
-        // );
-        //
-        // let elapsed_after = elapsed_since_secs_back(DEFAULT_PENDING_TOO_LONG_SEC + 1);
-        // assert_eq!(
-        //     result,
-        //     PendingPayableScanSummary {
-        //         still_pending: vec![],
-        //         failures: vec![PendingPayableId::new(rowid, hash)],
-        //         confirmed: vec![]
-        //     }
-        // );
-        // let capture_regex = "(\\d+){2}sec";
-        // assert_log_msg_and_elapsed_time_in_log_makes_sense(&format!(
-        //     "ERROR: {}: Pending transaction 0x00000000000000000000000000000000000000\
-        //     00000000000000000000000237 has exceeded the maximum pending time \\({}sec\\) with the age \
-        //     \\d+sec and the confirmation process is going to be aborted now at the final attempt 1; manual \
-        //     resolution is required from the user to complete the transaction"
-        //     , test_name, DEFAULT_PENDING_TOO_LONG_SEC, ), elapsed_after, capture_regex)
-    }
-
-    #[test]
-    fn interpret_transaction_receipt_when_transaction_status_is_none_and_within_waiting_interval() {
-        todo!("think of we can transform it into some other test")
-        // let test_name = "interpret_transaction_receipt_when_transaction_status_is_none_and_within_waiting_interval";
-        // let hash = make_tx_hash(0x7b);
-        // let rowid = 333;
-        // let pending_payable_age = DEFAULT_PENDING_TOO_LONG_SEC - 1;
-        //
-        // let result = assert_interpreting_none_status_for_pending_payable(
-        //     test_name,
-        //     DEFAULT_PENDING_TOO_LONG_SEC,
-        //     pending_payable_age,
-        //     rowid,
-        //     hash,
-        // );
-        //
-        // let elapsed_after_ms = elapsed_since_secs_back(pending_payable_age) * 1000;
-        // assert_eq!(
-        //     result,
-        //     PendingPayableScanSummary {
-        //         still_pending: vec![PendingPayableId::new(rowid, hash)],
-        //         failures: vec![],
-        //         confirmed: vec![]
-        //     }
-        // );
-        // let capture_regex = r#"\s(\d+)ms"#;
-        // assert_log_msg_and_elapsed_time_in_log_makes_sense(&format!(
-        //     "INFO: {test_name}: Pending transaction 0x0000000000000000000000000000000000000000000000000\
-        //     00000000000007b couldn't be confirmed at attempt 1 at \\d+ms after its sending"), elapsed_after_ms, capture_regex);
-    }
-
-    #[test]
-    fn interpret_transaction_receipt_when_transaction_status_is_none_and_time_equals_the_limit() {
-        todo!("think of we can transform it into some other test")
-        // let test_name = "interpret_transaction_receipt_when_transaction_status_is_none_and_time_equals_the_limit";
-        // let hash = make_tx_hash(0x237);
-        // let rowid = 466;
-        // let pending_payable_age = DEFAULT_PENDING_TOO_LONG_SEC;
-        //
-        // let result = assert_interpreting_none_status_for_pending_payable(
-        //     test_name,
-        //     DEFAULT_PENDING_TOO_LONG_SEC,
-        //     pending_payable_age,
-        //     rowid,
-        //     hash,
-        // );
-        //
-        // let elapsed_after_ms = elapsed_since_secs_back(pending_payable_age) * 1000;
-        // assert_eq!(
-        //     result,
-        //     PendingPayableScanSummary {
-        //         still_pending: vec![PendingPayableId::new(rowid, hash)],
-        //         failures: vec![],
-        //         confirmed: vec![]
-        //     }
-        // );
-        // let capture_regex = r#"\s(\d+)ms"#;
-        // assert_log_msg_and_elapsed_time_in_log_makes_sense(&format!(
-        //     "INFO: {test_name}: Pending transaction 0x0000000000000000000000000000000000000000000000000\
-        //     000000000000237 couldn't be confirmed at attempt 1 at \\d+ms after its sending",
-        // ), elapsed_after_ms, capture_regex);
-    }
-
-    #[test]
     fn interpret_transaction_receipt_when_transaction_status_is_a_failure() {
         init_test_logging();
-        let now = SystemTime::now();
         let test_name = "interpret_transaction_receipt_when_transaction_status_is_a_failure";
         let hash = make_tx_hash(0xabc);
-        let sent_tx = make_sent_tx(2244);
-        let failure_reason = TxBlockchainFailure::Unknown;
+        let mut sent_tx = make_sent_tx(2244);
+        sent_tx.hash = hash;
+        let failure_reason = BlockchainTxFailure::Unrecognized;
         let logger = Logger::new(test_name);
         let scan_report = PendingPayableScanSummary::default();
 
@@ -3293,21 +3205,26 @@ mod tests {
                 confirmed: vec![]
             }
         );
-        TestLogHandler::new().exists_log_matching(&format!(
-            "INFO: {test_name}: Pending transaction 0x0000000000000000000000000000000000000000\
-            000000000000000000000abc bluh bluh"
+        TestLogHandler::new().exists_log_containing(&format!(
+            "WARN: {test_name}: Tx 0x0000000000000000000000000000000000000000000000000000000000000abc \
+            failed on blockchain due to: Failure unrecognized",
         ));
     }
 
     #[test]
-    fn handle_pending_txs_with_receipts_handles_none_for_receipt() {
+    fn handle_transaction_receipt_if_the_tx_keeps_pending() {
         init_test_logging();
-        let test_name = "handle_pending_txs_with_receipts_handles_none_for_receipt";
+        let test_name = "handle_transaction_receipt_if_the_tx_keeps_pending";
         let subject = PendingPayableScannerBuilder::new().build();
-        let rowid = 455;
         let hash = make_tx_hash(0x913);
+        let sent_tx_timestamp = to_unix_timestamp(
+            SystemTime::now()
+                .checked_sub(Duration::from_secs(120))
+                .unwrap(),
+        );
         let mut sent_tx = make_sent_tx(456);
         sent_tx.hash = hash;
+        sent_tx.timestamp = sent_tx_timestamp;
         let msg = TxStatusReport {
             results: vec![TxReceiptResult::RpcResponse(TxWithStatus::new(
                 sent_tx.clone(),
@@ -3315,9 +3232,11 @@ mod tests {
             ))],
             response_skeleton_opt: None,
         };
+        let before = SystemTime::now();
 
         let result = subject.handle_receipts_for_pending_transactions(msg, &Logger::new(test_name));
 
+        let after = SystemTime::now();
         let expected_failed_tx = FailedTx::from(sent_tx);
         assert_eq!(
             result,
@@ -3326,11 +3245,30 @@ mod tests {
                 confirmed: vec![]
             }
         );
-        TestLogHandler::new().exists_log_matching(&format!(
-            "DEBUG: {test_name}: Interpreting a receipt for transaction \
-            0x0000000000000000000000000000000000000000000000000000000000000913 \
-            but none was given; attempt 3, 100\\d\\dms since sending"
+        let log_handler = TestLogHandler::new();
+        let log_idx = log_handler.exists_log_matching(&format!(
+            "WARN: {test_name}: Pending tx \
+            0x0000000000000000000000000000000000000000000000000000000000000913 could not be \
+            confirmed yet after \\d{{1,3}}(,\\d{{3}})* ms and will be retried with a more optimized gas price"
         ));
+        let log_msg = log_handler.get_log_at(log_idx);
+        let str_elapsed_ms = capture_numbers_with_separators_from_str(&log_msg, 3, ',');
+        let elapsed_ms = str_elapsed_ms[0].replace(",", "").parse::<u128>().unwrap();
+        let elapsed_ms_when_before = before
+            .duration_since(from_unix_timestamp(sent_tx_timestamp))
+            .unwrap()
+            .as_millis();
+        let elapsed_ms_when_after = after
+            .duration_since(from_unix_timestamp(sent_tx_timestamp))
+            .unwrap()
+            .as_millis();
+        assert!(
+            elapsed_ms_when_before <= elapsed_ms && elapsed_ms <= elapsed_ms_when_after,
+            "we expected the elapsed time {} ms to be between {} and {}.",
+            elapsed_ms,
+            elapsed_ms_when_before,
+            elapsed_ms_when_after
+        );
     }
 
     #[test]
@@ -3421,7 +3359,8 @@ mod tests {
         0000000000021a with their tx blocks due to SqlExecutionFailed(\"The database manager is \
         a funny guy, he's fooling around with us\")"
     )]
-    fn confirm_transactions_panics_while_updating_sent_payable_records_with_the_tx_blocks() {
+    fn handle_confirmed_transactions_panics_while_updating_sent_payable_records_with_the_tx_blocks()
+    {
         let payable_dao = PayableDaoMock::new().transactions_confirmed_result(Ok(()));
         let sent_payable_dao = SentPayableDaoMock::default().update_tx_blocks_result(Err(
             SentPayableDaoError::SqlExecutionFailed(
@@ -3439,22 +3378,22 @@ mod tests {
         sent_tx_2.hash = make_tx_hash(0x21a);
         sent_tx_2.block_opt = Some(make_transaction_block(890));
 
-        subject.confirm_transactions(vec![sent_tx_1, sent_tx_2], &Logger::new("test"));
+        subject.handle_confirmed_transactions(vec![sent_tx_1, sent_tx_2], &Logger::new("test"));
     }
 
     #[test]
-    fn confirm_transactions_does_nothing_if_none_found_on_the_blockchain() {
+    fn handle_confirmed_transactions_does_nothing_if_none_found_on_the_blockchain() {
         let mut subject = PendingPayableScannerBuilder::new().build();
 
-        subject.confirm_transactions(vec![], &Logger::new("test"))
+        subject.handle_confirmed_transactions(vec![], &Logger::new("test"))
 
         // Mocked payable DAO didn't panic, which means we skipped the actual process
     }
 
     #[test]
-    fn confirm_transactions_works() {
+    fn handle_confirmed_transactions_works() {
         init_test_logging();
-        let test_name = "confirm_transactions_works";
+        let test_name = "handle_confirmed_transactions_works";
         let transactions_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
         let update_tx_blocks_params_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao = PayableDaoMock::default()
@@ -3485,7 +3424,7 @@ mod tests {
         };
         sent_tx_2.block_opt = Some(tx_block_2);
 
-        subject.confirm_transactions(vec![sent_tx_1.clone(), sent_tx_2.clone()], &logger);
+        subject.handle_confirmed_transactions(vec![sent_tx_1.clone(), sent_tx_2.clone()], &logger);
 
         let transactions_confirmed_params = transactions_confirmed_params_arc.lock().unwrap();
         assert_eq!(
@@ -3500,8 +3439,8 @@ mod tests {
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!(
             "INFO: {test_name}: Txs 0x0000000000000000000000000000000000000000000000000000000000000123 \
-            (block number: 4578989878), 0x0000000000000000000000000000000000000000000000000000000000000567 \
-            (block number: 7898989878) have completed",
+            (block 4578989878), 0x0000000000000000000000000000000000000000000000000000000000000567 \
+            (block 7898989878) have completed",
         ));
     }
 
@@ -3511,7 +3450,7 @@ mod tests {
         0x000000000000000000000077616c6c6574343536 due to \
         RusqliteError(\"record change not successful\")"
     )]
-    fn confirm_transactions_panics_on_unchecking_payable_table() {
+    fn handle_confirmed_transactions_panics_on_unchecking_payable_table() {
         let hash = make_tx_hash(0x315);
         let rowid = 3;
         let payable_dao = PayableDaoMock::new().transactions_confirmed_result(Err(
@@ -3523,7 +3462,7 @@ mod tests {
         let mut sent_tx = make_sent_tx(456);
         sent_tx.hash = hash;
 
-        subject.confirm_transactions(vec![sent_tx], &Logger::new("test"));
+        subject.handle_confirmed_transactions(vec![sent_tx], &Logger::new("test"));
     }
 
     #[test]
@@ -3546,7 +3485,7 @@ mod tests {
         financial_statistics.total_paid_payable_wei += 1111;
         subject.financial_statistics.replace(financial_statistics);
 
-        subject.confirm_transactions(
+        subject.handle_confirmed_transactions(
             vec![sent_tx_1.clone(), sent_tx_2.clone()],
             &Logger::new(test_name),
         );
@@ -3554,8 +3493,7 @@ mod tests {
         let total_paid_payable = subject.financial_statistics.borrow().total_paid_payable_wei;
         assert_eq!(total_paid_payable, 1111 + 5478 + 6543);
         TestLogHandler::new().exists_log_containing(&format!(
-            "DEBUG: {test_name}: The total \
-        paid payables increased by 12,021 to 13,132 wei"
+            "DEBUG: {test_name}: The total paid payables increased by 12,021 to 13,132 wei"
         ));
     }
 
@@ -3625,10 +3563,11 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(
+        expected = "We should never receive an empty list of results. Even missing \
+    receipts can be interpreted"
+    )]
     fn pending_payable_scanner_handles_empty_report_transaction_receipts_message() {
-        init_test_logging();
-        let test_name =
-            "pending_payable_scanner_handles_report_transaction_receipts_message_with_empty_vector";
         let mut pending_payable_scanner = PendingPayableScannerBuilder::new().build();
         let msg = TxStatusReport {
             results: vec![],
@@ -3638,21 +3577,7 @@ mod tests {
         let mut subject = make_dull_subject();
         subject.pending_payable = Box::new(pending_payable_scanner);
 
-        let result = subject.finish_pending_payable_scan(msg, &Logger::new(test_name));
-
-        let is_scan_running = subject.scan_started_at(ScanType::PendingPayables).is_some();
-        assert_eq!(
-            result,
-            PendingPayableScanResult::NoPendingPayablesLeft(None)
-        );
-        assert_eq!(is_scan_running, false);
-        let tlh = TestLogHandler::new();
-        tlh.exists_log_containing(&format!(
-            "WARN: {test_name}: No transaction receipts found."
-        ));
-        tlh.exists_log_matching(&format!(
-            "INFO: {test_name}: The PendingPayables scan ended in \\d+ms."
-        ));
+        let _ = subject.finish_pending_payable_scan(msg, &Logger::new("test"));
     }
 
     #[test]
@@ -4084,7 +4009,7 @@ mod tests {
         subject.signal_scanner_completion(ScanType::Receivables, SystemTime::now(), &logger);
 
         TestLogHandler::new().exists_log_containing(&format!(
-            "ERROR: {test_name}: Called scan_finished() for Receivables scanner but timestamp was not found"
+            "ERROR: {test_name}: Called scan_finished() for Receivables scanner but could not find any timestamp"
         ));
     }
 

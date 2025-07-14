@@ -13,6 +13,7 @@ use futures::Future;
 use serde_json::Value;
 use std::fmt::Display;
 use std::str::FromStr;
+use variant_count::VariantCount;
 use web3::contract::{Contract, Options};
 use web3::transports::{Batch, Http};
 use web3::types::{Address, BlockNumber, Filter, Log, TransactionReceipt};
@@ -45,7 +46,7 @@ impl From<TransactionReceipt> for TxStatus {
                     block_number,
                 })
             }
-            (Some(status), _, _) if status == U64::from(0) => todo!(), //TxStatus::Failed(TxBlockchainFailure::Unknown),
+            (Some(status), _, _) if status == U64::from(0) => todo!(), //TxStatus::Failed(BlockchainTxFailure::Unrecognized),
             _ => TxStatus::Pending,
         }
     }
@@ -53,14 +54,22 @@ impl From<TransactionReceipt> for TxStatus {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TxStatus {
-    Failed(TxBlockchainFailure),
+    Failed(BlockchainTxFailure),
     Succeeded(TransactionBlock),
     Pending,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TxBlockchainFailure {
-    Unknown,
+#[derive(Clone, Copy, Debug, PartialEq, Eq, VariantCount)]
+pub enum BlockchainTxFailure {
+    Unrecognized,
+}
+
+impl Display for BlockchainTxFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BlockchainTxFailure::Unrecognized => write!(f, "Failure unrecognized"),
+        }
+    }
 }
 
 impl Display for TxStatus {
@@ -126,7 +135,7 @@ impl TxReceiptRequestError {
     }
 }
 
-#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Default, PartialEq, PartialOrd, Ord, Eq, Clone, Copy)]
 pub struct TransactionBlock {
     pub block_hash: H256,
     pub block_number: U64,
@@ -258,10 +267,13 @@ mod tests {
     use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
     use masq_lib::utils::find_free_port;
     use std::str::FromStr;
+    use itertools::Itertools;
     use web3::types::{BlockNumber, Bytes, FilterBuilder, Log, TransactionReceipt, U256};
+    use crate::accountant::db_access_objects::failed_payable_dao::FailureReason;
     use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
     use crate::accountant::test_utils::make_sent_tx;
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TxWithStatus, TransactionBlock, TxBlockchainFailure, TxStatus};
+    use crate::assert_on_testing_enum_with_all_its_variants;
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TxWithStatus, TransactionBlock, BlockchainTxFailure, TxStatus};
 
     #[test]
     fn get_transaction_fee_balance_works() {
@@ -649,7 +661,10 @@ mod tests {
             H256::from_low_u64_be(0x5678),
         );
 
-        assert_eq!(tx_status, TxStatus::Failed(TxBlockchainFailure::Unknown));
+        assert_eq!(
+            tx_status,
+            TxStatus::Failed(BlockchainTxFailure::Unrecognized)
+        );
     }
 
     #[test]
@@ -692,7 +707,7 @@ mod tests {
     fn tx_status_display_works() {
         // Test Failed
         assert_eq!(
-            TxStatus::Failed(TxBlockchainFailure::Unknown).to_string(),
+            TxStatus::Failed(BlockchainTxFailure::Unrecognized).to_string(),
             "Failed"
         );
 
@@ -710,6 +725,48 @@ mod tests {
             succeeded.to_string(),
             format!("Succeeded({},0x{:x})", block_number, block_hash)
         );
+    }
+
+    #[test]
+    fn display_for_blockchain_tx_failure_works() {
+        let input_and_expected_results =
+            vec![(BlockchainTxFailure::Unrecognized, "Failure unrecognized")];
+        let inputs_len = input_and_expected_results.len();
+
+        let mut check_nums = input_and_expected_results
+            .into_iter()
+            .map(|(input, failure_reason)| match input {
+                BlockchainTxFailure::Unrecognized => {
+                    let result = input.to_string();
+                    assert_eq!(result, failure_reason);
+                    1
+                }
+            })
+            .collect_vec();
+
+        // let initially = check_nums.len();
+        // check_nums.dedup();
+        // let deduped = check_nums.len();
+        // assert_eq!(
+        //     deduped, initially,
+        //     "Some variants were processed more than once. Expected: {}, actual: {}",
+        //     initially, deduped
+        // );
+        // assert_eq!(
+        //     inputs_len,
+        //     BlockchainTxFailure::VARIANT_COUNT,
+        //     "Input should contain one example from each variant. Expected: {}, actual: {}",
+        //     BlockchainTxFailure::VARIANT_COUNT,
+        //     inputs_len
+        // );
+        // assert_eq!(
+        //     deduped,
+        //     BlockchainTxFailure::VARIANT_COUNT,
+        //     "We should've gotten one result for each variant. Expected: {}, actual: {}",
+        //     BlockchainTxFailure::VARIANT_COUNT,
+        //     deduped
+        // );
+        assert_on_testing_enum_with_all_its_variants!(BlockchainTxFailure, check_nums, inputs_len)
     }
     //
     // #[test]
