@@ -34,6 +34,7 @@ pub struct Tx {
     pub block_opt: Option<TransactionBlock>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RetrieveCondition {
     IsPending,
     ByHash(HashSet<TxHash>), // TODO: GH-605: Want to implement lifetime here?
