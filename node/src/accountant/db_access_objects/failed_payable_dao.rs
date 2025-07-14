@@ -90,7 +90,7 @@ impl Display for FailureRetrieveCondition {
 pub trait FailedPayableDao {
     fn get_tx_identifiers(&self, hashes: &HashSet<TxHash>) -> TxIdentifiers;
     fn insert_new_records(&self, txs: &HashSet<FailedTx>) -> Result<(), FailedPayableDaoError>;
-    fn retrieve_txs(&self, condition: Option<FailureRetrieveCondition>) -> Vec<FailedTx>;
+    fn retrieve_txs(&self, condition: Option<FailureRetrieveCondition>) -> Vec<FailedTx>; // TODO: GH-605: Turn it into HashSet
     fn update_statuses(
         &self,
         status_updates: HashMap<TxHash, FailureStatus>,

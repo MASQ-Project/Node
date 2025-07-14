@@ -59,7 +59,7 @@ impl Display for RetrieveCondition {
 pub trait SentPayableDao {
     fn get_tx_identifiers(&self, hashes: &HashSet<TxHash>) -> TxIdentifiers;
     fn insert_new_records(&self, txs: &[Tx]) -> Result<(), SentPayableDaoError>;
-    fn retrieve_txs(&self, condition: Option<RetrieveCondition>) -> Vec<Tx>;
+    fn retrieve_txs(&self, condition: Option<RetrieveCondition>) -> Vec<Tx>; // TODO: GH-605: Turn it into HashSet
     fn update_tx_blocks(
         &self,
         hash_map: &HashMap<TxHash, TransactionBlock>,
