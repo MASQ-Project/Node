@@ -5,7 +5,7 @@ pub mod scan_schedulers;
 pub mod scanners_utils;
 pub mod test_utils;
 
-use crate::accountant::db_access_objects::payable_dao::{MarkOfPendingPayable, PayableAccount, PayableDao, PayableDaoError};
+use crate::accountant::db_access_objects::payable_dao::{MarkPendingPayableID, PayableAccount, PayableDao, PayableDaoError};
 use crate::accountant::db_access_objects::receivable_dao::ReceivableDao;
 use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
@@ -729,7 +729,7 @@ impl PayableScanner {
     // fn separate_existent_and_nonexistent_fingerprints<'a>(
     //     &'a self,
     //     sent_payables: &[&'a PendingPayable],
-    // ) -> (Vec<MarkOfPendingPayable>, Vec<PendingPayableMissingInDb>) {
+    // ) -> (Vec<MarkPendingPayableID>, Vec<PendingPayableMissingInDb>) {
     //     let actual_sent_payables_simple_total = sent_payables.len();
     //
     //     let hashset_with_actual_sent_payable_hashes = sent_payables

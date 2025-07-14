@@ -171,8 +171,8 @@ pub struct RegisterNewPendingSentTxMessage {
 }
 
 impl RegisterNewPendingSentTxMessage {
-    pub fn new(sent_txs: Vec<SentTx>) -> Self {
-        todo!()
+    pub fn new(new_sent_txs: Vec<SentTx>) -> Self {
+        Self { new_sent_txs }
     }
 }
 
@@ -415,40 +415,28 @@ impl BlockchainBridge {
         &mut self,
         msg: RequestTransactionReceipts,
     ) -> Box<dyn Future<Item = (), Error = String>> {
-        todo!()
-        // let logger = self.logger.clone();
-        // let accountant_recipient = self
-        //     .pending_payable_confirmation
-        //     .report_transaction_receipts_sub_opt
-        //     .clone()
-        //     .expect("Accountant is unbound");
-        //
-        // let transaction_hashes = msg
-        //     .pending_payable_fingerprints
-        //     .iter()
-        //     .map(|finger_print| finger_print.hash)
-        //     .collect::<Vec<Hash>>();
-        // Box::new(
-        //     self.blockchain_interface
-        //         .process_transaction_receipts(transaction_hashes)
-        //         .map_err(move |e| e.to_string())
-        //         .and_then(move |transaction_receipts_results| {
-        //             Self::log_status_of_tx_receipts(&logger, &transaction_receipts_results);
-        //
-        //             let pairs = transaction_receipts_results
-        //                 .into_iter()
-        //                 .zip(msg.pending_payable_fingerprints.into_iter())
-        //                 .collect_vec();
-        //
-        //             accountant_recipient
-        //                 .try_send(TxStatusReport {
-        //                     response_skeleton_opt: msg.response_skeleton_opt,
-        //                 })
-        //                 .expect("Accountant is dead");
-        //
-        //             Ok(())
-        //         }),
-        // )
+        let logger = self.logger.clone();
+        let accountant_recipient = self
+            .pending_payable_confirmation
+            .report_transaction_receipts_sub_opt
+            .clone()
+            .expect("Accountant is unbound");
+        Box::new(
+            self.blockchain_interface
+                .process_transaction_receipts(msg.sent_tx)
+                .map_err(move |e| e.to_string())
+                .and_then(move |tx_receipt_results| {
+                    Self::log_status_of_tx_receipts(&logger, &tx_receipt_results);
+                    accountant_recipient
+                        .try_send(TxStatusReport {
+                            results: tx_receipt_results,
+                            response_skeleton_opt: msg.response_skeleton_opt,
+                        })
+                        .expect("Accountant is dead");
+
+                    Ok(())
+                }),
+        )
     }
 
     fn handle_scan_future<M, F>(&mut self, handler: F, scan_type: ScanType, msg: M)
@@ -544,7 +532,7 @@ impl SubsFactory<BlockchainBridge, BlockchainBridgeSubs> for BlockchainBridgeSub
 mod tests {
     use super::*;
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-    use crate::accountant::db_access_objects::utils::from_unix_timestamp;
+    use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp};
     use crate::accountant::scanners::payable_scanner_extension::test_utils::BlockchainAgentMock;
     use crate::accountant::test_utils::{make_payable_account, make_sent_tx};
     use crate::accountant::test_utils::{make_priced_qualified_payables};
@@ -912,7 +900,6 @@ mod tests {
             }
         );
         let first_actual_sent_tx = &register_new_pending_sent_tx_msg.new_sent_txs[0];
-        let second_actual_sent_tx = &register_new_pending_sent_tx_msg.new_sent_txs[0];
         assert_eq!(
             first_actual_sent_tx.receiver_address,
             account.wallet.address()
@@ -920,11 +907,11 @@ mod tests {
         assert_eq!(first_actual_sent_tx.hash, expected_hash);
         assert_eq!(first_actual_sent_tx.amount_minor, account.balance_wei);
         assert_eq!(first_actual_sent_tx.gas_price_minor, 111_222_333);
-        assert_eq!(first_actual_sent_tx.nonce, 0);
+        assert_eq!(first_actual_sent_tx.nonce, 0x20);
         assert_eq!(first_actual_sent_tx.block_opt, None);
         assert!(
-            time_before <= from_unix_timestamp(first_actual_sent_tx.timestamp)
-                && from_unix_timestamp(first_actual_sent_tx.timestamp) <= time_after,
+            to_unix_timestamp(time_before) <= first_actual_sent_tx.timestamp
+                && first_actual_sent_tx.timestamp <= to_unix_timestamp(time_after),
             "We thought the timestamp was between {:?} and {:?}, but it was {:?}",
             time_before,
             time_after,
@@ -1167,7 +1154,8 @@ mod tests {
     #[test]
     fn blockchain_bridge_processes_requests_for_a_complete_and_null_transaction_receipt() {
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let accountant = accountant.system_stop_conditions(match_lazily_every_type_id!(ScanError));
+        let accountant =
+            accountant.system_stop_conditions(match_lazily_every_type_id!(TxStatusReport));
         let sent_tx_1 = make_sent_tx(123);
         let hash_1 = sent_tx_1.hash;
         let sent_tx_2 = make_sent_tx(456);
@@ -1989,10 +1977,11 @@ mod tests {
         );
         let system = System::new("test");
         let accountant_addr = accountant
-            .system_stop_conditions(match_lazily_every_type_id!(ScanError))
+            .system_stop_conditions(match_lazily_every_type_id!(ReceivedPayments))
             .start();
         subject.received_payments_subs_opt = Some(accountant_addr.clone().recipient());
         subject.scan_error_subs_opt = Some(accountant_addr.recipient());
+
         subject.handle_scan_future(
             BlockchainBridge::handle_retrieve_transactions,
             ScanType::Receivables,
@@ -2001,7 +1990,9 @@ mod tests {
 
         system.run();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
-        let msg_opt = accountant_recording.get_record_opt::<ScanError>(0);
+        let received_msg = accountant_recording.get_record::<ReceivedPayments>(0);
+        assert_eq!(received_msg.new_start_block, BlockMarker::Value(0xc8 + 1));
+        let msg_opt = accountant_recording.get_record_opt::<ScanError>(1);
         assert_eq!(msg_opt, None, "We didnt expect a scan error: {:?}", msg_opt);
     }
 

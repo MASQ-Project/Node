@@ -4,7 +4,7 @@
 
 use crate::accountant::db_access_objects::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::accountant::db_access_objects::failed_payable_dao::{FailedPayableDao, FailedPayableDaoError, FailedPayableDaoFactory, FailedTx, FailureReason, FailureRetrieveCondition, FailureStatus};
-use crate::accountant::db_access_objects::payable_dao::{MarkOfPendingPayable, PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory};
+use crate::accountant::db_access_objects::payable_dao::{MarkPendingPayableID, PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory};
 use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDao, SentPayableDaoFactory};
 use crate::accountant::db_access_objects::receivable_dao::{
     ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,
@@ -611,7 +611,7 @@ impl PayableDao for PayableDaoMock {
 
     fn mark_pending_payables_rowids(
         &self,
-        mark_instructions: &[MarkOfPendingPayable],
+        mark_instructions: &[MarkPendingPayableID],
     ) -> Result<(), PayableDaoError> {
         todo!()
         // self.mark_pending_payables_rowids_params

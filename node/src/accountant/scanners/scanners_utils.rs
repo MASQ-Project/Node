@@ -599,7 +599,7 @@ mod tests {
         assert_eq!(errs, Some(LocallyCausedError(error)));
         TestLogHandler::new().exists_log_containing(
             "WARN: test_logger: Any persisted data from \
-        failed process will be deleted. Caused by: Sending phase: \"Bad luck\". Signed and hashed \
+        the failed process will be deleted. Caused by: Sending phase: \"Bad luck\". Signed and hashed \
         transactions: 0x000000000000000000000000000000000000000000000000000000000000007b",
         );
     }
