@@ -700,6 +700,44 @@ mod tests {
     }
 
     #[test]
+    fn retrieve_txs_by_hash_returns_only_existing_transactions() {
+        let home_dir = ensure_node_home_directory_exists(
+            "sent_payable_dao",
+            "retrieve_txs_by_hash_returns_only_existing_transactions",
+        );
+        let wrapped_conn = DbInitializerReal::default()
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
+        let subject = SentPayableDaoReal::new(wrapped_conn);
+        let tx1 = TxBuilder::default().hash(make_tx_hash(1)).nonce(1).build();
+        let tx2 = TxBuilder::default().hash(make_tx_hash(2)).nonce(2).build();
+        let tx3 = TxBuilder::default().hash(make_tx_hash(3)).nonce(3).build();
+        subject
+            .insert_new_records(&[tx1.clone(), tx2.clone(), tx3.clone()])
+            .unwrap();
+        let mut query_hashes = HashSet::new();
+        query_hashes.insert(make_tx_hash(1)); // Exists
+        query_hashes.insert(make_tx_hash(2)); // Exists
+        query_hashes.insert(make_tx_hash(4)); // Does not exist
+        query_hashes.insert(make_tx_hash(5)); // Does not exist
+
+        let result = subject.retrieve_txs(Some(RetrieveCondition::ByHash(query_hashes)));
+
+        assert_eq!(result.len(), 2, "Should only return 2 transactions");
+        assert!(result.contains(&tx1), "Should contain tx1");
+        assert!(result.contains(&tx2), "Should contain tx2");
+        assert!(!result.contains(&tx3), "Should not contain tx3");
+        assert!(
+            result.iter().all(|tx| tx.hash != make_tx_hash(4)),
+            "Should not contain hash 4"
+        );
+        assert!(
+            result.iter().all(|tx| tx.hash != make_tx_hash(5)),
+            "Should not contain hash 5"
+        );
+    }
+
+    #[test]
     #[should_panic(expected = "Invalid block details")]
     fn retrieve_txs_enforces_complete_block_details() {
         let home_dir = ensure_node_home_directory_exists(
