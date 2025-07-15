@@ -569,7 +569,7 @@ impl Scanner<SentPayables, PayableScanResult> for PayableScanner {
                         .into_iter()
                         .map(|hash| (hash, FailureReason::LocalSendingFailed))
                         .collect();
-                    self.update_failures_in_db(failures);
+                    self.record_failed_txs_in_db(failures);
                 } else {
                     todo!("GH-605: Test the code below");
                     // No need to update the FailedPayableDao as the error was caused before the transactions are signed
@@ -872,6 +872,7 @@ impl PayableScanner {
         let common_string =
             "Error during migration from SentPayable to FailedPayable Table".to_string();
 
+        // TODO: GH-605: Test the panic
         if let Err(e) = self.failed_payable_dao.insert_new_records(failed_payables) {
             panic!(
                 "{}: Failed to insert transactions into the FailedPayable table. Error: {:?}",
@@ -879,6 +880,7 @@ impl PayableScanner {
             );
         }
 
+        // TODO: GH-605: Test the panic
         let hashes: HashSet<TxHash> = failed_payables.iter().map(|tx| tx.hash).collect();
         if let Err(e) = self.sent_payable_dao.delete_records(&hashes) {
             panic!(
@@ -904,8 +906,9 @@ impl PayableScanner {
             .collect();
 
         if !missing_hashes.is_empty() {
+            // TODO: GH-605: Test the panic
             panic!(
-                "Ran into failed transactions {} with missing fingerprints. System no longer reliable",
+                "Could not find entries for the following transactions in the database {}. The found transactions have been migrated.",
                 join_with_separator(&missing_hashes, |&hash| format!("{:?}", hash), ", ")
             )
         }
@@ -935,7 +938,7 @@ impl PayableScanner {
             .collect()
     }
 
-    fn update_failures_in_db(&self, hashes_with_reason: HashMap<TxHash, FailureReason>) {
+    fn record_failed_txs_in_db(&self, hashes_with_reason: HashMap<TxHash, FailureReason>) {
         let failed_payables = self.generate_failed_payables(&hashes_with_reason);
 
         self.migrate_payables(&failed_payables);
