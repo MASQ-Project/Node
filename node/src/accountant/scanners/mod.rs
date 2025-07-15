@@ -46,7 +46,7 @@ use variant_count::VariantCount;
 use web3::types::H256;
 use crate::accountant::db_access_objects::failed_payable_dao::{FailedPayableDao, FailedPayableDaoError, FailedTx, FailureReason, FailureStatus};
 use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::ByHash;
-use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDao;
+use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDao, Tx};
 use crate::accountant::db_access_objects::utils::{RowId, TxHash, TxIdentifiers};
 use crate::accountant::scanners::payable_scanner_extension::{MultistageDualPayableScanner, PreparedAdjustment, SolvencySensitivePaymentInstructor};
 use crate::accountant::scanners::payable_scanner_extension::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage, UnpricedQualifiedPayables};
@@ -868,15 +868,55 @@ impl PayableScanner {
         }
     }
 
-    fn migrate_from_sent_payable_to_failed_payable(
-        &self,
-        hashes_with_reason: HashMap<TxHash, FailureReason>,
-    ) -> Result<(), String> {
-        let hashes: HashSet<TxHash> = hashes_with_reason.keys().cloned().collect();
-        let failed_txs: HashSet<FailedTx> = self
-            .sent_payable_dao
-            .retrieve_txs(Some(ByHash(hashes.clone())))
-            .into_iter()
+    fn migrate_payables(&self, failed_payables: HashSet<FailedTx>) {
+        let common_string =
+            "Error during migration from SentPayable to FailedPayable Table".to_string();
+
+        if let Err(e) = self.failed_payable_dao.insert_new_records(&failed_payables) {
+            panic!(
+                "{}: Failed to insert transactions into the FailedPayable table. Error: {:?}",
+                common_string, e
+            );
+        }
+
+        let hashes: HashSet<TxHash> = failed_payables.iter().map(|tx| tx.hash).collect();
+        if let Err(e) = self.sent_payable_dao.delete_records(&hashes) {
+            panic!(
+                "{}: Failed to delete transactions from the SentPayable table. Error: {:?}",
+                common_string, e
+            );
+        }
+    }
+
+    fn serialize_hashes(hashes: &[H256]) -> String {
+        comma_joined_stringifiable(hashes, |hash| format!("{:?}", hash))
+    }
+
+    fn panic_if_payables_were_missing(
+        sent_payables: &[Tx],
+        failures: &HashMap<TxHash, FailureReason>,
+    ) {
+        let sent_payable_hashes: HashSet<&TxHash> =
+            sent_payables.iter().map(|tx| &tx.hash).collect();
+        let missing_hashes: Vec<&TxHash> = failures
+            .keys()
+            .filter(|hash| !sent_payable_hashes.contains(hash))
+            .collect();
+
+        if !missing_hashes.is_empty() {
+            panic!(
+                "Ran into failed transactions {} with missing fingerprints. System no longer reliable",
+                join_with_separator(&missing_hashes, |&hash| format!("{:?}", hash), ", ")
+            )
+        }
+    }
+
+    fn convert_to_failed_payables(
+        sent_payables: Vec<Tx>,
+        hashes_with_reason: HashMap<H256, FailureReason>,
+    ) -> HashSet<FailedTx> {
+        sent_payables
+            .iter()
             .map(|tx| FailedTx {
                 hash: tx.hash,
                 receiver_address: tx.receiver_address,
@@ -890,46 +930,38 @@ impl PayableScanner {
                     .unwrap_or_else(|| FailureReason::General), // TODO: GH-605: Deal with this unwrap()
                 status: FailureStatus::RetryRequired,
             })
-            .collect();
-
-        if let Err(e) = self.failed_payable_dao.insert_new_records(&failed_txs) {
-            return Err(format!("During Insertion in FailedPayable Table: {:?}", e));
-        }
-
-        if let Err(e) = self.sent_payable_dao.delete_records(&hashes) {
-            return Err(format!("During Deletion in FailedPayable Table: {:?}", e));
-        };
-
-        Ok(())
+            .collect()
     }
 
-    fn serialize_hashes(hashes: &[H256]) -> String {
-        comma_joined_stringifiable(hashes, |hash| format!("{:?}", hash))
+    fn find_sent_payables(&self, hashes_with_reason: HashMap<TxHash, FailureReason>) -> Vec<Tx> {
+        let hashes: HashSet<TxHash> = hashes_with_reason.keys().cloned().collect();
+        let sent_payables = self
+            .sent_payable_dao
+            .retrieve_txs(Some(ByHash(hashes.clone())));
+
+        if sent_payables.is_empty() {
+            panic!(
+                "No Payables found in SentPayable table for these hashes: {:?}",
+                hashes
+            );
+        } else {
+            sent_payables
+        }
     }
 
-    fn update_failures_in_db(&self, failures: HashMap<TxHash, FailureReason>) {
-        let failed_tx_hashes = failures.keys().cloned().collect();
-        let hashes_in_sent_payables = self.sent_payable_dao.get_tx_identifiers(&failed_tx_hashes);
-        if !hashes_in_sent_payables.is_empty() {
-            let tx_hashes_with_reasons: HashMap<TxHash, FailureReason> = hashes_in_sent_payables
-                .keys()
-                .filter_map(|hash| failures.get(hash).map(|reason| (*hash, reason.clone())))
-                .collect();
-
-            if let Err(e) = self.migrate_from_sent_payable_to_failed_payable(tx_hashes_with_reasons)
-            {
-                panic!("While migrating transactions from SentPayable table to FailedPayable Table: {}", e);
-            }
-
-            if let Some(absent_hashes) =
-                Self::find_absent_tx_hashes(&hashes_in_sent_payables, failed_tx_hashes)
-            {
-                panic!(
-                    "Ran into failed transactions {} with missing fingerprints. System no longer reliable",
-                    join_with_separator(&absent_hashes, |hash| format!("{:?}", hash), ", ")
-                )
-            };
+    fn update_failures_in_db(&self, hashes_with_reason: HashMap<TxHash, FailureReason>) {
+        if hashes_with_reason.is_empty() {
+            todo!("log and return");
         }
+
+        let sent_payables = self.find_sent_payables(hashes_with_reason.clone());
+
+        let failed_payables =
+            Self::convert_to_failed_payables(sent_payables.clone(), hashes_with_reason.clone());
+
+        self.migrate_payables(failed_payables);
+
+        Self::panic_if_payables_were_missing(&sent_payables, &hashes_with_reason);
     }
 }
 
@@ -2422,7 +2454,6 @@ mod tests {
         init_test_logging();
         let test_name =
             "payable_scanner_is_facing_failed_transactions_and_their_fingerprints_exist";
-        let get_tx_identifiers_params_arc = Arc::new(Mutex::new(vec![]));
         let retrieve_txs_params_arc = Arc::new(Mutex::new(vec![]));
         let insert_new_records_params_arc = Arc::new(Mutex::new(vec![]));
         let delete_records_params_arc = Arc::new(Mutex::new(vec![]));
@@ -2435,7 +2466,6 @@ mod tests {
         let sent_txs = vec![tx1, tx2];
         let system = System::new(test_name);
         let sent_payable_dao = SentPayableDaoMock::default()
-            .get_tx_identifiers_params(&get_tx_identifiers_params_arc)
             .retrieve_txs_params(&retrieve_txs_params_arc)
             .delete_records_params(&delete_records_params_arc)
             .get_tx_identifiers_result(TxIdentifiers::from([
@@ -2478,11 +2508,6 @@ mod tests {
         );
         assert_eq!(aware_of_unresolved_pending_payable_before, false);
         assert_eq!(aware_of_unresolved_pending_payable_after, false);
-        let get_tx_identifiers_params = get_tx_identifiers_params_arc.lock().unwrap();
-        assert_eq!(
-            *get_tx_identifiers_params,
-            vec![HashSet::from([tx1_hash, tx2_hash])]
-        );
         let retrieve_txs_params = retrieve_txs_params_arc.lock().unwrap();
         assert_eq!(
             *retrieve_txs_params,
