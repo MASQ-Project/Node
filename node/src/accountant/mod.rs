@@ -135,7 +135,7 @@ pub struct ReceivedPayments {
 }
 
 #[derive(Debug, PartialEq, Eq, Message, Clone)]
-pub struct TxStatusReport {
+pub struct TxReceiptsMessage {
     pub results: Vec<TxReceiptResult>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
@@ -306,10 +306,10 @@ impl Handler<ScanForReceivables> for Accountant {
     }
 }
 
-impl Handler<TxStatusReport> for Accountant {
+impl Handler<TxReceiptsMessage> for Accountant {
     type Result = ();
 
-    fn handle(&mut self, msg: TxStatusReport, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: TxReceiptsMessage, ctx: &mut Self::Context) -> Self::Result {
         let response_skeleton_opt = msg.response_skeleton_opt;
         match self.scanners.finish_pending_payable_scan(msg, &self.logger) {
             PendingPayableScanResult::NoPendingPayablesLeft(ui_msg_opt) => {
@@ -560,7 +560,7 @@ impl Accountant {
             report_payable_payments_setup: recipient!(addr, BlockchainAgentWithContextMessage),
             report_inbound_payments: recipient!(addr, ReceivedPayments),
             init_pending_payable_fingerprints: recipient!(addr, RegisterNewPendingSentTxMessage),
-            report_transaction_status: recipient!(addr, TxStatusReport),
+            report_transaction_status: recipient!(addr, TxReceiptsMessage),
             report_sent_payments: recipient!(addr, SentPayables),
             scan_errors: recipient!(addr, ScanError),
             ui_message_sub: recipient!(addr, NodeFromUiMessage),
@@ -1939,7 +1939,7 @@ mod tests {
         subject.ui_message_sub_opt = Some(ui_gateway_addr.recipient());
         let subject_addr = subject.start();
         let sent_tx = make_sent_tx(123);
-        let report_tx_receipts = TxStatusReport {
+        let tx_receipts_msg = TxReceiptsMessage {
             results: vec![TxReceiptResult::RpcResponse(TxWithStatus::new(
                 sent_tx.clone(),
                 TxStatus::Succeeded(TransactionBlock {
@@ -1950,7 +1950,7 @@ mod tests {
             response_skeleton_opt,
         };
 
-        subject_addr.try_send(report_tx_receipts).unwrap();
+        subject_addr.try_send(tx_receipts_msg).unwrap();
 
         system.run();
         let transaction_confirmed_params = transaction_confirmed_params_arc.lock().unwrap();
@@ -2157,7 +2157,7 @@ mod tests {
         let system = System::new("test");
         let first_counter_msg_setup = setup_for_counter_msg_triggered_via_type_id!(
             RequestTransactionReceipts,
-            TxStatusReport {
+            TxReceiptsMessage {
                 results: vec![TxReceiptResult::RpcResponse(TxWithStatus::new(
                     sent_tx,
                     TxStatus::Failed(BlockchainTxFailure::Unrecognized)
@@ -2777,7 +2777,7 @@ mod tests {
         let (peer_actors, addresses) = peer_actors_builder().build_and_provide_addresses();
         let subject_addr: Addr<Accountant> = subject.start();
         let subject_subs = Accountant::make_subs_from(&subject_addr);
-        let expected_tx_status_report = TxStatusReport {
+        let expected_tx_receipts_msg = TxReceiptsMessage {
             results: vec![TxReceiptResult::RpcResponse(TxWithStatus::new(
                 sent_tx.clone(),
                 TxStatus::Failed(BlockchainTxFailure::Unrecognized),
@@ -2793,7 +2793,7 @@ mod tests {
         };
         let blockchain_bridge_counter_msg_setup_for_pending_payable_scanner = setup_for_counter_msg_triggered_via_type_id!(
             RequestTransactionReceipts,
-            expected_tx_status_report.clone(),
+            expected_tx_receipts_msg.clone(),
             &subject_addr
         );
         let blockchain_bridge_counter_msg_setup_for_payable_scanner = setup_for_counter_msg_triggered_via_type_id!(
@@ -2822,7 +2822,7 @@ mod tests {
             &scan_params,
             &notify_and_notify_later_params.pending_payables_notify_later,
             pending_payable_expected_notify_later_interval,
-            expected_tx_status_report,
+            expected_tx_receipts_msg,
             before,
             after,
         );
@@ -2852,7 +2852,7 @@ mod tests {
         payable_finish_scan: Arc<Mutex<Vec<(SentPayables, Logger)>>>,
         pending_payable_start_scan:
             Arc<Mutex<Vec<(Wallet, SystemTime, Option<ResponseSkeleton>, Logger, String)>>>,
-        pending_payable_finish_scan: Arc<Mutex<Vec<(TxStatusReport, Logger)>>>,
+        pending_payable_finish_scan: Arc<Mutex<Vec<(TxReceiptsMessage, Logger)>>>,
         receivable_start_scan:
             Arc<Mutex<Vec<(Wallet, SystemTime, Option<ResponseSkeleton>, Logger, String)>>>,
         // receivable_finish_scan ... not needed
@@ -2874,7 +2874,7 @@ mod tests {
         config: BootstrapperConfig,
         pending_payable_scanner: ScannerMock<
             RequestTransactionReceipts,
-            TxStatusReport,
+            TxReceiptsMessage,
             PendingPayableScanResult,
         >,
         receivable_scanner: ScannerMock<
@@ -2933,7 +2933,7 @@ mod tests {
         payable_scanner: ScannerMock<QualifiedPayablesMessage, SentPayables, PayableScanResult>,
         pending_payable_scanner: ScannerMock<
             RequestTransactionReceipts,
-            TxStatusReport,
+            TxReceiptsMessage,
             PendingPayableScanResult,
         >,
         receivable_scanner: ScannerMock<
@@ -2987,7 +2987,7 @@ mod tests {
         config: BootstrapperConfig,
         pending_payable_scanner: ScannerMock<
             RequestTransactionReceipts,
-            TxStatusReport,
+            TxReceiptsMessage,
             PendingPayableScanResult,
         >,
         receivable_scanner: ScannerMock<
@@ -3060,7 +3060,7 @@ mod tests {
             Mutex<Vec<(ScanForPendingPayables, Duration)>>,
         >,
         pending_payable_expected_notify_later_interval: Duration,
-        expected_report_tx_receipts_msg: TxStatusReport,
+        expected_tx_receipts_msg: TxReceiptsMessage,
         act_started_at: SystemTime,
         act_finished_at: SystemTime,
     ) {
@@ -3073,12 +3073,9 @@ mod tests {
         assert_using_the_same_logger(&pp_start_scan_logger, test_name, Some("pp start scan"));
         let mut pending_payable_finish_scan_params =
             scan_params.pending_payable_finish_scan.lock().unwrap();
-        let (actual_report_tx_receipts_msg, pp_finish_scan_logger) =
+        let (actual_tx_receipts_msg, pp_finish_scan_logger) =
             pending_payable_finish_scan_params.remove(0);
-        assert_eq!(
-            actual_report_tx_receipts_msg,
-            expected_report_tx_receipts_msg
-        );
+        assert_eq!(actual_tx_receipts_msg, expected_tx_receipts_msg);
         assert_using_the_same_logger(&pp_finish_scan_logger, test_name, Some("pp finish scan"));
         let scan_for_pending_payables_notify_later_params =
             scan_for_pending_payables_notify_later_params_arc
@@ -3520,7 +3517,7 @@ mod tests {
             }),
         };
         let requested_tx = make_tx_hash(234);
-        let counter_msg_3 = TxStatusReport {
+        let counter_msg_3 = TxReceiptsMessage {
             results: vec![TxReceiptResult::RpcResponse(tx_with_status)],
             response_skeleton_opt: None,
         };
@@ -4960,7 +4957,7 @@ mod tests {
         subject.scan_schedulers.payable.retry_payable_notify =
             Box::new(NotifyHandleMock::default().notify_params(&retry_payable_notify_params_arc));
         let system = System::new(test_name);
-        let (mut msg, _) = make_tx_status_report_msg(vec![
+        let (mut msg, _) = make_tx_receipts_msg(vec![
             TxStatus::Pending,
             TxStatus::Failed(BlockchainTxFailure::Unrecognized),
         ]);
@@ -5029,7 +5026,7 @@ mod tests {
         subject.scan_schedulers.payable.new_payable_notify =
             Box::new(NotifyHandleMock::default().notify_params(&new_payable_notify_arc));
         let subject_addr = subject.start();
-        let (msg, two_sent_txs) = make_tx_status_report_msg(vec![
+        let (msg, two_sent_txs) = make_tx_receipts_msg(vec![
             TxStatus::Succeeded(TransactionBlock {
                 block_hash: make_tx_hash(123),
                 block_number: U64::from(100),
@@ -5116,7 +5113,7 @@ mod tests {
         let tx_block_1 = make_transaction_block(4567);
         let tx_block_2 = make_transaction_block(1234);
         let subject_addr = subject.start();
-        let (msg, two_sent_txs) = make_tx_status_report_msg(vec![
+        let (msg, two_sent_txs) = make_tx_receipts_msg(vec![
             TxStatus::Succeeded(tx_block_1),
             TxStatus::Succeeded(tx_block_2),
         ]);
@@ -5182,7 +5179,7 @@ mod tests {
             NotifyLaterHandleMock::default().notify_later_params(&new_payable_notify_later_arc),
         );
         let subject_addr = subject.start();
-        let (msg, _) = make_tx_status_report_msg(vec![
+        let (msg, _) = make_tx_receipts_msg(vec![
             TxStatus::Succeeded(TransactionBlock {
                 block_hash: make_tx_hash(123),
                 block_number: U64::from(100),
@@ -5221,7 +5218,7 @@ mod tests {
         );
     }
 
-    fn make_tx_status_report_msg(status_txs: Vec<TxStatus>) -> (TxStatusReport, Vec<SentTx>) {
+    fn make_tx_receipts_msg(status_txs: Vec<TxStatus>) -> (TxReceiptsMessage, Vec<SentTx>) {
         let (tx_receipt_results, sent_tx_vec) = status_txs.into_iter().enumerate().fold(
             (vec![], vec![]),
             |(mut tx_receipt_results, mut sent_tx_vec), (idx, status)| {
@@ -5239,7 +5236,7 @@ mod tests {
             },
         );
 
-        let msg = TxStatusReport {
+        let msg = TxReceiptsMessage {
             results: tx_receipt_results,
             response_skeleton_opt: None,
         };

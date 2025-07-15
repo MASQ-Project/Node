@@ -1396,9 +1396,6 @@ pub struct FailedPayableDaoFactoryMock {
 
 impl FailedPayableDaoFactory for FailedPayableDaoFactoryMock {
     fn make(&self) -> Box<dyn FailedPayableDao> {
-        if self.make_results.borrow().len() == 0 {
-            panic!("FailedPayableDao Missing.")
-        };
         self.make_params.lock().unwrap().push(());
         self.make_results.borrow_mut().remove(0)
     }
@@ -1674,10 +1671,10 @@ where
 {
     let conn = Connection::open_in_memory().unwrap();
     let execute = |sql: &str| conn.execute(sql, []).unwrap();
-    execute("create table whatever (exclamations text)");
-    execute("insert into whatever (exclamations) values ('Gosh')");
+    execute("create table whatever (exclamation text)");
+    execute("insert into whatever (exclamation) values ('Gosh')");
 
-    conn.query_row("select exclamations from whatever", [], tested_fn)
+    conn.query_row("select exclamation from whatever", [], tested_fn)
         .unwrap();
 }
 

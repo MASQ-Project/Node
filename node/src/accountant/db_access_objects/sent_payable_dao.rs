@@ -404,8 +404,7 @@ pub trait SentPayableDaoFactory {
 
 impl SentPayableDaoFactory for DaoFactoryReal {
     fn make(&self) -> Box<dyn SentPayableDao> {
-        todo!()
-        //Box::new(PendingPayableDaoReal::new(self.make_connection()))
+        Box::new(SentPayableDaoReal::new(self.make_connection()))
     }
 }
 

@@ -5,7 +5,7 @@ use crate::accountant::{
     ReceivedPayments, ResponseSkeleton, ScanError,
     SentPayables, SkeletonOptHolder,
 };
-use crate::accountant::{TxStatusReport, RequestTransactionReceipts};
+use crate::accountant::{TxReceiptsMessage, RequestTransactionReceipts};
 use crate::actor_system_factory::SubsFactory;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::HashAndAmount;
 use crate::blockchain::blockchain_interface::data_structures::errors::{
@@ -66,7 +66,7 @@ pub struct BlockchainBridge {
 
 struct TransactionConfirmationTools {
     new_pp_fingerprints_sub_opt: Option<Recipient<RegisterNewPendingSentTxMessage>>,
-    report_transaction_receipts_sub_opt: Option<Recipient<TxStatusReport>>,
+    report_transaction_receipts_sub_opt: Option<Recipient<TxReceiptsMessage>>,
 }
 
 #[derive(PartialEq, Eq)]
@@ -428,7 +428,7 @@ impl BlockchainBridge {
                 .and_then(move |tx_receipt_results| {
                     Self::log_status_of_tx_receipts(&logger, &tx_receipt_results);
                     accountant_recipient
-                        .try_send(TxStatusReport {
+                        .try_send(TxReceiptsMessage {
                             results: tx_receipt_results,
                             response_skeleton_opt: msg.response_skeleton_opt,
                         })
@@ -1155,7 +1155,7 @@ mod tests {
     fn blockchain_bridge_processes_requests_for_a_complete_and_null_transaction_receipt() {
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let accountant =
-            accountant.system_stop_conditions(match_lazily_every_type_id!(TxStatusReport));
+            accountant.system_stop_conditions(match_lazily_every_type_id!(TxReceiptsMessage));
         let sent_tx_1 = make_sent_tx(123);
         let hash_1 = sent_tx_1.hash;
         let sent_tx_2 = make_sent_tx(456);
@@ -1196,13 +1196,13 @@ mod tests {
         system.run();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 1);
-        let tx_status_report_message = accountant_recording.get_record::<TxStatusReport>(0);
+        let tx_receipts_message = accountant_recording.get_record::<TxReceiptsMessage>(0);
         let mut expected_receipt = TransactionReceipt::default();
         expected_receipt.transaction_hash = hash_1;
         expected_receipt.status = Some(U64::from(1));
         assert_eq!(
-            tx_status_report_message,
-            &TxStatusReport {
+            tx_receipts_message,
+            &TxReceiptsMessage {
                 results: vec![
                     TxReceiptResult::RpcResponse(TxWithStatus::new(
                         sent_tx_1,
@@ -1297,9 +1297,9 @@ mod tests {
             .start();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let accountant_addr = accountant
-            .system_stop_conditions(match_lazily_every_type_id!(TxStatusReport, ScanError))
+            .system_stop_conditions(match_lazily_every_type_id!(TxReceiptsMessage, ScanError))
             .start();
-        let report_transaction_receipt_recipient: Recipient<TxStatusReport> =
+        let report_transaction_receipt_recipient: Recipient<TxReceiptsMessage> =
             accountant_addr.clone().recipient();
         let scan_error_recipient: Recipient<ScanError> = accountant_addr.recipient();
         let hash_1 = make_tx_hash(111334);
@@ -1341,10 +1341,10 @@ mod tests {
         assert_eq!(system.run(), 0);
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 1);
-        let report_receipts_msg = accountant_recording.get_record::<TxStatusReport>(0);
+        let report_receipts_msg = accountant_recording.get_record::<TxReceiptsMessage>(0);
         assert_eq!(
             *report_receipts_msg,
-            TxStatusReport {
+            TxReceiptsMessage {
                 results: vec![
                     TxReceiptResult::RpcResponse(TxWithStatus::new(sent_tx_1, TxStatus::Pending)),
                     TxReceiptResult::RpcResponse(TxWithStatus::new(sent_tx_2,  TxStatus::Succeeded(TransactionBlock {
@@ -1376,7 +1376,8 @@ mod tests {
             .system_stop_conditions(match_lazily_every_type_id!(ScanError))
             .start();
         let scan_error_recipient: Recipient<ScanError> = accountant_addr.clone().recipient();
-        let report_transaction_recipient: Recipient<TxStatusReport> = accountant_addr.recipient();
+        let report_transaction_recipient: Recipient<TxReceiptsMessage> =
+            accountant_addr.recipient();
         let hash_1 = make_tx_hash(0x1b2e6);
         let sent_tx_1 = make_sent_tx(123);
         let sent_tx_2 = make_sent_tx(456);

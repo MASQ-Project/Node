@@ -46,7 +46,9 @@ impl From<TransactionReceipt> for TxStatus {
                     block_number,
                 })
             }
-            (Some(status), _, _) if status == U64::from(0) => todo!(), //TxStatus::Failed(BlockchainTxFailure::Unrecognized),
+            (Some(status), _, _) if status == U64::from(0) => {
+                TxStatus::Failed(BlockchainTxFailure::Unrecognized)
+            }
             _ => TxStatus::Pending,
         }
     }
@@ -76,8 +78,8 @@ impl Display for TxStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             TxStatus::Failed(reason) => {
-                todo!("make sure there is an assertion for this new syntax")
-            } //write!(f, "Failed({:?})", reason),
+                write!(f, "Failed(Reason: {})", reason)
+            }
             TxStatus::Succeeded(block) => {
                 write!(
                     f,
@@ -127,11 +129,7 @@ pub struct TxReceiptRequestError {
 
 impl TxReceiptRequestError {
     pub fn new(tx_hash: TxHash, err_msg: String) -> Self {
-        todo!()
-        // Self {
-        //     tx_hash,
-        //     err_msg
-        // }
+        Self { tx_hash, err_msg }
     }
 }
 
@@ -708,7 +706,7 @@ mod tests {
         // Test Failed
         assert_eq!(
             TxStatus::Failed(BlockchainTxFailure::Unrecognized).to_string(),
-            "Failed"
+            "Failed(Reason: Failure unrecognized)"
         );
 
         // Test Pending
