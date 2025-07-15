@@ -561,6 +561,11 @@ impl Scanner<SentPayables, PayableScanResult> for PayableScanner {
                 );
 
                 if let LocalPayableError::Sending { hashes, .. } = local_err {
+                    debug!(
+                        logger,
+                        "Migrating failed transactions to the FailedPayableDao: {}",
+                        join_with_separator(&hashes, |hash| format!("{:?}", hash), ", ")
+                    );
                     self.discard_failed_transactions_with_possible_fingerprints(hashes, logger)
                 } else {
                     debug!(
@@ -2499,15 +2504,20 @@ mod tests {
             .collect();
         assert_eq!(*insert_new_records_params, vec![expected_failed_txs]);
         let log_handler = TestLogHandler::new();
-        log_handler.exists_log_containing(&format!("WARN: {test_name}: \
-         Any persisted data from failed process will be deleted. Caused by: Sending phase: \"Attempt failed\". \
-         Signed and hashed transactions: 0x000000000000000000000000000000000000000000000000000\
-         00000000015b3, 0x0000000000000000000000000000000000000000000000000000000000003039"));
-        log_handler.exists_log_containing(
-            &format!("WARN: {test_name}: \
-            Deleting fingerprints for failed transactions 0x00000000000000000000000000000000000000000000000000000000000015b3, \
+        log_handler.exists_log_containing(&format!(
+            "WARN: {test_name}: Any persisted data from failed process will be deleted. \
+            Caused by: Sending phase: \"Attempt failed\". \
+            Signed and hashed transactions: \
+            0x00000000000000000000000000000000000000000000000000000000000015b3, \
+            0x0000000000000000000000000000000000000000000000000000000000003039"
+        ));
+        log_handler.exists_log_containing(&format!(
+            "DEBUG: {test_name}: \
+            Migrating failed transactions to the FailedPayableDao: \
+            0x00000000000000000000000000000000000000000000000000000000000015b3, \
             0x0000000000000000000000000000000000000000000000000000000000003039",
-            ));
+        ));
+        // TODO: GH-605: Maybe you'd like to change the comment below
         // we haven't supplied any result for mark_pending_payable() and so it's proved uncalled
     }
 
