@@ -467,7 +467,7 @@ pub trait SkeletonOptHolder {
 
 #[derive(Debug, PartialEq, Eq, Message, Clone)]
 pub struct RequestTransactionReceipts {
-    pub sent_tx: Vec<SentTx>,
+    pub sent_txs: Vec<SentTx>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
@@ -1899,7 +1899,7 @@ mod tests {
         assert_eq!(
             blockchain_bridge_recording.get_record::<RequestTransactionReceipts>(0),
             &RequestTransactionReceipts {
-                sent_tx: vec![sent_tx],
+                sent_txs: vec![sent_tx],
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321,
@@ -2756,7 +2756,7 @@ mod tests {
             .scan_started_at_result(None)
             .start_scan_params(&scan_params.pending_payable_start_scan)
             .start_scan_result(Ok(RequestTransactionReceipts {
-                sent_tx: vec![sent_tx.clone()],
+                sent_txs: vec![sent_tx.clone()],
                 response_skeleton_opt: None,
             }))
             .finish_scan_params(&scan_params.pending_payable_finish_scan)
@@ -3522,7 +3522,7 @@ mod tests {
             response_skeleton_opt: None,
         };
         let request_transaction_receipts_msg = RequestTransactionReceipts {
-            sent_tx: vec![sent_tx],
+            sent_txs: vec![sent_tx],
             response_skeleton_opt: None,
         };
         let qualified_payables_msg = QualifiedPayablesMessage {
@@ -4107,7 +4107,7 @@ mod tests {
         assert_eq!(
             received_msg,
             &RequestTransactionReceipts {
-                sent_tx: vec![sent_tx_1, sent_tx_2],
+                sent_txs: vec![sent_tx_1, sent_tx_2],
                 response_skeleton_opt: None,
             }
         );

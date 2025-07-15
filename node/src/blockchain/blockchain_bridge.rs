@@ -423,7 +423,7 @@ impl BlockchainBridge {
             .expect("Accountant is unbound");
         Box::new(
             self.blockchain_interface
-                .process_transaction_receipts(msg.sent_tx)
+                .process_transaction_receipts(msg.sent_txs)
                 .map_err(move |e| e.to_string())
                 .and_then(move |tx_receipt_results| {
                     Self::log_status_of_tx_receipts(&logger, &tx_receipt_results);
@@ -1016,7 +1016,8 @@ mod tests {
                     context_id: 4321
                 }),
                 msg: format!(
-                    "ReportAccountsPayable: Sending phase: \"Transport error: Error(IncompleteMessage)\". Signed and hashed transactions: 0x81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c"
+                    "ReportAccountsPayable: Sending phase: \"Transport error: Error(IncompleteMessage)\". \
+                    Signed and hashed txs: 0x81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c"
                 )
             }
         );
@@ -1183,7 +1184,7 @@ mod tests {
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         send_bind_message!(subject_subs, peer_actors);
         let msg = RequestTransactionReceipts {
-            sent_tx: vec![sent_tx_1.clone(), sent_tx_2.clone()],
+            sent_txs: vec![sent_tx_1.clone(), sent_tx_2.clone()],
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 1234,
                 context_id: 4321,
@@ -1323,7 +1324,7 @@ mod tests {
             .report_transaction_receipts_sub_opt = Some(report_transaction_receipt_recipient);
         subject.scan_error_subs_opt = Some(scan_error_recipient);
         let msg = RequestTransactionReceipts {
-            sent_tx: vec![
+            sent_txs: vec![
                 sent_tx_1.clone(),
                 sent_tx_2.clone(),
                 sent_tx_3.clone(),
@@ -1394,7 +1395,7 @@ mod tests {
             .report_transaction_receipts_sub_opt = Some(report_transaction_recipient);
         subject.scan_error_subs_opt = Some(scan_error_recipient);
         let msg = RequestTransactionReceipts {
-            sent_tx: vec![sent_tx_1, sent_tx_2],
+            sent_txs: vec![sent_tx_1, sent_tx_2],
             response_skeleton_opt: None,
         };
         let system = System::new("test");

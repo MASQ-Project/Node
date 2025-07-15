@@ -69,10 +69,10 @@ impl Display for PayableTransactionError {
             ),
             Self::Signing(msg) => write!(f, "Signing phase: \"{}\"", msg),
             Self::Sending { msg, hashes } => {
-                let hashes = hashes.iter().map(|hash| *hash).collect_vec();
+                let hashes = hashes.iter().map(|hash| *hash).sorted().collect_vec();
                 write!(
                     f,
-                    "Sending phase: \"{}\". Signed and hashed transactions: {}",
+                    "Sending phase: \"{}\". Signed and hashed txs: {}",
                     msg,
                     comma_joined_stringifiable(&hashes, |hash| format!("{:?}", hash))
                 )
@@ -210,7 +210,7 @@ mod tests {
                 LEDGER wallet, stupid.\"",
                 "Signing phase: \"You cannot sign with just three crosses here, clever boy\"",
                 "Sending phase: \"Sending to cosmos belongs elsewhere\". Signed and hashed \
-                transactions: 0x000000000000000000000000000000000000000000000000000000000000006f, \
+                txs: 0x000000000000000000000000000000000000000000000000000000000000006f, \
                 0x00000000000000000000000000000000000000000000000000000000000000de",
                 BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED
             ])

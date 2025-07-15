@@ -119,6 +119,11 @@ pub mod payable_scanner_utils {
                 let remote_errs_opt = if separated_txs_by_result.err_results.is_empty() {
                     None
                 } else {
+                    warning!(
+                        logger,
+                        "Please check your blockchain service URL configuration due \
+                    to detected remote failures"
+                    );
                     Some(RemotelyCausedErrors(separated_txs_by_result.err_results))
                 };
                 let oks = separated_txs_by_result.ok_results;
@@ -173,8 +178,7 @@ pub mod payable_scanner_utils {
             }) => {
                 warning!(
                     logger,
-                    "Remote transaction failure: '{}' for payment to {} and \
-                transaction hash {:?}. Please check your blockchain service URL configuration.",
+                    "Remote sent payable failure '{}' for wallet {} and tx hash {:?}",
                     rpc_error,
                     recipient_wallet,
                     hash
@@ -198,14 +202,14 @@ pub mod payable_scanner_utils {
                         .duration_since(payable.last_paid_timestamp)
                         .expect("Payable time is corrupt");
                     format!(
-                        "{} wei owed for {} sec exceeds threshold: {} wei; creditor: {}",
+                        "{} wei owed for {} sec exceeds the threshold {} wei for creditor {}",
                         payable.balance_wei.separate_with_commas(),
                         p_age.as_secs(),
                         threshold_point.separate_with_commas(),
                         payable.wallet
                     )
                 })
-                .join("\n")
+                .join(".\n")
         })
     }
 
@@ -273,7 +277,7 @@ pub mod payable_scanner_utils {
         serialize_hashes: fn(&[H256]) -> String,
     ) -> Option<String> {
         nonexistent.is_empty().not().then_some(format!(
-            "Ran into failed transactions {} with missing fingerprints. System no longer reliable",
+            "Ran into failed payables {} with missing records. The system is unreliable",
             serialize_hashes(&nonexistent),
         ))
     }
@@ -599,8 +603,8 @@ mod tests {
         assert_eq!(errs, Some(LocallyCausedError(error)));
         TestLogHandler::new().exists_log_containing(
             "WARN: test_logger: Any persisted data from \
-        the failed process will be deleted. Caused by: Sending phase: \"Bad luck\". Signed and hashed \
-        transactions: 0x000000000000000000000000000000000000000000000000000000000000007b",
+        the failed process will be deleted. Caused by: Sending phase: \"Bad luck\". Signed and hashed txs: \
+        0x000000000000000000000000000000000000000000000000000000000000007b",
         );
     }
 
@@ -631,10 +635,10 @@ mod tests {
             errs,
             Some(RemotelyCausedErrors(hashset![make_tx_hash(0x315)]))
         );
-        TestLogHandler::new().exists_log_containing("WARN: test_logger: Remote transaction failure: \
-        'Got invalid response: That jackass screwed it up' for payment to 0x000000000000000000000000\
-        00000077686f6f61 and transaction hash 0x0000000000000000000000000000000000000000000000000000\
-        000000000315. Please check your blockchain service URL configuration.");
+        TestLogHandler::new().exists_log_containing("WARN: test_logger: Remote sent payable \
+        failure 'Got invalid response: That jackass screwed it up' for wallet 0x00000000000000000000\
+        000000000077686f6f61 and tx hash 0x000000000000000000000000000000000000000000000000000000000\
+        0000315");
     }
 
     #[test]
@@ -697,10 +701,10 @@ mod tests {
         payables_debug_summary(&qualified_payables_and_threshold_points, &logger);
 
         TestLogHandler::new().exists_log_containing("Paying qualified debts:\n\
-                   10,002,000,000,000,000 wei owed for 2678400 sec exceeds threshold: \
-                   10,000,000,001,152,000 wei; creditor: 0x0000000000000000000000000077616c6c657430\n\
-                   999,999,999,000,000,000 wei owed for 86455 sec exceeds threshold: \
-                   999,978,993,055,555,580 wei; creditor: 0x0000000000000000000000000077616c6c657431");
+                   10,002,000,000,000,000 wei owed for 2678400 sec exceeds the threshold \
+                   10,000,000,001,152,000 wei for creditor 0x0000000000000000000000000077616c6c657430.\n\
+                   999,999,999,000,000,000 wei owed for 86455 sec exceeds the threshold \
+                   999,978,993,055,555,580 wei for creditor 0x0000000000000000000000000077616c6c657431");
     }
 
     #[test]

@@ -40,7 +40,7 @@ pub trait BlockchainInterface {
 
     fn process_transaction_receipts(
         &self,
-        sent_tx: Vec<SentTx>,
+        sent_txs: Vec<SentTx>,
     ) -> Box<dyn Future<Item = Vec<TxReceiptResult>, Error = BlockchainError>>;
 
     fn submit_payables_in_batch(
