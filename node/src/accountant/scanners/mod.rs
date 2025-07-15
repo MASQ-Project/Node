@@ -893,14 +893,14 @@ impl PayableScanner {
     }
 
     fn panic_if_payables_were_missing(
-        sent_payables: &[Tx],
+        failed_payables: &HashSet<FailedTx>,
         failures: &HashMap<TxHash, FailureReason>,
     ) {
-        let sent_payable_hashes: HashSet<&TxHash> =
-            sent_payables.iter().map(|tx| &tx.hash).collect();
+        let failed_payable_hashes: HashSet<&TxHash> =
+            failed_payables.iter().map(|tx| &tx.hash).collect();
         let missing_hashes: Vec<&TxHash> = failures
             .keys()
-            .filter(|hash| !sent_payable_hashes.contains(hash))
+            .filter(|hash| !failed_payable_hashes.contains(hash))
             .collect();
 
         if !missing_hashes.is_empty() {
@@ -911,57 +911,38 @@ impl PayableScanner {
         }
     }
 
-    fn convert_to_failed_payables(
-        sent_payables: Vec<Tx>,
-        hashes_with_reason: HashMap<H256, FailureReason>,
+    fn generate_failed_payables(
+        &self,
+        hashes_with_reason: HashMap<TxHash, FailureReason>,
     ) -> HashSet<FailedTx> {
-        sent_payables
-            .iter()
-            .map(|tx| FailedTx {
-                hash: tx.hash,
-                receiver_address: tx.receiver_address,
-                amount: tx.amount,
-                timestamp: tx.timestamp,
-                gas_price_wei: tx.gas_price_wei,
-                nonce: tx.nonce,
-                reason: hashes_with_reason
-                    .get(&tx.hash)
-                    .cloned()
-                    .unwrap_or_else(|| FailureReason::General), // TODO: GH-605: Deal with this unwrap()
-                status: FailureStatus::RetryRequired,
-            })
-            .collect()
-    }
-
-    fn find_sent_payables(&self, hashes_with_reason: HashMap<TxHash, FailureReason>) -> Vec<Tx> {
         let hashes: HashSet<TxHash> = hashes_with_reason.keys().cloned().collect();
         let sent_payables = self
             .sent_payable_dao
             .retrieve_txs(Some(ByHash(hashes.clone())));
 
-        if sent_payables.is_empty() {
-            panic!(
-                "No Payables found in SentPayable table for these hashes: {:?}",
-                hashes
-            );
-        } else {
-            sent_payables
-        }
+        sent_payables
+            .iter()
+            .filter_map(|tx| {
+                hashes_with_reason.get(&tx.hash).map(|reason| FailedTx {
+                    hash: tx.hash,
+                    receiver_address: tx.receiver_address,
+                    amount: tx.amount,
+                    timestamp: tx.timestamp,
+                    gas_price_wei: tx.gas_price_wei,
+                    nonce: tx.nonce,
+                    reason: reason.clone(),
+                    status: FailureStatus::RetryRequired,
+                })
+            })
+            .collect()
     }
 
     fn update_failures_in_db(&self, hashes_with_reason: HashMap<TxHash, FailureReason>) {
-        if hashes_with_reason.is_empty() {
-            todo!("log and return");
-        }
+        let failed_payables = self.generate_failed_payables(hashes_with_reason.clone());
 
-        let sent_payables = self.find_sent_payables(hashes_with_reason.clone());
+        self.migrate_payables(failed_payables.clone());
 
-        let failed_payables =
-            Self::convert_to_failed_payables(sent_payables.clone(), hashes_with_reason.clone());
-
-        self.migrate_payables(failed_payables);
-
-        Self::panic_if_payables_were_missing(&sent_payables, &hashes_with_reason);
+        Self::panic_if_payables_were_missing(&failed_payables, &hashes_with_reason);
     }
 }
 
