@@ -868,11 +868,11 @@ impl PayableScanner {
         }
     }
 
-    fn migrate_payables(&self, failed_payables: HashSet<FailedTx>) {
+    fn migrate_payables(&self, failed_payables: &HashSet<FailedTx>) {
         let common_string =
             "Error during migration from SentPayable to FailedPayable Table".to_string();
 
-        if let Err(e) = self.failed_payable_dao.insert_new_records(&failed_payables) {
+        if let Err(e) = self.failed_payable_dao.insert_new_records(failed_payables) {
             panic!(
                 "{}: Failed to insert transactions into the FailedPayable table. Error: {:?}",
                 common_string, e
@@ -913,12 +913,10 @@ impl PayableScanner {
 
     fn generate_failed_payables(
         &self,
-        hashes_with_reason: HashMap<TxHash, FailureReason>,
+        hashes_with_reason: &HashMap<TxHash, FailureReason>,
     ) -> HashSet<FailedTx> {
         let hashes: HashSet<TxHash> = hashes_with_reason.keys().cloned().collect();
-        let sent_payables = self
-            .sent_payable_dao
-            .retrieve_txs(Some(ByHash(hashes.clone())));
+        let sent_payables = self.sent_payable_dao.retrieve_txs(Some(ByHash(hashes)));
 
         sent_payables
             .iter()
@@ -938,9 +936,9 @@ impl PayableScanner {
     }
 
     fn update_failures_in_db(&self, hashes_with_reason: HashMap<TxHash, FailureReason>) {
-        let failed_payables = self.generate_failed_payables(hashes_with_reason.clone());
+        let failed_payables = self.generate_failed_payables(&hashes_with_reason);
 
-        self.migrate_payables(failed_payables.clone());
+        self.migrate_payables(&failed_payables);
 
         Self::panic_if_payables_were_missing(&failed_payables, &hashes_with_reason);
     }
