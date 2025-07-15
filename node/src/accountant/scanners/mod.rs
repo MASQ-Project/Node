@@ -553,7 +553,6 @@ impl Scanner<SentPayables, PayableScanResult> for PayableScanner {
                 todo!("Segregate transactions and migrate them from the SentPayableDao to the FailedPayableDao");
             }
             Either::Right(local_err) => {
-                // No need to update the FailedPayableDao as the error was local
                 warning!(
                     logger,
                     "Any persisted data from failed process will be deleted. Caused by: {}",
@@ -566,11 +565,17 @@ impl Scanner<SentPayables, PayableScanResult> for PayableScanner {
                         "Migrating failed transactions to the FailedPayableDao: {}",
                         join_with_separator(&hashes, |hash| format!("{:?}", hash), ", ")
                     );
-                    self.discard_failed_transactions_with_possible_fingerprints(hashes, logger)
+                    let failures: HashMap<TxHash, FailureReason> = hashes
+                        .into_iter()
+                        .map(|hash| (hash, FailureReason::LocalSendingFailed))
+                        .collect();
+                    self.update_failures_in_db(failures);
                 } else {
+                    todo!("GH-605: Test the code below");
+                    // No need to update the FailedPayableDao as the error was caused before the transactions are signed
                     debug!(
                         logger,
-                        "Ignoring a non-fatal error on our end from before the transactions are hashed: {:?}",
+                        "Ignoring a non-fatal error on our end from before the transactions are signed: {:?}",
                         local_err
                     )
                 }
@@ -834,8 +839,9 @@ impl PayableScanner {
             match err {
                 LocallyCausedError(LocalPayableError::Sending { hashes, .. })
                 | RemotelyCausedErrors(hashes) => {
-                    self.discard_failed_transactions_with_possible_fingerprints(hashes, logger)
-                }
+                    todo!("This code has been migrated, please delete it");
+                    // self.discard_failed_transactions_with_possible_fingerprints(hashes, logger)
+            }
                 non_fatal =>
                     debug!(
                         logger,
@@ -864,8 +870,9 @@ impl PayableScanner {
 
     fn migrate_from_sent_payable_to_failed_payable(
         &self,
-        hashes: &HashSet<TxHash>,
+        hashes_with_reason: HashMap<TxHash, FailureReason>,
     ) -> Result<(), String> {
+        let hashes: HashSet<TxHash> = hashes_with_reason.keys().cloned().collect();
         let failed_txs: HashSet<FailedTx> = self
             .sent_payable_dao
             .retrieve_txs(Some(ByHash(hashes.clone())))
@@ -877,7 +884,10 @@ impl PayableScanner {
                 timestamp: tx.timestamp,
                 gas_price_wei: tx.gas_price_wei,
                 nonce: tx.nonce,
-                reason: FailureReason::LocalSendingFailed,
+                reason: hashes_with_reason
+                    .get(&tx.hash)
+                    .cloned()
+                    .unwrap_or_else(|| FailureReason::General), // TODO: GH-605: Deal with this unwrap()
                 status: FailureStatus::RetryRequired,
             })
             .collect();
@@ -886,7 +896,7 @@ impl PayableScanner {
             return Err(format!("During Insertion in FailedPayable Table: {:?}", e));
         }
 
-        if let Err(e) = self.sent_payable_dao.delete_records(hashes) {
+        if let Err(e) = self.sent_payable_dao.delete_records(&hashes) {
             return Err(format!("During Deletion in FailedPayable Table: {:?}", e));
         };
 
@@ -897,28 +907,23 @@ impl PayableScanner {
         comma_joined_stringifiable(hashes, |hash| format!("{:?}", hash))
     }
 
-    fn discard_failed_transactions_with_possible_fingerprints(
-        &self,
-        hashes_of_failed: Vec<H256>, // TODO: GH-605: This should be a HashMap<TxHash, FailureReason>
-        logger: &Logger,
-    ) {
-        // TODO: GH-605: We should transfer the payables to the FailedPayableDao
-        let hashset = hashes_of_failed.iter().cloned().collect::<HashSet<H256>>();
-        if hashset.len() < hashes_of_failed.len() {
-            warning!(
-                logger,
-                "Some hashes were duplicated, this may be due to a bug in our code: {}",
-                join_with_separator(&hashes_of_failed, |hash| format!("{:?}", hash), ", ")
-            )
-        }
-        let tx_identifiers = self.sent_payable_dao.get_tx_identifiers(&hashset);
-        if !tx_identifiers.is_empty() {
-            let tx_hashes: HashSet<TxHash> = tx_identifiers.keys().cloned().collect();
-            if let Err(e) = self.migrate_from_sent_payable_to_failed_payable(&tx_hashes) {
+    fn update_failures_in_db(&self, failures: HashMap<TxHash, FailureReason>) {
+        let failed_tx_hashes = failures.keys().cloned().collect();
+        let hashes_in_sent_payables = self.sent_payable_dao.get_tx_identifiers(&failed_tx_hashes);
+        if !hashes_in_sent_payables.is_empty() {
+            let tx_hashes_with_reasons: HashMap<TxHash, FailureReason> = hashes_in_sent_payables
+                .keys()
+                .filter_map(|hash| failures.get(hash).map(|reason| (*hash, reason.clone())))
+                .collect();
+
+            if let Err(e) = self.migrate_from_sent_payable_to_failed_payable(tx_hashes_with_reasons)
+            {
                 panic!("While migrating transactions from SentPayable table to FailedPayable Table: {}", e);
             }
 
-            if let Some(absent_hashes) = Self::find_absent_tx_hashes(&tx_identifiers, hashset) {
+            if let Some(absent_hashes) =
+                Self::find_absent_tx_hashes(&hashes_in_sent_payables, failed_tx_hashes)
+            {
                 panic!(
                     "Ran into failed transactions {} with missing fingerprints. System no longer reliable",
                     join_with_separator(&absent_hashes, |hash| format!("{:?}", hash), ", ")
