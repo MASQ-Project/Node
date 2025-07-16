@@ -301,7 +301,11 @@ const PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER: [DestinationMarker; 3] = [
     DestinationMarker::PendingPayableScanner,
 ];
 
-const PENDING_PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER: [DestinationMarker; 3] = [
+//TODO Utkarsh should also update this
+const FAILED_PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER: [DestinationMarker; 1] =
+    [DestinationMarker::PendingPayableScanner];
+
+const SENT_PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER: [DestinationMarker; 3] = [
     DestinationMarker::AccountantBody,
     DestinationMarker::PayableScanner,
     DestinationMarker::PendingPayableScanner,
@@ -334,7 +338,7 @@ impl AccountantBuilder {
     ) -> Self {
         create_or_update_factory!(
             specially_configured_daos,
-            PENDING_PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER,
+            SENT_PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER,
             sent_payable_dao_factory_opt,
             SentPayableDaoFactoryMock,
             SentPayableDao,
@@ -352,6 +356,20 @@ impl AccountantBuilder {
             payable_dao_factory_opt,
             PayableDaoFactoryMock,
             PayableDao,
+            self
+        )
+    }
+
+    pub fn failed_payable_daos(
+        mut self,
+        specially_configured_daos: Vec<DaoWithDestination<FailedPayableDaoMock>>,
+    ) -> Self {
+        create_or_update_factory!(
+            specially_configured_daos,
+            FAILED_PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER,
+            failed_payable_dao_factory_opt,
+            FailedPayableDaoFactoryMock,
+            FailedPayableDao,
             self
         )
     }

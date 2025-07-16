@@ -1130,10 +1130,10 @@ impl Accountant {
             ),
             Err(e) => error!(
                 self.logger,
-                "Failed to process new pending payable fingerprints due to '{:?}', \
-                 disabling the automated confirmation for all these transactions: {}",
-                e,
-                serialize_hashes(&msg.new_sent_txs)
+                "Failed to save new pending payable records for {} due to '{:?}' which is integral \
+                to the function of the automated tx confirmation",
+                serialize_hashes(&msg.new_sent_txs),
+                e
             ),
         }
     }
@@ -1294,6 +1294,7 @@ mod tests {
     use std::sync::Mutex;
     use std::time::{Duration, UNIX_EPOCH};
     use std::vec;
+    use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
     use crate::accountant::scanners::payable_scanner_extension::msgs::UnpricedQualifiedPayables;
     use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDaoError, SentTx};
     use crate::accountant::scanners::scan_schedulers::{NewPayableScanDynIntervalComputer, NewPayableScanDynIntervalComputerReal};
@@ -1918,7 +1919,7 @@ mod tests {
         let payable_dao = PayableDaoMock::default()
             .transactions_confirmed_params(&transaction_confirmed_params_arc)
             .transactions_confirmed_result(Ok(()));
-        let sent_payable_dao = SentPayableDaoMock::default().delete_records_result(Ok(()));
+        let sent_payable_dao = SentPayableDaoMock::default().update_tx_blocks_result(Ok(()));
         let mut subject = AccountantBuilder::default()
             .payable_daos(vec![ForPendingPayableScanner(payable_dao)])
             .sent_payable_daos(vec![ForPendingPayableScanner(sent_payable_dao)])
@@ -1938,14 +1939,15 @@ mod tests {
             Box::new(NotifyHandleMock::default().panic_on_schedule_attempt());
         subject.ui_message_sub_opt = Some(ui_gateway_addr.recipient());
         let subject_addr = subject.start();
-        let sent_tx = make_sent_tx(123);
+        let mut sent_tx = make_sent_tx(123);
+        let tx_block = TransactionBlock {
+            block_hash: make_tx_hash(456),
+            block_number: 78901234.into(),
+        };
         let tx_receipts_msg = TxReceiptsMessage {
             results: vec![TxReceiptResult::RpcResponse(TxWithStatus::new(
                 sent_tx.clone(),
-                TxStatus::Succeeded(TransactionBlock {
-                    block_hash: make_tx_hash(456),
-                    block_number: 78901234.into(),
-                }),
+                TxStatus::Succeeded(tx_block),
             ))],
             response_skeleton_opt,
         };
@@ -1954,6 +1956,7 @@ mod tests {
 
         system.run();
         let transaction_confirmed_params = transaction_confirmed_params_arc.lock().unwrap();
+        sent_tx.block_opt = Some(tx_block);
         assert_eq!(*transaction_confirmed_params, vec![vec![sent_tx]]);
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         assert_eq!(
@@ -2127,22 +2130,28 @@ mod tests {
     #[test]
     fn pending_payable_scan_response_is_sent_to_ui_gateway_when_both_participating_scanners_have_completed(
     ) {
+        // TODO now only GH-605 logic is missing
         let response_skeleton_opt = Some(ResponseSkeleton {
             client_id: 4555,
             context_id: 5566,
         });
-        // TODO when we have more logic in place with the other cards taken in, we'll need to configure these
-        // accordingly
+        let insert_new_records_params_arc = Arc::new(Mutex::new(vec![]));
+        let delete_records_params_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao = PayableDaoMock::default().transactions_confirmed_result(Ok(()));
         let sent_tx = make_sent_tx(123);
+        let tx_hash = sent_tx.hash;
         let sent_payable_dao = SentPayableDaoMock::default()
             .retrieve_txs_result(vec![sent_tx.clone()])
-            // TODO: params assertion??
+            .delete_records_params(&delete_records_params_arc)
             .delete_records_result(Ok(()));
+        let failed_payable_dao = FailedPayableDaoMock::default()
+            .insert_new_records_params(&insert_new_records_params_arc)
+            .insert_new_records_result(Ok(()));
         let mut subject = AccountantBuilder::default()
             .consuming_wallet(make_wallet("consuming"))
             .payable_daos(vec![ForPendingPayableScanner(payable_dao)])
             .sent_payable_daos(vec![ForPendingPayableScanner(sent_payable_dao)])
+            .failed_payable_daos(vec![ForPendingPayableScanner(failed_payable_dao)])
             .build();
         subject.scan_schedulers.automatic_scans_enabled = false;
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
@@ -2159,7 +2168,7 @@ mod tests {
             RequestTransactionReceipts,
             TxReceiptsMessage {
                 results: vec![TxReceiptResult::RpcResponse(TxWithStatus::new(
-                    sent_tx,
+                    sent_tx.clone(),
                     TxStatus::Failed(BlockchainTxFailure::Unrecognized)
                 )),],
                 response_skeleton_opt
@@ -2194,6 +2203,11 @@ mod tests {
         subject_addr.try_send(pending_payable_request).unwrap();
 
         system.run();
+        let insert_new_records_params = insert_new_records_params_arc.lock().unwrap();
+        let expected_failed_tx = FailedTx::from((sent_tx, BlockchainTxFailure::Unrecognized));
+        assert_eq!(*insert_new_records_params, vec![vec![expected_failed_tx]]);
+        let delete_records_params = delete_records_params_arc.lock().unwrap();
+        assert_eq!(*delete_records_params, vec![hashset![tx_hash]]);
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         assert_eq!(
             ui_gateway_recording.get_record::<NodeToUiMessage>(0),
@@ -4817,7 +4831,6 @@ mod tests {
     #[test]
     fn accountant_processes_sent_payables_and_schedules_pending_payable_scanner() {
         let get_tx_identifiers_params_arc = Arc::new(Mutex::new(vec![]));
-        let mark_pending_payables_rowids_params_arc = Arc::new(Mutex::new(vec![]));
         let pending_payable_notify_later_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_wallet = make_wallet("paying_you");
         let expected_hash = H256::from("transaction_hash".keccak256());
@@ -4825,14 +4838,10 @@ mod tests {
         let sent_payable_dao = SentPayableDaoMock::default()
             .get_tx_identifiers_params(&get_tx_identifiers_params_arc)
             .get_tx_identifiers_result(hashmap! (expected_hash => expected_rowid));
-        let payable_dao = PayableDaoMock::new()
-            .mark_pending_payables_rowids_params(&mark_pending_payables_rowids_params_arc)
-            .mark_pending_payables_rowids_result(Ok(()));
         let system =
             System::new("accountant_processes_sent_payables_and_schedules_pending_payable_scanner");
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(make_wallet("some_wallet_address")))
-            .payable_daos(vec![ForPayableScanner(payable_dao)])
             .sent_payable_daos(vec![ForPayableScanner(sent_payable_dao)])
             .build();
         let pending_payable_interval = Duration::from_millis(55);
@@ -4856,12 +4865,6 @@ mod tests {
         system.run();
         let get_tx_identifiers_params = get_tx_identifiers_params_arc.lock().unwrap();
         assert_eq!(*get_tx_identifiers_params, vec![hashset!(expected_hash)]);
-        let mark_pending_payables_rowids_params =
-            mark_pending_payables_rowids_params_arc.lock().unwrap();
-        assert_eq!(
-            *mark_pending_payables_rowids_params,
-            vec![vec![(expected_wallet, expected_rowid)]]
-        );
         let pending_payable_notify_later_params =
             pending_payable_notify_later_params_arc.lock().unwrap();
         assert_eq!(
@@ -4988,16 +4991,13 @@ mod tests {
     #[test]
     fn accountant_confirms_pending_txs_and_schedules_the_new_payable_scanner_timely() {
         let transactions_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
-        let delete_records_params_arc = Arc::new(Mutex::new(vec![]));
         let compute_interval_params_arc = Arc::new(Mutex::new(vec![]));
         let new_payable_notify_later_arc = Arc::new(Mutex::new(vec![]));
         let new_payable_notify_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao = PayableDaoMock::default()
             .transactions_confirmed_params(&transactions_confirmed_params_arc)
             .transactions_confirmed_result(Ok(()));
-        let sent_payable_dao = SentPayableDaoMock::default()
-            .delete_records_params(&delete_records_params_arc)
-            .delete_records_result(Ok(()));
+        let sent_payable_dao = SentPayableDaoMock::default().update_tx_blocks_result(Ok(()));
         let system = System::new("new_payable_scanner_timely");
         let mut subject = AccountantBuilder::default()
             .payable_daos(vec![ForPendingPayableScanner(payable_dao)])
@@ -5041,11 +5041,8 @@ mod tests {
 
         System::current().stop();
         system.run();
-        let hashes = two_sent_txs.iter().map(|sent_tx| sent_tx.hash).collect();
         let transactions_confirmed_params = transactions_confirmed_params_arc.lock().unwrap();
         assert_eq!(*transactions_confirmed_params, vec![two_sent_txs.clone()]);
-        let delete_records_params = delete_records_params_arc.lock().unwrap();
-        assert_eq!(*delete_records_params, vec![hashes]);
         let mut compute_interval_params = compute_interval_params_arc.lock().unwrap();
         let (_, last_new_payable_timestamp_actual, scan_interval_actual) =
             compute_interval_params.remove(0);
@@ -5150,14 +5147,14 @@ mod tests {
         TestLogHandler::new().exists_log_containing(&format!("INFO: {test_name}: \
         Txs 0x0000000000000000000000000000000000000000000000000000000000000001 (block 95256152263), \
         0x0000000000000000000000000000000000000000000000000000000000000002 (block 1879080904) have \
-        completed"));
+        been confirmed"));
     }
 
     #[test]
     fn scheduler_for_new_payables_operates_with_proper_now_timestamp() {
         let new_payable_notify_later_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao = PayableDaoMock::default().transactions_confirmed_result(Ok(()));
-        let sent_payable_dao = SentPayableDaoMock::default().delete_records_result(Ok(()));
+        let sent_payable_dao = SentPayableDaoMock::default().update_tx_blocks_result(Ok(()));
         let system = System::new("scheduler_for_new_payables_operates_with_proper_now_timestamp");
         let mut subject = AccountantBuilder::default()
             .payable_daos(vec![ForPendingPayableScanner(payable_dao)])
@@ -5295,26 +5292,30 @@ mod tests {
             .insert_new_records_result(Err(SentPayableDaoError::SqlExecutionFailed(
                 "Crashed".to_string(),
             )));
-        let tx_hash = make_tx_hash(0x1c8);
-        let mut sent_tx = make_sent_tx(456);
-        sent_tx.hash = tx_hash;
+        let tx_hash_1 = make_tx_hash(0x1c8);
+        let mut sent_tx_1 = make_sent_tx(456);
+        sent_tx_1.hash = tx_hash_1;
+        let tx_hash_2 = make_tx_hash(0x1b2);
+        let mut sent_tx_2 = make_sent_tx(789);
+        sent_tx_2.hash = tx_hash_2;
         let subject = AccountantBuilder::default()
             .sent_payable_daos(vec![ForAccountantBody(sent_payable_dao)])
+            .logger(Logger::new(test_name))
             .build();
-        let timestamp = SystemTime::now();
         let report_new_fingerprints = RegisterNewPendingSentTxMessage {
-            new_sent_txs: vec![sent_tx.clone()],
+            new_sent_txs: vec![sent_tx_1.clone(), sent_tx_2.clone()],
         };
 
         let _ = subject.register_new_pending_sent_tx(report_new_fingerprints);
 
         let insert_fingerprint_params = insert_new_records_params_arc.lock().unwrap();
-        assert_eq!(*insert_fingerprint_params, vec![vec![sent_tx]]);
+        assert_eq!(*insert_fingerprint_params, vec![vec![sent_tx_1, sent_tx_2]]);
         TestLogHandler::new().exists_log_containing(&format!(
-            "ERROR: {test_name}: Failed to \
-        process new pending payable fingerprints due to 'InsertionFailed(\"Crashed\")', disabling \
-        the automated confirmation for all these transactions: 0x0000000000000000000000000000000000\
-        0000000000000000000000000001c8"
+            "ERROR: {test_name}: Failed to save new pending payable records for \
+            0x00000000000000000000000000000000000000000000000000000000000001c8, \
+            0x00000000000000000000000000000000000000000000000000000000000001b2 \
+            due to 'SqlExecutionFailed(\"Crashed\")' which is integral to the function \
+            of the automated tx confirmation"
         ));
     }
 

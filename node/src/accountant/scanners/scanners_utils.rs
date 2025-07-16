@@ -277,7 +277,7 @@ pub mod payable_scanner_utils {
         serialize_hashes: fn(&[H256]) -> String,
     ) -> Option<String> {
         nonexistent.is_empty().not().then_some(format!(
-            "Ran into failed payables {} with missing records. The system is unreliable",
+            "Ran into failed payables {} with missing records. The system has become unreliable",
             serialize_hashes(&nonexistent),
         ))
     }

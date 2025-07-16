@@ -732,7 +732,7 @@ impl PayableScanner {
     fn check_on_missing_sent_tx_records(&self, sent_payments: &[&PendingPayable]) {
         fn missing_fingerprints_msg(nonexistent: &[PendingPayableMissingInDb]) -> String {
             format!(
-                "Expected sent-payable records for {} were not found. The system is unreliable",
+                "Expected sent-payable records for {} were not found. The system has become unreliable",
                 comma_joined_stringifiable(nonexistent, |missing_sent_tx_ids| format!(
                     "(tx: {:?}, to wallet: {:?})",
                     missing_sent_tx_ids.hash, missing_sent_tx_ids.recipient
@@ -2174,7 +2174,7 @@ mod tests {
     #[should_panic(expected = "Expected sent-payable records for \
     (tx: 0x00000000000000000000000000000000000000000000000000000000000000f8, \
     to wallet: 0x00000000000000000000000000626c6168323232) \
-    were not found. The system is unreliable")]
+    were not found. The system has become unreliable")]
     fn payable_scanner_found_out_nonexistent_sent_tx_records() {
         init_test_logging();
         let test_name = "payable_scanner_found_out_nonexistent_sent_tx_records";
@@ -2383,7 +2383,7 @@ mod tests {
             "Ran into failed payables \
         0x000000000000000000000000000000000000000000000000000000000000223d, \
         0x0000000000000000000000000000000000000000000000000000000000003039 \
-        with missing records. The system is unreliable"
+        with missing records. The system has become unreliable"
         );
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!(
@@ -2467,7 +2467,7 @@ mod tests {
         log_handler.exists_log_containing(&format!(
             "ERROR: {test_name}: Ran into failed \
         payables 0x00000000000000000000000000000000000000000000000000000000000004d2 with missing \
-        records. The system is unreliable"
+        records. The system has become unreliable"
         ));
     }
 
