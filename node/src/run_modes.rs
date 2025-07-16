@@ -11,7 +11,6 @@ use actix::System;
 use clap::Error;
 use futures::future::Future;
 use masq_lib::command::StdStreams;
-use masq_lib::logger::Logger;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use ProgramEntering::{Enter, Leave};
