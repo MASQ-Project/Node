@@ -12,7 +12,7 @@ use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
     LocallyCausedError, RemotelyCausedErrors,
 };
-use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{debugging_summary_after_error_separation, err_msg_for_failure_with_expected_but_missing_fingerprints, investigate_debt_extremes, mark_pending_payable_fatal_error, payables_debug_summary, separate_errors, separate_rowids_and_hashes, OperationOutcome, PayableScanResult, PayableThresholdsGauge, PayableThresholdsGaugeReal, PayableTransactingErrorEnum, PendingPayableMetadata};
+use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{debugging_summary_after_error_separation, err_msg_for_failure_with_expected_but_missing_fingerprints, investigate_debt_extremes, mark_pending_payable_fatal_error, payables_debug_summary, separate_batch_results, separate_errors, separate_rowids_and_hashes, OperationOutcome, PayableScanResult, PayableThresholdsGauge, PayableThresholdsGaugeReal, PayableTransactingErrorEnum, PendingPayableMetadata};
 use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_none_receipt, handle_status_with_failure, handle_status_with_success, PendingPayableScanReport, PendingPayableScanResult};
 use crate::accountant::scanners::scanners_utils::receivable_scanner_utils::balance_and_age;
 use crate::accountant::{join_with_separator, PendingPayableId, ScanError, ScanForPendingPayables, ScanForRetryPayables};
@@ -537,20 +537,26 @@ impl Scanner<SentPayables, PayableScanResult> for PayableScanner {
     fn finish_scan(&mut self, message: SentPayables, logger: &Logger) -> PayableScanResult {
         let result = match message.payment_procedure_result {
             Either::Left(batch_results) => {
-                // let (sent_payables, err_opt) = separate_errors(&message, logger);
-                // debug!(
-                //     logger,
-                //     "{}",
-                //     debugging_summary_after_error_separation(&sent_payables, &err_opt)
-                // );
+                let (pending, failures) = separate_batch_results(&batch_results);
 
-                // if !sent_payables.is_empty() {
-                //     self.mark_pending_payable(&sent_payables, logger);
-                // }
+                let pending_tx_count = pending.len();
+                let failed_tx_count = failures.len();
+                debug!(
+                    logger,
+                    "Out of {} payables, {} were successfully delivered to the RPC.",
+                    pending_tx_count + failed_tx_count,
+                    pending_tx_count,
+                );
 
-                // self.handle_sent_payable_errors(err_opt, logger);
+                if pending_tx_count > 0 {
+                    self.mark_pending_payable(&pending, logger);
+                }
 
-                todo!("Segregate transactions and migrate them from the SentPayableDao to the FailedPayableDao");
+                if failed_tx_count > 0 {
+                    self.record_failed_txs_in_db(failures);
+                }
+
+                OperationOutcome::NewPendingPayable
             }
             Either::Right(local_err) => {
                 warning!(
@@ -567,7 +573,7 @@ impl Scanner<SentPayables, PayableScanResult> for PayableScanner {
                     );
                     let failures: HashMap<TxHash, FailureReason> = hashes
                         .into_iter()
-                        .map(|hash| (hash, FailureReason::LocalSendingFailed))
+                        .map(|hash| (hash, FailureReason::Local))
                         .collect();
                     self.record_failed_txs_in_db(failures);
                 } else {
@@ -2510,7 +2516,7 @@ mod tests {
                 timestamp: tx.timestamp,
                 gas_price_wei: tx.gas_price_wei,
                 nonce: tx.nonce,
-                reason: FailureReason::LocalSendingFailed,
+                reason: FailureReason::Local,
                 status: FailureStatus::RetryRequired,
             })
             .collect();

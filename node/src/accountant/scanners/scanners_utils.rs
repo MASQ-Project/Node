@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 pub mod payable_scanner_utils {
-    use crate::accountant::db_access_objects::utils::ThresholdUtils;
+    use crate::accountant::db_access_objects::utils::{ThresholdUtils, TxHash};
     use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDaoError};
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
         LocallyCausedError, RemotelyCausedErrors,
@@ -12,11 +12,14 @@ pub mod payable_scanner_utils {
     use itertools::{Either, Itertools};
     use masq_lib::logger::Logger;
     use std::cmp::Ordering;
+    use std::collections::HashMap;
     use std::ops::Not;
     use std::time::SystemTime;
     use thousands::Separable;
+    use web3::Error;
     use web3::types::H256;
     use masq_lib::ui_gateway::NodeToUiMessage;
+    use crate::accountant::db_access_objects::failed_payable_dao::FailureReason;
     use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
     use crate::blockchain::blockchain_interface::data_structures::{IndividualBatchResult, RpcPayableFailure};
     use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
@@ -101,6 +104,34 @@ pub mod payable_scanner_utils {
         format!("Payable scan found {} debts; the biggest is {} owed for {}sec, the oldest is {} owed for {}sec",
                 all_non_pending_payables.len(), biggest.balance_wei, biggest.age,
                 oldest.balance_wei, oldest.age)
+    }
+
+    pub fn separate_batch_results(
+        batch_results: &[IndividualBatchResult],
+    ) -> (Vec<&PendingPayable>, HashMap<TxHash, FailureReason>) {
+        batch_results.into_iter().fold(
+            (vec![], HashMap::new()),
+            |(mut pending, mut failures), result| {
+                match result {
+                    IndividualBatchResult::Pending(payable) => {
+                        pending.push(payable);
+                    }
+                    IndividualBatchResult::Failed(RpcPayableFailure {
+                        hash, rpc_error, ..
+                    }) => {
+                        let failure_reason = match rpc_error {
+                            // TODO: GH-605: Work your ass off to make this conversion straightforward
+                            // Adjust these mappings based on your specific error types
+                            Error::Transport(_) => FailureReason::Local,
+                            Error::Rpc(_) => FailureReason::Remote,
+                            _ => FailureReason::General,
+                        };
+                        failures.insert(hash.clone(), failure_reason);
+                    }
+                }
+                (pending, failures)
+            },
+        )
     }
 
     pub fn separate_errors<'a, 'b>(

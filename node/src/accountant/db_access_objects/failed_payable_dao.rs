@@ -23,9 +23,9 @@ pub enum FailedPayableDaoError {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum FailureReason {
     PendingTooLong,
-    NonceIssue,
+    Remote,
     General,
-    LocalSendingFailed,
+    Local,
 }
 
 impl FromStr for FailureReason {
@@ -34,9 +34,9 @@ impl FromStr for FailureReason {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "PendingTooLong" => Ok(FailureReason::PendingTooLong),
-            "NonceIssue" => Ok(FailureReason::NonceIssue),
+            "Remote" => Ok(FailureReason::Remote),
             "General" => Ok(FailureReason::General),
-            "LocalSendingFailed" => Ok(FailureReason::LocalSendingFailed),
+            "Local" => Ok(FailureReason::Local),
             _ => Err(format!("Invalid FailureReason: {}", s)),
         }
     }
@@ -362,7 +362,7 @@ impl FailedPayableDaoFactory for DaoFactoryReal {
 #[cfg(test)]
 mod tests {
     use crate::accountant::db_access_objects::failed_payable_dao::FailureReason::{
-        General, LocalSendingFailed, NonceIssue, PendingTooLong,
+        General, Local, PendingTooLong, Remote,
     };
     use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::{
         Concluded, RecheckRequired, RetryRequired,
@@ -395,7 +395,7 @@ mod tests {
         let tx1 = FailedTxBuilder::default()
             .hash(make_tx_hash(1))
             .nonce(1)
-            .reason(NonceIssue)
+            .reason(Remote)
             .build();
         let tx2 = FailedTxBuilder::default()
             .hash(make_tx_hash(2))
@@ -588,12 +588,9 @@ mod tests {
             FailureReason::from_str("PendingTooLong"),
             Ok(PendingTooLong)
         );
-        assert_eq!(FailureReason::from_str("NonceIssue"), Ok(NonceIssue));
+        assert_eq!(FailureReason::from_str("Remote"), Ok(Remote));
         assert_eq!(FailureReason::from_str("General"), Ok(General));
-        assert_eq!(
-            FailureReason::from_str("LocalSendingFailed"),
-            Ok(LocalSendingFailed)
-        );
+        assert_eq!(FailureReason::from_str("Local"), Ok(Local));
         assert_eq!(
             FailureReason::from_str("InvalidReason"),
             Err("Invalid FailureReason: InvalidReason".to_string())
@@ -687,7 +684,7 @@ mod tests {
             .hash(make_tx_hash(2))
             .nonce(2)
             .timestamp(now - 3600)
-            .reason(NonceIssue)
+            .reason(Remote)
             .status(RetryRequired)
             .build();
         let tx3 = FailedTxBuilder::default()
@@ -723,7 +720,7 @@ mod tests {
         let subject = FailedPayableDaoReal::new(wrapped_conn);
         let tx1 = FailedTxBuilder::default()
             .hash(make_tx_hash(1))
-            .reason(NonceIssue)
+            .reason(Remote)
             .status(RetryRequired)
             .nonce(4)
             .build();
