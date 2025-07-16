@@ -80,6 +80,7 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
         &self,
         multi_config: &MultiConfig,
     ) -> Result<BootstrapperConfig, ConfiguratorError> {
+info!(self.logger, "NodeConfiguratorStandardUnprivileged::configure() called");
         let mut persistent_config = initialize_database(
             &self.privileged_config.data_directory,
             DbInitializationConfig::create_or_migrate(ExternalData::from((self, multi_config))),
@@ -95,11 +96,13 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
         )?;
         configure_database(&unprivileged_config, persistent_config.as_mut())?;
         let cryptde_pair = if multi_config.occurrences_of("fake-public-key") == 0 {
+            info!(self.logger, "CryptDEReal: trying database retrieval");
             configure_cryptdes(
                 persistent_config.as_mut(),
                 &unprivileged_config.db_password_opt,
             )
         } else {
+            info!(self.logger, "CryptDENull: using fake public key");
             configure_fake_cryptdes(multi_config, &mut unprivileged_config)
         };
         unprivileged_config.cryptde_pair = cryptde_pair;

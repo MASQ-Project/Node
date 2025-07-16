@@ -209,8 +209,10 @@ fn request_server_payload(
 fn reported_client_drop() {
     let mut cluster = MASQNodeCluster::start().unwrap();
     let (real_node, mock_node, _) = create_neighborhood(&mut cluster);
+eprintln!("Neighborhood created");
     let server_port = find_free_port();
     let mut server = real_node.make_server(server_port);
+eprintln!("Server started");
     let masquerader = JsonMasquerader::new();
     let (stream_key, return_route_id) = arbitrary_context();
     let index: u64 = 0;
@@ -231,11 +233,15 @@ fn reported_client_drop() {
             real_node.socket_addr(PortSelector::First),
         )
         .unwrap();
+eprintln!("Package transmitted");
     server.wait_for_chunk(Duration::from_secs(1)).unwrap();
+eprintln!("Chunk received");
     server.send_chunk(HTTP_RESPONSE);
+eprintln!("Response sent");
     mock_node
         .wait_for_package(&masquerader, Duration::from_secs(1))
         .unwrap();
+eprintln!("Package received");
 
     mock_node
         .transmit_package(
@@ -246,8 +252,10 @@ fn reported_client_drop() {
             real_node.socket_addr(PortSelector::First),
         )
         .unwrap();
+eprintln!("Second package transmitted");
 
     wait_for_server_shutdown(&real_node, server.local_addr());
+eprintln!("Server shutdown detected");
     ensure_no_further_traffic(&mock_node, &masquerader);
 }
 

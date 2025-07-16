@@ -9,9 +9,7 @@ use crate::run_modes_factories::{RunModeResult, ServerInitializer};
 use crate::sub_lib::socket_server::ConfiguredByPrivilege;
 use backtrace::Backtrace;
 use clap::value_t;
-use flexi_logger::{
-    Cleanup, Criterion, DeferredNow, Duplicate, LevelFilter, LogSpecBuilder, Logger, Naming, Record,
-};
+use flexi_logger::{Cleanup, Criterion, DeferredNow, Duplicate, LevelFilter, LogSpecBuilder, Logger, Naming, Record};
 use futures::try_ready;
 use lazy_static::lazy_static;
 use log::{log, Level};
@@ -93,6 +91,7 @@ impl Future for ServerInitializerReal {
 
 impl Default for ServerInitializerReal {
     fn default() -> ServerInitializerReal {
+info!(logger::Logger::new("temporary"), "ServerInitializerReal::new() called");
         ServerInitializerReal {
             dns_socket_server: Box::new(DnsSocketServer::new()),
             bootstrapper: Box::new(Bootstrapper::new(Box::new(LoggerInitializerWrapperReal {}))),

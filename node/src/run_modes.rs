@@ -11,6 +11,7 @@ use actix::System;
 use clap::Error;
 use futures::future::Future;
 use masq_lib::command::StdStreams;
+use masq_lib::logger::Logger;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use ProgramEntering::{Enter, Leave};
@@ -236,6 +237,7 @@ impl Runner for RunnerReal {
     fn run_node(&self, args: &[String], streams: &mut StdStreams<'_>) -> Result<(), RunnerError> {
         let system = System::new("main");
         let mut server_initializer = self.server_initializer_factory.make();
+info!(Logger::new("temporary"), "In run_node, calling server_initializer.go()");
         server_initializer.go(streams, args)?;
         actix::spawn(server_initializer.map_err(|_| {
             System::current().stop_with_code(1);
