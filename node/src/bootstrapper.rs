@@ -506,7 +506,6 @@ impl ConfiguredByPrivilege for Bootstrapper {
                 }
                 self.listener_handlers.push(listener_handler);
             });
-info!(Logger::new("Bootstrapper"), "After Bootstrapper::initialize_as_privileged: {:?}", self.config.cryptde_pair);
         Ok(())
     }
 
@@ -520,9 +519,7 @@ info!(Logger::new("Bootstrapper"), "After Bootstrapper::initialize_as_privileged
         let unprivileged_config =
             NodeConfiguratorStandardUnprivileged::new(&self.config).configure(multi_config)?;
         let cryptde_pair = unprivileged_config.cryptde_pair.clone();
-info!(Logger::new("temporary"), "NCSU::configure() produced: {:?}", cryptde_pair);
         self.config.merge_unprivileged(unprivileged_config);
-info!(Logger::new("temporary"), "After merging with privileged: {:?}", self.config.cryptde_pair);
         let _ = self.set_up_clandestine_port();
         // initialization of CountryFinder
         let _ = get_node_location(Some(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))));
@@ -547,7 +544,6 @@ info!(Logger::new("temporary"), "After merging with privileged: {:?}", self.conf
         self.listener_handlers
             .iter_mut()
             .for_each(|f| f.bind_subs(stream_handler_pool_subs.add_sub.clone()));
-info!(Logger::new("Bootstrapper"), "After Bootstrapper::initialize_as_unprivileged: {:?}", self.config.cryptde_pair);
         Ok(())
     }
 }
@@ -564,7 +560,6 @@ impl Bootstrapper {
             logger_initializer,
             config: BootstrapperConfig::new(),
         };
-info!(Logger::new("temporary"), "Creating Bootstrapper with cryptde_pair: {:?}", result.config.cryptde_pair);
         result
     }
 

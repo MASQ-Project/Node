@@ -2,10 +2,10 @@
 
 use crate::masq_node_cluster::DockerHostSocketAddr;
 use crate::utils;
-use std::{io, thread};
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::time::Duration;
-use crossbeam_channel::{unbounded, Receiver, Sender};
+use std::{io, thread};
 
 pub struct MASQNodeServer {
     docker_host_addr: Option<DockerHostSocketAddr>,
@@ -52,9 +52,7 @@ impl MASQNodeServer {
                 self.stream_opt = Some(stream);
                 self.wait_for_chunk(duration)
             }
-            Some(stream) => {
-                utils::wait_for_chunk(stream, &duration)
-            },
+            Some(stream) => utils::wait_for_chunk(stream, &duration),
         }
     }
 
