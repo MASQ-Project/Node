@@ -216,6 +216,7 @@ eprintln!("Server started");
     let masquerader = JsonMasquerader::new();
     let (stream_key, return_route_id) = arbitrary_context();
     let index: u64 = 0;
+eprintln!("Transmitting package signed with chain {:?}", cluster.chain);
     mock_node
         .transmit_package(
             mock_node.port_list()[0],

@@ -48,7 +48,7 @@ impl MASQNodeServer {
                         .unwrap();
                     tx.send(stream).unwrap();
                 });
-                let stream = rx.recv_timeout(duration.clone()).unwrap();
+                let stream = rx.recv_timeout(duration).unwrap();
                 self.stream_opt = Some(stream);
                 self.wait_for_chunk(duration)
             }

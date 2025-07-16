@@ -103,7 +103,7 @@ info!(self.logger, "NodeConfiguratorStandardUnprivileged::configure() called");
             )
         } else {
             info!(self.logger, "CryptDENull: using fake public key");
-            configure_fake_cryptdes(multi_config, &mut unprivileged_config)
+            configure_fake_cryptdes(multi_config)
         };
         unprivileged_config.cryptde_pair = cryptde_pair;
         Ok(unprivileged_config)
@@ -379,7 +379,6 @@ fn configure_cryptdes(
 
 fn configure_fake_cryptdes(
     multi_config: &MultiConfig,
-    unprivileged_config: &mut BootstrapperConfig,
 ) -> CryptDEPair {
     let public_key_str =
         value_m!(multi_config, "fake-public-key", String).expect("fake-public-key disappeared");
@@ -388,7 +387,7 @@ fn configure_fake_cryptdes(
     let main_public_key = PublicKey::new(&main_public_key_data);
     let main_cryptde = CryptDENull::from(
         &main_public_key,
-        unprivileged_config.blockchain_bridge_config.chain,
+        Chain::Dev, // Always Dev chain for signing with --fake-public-key
     );
     let alias_public_key_data = main_public_key_data
         .iter()
@@ -398,7 +397,7 @@ fn configure_fake_cryptdes(
     let alias_public_key = PublicKey::new(&alias_public_key_data);
     let alias_cryptde = CryptDENull::from(
         &alias_public_key,
-        unprivileged_config.blockchain_bridge_config.chain,
+        Chain::Dev, // Always Dev chain for signing with --fake-public-key
     );
     CryptDEPair::new(Box::new(main_cryptde), Box::new(alias_cryptde))
 }
