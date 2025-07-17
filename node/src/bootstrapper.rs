@@ -550,7 +550,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
 
 impl Bootstrapper {
     pub fn new(logger_initializer: Box<dyn LoggerInitializerWrapper>) -> Bootstrapper {
-        let result = Bootstrapper {
+        Bootstrapper {
             listener_handler_factory: Box::new(ListenerHandlerFactoryReal::new()),
             listener_handlers:
                 FuturesUnordered::<Box<dyn ListenerHandler<Item = (), Error = ()>>>::new(),
@@ -559,8 +559,7 @@ impl Bootstrapper {
             ))),
             logger_initializer,
             config: BootstrapperConfig::new(),
-        };
-        result
+        }
     }
 
     fn make_local_descriptor(
