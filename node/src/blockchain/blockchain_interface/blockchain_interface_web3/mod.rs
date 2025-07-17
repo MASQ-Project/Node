@@ -23,8 +23,8 @@ use web3::types::{Address, Log, H256, U256, FilterBuilder, TransactionReceipt, B
 use crate::accountant::scanners::payable_scanner_extension::msgs::{UnpricedQualifiedPayables, PricedQualifiedPayables};
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
-use crate::blockchain::blockchain_bridge::{BlockMarker, BlockScanRange, RegisterNewPendingSentTxMessage};
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{LowBlockchainIntWeb3, TxReceiptResult, TxStatus, TxWithStatus, TxReceiptRequestError};
+use crate::blockchain::blockchain_bridge::{BlockMarker, BlockScanRange, RegisterNewPendingPayables};
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{LowBlockchainIntWeb3, TxStatus, TxWithStatus, TxReceiptError, TxReceiptResult};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::utils::{create_blockchain_agent_web3, send_payables_within_batch, BlockchainAgentFutureResult};
 
 // TODO We should probably begin to attach these constants to the interfaces more tightly, so that
@@ -227,28 +227,26 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                         .map(|(response, sent_tx)| match response {
                             Ok(result) => {
                                 match serde_json::from_value::<TransactionReceipt>(result) {
-                                    Ok(receipt) => TxReceiptResult::RpcResponse(TxWithStatus::new(
+                                    Ok(receipt) => TxReceiptResult::Ok(TxWithStatus::new(
                                         sent_tx,
                                         receipt.into(),
                                     )),
                                     Err(e) => {
                                         if e.to_string().contains("invalid type: null") {
-                                            TxReceiptResult::RpcResponse(TxWithStatus::new(
+                                            TxReceiptResult::Ok(TxWithStatus::new(
                                                 sent_tx,
                                                 TxStatus::Pending,
                                             ))
                                         } else {
-                                            TxReceiptResult::RequestError(
-                                                TxReceiptRequestError::new(
-                                                    sent_tx.hash,
-                                                    e.to_string(),
-                                                ),
-                                            )
+                                            TxReceiptResult::Err(TxReceiptError::new(
+                                                sent_tx.hash,
+                                                e.to_string(),
+                                            ))
                                         }
                                     }
                                 }
                             }
-                            Err(e) => TxReceiptResult::RequestError(TxReceiptRequestError::new(
+                            Err(e) => TxReceiptResult::Err(TxReceiptError::new(
                                 sent_tx.hash,
                                 e.to_string(),
                             )),
@@ -262,7 +260,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         &self,
         logger: Logger,
         agent: Box<dyn BlockchainAgent>,
-        fingerprints_recipient: Recipient<RegisterNewPendingSentTxMessage>,
+        new_pending_payables_recipient: Recipient<RegisterNewPendingPayables>,
         affordable_accounts: PricedQualifiedPayables,
     ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>
     {
@@ -283,7 +281,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                         &web3_batch,
                         consuming_wallet,
                         pending_nonce,
-                        fingerprints_recipient,
+                        new_pending_payables_recipient,
                         affordable_accounts,
                     )
                 }),
@@ -1114,35 +1112,35 @@ mod tests {
             .wait()
             .unwrap();
 
-        assert_eq!(result[0], TxReceiptResult::RequestError(
-            TxReceiptRequestError::new(
+        assert_eq!(result[0], TxReceiptResult::Err(
+            TxReceiptError::new(
                 sent_tx_1.hash,
             "RPC error: Error { code: ServerError(429), message: \"The requests per second (RPS) of your requests are higher than your plan allows.\", data: None }".to_string())));
         assert_eq!(
             result[1],
-            TxReceiptResult::RpcResponse(TxWithStatus::new(sent_tx_2, TxStatus::Pending))
+            TxReceiptResult::Ok(TxWithStatus::new(sent_tx_2, TxStatus::Pending))
         );
         assert_eq!(
             result[2],
-            TxReceiptResult::RequestError(TxReceiptRequestError::new(
+            TxReceiptResult::Err(TxReceiptError::new(
                 sent_tx_3.hash,
                 "invalid type: string \"trash\", expected struct Receipt".to_string()
             ))
         );
         assert_eq!(
             result[3],
-            TxReceiptResult::RpcResponse(TxWithStatus::new(sent_tx_4, TxStatus::Pending))
+            TxReceiptResult::Ok(TxWithStatus::new(sent_tx_4, TxStatus::Pending))
         );
         assert_eq!(
             result[4],
-            TxReceiptResult::RpcResponse(TxWithStatus::new(
+            TxReceiptResult::Ok(TxWithStatus::new(
                 sent_tx_5,
                 TxStatus::Failed(BlockchainTxFailure::Unrecognized)
             ))
         );
         assert_eq!(
             result[5],
-            TxReceiptResult::RpcResponse(TxWithStatus::new(
+            TxReceiptResult::Ok(TxWithStatus::new(
                 sent_tx_6,
                 TxStatus::Succeeded(TransactionBlock {
                     block_hash,

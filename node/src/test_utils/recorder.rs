@@ -8,7 +8,7 @@ use crate::accountant::{
     ScanForReceivables, SentPayables,
 };
 use crate::accountant::{ScanForPendingPayables, ScanForRetryPayables, TxReceiptsMessage};
-use crate::blockchain::blockchain_bridge::RegisterNewPendingSentTxMessage;
+use crate::blockchain::blockchain_bridge::RegisterNewPendingPayables;
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::daemon::crash_notification::CrashNotification;
 use crate::daemon::DaemonBindMessage;
@@ -153,7 +153,7 @@ recorder_message_handler_t_m_p!(NodeFromUiMessage);
 recorder_message_handler_t_m_p!(NodeToUiMessage);
 recorder_message_handler_t_m_p!(NoLookupIncipientCoresPackage);
 recorder_message_handler_t_p!(OutboundPaymentsInstructions);
-recorder_message_handler_t_m_p!(RegisterNewPendingSentTxMessage);
+recorder_message_handler_t_m_p!(RegisterNewPendingPayables);
 recorder_message_handler_t_m_p!(PoolBindMessage);
 recorder_message_handler_t_m_p!(QualifiedPayablesMessage);
 recorder_message_handler_t_m_p!(ReceivedPayments);
@@ -529,7 +529,7 @@ pub fn make_accountant_subs_from_recorder(addr: &Addr<Recorder>) -> AccountantSu
         report_services_consumed: recipient!(addr, ReportServicesConsumedMessage),
         report_payable_payments_setup: recipient!(addr, BlockchainAgentWithContextMessage),
         report_inbound_payments: recipient!(addr, ReceivedPayments),
-        init_pending_payable_fingerprints: recipient!(addr, RegisterNewPendingSentTxMessage),
+        register_new_pending_payables: recipient!(addr, RegisterNewPendingPayables),
         report_transaction_status: recipient!(addr, TxReceiptsMessage),
         report_sent_payments: recipient!(addr, SentPayables),
         scan_errors: recipient!(addr, ScanError),

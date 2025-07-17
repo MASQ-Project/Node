@@ -7,7 +7,7 @@ use crate::accountant::scanners::payable_scanner_extension::msgs::PricedQualifie
 use crate::accountant::PendingPayable;
 use crate::blockchain::blockchain_agent::agent_web3::BlockchainAgentWeb3;
 use crate::blockchain::blockchain_agent::BlockchainAgent;
-use crate::blockchain::blockchain_bridge::RegisterNewPendingSentTxMessage;
+use crate::blockchain::blockchain_bridge::RegisterNewPendingPayables;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
     BlockchainInterfaceWeb3, HashAndAmount, TRANSFER_METHOD_ID,
 };
@@ -273,7 +273,7 @@ pub fn send_payables_within_batch(
     web3_batch: &Web3<Batch<Http>>,
     consuming_wallet: Wallet,
     pending_nonce: U256,
-    new_fingerprints_recipient: Recipient<RegisterNewPendingSentTxMessage>,
+    new_pending_payables_recipient: Recipient<RegisterNewPendingPayables>,
     accounts: PricedQualifiedPayables,
 ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError> + 'static>
 {
@@ -303,11 +303,10 @@ pub fn send_payables_within_batch(
         .collect();
     let planned_sent_txs_hashes = HashSet::from_iter(sent_txs_hashes.clone().into_iter());
 
-    let new_pending_sent_tx_message =
-        RegisterNewPendingSentTxMessage::new(prepared_sent_txs_records);
+    let new_pending_payables_message = RegisterNewPendingPayables::new(prepared_sent_txs_records);
 
-    new_fingerprints_recipient
-        .try_send(new_pending_sent_tx_message)
+    new_pending_payables_recipient
+        .try_send(new_pending_payables_message)
         .expect("Accountant is dead");
 
     info!(
@@ -688,7 +687,7 @@ mod tests {
         let logger = Logger::new(test_name);
         let chain = DEFAULT_CHAIN;
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
-        let new_fingerprints_recipient = accountant.start().recipient();
+        let new_pending_payables_recipient = accountant.start().recipient();
         let system = System::new(test_name);
         let timestamp_before = SystemTime::now();
 
@@ -698,7 +697,7 @@ mod tests {
             &web3_batch,
             consuming_wallet.clone(),
             pending_nonce,
-            new_fingerprints_recipient,
+            new_pending_payables_recipient,
             accounts.clone(),
         )
         .wait();
@@ -708,8 +707,7 @@ mod tests {
         let timestamp_after = SystemTime::now();
         assert_eq!(result, expected_result);
         let accountant_recording_result = accountant_recording.lock().unwrap();
-        let rnpst_message =
-            accountant_recording_result.get_record::<RegisterNewPendingSentTxMessage>(0);
+        let rnpst_message = accountant_recording_result.get_record::<RegisterNewPendingPayables>(0);
         assert_eq!(accountant_recording_result.len(), 1);
         let nonces = 3_64..(accounts.payables.len() as u64 + 3);
         rnpst_message

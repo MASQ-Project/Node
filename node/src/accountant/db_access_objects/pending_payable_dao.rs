@@ -32,7 +32,7 @@ pub struct TransactionHashes {
     pub no_rowid_results: Vec<H256>,
 }
 
-pub trait SentPayableDao {
+pub trait PendingPayableDao {
     // Note that the order of the returned results is not guaranteed
     fn fingerprints_rowids(&self, hashes: &[H256]) -> TransactionHashes;
   //  fn return_all_errorless_fingerprints(&self) -> Vec<SentTx>;
@@ -46,7 +46,7 @@ pub trait SentPayableDao {
     fn mark_failures(&self, ids: &[u64]) -> Result<(), PendingPayableDaoError>;
 }
 
-impl SentPayableDao for PendingPayableDaoReal<'_> {
+impl PendingPayableDao for PendingPayableDaoReal<'_> {
     fn fingerprints_rowids(&self, hashes: &[H256]) -> TransactionHashes {
         //Vec<(Option<u64>, H256)> {
         fn hash_and_rowid_in_single_row(row: &Row) -> rusqlite::Result<(u64, H256)> {
@@ -244,11 +244,11 @@ impl<'a> PendingPayableDaoReal<'a> {
 }
 
 pub trait PendingPayableDaoFactory {
-    fn make(&self) -> Box<dyn SentPayableDao>;
+    fn make(&self) -> Box<dyn PendingPayableDao>;
 }
 
 impl PendingPayableDaoFactory for DaoFactoryReal {
-    fn make(&self) -> Box<dyn SentPayableDao> {
+    fn make(&self) -> Box<dyn PendingPayableDao> {
         Box::new(PendingPayableDaoReal::new(self.make_connection()))
     }
 }
@@ -257,7 +257,7 @@ impl PendingPayableDaoFactory for DaoFactoryReal {
 mod tests {
     use crate::accountant::checked_conversion;
     use crate::accountant::db_access_objects::sent_payable_dao::{
-        SentPayableDao, PendingPayableDaoError, PendingPayableDaoReal,
+        PendingPayableDao, PendingPayableDaoError, PendingPayableDaoReal,
     };
     use crate::accountant::db_access_objects::utils::from_unix_timestamp;
     use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;

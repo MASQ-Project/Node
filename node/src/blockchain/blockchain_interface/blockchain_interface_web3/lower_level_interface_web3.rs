@@ -19,11 +19,7 @@ use web3::transports::{Batch, Http};
 use web3::types::{Address, BlockNumber, Filter, Log, TransactionReceipt};
 use web3::{Error, Web3};
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum TxReceiptResult {
-    RpcResponse(TxWithStatus),
-    RequestError(TxReceiptRequestError),
-}
+pub type TxReceiptResult = Result<TxWithStatus, TxReceiptError>;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct TxWithStatus {
@@ -122,12 +118,12 @@ impl Display for TxStatus {
 // }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct TxReceiptRequestError {
+pub struct TxReceiptError {
     tx_hash: TxHash,
     err_msg: String,
 }
 
-impl TxReceiptRequestError {
+impl TxReceiptError {
     pub fn new(tx_hash: TxHash, err_msg: String) -> Self {
         Self { tx_hash, err_msg }
     }

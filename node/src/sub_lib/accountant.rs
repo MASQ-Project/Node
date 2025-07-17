@@ -9,7 +9,7 @@ use crate::accountant::{
     checked_conversion, Accountant, ReceivedPayments, ScanError, SentPayables, TxReceiptsMessage,
 };
 use crate::actor_system_factory::SubsFactory;
-use crate::blockchain::blockchain_bridge::RegisterNewPendingSentTxMessage;
+use crate::blockchain::blockchain_bridge::RegisterNewPendingPayables;
 use crate::db_config::config_dao::ConfigDaoFactory;
 use crate::sub_lib::neighborhood::ConfigChangeMsg;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
@@ -101,7 +101,7 @@ pub struct AccountantSubs {
     pub report_services_consumed: Recipient<ReportServicesConsumedMessage>,
     pub report_payable_payments_setup: Recipient<BlockchainAgentWithContextMessage>,
     pub report_inbound_payments: Recipient<ReceivedPayments>,
-    pub init_pending_payable_fingerprints: Recipient<RegisterNewPendingSentTxMessage>,
+    pub register_new_pending_payables: Recipient<RegisterNewPendingPayables>,
     pub report_transaction_status: Recipient<TxReceiptsMessage>,
     pub report_sent_payments: Recipient<SentPayables>,
     pub scan_errors: Recipient<ScanError>,

@@ -24,7 +24,7 @@ use crate::accountant::scanners::payable_scanner_extension::msgs::{
     BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
 };
 use crate::accountant::scanners::{StartScanError, Scanners};
-use crate::blockchain::blockchain_bridge::{BlockMarker, RegisterNewPendingSentTxMessage, RetrieveTransactions};
+use crate::blockchain::blockchain_bridge::{BlockMarker, RegisterNewPendingPayables, RetrieveTransactions};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::HashAndAmount;
 use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
 use crate::blockchain::blockchain_interface::data_structures::{
@@ -477,11 +477,11 @@ impl SkeletonOptHolder for RequestTransactionReceipts {
     }
 }
 
-impl Handler<RegisterNewPendingSentTxMessage> for Accountant {
+impl Handler<RegisterNewPendingPayables> for Accountant {
     type Result = ();
     fn handle(
         &mut self,
-        msg: RegisterNewPendingSentTxMessage,
+        msg: RegisterNewPendingPayables,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
         self.register_new_pending_sent_tx(msg)
@@ -559,7 +559,7 @@ impl Accountant {
             report_services_consumed: recipient!(addr, ReportServicesConsumedMessage),
             report_payable_payments_setup: recipient!(addr, BlockchainAgentWithContextMessage),
             report_inbound_payments: recipient!(addr, ReceivedPayments),
-            init_pending_payable_fingerprints: recipient!(addr, RegisterNewPendingSentTxMessage),
+            register_new_pending_payables: recipient!(addr, RegisterNewPendingPayables),
             report_transaction_status: recipient!(addr, TxReceiptsMessage),
             report_sent_payments: recipient!(addr, SentPayables),
             scan_errors: recipient!(addr, ScanError),
@@ -1117,15 +1117,15 @@ impl Accountant {
         }
     }
 
-    fn register_new_pending_sent_tx(&self, msg: RegisterNewPendingSentTxMessage) {
-        fn serialize_hashes(fingerprints_data: &[SentTx]) -> String {
-            comma_joined_stringifiable(fingerprints_data, |sent_tx| format!("{:?}", sent_tx.hash))
+    fn register_new_pending_sent_tx(&self, msg: RegisterNewPendingPayables) {
+        fn serialize_hashes(sent_txs: &[SentTx]) -> String {
+            comma_joined_stringifiable(sent_txs, |sent_tx| format!("{:?}", sent_tx.hash))
         }
 
         match self.sent_payable_dao.insert_new_records(&msg.new_sent_txs) {
             Ok(_) => debug!(
                 self.logger,
-                "Saved new pending payable fingerprints for: {}",
+                "Registered new pending payables for: {}",
                 serialize_hashes(&msg.new_sent_txs)
             ),
             Err(e) => error!(
@@ -1177,15 +1177,6 @@ impl PendingPayableId {
         comma_joined_stringifiable(ids, |id| format!("{:?}", id.hash))
     }
 }
-
-// impl From<SentTx> for PendingPayableId {
-//     fn from(pending_payable_fingerprint: SentTx) -> Self {
-//         Self {
-//             hash: pending_payable_fingerprint.hash,
-//             rowid: pending_payable_fingerprint.rowid,
-//         }
-//     }
-// }
 
 pub fn comma_joined_stringifiable<T, F>(collection: &[T], stringify: F) -> String
 where
@@ -1299,7 +1290,7 @@ mod tests {
     use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDaoError, SentTx};
     use crate::accountant::scanners::scan_schedulers::{NewPayableScanDynIntervalComputer, NewPayableScanDynIntervalComputerReal};
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{OperationOutcome, PayableScanResult};
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TxWithStatus, TransactionBlock, BlockchainTxFailure, TxStatus};
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TxWithStatus, TransactionBlock, BlockchainTxFailure, TxStatus, TxReceiptResult};
     use crate::test_utils::recorder_counter_msgs::SingleTypeCounterMsgSetup;
 
     impl Handler<AssertionsMessage<Accountant>> for Accountant {
@@ -1945,7 +1936,7 @@ mod tests {
             block_number: 78901234.into(),
         };
         let tx_receipts_msg = TxReceiptsMessage {
-            results: vec![TxReceiptResult::RpcResponse(TxWithStatus::new(
+            results: vec![TxReceiptResult::Ok(TxWithStatus::new(
                 sent_tx.clone(),
                 TxStatus::Succeeded(tx_block),
             ))],
@@ -2167,7 +2158,7 @@ mod tests {
         let first_counter_msg_setup = setup_for_counter_msg_triggered_via_type_id!(
             RequestTransactionReceipts,
             TxReceiptsMessage {
-                results: vec![TxReceiptResult::RpcResponse(TxWithStatus::new(
+                results: vec![TxReceiptResult::Ok(TxWithStatus::new(
                     sent_tx.clone(),
                     TxStatus::Failed(BlockchainTxFailure::Unrecognized)
                 )),],
@@ -2792,7 +2783,7 @@ mod tests {
         let subject_addr: Addr<Accountant> = subject.start();
         let subject_subs = Accountant::make_subs_from(&subject_addr);
         let expected_tx_receipts_msg = TxReceiptsMessage {
-            results: vec![TxReceiptResult::RpcResponse(TxWithStatus::new(
+            results: vec![TxReceiptResult::Ok(TxWithStatus::new(
                 sent_tx.clone(),
                 TxStatus::Failed(BlockchainTxFailure::Unrecognized),
             ))],
@@ -3532,7 +3523,7 @@ mod tests {
         };
         let requested_tx = make_tx_hash(234);
         let counter_msg_3 = TxReceiptsMessage {
-            results: vec![TxReceiptResult::RpcResponse(tx_with_status)],
+            results: vec![TxReceiptResult::Ok(tx_with_status)],
             response_skeleton_opt: None,
         };
         let request_transaction_receipts_msg = RequestTransactionReceipts {
@@ -5224,8 +5215,7 @@ mod tests {
                     sent_tx.block_opt = Some(block.clone());
                 }
 
-                let result =
-                    TxReceiptResult::RpcResponse(TxWithStatus::new(sent_tx.clone(), status));
+                let result = TxReceiptResult::Ok(TxWithStatus::new(sent_tx.clone(), status));
 
                 tx_receipt_results.push(result);
                 sent_tx_vec.push(sent_tx);
@@ -5244,12 +5234,14 @@ mod tests {
     #[test]
     fn accountant_handles_registering_new_pending_payables() {
         init_test_logging();
+        let test_name = "accountant_handles_registering_new_pending_payables";
         let insert_new_records_params_arc = Arc::new(Mutex::new(vec![]));
         let sent_payable_dao = SentPayableDaoMock::default()
             .insert_new_records_params(&insert_new_records_params_arc)
             .insert_new_records_result(Ok(()));
         let subject = AccountantBuilder::default()
             .sent_payable_daos(vec![ForAccountantBody(sent_payable_dao)])
+            .logger(Logger::new(test_name))
             .build();
         let accountant_addr = subject.start();
         let accountant_subs = Accountant::make_subs_from(&accountant_addr);
@@ -5260,22 +5252,23 @@ mod tests {
         let hash_2 = make_tx_hash(0x1b207);
         sent_tx_2.hash = hash_2;
         let new_sent_txs = vec![sent_tx_1.clone(), sent_tx_2.clone()];
-        let init_fingerprints_msg = RegisterNewPendingSentTxMessage { new_sent_txs };
+        let msg = RegisterNewPendingPayables { new_sent_txs };
 
         let _ = accountant_subs
-            .init_pending_payable_fingerprints
-            .try_send(init_fingerprints_msg)
+            .register_new_pending_payables
+            .try_send(msg)
             .unwrap();
 
         let system = System::new("ordering payment sent tx record test");
         System::current().stop();
         assert_eq!(system.run(), 0);
-        let insert_fingerprint_params = insert_new_records_params_arc.lock().unwrap();
-        assert_eq!(*insert_fingerprint_params, vec![vec![sent_tx_1, sent_tx_2]]);
-        TestLogHandler::new().exists_log_containing(
-            "DEBUG: Accountant: Saved new pending payable fingerprints for: \
-             0x000000000000000000000000000000000000000000000000000000000006c81c, 0x000000000000000000000000000000000000000000000000000000000001b207",
-        );
+        let insert_new_records_params = insert_new_records_params_arc.lock().unwrap();
+        assert_eq!(*insert_new_records_params, vec![vec![sent_tx_1, sent_tx_2]]);
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: Registered new pending payables for: \
+             0x000000000000000000000000000000000000000000000000000000000006c81c, \
+             0x000000000000000000000000000000000000000000000000000000000001b207",
+        ));
     }
 
     #[test]
@@ -5302,14 +5295,14 @@ mod tests {
             .sent_payable_daos(vec![ForAccountantBody(sent_payable_dao)])
             .logger(Logger::new(test_name))
             .build();
-        let report_new_fingerprints = RegisterNewPendingSentTxMessage {
+        let msg = RegisterNewPendingPayables {
             new_sent_txs: vec![sent_tx_1.clone(), sent_tx_2.clone()],
         };
 
-        let _ = subject.register_new_pending_sent_tx(report_new_fingerprints);
+        let _ = subject.register_new_pending_sent_tx(msg);
 
-        let insert_fingerprint_params = insert_new_records_params_arc.lock().unwrap();
-        assert_eq!(*insert_fingerprint_params, vec![vec![sent_tx_1, sent_tx_2]]);
+        let insert_new_records_params = insert_new_records_params_arc.lock().unwrap();
+        assert_eq!(*insert_new_records_params, vec![vec![sent_tx_1, sent_tx_2]]);
         TestLogHandler::new().exists_log_containing(&format!(
             "ERROR: {test_name}: Failed to save new pending payable records for \
             0x00000000000000000000000000000000000000000000000000000000000001c8, \

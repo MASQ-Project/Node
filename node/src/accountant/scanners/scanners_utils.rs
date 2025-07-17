@@ -253,26 +253,26 @@ pub mod payable_scanner_utils {
         }
     }
 
-    pub fn mark_pending_payable_fatal_error(
-        sent_payments: &[&PendingPayable],
-        nonexistent: &[PendingPayableMissingInDb],
-        error: PayableDaoError,
-        missing_fingerprints_msg_maker: fn(&[PendingPayableMissingInDb]) -> String,
-        logger: &Logger,
-    ) {
-        if !nonexistent.is_empty() {
-            error!(logger, "{}", missing_fingerprints_msg_maker(nonexistent))
-        };
-        panic!(
-            "Unable to create a mark in the payable table for wallets {} due to {:?}",
-            comma_joined_stringifiable(sent_payments, |pending_p| pending_p
-                .recipient_wallet
-                .to_string()),
-            error
-        )
-    }
+    // pub fn mark_pending_payable_fatal_error(
+    //     sent_payments: &[&PendingPayable],
+    //     nonexistent: &[PendingPayableMissingInDb],
+    //     error: PayableDaoError,
+    //     missing_fingerprints_msg_maker: fn(&[PendingPayableMissingInDb]) -> String,
+    //     logger: &Logger,
+    // ) {
+    //     if !nonexistent.is_empty() {
+    //         error!(logger, "{}", missing_fingerprints_msg_maker(nonexistent))
+    //     };
+    //     panic!(
+    //         "Unable to create a mark in the payable table for wallets {} due to {:?}",
+    //         comma_joined_stringifiable(sent_payments, |pending_p| pending_p
+    //             .recipient_wallet
+    //             .to_string()),
+    //         error
+    //     )
+    // }
 
-    pub fn err_msg_for_failure_with_expected_but_missing_fingerprints(
+    pub fn err_msg_for_failure_with_expected_but_missing_sent_tx_record(
         nonexistent: Vec<H256>,
         serialize_hashes: fn(&[H256]) -> String,
     ) -> Option<String> {
@@ -329,7 +329,7 @@ pub mod pending_payable_scanner_utils {
     use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureReason, FailureStatus};
     use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
     use crate::accountant::db_access_objects::utils::from_unix_timestamp;
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, BlockchainTxFailure, TxReceiptRequestError, TxStatus};
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, BlockchainTxFailure, TxReceiptError, TxStatus};
 
     #[derive(Debug, Default, PartialEq, Eq, Clone)]
     pub struct PendingPayableScanSummary {

@@ -11,7 +11,7 @@ use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
     LocallyCausedError, RemotelyCausedErrors,
 };
-use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{debugging_summary_after_error_separation, err_msg_for_failure_with_expected_but_missing_fingerprints, investigate_debt_extremes, mark_pending_payable_fatal_error, payables_debug_summary, separate_errors, separate_rowids_and_hashes, OperationOutcome, PayableScanResult, PayableThresholdsGauge, PayableThresholdsGaugeReal, PayableTransactingErrorEnum, PendingPayableMissingInDb};
+use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{debugging_summary_after_error_separation, err_msg_for_failure_with_expected_but_missing_sent_tx_record, investigate_debt_extremes, payables_debug_summary, separate_errors, separate_rowids_and_hashes, OperationOutcome, PayableScanResult, PayableThresholdsGauge, PayableThresholdsGaugeReal, PayableTransactingErrorEnum, PendingPayableMissingInDb};
 use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_status_with_failure, handle_successful_tx, PendingPayableScanSummary, PendingPayableScanResult, handle_still_pending_tx};
 use crate::accountant::scanners::scanners_utils::receivable_scanner_utils::balance_and_age;
 use crate::accountant::{PendingPayable, PendingPayableId, ScanError, ScanForPendingPayables, ScanForRetryPayables};
@@ -730,7 +730,7 @@ impl PayableScanner {
     }
 
     fn check_on_missing_sent_tx_records(&self, sent_payments: &[&PendingPayable]) {
-        fn missing_fingerprints_msg(nonexistent: &[PendingPayableMissingInDb]) -> String {
+        fn missing_record_msg(nonexistent: &[PendingPayableMissingInDb]) -> String {
             format!(
                 "Expected sent-payable records for {} were not found. The system has become unreliable",
                 comma_joined_stringifiable(nonexistent, |missing_sent_tx_ids| format!(
@@ -742,7 +742,7 @@ impl PayableScanner {
 
         let missing_sent_tx_records = self.check_for_missing_records(sent_payments);
         if !missing_sent_tx_records.is_empty() {
-            panic!("{}", missing_fingerprints_msg(&missing_sent_tx_records))
+            panic!("{}", missing_record_msg(&missing_sent_tx_records))
         }
     }
 
@@ -851,7 +851,7 @@ impl PayableScanner {
             .sorted()
             .collect();
 
-        let missing_fgp_err_msg_opt = err_msg_for_failure_with_expected_but_missing_fingerprints(
+        let missing_fgp_err_msg_opt = err_msg_for_failure_with_expected_but_missing_sent_tx_record(
             hashes_of_missing_sent_tx,
             serialize_hashes,
         );
@@ -1015,28 +1015,26 @@ impl PendingPayableScanner {
             .fold(
                 scan_report,
                 |scan_report_so_far, receipt_result| match receipt_result {
-                    TxReceiptResult::RpcResponse(sent_tx_with_status) => {
-                        match sent_tx_with_status.status {
-                            TxStatus::Succeeded(tx_block) => handle_successful_tx(
-                                scan_report_so_far,
-                                sent_tx_with_status.sent_tx,
-                                tx_block,
-                                logger,
-                            ),
-                            TxStatus::Failed(reason) => handle_status_with_failure(
-                                scan_report_so_far,
-                                sent_tx_with_status.sent_tx,
-                                reason,
-                                logger,
-                            ),
-                            TxStatus::Pending => handle_still_pending_tx(
-                                scan_report_so_far,
-                                sent_tx_with_status.sent_tx,
-                                logger,
-                            ),
-                        }
-                    }
-                    TxReceiptResult::RequestError(e) => {
+                    TxReceiptResult::Ok(sent_tx_with_status) => match sent_tx_with_status.status {
+                        TxStatus::Succeeded(tx_block) => handle_successful_tx(
+                            scan_report_so_far,
+                            sent_tx_with_status.sent_tx,
+                            tx_block,
+                            logger,
+                        ),
+                        TxStatus::Failed(reason) => handle_status_with_failure(
+                            scan_report_so_far,
+                            sent_tx_with_status.sent_tx,
+                            reason,
+                            logger,
+                        ),
+                        TxStatus::Pending => handle_still_pending_tx(
+                            scan_report_so_far,
+                            sent_tx_with_status.sent_tx,
+                            logger,
+                        ),
+                    },
+                    TxReceiptResult::Err(e) => {
                         todo!()
                         // debug!(
                         //     logger,
@@ -1281,7 +1279,7 @@ impl ReceivableScanner {
                 {
                     Ok(()) => debug!(logger, "Start block updated to {}", start_block_number),
                     Err(e) => panic!(
-                        "Attempt to set new start block to {} failed due to: {:?}",
+                        "Attempt to advance the start block to {} failed due to: {:?}",
                         start_block_number, e
                     ),
                 }
@@ -1529,7 +1527,7 @@ mod tests {
     use crate::accountant::db_access_objects::failed_payable_dao::{FailedPayableDaoError, FailedTx, FailureReason};
     use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDaoError, SentTx};
     use crate::accountant::scanners::test_utils::{assert_timestamps_from_str, parse_system_time_from_str, MarkScanner, NullScanner, ReplacementType, ScannerReplacement};
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TxWithStatus, TransactionBlock, TxReceiptResult, TxStatus, BlockchainTxFailure};
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TxWithStatus, TransactionBlock, TxStatus, BlockchainTxFailure, TxReceiptResult};
     use crate::test_utils::unshared_test_utils::capture_numbers_with_separators_from_str;
 
     impl Scanners {
@@ -2078,9 +2076,9 @@ mod tests {
                 hashset![failure_payable_hash_2]
             ]
         );
-        let delete_fingerprints_params = delete_records_params_arc.lock().unwrap();
+        let delete_records_params = delete_records_params_arc.lock().unwrap();
         assert_eq!(
-            *delete_fingerprints_params,
+            *delete_records_params,
             vec![hashset![failure_payable_hash_2]]
         );
         let log_handler = TestLogHandler::new();
@@ -2211,12 +2209,14 @@ mod tests {
         let delete_records_params_arc = Arc::new(Mutex::new(vec![]));
         let hash_tx_1 = make_tx_hash(0x15b3);
         let hash_tx_2 = make_tx_hash(0x3039);
-        let first_fingerprint_rowid = 3;
-        let second_fingerprint_rowid = 5;
+        let first_sent_tx_rowid = 3;
+        let second_sent_tx_rowid = 5;
         let system = System::new(test_name);
         let sent_payable_dao = SentPayableDaoMock::default()
             .get_tx_identifiers_params(&get_tx_identifiers_params_arc)
-            .get_tx_identifiers_result(hashmap!(hash_tx_1 => first_fingerprint_rowid, hash_tx_2 => second_fingerprint_rowid))
+            .get_tx_identifiers_result(
+                hashmap!(hash_tx_1 => first_sent_tx_rowid, hash_tx_2 => second_sent_tx_rowid),
+            )
             .delete_records_params(&delete_records_params_arc)
             .delete_records_result(Ok(()));
         let payable_scanner = PayableScannerBuilder::new()
@@ -2249,16 +2249,10 @@ mod tests {
         );
         assert_eq!(aware_of_unresolved_pending_payable_before, false);
         assert_eq!(aware_of_unresolved_pending_payable_after, false);
-        let fingerprints_rowids_params = get_tx_identifiers_params_arc.lock().unwrap();
-        assert_eq!(
-            *fingerprints_rowids_params,
-            vec![hashset!(hash_tx_1, hash_tx_2)]
-        );
-        let delete_fingerprints_params = delete_records_params_arc.lock().unwrap();
-        assert_eq!(
-            *delete_fingerprints_params,
-            vec![hashset!(hash_tx_1, hash_tx_2)]
-        );
+        let sent_tx_rowids_params = get_tx_identifiers_params_arc.lock().unwrap();
+        assert_eq!(*sent_tx_rowids_params, vec![hashset!(hash_tx_1, hash_tx_2)]);
+        let delete_records_params = delete_records_params_arc.lock().unwrap();
+        assert_eq!(*delete_records_params, vec![hashset!(hash_tx_1, hash_tx_2)]);
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!(
             "WARN: {test_name}: \
@@ -2309,9 +2303,9 @@ mod tests {
     }
 
     #[test]
-    fn payable_scanner_finds_fingerprints_for_failed_payments_but_panics_at_their_deletion() {
+    fn payable_scanner_finds_sent_tx_record_for_failed_payments_but_panics_at_their_deletion() {
         let test_name =
-            "payable_scanner_finds_fingerprints_for_failed_payments_but_panics_at_their_deletion";
+            "payable_scanner_finds_sent_tx_record_for_failed_payments_but_panics_at_their_deletion";
         let rowid_1 = 4;
         let hash_1 = make_tx_hash(0x7b);
         let rowid_2 = 6;
@@ -2345,16 +2339,16 @@ mod tests {
         00000000000000000000000000000000000000000315 failed due to SqlExecutionFailed(\"I overslept \
         since my brain thinks the alarm is just a lullaby\")");
         let log_handler = TestLogHandler::new();
-        // There is a possible situation when we stumble over missing fingerprints, so we log it.
+        // There's a possibility that we stumble over missing sent tx records, so we log it.
         // Here we don't and so any ERROR log shouldn't turn up
         log_handler.exists_no_log_containing(&format!("ERROR: {}", test_name))
     }
 
     #[test]
-    fn payable_scanner_panics_for_missing_fingerprints_but_deletion_of_some_works() {
+    fn payable_scanner_panics_for_missing_sent_tx_records_but_deletion_of_some_works() {
         init_test_logging();
         let test_name =
-            "payable_scanner_panics_for_missing_fingerprints_but_deletion_of_some_works";
+            "payable_scanner_panics_for_missing_sent_tx_records_but_deletion_of_some_works";
         let hash_1 = make_tx_hash(0x1b669);
         let hash_2 = make_tx_hash(0x3039);
         let hash_3 = make_tx_hash(0x223d);
@@ -2400,12 +2394,11 @@ mod tests {
     }
 
     #[test]
-    fn payable_scanner_for_failed_rpcs_one_fingerprint_missing_and_deletion_of_the_other_one_fails()
-    {
+    fn payable_scanner_for_failed_rpcs_one_sent_tx_record_missing_and_deletion_of_another_fails() {
         // Two fatal failures at once, missing sent tx records and another record deletion error
         // are both legitimate reasons for panic
         init_test_logging();
-        let test_name = "payable_scanner_for_failed_rpcs_one_fingerprint_missing_and_deletion_of_the_other_one_fails";
+        let test_name = "payable_scanner_for_failed_rpcs_one_sent_tx_record_missing_and_deletion_of_another_fails";
         let existent_record_hash = make_tx_hash(0xb26e);
         let nonexistent_record_hash = make_tx_hash(0x4d2);
         let sent_payable_dao = SentPayableDaoMock::default()
@@ -2889,7 +2882,7 @@ mod tests {
     }
 
     #[test]
-    fn pending_payable_scanner_throws_an_error_when_no_fingerprint_is_found() {
+    fn pending_payable_scanner_throws_an_error_when_no_sent_tx_record_is_found() {
         let now = SystemTime::now();
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
         let sent_payable_dao = SentPayableDaoMock::new().retrieve_txs_result(vec![]);
@@ -2959,7 +2952,7 @@ mod tests {
         sent_tx.hash = hash;
         sent_tx.timestamp = sent_tx_timestamp;
         let msg = TxReceiptsMessage {
-            results: vec![TxReceiptResult::RpcResponse(TxWithStatus::new(
+            results: vec![TxReceiptResult::Ok(TxWithStatus::new(
                 sent_tx.clone(),
                 TxStatus::Pending,
             ))],
@@ -3300,8 +3293,8 @@ mod tests {
             TxWithStatus::new(sent_tx_2.clone(), TxStatus::Succeeded(tx_block_2));
         let msg = TxReceiptsMessage {
             results: vec![
-                TxReceiptResult::RpcResponse(transaction_with_status_1),
-                TxReceiptResult::RpcResponse(transaction_with_status_2),
+                TxReceiptResult::Ok(transaction_with_status_1),
+                TxReceiptResult::Ok(transaction_with_status_2),
             ],
             response_skeleton_opt: None,
         };
@@ -3539,8 +3532,10 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Attempt to set new start block to 6709 failed due to: \
-    UninterpretableValue(\"Illiterate database manager\")")]
+    #[should_panic(
+        expected = "Attempt to advance the start block to 6709 failed due to: \
+    UninterpretableValue(\"Illiterate database manager\")"
+    )]
     fn no_transactions_received_but_start_block_setting_fails() {
         init_test_logging();
         let test_name = "no_transactions_received_but_start_block_setting_fails";
