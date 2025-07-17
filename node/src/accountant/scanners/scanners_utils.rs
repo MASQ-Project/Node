@@ -134,6 +134,13 @@ pub mod payable_scanner_utils {
         )
     }
 
+    pub fn map_hashes_to_local_failures(hashes: Vec<TxHash>) -> HashMap<TxHash, FailureReason> {
+        hashes
+            .into_iter()
+            .map(|hash| (hash, FailureReason::Local))
+            .collect()
+    }
+
     pub fn separate_errors<'a, 'b>(
         sent_payables: &'a SentPayables,
         logger: &'b Logger,

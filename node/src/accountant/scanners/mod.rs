@@ -12,7 +12,7 @@ use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
     LocallyCausedError, RemotelyCausedErrors,
 };
-use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{debugging_summary_after_error_separation, err_msg_for_failure_with_expected_but_missing_fingerprints, investigate_debt_extremes, mark_pending_payable_fatal_error, payables_debug_summary, separate_batch_results, separate_errors, separate_rowids_and_hashes, OperationOutcome, PayableScanResult, PayableThresholdsGauge, PayableThresholdsGaugeReal, PayableTransactingErrorEnum, PendingPayableMetadata};
+use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{debugging_summary_after_error_separation, err_msg_for_failure_with_expected_but_missing_fingerprints, investigate_debt_extremes, map_hashes_to_local_failures, mark_pending_payable_fatal_error, payables_debug_summary, separate_batch_results, separate_errors, separate_rowids_and_hashes, OperationOutcome, PayableScanResult, PayableThresholdsGauge, PayableThresholdsGaugeReal, PayableTransactingErrorEnum, PendingPayableMetadata};
 use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_none_receipt, handle_status_with_failure, handle_status_with_success, PendingPayableScanReport, PendingPayableScanResult};
 use crate::accountant::scanners::scanners_utils::receivable_scanner_utils::balance_and_age;
 use crate::accountant::{join_with_separator, PendingPayableId, ScanError, ScanForPendingPayables, ScanForRetryPayables};
@@ -537,15 +537,19 @@ impl Scanner<SentPayables, PayableScanResult> for PayableScanner {
     fn finish_scan(&mut self, message: SentPayables, logger: &Logger) -> PayableScanResult {
         let result = match message.payment_procedure_result {
             Either::Left(batch_results) => {
+                // TODO: GH-605: Test me
                 let (pending, failures) = separate_batch_results(&batch_results);
 
                 let pending_tx_count = pending.len();
                 let failed_tx_count = failures.len();
                 debug!(
                     logger,
-                    "Out of {} payables, {} were successfully delivered to the RPC.",
-                    pending_tx_count + failed_tx_count,
-                    pending_tx_count,
+                    "Processed payables while sending to RPC: \
+                     Total: {total}, Sent to RPC: {success}, Failed to send: {failed}. \
+                     Updating database...",
+                    total = pending_tx_count + failed_tx_count,
+                    success = pending_tx_count,
+                    failed = failed_tx_count
                 );
 
                 if pending_tx_count > 0 {
@@ -553,12 +557,14 @@ impl Scanner<SentPayables, PayableScanResult> for PayableScanner {
                 }
 
                 if failed_tx_count > 0 {
-                    self.record_failed_txs_in_db(failures);
+                    self.record_failed_txs_in_db(failures, logger);
                 }
 
                 OperationOutcome::NewPendingPayable
             }
             Either::Right(local_err) => {
+                // TODO: GH-605: Only keep messages mentioning that you are updating db...
+                // Also, make a helper function that logs them
                 warning!(
                     logger,
                     "Any persisted data from failed process will be deleted. Caused by: {}",
@@ -566,24 +572,14 @@ impl Scanner<SentPayables, PayableScanResult> for PayableScanner {
                 );
 
                 if let LocalPayableError::Sending { hashes, .. } = local_err {
-                    debug!(
-                        logger,
-                        "Migrating failed transactions to the FailedPayableDao: {}",
-                        join_with_separator(&hashes, |hash| format!("{:?}", hash), ", ")
-                    );
-                    let failures: HashMap<TxHash, FailureReason> = hashes
-                        .into_iter()
-                        .map(|hash| (hash, FailureReason::Local))
-                        .collect();
-                    self.record_failed_txs_in_db(failures);
+                    let failures = map_hashes_to_local_failures(hashes);
+                    self.record_failed_txs_in_db(failures, logger);
                 } else {
                     todo!("GH-605: Test the code below");
-                    // No need to update the FailedPayableDao as the error was caused before the transactions are signed
                     debug!(
                         logger,
-                        "Ignoring a non-fatal error on our end from before the transactions are signed: {:?}",
-                        local_err
-                    )
+                        "Local error occurred before transaction signing: {:?}", local_err
+                    );
                 }
 
                 OperationOutcome::Failure
@@ -805,6 +801,13 @@ impl PayableScanner {
                 .collect()
         }
 
+        debug!(
+            logger,
+            "Marking {} transactions as pending payable: {}",
+            sent_payments.len(),
+            join_with_separator(sent_payments, |p| format!("{:?}", p.hash), ", ")
+        );
+
         let (existent, nonexistent) =
             self.separate_existent_and_nonexistent_fingerprints(sent_payments);
         let mark_pp_input_data = ready_data_for_supply(&existent);
@@ -944,7 +947,22 @@ impl PayableScanner {
             .collect()
     }
 
-    fn record_failed_txs_in_db(&self, hashes_with_reason: HashMap<TxHash, FailureReason>) {
+    fn record_failed_txs_in_db(
+        &self,
+        hashes_with_reason: HashMap<TxHash, FailureReason>,
+        logger: &Logger,
+    ) {
+        debug!(
+            logger,
+            "Recording {} failed transactions in database: {}",
+            hashes_with_reason.len(),
+            join_with_separator(
+                hashes_with_reason.keys(),
+                |hash| format!("{:?}", hash),
+                ", "
+            )
+        );
+
         let failed_payables = self.generate_failed_payables(&hashes_with_reason);
 
         self.migrate_payables(&failed_payables);
@@ -2531,9 +2549,9 @@ mod tests {
         ));
         log_handler.exists_log_containing(&format!(
             "DEBUG: {test_name}: \
-            Migrating failed transactions to the FailedPayableDao: \
-            0x00000000000000000000000000000000000000000000000000000000000015b3, \
-            0x0000000000000000000000000000000000000000000000000000000000003039",
+            Recording 2 failed transactions in database: \
+            0x0000000000000000000000000000000000000000000000000000000000003039, \
+            0x00000000000000000000000000000000000000000000000000000000000015b3",
         ));
         // TODO: GH-605: Maybe you'd like to change the comment below
         // we haven't supplied any result for mark_pending_payable() and so it's proved uncalled
