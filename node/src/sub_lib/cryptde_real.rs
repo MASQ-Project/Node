@@ -324,9 +324,18 @@ mod tests {
     fn disabled_works() {
         let subject = CryptDEReal::disabled();
 
-        assert_eq!(subject.public_key().as_slice(), &[0u8; cxsp::PUBLICKEYBYTES + signing::PUBLICKEYBYTES]);
-        assert_eq!(subject.encryption_secret_key.as_ref(), &[0u8; cxsp::SECRETKEYBYTES]);
-        assert_eq!(subject.signing_secret_key.as_ref(), &[0u8; signing::SECRETKEYBYTES]);
+        assert_eq!(
+            subject.public_key().as_slice(),
+            &[0u8; cxsp::PUBLICKEYBYTES + signing::PUBLICKEYBYTES]
+        );
+        assert_eq!(
+            subject.encryption_secret_key.as_ref(),
+            &[0u8; cxsp::SECRETKEYBYTES]
+        );
+        assert_eq!(
+            subject.signing_secret_key.as_ref(),
+            &[0u8; signing::SECRETKEYBYTES]
+        );
         assert_eq!(subject.digest, [0u8; 32]);
         assert_eq!(subject.pre_shared_data, [0u8; 20]);
     }

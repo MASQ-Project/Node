@@ -730,6 +730,8 @@ mod tests {
     use masq_lib::test_utils::logging::{init_test_logging, TestLog, TestLogHandler};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::utils::{find_free_port, to_string};
+    use sodiumoxide::crypto::box_::curve25519xsalsa20poly1305 as cxsp;
+    use sodiumoxide::crypto::sign as signing;
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::io;
@@ -744,8 +746,6 @@ mod tests {
     use tokio::executor::current_thread::CurrentThread;
     use tokio::prelude::stream::FuturesUnordered;
     use tokio::prelude::Async;
-    use sodiumoxide::crypto::box_::curve25519xsalsa20poly1305 as cxsp;
-    use sodiumoxide::crypto::sign as signing;
 
     lazy_static! {
         static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
@@ -1290,8 +1290,14 @@ mod tests {
                 &[5123]
             ))
         );
-        assert_ne!(config.cryptde_pair.main.public_key().as_slice(), &[0u8; cxsp::PUBLICKEYBYTES + signing::PUBLICKEYBYTES]);
-        assert_ne!(config.cryptde_pair.alias.public_key().as_slice(), &[0u8; cxsp::PUBLICKEYBYTES + signing::PUBLICKEYBYTES]);
+        assert_ne!(
+            config.cryptde_pair.main.public_key().as_slice(),
+            &[0u8; cxsp::PUBLICKEYBYTES + signing::PUBLICKEYBYTES]
+        );
+        assert_ne!(
+            config.cryptde_pair.alias.public_key().as_slice(),
+            &[0u8; cxsp::PUBLICKEYBYTES + signing::PUBLICKEYBYTES]
+        );
         TestLogHandler::new().exists_log_matching("INFO: Bootstrapper: MASQ Node local descriptor: masq://base-sepolia:.+@1\\.2\\.3\\.4:5123");
     }
 

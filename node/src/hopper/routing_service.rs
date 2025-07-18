@@ -607,12 +607,23 @@ mod tests {
     fn logs_and_ignores_message_that_cannot_be_deserialized() {
         init_test_logging();
         let cryptde_pair = CRYPTDE_PAIR.clone();
-        let route = route_from_proxy_client(&cryptde_pair.main.public_key(), cryptde_pair.main.as_ref());
+        let route =
+            route_from_proxy_client(&cryptde_pair.main.public_key(), cryptde_pair.main.as_ref());
         let lcp = LiveCoresPackage::new(
             route,
-            encodex(cryptde_pair.main.as_ref(), &cryptde_pair.main.public_key(), &[42u8]).unwrap(),
+            encodex(
+                cryptde_pair.main.as_ref(),
+                &cryptde_pair.main.public_key(),
+                &[42u8],
+            )
+            .unwrap(),
         );
-        let data_enc = encodex(cryptde_pair.main.as_ref(), &cryptde_pair.main.public_key(), &lcp).unwrap();
+        let data_enc = encodex(
+            cryptde_pair.main.as_ref(),
+            &cryptde_pair.main.public_key(),
+            &lcp,
+        )
+        .unwrap();
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
