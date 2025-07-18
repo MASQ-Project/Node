@@ -41,14 +41,14 @@ pub struct RoutingService {
 
 impl RoutingService {
     pub fn new(
-        cryptdes: CryptDEPair,
+        cryptde_pair: CryptDEPair,
         routing_service_subs: RoutingServiceSubs,
         per_routing_service: u64,
         per_routing_byte: u64,
         is_decentralized: bool,
     ) -> RoutingService {
         RoutingService {
-            cryptde_pair: cryptdes,
+            cryptde_pair,
             routing_service_subs,
             per_routing_service,
             per_routing_byte,
@@ -606,13 +606,13 @@ mod tests {
     #[test]
     fn logs_and_ignores_message_that_cannot_be_deserialized() {
         init_test_logging();
-        let cryptdes = CRYPTDE_PAIR.clone();
-        let route = route_from_proxy_client(&cryptdes.main.public_key(), cryptdes.main.as_ref());
+        let cryptde_pair = CRYPTDE_PAIR.clone();
+        let route = route_from_proxy_client(&cryptde_pair.main.public_key(), cryptde_pair.main.as_ref());
         let lcp = LiveCoresPackage::new(
             route,
-            encodex(cryptdes.main.as_ref(), &cryptdes.main.public_key(), &[42u8]).unwrap(),
+            encodex(cryptde_pair.main.as_ref(), &cryptde_pair.main.public_key(), &[42u8]).unwrap(),
         );
-        let data_enc = encodex(cryptdes.main.as_ref(), &cryptdes.main.public_key(), &lcp).unwrap();
+        let data_enc = encodex(cryptde_pair.main.as_ref(), &cryptde_pair.main.public_key(), &lcp).unwrap();
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
@@ -624,7 +624,7 @@ mod tests {
         };
         let peer_actors = peer_actors_builder().build();
         let subject = RoutingService::new(
-            cryptdes,
+            cryptde_pair,
             RoutingServiceSubs {
                 proxy_client_subs_opt: peer_actors.proxy_client_opt,
                 proxy_server_subs: peer_actors.proxy_server,
@@ -648,7 +648,6 @@ mod tests {
     #[test]
     fn logs_and_ignores_message_that_cannot_be_decrypted() {
         init_test_logging();
-        let _ = EnvironmentGuard::new();
         let main_cryptde = CryptDEReal::new(TEST_DEFAULT_CHAIN);
         let rogue_cryptde = CryptDEReal::new(TEST_DEFAULT_CHAIN);
         let route = route_from_proxy_client(main_cryptde.public_key(), &main_cryptde);
@@ -1854,10 +1853,10 @@ mod tests {
 
     #[test]
     fn route_data_to_peripheral_component_uses_main_key_on_payload_for_proxy_client() {
-        let payload_factory = |cryptdes: &CryptDEPair| {
+        let payload_factory = |cryptde_pair: &CryptDEPair| {
             encodex(
-                cryptdes.main.as_ref(),
-                cryptdes.main.public_key(),
+                cryptde_pair.main.as_ref(),
+                cryptde_pair.main.public_key(),
                 &MessageType::ClientRequest(VersionedData::new(
                     &crate::sub_lib::migrations::client_request_payload::MIGRATIONS,
                     &ClientRequestPayload_0v1 {
@@ -1880,10 +1879,10 @@ mod tests {
 
     #[test]
     fn route_data_to_peripheral_component_uses_alias_key_on_payload_for_proxy_server() {
-        let payload_factory = |cryptdes: &CryptDEPair| {
+        let payload_factory = |cryptde_pair: &CryptDEPair| {
             encodex(
-                cryptdes.alias.as_ref(),
-                cryptdes.alias.public_key(),
+                cryptde_pair.alias.as_ref(),
+                cryptde_pair.alias.public_key(),
                 &MessageType::DnsResolveFailed(VersionedData::new(
                     &crate::sub_lib::migrations::dns_resolve_failure::MIGRATIONS,
                     &DnsResolveFailure_0v1 {
@@ -1901,10 +1900,10 @@ mod tests {
 
     #[test]
     fn route_data_to_peripheral_component_uses_main_key_on_payload_for_neighborhood() {
-        let payload_factory = |cryptdes: &CryptDEPair| {
+        let payload_factory = |cryptde_pair: &CryptDEPair| {
             encodex(
-                cryptdes.main.as_ref(),
-                cryptdes.main.public_key(),
+                cryptde_pair.main.as_ref(),
+                cryptde_pair.main.public_key(),
                 &MessageType::GossipFailure(VersionedData::new(
                     &crate::sub_lib::migrations::gossip_failure::MIGRATIONS,
                     &GossipFailure_0v1::Unknown,
@@ -1920,10 +1919,10 @@ mod tests {
 
     #[test]
     fn route_data_to_peripheral_component_uses_main_key_on_payload_for_hopper() {
-        let payload_factory = |cryptdes: &CryptDEPair| {
+        let payload_factory = |cryptde_pair: &CryptDEPair| {
             encodex(
-                cryptdes.main.as_ref(),
-                cryptdes.main.public_key(),
+                cryptde_pair.main.as_ref(),
+                cryptde_pair.main.public_key(),
                 &MessageType::ClientResponse(VersionedData::new(
                     &crate::sub_lib::migrations::client_request_payload::MIGRATIONS,
                     &ClientResponsePayload_0v1 {

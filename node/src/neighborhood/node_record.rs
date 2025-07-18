@@ -75,7 +75,7 @@ pub struct NodeRecordInputs {
 impl NodeRecord {
     pub fn new(
         public_key: &PublicKey,
-        cryptde: &dyn CryptDE, // Do we need a separate CryptDE for each NodeRecord? Why?
+        cryptde: &dyn CryptDE,
         node_record_inputs: NodeRecordInputs,
     ) -> NodeRecord {
         let country_opt = node_record_inputs

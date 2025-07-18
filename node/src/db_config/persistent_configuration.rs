@@ -1069,7 +1069,7 @@ mod tests {
     #[test]
     fn cryptde_null_success() {
         let db_password = "bellybutton".to_string();
-        let cryptde = CryptDEReal::new(Chain::Dev);
+        let cryptde = CryptDENull::new(Chain::Dev);
         let cryptde_string = cryptde.to_string();
         let cryptde_crypt = DbEncryptionLayer::encrypt_value(
             &Some(cryptde_string),
@@ -1151,7 +1151,6 @@ mod tests {
     #[test]
     fn cryptde_failure_null_value_in_database() {
         let db_password = "bellybutton".to_string();
-        // TODO: See if we can get rid of this
         let example_encrypted = DbEncryptionLayer::encrypt_value(
             &Some("Example plaintext".to_string()),
             &Some(db_password.clone()),
@@ -1163,7 +1162,6 @@ mod tests {
         let config_dao = ConfigDaoMock::new()
             .get_params(&get_params_arc)
             .get_result(Ok(ConfigDaoRecord::new("last_cryptde", None, true)))
-            // TODO: See if we can get rid of this
             .get_result(Ok(ConfigDaoRecord::new(
                 EXAMPLE_ENCRYPTED,
                 Some(example_encrypted.as_str()),
@@ -1179,7 +1177,6 @@ mod tests {
     #[test]
     fn cryptde_failure_not_present_means_database_schema_is_wrong() {
         let db_password = "bellybutton".to_string();
-        // TODO: See if we can get rid of this
         let example_encrypted = DbEncryptionLayer::encrypt_value(
             &Some("Example plaintext".to_string()),
             &Some(db_password.clone()),
@@ -1191,7 +1188,6 @@ mod tests {
         let config_dao = ConfigDaoMock::new()
             .get_params(&get_params_arc)
             .get_result(Err(ConfigDaoError::NotPresent))
-            // TODO: See if we can get rid of this
             .get_result(Ok(ConfigDaoRecord::new(
                 EXAMPLE_ENCRYPTED,
                 Some(example_encrypted.as_str()),

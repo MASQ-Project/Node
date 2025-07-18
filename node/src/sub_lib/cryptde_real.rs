@@ -272,6 +272,16 @@ impl CryptDEReal {
         }
     }
 
+    pub fn disabled() -> Self {
+        Self {
+            public_key: PublicKey::new(&[0u8; cxsp::PUBLICKEYBYTES + signing::PUBLICKEYBYTES]),
+            encryption_secret_key: encryption::SecretKey([0u8; cxsp::SECRETKEYBYTES]),
+            signing_secret_key: signing::SecretKey([0u8; signing::SECRETKEYBYTES]),
+            digest: [0u8; 32],
+            pre_shared_data: [0u8; 20],
+        }
+    }
+
     fn local_public_key_from(
         encryption_public_key: &encryption::PublicKey,
         signing_public_key: &signing::PublicKey,
@@ -308,6 +318,17 @@ mod tests {
         fn default() -> Self {
             Self::new(TEST_DEFAULT_CHAIN)
         }
+    }
+
+    #[test]
+    fn disabled_works() {
+        let subject = CryptDEReal::disabled();
+
+        assert_eq!(subject.public_key().as_slice(), &[0u8; cxsp::PUBLICKEYBYTES + signing::PUBLICKEYBYTES]);
+        assert_eq!(subject.encryption_secret_key.as_ref(), &[0u8; cxsp::SECRETKEYBYTES]);
+        assert_eq!(subject.signing_secret_key.as_ref(), &[0u8; signing::SECRETKEYBYTES]);
+        assert_eq!(subject.digest, [0u8; 32]);
+        assert_eq!(subject.pre_shared_data, [0u8; 20]);
     }
 
     #[test]

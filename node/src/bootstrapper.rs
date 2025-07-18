@@ -400,11 +400,10 @@ impl BootstrapperConfig {
             data_directory: PathBuf::new(),
             node_descriptor: NodeDescriptor::default(),
             // This value should not be used in production; it should be replaced during bootstrapping.
-            // Hence, we're creating it with a dev chain so that if it leaks through to production,
-            // its signature verification will be crippled.
+            // If it isn't, it should be impossible to put up a network.
             cryptde_pair: CryptDEPair::new(
-                Box::new(CryptDEReal::new(Chain::Dev)),
-                Box::new(CryptDEReal::new(Chain::Dev)),
+                Box::new(CryptDEReal::disabled()),
+                Box::new(CryptDEReal::disabled()),
             ),
             mapping_protocol_opt: None,
             real_user: RealUser::new(None, None, None),
@@ -745,6 +744,8 @@ mod tests {
     use tokio::executor::current_thread::CurrentThread;
     use tokio::prelude::stream::FuturesUnordered;
     use tokio::prelude::Async;
+    use sodiumoxide::crypto::box_::curve25519xsalsa20poly1305 as cxsp;
+    use sodiumoxide::crypto::sign as signing;
 
     lazy_static! {
         static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
@@ -1289,7 +1290,8 @@ mod tests {
                 &[5123]
             ))
         );
-        // Not checking the public key, because its value is not predictable.
+        assert_ne!(config.cryptde_pair.main.public_key().as_slice(), &[0u8; cxsp::PUBLICKEYBYTES + signing::PUBLICKEYBYTES]);
+        assert_ne!(config.cryptde_pair.alias.public_key().as_slice(), &[0u8; cxsp::PUBLICKEYBYTES + signing::PUBLICKEYBYTES]);
         TestLogHandler::new().exists_log_matching("INFO: Bootstrapper: MASQ Node local descriptor: masq://base-sepolia:.+@1\\.2\\.3\\.4:5123");
     }
 
