@@ -573,10 +573,9 @@ impl Scanner<SentPayables, PayableScanResult> for PayableScanner {
                     let failures = map_hashes_to_local_failures(hashes);
                     self.record_failed_txs_in_db(failures, logger);
                 } else {
-                    todo!("GH-605: Test the code below");
                     debug!(
                         logger,
-                        "Local error occurred before transaction signing: {:?}", local_err
+                        "Local error occurred before transaction signing. Error: {}", local_err
                     );
                 }
 
@@ -2581,11 +2580,12 @@ mod tests {
         assert_eq!(aware_of_unresolved_pending_payable_after, false);
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!(
-            "DEBUG: {test_name}: Got 0 properly sent payables of an unknown number of attempts"
+            "WARN: {test_name}: Any persisted data from failed process will be deleted. \
+            Caused by: Signing phase: \"Some error\""
         ));
         log_handler.exists_log_containing(&format!(
-            "DEBUG: {test_name}: Ignoring a non-fatal error on our end from before \
-            the transactions are hashed: LocallyCausedError(Signing(\"Some error\"))"
+            "DEBUG: {test_name}: Local error occurred before transaction signing. \
+            Error: Signing phase: \"Some error\""
         ));
     }
 
@@ -2699,54 +2699,6 @@ mod tests {
              0x0000000000000000000000000000000000000000000000000000000000000002\n\
              The found transactions have been migrated."
         );
-    }
-
-    #[test]
-    fn payable_scanner_panics_for_missing_fingerprints_but_deletion_of_some_works() {
-        init_test_logging();
-        let test_name =
-            "payable_scanner_panics_for_missing_fingerprints_but_deletion_of_some_works";
-        let hash_1 = make_tx_hash(0x1b669);
-        let hash_2 = make_tx_hash(0x3039);
-        let hash_3 = make_tx_hash(0x223d);
-        let pending_payable_dao = PendingPayableDaoMock::default()
-            .fingerprints_rowids_result(TransactionHashes {
-                rowid_results: vec![(333, hash_1)],
-                no_rowid_results: vec![hash_2, hash_3],
-            })
-            .delete_fingerprints_result(Ok(()));
-        let failed_payable_dao = todo!("replace pending payable dao with failed payable dao");
-        let mut subject = PayableScannerBuilder::new()
-            .failed_payable_dao(failed_payable_dao)
-            .build();
-        let sent_payable = SentPayables {
-            payment_procedure_result: Either::Right(LocalPayableError::Sending {
-                msg: "SQLite migraine".to_string(),
-                hashes: vec![hash_1, hash_2, hash_3],
-            }),
-            response_skeleton_opt: None,
-        };
-
-        let caught_panic_in_err = catch_unwind(AssertUnwindSafe(|| {
-            subject.finish_scan(sent_payable, &Logger::new(test_name))
-        }));
-
-        let caught_panic = caught_panic_in_err.unwrap_err();
-        let panic_msg = caught_panic.downcast_ref::<String>().unwrap();
-        assert_eq!(panic_msg, "Ran into failed transactions 0x0000000000000000000000000000000000\
-        000000000000000000000000003039, 0x000000000000000000000000000000000000000000000000000000000000223d \
-        with missing fingerprints. System no longer reliable");
-        let log_handler = TestLogHandler::new();
-        log_handler.exists_log_containing(
-            &format!("WARN: {test_name}: Any persisted data from failed process will be deleted. Caused by: \
-             Sending phase: \"SQLite migraine\". Signed and hashed transactions: \
-               0x000000000000000000000000000000000000000000000000000000000001b669, \
-              0x0000000000000000000000000000000000000000000000000000000000003039, \
-               0x000000000000000000000000000000000000000000000000000000000000223d"));
-        log_handler.exists_log_containing(&format!(
-            "WARN: {test_name}: Deleting fingerprints for failed transactions {:?}",
-            hash_1
-        ));
     }
 
     #[test]
