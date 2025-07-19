@@ -915,8 +915,10 @@ impl PayableScanner {
         if !missing_hashes.is_empty() {
             // TODO: GH-605: Test the panic
             panic!(
-                "Could not find entries for the following transactions in the database {}. The found transactions have been migrated.",
-                join_with_separator(&missing_hashes, |&hash| format!("{:?}", hash), ", ")
+                "Could not find entries for the following transactions in the database:\n\
+                {}\n\
+                The found transactions have been migrated.",
+                join_with_separator(&missing_hashes, |&hash| format!("{:?}", hash), "\n")
             )
         }
     }
@@ -2660,6 +2662,42 @@ mod tests {
              0x0000000000000000000000000000000000000000000000000000000000000001\n\
              Failed to delete transactions from the SentPayable table.\n\
              Error: PartialExecution(\"Gosh, I overslept without an alarm set\")"
+        );
+    }
+
+    #[test]
+    fn payable_scanner_panics_after_migration_when_not_all_txs_were_found_in_db() {
+        let test_name = "payable_scanner_panics_after_migration_when_not_all_txs_were_found_in_db";
+        let hash_1 = make_tx_hash(1);
+        let hash_2 = make_tx_hash(2);
+        let tx1 = TxBuilder::default().hash(hash_1).build();
+        let sent_payable = SentPayables {
+            payment_procedure_result: Either::Right(LocalPayableError::Sending {
+                msg: "blah".to_string(),
+                hashes: vec![hash_1, hash_2],
+            }),
+            response_skeleton_opt: None,
+        };
+        let failed_payable_dao = FailedPayableDaoMock::default().insert_new_records_result(Ok(()));
+        let sent_payable_dao = SentPayableDaoMock::default()
+            .retrieve_txs_result(vec![tx1])
+            .delete_records_result(Ok(()));
+        let mut subject = PayableScannerBuilder::new()
+            .failed_payable_dao(failed_payable_dao)
+            .sent_payable_dao(sent_payable_dao)
+            .build();
+
+        let caught_panic_in_err = catch_unwind(AssertUnwindSafe(|| {
+            subject.finish_scan(sent_payable, &Logger::new(test_name))
+        }));
+
+        let caught_panic = caught_panic_in_err.unwrap_err();
+        let panic_msg = caught_panic.downcast_ref::<String>().unwrap();
+        assert_eq!(
+            panic_msg,
+            "Could not find entries for the following transactions in the database:\n\
+             0x0000000000000000000000000000000000000000000000000000000000000002\n\
+             The found transactions have been migrated."
         );
     }
 
