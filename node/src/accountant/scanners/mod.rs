@@ -563,8 +563,6 @@ impl Scanner<SentPayables, PayableScanResult> for PayableScanner {
                 OperationOutcome::NewPendingPayable
             }
             Either::Right(local_err) => {
-                // TODO: GH-605: Only keep messages mentioning that you are updating db...
-                // Also, make a helper function that logs them
                 warning!(
                     logger,
                     "Any persisted data from failed process will be deleted. Caused by: {}",
@@ -878,22 +876,22 @@ impl PayableScanner {
     }
 
     fn migrate_payables(&self, failed_payables: &HashSet<FailedTx>) {
-        let common_string =
-            "Error during migration from SentPayable to FailedPayable Table".to_string();
+        let hashes: HashSet<TxHash> = failed_payables.iter().map(|tx| tx.hash).collect();
+        let common_string = format!(
+            "Error during migration from SentPayable to FailedPayable Table for transactions:\n{}",
+            join_with_separator(&hashes, |hash| format!("{:?}", hash), "\n")
+        );
 
-        // TODO: GH-605: Test the panic
         if let Err(e) = self.failed_payable_dao.insert_new_records(failed_payables) {
             panic!(
-                "{}: Failed to insert transactions into the FailedPayable table. Error: {:?}",
+                "{}\nFailed to insert transactions into the FailedPayable table.\nError: {:?}",
                 common_string, e
             );
         }
 
-        // TODO: GH-605: Test the panic
-        let hashes: HashSet<TxHash> = failed_payables.iter().map(|tx| tx.hash).collect();
         if let Err(e) = self.sent_payable_dao.delete_records(&hashes) {
             panic!(
-                "{}: Failed to delete transactions from the SentPayable table. Error: {:?}",
+                "{}\nFailed to delete transactions from the SentPayable table.\nError: {:?}",
                 common_string, e
             );
         }
@@ -1562,9 +1560,10 @@ mod tests {
     use web3::Error;
     use masq_lib::messages::ScanType;
     use masq_lib::ui_gateway::NodeToUiMessage;
-    use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureReason, FailureStatus};
+    use crate::accountant::db_access_objects::failed_payable_dao::{FailedPayableDaoError, FailedTx, FailureReason, FailureStatus};
     use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::RetryRequired;
     use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::ByHash;
+    use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDaoError;
     use crate::accountant::scanners::test_utils::{assert_timestamps_from_str, parse_system_time_from_str, MarkScanner, NullScanner, ReplacementType, ScannerReplacement};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TransactionReceiptResult, TxReceipt, TxStatus};
 
@@ -2173,7 +2172,7 @@ mod tests {
                 rowid_results: vec![(4, hash_4), (1, hash_1), (3, hash_3), (2, hash_2)],
                 no_rowid_results: vec![],
             });
-        let failed_payable_dao = todo!("replace pending payable dao with failed payable dao");
+        let failed_payable_dao = todo!("work on separate_existent_and_nonexistent_fingerprints()");
         let subject = PayableScannerBuilder::new()
             .failed_payable_dao(failed_payable_dao)
             .build();
@@ -2589,31 +2588,26 @@ mod tests {
     }
 
     #[test]
-    fn payable_scanner_finds_fingerprints_for_failed_payments_but_panics_at_their_deletion() {
-        let test_name =
-            "payable_scanner_finds_fingerprints_for_failed_payments_but_panics_at_their_deletion";
-        let rowid_1 = 4;
-        let hash_1 = make_tx_hash(0x7b);
-        let rowid_2 = 6;
-        let hash_2 = make_tx_hash(0x315);
+    fn payable_scanner_panics_at_migration_while_inserting_in_failed_payables() {
+        let test_name = "payable_scanner_panics_at_migration_while_inserting_in_failed_payables";
+        let hash_1 = make_tx_hash(1);
+        let tx1 = TxBuilder::default().hash(hash_1).build();
         let sent_payable = SentPayables {
             payment_procedure_result: Either::Right(LocalPayableError::Sending {
                 msg: "blah".to_string(),
-                hashes: vec![hash_1, hash_2],
+                hashes: vec![hash_1],
             }),
             response_skeleton_opt: None,
         };
-        let pending_payable_dao = PendingPayableDaoMock::default()
-            .fingerprints_rowids_result(TransactionHashes {
-                rowid_results: vec![(rowid_1, hash_1), (rowid_2, hash_2)],
-                no_rowid_results: vec![],
-            })
-            .delete_fingerprints_result(Err(PendingPayableDaoError::RecordDeletion(
+        let failed_payable_dao = FailedPayableDaoMock::default().insert_new_records_result(Err(
+            FailedPayableDaoError::PartialExecution(
                 "Gosh, I overslept without an alarm set".to_string(),
-            )));
-        let failed_payable_dao = todo!("replace pending payable dao with failed payable dao");
+            ),
+        ));
+        let sent_payable_dao = SentPayableDaoMock::default().retrieve_txs_result(vec![tx1]);
         let mut subject = PayableScannerBuilder::new()
             .failed_payable_dao(failed_payable_dao)
+            .sent_payable_dao(sent_payable_dao)
             .build();
 
         let caught_panic_in_err = catch_unwind(AssertUnwindSafe(|| {
@@ -2624,14 +2618,49 @@ mod tests {
         let panic_msg = caught_panic.downcast_ref::<String>().unwrap();
         assert_eq!(
             panic_msg,
-            "Database corrupt: payable fingerprint deletion for transactions \
-        0x000000000000000000000000000000000000000000000000000000000000007b, 0x00000000000000000000\
-        00000000000000000000000000000000000000000315 failed due to RecordDeletion(\"Gosh, I overslept \
-        without an alarm set\")");
-        let log_handler = TestLogHandler::new();
-        // There is a possible situation when we stumble over missing fingerprints, so we log it.
-        // Here we don't and so any ERROR log shouldn't turn up
-        log_handler.exists_no_log_containing(&format!("ERROR: {}", test_name))
+            "Error during migration from SentPayable to FailedPayable Table for transactions:\n\
+             0x0000000000000000000000000000000000000000000000000000000000000001\n\
+             Failed to insert transactions into the FailedPayable table.\n\
+             Error: PartialExecution(\"Gosh, I overslept without an alarm set\")"
+        );
+    }
+
+    #[test]
+    fn payable_scanner_panics_at_migration_while_deleting_in_sent_payables() {
+        let test_name = "payable_scanner_panics_at_migration_while_deleting_in_sent_payables";
+        let hash_1 = make_tx_hash(1);
+        let tx1 = TxBuilder::default().hash(hash_1).build();
+        let sent_payable = SentPayables {
+            payment_procedure_result: Either::Right(LocalPayableError::Sending {
+                msg: "blah".to_string(),
+                hashes: vec![hash_1],
+            }),
+            response_skeleton_opt: None,
+        };
+        let failed_payable_dao = FailedPayableDaoMock::default().insert_new_records_result(Ok(()));
+        let sent_payable_dao = SentPayableDaoMock::default()
+            .retrieve_txs_result(vec![tx1])
+            .delete_records_result(Err(SentPayableDaoError::PartialExecution(
+                "Gosh, I overslept without an alarm set".to_string(),
+            )));
+        let mut subject = PayableScannerBuilder::new()
+            .failed_payable_dao(failed_payable_dao)
+            .sent_payable_dao(sent_payable_dao)
+            .build();
+
+        let caught_panic_in_err = catch_unwind(AssertUnwindSafe(|| {
+            subject.finish_scan(sent_payable, &Logger::new(test_name))
+        }));
+
+        let caught_panic = caught_panic_in_err.unwrap_err();
+        let panic_msg = caught_panic.downcast_ref::<String>().unwrap();
+        assert_eq!(
+            panic_msg,
+            "Error during migration from SentPayable to FailedPayable Table for transactions:\n\
+             0x0000000000000000000000000000000000000000000000000000000000000001\n\
+             Failed to delete transactions from the SentPayable table.\n\
+             Error: PartialExecution(\"Gosh, I overslept without an alarm set\")"
+        );
     }
 
     #[test]

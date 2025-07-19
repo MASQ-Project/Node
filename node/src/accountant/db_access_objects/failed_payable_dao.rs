@@ -23,7 +23,7 @@ pub enum FailedPayableDaoError {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum FailureReason {
     PendingTooLong,
-    Remote,
+    Remote, // TODO: GH-605: Make it RPC
     General,
     Local,
 }
