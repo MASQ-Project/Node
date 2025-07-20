@@ -26,7 +26,7 @@ pub enum FailedPayableDaoError {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FailureReason {
     Local(LocalError),
-    Api(ApiError), // It includes the RPC
+    Api(ApiError),
     Pool(PoolError),
     PendingTooLong,
 }
@@ -67,7 +67,7 @@ impl From<Web3Error> for FailureReason {
             Web3Error::Internal => FailureReason::Local(LocalError::Internal),
             Web3Error::Io(error) => FailureReason::Local(LocalError::Io(error.to_string())),
             Web3Error::Signing(error) => {
-                // This variant can't be tested because it's not possible to create a Web3Error of this type.
+                // This variant cannot be tested due to import limitations.
                 FailureReason::Local(LocalError::Signing(error.to_string()))
             }
             Web3Error::Transport(error) => FailureReason::Local(LocalError::Transport(error)),
@@ -430,8 +430,6 @@ mod tests {
         DbInitializationConfig, DbInitializer, DbInitializerReal,
     };
     use crate::database::test_utils::ConnectionWrapperMock;
-    use jsonrpc_core::types::error::Error as ErrorKind;
-    use jsonrpc_core::types::error::ErrorCode as Web3RpcErrorCode;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::Connection;
     use std::collections::{HashMap, HashSet};
@@ -747,8 +745,8 @@ mod tests {
             FailureReason::Api(ApiError::InvalidResponse("Invalid response".to_string()))
         );
         assert_eq!(
-            FailureReason::from(Web3Error::Rpc(ErrorKind {
-                code: Web3RpcErrorCode::ServerError(42),
+            FailureReason::from(Web3Error::Rpc(jsonrpc_core::types::error::Error {
+                code: jsonrpc_core::types::error::ErrorCode::ServerError(42),
                 message: "RPC error".to_string(),
                 data: None,
             })),
