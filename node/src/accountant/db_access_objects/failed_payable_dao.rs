@@ -42,9 +42,9 @@ pub enum LocalError {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ApiError {
+    InvalidResponse(String),
     Unreachable,
     Web3RpcError { code: i64, message: String },
-    InvalidResponse(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -412,8 +412,8 @@ mod tests {
         Concluded, RecheckRequired, RetryRequired,
     };
     use crate::accountant::db_access_objects::failed_payable_dao::{
-        FailedPayableDao, FailedPayableDaoError, FailedPayableDaoReal, FailureRetrieveCondition,
-        FailureStatus,
+        ApiError, FailedPayableDao, FailedPayableDaoError, FailedPayableDaoReal, FailureReason,
+        FailureRetrieveCondition, FailureStatus, LocalError, PoolError,
     };
     use crate::accountant::db_access_objects::test_utils::{
         make_read_only_db_connection, FailedTxBuilder,
@@ -619,19 +619,89 @@ mod tests {
 
     #[test]
     fn failure_reason_from_str_works() {
-        todo!("test me");
-        // assert_eq!(
-        //     FailureReason::from_str("PendingTooLong"),
-        //     Ok(PendingTooLong)
-        // );
-        // let expected = FailureReason::from_str("NonceIssue");
+        // Local errors (lexicographically sorted)
+        assert_eq!(
+            FailureReason::from_str(r#"{"Local":{"Decoder":"Test decoder error"}}"#).unwrap(),
+            FailureReason::Local(LocalError::Decoder("Test decoder error".to_string()))
+        );
+        assert_eq!(
+            FailureReason::from_str(r#"{"Local":{"Internal":null}}"#).unwrap(),
+            FailureReason::Local(LocalError::Internal)
+        );
+        assert_eq!(
+            FailureReason::from_str(r#"{"Local":{"Io":"Test IO error"}}"#).unwrap(),
+            FailureReason::Local(LocalError::Io("Test IO error".to_string()))
+        );
+        assert_eq!(
+            FailureReason::from_str(r#"{"Local":{"Signing":"Test signing error"}}"#).unwrap(),
+            FailureReason::Local(LocalError::Signing("Test signing error".to_string()))
+        );
+        assert_eq!(
+            FailureReason::from_str(r#"{"Local":{"Transport":"Test transport error"}}"#).unwrap(),
+            FailureReason::Local(LocalError::Transport("Test transport error".to_string()))
+        );
 
-        // assert_eq!(FailureReason::from_str("NonceIssue"), Ok(NonceIssue));
-        // assert_eq!(FailureReason::from_str("General"), Ok(General));
-        // assert_eq!(
-        //     FailureReason::from_str("InvalidReason"),
-        //     Err("Invalid FailureReason: InvalidReason".to_string())
-        // );
+        // Api errors (lexicographically sorted)
+        assert_eq!(
+            FailureReason::from_str(r#"{"Api":{"InvalidResponse":"Test invalid response"}}"#)
+                .unwrap(),
+            FailureReason::Api(ApiError::InvalidResponse(
+                "Test invalid response".to_string()
+            ))
+        );
+        assert_eq!(
+            FailureReason::from_str(r#"{"Api":{"Unreachable":null}}"#).unwrap(),
+            FailureReason::Api(ApiError::Unreachable)
+        );
+        assert_eq!(
+            FailureReason::from_str(
+                r#"{"Api":{"Web3RpcError":{"code":123,"message":"Test RPC error"}}}"#
+            )
+            .unwrap(),
+            FailureReason::Api(ApiError::Web3RpcError {
+                code: 123,
+                message: "Test RPC error".to_string()
+            })
+        );
+
+        // Pool errors (lexicographically sorted)
+        assert_eq!(
+            FailureReason::from_str(r#"{"Pool":{"NonceTooHigh":null}}"#).unwrap(),
+            FailureReason::Pool(PoolError::NonceTooHigh)
+        );
+        assert_eq!(
+            FailureReason::from_str(r#"{"Pool":{"NonceTooLow":null}}"#).unwrap(),
+            FailureReason::Pool(PoolError::NonceTooLow)
+        );
+        assert_eq!(
+            FailureReason::from_str(r#"{"Pool":{"OrphanedTransaction":null}}"#).unwrap(),
+            FailureReason::Pool(PoolError::OrphanedTransaction)
+        );
+
+        // PendingTooLong
+        assert_eq!(
+            FailureReason::from_str(r#"{"PendingTooLong":null}"#).unwrap(),
+            FailureReason::PendingTooLong
+        );
+
+        // Invalid Variant
+        assert_eq!(
+            FailureReason::from_str(r#"{"UnknownReason":null}"#)
+                .unwrap_err()
+                .to_string(),
+            "unknown variant `UnknownReason`, \
+             expected one of `Local`, `Api`, `Pool`, `PendingTooLong` \
+             at line 1 column 16"
+                .to_string()
+        );
+
+        // Invalid Input
+        assert_eq!(
+            FailureReason::from_str("random string")
+                .unwrap_err()
+                .to_string(),
+            "expected value at line 1 column 1".to_string()
+        );
     }
 
     #[test]
