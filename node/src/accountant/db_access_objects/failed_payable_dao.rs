@@ -33,43 +33,48 @@ pub enum FailureReason {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LocalError {
-    InsufficientFunds,
-    InvalidNonce,
-    SigningError,
-    SerializationError,
-    GasPriceTooLow,
-    ExceedsGasLimit,
+    Decoder(String),
+    Internal,
+    Io(String),
+    Signing(String),
+    Transport(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ApiError {
-    ConnectionFailed,
-    Timeout,
-    InvalidResponse(String),
-    UnsupportedMethod,
-    LimitExceeded,
+    Unreachable,
     Web3RpcError { code: i64, message: String },
+    InvalidResponse(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PoolError {
-    Underpriced,
-    OverCapacity,
-    AlreadyKnown,
-    Replaced,
-    Dropped,
+    NonceTooHigh, // GH-672: We can also store the used vs expected nonce
+    NonceTooLow,
+    OrphanedTransaction, // GH-672: We can also store the successful transaction and block number
 }
 
 impl From<Web3Error> for FailureReason {
     fn from(error: Web3Error) -> Self {
         match error {
+            // Local Errors
+            Web3Error::Decoder(error) => FailureReason::Local(LocalError::Decoder(error)),
+            Web3Error::Transport(error) => FailureReason::Local(LocalError::Transport(error)),
+
+            Web3Error::Io(error) => FailureReason::Local(LocalError::Io(error.to_string())),
+            Web3Error::Signing(error) => {
+                FailureReason::Local(LocalError::Signing(error.to_string()))
+            }
+            Web3Error::Internal => FailureReason::Local(LocalError::Internal),
+            // Api Errors
+            Web3Error::Unreachable => FailureReason::Api(ApiError::Unreachable),
+            Web3Error::InvalidResponse(response) => {
+                FailureReason::Api(ApiError::InvalidResponse(response))
+            }
             Web3Error::Rpc(web3_rpc_error) => FailureReason::Api(ApiError::Web3RpcError {
                 code: web3_rpc_error.code.code(),
                 message: web3_rpc_error.message,
             }),
-            Web3Error::Io(_) => FailureReason::Api(ApiError::ConnectionFailed),
-            Web3Error::Decoder(_) => FailureReason::Local(LocalError::SerializationError),
-            _ => FailureReason::Api(ApiError::InvalidResponse(error.to_string())),
         }
     }
 }
@@ -399,7 +404,7 @@ impl FailedPayableDaoFactory for DaoFactoryReal {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::db_access_objects::failed_payable_dao::ApiError::LimitExceeded;
+    use crate::accountant::db_access_objects::failed_payable_dao::ApiError::Unreachable;
     use crate::accountant::db_access_objects::failed_payable_dao::FailureReason::{
         Api, PendingTooLong,
     };
@@ -433,7 +438,7 @@ mod tests {
             .unwrap();
         let tx1 = FailedTxBuilder::default()
             .hash(make_tx_hash(1))
-            .reason(Api(LimitExceeded))
+            .reason(Api(Unreachable))
             .build();
         let tx2 = FailedTxBuilder::default()
             .hash(make_tx_hash(2))
@@ -694,7 +699,7 @@ mod tests {
             .build();
         let tx2 = FailedTxBuilder::default()
             .hash(make_tx_hash(2))
-            .reason(Api(LimitExceeded))
+            .reason(Api(Unreachable))
             .timestamp(now - 3600)
             .status(RetryRequired)
             .build();
@@ -728,7 +733,7 @@ mod tests {
         let subject = FailedPayableDaoReal::new(wrapped_conn);
         let tx1 = FailedTxBuilder::default()
             .hash(make_tx_hash(1))
-            .reason(Api(LimitExceeded))
+            .reason(Api(Unreachable))
             .status(RetryRequired)
             .build();
         let tx2 = FailedTxBuilder::default()
