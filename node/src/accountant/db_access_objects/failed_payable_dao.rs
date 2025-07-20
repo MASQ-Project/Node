@@ -49,9 +49,14 @@ pub enum ApiError {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PoolError {
-    NonceTooHigh, // GH-672: We can also store the used vs expected nonce
-    NonceTooLow,
-    OrphanedTransaction, // GH-672: We can also store the successful transaction and block number
+    NonceIssue {
+        latest_used_nonce: u64,
+        tx_nonce: u64,
+    },
+    OrphanedTransaction {
+        tx_hash: TxHash,
+        block_number: u64,
+    },
 }
 
 impl From<Web3Error> for FailureReason {
@@ -59,15 +64,15 @@ impl From<Web3Error> for FailureReason {
         match error {
             // Local Errors
             Web3Error::Decoder(error) => FailureReason::Local(LocalError::Decoder(error)),
-            Web3Error::Transport(error) => FailureReason::Local(LocalError::Transport(error)),
-
+            Web3Error::Internal => FailureReason::Local(LocalError::Internal),
             Web3Error::Io(error) => FailureReason::Local(LocalError::Io(error.to_string())),
             Web3Error::Signing(error) => {
+                // This variant can't be tested because it's not possible to create a Web3Error of this type.
                 FailureReason::Local(LocalError::Signing(error.to_string()))
             }
-            Web3Error::Internal => FailureReason::Local(LocalError::Internal),
+            Web3Error::Transport(error) => FailureReason::Local(LocalError::Transport(error)),
+
             // Api Errors
-            Web3Error::Unreachable => FailureReason::Api(ApiError::Unreachable),
             Web3Error::InvalidResponse(response) => {
                 FailureReason::Api(ApiError::InvalidResponse(response))
             }
@@ -75,6 +80,7 @@ impl From<Web3Error> for FailureReason {
                 code: web3_rpc_error.code.code(),
                 message: web3_rpc_error.message,
             }),
+            Web3Error::Unreachable => FailureReason::Api(ApiError::Unreachable),
         }
     }
 }
@@ -418,16 +424,19 @@ mod tests {
     use crate::accountant::db_access_objects::test_utils::{
         make_read_only_db_connection, FailedTxBuilder,
     };
-    use crate::accountant::db_access_objects::utils::current_unix_timestamp;
+    use crate::accountant::db_access_objects::utils::{current_unix_timestamp, TxHash};
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal,
     };
     use crate::database::test_utils::ConnectionWrapperMock;
+    use jsonrpc_core::types::error::Error as ErrorKind;
+    use jsonrpc_core::types::error::ErrorCode as Web3RpcErrorCode;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::Connection;
     use std::collections::{HashMap, HashSet};
     use std::str::FromStr;
+    use web3::error::Error as Web3Error;
 
     #[test]
     fn insert_new_records_works() {
@@ -666,16 +675,21 @@ mod tests {
 
         // Pool errors (lexicographically sorted)
         assert_eq!(
-            FailureReason::from_str(r#"{"Pool":{"NonceTooHigh":null}}"#).unwrap(),
-            FailureReason::Pool(PoolError::NonceTooHigh)
+            FailureReason::from_str(
+                r#"{"Pool":{"NonceIssue":{"latest_used_nonce":123,"tx_nonce":456}}}"#
+            )
+            .unwrap(),
+            FailureReason::Pool(PoolError::NonceIssue {
+                latest_used_nonce: 123,
+                tx_nonce: 456
+            })
         );
         assert_eq!(
-            FailureReason::from_str(r#"{"Pool":{"NonceTooLow":null}}"#).unwrap(),
-            FailureReason::Pool(PoolError::NonceTooLow)
-        );
-        assert_eq!(
-            FailureReason::from_str(r#"{"Pool":{"OrphanedTransaction":null}}"#).unwrap(),
-            FailureReason::Pool(PoolError::OrphanedTransaction)
+            FailureReason::from_str(r#"{"Pool":{"OrphanedTransaction":{"tx_hash":"0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef","block_number":789}}}"#).unwrap(),
+            FailureReason::Pool(PoolError::OrphanedTransaction {
+                tx_hash: TxHash::from_str("1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef").unwrap(),
+                block_number: 789
+            })
         );
 
         // PendingTooLong
@@ -701,6 +715,51 @@ mod tests {
                 .unwrap_err()
                 .to_string(),
             "expected value at line 1 column 1".to_string()
+        );
+    }
+
+    #[test]
+    fn web3_error_to_failure_reason_conversion_works() {
+        // Local Errors
+        assert_eq!(
+            FailureReason::from(Web3Error::Decoder("Decoder error".to_string())),
+            FailureReason::Local(LocalError::Decoder("Decoder error".to_string()))
+        );
+        assert_eq!(
+            FailureReason::from(Web3Error::Internal),
+            FailureReason::Local(LocalError::Internal)
+        );
+        assert_eq!(
+            FailureReason::from(Web3Error::Io(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "IO error"
+            ))),
+            FailureReason::Local(LocalError::Io("IO error".to_string()))
+        );
+        assert_eq!(
+            FailureReason::from(Web3Error::Transport("Transport error".to_string())),
+            FailureReason::Local(LocalError::Transport("Transport error".to_string()))
+        );
+
+        // Api Errors
+        assert_eq!(
+            FailureReason::from(Web3Error::InvalidResponse("Invalid response".to_string())),
+            FailureReason::Api(ApiError::InvalidResponse("Invalid response".to_string()))
+        );
+        assert_eq!(
+            FailureReason::from(Web3Error::Rpc(ErrorKind {
+                code: Web3RpcErrorCode::ServerError(42),
+                message: "RPC error".to_string(),
+                data: None,
+            })),
+            FailureReason::Api(ApiError::Web3RpcError {
+                code: 42,
+                message: "RPC error".to_string(),
+            })
+        );
+        assert_eq!(
+            FailureReason::from(Web3Error::Unreachable),
+            FailureReason::Api(ApiError::Unreachable)
         );
     }
 
