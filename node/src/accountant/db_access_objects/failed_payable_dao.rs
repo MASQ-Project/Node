@@ -95,10 +95,10 @@ impl Display for FailureReason {
 }
 
 impl FromStr for FailureReason {
-    type Err = serde_json::Error;
+    type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        serde_json::from_str(s)
+        serde_json::from_str(s).map_err(|e| e.to_string())
     }
 }
 
@@ -698,9 +698,7 @@ mod tests {
 
         // Invalid Variant
         assert_eq!(
-            FailureReason::from_str(r#"{"UnknownReason":null}"#)
-                .unwrap_err()
-                .to_string(),
+            FailureReason::from_str(r#"{"UnknownReason":null}"#).unwrap_err(),
             "unknown variant `UnknownReason`, \
              expected one of `Local`, `Api`, `Pool`, `PendingTooLong` \
              at line 1 column 16"
@@ -709,9 +707,7 @@ mod tests {
 
         // Invalid Input
         assert_eq!(
-            FailureReason::from_str("random string")
-                .unwrap_err()
-                .to_string(),
+            FailureReason::from_str("random string").unwrap_err(),
             "expected value at line 1 column 1".to_string()
         );
     }
