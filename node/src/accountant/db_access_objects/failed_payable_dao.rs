@@ -229,7 +229,7 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
                 let (gas_price_wei_high_b, gas_price_wei_low_b) =
                     BigIntDivider::deconstruct(gas_price_wei_checked);
                 format!(
-                    "('{:?}', '{:?}', {}, {}, {}, {}, {}, {}, '{:?}', '{:?}')",
+                    "('{:?}', '{:?}', {}, {}, {}, {}, {}, {}, '{}', '{:?}')",
                     tx.hash,
                     tx.receiver_address,
                     amount_high_b,
