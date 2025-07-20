@@ -7,9 +7,11 @@ use crate::accountant::{checked_conversion, comma_joined_stringifiable};
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use itertools::Itertools;
 use masq_lib::utils::ExpectValue;
+use serde_derive::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
+use web3::error::Error as Web3Error;
 use web3::types::Address;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -21,11 +23,72 @@ pub enum FailedPayableDaoError {
     SqlExecutionFailed(String),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FailureReason {
+    Local(LocalError),
+    Api(ApiError), // It includes the RPC
+    Pool(PoolError),
     PendingTooLong,
-    NonceIssue,
-    General,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LocalError {
+    InsufficientFunds,
+    InvalidNonce,
+    SigningError,
+    SerializationError,
+    GasPriceTooLow,
+    ExceedsGasLimit,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ApiError {
+    ConnectionFailed,
+    Timeout,
+    InvalidResponse(String),
+    UnsupportedMethod,
+    LimitExceeded,
+    Web3RpcError { code: i64, message: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PoolError {
+    Underpriced,
+    OverCapacity,
+    AlreadyKnown,
+    Replaced,
+    Dropped,
+}
+
+impl From<Web3Error> for FailureReason {
+    fn from(error: Web3Error) -> Self {
+        match error {
+            Web3Error::Rpc(web3_rpc_error) => FailureReason::Api(ApiError::Web3RpcError {
+                code: web3_rpc_error.code.code(),
+                message: web3_rpc_error.message,
+            }),
+            Web3Error::Io(_) => FailureReason::Api(ApiError::ConnectionFailed),
+            Web3Error::Decoder(_) => FailureReason::Local(LocalError::SerializationError),
+            _ => FailureReason::Api(ApiError::InvalidResponse(error.to_string())),
+        }
+    }
+}
+
+impl Display for FailureReason {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match serde_json::to_string(self) {
+            Ok(json) => write!(f, "{}", json),
+            Err(_) => write!(f, "<invalid FailureReason>"),
+        }
+    }
+}
+
+impl FromStr for FailureReason {
+    type Err = serde_json::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        serde_json::from_str(s)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -43,19 +106,6 @@ impl FromStr for FailureStatus {
             "RecheckRequired" => Ok(FailureStatus::RecheckRequired),
             "Concluded" => Ok(FailureStatus::Concluded),
             _ => Err(format!("Invalid FailureStatus: {}", s)),
-        }
-    }
-}
-
-impl FromStr for FailureReason {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "PendingTooLong" => Ok(FailureReason::PendingTooLong),
-            "NonceIssue" => Ok(FailureReason::NonceIssue),
-            "General" => Ok(FailureReason::General),
-            _ => Err(format!("Invalid FailureReason: {}", s)),
         }
     }
 }
@@ -349,15 +399,16 @@ impl FailedPayableDaoFactory for DaoFactoryReal {
 
 #[cfg(test)]
 mod tests {
+    use crate::accountant::db_access_objects::failed_payable_dao::ApiError::LimitExceeded;
     use crate::accountant::db_access_objects::failed_payable_dao::FailureReason::{
-        General, NonceIssue, PendingTooLong,
+        Api, PendingTooLong,
     };
     use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::{
         Concluded, RecheckRequired, RetryRequired,
     };
     use crate::accountant::db_access_objects::failed_payable_dao::{
-        FailedPayableDao, FailedPayableDaoError, FailedPayableDaoReal, FailureReason,
-        FailureRetrieveCondition, FailureStatus,
+        FailedPayableDao, FailedPayableDaoError, FailedPayableDaoReal, FailureRetrieveCondition,
+        FailureStatus,
     };
     use crate::accountant::db_access_objects::test_utils::{
         make_read_only_db_connection, FailedTxBuilder,
@@ -382,7 +433,7 @@ mod tests {
             .unwrap();
         let tx1 = FailedTxBuilder::default()
             .hash(make_tx_hash(1))
-            .reason(NonceIssue)
+            .reason(Api(LimitExceeded))
             .build();
         let tx2 = FailedTxBuilder::default()
             .hash(make_tx_hash(2))
@@ -563,16 +614,19 @@ mod tests {
 
     #[test]
     fn failure_reason_from_str_works() {
-        assert_eq!(
-            FailureReason::from_str("PendingTooLong"),
-            Ok(PendingTooLong)
-        );
-        assert_eq!(FailureReason::from_str("NonceIssue"), Ok(NonceIssue));
-        assert_eq!(FailureReason::from_str("General"), Ok(General));
-        assert_eq!(
-            FailureReason::from_str("InvalidReason"),
-            Err("Invalid FailureReason: InvalidReason".to_string())
-        );
+        todo!("test me");
+        // assert_eq!(
+        //     FailureReason::from_str("PendingTooLong"),
+        //     Ok(PendingTooLong)
+        // );
+        // let expected = FailureReason::from_str("NonceIssue");
+
+        // assert_eq!(FailureReason::from_str("NonceIssue"), Ok(NonceIssue));
+        // assert_eq!(FailureReason::from_str("General"), Ok(General));
+        // assert_eq!(
+        //     FailureReason::from_str("InvalidReason"),
+        //     Err("Invalid FailureReason: InvalidReason".to_string())
+        // );
     }
 
     #[test]
@@ -640,7 +694,7 @@ mod tests {
             .build();
         let tx2 = FailedTxBuilder::default()
             .hash(make_tx_hash(2))
-            .reason(NonceIssue)
+            .reason(Api(LimitExceeded))
             .timestamp(now - 3600)
             .status(RetryRequired)
             .build();
@@ -674,7 +728,7 @@ mod tests {
         let subject = FailedPayableDaoReal::new(wrapped_conn);
         let tx1 = FailedTxBuilder::default()
             .hash(make_tx_hash(1))
-            .reason(NonceIssue)
+            .reason(Api(LimitExceeded))
             .status(RetryRequired)
             .build();
         let tx2 = FailedTxBuilder::default()
