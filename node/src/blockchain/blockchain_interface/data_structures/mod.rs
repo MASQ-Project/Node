@@ -42,6 +42,6 @@ pub struct RpcPayableFailure {
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum IndividualBatchResult {
-    Pending(PendingPayable),
+    Pending(PendingPayable), // TODO: GH-605: It should only store the TxHash
     Failed(RpcPayableFailure),
 }

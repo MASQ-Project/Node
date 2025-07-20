@@ -530,6 +530,10 @@ impl StartableScanner<ScanForRetryPayables, QualifiedPayablesMessage> for Payabl
         // 1. Find the failed payables
         // 2. Look into the payable DAO to update the amount
         // 3. Prepare UnpricedQualifiedPayables
+
+        // 1. Fetch all records with RetryRequired
+        // 2. Query the txs with the same accounts from the PayableDao
+        // 3. Form UnpricedQualifiedPayables, a collection vector
     }
 }
 
@@ -551,6 +555,8 @@ impl Scanner<SentPayables, PayableScanResult> for PayableScanner {
                     success = pending_tx_count,
                     failed = failed_tx_count
                 );
+
+                // Check if the PendingPayables are missing in the SentPayable and panic!()
 
                 if pending_tx_count > 0 {
                     self.mark_pending_payable(&pending, logger);
@@ -714,126 +720,70 @@ impl PayableScanner {
         }
     }
 
-    fn separate_existent_and_nonexistent_fingerprints<'a>(
-        &'a self,
-        sent_payables: &[&'a PendingPayable],
-    ) -> (Vec<PendingPayableMetadata>, Vec<PendingPayableMetadata>) {
-        let hashes = sent_payables
-            .iter()
-            .map(|pending_payable| pending_payable.hash)
-            .collect::<Vec<H256>>();
-        let mut sent_payables_hashmap = sent_payables
-            .iter()
-            .map(|payable| (payable.hash, &payable.recipient_wallet))
-            .collect::<HashMap<H256, &Wallet>>();
-
-        // let transaction_hashes = self.pending_payable_dao.fingerprints_rowids(&hashes);
-        let transaction_hashes =
-            todo!("instead of retrieving it from PendingPayableDao, retrieve from SentPayableDao");
-        // let mut hashes_from_db = transaction_hashes
-        //     .rowid_results
-        //     .iter()
-        //     .map(|(_rowid, hash)| *hash)
-        //     .collect::<HashSet<H256>>();
-        // for hash in &transaction_hashes.no_rowid_results {
-        //     hashes_from_db.insert(*hash);
-        // }
-        // let sent_payables_hashes = hashes.iter().copied().collect::<HashSet<H256>>();
-        //
-        // if !Self::is_symmetrical(sent_payables_hashes, hashes_from_db) {
-        //     panic!(
-        //         "Inconsistency in two maps, they cannot be matched by hashes. Data set directly \
-        //         sent from BlockchainBridge: {:?}, set derived from the DB: {:?}",
-        //         sent_payables, transaction_hashes
-        //     )
-        // }
-        //
-        // let pending_payables_with_rowid = transaction_hashes
-        //     .rowid_results
-        //     .into_iter()
-        //     .map(|(rowid, hash)| {
-        //         let wallet = sent_payables_hashmap
-        //             .remove(&hash)
-        //             .expect("expect transaction hash, but it disappear");
-        //         PendingPayableMetadata::new(wallet, hash, Some(rowid))
-        //     })
-        //     .collect_vec();
-        // let pending_payables_without_rowid = transaction_hashes
-        //     .no_rowid_results
-        //     .into_iter()
-        //     .map(|hash| {
-        //         let wallet = sent_payables_hashmap
-        //             .remove(&hash)
-        //             .expect("expect transaction hash, but it disappear");
-        //         PendingPayableMetadata::new(wallet, hash, None)
-        //     })
-        //     .collect_vec();
-        //
-        // (pending_payables_with_rowid, pending_payables_without_rowid)
-    }
-
     fn is_symmetrical(
         sent_payables_hashes: HashSet<H256>,
         fingerptint_hashes: HashSet<H256>,
     ) -> bool {
+        todo!("it's okay to delete this");
         sent_payables_hashes == fingerptint_hashes
     }
 
     fn mark_pending_payable(&self, sent_payments: &[&PendingPayable], logger: &Logger) {
-        fn missing_fingerprints_msg(nonexistent: &[PendingPayableMetadata]) -> String {
-            format!(
-                "Expected pending payable fingerprints for {} were not found; system unreliable",
-                comma_joined_stringifiable(nonexistent, |pp_triple| format!(
-                    "(tx: {:?}, to wallet: {})",
-                    pp_triple.hash, pp_triple.recipient
-                ))
-            )
-        }
-        fn ready_data_for_supply<'a>(
-            existent: &'a [PendingPayableMetadata],
-        ) -> Vec<(&'a Wallet, u64)> {
-            existent
-                .iter()
-                .map(|pp_triple| (pp_triple.recipient, pp_triple.rowid_opt.expectv("rowid")))
-                .collect()
-        }
-
-        debug!(
-            logger,
-            "Marking {} transactions as pending payable: {}",
-            sent_payments.len(),
-            join_with_separator(sent_payments, |p| format!("{:?}", p.hash), ", ")
-        );
-
-        let (existent, nonexistent) =
-            self.separate_existent_and_nonexistent_fingerprints(sent_payments);
-        let mark_pp_input_data = ready_data_for_supply(&existent);
-        if !mark_pp_input_data.is_empty() {
-            if let Err(e) = self
-                .payable_dao
-                .as_ref()
-                .mark_pending_payables_rowids(&mark_pp_input_data)
-            {
-                mark_pending_payable_fatal_error(
-                    sent_payments,
-                    &nonexistent,
-                    e,
-                    missing_fingerprints_msg,
-                    logger,
-                )
-            }
-            debug!(
-                logger,
-                "Payables {} marked as pending in the payable table",
-                comma_joined_stringifiable(sent_payments, |pending_p| format!(
-                    "{:?}",
-                    pending_p.hash
-                ))
-            )
-        }
-        if !nonexistent.is_empty() {
-            panic!("{}", missing_fingerprints_msg(&nonexistent))
-        }
+        todo!("it's okay to delete this");
+        // fn missing_fingerprints_msg(nonexistent: &[PendingPayableMetadata]) -> String {
+        //     format!(
+        //         "Expected pending payable fingerprints for {} were not found; system unreliable",
+        //         comma_joined_stringifiable(nonexistent, |pp_triple| format!(
+        //             "(tx: {:?}, to wallet: {})",
+        //             pp_triple.hash, pp_triple.recipient
+        //         ))
+        //     )
+        // }
+        // fn ready_data_for_supply<'a>(
+        //     existent: &'a [PendingPayableMetadata],
+        // ) -> Vec<(&'a Wallet, u64)> {
+        //     existent
+        //         .iter()
+        //         .map(|pp_triple| (pp_triple.recipient, pp_triple.rowid_opt.expectv("rowid")))
+        //         .collect()
+        // }
+        //
+        // debug!(
+        //     logger,
+        //     "Marking {} transactions as pending payable: {}",
+        //     sent_payments.len(),
+        //     join_with_separator(sent_payments, |p| format!("{:?}", p.hash), ", ")
+        // );
+        //
+        // let (existent, nonexistent) =
+        //     self.separate_existent_and_nonexistent_fingerprints(sent_payments);
+        // let mark_pp_input_data = ready_data_for_supply(&existent);
+        // if !mark_pp_input_data.is_empty() {
+        //     if let Err(e) = self
+        //         .payable_dao
+        //         .as_ref()
+        //         .mark_pending_payables_rowids(&mark_pp_input_data)
+        //     {
+        //         mark_pending_payable_fatal_error(
+        //             sent_payments,
+        //             &nonexistent,
+        //             e,
+        //             missing_fingerprints_msg,
+        //             logger,
+        //         )
+        //     }
+        //     debug!(
+        //         logger,
+        //         "Payables {} marked as pending in the payable table",
+        //         comma_joined_stringifiable(sent_payments, |pending_p| format!(
+        //             "{:?}",
+        //             pending_p.hash
+        //         ))
+        //     )
+        // }
+        // if !nonexistent.is_empty() {
+        //     panic!("{}", missing_fingerprints_msg(&nonexistent))
+        // }
     }
 
     fn handle_sent_payable_errors(
@@ -912,7 +862,6 @@ impl PayableScanner {
             .collect();
 
         if !missing_hashes.is_empty() {
-            // TODO: GH-605: Test the panic
             panic!(
                 "Could not find entries for the following transactions in the database:\n\
                 {}\n\
@@ -1646,6 +1595,7 @@ mod tests {
     }
 
     #[test]
+    // TODO: GH-605: Work on this
     fn scanners_struct_can_be_constructed_with_the_respective_scanners() {
         let payable_dao_factory = PayableDaoFactoryMock::new()
             .make_result(PayableDaoMock::new())
@@ -1870,6 +1820,7 @@ mod tests {
     }
 
     #[test]
+    // TODO: GH-605: Work on it while working on start_scan() method
     fn retry_payable_scanner_can_initiate_a_scan() {
         //
         // Setup Part:
@@ -1927,6 +1878,7 @@ mod tests {
     }
 
     #[test]
+    // TODO: GH-605: Work on it while working on start_scan() method
     fn retry_payable_scanner_panics_in_case_scan_is_already_running() {
         let consuming_wallet = make_paying_wallet(b"consuming wallet");
         let (_, _, all_non_pending_payables) = make_qualified_and_unqualified_payables(
@@ -2006,6 +1958,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "Complete me with GH-605")]
+    // TODO: GH-605: Work on it while working on start_scan() method
     fn retry_payable_scanner_panics_in_case_no_qualified_payable_is_found() {
         let consuming_wallet = make_paying_wallet(b"consuming wallet");
         let now = SystemTime::now();
@@ -2027,6 +1980,7 @@ mod tests {
     }
 
     #[test]
+    // TODO: GH-605: Leave This
     fn payable_scanner_handles_sent_payable_message() {
         init_test_logging();
         let test_name = "payable_scanner_handles_sent_payable_message";
@@ -2149,50 +2103,6 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn entries_must_be_kept_consistent_and_aligned() {
-        let wallet_1 = make_wallet("abc");
-        let hash_1 = make_tx_hash(123);
-        let wallet_2 = make_wallet("def");
-        let hash_2 = make_tx_hash(345);
-        let wallet_3 = make_wallet("ghi");
-        let hash_3 = make_tx_hash(546);
-        let wallet_4 = make_wallet("jkl");
-        let hash_4 = make_tx_hash(678);
-        let pending_payables_owned = vec![
-            PendingPayable::new(wallet_1.clone(), hash_1),
-            PendingPayable::new(wallet_2.clone(), hash_2),
-            PendingPayable::new(wallet_3.clone(), hash_3),
-            PendingPayable::new(wallet_4.clone(), hash_4),
-        ];
-        let pending_payables_ref = pending_payables_owned
-            .iter()
-            .collect::<Vec<&PendingPayable>>();
-        let pending_payable_dao =
-            PendingPayableDaoMock::new().fingerprints_rowids_result(TransactionHashes {
-                rowid_results: vec![(4, hash_4), (1, hash_1), (3, hash_3), (2, hash_2)],
-                no_rowid_results: vec![],
-            });
-        let failed_payable_dao = todo!("work on separate_existent_and_nonexistent_fingerprints()");
-        let subject = PayableScannerBuilder::new()
-            .failed_payable_dao(failed_payable_dao)
-            .build();
-
-        let (existent, nonexistent) =
-            subject.separate_existent_and_nonexistent_fingerprints(&pending_payables_ref);
-
-        assert_eq!(
-            existent,
-            vec![
-                PendingPayableMetadata::new(&wallet_4, hash_4, Some(4)),
-                PendingPayableMetadata::new(&wallet_1, hash_1, Some(1)),
-                PendingPayableMetadata::new(&wallet_3, hash_3, Some(3)),
-                PendingPayableMetadata::new(&wallet_2, hash_2, Some(2)),
-            ]
-        );
-        assert!(nonexistent.is_empty())
-    }
-
     struct TestingMismatchedDataAboutPendingPayables {
         pending_payables: Vec<PendingPayable>,
         common_hash_1: H256,
@@ -2216,46 +2126,6 @@ mod tests {
             common_hash_3: hash_3,
             intruder_for_hash_2: intruder,
         }
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Inconsistency in two maps, they cannot be matched by hashes. \
-    Data set directly sent from BlockchainBridge: \
-    [PendingPayable { recipient_wallet: Wallet { kind: Address(0x0000000000000000000000000000000000616263) }, \
-    hash: 0x000000000000000000000000000000000000000000000000000000000000007b }, \
-    PendingPayable { recipient_wallet: Wallet { kind: Address(0x0000000000000000000000000000000000646566) }, \
-    hash: 0x00000000000000000000000000000000000000000000000000000000000001c8 }, \
-    PendingPayable { recipient_wallet: Wallet { kind: Address(0x0000000000000000000000000000000000676869) }, \
-    hash: 0x0000000000000000000000000000000000000000000000000000000000000315 }], \
-    set derived from the DB: \
-    TransactionHashes { rowid_results: \
-    [(4, 0x000000000000000000000000000000000000000000000000000000000000007b), \
-    (1, 0x0000000000000000000000000000000000000000000000000000000000000237), \
-    (3, 0x0000000000000000000000000000000000000000000000000000000000000315)], \
-    no_rowid_results: [] }"
-    )]
-    fn two_sourced_information_of_new_pending_payables_and_their_fingerprints_is_not_symmetrical() {
-        let vals = prepare_values_for_mismatched_setting();
-        let pending_payables_ref = vals
-            .pending_payables
-            .iter()
-            .collect::<Vec<&PendingPayable>>();
-        let pending_payable_dao =
-            PendingPayableDaoMock::new().fingerprints_rowids_result(TransactionHashes {
-                rowid_results: vec![
-                    (4, vals.common_hash_1),
-                    (1, vals.intruder_for_hash_2),
-                    (3, vals.common_hash_3),
-                ],
-                no_rowid_results: vec![],
-            });
-        let failed_payable_dao = todo!("replace pending payable dao with failed payable dao");
-        let subject = PayableScannerBuilder::new()
-            .failed_payable_dao(failed_payable_dao)
-            .build();
-
-        subject.separate_existent_and_nonexistent_fingerprints(&pending_payables_ref);
     }
 
     #[test]
@@ -2341,6 +2211,7 @@ mod tests {
      to wallet: 0x000000000000000000000000000000626f6f6761), (tx: 0x000000000000000000000000000000000000000000000000000000000000007b, \
      to wallet: 0x00000000000000000000000000000061676f6f62) were not found; system unreliable"
     )]
+    // TODO: GH-605: Obsolete
     fn payable_scanner_panics_when_fingerprints_for_correct_payments_not_found() {
         let hash_1 = make_tx_hash(0x315);
         let payment_1 = PendingPayable::new(make_wallet("booga"), hash_1);
@@ -2406,6 +2277,7 @@ mod tests {
     }
 
     #[test]
+    // TODO: GH-605: Obsolete
     fn payable_scanner_mark_pending_payable_only_panics_all_fingerprints_found() {
         init_test_logging();
         let test_name = "payable_scanner_mark_pending_payable_only_panics_all_fingerprints_found";
@@ -2702,6 +2574,7 @@ mod tests {
     }
 
     #[test]
+    // TODO: GH-605: Leave This
     fn payable_scanner_for_failed_rpcs_one_fingerprint_missing_and_deletion_of_the_other_one_fails()
     {
         // Two fatal failures at once, missing fingerprints and fingerprint deletion error are both
@@ -3735,6 +3608,7 @@ mod tests {
     }
 
     #[test]
+    // TODO: GH-605: Leave this
     fn pending_payable_scanner_handles_report_transaction_receipts_message() {
         init_test_logging();
         let test_name = "pending_payable_scanner_handles_report_transaction_receipts_message";
@@ -3818,6 +3692,7 @@ mod tests {
     }
 
     #[test]
+    // TODO: GH-605: Leave this
     fn pending_payable_scanner_handles_empty_report_transaction_receipts_message() {
         init_test_logging();
         let test_name =
