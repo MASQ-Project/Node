@@ -4,9 +4,11 @@ use crate::accountant::db_access_objects::utils::{
 };
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::{checked_conversion, comma_joined_stringifiable};
+use crate::blockchain::errors::AppRpcError;
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use itertools::Itertools;
 use masq_lib::utils::ExpectValue;
+use serde_derive::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -21,11 +23,29 @@ pub enum FailedPayableDaoError {
     SqlExecutionFailed(String),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FailureReason {
+    Submission(AppRpcError),
+    Validation(AppRpcError),
+    Reverted,
     PendingTooLong,
-    NonceIssue,
-    General,
+}
+
+impl Display for FailureReason {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match serde_json::to_string(self) {
+            Ok(json) => write!(f, "{}", json),
+            Err(_) => write!(f, "<invalid FailureReason>"),
+        }
+    }
+}
+
+impl FromStr for FailureReason {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        serde_json::from_str(s).map_err(|e| e.to_string())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -43,19 +63,6 @@ impl FromStr for FailureStatus {
             "RecheckRequired" => Ok(FailureStatus::RecheckRequired),
             "Concluded" => Ok(FailureStatus::Concluded),
             _ => Err(format!("Invalid FailureStatus: {}", s)),
-        }
-    }
-}
-
-impl FromStr for FailureReason {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "PendingTooLong" => Ok(FailureReason::PendingTooLong),
-            "NonceIssue" => Ok(FailureReason::NonceIssue),
-            "General" => Ok(FailureReason::General),
-            _ => Err(format!("Invalid FailureReason: {}", s)),
         }
     }
 }
@@ -174,7 +181,7 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
                 let (gas_price_wei_high_b, gas_price_wei_low_b) =
                     BigIntDivider::deconstruct(gas_price_wei_checked);
                 format!(
-                    "('{:?}', '{:?}', {}, {}, {}, {}, {}, {}, '{:?}', '{:?}')",
+                    "('{:?}', '{:?}', {}, {}, {}, {}, {}, {}, '{}', '{:?}')",
                     tx.hash,
                     tx.receiver_address,
                     amount_high_b,
@@ -350,7 +357,7 @@ impl FailedPayableDaoFactory for DaoFactoryReal {
 #[cfg(test)]
 mod tests {
     use crate::accountant::db_access_objects::failed_payable_dao::FailureReason::{
-        General, NonceIssue, PendingTooLong,
+        PendingTooLong, Reverted,
     };
     use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::{
         Concluded, RecheckRequired, RetryRequired,
@@ -363,6 +370,7 @@ mod tests {
         make_read_only_db_connection, FailedTxBuilder,
     };
     use crate::accountant::db_access_objects::utils::current_unix_timestamp;
+    use crate::blockchain::errors::{AppRpcError, LocalError, RemoteError};
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal,
@@ -382,7 +390,7 @@ mod tests {
             .unwrap();
         let tx1 = FailedTxBuilder::default()
             .hash(make_tx_hash(1))
-            .reason(NonceIssue)
+            .reason(Reverted)
             .build();
         let tx2 = FailedTxBuilder::default()
             .hash(make_tx_hash(2))
@@ -563,15 +571,49 @@ mod tests {
 
     #[test]
     fn failure_reason_from_str_works() {
+        // Submission error
         assert_eq!(
-            FailureReason::from_str("PendingTooLong"),
-            Ok(PendingTooLong)
+            FailureReason::from_str(r#"{"Submission":{"Local":{"Decoder":"Test decoder error"}}}"#)
+                .unwrap(),
+            FailureReason::Submission(AppRpcError::Local(LocalError::Decoder(
+                "Test decoder error".to_string()
+            )))
         );
-        assert_eq!(FailureReason::from_str("NonceIssue"), Ok(NonceIssue));
-        assert_eq!(FailureReason::from_str("General"), Ok(General));
+
+        // Validation error
         assert_eq!(
-            FailureReason::from_str("InvalidReason"),
-            Err("Invalid FailureReason: InvalidReason".to_string())
+            FailureReason::from_str(r#"{"Validation":{"Remote":{"Web3RpcError":{"code":42,"message":"Test RPC error"}}}}"#).unwrap(),
+            FailureReason::Validation(AppRpcError::Remote(RemoteError::Web3RpcError {
+                code: 42,
+                message: "Test RPC error".to_string()
+            }))
+        );
+
+        // Reverted
+        assert_eq!(
+            FailureReason::from_str(r#"{"Reverted":null}"#).unwrap(),
+            FailureReason::Reverted
+        );
+
+        // PendingTooLong
+        assert_eq!(
+            FailureReason::from_str(r#"{"PendingTooLong":null}"#).unwrap(),
+            FailureReason::PendingTooLong
+        );
+
+        // Invalid Variant
+        assert_eq!(
+            FailureReason::from_str(r#"{"UnknownReason":null}"#).unwrap_err(),
+            "unknown variant `UnknownReason`, \
+            expected one of `Submission`, `Validation`, `Reverted`, `PendingTooLong` \
+            at line 1 column 16"
+                .to_string()
+        );
+
+        // Invalid Input
+        assert_eq!(
+            FailureReason::from_str("random string").unwrap_err(),
+            "expected value at line 1 column 1".to_string()
         );
     }
 
@@ -640,7 +682,7 @@ mod tests {
             .build();
         let tx2 = FailedTxBuilder::default()
             .hash(make_tx_hash(2))
-            .reason(NonceIssue)
+            .reason(Reverted)
             .timestamp(now - 3600)
             .status(RetryRequired)
             .build();
@@ -674,7 +716,7 @@ mod tests {
         let subject = FailedPayableDaoReal::new(wrapped_conn);
         let tx1 = FailedTxBuilder::default()
             .hash(make_tx_hash(1))
-            .reason(NonceIssue)
+            .reason(Reverted)
             .status(RetryRequired)
             .build();
         let tx2 = FailedTxBuilder::default()
