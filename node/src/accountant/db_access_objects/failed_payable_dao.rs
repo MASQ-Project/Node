@@ -4,6 +4,7 @@ use crate::accountant::db_access_objects::utils::{
 };
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::{checked_conversion, comma_joined_stringifiable};
+use crate::blockchain::errors::AppRpcError;
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use itertools::Itertools;
 use masq_lib::utils::ExpectValue;
@@ -11,7 +12,6 @@ use serde_derive::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
-use web3::error::Error as Web3Error;
 use web3::types::Address;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -25,64 +25,10 @@ pub enum FailedPayableDaoError {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FailureReason {
-    Local(LocalError),
-    Api(ApiError),
-    Pool(PoolError),
+    Submission(AppRpcError),
+    Validation(AppRpcError),
+    Reverted,
     PendingTooLong,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum LocalError {
-    Decoder(String),
-    Internal,
-    Io(String),
-    Signing(String),
-    Transport(String),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ApiError {
-    InvalidResponse(String),
-    Unreachable,
-    Web3RpcError { code: i64, message: String },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum PoolError {
-    NonceIssue {
-        latest_used_nonce: u64,
-        tx_nonce: u64,
-    },
-    OrphanedTransaction {
-        tx_hash: TxHash,
-        block_number: u64,
-    },
-}
-
-impl From<Web3Error> for FailureReason {
-    fn from(error: Web3Error) -> Self {
-        match error {
-            // Local Errors
-            Web3Error::Decoder(error) => FailureReason::Local(LocalError::Decoder(error)),
-            Web3Error::Internal => FailureReason::Local(LocalError::Internal),
-            Web3Error::Io(error) => FailureReason::Local(LocalError::Io(error.to_string())),
-            Web3Error::Signing(error) => {
-                // This variant cannot be tested due to import limitations.
-                FailureReason::Local(LocalError::Signing(error.to_string()))
-            }
-            Web3Error::Transport(error) => FailureReason::Local(LocalError::Transport(error)),
-
-            // Api Errors
-            Web3Error::InvalidResponse(response) => {
-                FailureReason::Api(ApiError::InvalidResponse(response))
-            }
-            Web3Error::Rpc(web3_rpc_error) => FailureReason::Api(ApiError::Web3RpcError {
-                code: web3_rpc_error.code.code(),
-                message: web3_rpc_error.message,
-            }),
-            Web3Error::Unreachable => FailureReason::Api(ApiError::Unreachable),
-        }
-    }
 }
 
 impl Display for FailureReason {
@@ -410,21 +356,21 @@ impl FailedPayableDaoFactory for DaoFactoryReal {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::db_access_objects::failed_payable_dao::ApiError::Unreachable;
     use crate::accountant::db_access_objects::failed_payable_dao::FailureReason::{
-        Api, PendingTooLong,
+        PendingTooLong, Reverted,
     };
     use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::{
         Concluded, RecheckRequired, RetryRequired,
     };
     use crate::accountant::db_access_objects::failed_payable_dao::{
-        ApiError, FailedPayableDao, FailedPayableDaoError, FailedPayableDaoReal, FailureReason,
-        FailureRetrieveCondition, FailureStatus, LocalError, PoolError,
+        FailedPayableDao, FailedPayableDaoError, FailedPayableDaoReal, FailureReason,
+        FailureRetrieveCondition, FailureStatus,
     };
     use crate::accountant::db_access_objects::test_utils::{
         make_read_only_db_connection, FailedTxBuilder,
     };
-    use crate::accountant::db_access_objects::utils::{current_unix_timestamp, TxHash};
+    use crate::accountant::db_access_objects::utils::current_unix_timestamp;
+    use crate::blockchain::errors::{AppRpcError, LocalError, RemoteError};
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal,
@@ -434,7 +380,6 @@ mod tests {
     use rusqlite::Connection;
     use std::collections::{HashMap, HashSet};
     use std::str::FromStr;
-    use web3::error::Error as Web3Error;
 
     #[test]
     fn insert_new_records_works() {
@@ -445,7 +390,7 @@ mod tests {
             .unwrap();
         let tx1 = FailedTxBuilder::default()
             .hash(make_tx_hash(1))
-            .reason(Api(Unreachable))
+            .reason(Reverted)
             .build();
         let tx2 = FailedTxBuilder::default()
             .hash(make_tx_hash(2))
@@ -626,68 +571,28 @@ mod tests {
 
     #[test]
     fn failure_reason_from_str_works() {
-        // Local errors (lexicographically sorted)
+        // Submission error
         assert_eq!(
-            FailureReason::from_str(r#"{"Local":{"Decoder":"Test decoder error"}}"#).unwrap(),
-            FailureReason::Local(LocalError::Decoder("Test decoder error".to_string()))
-        );
-        assert_eq!(
-            FailureReason::from_str(r#"{"Local":{"Internal":null}}"#).unwrap(),
-            FailureReason::Local(LocalError::Internal)
-        );
-        assert_eq!(
-            FailureReason::from_str(r#"{"Local":{"Io":"Test IO error"}}"#).unwrap(),
-            FailureReason::Local(LocalError::Io("Test IO error".to_string()))
-        );
-        assert_eq!(
-            FailureReason::from_str(r#"{"Local":{"Signing":"Test signing error"}}"#).unwrap(),
-            FailureReason::Local(LocalError::Signing("Test signing error".to_string()))
-        );
-        assert_eq!(
-            FailureReason::from_str(r#"{"Local":{"Transport":"Test transport error"}}"#).unwrap(),
-            FailureReason::Local(LocalError::Transport("Test transport error".to_string()))
-        );
-
-        // Api errors (lexicographically sorted)
-        assert_eq!(
-            FailureReason::from_str(r#"{"Api":{"InvalidResponse":"Test invalid response"}}"#)
+            FailureReason::from_str(r#"{"Submission":{"Local":{"Decoder":"Test decoder error"}}}"#)
                 .unwrap(),
-            FailureReason::Api(ApiError::InvalidResponse(
-                "Test invalid response".to_string()
-            ))
-        );
-        assert_eq!(
-            FailureReason::from_str(r#"{"Api":{"Unreachable":null}}"#).unwrap(),
-            FailureReason::Api(ApiError::Unreachable)
-        );
-        assert_eq!(
-            FailureReason::from_str(
-                r#"{"Api":{"Web3RpcError":{"code":123,"message":"Test RPC error"}}}"#
-            )
-            .unwrap(),
-            FailureReason::Api(ApiError::Web3RpcError {
-                code: 123,
-                message: "Test RPC error".to_string()
-            })
+            FailureReason::Submission(AppRpcError::Local(LocalError::Decoder(
+                "Test decoder error".to_string()
+            )))
         );
 
-        // Pool errors (lexicographically sorted)
+        // Validation error
         assert_eq!(
-            FailureReason::from_str(
-                r#"{"Pool":{"NonceIssue":{"latest_used_nonce":123,"tx_nonce":456}}}"#
-            )
-            .unwrap(),
-            FailureReason::Pool(PoolError::NonceIssue {
-                latest_used_nonce: 123,
-                tx_nonce: 456
-            })
+            FailureReason::from_str(r#"{"Validation":{"Remote":{"Web3RpcError":{"code":42,"message":"Test RPC error"}}}}"#).unwrap(),
+            FailureReason::Validation(AppRpcError::Remote(RemoteError::Web3RpcError {
+                code: 42,
+                message: "Test RPC error".to_string()
+            }))
         );
+
+        // Reverted
         assert_eq!(
-            FailureReason::from_str(r#"{"Pool":{"OrphanedTransaction":{"tx_hash":"0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef","block_number":789}}}"#).unwrap(),
-            FailureReason::Pool(PoolError::OrphanedTransaction {
-                tx_hash: TxHash::from_str("1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef").unwrap(),
-                block_number: 789
-            })
+            FailureReason::from_str(r#"{"Reverted":null}"#).unwrap(),
+            FailureReason::Reverted
         );
 
         // PendingTooLong
@@ -700,8 +605,8 @@ mod tests {
         assert_eq!(
             FailureReason::from_str(r#"{"UnknownReason":null}"#).unwrap_err(),
             "unknown variant `UnknownReason`, \
-             expected one of `Local`, `Api`, `Pool`, `PendingTooLong` \
-             at line 1 column 16"
+            expected one of `Submission`, `Validation`, `Reverted`, `PendingTooLong` \
+            at line 1 column 16"
                 .to_string()
         );
 
@@ -709,51 +614,6 @@ mod tests {
         assert_eq!(
             FailureReason::from_str("random string").unwrap_err(),
             "expected value at line 1 column 1".to_string()
-        );
-    }
-
-    #[test]
-    fn web3_error_to_failure_reason_conversion_works() {
-        // Local Errors
-        assert_eq!(
-            FailureReason::from(Web3Error::Decoder("Decoder error".to_string())),
-            FailureReason::Local(LocalError::Decoder("Decoder error".to_string()))
-        );
-        assert_eq!(
-            FailureReason::from(Web3Error::Internal),
-            FailureReason::Local(LocalError::Internal)
-        );
-        assert_eq!(
-            FailureReason::from(Web3Error::Io(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "IO error"
-            ))),
-            FailureReason::Local(LocalError::Io("IO error".to_string()))
-        );
-        assert_eq!(
-            FailureReason::from(Web3Error::Transport("Transport error".to_string())),
-            FailureReason::Local(LocalError::Transport("Transport error".to_string()))
-        );
-
-        // Api Errors
-        assert_eq!(
-            FailureReason::from(Web3Error::InvalidResponse("Invalid response".to_string())),
-            FailureReason::Api(ApiError::InvalidResponse("Invalid response".to_string()))
-        );
-        assert_eq!(
-            FailureReason::from(Web3Error::Rpc(jsonrpc_core::types::error::Error {
-                code: jsonrpc_core::types::error::ErrorCode::ServerError(42),
-                message: "RPC error".to_string(),
-                data: None,
-            })),
-            FailureReason::Api(ApiError::Web3RpcError {
-                code: 42,
-                message: "RPC error".to_string(),
-            })
-        );
-        assert_eq!(
-            FailureReason::from(Web3Error::Unreachable),
-            FailureReason::Api(ApiError::Unreachable)
         );
     }
 
@@ -822,7 +682,7 @@ mod tests {
             .build();
         let tx2 = FailedTxBuilder::default()
             .hash(make_tx_hash(2))
-            .reason(Api(Unreachable))
+            .reason(Reverted)
             .timestamp(now - 3600)
             .status(RetryRequired)
             .build();
@@ -856,7 +716,7 @@ mod tests {
         let subject = FailedPayableDaoReal::new(wrapped_conn);
         let tx1 = FailedTxBuilder::default()
             .hash(make_tx_hash(1))
-            .reason(Api(Unreachable))
+            .reason(Reverted)
             .status(RetryRequired)
             .build();
         let tx2 = FailedTxBuilder::default()
