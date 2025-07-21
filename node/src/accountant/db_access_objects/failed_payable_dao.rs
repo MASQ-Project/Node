@@ -27,6 +27,8 @@ pub enum FailureReason {
     PendingTooLong,
     NonceIssue,
     General,
+    // Orphan
+    // RequestExecutionFailed
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -73,6 +75,7 @@ pub struct FailedTx {
     pub status: FailureStatus,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum FailureRetrieveCondition {
     ByStatus(FailureStatus),
 }

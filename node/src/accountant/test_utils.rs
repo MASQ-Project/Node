@@ -1331,7 +1331,6 @@ pub struct PendingPayableScannerBuilder {
     sent_payable_dao: SentPayableDaoMock,
     failed_payable_dao: FailedPayableDaoMock,
     payment_thresholds: PaymentThresholds,
-    when_pending_too_long_sec: u64,
     financial_statistics: FinancialStatistics,
 }
 
@@ -1342,7 +1341,6 @@ impl PendingPayableScannerBuilder {
             sent_payable_dao: SentPayableDaoMock::new(),
             failed_payable_dao: FailedPayableDaoMock::new(),
             payment_thresholds: PaymentThresholds::default(),
-            when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             financial_statistics: FinancialStatistics::default(),
         }
     }
@@ -1361,19 +1359,13 @@ impl PendingPayableScannerBuilder {
         self.failed_payable_dao = failed_payable_dao;
         self
     }
-
-    pub fn when_pending_too_long_sec(mut self, interval: u64) -> Self {
-        self.when_pending_too_long_sec = interval;
-        self
-    }
-
+    
     pub fn build(self) -> PendingPayableScanner {
         PendingPayableScanner::new(
             Box::new(self.payable_dao),
             Box::new(self.sent_payable_dao),
             Box::new(self.failed_payable_dao),
             Rc::new(self.payment_thresholds),
-            self.when_pending_too_long_sec,
             Rc::new(RefCell::new(self.financial_statistics)),
         )
     }
