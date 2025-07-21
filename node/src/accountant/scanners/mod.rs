@@ -1516,6 +1516,8 @@ mod tests {
     use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDaoError;
     use crate::accountant::scanners::test_utils::{assert_timestamps_from_str, parse_system_time_from_str, MarkScanner, NullScanner, ReplacementType, ScannerReplacement};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TransactionReceiptResult, TxReceipt, TxStatus};
+    use crate::blockchain::errors::AppRpcError::Local;
+    use crate::blockchain::errors::LocalError::Internal;
 
     impl Scanners {
         pub fn replace_scanner(&mut self, replacement: ScannerReplacement) {
@@ -2406,7 +2408,7 @@ mod tests {
                 timestamp: tx.timestamp,
                 gas_price_wei: tx.gas_price_wei,
                 nonce: tx.nonce,
-                reason: FailureReason::Local,
+                reason: FailureReason::Submission(Local(Internal)),
                 status: FailureStatus::RetryRequired,
             })
             .collect();

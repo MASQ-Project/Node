@@ -20,9 +20,12 @@ pub mod payable_scanner_utils {
     use web3::types::H256;
     use masq_lib::ui_gateway::NodeToUiMessage;
     use crate::accountant::db_access_objects::failed_payable_dao::FailureReason;
+    use crate::accountant::db_access_objects::failed_payable_dao::FailureReason::Submission;
     use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
     use crate::blockchain::blockchain_interface::data_structures::{IndividualBatchResult, RpcPayableFailure};
     use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
+    use crate::blockchain::errors::AppRpcError::Local;
+    use crate::blockchain::errors::LocalError::Internal;
 
     #[derive(Debug, PartialEq, Eq)]
     pub enum PayableTransactingErrorEnum {
@@ -119,14 +122,7 @@ pub mod payable_scanner_utils {
                     IndividualBatchResult::Failed(RpcPayableFailure {
                         hash, rpc_error, ..
                     }) => {
-                        let failure_reason = match rpc_error {
-                            // TODO: GH-605: Work your ass off to make this conversion straightforward
-                            // Adjust these mappings based on your specific error types
-                            Error::Transport(_) => FailureReason::Local,
-                            Error::Rpc(_) => FailureReason::Remote,
-                            _ => FailureReason::General,
-                        };
-                        failures.insert(hash.clone(), failure_reason);
+                        failures.insert(hash.clone(), Submission(rpc_error.clone().into()));
                     }
                 }
                 (pending, failures)
@@ -137,7 +133,7 @@ pub mod payable_scanner_utils {
     pub fn map_hashes_to_local_failures(hashes: Vec<TxHash>) -> HashMap<TxHash, FailureReason> {
         hashes
             .into_iter()
-            .map(|hash| (hash, FailureReason::Local))
+            .map(|hash| (hash, FailureReason::Submission(Local(Internal))))
             .collect()
     }
 
