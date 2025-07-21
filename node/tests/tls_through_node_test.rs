@@ -2,8 +2,8 @@
 
 pub mod utils;
 
-use native_tls::{HandshakeError, MidHandshakeTlsStream, TlsStream};
 use native_tls::TlsConnector;
+use native_tls::{HandshakeError, MidHandshakeTlsStream, TlsStream};
 use node_lib::test_utils::*;
 use std::io::Write;
 use std::net::SocketAddr;
@@ -34,9 +34,7 @@ fn tls_through_node_integration() {
             "example.com",
             stream.try_clone().expect("Couldn't clone TcpStream"),
         ) {
-            Ok(s) => {
-                s
-            }
+            Ok(s) => s,
             Err(HandshakeError::WouldBlock(interrupted_stream)) => {
                 match handle_wouldblock(interrupted_stream) {
                     Ok(stream) => stream,
@@ -71,12 +69,17 @@ fn tls_through_node_integration() {
     );
 }
 
-fn handle_wouldblock(interrupted_stream: MidHandshakeTlsStream<TcpStream>) -> Result<TlsStream<TcpStream>, HandshakeError<TcpStream>> {
+fn handle_wouldblock(
+    interrupted_stream: MidHandshakeTlsStream<TcpStream>,
+) -> Result<TlsStream<TcpStream>, HandshakeError<TcpStream>> {
     let mut retries_left = 10;
     let mut retry_stream = interrupted_stream;
     while retries_left > 0 {
         retries_left -= 1;
-        eprintln!("Handshake interrupted, retrying... ({} retries left)", retries_left);
+        eprintln!(
+            "Handshake interrupted, retrying... ({} retries left)",
+            retries_left
+        );
         thread::sleep(Duration::from_millis(100));
         match retry_stream.handshake() {
             Ok(stream) => return Ok(stream),
