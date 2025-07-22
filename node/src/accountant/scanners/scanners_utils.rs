@@ -109,34 +109,6 @@ pub mod payable_scanner_utils {
                 oldest.balance_wei, oldest.age)
     }
 
-    pub fn separate_batch_results(
-        batch_results: Vec<IndividualBatchResult>,
-    ) -> (Vec<PendingPayable>, HashMap<TxHash, FailureReason>) {
-        batch_results.into_iter().fold(
-            (vec![], HashMap::new()),
-            |(mut pending, mut failures), result| {
-                match result {
-                    IndividualBatchResult::Pending(payable) => {
-                        pending.push(payable);
-                    }
-                    IndividualBatchResult::Failed(RpcPayableFailure {
-                        hash, rpc_error, ..
-                    }) => {
-                        failures.insert(hash, Submission(rpc_error.into()));
-                    }
-                }
-                (pending, failures)
-            },
-        )
-    }
-
-    pub fn map_hashes_to_local_failures(hashes: Vec<TxHash>) -> HashMap<TxHash, FailureReason> {
-        hashes
-            .into_iter()
-            .map(|hash| (hash, FailureReason::Submission(Local(Internal))))
-            .collect()
-    }
-
     pub fn separate_errors<'a, 'b>(
         sent_payables: &'a SentPayables,
         logger: &'b Logger,

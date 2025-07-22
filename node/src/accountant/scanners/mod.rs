@@ -12,7 +12,7 @@ use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
     LocallyCausedError, RemotelyCausedErrors,
 };
-use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{debugging_summary_after_error_separation, err_msg_for_failure_with_expected_but_missing_fingerprints, investigate_debt_extremes, map_hashes_to_local_failures, mark_pending_payable_fatal_error, payables_debug_summary, separate_batch_results, separate_errors, separate_rowids_and_hashes, OperationOutcome, PayableScanResult, PayableThresholdsGauge, PayableThresholdsGaugeReal, PayableTransactingErrorEnum, PendingPayableMetadata};
+use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{debugging_summary_after_error_separation, err_msg_for_failure_with_expected_but_missing_fingerprints, investigate_debt_extremes,  mark_pending_payable_fatal_error, payables_debug_summary, separate_errors, separate_rowids_and_hashes, OperationOutcome, PayableScanResult, PayableThresholdsGauge, PayableThresholdsGaugeReal, PayableTransactingErrorEnum, PendingPayableMetadata};
 use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_none_receipt, handle_status_with_failure, handle_status_with_success, PendingPayableScanReport, PendingPayableScanResult};
 use crate::accountant::scanners::scanners_utils::receivable_scanner_utils::balance_and_age;
 use crate::accountant::{join_with_separator, PendingPayableId, ScanError, ScanForPendingPayables, ScanForRetryPayables};
@@ -45,6 +45,7 @@ use time::OffsetDateTime;
 use variant_count::VariantCount;
 use web3::types::H256;
 use crate::accountant::db_access_objects::failed_payable_dao::{FailedPayableDao, FailedPayableDaoError, FailedTx, FailureReason, FailureStatus};
+use crate::accountant::db_access_objects::failed_payable_dao::FailureReason::Submission;
 use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::ByHash;
 use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDao, Tx};
 use crate::accountant::db_access_objects::utils::{RowId, TxHash, TxIdentifiers};
@@ -52,6 +53,9 @@ use crate::accountant::scanners::payable_scanner_extension::{MultistageDualPayab
 use crate::accountant::scanners::payable_scanner_extension::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage, UnpricedQualifiedPayables};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionReceiptResult, TxStatus};
 use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
+use crate::blockchain::blockchain_interface::data_structures::{IndividualBatchResult, RpcPayableFailure};
+use crate::blockchain::errors::AppRpcError::Local;
+use crate::blockchain::errors::LocalError::Internal;
 use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
 
 // Leave the individual scanner objects private!
@@ -539,59 +543,11 @@ impl StartableScanner<ScanForRetryPayables, QualifiedPayablesMessage> for Payabl
 
 impl Scanner<SentPayables, PayableScanResult> for PayableScanner {
     fn finish_scan(&mut self, message: SentPayables, logger: &Logger) -> PayableScanResult {
-        let result = match message.payment_procedure_result {
-            Either::Left(batch_results) => {
-                // TODO: GH-605: Test me
-                let (pending, failures) = separate_batch_results(batch_results);
-
-                let pending_tx_count = pending.len();
-                let failed_tx_count = failures.len();
-                debug!(
-                    logger,
-                    "Processed payables while sending to RPC: \
-                     Total: {total}, Sent to RPC: {success}, Failed to send: {failed}. \
-                     Updating database...",
-                    total = pending_tx_count + failed_tx_count,
-                    success = pending_tx_count,
-                    failed = failed_tx_count
-                );
-
-                self.record_failed_txs_in_db(&failures, logger);
-
-                self.check_pending_payables_in_sent_db(&pending, logger);
-
-                OperationOutcome::NewPendingPayable
-            }
-            Either::Right(local_err) => {
-                warning!(
-                    logger,
-                    "Any persisted data from failed process will be deleted. Caused by: {}",
-                    local_err
-                );
-
-                if let LocalPayableError::Sending { hashes, .. } = local_err {
-                    let failures = map_hashes_to_local_failures(hashes);
-                    self.record_failed_txs_in_db(&failures, logger);
-                } else {
-                    debug!(
-                        logger,
-                        "Local error occurred before transaction signing. Error: {}", local_err
-                    );
-                }
-
-                OperationOutcome::Failure
-            }
-        };
+        let result = self.process_result(message.payment_procedure_result, logger);
 
         self.mark_as_ended(logger);
 
-        let ui_response_opt =
-            message
-                .response_skeleton_opt
-                .map(|response_skeleton| NodeToUiMessage {
-                    target: MessageTarget::ClientId(response_skeleton.client_id),
-                    body: UiScanResponse {}.tmb(response_skeleton.context_id),
-                });
+        let ui_response_opt = Self::generate_ui_response(message.response_skeleton_opt);
 
         PayableScanResult {
             ui_response_opt,
@@ -760,6 +716,34 @@ impl PayableScanner {
         }
     }
 
+    fn map_hashes_to_local_failures(hashes: Vec<TxHash>) -> HashMap<TxHash, FailureReason> {
+        hashes
+            .into_iter()
+            .map(|hash| (hash, FailureReason::Submission(Local(Internal))))
+            .collect()
+    }
+
+    fn separate_batch_results(
+        batch_results: Vec<IndividualBatchResult>,
+    ) -> (Vec<PendingPayable>, HashMap<TxHash, FailureReason>) {
+        batch_results.into_iter().fold(
+            (vec![], HashMap::new()),
+            |(mut pending, mut failures), result| {
+                match result {
+                    IndividualBatchResult::Pending(payable) => {
+                        pending.push(payable);
+                    }
+                    IndividualBatchResult::Failed(RpcPayableFailure {
+                        hash, rpc_error, ..
+                    }) => {
+                        failures.insert(hash, Submission(rpc_error.into()));
+                    }
+                }
+                (pending, failures)
+            },
+        )
+    }
+
     fn check_pending_payables_in_sent_db(
         &self,
         pending_payables: &[PendingPayable],
@@ -771,7 +755,8 @@ impl PayableScanner {
             .retrieve_txs(Some(ByHash(pending_hashes.clone())));
         let sent_hashes: HashSet<H256> = sent_payables.iter().map(|sp| sp.hash).collect();
 
-        let missing_hashes = pending_hashes.difference(&sent_hashes).cloned().collect();
+        let missing_hashes: Vec<TxHash> =
+            pending_hashes.difference(&sent_hashes).cloned().collect();
 
         if !missing_hashes.is_empty() {
             // TODO: GH-605: Test me
@@ -885,6 +870,59 @@ impl PayableScanner {
         self.migrate_payables(&failed_payables);
 
         Self::panic_if_payables_were_missing(&failed_payables, hashes_with_reason);
+    }
+
+    fn process_result(
+        &self,
+        payment_procedure_result: Either<Vec<IndividualBatchResult>, LocalPayableError>,
+        logger: &Logger,
+    ) -> OperationOutcome {
+        match payment_procedure_result {
+            Either::Left(batch_results) => {
+                // TODO: GH-605: Test me
+                let (pending, failures) = Self::separate_batch_results(batch_results);
+
+                let pending_tx_count = pending.len();
+                let failed_tx_count = failures.len();
+                debug!(
+                    logger,
+                    "Processed payables while sending to RPC: \
+                     Total: {total}, Sent to RPC: {success}, Failed to send: {failed}. \
+                     Updating database...",
+                    total = pending_tx_count + failed_tx_count,
+                    success = pending_tx_count,
+                    failed = failed_tx_count
+                );
+
+                self.record_failed_txs_in_db(&failures, logger);
+
+                self.check_pending_payables_in_sent_db(&pending, logger);
+
+                OperationOutcome::NewPendingPayable
+            }
+            Either::Right(local_err) => {
+                if let LocalPayableError::Sending { hashes, .. } = local_err {
+                    let failures = Self::map_hashes_to_local_failures(hashes);
+                    self.record_failed_txs_in_db(&failures, logger);
+                } else {
+                    debug!(
+                        logger,
+                        "Local error occurred before transaction signing. Error: {}", local_err
+                    );
+                }
+
+                OperationOutcome::Failure
+            }
+        }
+    }
+
+    fn generate_ui_response(
+        response_skeleton_opt: Option<ResponseSkeleton>,
+    ) -> Option<NodeToUiMessage> {
+        response_skeleton_opt.map(|response_skeleton| NodeToUiMessage {
+            target: MessageTarget::ClientId(response_skeleton.client_id),
+            body: UiScanResponse {}.tmb(response_skeleton.context_id),
+        })
     }
 }
 
