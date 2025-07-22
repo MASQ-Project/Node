@@ -331,12 +331,12 @@ pub mod pending_payable_scanner_utils {
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, BlockchainTxFailure, TxReceiptError, TxStatus};
 
     #[derive(Debug, Default, PartialEq, Eq, Clone)]
-    pub struct PendingPayableScanSummary {
+    pub struct PendingPayableReport {
         pub failures_summary: FailuresSummary,
         pub confirmed: Vec<SentTx>,
     }
 
-    impl PendingPayableScanSummary {
+    impl PendingPayableReport {
         pub fn requires_payments_retry(&self) -> Option<Retry> {
             match (
                 self.failures_summary.requires_retry(),
@@ -400,10 +400,10 @@ pub mod pending_payable_scanner_utils {
     }
 
     pub fn handle_still_pending_tx(
-        mut scan_report: PendingPayableScanSummary,
+        mut scan_report: PendingPayableReport,
         sent_tx: SentTx,
         logger: &Logger,
-    ) -> PendingPayableScanSummary {
+    ) -> PendingPayableReport {
         info!(
             logger,
             "Tx {:?} not confirmed within {} ms. Will resubmit with higher gas price",
@@ -417,11 +417,11 @@ pub mod pending_payable_scanner_utils {
     }
 
     pub fn handle_successful_tx(
-        mut scan_report: PendingPayableScanSummary,
+        mut scan_report: PendingPayableReport,
         sent_tx: SentTx,
         tx_block: TransactionBlock,
         logger: &Logger,
-    ) -> PendingPayableScanSummary {
+    ) -> PendingPayableReport {
         info!(
             logger,
             "Detected tx {:?} added to block {}.", sent_tx.hash, tx_block.block_number,
@@ -437,11 +437,11 @@ pub mod pending_payable_scanner_utils {
 
     //TODO: failures handling is going to need enhancement suggested by GH-693
     pub fn handle_status_with_failure(
-        mut scan_report: PendingPayableScanSummary,
+        mut scan_report: PendingPayableReport,
         sent_tx: SentTx,
         blockchain_failure: BlockchainTxFailure,
         logger: &Logger,
-    ) -> PendingPayableScanSummary {
+    ) -> PendingPayableReport {
         let failure_reason = FailureReason::from(blockchain_failure);
         let failed_tx = FailedTx::from((sent_tx, failure_reason));
 
@@ -457,10 +457,10 @@ pub mod pending_payable_scanner_utils {
     }
 
     pub fn handle_rpc_failure(
-        mut scan_report: PendingPayableScanSummary,
+        mut scan_report: PendingPayableReport,
         rpc_error: TxReceiptError,
         logger: &Logger,
-    ) -> PendingPayableScanSummary {
+    ) -> PendingPayableReport {
         warning!(
             logger,
             "Failed to retrieve tx receipt for {:?}: {:?}. Will retry receipt retrieval next cycle",
@@ -536,7 +536,7 @@ mod tests {
     use itertools::Itertools;
     use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureReason, FailureStatus};
     use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
-    use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{FailuresSummary, PendingPayableScanSummary, Retry};
+    use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{FailuresSummary, PendingPayableReport, Retry};
     use crate::accountant::test_utils::{make_failed_tx, make_sent_tx};
     use crate::assert_on_testing_enum_with_all_its_variants;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::BlockchainTxFailure;
@@ -995,28 +995,28 @@ mod tests {
     #[test]
     fn requires_payments_retry() {
         let cases = vec![
-            PendingPayableScanSummary {
+            PendingPayableReport {
                 failures_summary: FailuresSummary {
                     failures: vec![make_failed_tx(456)],
                     any_rpc_call_failure: false,
                 },
                 confirmed: vec![],
             },
-            PendingPayableScanSummary {
+            PendingPayableReport {
                 failures_summary: FailuresSummary {
                     failures: vec![make_failed_tx(789)],
                     any_rpc_call_failure: true,
                 },
                 confirmed: vec![],
             },
-            PendingPayableScanSummary {
+            PendingPayableReport {
                 failures_summary: FailuresSummary {
                     failures: vec![make_failed_tx(123), make_failed_tx(789)],
                     any_rpc_call_failure: false,
                 },
                 confirmed: vec![make_sent_tx(777)],
             },
-            PendingPayableScanSummary {
+            PendingPayableReport {
                 failures_summary: FailuresSummary {
                     failures: vec![make_failed_tx(123)],
                     any_rpc_call_failure: true,
@@ -1040,14 +1040,14 @@ mod tests {
     #[test]
     fn requires_only_receipt_retrieval_retry() {
         let cases = vec![
-            PendingPayableScanSummary {
+            PendingPayableReport {
                 failures_summary: FailuresSummary {
                     failures: vec![],
                     any_rpc_call_failure: true,
                 },
                 confirmed: vec![],
             },
-            PendingPayableScanSummary {
+            PendingPayableReport {
                 failures_summary: FailuresSummary {
                     failures: vec![],
                     any_rpc_call_failure: true,
@@ -1070,7 +1070,7 @@ mod tests {
 
     #[test]
     fn requires_payments_retry_says_no() {
-        let report = PendingPayableScanSummary {
+        let report = PendingPayableReport {
             failures_summary: FailuresSummary {
                 failures: vec![],
                 any_rpc_call_failure: false,
@@ -1089,7 +1089,7 @@ mod tests {
     no results"
     )]
     fn requires_payments_retry_with_no_results_in_whole_summary() {
-        let report = PendingPayableScanSummary {
+        let report = PendingPayableReport {
             failures_summary: FailuresSummary {
                 failures: vec![],
                 any_rpc_call_failure: false,

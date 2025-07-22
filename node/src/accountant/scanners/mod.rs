@@ -12,7 +12,7 @@ use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableT
     LocallyCausedError, RemotelyCausedErrors,
 };
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{debugging_summary_after_error_separation, err_msg_for_failure_with_expected_but_missing_sent_tx_record, investigate_debt_extremes, payables_debug_summary, separate_errors, separate_rowids_and_hashes, OperationOutcome, PayableScanResult, PayableThresholdsGauge, PayableThresholdsGaugeReal, PayableTransactingErrorEnum, PendingPayableMissingInDb};
-use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_status_with_failure, handle_successful_tx, PendingPayableScanSummary, PendingPayableScanResult, handle_still_pending_tx, handle_rpc_failure};
+use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_status_with_failure, handle_successful_tx, PendingPayableReport, PendingPayableScanResult, handle_still_pending_tx, handle_rpc_failure};
 use crate::accountant::scanners::scanners_utils::receivable_scanner_utils::balance_and_age;
 use crate::accountant::{PendingPayable, PendingPayableId, ScanError, ScanForPendingPayables, ScanForRetryPayables};
 use crate::accountant::{
@@ -959,11 +959,12 @@ impl Scanner<TxReceiptsMessage, PendingPayableScanResult> for PendingPayableScan
             "Processing receipts for {} txs",
             message.results.len()
         );
-        let scan_report = self.handle_receipts_for_pending_transactions(message, logger);
+
+        let scan_report = self.interpret_tx_receipts(message, logger);
 
         let payment_retry_opt = scan_report.requires_payments_retry();
 
-        self.process_transactions_by_their_state(scan_report, logger);
+        self.process_txs_by_their_state(scan_report, logger);
 
         self.mark_as_ended(logger);
 
@@ -1009,12 +1010,12 @@ impl PendingPayableScanner {
         }
     }
 
-    fn handle_receipts_for_pending_transactions(
+    fn interpret_tx_receipts(
         &self,
         msg: TxReceiptsMessage,
         logger: &Logger,
-    ) -> PendingPayableScanSummary {
-        let scan_report = PendingPayableScanSummary::default();
+    ) -> PendingPayableReport {
+        let scan_report = PendingPayableReport::default();
         msg.results
             .into_iter()
             .fold(
@@ -1044,9 +1045,9 @@ impl PendingPayableScanner {
             )
     }
 
-    fn process_transactions_by_their_state(
+    fn process_txs_by_their_state(
         &mut self,
-        scan_report: PendingPayableScanSummary,
+        scan_report: PendingPayableReport,
         logger: &Logger,
     ) {
         self.handle_confirmed_transactions(scan_report.confirmed, logger);
@@ -1478,7 +1479,7 @@ mod tests {
     use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp, TxHash};
     use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayablesBeforeGasPriceSelection, QualifiedPayablesMessage, UnpricedQualifiedPayables};
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{OperationOutcome, PayableScanResult, PendingPayableMissingInDb};
-    use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_status_with_failure, PendingPayableScanSummary, PendingPayableScanResult, FailuresSummary};
+    use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_status_with_failure, PendingPayableReport, PendingPayableScanResult, FailuresSummary};
     use crate::accountant::scanners::{Scanner, StartScanError, StartableScanner, PayableScanner, PendingPayableScanner, ReceivableScanner, ScannerCommon, Scanners, MTError};
     use crate::accountant::test_utils::{make_custom_payment_thresholds, make_payable_account, make_qualified_and_unqualified_payables, make_receivable_account, BannedDaoFactoryMock, BannedDaoMock, ConfigDaoFactoryMock, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder, PayableThresholdsGaugeMock, SentPayableDaoFactoryMock, SentPayableDaoMock, PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock, ReceivableScannerBuilder, make_sent_tx, FailedPayableDaoMock, FailedPayableDaoFactoryMock, make_failed_tx, make_transaction_block};
     use crate::accountant::{gwei_to_wei, PendingPayableId, ReceivedPayments, TxReceiptsMessage, RequestTransactionReceipts, ScanError, ScanForRetryPayables, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC, PendingPayable};
@@ -2979,7 +2980,7 @@ mod tests {
         sent_tx.hash = hash;
         let blockchain_failure = BlockchainTxFailure::Unrecognized;
         let logger = Logger::new(test_name);
-        let scan_report = PendingPayableScanSummary::default();
+        let scan_report = PendingPayableReport::default();
 
         let result =
             handle_status_with_failure(scan_report, sent_tx.clone(), blockchain_failure, &logger);
@@ -2988,7 +2989,7 @@ mod tests {
         let failed_tx = FailedTx::from((sent_tx, failure_reason));
         assert_eq!(
             result,
-            PendingPayableScanSummary {
+            PendingPayableReport {
                 failures_summary: FailuresSummary {
                     failures: vec![failed_tx],
                     any_rpc_call_failure: false
@@ -3025,13 +3026,13 @@ mod tests {
         };
         let before = SystemTime::now();
 
-        let result = subject.handle_receipts_for_pending_transactions(msg, &Logger::new(test_name));
+        let result = subject.interpret_tx_receipts(msg, &Logger::new(test_name));
 
         let after = SystemTime::now();
         let expected_failed_tx = FailedTx::from((sent_tx, FailureReason::PendingTooLong));
         assert_eq!(
             result,
-            PendingPayableScanSummary {
+            PendingPayableReport {
                 failures_summary: FailuresSummary {
                     failures: vec![expected_failed_tx],
                     any_rpc_call_failure: false
@@ -3088,11 +3089,11 @@ mod tests {
             response_skeleton_opt: None,
         };
 
-        let result = subject.handle_receipts_for_pending_transactions(msg, &Logger::new(test_name));
+        let result = subject.interpret_tx_receipts(msg, &Logger::new(test_name));
 
         assert_eq!(
             result,
-            PendingPayableScanSummary {
+            PendingPayableReport {
                 failures_summary: FailuresSummary {
                     failures: vec![],
                     any_rpc_call_failure: true
