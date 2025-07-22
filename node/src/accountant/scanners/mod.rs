@@ -1656,68 +1656,6 @@ mod tests {
         ));
     }
 
-    struct TestingMismatchedDataAboutPendingPayables {
-        pending_payables: Vec<PendingPayable>,
-        common_hash_1: H256,
-        common_hash_3: H256,
-        intruder_for_hash_2: H256,
-    }
-
-    fn prepare_values_for_mismatched_setting() -> TestingMismatchedDataAboutPendingPayables {
-        let hash_1 = make_tx_hash(123);
-        let hash_2 = make_tx_hash(456);
-        let hash_3 = make_tx_hash(789);
-        let intruder = make_tx_hash(567);
-        let pending_payables = vec![
-            PendingPayable::new(make_wallet("abc"), hash_1),
-            PendingPayable::new(make_wallet("def"), hash_2),
-            PendingPayable::new(make_wallet("ghi"), hash_3),
-        ];
-        TestingMismatchedDataAboutPendingPayables {
-            pending_payables,
-            common_hash_1: hash_1,
-            common_hash_3: hash_3,
-            intruder_for_hash_2: intruder,
-        }
-    }
-
-    fn assert_panic_from_failing_to_mark_pending_payable_rowid(
-        test_name: &str,
-        failed_payable_dao: FailedPayableDaoMock,
-        hash_1: H256,
-        hash_2: H256,
-    ) {
-        let payable_1 = PendingPayable::new(make_wallet("blah111"), hash_1);
-        let payable_2 = PendingPayable::new(make_wallet("blah222"), hash_2);
-        let payable_dao = PayableDaoMock::new().mark_pending_payables_rowids_result(Err(
-            PayableDaoError::SignConversion(9999999999999),
-        ));
-        let mut subject = PayableScannerBuilder::new()
-            .payable_dao(payable_dao)
-            .failed_payable_dao(failed_payable_dao)
-            .build();
-        let sent_payables = SentPayables {
-            payment_procedure_result: Either::Left(vec![
-                IndividualBatchResult::Pending(payable_1),
-                IndividualBatchResult::Pending(payable_2),
-            ]),
-            response_skeleton_opt: None,
-        };
-
-        let caught_panic_in_err = catch_unwind(AssertUnwindSafe(|| {
-            subject.finish_scan(sent_payables, &Logger::new(test_name))
-        }));
-
-        let caught_panic = caught_panic_in_err.unwrap_err();
-        let panic_msg = caught_panic.downcast_ref::<String>().unwrap();
-        assert_eq!(
-            panic_msg,
-            "Unable to create a mark in the payable table for wallets 0x00000000000\
-        000000000000000626c6168313131, 0x00000000000000000000000000626c6168323232 due to \
-         SignConversion(9999999999999)"
-        );
-    }
-
     #[test]
     fn payable_scanner_is_facing_failed_transactions_and_their_fingerprints_exist() {
         init_test_logging();

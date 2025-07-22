@@ -6273,7 +6273,7 @@ pub mod exportable_test_parts {
         check_if_source_code_is_attached, ensure_node_home_directory_exists, ShouldWeRunTheTest,
     };
     use regex::Regex;
-    use std::collections::HashSet;
+    use std::collections::{BTreeSet, HashSet};
     use std::env::current_dir;
     use std::fs::File;
     use std::io::{BufRead, BufReader};
@@ -6459,18 +6459,18 @@ pub mod exportable_test_parts {
         assert_eq!(result_vec, "1, 2, 3".to_string());
 
         // With a HashSet
-        let set = HashSet::from([1, 2, 3]);
+        let set = BTreeSet::from([1, 2, 3]);
         let result_set = join_with_separator(set, |&num| num.to_string(), ", ");
-        assert_eq!(result_vec, "1, 2, 3".to_string());
+        assert_eq!(result_set, "1, 2, 3".to_string());
 
         // With a slice
         let slice = &[1, 2, 3];
         let result_slice = join_with_separator(slice.to_vec(), |&num| num.to_string(), ", ");
-        assert_eq!(result_vec, "1, 2, 3".to_string());
+        assert_eq!(result_slice, "1, 2, 3".to_string());
 
         // With an array
         let array = [1, 2, 3];
         let result_array = join_with_separator(array.to_vec(), |&num| num.to_string(), ", ");
-        assert_eq!(result_vec, "1, 2, 3".to_string());
+        assert_eq!(result_array, "1, 2, 3".to_string());
     }
 }

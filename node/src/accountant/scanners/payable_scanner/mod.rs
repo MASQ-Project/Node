@@ -269,6 +269,7 @@ impl PayableScanner {
         pending_payables: &[PendingPayable],
         logger: &Logger,
     ) {
+        todo!();
         let pending_hashes: HashSet<H256> = pending_payables.iter().map(|pp| pp.hash).collect();
         let sent_payables = self
             .sent_payable_dao
@@ -295,6 +296,7 @@ impl PayableScanner {
     }
 
     fn migrate_payables(&self, failed_payables: &HashSet<FailedTx>) {
+        todo!();
         let hashes: HashSet<TxHash> = failed_payables.iter().map(|tx| tx.hash).collect();
         let common_string = format!(
             "Error during migration from SentPayable to FailedPayable Table for transactions:\n{}",
@@ -324,6 +326,7 @@ impl PayableScanner {
         failed_payables: &HashSet<FailedTx>,
         failures: &HashMap<TxHash, FailureReason>,
     ) {
+        todo!();
         let failed_payable_hashes: HashSet<&TxHash> =
             failed_payables.iter().map(|tx| &tx.hash).collect();
         let missing_hashes: Vec<&TxHash> = failures
@@ -345,6 +348,7 @@ impl PayableScanner {
         &self,
         hashes_with_reason: &HashMap<TxHash, FailureReason>,
     ) -> HashSet<FailedTx> {
+        todo!();
         let hashes: HashSet<TxHash> = hashes_with_reason.keys().cloned().collect();
         let sent_payables = self.sent_payable_dao.retrieve_txs(Some(ByHash(hashes)));
 
@@ -370,6 +374,7 @@ impl PayableScanner {
         hashes_with_reason: &HashMap<TxHash, FailureReason>,
         logger: &Logger,
     ) {
+        todo!();
         if hashes_with_reason.is_empty() {
             return; // TODO: GH-605: Test me
         }
@@ -393,6 +398,7 @@ impl PayableScanner {
     }
 
     fn handle_batch_results(&self, batch_results: Vec<IndividualBatchResult>, logger: &Logger) {
+        todo!();
         let (pending, failures) = Self::separate_batch_results(batch_results);
 
         let pending_tx_count = pending.len();
@@ -413,6 +419,7 @@ impl PayableScanner {
     }
 
     fn handle_local_error(&self, local_err: LocalPayableError, logger: &Logger) {
+        todo!();
         if let LocalPayableError::Sending { hashes, .. } = local_err {
             let failures = Self::map_hashes_to_local_failures(hashes);
             self.record_failed_txs_in_db(&failures, logger);
@@ -429,6 +436,7 @@ impl PayableScanner {
         payment_procedure_result: Either<Vec<IndividualBatchResult>, LocalPayableError>,
         logger: &Logger,
     ) -> OperationOutcome {
+        todo!();
         match payment_procedure_result {
             Either::Left(batch_results) => {
                 // TODO: GH-605: Test me
@@ -458,6 +466,11 @@ mod tests {
     // Migrate all tests for PayableScanner here
 
     use super::*;
+    use crate::accountant::scanners::payable_scanner::test_utils::{
+        make_pending_payable, make_rpc_payable_failure,
+    };
+    use crate::blockchain::test_utils::make_tx_hash;
+    use crate::test_utils::make_wallet;
 
     #[test]
     fn generate_ui_response_works_correctly() {
@@ -471,6 +484,55 @@ mod tests {
                 target: MessageTarget::ClientId(1234),
                 body: UiScanResponse {}.tmb(5678),
             })
+        );
+    }
+
+    #[test]
+    fn map_hashes_to_local_failures_works() {
+        let hash1 = make_tx_hash(1);
+        let hash2 = make_tx_hash(2);
+        let hashes = vec![hash1, hash2];
+
+        let result = PayableScanner::map_hashes_to_local_failures(hashes);
+
+        assert_eq!(result.len(), 2);
+        assert_eq!(
+            result.get(&hash1),
+            Some(&FailureReason::Submission(Local(Internal)))
+        );
+        assert_eq!(
+            result.get(&hash2),
+            Some(&FailureReason::Submission(Local(Internal)))
+        );
+    }
+
+    #[test]
+    fn separate_batch_results_works() {
+        let pending_payable1 = make_pending_payable(1);
+        let pending_payable2 = make_pending_payable(2);
+        let failed_payable1 = make_rpc_payable_failure(1);
+        let mut failed_payable2 = make_rpc_payable_failure(2);
+        failed_payable2.rpc_error = web3::Error::Unreachable;
+        let batch_results = vec![
+            IndividualBatchResult::Pending(pending_payable1.clone()),
+            IndividualBatchResult::Failed(failed_payable1.clone()),
+            IndividualBatchResult::Pending(pending_payable2.clone()),
+            IndividualBatchResult::Failed(failed_payable2.clone()),
+        ];
+
+        let (pending, failures) = PayableScanner::separate_batch_results(batch_results);
+
+        assert_eq!(pending.len(), 2);
+        assert_eq!(pending[0], pending_payable1);
+        assert_eq!(pending[1], pending_payable2);
+        assert_eq!(failures.len(), 2);
+        assert_eq!(
+            failures.get(&failed_payable1.hash).unwrap(),
+            &Submission(failed_payable1.rpc_error.into())
+        );
+        assert_eq!(
+            failures.get(&failed_payable2.hash).unwrap(),
+            &Submission(failed_payable2.rpc_error.into())
         );
     }
 }
