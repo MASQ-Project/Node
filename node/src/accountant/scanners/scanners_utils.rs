@@ -109,85 +109,6 @@ pub mod payable_scanner_utils {
                 oldest.balance_wei, oldest.age)
     }
 
-    pub fn separate_errors<'a, 'b>(
-        sent_payables: &'a SentPayables,
-        logger: &'b Logger,
-    ) -> (Vec<&'a PendingPayable>, Option<PayableTransactingErrorEnum>) {
-        match &sent_payables.payment_procedure_result {
-            Either::Left(individual_batch_responses) => {
-                if individual_batch_responses.is_empty() {
-                    panic!("Broken code: An empty vector of processed payments claiming to be an Ok value")
-                }
-                let (oks, err_hashes_opt) =
-                    separate_rpc_results(individual_batch_responses, logger);
-                let remote_errs_opt = err_hashes_opt.map(RemotelyCausedErrors);
-                (oks, remote_errs_opt)
-            }
-            Either::Right(e) => {
-                warning!(
-                    logger,
-                    "Any persisted data from failed process will be deleted. Caused by: {}",
-                    e
-                );
-
-                (vec![], Some(LocallyCausedError(e.clone())))
-            }
-        }
-    }
-
-    fn separate_rpc_results<'a, 'b>(
-        batch_request_responses: &'a [IndividualBatchResult],
-        logger: &'b Logger,
-    ) -> (Vec<&'a PendingPayable>, Option<Vec<H256>>) {
-        //TODO maybe we can return not tuple but struct with remote_errors_opt member
-        let (oks, errs) = batch_request_responses
-            .iter()
-            .fold((vec![], vec![]), |acc, rpc_result| {
-                fold_guts(acc, rpc_result, logger)
-            });
-
-        let errs_opt = if !errs.is_empty() { Some(errs) } else { None };
-
-        (oks, errs_opt)
-    }
-
-    fn add_pending_payable<'a>(
-        (mut oks, errs): (Vec<&'a PendingPayable>, Vec<H256>),
-        pending_payable: &'a PendingPayable,
-    ) -> SeparateTxsByResult<'a> {
-        oks.push(pending_payable);
-        (oks, errs)
-    }
-
-    fn add_rpc_failure((oks, mut errs): SeparateTxsByResult, hash: H256) -> SeparateTxsByResult {
-        errs.push(hash);
-        (oks, errs)
-    }
-
-    type SeparateTxsByResult<'a> = (Vec<&'a PendingPayable>, Vec<H256>);
-
-    fn fold_guts<'a, 'b>(
-        acc: SeparateTxsByResult<'a>,
-        rpc_result: &'a IndividualBatchResult,
-        logger: &'b Logger,
-    ) -> SeparateTxsByResult<'a> {
-        match rpc_result {
-            IndividualBatchResult::Pending(pending_payable) => {
-                add_pending_payable(acc, pending_payable)
-            }
-            IndividualBatchResult::Failed(RpcPayableFailure {
-                rpc_error,
-                recipient_wallet,
-                hash,
-            }) => {
-                warning!(logger, "Remote transaction failure: '{}' for payment to {} and transaction hash {:?}. \
-                      Please check your blockchain service URL configuration.", rpc_error, recipient_wallet, hash
-                );
-                add_rpc_failure(acc, *hash)
-            }
-        }
-    }
-
     pub fn payables_debug_summary(qualified_accounts: &[(PayableAccount, u128)], logger: &Logger) {
         if qualified_accounts.is_empty() {
             return;
@@ -481,7 +402,7 @@ mod tests {
     };
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{
         count_total_errors, debugging_summary_after_error_separation, investigate_debt_extremes,
-        payables_debug_summary, separate_errors, PayableThresholdsGauge,
+        payables_debug_summary, PayableThresholdsGauge,
         PayableThresholdsGaugeReal,
     };
     use crate::accountant::scanners::scanners_utils::receivable_scanner_utils::balance_and_age;
@@ -493,10 +414,7 @@ mod tests {
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::time::SystemTime;
-    use itertools::Either;
-    use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
     use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainError, LocalPayableError};
-    use crate::blockchain::blockchain_interface::data_structures::{IndividualBatchResult, RpcPayableFailure};
 
     #[test]
     fn investigate_debt_extremes_picks_the_most_relevant_records() {
@@ -552,83 +470,6 @@ mod tests {
 
         assert_eq!(balance, "10");
         assert_eq!(age.as_secs(), offset as u64);
-    }
-
-    #[test]
-    fn separate_errors_works_for_no_errs_just_oks() {
-        let correct_payment_1 = PendingPayable {
-            recipient_wallet: make_wallet("blah"),
-            hash: make_tx_hash(123),
-        };
-        let correct_payment_2 = PendingPayable {
-            recipient_wallet: make_wallet("howgh"),
-            hash: make_tx_hash(456),
-        };
-        let sent_payable = SentPayables {
-            payment_procedure_result: Either::Left(vec![
-                IndividualBatchResult::Pending(correct_payment_1.clone()),
-                IndividualBatchResult::Pending(correct_payment_2.clone()),
-            ]),
-            response_skeleton_opt: None,
-        };
-
-        let (oks, errs) = separate_errors(&sent_payable, &Logger::new("test"));
-
-        assert_eq!(oks, vec![&correct_payment_1, &correct_payment_2]);
-        assert_eq!(errs, None)
-    }
-
-    #[test]
-    fn separate_errors_works_for_local_error() {
-        init_test_logging();
-        let error = LocalPayableError::Sending {
-            msg: "Bad luck".to_string(),
-            hashes: vec![make_tx_hash(0x7b)],
-        };
-        let sent_payable = SentPayables {
-            payment_procedure_result: Either::Right(error.clone()),
-            response_skeleton_opt: None,
-        };
-
-        let (oks, errs) = separate_errors(&sent_payable, &Logger::new("test_logger"));
-
-        assert!(oks.is_empty());
-        assert_eq!(errs, Some(LocallyCausedError(error)));
-        TestLogHandler::new().exists_log_containing(
-            "WARN: test_logger: Any persisted data from \
-        failed process will be deleted. Caused by: Sending phase: \"Bad luck\". Signed and hashed \
-        transactions: 0x000000000000000000000000000000000000000000000000000000000000007b",
-        );
-    }
-
-    #[test]
-    fn separate_errors_works_for_their_errors() {
-        init_test_logging();
-        let payable_ok = PendingPayable {
-            recipient_wallet: make_wallet("blah"),
-            hash: make_tx_hash(123),
-        };
-        let bad_rpc_call = RpcPayableFailure {
-            rpc_error: web3::Error::InvalidResponse("That jackass screwed it up".to_string()),
-            recipient_wallet: make_wallet("whooa"),
-            hash: make_tx_hash(0x315),
-        };
-        let sent_payable = SentPayables {
-            payment_procedure_result: Either::Left(vec![
-                IndividualBatchResult::Pending(payable_ok.clone()),
-                IndividualBatchResult::Failed(bad_rpc_call.clone()),
-            ]),
-            response_skeleton_opt: None,
-        };
-
-        let (oks, errs) = separate_errors(&sent_payable, &Logger::new("test_logger"));
-
-        assert_eq!(oks, vec![&payable_ok]);
-        assert_eq!(errs, Some(RemotelyCausedErrors(vec![make_tx_hash(0x315)])));
-        TestLogHandler::new().exists_log_containing("WARN: test_logger: Remote transaction failure: \
-        'Got invalid response: That jackass screwed it up' for payment to 0x000000000000000000000000\
-        00000077686f6f61 and transaction hash 0x0000000000000000000000000000000000000000000000000000\
-        000000000315. Please check your blockchain service URL configuration.");
     }
 
     #[test]
