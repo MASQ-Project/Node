@@ -322,12 +322,12 @@ impl PayableScanner {
         if missing_hashes.is_empty() {
             debug!(
                 logger,
-                "All {} pending payables are present in the sent payable database",
+                "All {} pending transactions were present in the sent payable database",
                 pending_payables.len()
             );
         } else {
             panic!(
-                "The following pending payables are missing from the sent payable database: {}",
+                "The following pending transactions were missing from the sent payable database: {}",
                 Self::serialize_hashes(&missing_hashes)
             );
         }
@@ -336,6 +336,7 @@ impl PayableScanner {
     fn verify_failed_tx_hashes_in_db(
         failed_payables: &HashSet<FailedTx>,
         failures: &HashMap<TxHash, FailureReason>,
+        logger: &Logger,
     ) {
         todo!();
         let failed_payable_hashes: HashSet<&TxHash> =
@@ -345,13 +346,19 @@ impl PayableScanner {
             .filter(|hash| !failed_payable_hashes.contains(hash))
             .collect();
 
-        if !missing_hashes.is_empty() {
+        if missing_hashes.is_empty() {
+            debug!(
+                logger,
+                "All {} failed transactions were present in the sent payable database",
+                failed_payable_hashes.len()
+            );
+        } else {
             panic!(
-                "Could not find entries for the following transactions in the database:\n\
-                {}\n\
-                The found transactions have been migrated.",
+                "The found transactions have been migrated.\n\
+                 The following failed transactions were missing from the sent payable database:\n\
+                 {}",
                 join_with_separator(&missing_hashes, |&hash| format!("{:?}", hash), "\n")
-            )
+            );
         }
     }
 
@@ -400,7 +407,7 @@ impl PayableScanner {
 
         self.migrate_payables(&failed_payables, logger);
 
-        Self::verify_failed_tx_hashes_in_db(&failed_payables, hashes_with_reason);
+        Self::verify_failed_tx_hashes_in_db(&failed_payables, hashes_with_reason, logger);
     }
 
     fn handle_batch_results(&self, batch_results: Vec<IndividualBatchResult>, logger: &Logger) {
@@ -545,9 +552,9 @@ mod tests {
     }
 
     #[test]
-    fn verify_presence_of_pending_paybles_in_db_works() {
+    fn verify_pending_tx_hashes_in_db_works() {
         init_test_logging();
-        let test_name = "verify_presence_of_pending_paybles_in_db_works";
+        let test_name = "verify_pending_tx_hashes_in_db_works";
         let pending_payable1 = make_pending_payable(1);
         let pending_payable2 = make_pending_payable(2);
         let pending_payables = vec![pending_payable1.clone(), pending_payable2.clone()];
@@ -562,18 +569,18 @@ mod tests {
         subject.verify_pending_tx_hashes_in_db(&pending_payables, &logger);
 
         TestLogHandler::new().exists_log_containing(&format!(
-            "DEBUG: test: All {} pending payables are present in the sent payable database",
+            "DEBUG: test: All {} pending transactions were present in the sent payable database",
             pending_payables.len()
         ));
     }
 
     #[test]
     #[should_panic(
-        expected = "The following pending payables are missing from the sent payable database:"
+        expected = "The following pending transactions were missing from the sent payable database:"
     )]
-    fn verify_presence_of_pending_paybles_in_db_panics_when_payables_are_missing() {
+    fn verify_pending_tx_hashes_in_db_panics_when_hashes_are_missing() {
         init_test_logging();
-        let test_name = "verify_presence_of_pending_paybles_in_db_panics_when_payables_are_missing";
+        let test_name = "verify_pending_tx_hashes_in_db_panics_when_hashes_are_missing";
         let pending_payable1 = make_pending_payable(1);
         let pending_payable2 = make_pending_payable(2);
         let pending_payable3 = make_pending_payable(3);
