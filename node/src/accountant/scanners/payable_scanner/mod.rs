@@ -264,12 +264,11 @@ impl PayableScanner {
         )
     }
 
-    fn check_pending_payables_in_sent_db(
+    fn verify_presence_of_pending_paybles_in_db(
         &self,
         pending_payables: &[PendingPayable],
         logger: &Logger,
     ) {
-        todo!();
         let pending_hashes: HashSet<H256> = pending_payables.iter().map(|pp| pp.hash).collect();
         let sent_payables = self
             .sent_payable_dao
@@ -280,13 +279,11 @@ impl PayableScanner {
             pending_hashes.difference(&sent_hashes).cloned().collect();
 
         if !missing_hashes.is_empty() {
-            // TODO: GH-605: Test me
             panic!(
                 "The following pending payables are missing from the sent payable database: {}",
                 Self::serialize_hashes(&missing_hashes)
             );
         } else {
-            // TODO: GH-605: Test me
             debug!(
                 logger,
                 "All {} pending payables are present in the sent payable database",
@@ -295,8 +292,7 @@ impl PayableScanner {
         }
     }
 
-    fn migrate_payables(&self, failed_payables: &HashSet<FailedTx>) {
-        todo!();
+    fn migrate_payables(&self, failed_payables: &HashSet<FailedTx>, logger: &Logger) {
         let hashes: HashSet<TxHash> = failed_payables.iter().map(|tx| tx.hash).collect();
         let common_string = format!(
             "Error during migration from SentPayable to FailedPayable Table for transactions:\n{}",
@@ -316,6 +312,12 @@ impl PayableScanner {
                 common_string, e
             );
         }
+
+        debug!(
+            logger,
+            "Successfully migrated following hashes from SentPayable table to FailedPayable table: {}",
+            join_with_separator(hashes, |hash| format!("{:?}", hash), ", ")
+        )
     }
 
     fn serialize_hashes(hashes: &[H256]) -> String {
@@ -381,18 +383,13 @@ impl PayableScanner {
 
         debug!(
             logger,
-            "Recording {} failed transactions in database: {}",
+            "Recording {} failed transactions in database",
             hashes_with_reason.len(),
-            join_with_separator(
-                hashes_with_reason.keys(),
-                |hash| format!("{:?}", hash),
-                ", "
-            )
         );
 
         let failed_payables = self.generate_failed_payables(hashes_with_reason);
 
-        self.migrate_payables(&failed_payables);
+        self.migrate_payables(&failed_payables, logger);
 
         Self::panic_if_payables_were_missing(&failed_payables, hashes_with_reason);
     }
@@ -415,7 +412,7 @@ impl PayableScanner {
 
         self.record_failed_txs_in_db(&failures, logger);
 
-        self.check_pending_payables_in_sent_db(&pending, logger);
+        self.verify_presence_of_pending_paybles_in_db(&pending, logger);
     }
 
     fn handle_local_error(&self, local_err: LocalPayableError, logger: &Logger) {
@@ -450,7 +447,6 @@ impl PayableScanner {
         }
     }
 
-    // Done
     fn generate_ui_response(
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) -> Option<NodeToUiMessage> {
@@ -463,14 +459,17 @@ impl PayableScanner {
 
 #[cfg(test)]
 mod tests {
-    // Migrate all tests for PayableScanner here
-
     use super::*;
+    use crate::accountant::db_access_objects::failed_payable_dao::FailedPayableDaoError;
+    use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDaoError;
+    use crate::accountant::db_access_objects::test_utils::{FailedTxBuilder, TxBuilder};
     use crate::accountant::scanners::payable_scanner::test_utils::{
-        make_pending_payable, make_rpc_payable_failure,
+        make_pending_payable, make_rpc_payable_failure, PayableScannerBuilder,
     };
+    use crate::accountant::test_utils::{FailedPayableDaoMock, SentPayableDaoMock};
     use crate::blockchain::test_utils::make_tx_hash;
-    use crate::test_utils::make_wallet;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
+    use std::panic::{catch_unwind, AssertUnwindSafe};
 
     #[test]
     fn generate_ui_response_works_correctly() {
@@ -534,5 +533,137 @@ mod tests {
             failures.get(&failed_payable2.hash).unwrap(),
             &Submission(failed_payable2.rpc_error.into())
         );
+    }
+
+    #[test]
+    fn verify_presence_of_pending_paybles_in_db_works() {
+        init_test_logging();
+        let test_name = "verify_presence_of_pending_paybles_in_db_works";
+        let pending_payable1 = make_pending_payable(1);
+        let pending_payable2 = make_pending_payable(2);
+        let pending_payables = vec![pending_payable1.clone(), pending_payable2.clone()];
+        let tx1 = TxBuilder::default().hash(pending_payable1.hash).build();
+        let tx2 = TxBuilder::default().hash(pending_payable2.hash).build();
+        let sent_payable_dao = SentPayableDaoMock::default().retrieve_txs_result(vec![tx1, tx2]);
+        let subject = PayableScannerBuilder::new()
+            .sent_payable_dao(sent_payable_dao)
+            .build();
+
+        let logger = Logger::new("test");
+        subject.verify_presence_of_pending_paybles_in_db(&pending_payables, &logger);
+
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: test: All {} pending payables are present in the sent payable database",
+            pending_payables.len()
+        ));
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "The following pending payables are missing from the sent payable database:"
+    )]
+    fn verify_presence_of_pending_paybles_in_db_panics_when_payables_are_missing() {
+        init_test_logging();
+        let test_name = "verify_presence_of_pending_paybles_in_db_panics_when_payables_are_missing";
+        let pending_payable1 = make_pending_payable(1);
+        let pending_payable2 = make_pending_payable(2);
+        let pending_payable3 = make_pending_payable(3);
+        let pending_payables = vec![
+            pending_payable1.clone(),
+            pending_payable2.clone(),
+            pending_payable3.clone(),
+        ];
+        let tx1 = TxBuilder::default().hash(pending_payable1.hash).build();
+        let tx2 = TxBuilder::default().hash(pending_payable2.hash).build();
+        let sent_payable_dao = SentPayableDaoMock::default().retrieve_txs_result(vec![tx1, tx2]);
+        let subject = PayableScannerBuilder::new()
+            .sent_payable_dao(sent_payable_dao)
+            .build();
+
+        let logger = Logger::new(test_name);
+
+        subject.verify_presence_of_pending_paybles_in_db(&pending_payables, &logger);
+    }
+
+    #[test]
+    fn migrate_payables_works_correctly() {
+        init_test_logging();
+        let test_name = "migrate_payables_works_correctly";
+        let failed_tx1 = FailedTxBuilder::default().hash(make_tx_hash(1)).build();
+        let failed_tx2 = FailedTxBuilder::default().hash(make_tx_hash(2)).build();
+        let failed_payables = HashSet::from([failed_tx1, failed_tx2]);
+        let failed_payable_dao = FailedPayableDaoMock::default().insert_new_records_result(Ok(()));
+        let sent_payable_dao = SentPayableDaoMock::default().delete_records_result(Ok(()));
+        let subject = PayableScannerBuilder::new()
+            .failed_payable_dao(failed_payable_dao)
+            .sent_payable_dao(sent_payable_dao)
+            .build();
+        let logger = Logger::new(test_name);
+
+        subject.migrate_payables(&failed_payables, &logger);
+
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: Successfully migrated following hashes from SentPayable table to FailedPayable table:"
+        ));
+    }
+
+    #[test]
+    fn migrate_payables_panics_when_insert_fails() {
+        init_test_logging();
+        let failed_tx = FailedTxBuilder::default().hash(make_tx_hash(1)).build();
+        let failed_payables = HashSet::from([failed_tx]);
+
+        let failed_payable_dao = FailedPayableDaoMock::default().insert_new_records_result(Err(
+            FailedPayableDaoError::PartialExecution("The Times 03/Jan/2009".to_string()),
+        ));
+        let sent_payable_dao = SentPayableDaoMock::default();
+
+        let subject = PayableScannerBuilder::new()
+            .failed_payable_dao(failed_payable_dao)
+            .sent_payable_dao(sent_payable_dao)
+            .build();
+
+        let result = catch_unwind(AssertUnwindSafe(move || {
+            let _ = subject.migrate_payables(&failed_payables, &Logger::new("test"));
+        }))
+        .unwrap_err();
+
+        let panic_msg = result.downcast_ref::<String>().unwrap();
+        assert_eq!(
+            panic_msg,
+            "Error during migration from SentPayable to FailedPayable Table for transactions:\n\
+             0x0000000000000000000000000000000000000000000000000000000000000001\n\
+             Failed to insert transactions into the FailedPayable table.\n\
+             Error: PartialExecution(\"The Times 03/Jan/2009\")"
+        )
+    }
+
+    #[test]
+    fn migrate_payables_panics_when_delete_fails() {
+        init_test_logging();
+        let failed_tx = FailedTxBuilder::default().hash(make_tx_hash(1)).build();
+        let failed_payables = HashSet::from([failed_tx]);
+        let failed_payable_dao = FailedPayableDaoMock::default().insert_new_records_result(Ok(()));
+        let sent_payable_dao = SentPayableDaoMock::default().delete_records_result(Err(
+            SentPayableDaoError::PartialExecution("The Times 03/Jan/2009".to_string()),
+        ));
+        let subject = PayableScannerBuilder::new()
+            .failed_payable_dao(failed_payable_dao)
+            .sent_payable_dao(sent_payable_dao)
+            .build();
+
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            subject.migrate_payables(&failed_payables, &Logger::new("test"));
+        }))
+        .unwrap_err();
+
+        let panic_msg = result.downcast_ref::<String>().unwrap();
+        assert_eq!(
+            panic_msg,
+            "Error during migration from SentPayable to FailedPayable Table for transactions:\n\
+             0x0000000000000000000000000000000000000000000000000000000000000001\n\
+             Failed to delete transactions from the SentPayable table.\n\
+             Error: PartialExecution(\"The Times 03/Jan/2009\")"
+        )
     }
 }
