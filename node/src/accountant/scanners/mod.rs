@@ -872,6 +872,38 @@ impl PayableScanner {
         Self::panic_if_payables_were_missing(&failed_payables, hashes_with_reason);
     }
 
+    fn handle_batch_results(&self, batch_results: Vec<IndividualBatchResult>, logger: &Logger) {
+        let (pending, failures) = Self::separate_batch_results(batch_results);
+
+        let pending_tx_count = pending.len();
+        let failed_tx_count = failures.len();
+        debug!(
+            logger,
+            "Processed payables while sending to RPC: \
+             Total: {total}, Sent to RPC: {success}, Failed to send: {failed}. \
+             Updating database...",
+            total = pending_tx_count + failed_tx_count,
+            success = pending_tx_count,
+            failed = failed_tx_count
+        );
+
+        self.record_failed_txs_in_db(&failures, logger);
+
+        self.check_pending_payables_in_sent_db(&pending, logger);
+    }
+
+    fn handle_local_error(&self, local_err: LocalPayableError, logger: &Logger) {
+        if let LocalPayableError::Sending { hashes, .. } = local_err {
+            let failures = Self::map_hashes_to_local_failures(hashes);
+            self.record_failed_txs_in_db(&failures, logger);
+        } else {
+            debug!(
+                logger,
+                "Local error occurred before transaction signing. Error: {}", local_err
+            );
+        }
+    }
+
     fn process_result(
         &self,
         payment_procedure_result: Either<Vec<IndividualBatchResult>, LocalPayableError>,
@@ -880,37 +912,11 @@ impl PayableScanner {
         match payment_procedure_result {
             Either::Left(batch_results) => {
                 // TODO: GH-605: Test me
-                let (pending, failures) = Self::separate_batch_results(batch_results);
-
-                let pending_tx_count = pending.len();
-                let failed_tx_count = failures.len();
-                debug!(
-                    logger,
-                    "Processed payables while sending to RPC: \
-                     Total: {total}, Sent to RPC: {success}, Failed to send: {failed}. \
-                     Updating database...",
-                    total = pending_tx_count + failed_tx_count,
-                    success = pending_tx_count,
-                    failed = failed_tx_count
-                );
-
-                self.record_failed_txs_in_db(&failures, logger);
-
-                self.check_pending_payables_in_sent_db(&pending, logger);
-
+                self.handle_batch_results(batch_results, logger);
                 OperationOutcome::NewPendingPayable
             }
             Either::Right(local_err) => {
-                if let LocalPayableError::Sending { hashes, .. } = local_err {
-                    let failures = Self::map_hashes_to_local_failures(hashes);
-                    self.record_failed_txs_in_db(&failures, logger);
-                } else {
-                    debug!(
-                        logger,
-                        "Local error occurred before transaction signing. Error: {}", local_err
-                    );
-                }
-
+                self.handle_local_error(local_err, logger);
                 OperationOutcome::Failure
             }
         }
