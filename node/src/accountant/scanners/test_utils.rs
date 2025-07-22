@@ -2,6 +2,7 @@
 
 #![cfg(test)]
 
+use crate::accountant::scanners::payable_scanner::PayableScanner;
 use crate::accountant::scanners::payable_scanner_extension::msgs::{
     BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
 };
@@ -15,8 +16,8 @@ use crate::accountant::scanners::scan_schedulers::{
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableScanResult;
 use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::PendingPayableScanResult;
 use crate::accountant::scanners::{
-    PayableScanner, PendingPayableScanner, PrivateScanner, RealScannerMarker, ReceivableScanner,
-    Scanner, StartScanError, StartableScanner,
+    PendingPayableScanner, PrivateScanner, RealScannerMarker, ReceivableScanner, Scanner,
+    StartScanError, StartableScanner,
 };
 use crate::accountant::{
     ReceivedPayments, ReportTransactionReceipts, RequestTransactionReceipts, ResponseSkeleton,
