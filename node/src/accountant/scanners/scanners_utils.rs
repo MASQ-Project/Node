@@ -110,8 +110,8 @@ pub mod payable_scanner_utils {
     }
 
     pub fn separate_batch_results(
-        batch_results: &[IndividualBatchResult],
-    ) -> (Vec<&PendingPayable>, HashMap<TxHash, FailureReason>) {
+        batch_results: Vec<IndividualBatchResult>,
+    ) -> (Vec<PendingPayable>, HashMap<TxHash, FailureReason>) {
         batch_results.into_iter().fold(
             (vec![], HashMap::new()),
             |(mut pending, mut failures), result| {
@@ -122,7 +122,7 @@ pub mod payable_scanner_utils {
                     IndividualBatchResult::Failed(RpcPayableFailure {
                         hash, rpc_error, ..
                     }) => {
-                        failures.insert(hash.clone(), Submission(rpc_error.clone().into()));
+                        failures.insert(hash, Submission(rpc_error.into()));
                     }
                 }
                 (pending, failures)
