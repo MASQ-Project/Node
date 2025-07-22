@@ -334,23 +334,22 @@ impl PayableScanner {
     }
 
     fn verify_failed_tx_hashes_in_db(
-        failed_payables: &HashSet<FailedTx>,
-        failures: &HashMap<TxHash, FailureReason>,
+        migrated_failures: &HashSet<FailedTx>,
+        all_failures_with_reasons: &HashMap<TxHash, FailureReason>,
         logger: &Logger,
     ) {
-        todo!();
-        let failed_payable_hashes: HashSet<&TxHash> =
-            failed_payables.iter().map(|tx| &tx.hash).collect();
-        let missing_hashes: Vec<&TxHash> = failures
+        let migrated_hashes: HashSet<&TxHash> =
+            migrated_failures.iter().map(|tx| &tx.hash).collect();
+        let missing_hashes: Vec<&TxHash> = all_failures_with_reasons
             .keys()
-            .filter(|hash| !failed_payable_hashes.contains(hash))
+            .filter(|hash| !migrated_hashes.contains(hash))
             .collect();
 
         if missing_hashes.is_empty() {
             debug!(
                 logger,
                 "All {} failed transactions were present in the sent payable database",
-                failed_payable_hashes.len()
+                migrated_hashes.len()
             );
         } else {
             panic!(
@@ -681,5 +680,66 @@ mod tests {
              Failed to delete transactions from the SentPayable table.\n\
              Error: PartialExecution(\"The Times 03/Jan/2009\")"
         )
+    }
+
+    #[test]
+    fn verify_failed_tx_hashes_in_db_works_when_all_hashes_match() {
+        init_test_logging();
+        let test_name = "verify_failed_tx_hashes_in_db_works_when_all_hashes_match";
+        let hash1 = make_tx_hash(1);
+        let hash2 = make_tx_hash(2);
+        let failed_tx1 = FailedTxBuilder::default().hash(hash1).build();
+        let failed_tx2 = FailedTxBuilder::default().hash(hash2).build();
+        let migrated_failures = HashSet::from([failed_tx1, failed_tx2]);
+        let all_failures_with_reasons = HashMap::from([
+            (hash1, FailureReason::Submission(Local(Internal))),
+            (hash2, FailureReason::Submission(Local(Internal))),
+        ]);
+        let logger = Logger::new(test_name);
+
+        PayableScanner::verify_failed_tx_hashes_in_db(
+            &migrated_failures,
+            &all_failures_with_reasons,
+            &logger,
+        );
+
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {}: All 2 failed transactions were present in the sent payable database",
+            test_name
+        ));
+    }
+
+    #[test]
+    fn verify_failed_tx_hashes_in_db_panics_when_hashes_are_missing() {
+        init_test_logging();
+        let test_name = "verify_failed_tx_hashes_in_db_panics_when_hashes_are_missing";
+        let hash1 = make_tx_hash(1);
+        let hash2 = make_tx_hash(2);
+        let hash3 = make_tx_hash(3);
+        let failed_tx1 = FailedTxBuilder::default().hash(hash1).build();
+        let failed_tx2 = FailedTxBuilder::default().hash(hash2).build();
+        let migrated_failures = HashSet::from([failed_tx1, failed_tx2]);
+        let all_failures_with_reasons = HashMap::from([
+            (hash1, FailureReason::Submission(Local(Internal))),
+            (hash2, FailureReason::Submission(Local(Internal))),
+            (hash3, FailureReason::Submission(Local(Internal))),
+        ]);
+        let logger = Logger::new(test_name);
+
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            PayableScanner::verify_failed_tx_hashes_in_db(
+                &migrated_failures,
+                &all_failures_with_reasons,
+                &logger,
+            );
+        }))
+        .unwrap_err();
+
+        let panic_msg = result.downcast_ref::<String>().unwrap();
+        assert!(panic_msg.contains("The found transactions have been migrated."));
+        assert!(panic_msg.contains(
+            "The following failed transactions were missing from the sent payable database:"
+        ));
+        assert!(panic_msg.contains(&format!("{:?}", hash3)));
     }
 }
