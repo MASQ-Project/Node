@@ -236,52 +236,6 @@ impl PayableScanner {
         }
     }
 
-    pub fn is_symmetrical(
-        sent_payables_hashes: HashSet<H256>,
-        fingerptint_hashes: HashSet<H256>,
-    ) -> bool {
-        todo!("it's okay to delete this");
-        sent_payables_hashes == fingerptint_hashes
-    }
-
-    fn handle_sent_payable_errors(
-        &self,
-        err_opt: Option<PayableTransactingErrorEnum>,
-        logger: &Logger,
-    ) {
-        if let Some(err) = err_opt {
-            match err {
-                LocallyCausedError(LocalPayableError::Sending { hashes, .. })
-                | RemotelyCausedErrors(hashes) => {
-                    todo!("This code has been migrated, please delete it");
-                    // self.discard_failed_transactions_with_possible_fingerprints(hashes, logger)
-                }
-                non_fatal =>
-                    debug!(
-                        logger,
-                        "Ignoring a non-fatal error on our end from before the transactions are hashed: {:?}",
-                        non_fatal
-                    )
-            }
-        }
-    }
-
-    fn find_absent_tx_hashes(
-        tx_identifiers: &TxIdentifiers,
-        hashset: HashSet<TxHash>,
-    ) -> Option<HashSet<TxHash>> {
-        let absent_hashes: HashSet<TxHash> = hashset
-            .into_iter()
-            .filter(|hash| !tx_identifiers.contains_key(hash))
-            .collect();
-
-        if absent_hashes.is_empty() {
-            None
-        } else {
-            Some(absent_hashes)
-        }
-    }
-
     fn map_hashes_to_local_failures(hashes: Vec<TxHash>) -> HashMap<TxHash, FailureReason> {
         hashes
             .into_iter()
@@ -488,6 +442,7 @@ impl PayableScanner {
         }
     }
 
+    // Done
     fn generate_ui_response(
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) -> Option<NodeToUiMessage> {
@@ -495,5 +450,27 @@ impl PayableScanner {
             target: MessageTarget::ClientId(response_skeleton.client_id),
             body: UiScanResponse {}.tmb(response_skeleton.context_id),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // Migrate all tests for PayableScanner here
+
+    use super::*;
+
+    #[test]
+    fn generate_ui_response_works_correctly() {
+        assert_eq!(PayableScanner::generate_ui_response(None), None);
+        assert_eq!(
+            PayableScanner::generate_ui_response(Some(ResponseSkeleton {
+                client_id: 1234,
+                context_id: 5678
+            })),
+            Some(NodeToUiMessage {
+                target: MessageTarget::ClientId(1234),
+                body: UiScanResponse {}.tmb(5678),
+            })
+        );
     }
 }
