@@ -1,36 +1,49 @@
 pub mod test_utils;
 
-use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
-use std::time::SystemTime;
-use ethereum_types::H256;
-use itertools::{Either, Itertools};
-use masq_lib::logger::Logger;
-use masq_lib::messages::{ToMessageBody, UiScanResponse};
-use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
-use crate::accountant::db_access_objects::failed_payable_dao::{FailedPayableDao, FailedTx, FailureReason, FailureStatus};
-use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDao};
-use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDao;
-use crate::accountant::payment_adjuster::PaymentAdjuster;
-use crate::accountant::{comma_joined_stringifiable, gwei_to_wei, join_with_separator, ResponseSkeleton, ScanForNewPayables, ScanForRetryPayables, SentPayables};
 use crate::accountant::db_access_objects::failed_payable_dao::FailureReason::Submission;
+use crate::accountant::db_access_objects::failed_payable_dao::{
+    FailedPayableDao, FailedTx, FailureReason, FailureStatus,
+};
+use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDao};
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
 use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::ByHash;
+use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDao;
 use crate::accountant::db_access_objects::utils::{TxHash, TxIdentifiers};
-use crate::accountant::scanners::payable_scanner_extension::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage, UnpricedQualifiedPayables};
-use crate::accountant::scanners::payable_scanner_extension::{MultistageDualPayableScanner, PreparedAdjustment, SolvencySensitivePaymentInstructor};
-use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{investigate_debt_extremes, payables_debug_summary, OperationOutcome, PayableScanResult, PayableThresholdsGauge, PayableThresholdsGaugeReal, PayableTransactingErrorEnum};
+use crate::accountant::payment_adjuster::PaymentAdjuster;
+use crate::accountant::scanners::payable_scanner_extension::msgs::{
+    BlockchainAgentWithContextMessage, QualifiedPayablesMessage, UnpricedQualifiedPayables,
+};
+use crate::accountant::scanners::payable_scanner_extension::{
+    MultistageDualPayableScanner, PreparedAdjustment, SolvencySensitivePaymentInstructor,
+};
+use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{
+    investigate_debt_extremes, payables_debug_summary, OperationOutcome, PayableScanResult,
+    PayableThresholdsGauge, PayableThresholdsGaugeReal, PayableTransactingErrorEnum,
+};
 use crate::accountant::scanners::{Scanner, ScannerCommon, StartScanError, StartableScanner};
-use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{LocallyCausedError, RemotelyCausedErrors};
+use crate::accountant::{
+    comma_joined_stringifiable, gwei_to_wei, join_with_separator, ResponseSkeleton,
+    ScanForNewPayables, ScanForRetryPayables, SentPayables,
+};
 use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
-use crate::blockchain::blockchain_interface::data_structures::{IndividualBatchResult, RpcPayableFailure};
+use crate::blockchain::blockchain_interface::data_structures::{
+    IndividualBatchResult, RpcPayableFailure,
+};
 use crate::blockchain::errors::AppRpcError::Local;
 use crate::blockchain::errors::LocalError::Internal;
 use crate::sub_lib::accountant::PaymentThresholds;
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use crate::sub_lib::wallet::Wallet;
-use masq_lib::messages::ScanType;
 use crate::time_marking_methods;
+use ethereum_types::H256;
+use itertools::{Either, Itertools};
+use masq_lib::logger::Logger;
+use masq_lib::messages::ScanType;
+use masq_lib::messages::{ToMessageBody, UiScanResponse};
+use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
+use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
+use std::time::SystemTime;
 
 pub struct PayableScanner {
     pub payable_threshold_gauge: Box<dyn PayableThresholdsGauge>,
@@ -264,34 +277,6 @@ impl PayableScanner {
         )
     }
 
-    fn verify_presence_of_pending_paybles_in_db(
-        &self,
-        pending_payables: &[PendingPayable],
-        logger: &Logger,
-    ) {
-        let pending_hashes: HashSet<H256> = pending_payables.iter().map(|pp| pp.hash).collect();
-        let sent_payables = self
-            .sent_payable_dao
-            .retrieve_txs(Some(ByHash(pending_hashes.clone())));
-        let sent_hashes: HashSet<H256> = sent_payables.iter().map(|sp| sp.hash).collect();
-
-        let missing_hashes: Vec<TxHash> =
-            pending_hashes.difference(&sent_hashes).cloned().collect();
-
-        if !missing_hashes.is_empty() {
-            panic!(
-                "The following pending payables are missing from the sent payable database: {}",
-                Self::serialize_hashes(&missing_hashes)
-            );
-        } else {
-            debug!(
-                logger,
-                "All {} pending payables are present in the sent payable database",
-                pending_payables.len()
-            );
-        }
-    }
-
     fn migrate_payables(&self, failed_payables: &HashSet<FailedTx>, logger: &Logger) {
         let hashes: HashSet<TxHash> = failed_payables.iter().map(|tx| tx.hash).collect();
         let common_string = format!(
@@ -324,7 +309,31 @@ impl PayableScanner {
         comma_joined_stringifiable(hashes, |hash| format!("{:?}", hash))
     }
 
-    fn panic_if_payables_were_missing(
+    fn verify_pending_tx_hashes_in_db(&self, pending_payables: &[PendingPayable], logger: &Logger) {
+        let pending_hashes: HashSet<H256> = pending_payables.iter().map(|pp| pp.hash).collect();
+        let sent_payables = self
+            .sent_payable_dao
+            .retrieve_txs(Some(ByHash(pending_hashes.clone())));
+        let sent_hashes: HashSet<H256> = sent_payables.iter().map(|sp| sp.hash).collect();
+
+        let missing_hashes: Vec<TxHash> =
+            pending_hashes.difference(&sent_hashes).cloned().collect();
+
+        if missing_hashes.is_empty() {
+            debug!(
+                logger,
+                "All {} pending payables are present in the sent payable database",
+                pending_payables.len()
+            );
+        } else {
+            panic!(
+                "The following pending payables are missing from the sent payable database: {}",
+                Self::serialize_hashes(&missing_hashes)
+            );
+        }
+    }
+
+    fn verify_failed_tx_hashes_in_db(
         failed_payables: &HashSet<FailedTx>,
         failures: &HashMap<TxHash, FailureReason>,
     ) {
@@ -391,7 +400,7 @@ impl PayableScanner {
 
         self.migrate_payables(&failed_payables, logger);
 
-        Self::panic_if_payables_were_missing(&failed_payables, hashes_with_reason);
+        Self::verify_failed_tx_hashes_in_db(&failed_payables, hashes_with_reason);
     }
 
     fn handle_batch_results(&self, batch_results: Vec<IndividualBatchResult>, logger: &Logger) {
@@ -412,7 +421,7 @@ impl PayableScanner {
 
         self.record_failed_txs_in_db(&failures, logger);
 
-        self.verify_presence_of_pending_paybles_in_db(&pending, logger);
+        self.verify_pending_tx_hashes_in_db(&pending, logger);
     }
 
     fn handle_local_error(&self, local_err: LocalPayableError, logger: &Logger) {
@@ -550,7 +559,7 @@ mod tests {
             .build();
 
         let logger = Logger::new("test");
-        subject.verify_presence_of_pending_paybles_in_db(&pending_payables, &logger);
+        subject.verify_pending_tx_hashes_in_db(&pending_payables, &logger);
 
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: test: All {} pending payables are present in the sent payable database",
@@ -582,7 +591,7 @@ mod tests {
 
         let logger = Logger::new(test_name);
 
-        subject.verify_presence_of_pending_paybles_in_db(&pending_payables, &logger);
+        subject.verify_pending_tx_hashes_in_db(&pending_payables, &logger);
     }
 
     #[test]
