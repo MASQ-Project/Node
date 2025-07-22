@@ -12,7 +12,7 @@ use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableT
     LocallyCausedError, RemotelyCausedErrors,
 };
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{debugging_summary_after_error_separation, err_msg_for_failure_with_expected_but_missing_sent_tx_record, investigate_debt_extremes, payables_debug_summary, separate_errors, separate_rowids_and_hashes, OperationOutcome, PayableScanResult, PayableThresholdsGauge, PayableThresholdsGaugeReal, PayableTransactingErrorEnum, PendingPayableMissingInDb};
-use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_status_with_failure, handle_successful_tx, PendingPayableScanSummary, PendingPayableScanResult, handle_still_pending_tx};
+use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_status_with_failure, handle_successful_tx, PendingPayableScanSummary, PendingPayableScanResult, handle_still_pending_tx, handle_rpc_failure};
 use crate::accountant::scanners::scanners_utils::receivable_scanner_utils::balance_and_age;
 use crate::accountant::{PendingPayable, PendingPayableId, ScanError, ScanForPendingPayables, ScanForRetryPayables};
 use crate::accountant::{
@@ -961,14 +961,14 @@ impl Scanner<TxReceiptsMessage, PendingPayableScanResult> for PendingPayableScan
         );
         let scan_report = self.handle_receipts_for_pending_transactions(message, logger);
 
-        let payment_retry_required = scan_report.requires_payments_retry();
+        let payment_retry_opt = scan_report.requires_payments_retry();
 
         self.process_transactions_by_their_state(scan_report, logger);
 
         self.mark_as_ended(logger);
 
-        if payment_retry_required {
-            PendingPayableScanResult::PaymentRetryRequired
+        if let Some(retry) = payment_retry_opt {
+            PendingPayableScanResult::PaymentRetryRequired(retry)
         } else {
             let ui_msg_opt = response_skeleton_opt.map(|response_skeleton| NodeToUiMessage {
                 target: MessageTarget::ClientId(response_skeleton.client_id),
@@ -991,8 +991,13 @@ impl PendingPayableScanner {
         payment_thresholds: Rc<PaymentThresholds>,
         financial_statistics: Rc<RefCell<FinancialStatistics>>,
     ) -> Self {
-
-        let txs_pending_too_long_in_previous_scan_cycle = failed_payable_dao.retrieve_txs(Some(FailureRetrieveCondition::ByStatus(FailureStatus::RecheckRequired))).into_iter().map(|tx| tx.hash).collect();
+        let txs_pending_too_long_in_previous_scan_cycle = failed_payable_dao
+            .retrieve_txs(Some(FailureRetrieveCondition::ByStatus(
+                FailureStatus::RecheckRequired,
+            )))
+            .into_iter()
+            .map(|tx| tx.hash)
+            .collect();
 
         Self {
             common: ScannerCommon::new(payment_thresholds),
@@ -1034,17 +1039,7 @@ impl PendingPayableScanner {
                             logger,
                         ),
                     },
-                    TxReceiptResult::Err(e) => {
-                        todo!()
-                        // debug!(
-                        //     logger,
-                        //     "Interpreting a receipt for transaction {:?} but {}; attempt {}, {}ms since sending",
-                        //     payable.hash,
-                        //     error_msg,
-                        //     payable.attempt,
-                        //     elapsed_in_ms(payable.timestamp)
-                        // );
-                    }
+                    TxReceiptResult::Err(e) => handle_rpc_failure(scan_report_so_far, e, logger),
                 },
             )
     }
@@ -1055,7 +1050,7 @@ impl PendingPayableScanner {
         logger: &Logger,
     ) {
         self.handle_confirmed_transactions(scan_report.confirmed, logger);
-        self.handle_failed_transactions(scan_report.failures, logger);
+        self.handle_failed_transactions(scan_report.failures_summary.failures, logger);
     }
 
     fn handle_confirmed_transactions(&mut self, confirmed_txs: Vec<SentTx>, logger: &Logger) {
@@ -1483,7 +1478,7 @@ mod tests {
     use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp, TxHash};
     use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayablesBeforeGasPriceSelection, QualifiedPayablesMessage, UnpricedQualifiedPayables};
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{OperationOutcome, PayableScanResult, PendingPayableMissingInDb};
-    use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_status_with_failure, PendingPayableScanSummary, PendingPayableScanResult};
+    use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_status_with_failure, PendingPayableScanSummary, PendingPayableScanResult, FailuresSummary};
     use crate::accountant::scanners::{Scanner, StartScanError, StartableScanner, PayableScanner, PendingPayableScanner, ReceivableScanner, ScannerCommon, Scanners, MTError};
     use crate::accountant::test_utils::{make_custom_payment_thresholds, make_payable_account, make_qualified_and_unqualified_payables, make_receivable_account, BannedDaoFactoryMock, BannedDaoMock, ConfigDaoFactoryMock, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder, PayableThresholdsGaugeMock, SentPayableDaoFactoryMock, SentPayableDaoMock, PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock, ReceivableScannerBuilder, make_sent_tx, FailedPayableDaoMock, FailedPayableDaoFactoryMock, make_failed_tx, make_transaction_block};
     use crate::accountant::{gwei_to_wei, PendingPayableId, ReceivedPayments, TxReceiptsMessage, RequestTransactionReceipts, ScanError, ScanForRetryPayables, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC, PendingPayable};
@@ -1528,6 +1523,7 @@ mod tests {
     use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDaoError, SentTx};
     use crate::accountant::scanners::test_utils::{assert_timestamps_from_str, parse_system_time_from_str, MarkScanner, NullScanner, ReplacementType, ScannerReplacement};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TxWithStatus, TransactionBlock, TxStatus, BlockchainTxFailure, TxReceiptResult, TxReceiptError};
+    use crate::blockchain::errors::{AppRpcError, RemoteError};
     use crate::test_utils::unshared_test_utils::capture_numbers_with_separators_from_str;
 
     impl Scanners {
@@ -1616,10 +1612,13 @@ mod tests {
         let sent_payable_dao_factory = SentPayableDaoFactoryMock::new()
             .make_result(SentPayableDaoMock::new())
             .make_result(SentPayableDaoMock::new());
-        let failed_payable_dao_factory =
-            FailedPayableDaoFactoryMock::new()
-                .make_result(FailedPayableDaoMock::new().retrieve_txs_params(&retrieve_txs_params_arc).retrieve_txs_result(vec![]));
-        let receivable_dao_factory = ReceivableDaoFactoryMock::new().make_result(ReceivableDaoMock::new());
+        let failed_payable_dao_factory = FailedPayableDaoFactoryMock::new().make_result(
+            FailedPayableDaoMock::new()
+                .retrieve_txs_params(&retrieve_txs_params_arc)
+                .retrieve_txs_result(vec![]),
+        );
+        let receivable_dao_factory =
+            ReceivableDaoFactoryMock::new().make_result(ReceivableDaoMock::new());
         let banned_dao_factory = BannedDaoFactoryMock::new().make_result(BannedDaoMock::new());
         let set_params_arc = Arc::new(Mutex::new(vec![]));
         let config_dao_mock = ConfigDaoMock::new()
@@ -1686,7 +1685,12 @@ mod tests {
             vec![]
         );
         let retrieve_txs_params = retrieve_txs_params_arc.lock().unwrap();
-        assert_eq!(*retrieve_txs_params, vec![Some(FailureRetrieveCondition::ByStatus(FailureStatus::RecheckRequired))]);
+        assert_eq!(
+            *retrieve_txs_params,
+            vec![Some(FailureRetrieveCondition::ByStatus(
+                FailureStatus::RecheckRequired
+            ))]
+        );
         assert_eq!(
             receivable_scanner.common.payment_thresholds.as_ref(),
             &payment_thresholds
@@ -1715,9 +1719,10 @@ mod tests {
             initial_rc_count + 3
         );
     }
-    
+
     #[test]
-    fn tx_failures_yet_needing_recheck_uploads_from_db_while_pending_payable_scanner_is_constructed(){
+    fn tx_failures_yet_needing_recheck_uploads_from_db_while_pending_payable_scanner_is_constructed(
+    ) {
         let retrieve_txs_params_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao_factory = PayableDaoFactoryMock::new()
             .make_result(PayableDaoMock::new())
@@ -1733,15 +1738,15 @@ mod tests {
         let mut failed_tx_2 = make_failed_tx(456);
         failed_tx_2.hash = tx_hash_2;
         failed_tx_2.status = FailureStatus::RecheckRequired;
-        let failed_payable_dao_factory =
-            FailedPayableDaoFactoryMock::new()
-                .make_result(FailedPayableDaoMock::new()
-                    .retrieve_txs_params(&retrieve_txs_params_arc)
-                    .retrieve_txs_result(vec![failed_tx_1, failed_tx_2]));
-        let receivable_dao_factory = ReceivableDaoFactoryMock::new().make_result(ReceivableDaoMock::new());
+        let failed_payable_dao_factory = FailedPayableDaoFactoryMock::new().make_result(
+            FailedPayableDaoMock::new()
+                .retrieve_txs_params(&retrieve_txs_params_arc)
+                .retrieve_txs_result(vec![failed_tx_1, failed_tx_2]),
+        );
+        let receivable_dao_factory =
+            ReceivableDaoFactoryMock::new().make_result(ReceivableDaoMock::new());
         let banned_dao_factory = BannedDaoFactoryMock::new().make_result(BannedDaoMock::new());
-        let config_dao_mock = ConfigDaoMock::new()
-            .set_result(Ok(()));
+        let config_dao_mock = ConfigDaoMock::new().set_result(Ok(()));
         let config_dao_factory = ConfigDaoFactoryMock::new().make_result(config_dao_mock);
 
         let scanners = Scanners::new(
@@ -1763,8 +1768,16 @@ mod tests {
             .downcast_ref::<PendingPayableScanner>()
             .unwrap();
         let retrieve_txs_params = retrieve_txs_params_arc.lock().unwrap();
-        assert_eq!(*retrieve_txs_params, vec![Some(FailureRetrieveCondition::ByStatus(FailureStatus::RecheckRequired))]);
-        assert_eq!(pending_payable_scanner.txs_pending_too_long_in_previous_scan_cycle, vec![tx_hash_1, tx_hash_2]);
+        assert_eq!(
+            *retrieve_txs_params,
+            vec![Some(FailureRetrieveCondition::ByStatus(
+                FailureStatus::RecheckRequired
+            ))]
+        );
+        assert_eq!(
+            pending_payable_scanner.txs_pending_too_long_in_previous_scan_cycle,
+            vec![tx_hash_1, tx_hash_2]
+        );
     }
 
     #[test]
@@ -2958,24 +2971,28 @@ mod tests {
     }
 
     #[test]
-    fn interpret_transaction_receipt_when_transaction_status_is_a_failure() {
+    fn interprets_tx_receipt_when_transaction_status_is_a_failure() {
         init_test_logging();
-        let test_name = "interpret_transaction_receipt_when_transaction_status_is_a_failure";
+        let test_name = "interprets_tx_receipt_when_transaction_status_is_a_failure";
         let hash = make_tx_hash(0xabc);
         let mut sent_tx = make_sent_tx(2244);
         sent_tx.hash = hash;
-        let failure_reason = BlockchainTxFailure::Unrecognized;
+        let blockchain_failure = BlockchainTxFailure::Unrecognized;
         let logger = Logger::new(test_name);
         let scan_report = PendingPayableScanSummary::default();
 
         let result =
-            handle_status_with_failure(scan_report, sent_tx.clone(), failure_reason, &logger);
+            handle_status_with_failure(scan_report, sent_tx.clone(), blockchain_failure, &logger);
 
+        let failure_reason = blockchain_failure.into();
         let failed_tx = FailedTx::from((sent_tx, failure_reason));
         assert_eq!(
             result,
             PendingPayableScanSummary {
-                failures: vec![failed_tx],
+                failures_summary: FailuresSummary {
+                    failures: vec![failed_tx],
+                    any_rpc_call_failure: false
+                },
                 confirmed: vec![]
             }
         );
@@ -2986,9 +3003,9 @@ mod tests {
     }
 
     #[test]
-    fn handle_transaction_receipt_if_the_tx_keeps_pending() {
+    fn handles_tx_receipt_if_the_tx_keeps_pending() {
         init_test_logging();
-        let test_name = "handle_transaction_receipt_if_the_tx_keeps_pending";
+        let test_name = "handles_tx_receipt_if_the_tx_keeps_pending";
         let subject = PendingPayableScannerBuilder::new().build();
         let hash = make_tx_hash(0x913);
         let sent_tx_timestamp = to_unix_timestamp(
@@ -3011,19 +3028,22 @@ mod tests {
         let result = subject.handle_receipts_for_pending_transactions(msg, &Logger::new(test_name));
 
         let after = SystemTime::now();
-        let expected_failed_tx = FailedTx::from(sent_tx);
+        let expected_failed_tx = FailedTx::from((sent_tx, FailureReason::PendingTooLong));
         assert_eq!(
             result,
             PendingPayableScanSummary {
-                failures: vec![expected_failed_tx],
+                failures_summary: FailuresSummary {
+                    failures: vec![expected_failed_tx],
+                    any_rpc_call_failure: false
+                },
                 confirmed: vec![]
             }
         );
         let log_handler = TestLogHandler::new();
         let log_idx = log_handler.exists_log_matching(&format!(
-            "WARN: {test_name}: Pending tx \
-            0x0000000000000000000000000000000000000000000000000000000000000913 could not be \
-            confirmed yet after \\d{{1,3}}(,\\d{{3}})* ms and will be retried with a more optimized gas price"
+            "INFO: {test_name}: Tx \
+            0x0000000000000000000000000000000000000000000000000000000000000913 not confirmed within \
+            \\d{{1,3}}(,\\d{{3}})* ms. Will resubmit with higher gas price"
         ));
         let log_msg = log_handler.get_log_at(log_idx);
         let str_elapsed_ms = capture_numbers_with_separators_from_str(&log_msg, 3, ',');
@@ -3046,63 +3066,48 @@ mod tests {
     }
 
     #[test]
-    fn handle_transaction_receipt_if_attempt_to_retrieve_the_receipt_failed() {
+    fn handles_tx_receipt_if_attempt_to_retrieve_the_receipt_failed() {
         init_test_logging();
-        let test_name = "handle_transaction_receipt_if_attempt_to_retrieve_the_receipt_failed";
-        todo!("finish me when you have a better idea how to implement the backward checks")
-        // let subject = PendingPayableScannerBuilder::new().build();
-        // let hash = make_tx_hash(0x913);
-        // let sent_tx_timestamp = to_unix_timestamp(
-        //     SystemTime::now()
-        //         .checked_sub(Duration::from_secs(120))
-        //         .unwrap(),
-        // );
-        // let mut sent_tx = make_sent_tx(456);
-        // sent_tx.hash = hash;
-        // sent_tx.timestamp = sent_tx_timestamp;
-        // let msg = TxReceiptsMessage {
-        //     results: vec![TxReceiptResult::Err(TxReceiptError::new(
-        //         hash,
-        //         "What an epic error".to_string(),
-        //     ))],
-        //     response_skeleton_opt: None,
-        // };
-        // 
-        // let result = subject.handle_receipts_for_pending_transactions(msg, &Logger::new(test_name));
-        // 
-        // assert_eq!(
-        //     result,
-        //     PendingPayableScanSummary {
-        //         failures: vec![expected_failed_tx],
-        //         confirmed: vec![]
-        //     }
-        // );
-        // let log_handler = TestLogHandler::new();
-        // let log_idx = log_handler.exists_log_matching(&format!(
-        //     "WARN: {test_name}: Pending tx \
-        //     0x0000000000000000000000000000000000000000000000000000000000000913 could not be \
-        //     confirmed yet after \\d{{1,3}}(,\\d{{3}})* ms and will be retried with a more optimized gas price"
-        // ));
-        // let log_msg = log_handler.get_log_at(log_idx);
-        // let str_elapsed_ms = capture_numbers_with_separators_from_str(&log_msg, 3, ',');
-        // let elapsed_ms = str_elapsed_ms[0].replace(",", "").parse::<u128>().unwrap();
-        // let elapsed_ms_when_before = before
-        //     .duration_since(from_unix_timestamp(sent_tx_timestamp))
-        //     .unwrap()
-        //     .as_millis();
-        // let elapsed_ms_when_after = after
-        //     .duration_since(from_unix_timestamp(sent_tx_timestamp))
-        //     .unwrap()
-        //     .as_millis();
-        // assert!(
-        //     elapsed_ms_when_before <= elapsed_ms && elapsed_ms <= elapsed_ms_when_after,
-        //     "we expected the elapsed time {} ms to be between {} and {}.",
-        //     elapsed_ms,
-        //     elapsed_ms_when_before,
-        //     elapsed_ms_when_after
-        // );
-    }
+        let test_name = "handles_tx_receipt_if_attempt_to_retrieve_the_receipt_failed";
+        let subject = PendingPayableScannerBuilder::new().build();
+        let hash = make_tx_hash(0x913);
+        let sent_tx_timestamp = to_unix_timestamp(
+            SystemTime::now()
+                .checked_sub(Duration::from_secs(120))
+                .unwrap(),
+        );
+        let mut sent_tx = make_sent_tx(456);
+        sent_tx.hash = hash;
+        sent_tx.timestamp = sent_tx_timestamp;
+        let rpc_error = AppRpcError::Remote(RemoteError::InvalidResponse("bluh".to_string()));
+        let msg = TxReceiptsMessage {
+            results: vec![TxReceiptResult::Err(TxReceiptError::new(
+                sent_tx.clone(),
+                rpc_error.clone(),
+            ))],
+            response_skeleton_opt: None,
+        };
 
+        let result = subject.handle_receipts_for_pending_transactions(msg, &Logger::new(test_name));
+
+        assert_eq!(
+            result,
+            PendingPayableScanSummary {
+                failures_summary: FailuresSummary {
+                    failures: vec![],
+                    any_rpc_call_failure: true
+                },
+                confirmed: vec![]
+            }
+        );
+        let log_handler = TestLogHandler::new();
+        let log_idx = log_handler.exists_log_containing(&format!(
+            "WARN: {test_name}: Failed to retrieve tx receipt for \
+            0x0000000000000000000000000000000000000000000000000000000000000913: \
+            Remote(InvalidResponse(\"bluh\")). \
+            Will retry receipt retrieval next cycle"
+        ));
+    }
 
     #[test]
     fn handle_failed_transactions_works() {

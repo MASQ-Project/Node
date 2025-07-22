@@ -362,8 +362,15 @@ impl AccountantBuilder {
 
     pub fn failed_payable_daos(
         mut self,
-        specially_configured_daos: Vec<DaoWithDestination<FailedPayableDaoMock>>,
+        mut specially_configured_daos: Vec<DaoWithDestination<FailedPayableDaoMock>>,
     ) -> Self {
+        specially_configured_daos.iter_mut().for_each(|dao| {
+            if let DaoWithDestination::ForPendingPayableScanner(dao) = dao {
+                let mut extended_queue = vec![vec![]];
+                extended_queue.append(&mut dao.retrieve_txs_results.borrow_mut());
+                dao.retrieve_txs_results.replace(extended_queue);
+            }
+        });
         create_or_update_factory!(
             specially_configured_daos,
             FAILED_PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER,
@@ -426,10 +433,11 @@ impl AccountantBuilder {
                 .make_result(SentPayableDaoMock::new())
                 .make_result(SentPayableDaoMock::new()),
         );
+        let failed_tx_dao_for_pending_payable_scanner =
+            FailedPayableDaoMock::new().retrieve_txs_result(vec![]);
         let failed_payable_dao_factory = self.failed_payable_dao_factory_opt.unwrap_or(
             FailedPayableDaoFactoryMock::new()
-                .make_result(FailedPayableDaoMock::new())
-                .make_result(FailedPayableDaoMock::new())
+                .make_result(failed_tx_dao_for_pending_payable_scanner)
                 .make_result(FailedPayableDaoMock::new()),
         );
         let banned_dao_factory = self
@@ -1240,6 +1248,28 @@ impl FailedPayableDaoMock {
         self.delete_records_results.borrow_mut().push(result);
         self
     }
+
+    pub fn merge_results_with(self, other: &Self) -> Self {
+        Self::merge_single_result(
+            &self.get_tx_identifiers_results,
+            &other.get_tx_identifiers_results,
+        );
+        Self::merge_single_result(
+            &self.insert_new_records_results,
+            &other.insert_new_records_results,
+        );
+        Self::merge_single_result(&self.retrieve_txs_results, &other.retrieve_txs_results);
+        Self::merge_single_result(
+            &self.update_statuses_results,
+            &other.update_statuses_results,
+        );
+        Self::merge_single_result(&self.delete_records_results, &other.delete_records_results);
+        self
+    }
+
+    fn merge_single_result<Value>(one: &RefCell<Vec<Value>>, other: &RefCell<Vec<Value>>) {
+        one.borrow_mut().append(&mut other.borrow_mut());
+    }
 }
 
 pub struct FailedPayableDaoFactoryMock {
@@ -1359,8 +1389,12 @@ impl PendingPayableScannerBuilder {
         self.failed_payable_dao = failed_payable_dao;
         self
     }
-    
-    pub fn build(self) -> PendingPayableScanner {
+
+    pub fn build(mut self) -> PendingPayableScanner {
+        self.failed_payable_dao = FailedPayableDaoMock::default()
+            .retrieve_txs_result(vec![])
+            .merge_results_with(&self.failed_payable_dao);
+
         PendingPayableScanner::new(
             Box::new(self.payable_dao),
             Box::new(self.sent_payable_dao),

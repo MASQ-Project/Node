@@ -582,6 +582,7 @@ mod tests {
     use crate::accountant::PendingPayable;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TxWithStatus, TransactionBlock, TxReceiptError};
     use crate::accountant::scanners::payable_scanner_extension::msgs::{UnpricedQualifiedPayables, QualifiedPayableWithGasPrice};
+    use crate::blockchain::errors::{AppRpcError, RemoteError};
 
     impl Handler<AssertionsMessage<Self>> for BlockchainBridge {
         type Result = ();
@@ -1292,7 +1293,7 @@ mod tests {
             .start();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let accountant_addr = accountant
-            .system_stop_conditions(match_lazily_every_type_id!(TxReceiptsMessage, ScanError))
+            .system_stop_conditions(match_lazily_every_type_id!(TxReceiptsMessage))
             .start();
         let report_transaction_receipt_recipient: Recipient<TxReceiptsMessage> =
             accountant_addr.clone().recipient();
@@ -1349,8 +1350,8 @@ mod tests {
                     TxReceiptResult::Ok(TxWithStatus::new(sent_tx_3, TxStatus::Pending)),
                     TxReceiptResult::Err(
                         TxReceiptError::new(
-                            sent_tx_4.hash,
-                        "RPC error: Error { code: ServerError(429), message: \"The requests per second (RPS) of your requests are higher than your plan allows.\", data: None }".to_string()))
+                            sent_tx_4,
+                        AppRpcError:: Remote(RemoteError::Web3RpcError { code: 429, message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string()})))
                 ],
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,

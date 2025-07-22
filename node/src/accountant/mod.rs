@@ -76,7 +76,7 @@ use std::time::SystemTime;
 use web3::types::H256;
 use crate::accountant::scanners::scan_schedulers::{PayableSequenceScanner, ScanRescheduleAfterEarlyStop, ScanSchedulers};
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::OperationOutcome;
-use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::PendingPayableScanResult;
+use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{PendingPayableScanResult, Retry};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TxReceiptResult;
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
@@ -327,10 +327,14 @@ impl Handler<TxReceiptsMessage> for Accountant {
                         .schedule_new_payable_scan(ctx, &self.logger)
                 }
             }
-            PendingPayableScanResult::PaymentRetryRequired => self
-                .scan_schedulers
-                .payable
-                .schedule_retry_payable_scan(ctx, response_skeleton_opt, &self.logger),
+            PendingPayableScanResult::PaymentRetryRequired(retry) => match retry {
+                Retry::RetryPayments => self.scan_schedulers.payable.schedule_retry_payable_scan(
+                    ctx,
+                    response_skeleton_opt,
+                    &self.logger,
+                ),
+                Retry::RetryReceiptCheck => todo!(),
+            },
         };
     }
 }
@@ -1331,7 +1335,7 @@ mod tests {
             .make_result(SentPayableDaoMock::new()); // For PendingPayable Scanner
         let failed_payable_dao_factory = FailedPayableDaoFactoryMock::new()
             .make_params(&failed_payable_dao_factory_params_arc)
-            .make_result(FailedPayableDaoMock::new()); // For PendingPayableScanner;
+            .make_result(FailedPayableDaoMock::new().retrieve_txs_result(vec![])); // For PendingPayableScanner;
         let receivable_dao_factory = ReceivableDaoFactoryMock::new()
             .make_params(&receivable_dao_factory_params_arc)
             .make_result(ReceivableDaoMock::new()) // For Accountant
@@ -1390,8 +1394,10 @@ mod tests {
                 .make_result(SentPayableDaoMock::new()) // For Payable Scanner
                 .make_result(SentPayableDaoMock::new()), // For PendingPayable Scanner
         );
-        let failed_payable_dao_factory =
-            Box::new(FailedPayableDaoFactoryMock::new().make_result(FailedPayableDaoMock::new())); // For PendingPayableScanner;
+        let failed_payable_dao_factory = Box::new(
+            FailedPayableDaoFactoryMock::new()
+                .make_result(FailedPayableDaoMock::new().retrieve_txs_result(vec![])),
+        ); // For PendingPayableScanner;
         let receivable_dao_factory = Box::new(
             ReceivableDaoFactoryMock::new()
                 .make_result(ReceivableDaoMock::new()) // For Accountant
@@ -2194,7 +2200,8 @@ mod tests {
 
         system.run();
         let insert_new_records_params = insert_new_records_params_arc.lock().unwrap();
-        let expected_failed_tx = FailedTx::from((sent_tx, BlockchainTxFailure::Unrecognized));
+        let expected_failed_tx =
+            FailedTx::from((sent_tx, BlockchainTxFailure::Unrecognized.into()));
         assert_eq!(*insert_new_records_params, vec![vec![expected_failed_tx]]);
         let delete_records_params = delete_records_params_arc.lock().unwrap();
         assert_eq!(*delete_records_params, vec![hashset![tx_hash]]);
@@ -2764,7 +2771,9 @@ mod tests {
                 response_skeleton_opt: None,
             }))
             .finish_scan_params(&scan_params.pending_payable_finish_scan)
-            .finish_scan_result(PendingPayableScanResult::PaymentRetryRequired);
+            .finish_scan_result(PendingPayableScanResult::PaymentRetryRequired(
+                Retry::RetryPayments,
+            ));
         let receivable_scanner = ScannerMock::new()
             .scan_started_at_result(None)
             .start_scan_params(&scan_params.receivable_start_scan)
@@ -4941,7 +4950,9 @@ mod tests {
             .build();
         let pending_payable_scanner = ScannerMock::new()
             .finish_scan_params(&finish_scan_params_arc)
-            .finish_scan_result(PendingPayableScanResult::PaymentRetryRequired);
+            .finish_scan_result(PendingPayableScanResult::PaymentRetryRequired(
+                Retry::RetryPayments,
+            ));
         subject
             .scanners
             .replace_scanner(ScannerReplacement::PendingPayable(ReplacementType::Mock(

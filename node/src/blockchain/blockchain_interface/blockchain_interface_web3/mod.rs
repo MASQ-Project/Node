@@ -26,7 +26,7 @@ use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
 use crate::blockchain::blockchain_bridge::{BlockMarker, BlockScanRange, RegisterNewPendingPayables};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{LowBlockchainIntWeb3, TxStatus, TxWithStatus, TxReceiptError, TxReceiptResult};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::utils::{create_blockchain_agent_web3, send_payables_within_batch, BlockchainAgentFutureResult};
-
+use crate::blockchain::errors::{AppRpcError, RemoteError};
 // TODO We should probably begin to attach these constants to the interfaces more tightly, so that
 // we aren't baffled by which interface they belong with. I suggest to declare them inside
 // their inherent impl blocks. They will then need to be preceded by the class name
@@ -239,17 +239,16 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                                             ))
                                         } else {
                                             TxReceiptResult::Err(TxReceiptError::new(
-                                                sent_tx.hash,
-                                                e.to_string(),
+                                                sent_tx,
+                                                AppRpcError::Remote(RemoteError::InvalidResponse(
+                                                    e.to_string(),
+                                                )),
                                             ))
                                         }
                                     }
                                 }
                             }
-                            Err(e) => TxReceiptResult::Err(TxReceiptError::new(
-                                sent_tx.hash,
-                                e.to_string(),
-                            )),
+                            Err(e) => TxReceiptResult::Err(TxReceiptError::new(sent_tx, e.into())),
                         })
                         .collect::<Vec<TxReceiptResult>>())
                 }),
@@ -1114,8 +1113,16 @@ mod tests {
 
         assert_eq!(result[0], TxReceiptResult::Err(
             TxReceiptError::new(
-                sent_tx_1.hash,
-            "RPC error: Error { code: ServerError(429), message: \"The requests per second (RPS) of your requests are higher than your plan allows.\", data: None }".to_string())));
+                sent_tx_1,
+            AppRpcError::Remote(
+                RemoteError::Web3RpcError {
+                    code: 429,
+                    message:
+                    "The requests per second (RPS) of your requests are higher than your plan allows."
+                        .to_string()
+                }
+            )))
+        );
         assert_eq!(
             result[1],
             TxReceiptResult::Ok(TxWithStatus::new(sent_tx_2, TxStatus::Pending))
@@ -1123,8 +1130,10 @@ mod tests {
         assert_eq!(
             result[2],
             TxReceiptResult::Err(TxReceiptError::new(
-                sent_tx_3.hash,
-                "invalid type: string \"trash\", expected struct Receipt".to_string()
+                sent_tx_3,
+                AppRpcError::Remote(RemoteError::InvalidResponse(
+                    "invalid type: string \"trash\", expected struct Receipt".to_string()
+                ))
             ))
         );
         assert_eq!(

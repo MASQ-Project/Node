@@ -7,6 +7,7 @@ use crate::blockchain::blockchain_interface::blockchain_interface_web3::CONTRACT
 use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError;
 use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError::QueryFailed;
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
+use crate::blockchain::errors::AppRpcError;
 use crate::sub_lib::wallet::Wallet;
 use ethereum_types::{H256, U256, U64};
 use futures::Future;
@@ -119,13 +120,13 @@ impl Display for TxStatus {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct TxReceiptError {
-    tx_hash: TxHash,
-    err_msg: String,
+    pub tx: SentTx,
+    pub err: AppRpcError,
 }
 
 impl TxReceiptError {
-    pub fn new(tx_hash: TxHash, err_msg: String) -> Self {
-        Self { tx_hash, err_msg }
+    pub fn new(tx: SentTx, err: AppRpcError) -> Self {
+        Self { tx, err }
     }
 }
 
