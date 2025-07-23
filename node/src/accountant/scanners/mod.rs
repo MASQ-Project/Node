@@ -12,7 +12,7 @@ use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableT
     LocallyCausedError, RemotelyCausedErrors,
 };
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{debugging_summary_after_error_separation, err_msg_for_failure_with_expected_but_missing_sent_tx_record, investigate_debt_extremes, payables_debug_summary, separate_errors, separate_rowids_and_hashes, OperationOutcome, PayableScanResult, PayableThresholdsGauge, PayableThresholdsGaugeReal, PayableTransactingErrorEnum, PendingPayableMissingInDb};
-use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_status_with_failure, handle_successful_tx, PendingPayableReport, PendingPayableScanResult, handle_still_pending_tx, handle_rpc_failure};
+use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_status_with_failure, handle_successful_tx, PendingPayableReport, PendingPayableScanResult, handle_still_pending_tx, handle_rpc_failure, FailuresSummary};
 use crate::accountant::scanners::scanners_utils::receivable_scanner_utils::balance_and_age;
 use crate::accountant::{PendingPayable, PendingPayableId, ScanError, ScanForPendingPayables, ScanForRetryPayables};
 use crate::accountant::{
@@ -1051,7 +1051,7 @@ impl PendingPayableScanner {
         logger: &Logger,
     ) {
         self.handle_confirmed_transactions(scan_report.confirmed, logger);
-        self.handle_failed_transactions(scan_report.failures_summary.failures, logger);
+        self.handle_failed_transactions(scan_report.failures_summary, logger);
     }
 
     fn handle_confirmed_transactions(&mut self, confirmed_txs: Vec<SentTx>, logger: &Logger) {
@@ -1148,40 +1148,41 @@ impl PendingPayableScanner {
         );
     }
 
-    fn handle_failed_transactions(&self, failures: Vec<FailedTx>, logger: &Logger) {
+    fn handle_failed_transactions(&self, failures_summary: FailuresSummary, logger: &Logger) {
         fn joint_hashes(hashes: &HashSet<TxHash>) -> String {
             comma_joined_stringifiable(&hashes.iter().sorted().collect_vec(), |hash| {
                 format!("{:?}", hash)
             })
         }
 
-        if !failures.is_empty() {
-            let hashes = failures
-                .iter()
-                .map(|failed_tx| failed_tx.hash)
-                .collect::<HashSet<TxHash>>();
-            match self.failed_payable_dao.insert_new_records(&failures) {
-                Ok(_) => {
-                    debug!(logger, "Failed payables {:?} recorded", hashes);
-                }
-                Err(e) => panic!(
-                    "Unable to record failed payables {} due to {:?}",
-                    joint_hashes(&hashes),
-                    e
-                ),
-            }
-            match self.sent_payable_dao.delete_records(&hashes) {
-                Ok(_) => debug!(
-                    logger,
-                    "Deleted sent payable records for failed txs {:?}", hashes
-                ),
-                Err(e) => panic!(
-                    "Unable to delete sent_payable entries for failed txs {} due to {:?}",
-                    joint_hashes(&hashes),
-                    e
-                ),
-            };
-        }
+        todo!("fix me... do both, add new records and also just change a status where needed")
+        // if !failures.is_empty() {
+        //     let hashes = failures
+        //         .iter()
+        //         .map(|failed_tx| failed_tx.hash)
+        //         .collect::<HashSet<TxHash>>();
+        //     match self.failed_payable_dao.insert_new_records(&failures) {
+        //         Ok(_) => {
+        //             debug!(logger, "Failed payables {:?} recorded", hashes);
+        //         }
+        //         Err(e) => panic!(
+        //             "Unable to record failed payables {} due to {:?}",
+        //             joint_hashes(&hashes),
+        //             e
+        //         ),
+        //     }
+        //     match self.sent_payable_dao.delete_records(&hashes) {
+        //         Ok(_) => debug!(
+        //             logger,
+        //             "Deleted sent payable records for failed txs {:?}", hashes
+        //         ),
+        //         Err(e) => panic!(
+        //             "Unable to delete sent_payable entries for failed txs {} due to {:?}",
+        //             joint_hashes(&hashes),
+        //             e
+        //         ),
+        //     };
+        // }
     }
 }
 
@@ -2991,8 +2992,8 @@ mod tests {
             result,
             PendingPayableReport {
                 failures_summary: FailuresSummary {
-                    failures: vec![failed_tx],
-                    any_rpc_call_failure: false
+                    tx_failures: vec![failed_tx],
+                    rpc_failures: false
                 },
                 confirmed: vec![]
             }
@@ -3034,8 +3035,8 @@ mod tests {
             result,
             PendingPayableReport {
                 failures_summary: FailuresSummary {
-                    failures: vec![expected_failed_tx],
-                    any_rpc_call_failure: false
+                    tx_failures: vec![expected_failed_tx],
+                    rpc_failures: false
                 },
                 confirmed: vec![]
             }
@@ -3095,8 +3096,8 @@ mod tests {
             result,
             PendingPayableReport {
                 failures_summary: FailuresSummary {
-                    failures: vec![],
-                    any_rpc_call_failure: true
+                    tx_failures: vec![],
+                    rpc_failures: true
                 },
                 confirmed: vec![]
             }

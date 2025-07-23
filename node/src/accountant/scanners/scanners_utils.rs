@@ -353,30 +353,31 @@ pub mod pending_payable_scanner_utils {
         }
 
         fn register_failure(&mut self, failed_tx: FailedTx) {
-            self.failures_summary.failures.push(failed_tx);
+            self.failures_summary.tx_failures.push(failed_tx);
         }
 
-        fn register_rpc_failure(&mut self) {
-            self.failures_summary.any_rpc_call_failure = true;
+        fn register_rpc_failure(&mut self, failed_tx_hash: TxHash) {
+            // TODO solve me by changing just the status
+            //self.failures_summary.failures.push(failed_tx);
         }
     }
 
     #[derive(Debug, Default, PartialEq, Eq, Clone)]
     pub struct FailuresSummary {
-        pub failures: Vec<FailedTx>,
-        pub any_rpc_call_failure: bool,
+        pub tx_failures: Vec<FailedTx>,
+        pub rpc_failures: Vec<TxHash>,
     }
 
     impl FailuresSummary {
         fn requires_retry(&self) -> Option<Retry> {
-            if !self.failures.is_empty() {
-                return Some(Retry::RetryPayments);
-            }
-            if self.any_rpc_call_failure {
-                Some(Retry::RetryReceiptCheck)
-            } else {
-                None
-            }
+            todo!("add the logic to combine the two vecs");
+            // if self.tx_failures.is_empty() {
+            //     None
+            // } else if self.tx_failures.iter().any(|failed_tx| failed_tx.status == FailureStatus::RetryRequired) {
+            //     Some(Retry::RetryPayments)
+            // } else {
+            //     Some(Retry::RetryReceiptCheck)
+            // }
         }
     }
 
@@ -458,6 +459,7 @@ pub mod pending_payable_scanner_utils {
 
     pub fn handle_rpc_failure(
         mut scan_report: PendingPayableReport,
+        recheck_required_txs: &[TxHash],
         rpc_error: TxReceiptError,
         logger: &Logger,
     ) -> PendingPayableReport {
@@ -467,8 +469,10 @@ pub mod pending_payable_scanner_utils {
             rpc_error.tx.hash,
             rpc_error.err
         );
-
-        scan_report.register_rpc_failure();
+        // TODO just to make sure we didn't ball something up badly, could be deduced also without
+        if !recheck_required_txs.contains(&rpc_error.tx.hash) {
+            scan_report.register_failure(rpc_error.tx.hash);
+        }
         scan_report
     }
 
@@ -997,29 +1001,29 @@ mod tests {
         let cases = vec![
             PendingPayableReport {
                 failures_summary: FailuresSummary {
-                    failures: vec![make_failed_tx(456)],
-                    any_rpc_call_failure: false,
+                    tx_failures: vec![make_failed_tx(456)],
+                    rpc_failures: false,
                 },
                 confirmed: vec![],
             },
             PendingPayableReport {
                 failures_summary: FailuresSummary {
-                    failures: vec![make_failed_tx(789)],
-                    any_rpc_call_failure: true,
+                    tx_failures: vec![make_failed_tx(789)],
+                    rpc_failures: true,
                 },
                 confirmed: vec![],
             },
             PendingPayableReport {
                 failures_summary: FailuresSummary {
-                    failures: vec![make_failed_tx(123), make_failed_tx(789)],
-                    any_rpc_call_failure: false,
+                    tx_failures: vec![make_failed_tx(123), make_failed_tx(789)],
+                    rpc_failures: false,
                 },
                 confirmed: vec![make_sent_tx(777)],
             },
             PendingPayableReport {
                 failures_summary: FailuresSummary {
-                    failures: vec![make_failed_tx(123)],
-                    any_rpc_call_failure: true,
+                    tx_failures: vec![make_failed_tx(123)],
+                    rpc_failures: true,
                 },
                 confirmed: vec![make_sent_tx(777)],
             },
@@ -1042,15 +1046,15 @@ mod tests {
         let cases = vec![
             PendingPayableReport {
                 failures_summary: FailuresSummary {
-                    failures: vec![],
-                    any_rpc_call_failure: true,
+                    tx_failures: vec![],
+                    rpc_failures: true,
                 },
                 confirmed: vec![],
             },
             PendingPayableReport {
                 failures_summary: FailuresSummary {
-                    failures: vec![],
-                    any_rpc_call_failure: true,
+                    tx_failures: vec![],
+                    rpc_failures: true,
                 },
                 confirmed: vec![make_sent_tx(777)],
             },
@@ -1072,8 +1076,8 @@ mod tests {
     fn requires_payments_retry_says_no() {
         let report = PendingPayableReport {
             failures_summary: FailuresSummary {
-                failures: vec![],
-                any_rpc_call_failure: false,
+                tx_failures: vec![],
+                rpc_failures: false,
             },
             confirmed: vec![make_sent_tx(123)],
         };
@@ -1091,8 +1095,8 @@ mod tests {
     fn requires_payments_retry_with_no_results_in_whole_summary() {
         let report = PendingPayableReport {
             failures_summary: FailuresSummary {
-                failures: vec![],
-                any_rpc_call_failure: false,
+                tx_failures: vec![],
+                rpc_failures: false,
             },
             confirmed: vec![],
         };
