@@ -365,7 +365,6 @@ impl PayableScanner {
         &self,
         hashes_with_reason: &HashMap<TxHash, FailureReason>,
     ) -> HashSet<FailedTx> {
-        todo!();
         let hashes: HashSet<TxHash> = hashes_with_reason.keys().cloned().collect();
         let sent_payables = self.sent_payable_dao.retrieve_txs(Some(ByHash(hashes)));
 
@@ -482,6 +481,9 @@ mod tests {
         make_pending_payable, make_rpc_payable_failure, PayableScannerBuilder,
     };
     use crate::accountant::test_utils::{FailedPayableDaoMock, SentPayableDaoMock};
+    use crate::blockchain::errors::AppRpcError;
+    use crate::blockchain::errors::AppRpcError::Remote;
+    use crate::blockchain::errors::RemoteError::Unreachable;
     use crate::blockchain::test_utils::make_tx_hash;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -741,5 +743,67 @@ mod tests {
             "The following failed transactions were missing from the sent payable database:"
         ));
         assert!(panic_msg.contains(&format!("{:?}", hash3)));
+    }
+
+    #[test]
+    fn generate_failed_payables_works_correctly() {
+        let hash1 = make_tx_hash(1);
+        let hash2 = make_tx_hash(2);
+        let hashes_with_reason = HashMap::from([
+            (hash1, FailureReason::Submission(Local(Internal))),
+            (hash2, FailureReason::Submission(Remote(Unreachable))),
+        ]);
+        let tx1 = TxBuilder::default().hash(hash1).nonce(1).build();
+        let tx2 = TxBuilder::default().hash(hash2).nonce(2).build();
+        let sent_payable_dao =
+            SentPayableDaoMock::default().retrieve_txs_result(vec![tx1.clone(), tx2.clone()]);
+        let subject = PayableScannerBuilder::new()
+            .sent_payable_dao(sent_payable_dao)
+            .build();
+
+        let result = subject.generate_failed_payables(&hashes_with_reason);
+
+        assert_eq!(result.len(), 2);
+        assert!(result.contains(&FailedTx {
+            hash: hash1,
+            receiver_address: tx1.receiver_address,
+            amount: tx1.amount,
+            timestamp: tx1.timestamp,
+            gas_price_wei: tx1.gas_price_wei,
+            nonce: tx1.nonce,
+            reason: FailureReason::Submission(Local(Internal)),
+            status: FailureStatus::RetryRequired,
+        }));
+        assert!(result.contains(&FailedTx {
+            hash: hash2,
+            receiver_address: tx2.receiver_address,
+            amount: tx2.amount,
+            timestamp: tx2.timestamp,
+            gas_price_wei: tx2.gas_price_wei,
+            nonce: tx2.nonce,
+            reason: FailureReason::Submission(Remote(Unreachable)),
+            status: FailureStatus::RetryRequired,
+        }));
+    }
+
+    #[test]
+    fn generate_failed_payables_can_be_a_subset_of_hashes_with_reason() {
+        let hash1 = make_tx_hash(1);
+        let hash2 = make_tx_hash(2);
+        let hashes_with_reason = HashMap::from([
+            (hash1, FailureReason::Submission(Local(Internal))),
+            (hash2, FailureReason::Submission(Remote(Unreachable))),
+        ]);
+        let tx1 = TxBuilder::default().hash(hash1).build();
+        let sent_payable_dao = SentPayableDaoMock::default().retrieve_txs_result(vec![tx1]);
+        let subject = PayableScannerBuilder::new()
+            .sent_payable_dao(sent_payable_dao)
+            .build();
+
+        let result = subject.generate_failed_payables(&hashes_with_reason);
+
+        assert_eq!(result.len(), 1);
+        assert!(result.iter().any(|tx| tx.hash == hash1));
+        assert!(!result.iter().any(|tx| tx.hash == hash2));
     }
 }
