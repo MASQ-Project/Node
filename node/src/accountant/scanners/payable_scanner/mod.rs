@@ -390,9 +390,8 @@ impl PayableScanner {
         hashes_with_reason: &HashMap<TxHash, FailureReason>,
         logger: &Logger,
     ) {
-        todo!();
         if hashes_with_reason.is_empty() {
-            return; // TODO: GH-605: Test me
+            return;
         }
 
         debug!(
@@ -805,5 +804,96 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert!(result.iter().any(|tx| tx.hash == hash1));
         assert!(!result.iter().any(|tx| tx.hash == hash2));
+    }
+
+    #[test]
+    fn record_failed_txs_in_db_returns_early_if_hashes_with_reason_is_empty() {
+        init_test_logging();
+        let test_name = "record_failed_txs_in_db_returns_early_if_hashes_with_reason_is_empty";
+        let logger = Logger::new(test_name);
+        let subject = PayableScannerBuilder::new().build();
+
+        subject.record_failed_txs_in_db(&HashMap::new(), &logger);
+
+        TestLogHandler::new().exists_no_log_containing(&format!("DEBUG: {test_name}: Recording"));
+    }
+
+    #[test]
+    fn record_failed_txs_in_db_successfully_migrates_and_verifies_all_transactions() {
+        init_test_logging();
+        let test_name =
+            "record_failed_txs_in_db_successfully_migrates_and_verifies_all_transactions";
+        let logger = Logger::new(test_name);
+        let hash1 = make_tx_hash(1);
+        let hash2 = make_tx_hash(2);
+        let hashes_with_reason = HashMap::from([
+            (hash1, FailureReason::Submission(Local(Internal))),
+            (hash2, FailureReason::Submission(Local(Internal))),
+        ]);
+        let tx1 = TxBuilder::default().hash(hash1).build();
+        let tx2 = TxBuilder::default().hash(hash2).build();
+        let sent_payable_dao = SentPayableDaoMock::default()
+            .retrieve_txs_result(vec![tx1, tx2])
+            .delete_records_result(Ok(()));
+        let failed_payable_dao = FailedPayableDaoMock::default().insert_new_records_result(Ok(()));
+        let subject = PayableScannerBuilder::new()
+            .sent_payable_dao(sent_payable_dao)
+            .failed_payable_dao(failed_payable_dao)
+            .build();
+
+        subject.record_failed_txs_in_db(&hashes_with_reason, &logger);
+
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_containing(&format!(
+            "DEBUG: {test_name}: Recording 2 failed transactions in database"
+        ));
+        tlh.exists_log_containing(&format!(
+            "DEBUG: {test_name}: Successfully migrated following hashes from SentPayable table to FailedPayable table:"
+        ));
+        tlh.exists_log_containing(&format!(
+            "DEBUG: {test_name}: All 2 failed transactions were present in the sent payable database"
+        ));
+    }
+
+    #[test]
+    fn record_failed_txs_in_db_panics_when_fewer_transactions_are_retrieved() {
+        init_test_logging();
+        let test_name = "record_failed_txs_in_db_panics_when_fewer_transactions_are_retrieved";
+        let logger = Logger::new(test_name);
+        let hash1 = make_tx_hash(1);
+        let hash2 = make_tx_hash(2);
+        let hashes_with_reason = HashMap::from([
+            (hash1, FailureReason::Submission(Local(Internal))),
+            (hash2, FailureReason::Submission(Local(Internal))),
+        ]);
+        let tx1 = TxBuilder::default().hash(hash1).build();
+        let sent_payable_dao = SentPayableDaoMock::default()
+            .retrieve_txs_result(vec![tx1])
+            .delete_records_result(Ok(()));
+        let failed_payable_dao = FailedPayableDaoMock::default().insert_new_records_result(Ok(()));
+        let subject = PayableScannerBuilder::new()
+            .sent_payable_dao(sent_payable_dao)
+            .failed_payable_dao(failed_payable_dao)
+            .build();
+
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            subject.record_failed_txs_in_db(&hashes_with_reason, &logger);
+        }))
+        .unwrap_err();
+
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_containing(&format!(
+            "DEBUG: {test_name}: Recording 2 failed transactions in database"
+        ));
+        tlh.exists_log_containing(&format!(
+            "DEBUG: {test_name}: Successfully migrated following hashes from SentPayable table to FailedPayable table:"
+        ));
+        let panic_msg = result.downcast_ref::<String>().unwrap();
+        assert!(panic_msg.contains("The found transactions have been migrated."));
+        assert!(panic_msg.contains(
+            "The following failed transactions were missing from the sent payable database:"
+        ));
+        assert!(panic_msg
+            .contains("0x0000000000000000000000000000000000000000000000000000000000000002"));
     }
 }
