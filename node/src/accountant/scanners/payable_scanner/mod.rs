@@ -51,7 +51,6 @@ pub struct PayableScanner {
     pub payable_dao: Box<dyn PayableDao>,
     pub sent_payable_dao: Box<dyn SentPayableDao>,
     pub failed_payable_dao: Box<dyn FailedPayableDao>,
-    // TODO: GH-605: Insert FailedPayableDao, maybe introduce SentPayableDao once you eliminate PendingPayableDao
     pub payment_adjuster: Box<dyn PaymentAdjuster>,
 }
 
@@ -318,9 +317,7 @@ impl PayableScanner {
         let sent_payables = self
             .sent_payable_dao
             .retrieve_txs(Some(ByHash(pending_hashes.clone())));
-        eprintln!("Pending Hashes: {:?}", pending_hashes);
         let sent_hashes: HashSet<H256> = sent_payables.iter().map(|sp| sp.hash).collect();
-        eprintln!("Sent Hashes: {:?}", sent_hashes);
         let missing_hashes: Vec<TxHash> =
             pending_hashes.difference(&sent_hashes).cloned().collect();
 
@@ -343,8 +340,6 @@ impl PayableScanner {
         all_failures_with_reasons: &HashMap<TxHash, FailureReason>,
         logger: &Logger,
     ) {
-        eprintln!("Migrated Failures: {:?}", migrated_failures);
-        eprintln!("All Failures: {:?}", all_failures_with_reasons.keys());
         let migrated_hashes: HashSet<&TxHash> =
             migrated_failures.iter().map(|tx| &tx.hash).collect();
         let missing_hashes: Vec<&TxHash> = all_failures_with_reasons
@@ -491,10 +486,10 @@ mod tests {
         make_pending_payable, make_rpc_payable_failure, PayableScannerBuilder,
     };
     use crate::accountant::test_utils::{FailedPayableDaoMock, SentPayableDaoMock};
-    use crate::blockchain::errors::AppRpcError;
     use crate::blockchain::errors::AppRpcError::Remote;
     use crate::blockchain::errors::RemoteError::Unreachable;
     use crate::blockchain::test_utils::make_tx_hash;
+    use actix::System;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Mutex};
@@ -637,7 +632,6 @@ mod tests {
 
     #[test]
     fn migrate_payables_panics_when_insert_fails() {
-        init_test_logging();
         let failed_tx = FailedTxBuilder::default().hash(make_tx_hash(1)).build();
         let failed_payables = HashSet::from([failed_tx]);
 
@@ -668,7 +662,6 @@ mod tests {
 
     #[test]
     fn migrate_payables_panics_when_delete_fails() {
-        init_test_logging();
         let failed_tx = FailedTxBuilder::default().hash(make_tx_hash(1)).build();
         let failed_payables = HashSet::from([failed_tx]);
         let failed_payable_dao = FailedPayableDaoMock::default().insert_new_records_result(Ok(()));
@@ -944,7 +937,6 @@ mod tests {
         let inserted_records = &insert_new_records_params[0];
         let delete_records_params = delete_records_params_arc.lock().unwrap();
         let deleted_hashes = &delete_records_params[0];
-        eprintln!("Insert New Records: {:?}", insert_new_records_params);
         assert_eq!(inserted_records.len(), 2);
         assert!(inserted_records.iter().any(|tx| tx.hash == hash1));
         assert!(inserted_records.iter().any(|tx| tx.hash == hash2));
@@ -981,7 +973,7 @@ mod tests {
     #[test]
     fn handle_batch_results_works_as_expected() {
         init_test_logging();
-        let test_name = "handle_batch_results_calls_all_dao_methods_when_everything_goes_right";
+        let test_name = "handle_batch_results_works_as_expected";
         let logger = Logger::new(test_name);
         let failed_payable_dao_insert_params = Arc::new(Mutex::new(vec![]));
         let sent_payable_dao_delete_params = Arc::new(Mutex::new(vec![]));
@@ -1033,7 +1025,7 @@ mod tests {
     #[test]
     fn handle_batch_results_handles_all_pending() {
         init_test_logging();
-        let test_name = "handle_batch_results_calls_all_dao_methods_when_everything_goes_right";
+        let test_name = "handle_batch_results_handles_all_pending";
         let logger = Logger::new(test_name);
         let pending_payable_1 = make_pending_payable(1);
         let pending_payable_2 = make_pending_payable(2);
@@ -1066,7 +1058,7 @@ mod tests {
     #[test]
     fn handle_batch_results_handles_all_failed() {
         init_test_logging();
-        let test_name = "handle_batch_results_calls_all_dao_methods_when_everything_goes_right";
+        let test_name = "handle_batch_results_handles_all_failed";
         let logger = Logger::new(test_name);
         let failed_payable_dao_insert_params = Arc::new(Mutex::new(vec![]));
         let sent_payable_dao_delete_params = Arc::new(Mutex::new(vec![]));
@@ -1181,7 +1173,7 @@ mod tests {
     #[test]
     fn handle_batch_results_can_panic_while_verifying_pending() {
         init_test_logging();
-        let test_name = "handle_batch_results_can_panic_while_recording_failures";
+        let test_name = "handle_batch_results_can_panic_while_verifying_pending";
         let logger = Logger::new(test_name);
         let failed_payable_dao_insert_params = Arc::new(Mutex::new(vec![]));
         let sent_payable_dao_delete_params = Arc::new(Mutex::new(vec![]));
@@ -1247,7 +1239,7 @@ mod tests {
         let pending_payable = make_pending_payable(1);
         let tx = TxBuilder::default().hash(pending_payable.hash).build();
         let sent_payable_dao = SentPayableDaoMock::default().retrieve_txs_result(vec![tx]);
-        let mut subject = PayableScannerBuilder::new()
+        let subject = PayableScannerBuilder::new()
             .sent_payable_dao(sent_payable_dao)
             .build();
         let logger = Logger::new(test_name);
@@ -1272,7 +1264,7 @@ mod tests {
     fn process_result_handles_error() {
         init_test_logging();
         let test_name = "process_result_handles_error";
-        let mut subject = PayableScannerBuilder::new().build();
+        let subject = PayableScannerBuilder::new().build();
         let logger = Logger::new(test_name);
 
         let result = subject.process_result(
@@ -1285,5 +1277,44 @@ mod tests {
             "DEBUG: {test_name}: Local error occurred before transaction signing. \
              Error: Missing consuming wallet to pay payable from"
         ));
+    }
+
+    #[test]
+    fn finish_scan_works_as_expected() {
+        init_test_logging();
+        let test_name = "finish_scan_works_as_expected";
+        let system = System::new(test_name);
+        let pending_payable = make_pending_payable(1);
+        let tx = TxBuilder::default()
+            .hash(pending_payable.hash)
+            .nonce(1)
+            .build();
+        let sent_payable_dao = SentPayableDaoMock::default().retrieve_txs_result(vec![tx]);
+        let mut subject = PayableScannerBuilder::new()
+            .sent_payable_dao(sent_payable_dao)
+            .build();
+        let logger = Logger::new(test_name);
+        let sent_payables = SentPayables {
+            payment_procedure_result: Either::Left(vec![IndividualBatchResult::Pending(
+                pending_payable,
+            )]),
+            response_skeleton_opt: Some(ResponseSkeleton {
+                client_id: 1234,
+                context_id: 5678,
+            }),
+        };
+
+        let scan_result = subject.finish_scan(sent_payables, &logger);
+
+        System::current().stop();
+        system.run();
+        assert_eq!(scan_result.result, OperationOutcome::NewPendingPayable);
+        assert_eq!(
+            scan_result.ui_response_opt,
+            Some(NodeToUiMessage {
+                target: MessageTarget::ClientId(1234),
+                body: UiScanResponse {}.tmb(5678),
+            })
+        );
     }
 }
