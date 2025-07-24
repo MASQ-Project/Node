@@ -6,6 +6,7 @@ use crate::blockchain::blockchain_interface::data_structures::errors::Blockchain
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use ethereum_types::{H256, U256, U64};
 use futures::Future;
+use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt::Display;
 use std::str::FromStr;
@@ -77,7 +78,7 @@ pub struct TxReceipt {
     pub status: TxStatus,
 }
 
-#[derive(Debug, Default, PartialEq, Eq, Clone)]
+#[derive(Debug, Default, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub struct TransactionBlock {
     pub block_hash: H256,
     pub block_number: U64,

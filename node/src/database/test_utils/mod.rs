@@ -22,8 +22,7 @@ pub const SQL_ATTRIBUTES_FOR_CREATING_SENT_PAYABLE: &[&[&str]] = &[
     &["gas_price_wei_high_b", "integer", "not", "null"],
     &["gas_price_wei_low_b", "integer", "not", "null"],
     &["nonce", "integer", "not", "null"],
-    &["block_hash", "text", "null"],
-    &["block_number", "integer", "null"],
+    &["status", "text", "not", "null"],
 ];
 
 pub const SQL_ATTRIBUTES_FOR_CREATING_FAILED_PAYABLE: &[&[&str]] = &[
