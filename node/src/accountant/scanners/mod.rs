@@ -1012,7 +1012,7 @@ impl_real_scanner_marker!(PayableScanner, PendingPayableScanner, ReceivableScann
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::scanners::payable_scanner::test_utils::PayableScannerBuilder;
+    use crate::accountant::scanners::payable_scanner::test_utils::{make_pending_payable, PayableScannerBuilder};
     use crate::accountant::db_access_objects::test_utils::{FailedTxBuilder, TxBuilder};
     use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDaoError};
     use crate::accountant::db_access_objects::pending_payable_dao::{
@@ -1024,7 +1024,7 @@ mod tests {
     use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_none_status, handle_status_with_failure, PendingPayableScanReport, PendingPayableScanResult};
     use crate::accountant::scanners::{Scanner, StartScanError, StartableScanner,  PendingPayableScanner, ReceivableScanner, ScannerCommon, Scanners, MTError};
     use crate::accountant::test_utils::{make_custom_payment_thresholds, make_payable_account, make_qualified_and_unqualified_payables, make_pending_payable_fingerprint, make_receivable_account, BannedDaoFactoryMock, BannedDaoMock, ConfigDaoFactoryMock, PayableDaoFactoryMock, PayableDaoMock, PayableThresholdsGaugeMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock, PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock, ReceivableScannerBuilder, FailedPayableDaoMock, FailedPayableDaoFactoryMock, SentPayableDaoFactoryMock, SentPayableDaoMock};
-    use crate::accountant::{gwei_to_wei, PendingPayableId, ReceivedPayments, ReportTransactionReceipts, RequestTransactionReceipts, ScanError, ScanForRetryPayables, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC};
+    use crate::accountant::{gwei_to_wei, PendingPayableId, ReceivedPayments, ReportTransactionReceipts, RequestTransactionReceipts, ResponseSkeleton, ScanError, ScanForRetryPayables, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC};
     use crate::blockchain::blockchain_bridge::{BlockMarker, PendingPayableFingerprint, RetrieveTransactions};
     use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
     use crate::blockchain::blockchain_interface::data_structures::{
@@ -1561,6 +1561,45 @@ mod tests {
         log_handler.exists_log_containing(&format!(
             "DEBUG: {test_name}: Local error occurred before transaction signing. \
             Error: Signing phase: \"Some error\""
+        ));
+    }
+
+    #[test]
+    fn finish_payable_scan_changes_the_aware_of_unresolved_pending_payable_flag_as_true_when_pending_txs_found(
+    ) {
+        init_test_logging();
+        let test_name = "finish_payable_scan_changes_the_aware_of_unresolved_pending_payable_flag_as_true_when_pending_txs_found";
+        let pending_payable = make_pending_payable(1);
+        let tx = TxBuilder::default()
+            .hash(pending_payable.hash)
+            .nonce(1)
+            .build();
+        let sent_payable_dao = SentPayableDaoMock::default().retrieve_txs_result(vec![tx]);
+        let payable_scanner = PayableScannerBuilder::new()
+            .sent_payable_dao(sent_payable_dao)
+            .build();
+        let logger = Logger::new(test_name);
+        let sent_payables = SentPayables {
+            payment_procedure_result: Either::Left(vec![IndividualBatchResult::Pending(
+                pending_payable,
+            )]),
+            response_skeleton_opt: None,
+        };
+        let mut subject = make_dull_subject();
+        subject.payable = Box::new(payable_scanner);
+        let aware_of_unresolved_pending_payable_before =
+            subject.aware_of_unresolved_pending_payable;
+
+        subject.finish_payable_scan(sent_payables, &Logger::new(test_name));
+
+        let aware_of_unresolved_pending_payable_after = subject.aware_of_unresolved_pending_payable;
+        assert_eq!(aware_of_unresolved_pending_payable_before, false);
+        assert_eq!(aware_of_unresolved_pending_payable_after, true);
+        let log_handler = TestLogHandler::new();
+        log_handler.exists_log_containing(&format!(
+            "DEBUG: {test_name}: Processed payables while sending to RPC: \
+            Total: 1, Sent to RPC: 1, Failed to send: 0. \
+            Updating database..."
         ));
     }
 
