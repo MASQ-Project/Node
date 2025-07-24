@@ -133,34 +133,6 @@ pub mod payable_scanner_utils {
         })
     }
 
-    pub fn debugging_summary_after_error_separation(
-        oks: &[&PendingPayable],
-        errs_opt: &Option<PayableTransactingErrorEnum>,
-    ) -> String {
-        format!(
-            "Got {} properly sent payables of {} attempts",
-            oks.len(),
-            count_total_errors(errs_opt)
-                .map(|err_count| (err_count + oks.len()).to_string())
-                .unwrap_or_else(|| "an unknown number of".to_string())
-        )
-    }
-
-    pub(super) fn count_total_errors(
-        full_set_of_errors: &Option<PayableTransactingErrorEnum>,
-    ) -> Option<usize> {
-        match full_set_of_errors {
-            Some(errors) => match errors {
-                LocallyCausedError(blockchain_error) => match blockchain_error {
-                    LocalPayableError::Sending { hashes, .. } => Some(hashes.len()),
-                    _ => None,
-                },
-                RemotelyCausedErrors(hashes) => Some(hashes.len()),
-            },
-            None => Some(0),
-        }
-    }
-
     #[derive(Debug, PartialEq, Eq)]
     pub struct PendingPayableMetadata<'a> {
         pub recipient: &'a Wallet,
@@ -401,7 +373,7 @@ mod tests {
         LocallyCausedError, RemotelyCausedErrors,
     };
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{
-        count_total_errors, debugging_summary_after_error_separation, investigate_debt_extremes,
+        investigate_debt_extremes,
         payables_debug_summary, PayableThresholdsGauge,
         PayableThresholdsGaugeReal,
     };
@@ -650,71 +622,6 @@ mod tests {
             PayableThresholdsGaugeReal::default().is_innocent_balance(payable_balance, 1000);
 
         assert_eq!(result, false)
-    }
-
-    #[test]
-    fn count_total_errors_says_unknown_number_for_early_local_errors() {
-        let early_local_errors = [
-            LocalPayableError::TransactionID(BlockchainError::QueryFailed("blah".to_string())),
-            LocalPayableError::MissingConsumingWallet,
-            LocalPayableError::GasPriceQueryFailed(BlockchainError::QueryFailed(
-                "ouch".to_string(),
-            )),
-            LocalPayableError::UnusableWallet("fooo".to_string()),
-            LocalPayableError::Signing("tsss".to_string()),
-        ];
-
-        early_local_errors
-            .into_iter()
-            .for_each(|err| assert_eq!(count_total_errors(&Some(LocallyCausedError(err))), None))
-    }
-
-    #[test]
-    fn count_total_errors_works_correctly_for_local_error_after_signing() {
-        let error = LocalPayableError::Sending {
-            msg: "Ouuuups".to_string(),
-            hashes: vec![make_tx_hash(333), make_tx_hash(666)],
-        };
-        let sent_payable = Some(LocallyCausedError(error));
-
-        let result = count_total_errors(&sent_payable);
-
-        assert_eq!(result, Some(2))
-    }
-
-    #[test]
-    fn count_total_errors_works_correctly_for_remote_errors() {
-        let sent_payable = Some(RemotelyCausedErrors(vec![
-            make_tx_hash(123),
-            make_tx_hash(456),
-        ]));
-
-        let result = count_total_errors(&sent_payable);
-
-        assert_eq!(result, Some(2))
-    }
-
-    #[test]
-    fn count_total_errors_works_correctly_if_no_errors_found_at_all() {
-        let sent_payable = None;
-
-        let result = count_total_errors(&sent_payable);
-
-        assert_eq!(result, Some(0))
-    }
-
-    #[test]
-    fn debug_summary_after_error_separation_says_the_count_cannot_be_known() {
-        let oks = vec![];
-        let error = LocalPayableError::MissingConsumingWallet;
-        let errs = Some(LocallyCausedError(error));
-
-        let result = debugging_summary_after_error_separation(&oks, &errs);
-
-        assert_eq!(
-            result,
-            "Got 0 properly sent payables of an unknown number of attempts"
-        )
     }
 
     #[test]

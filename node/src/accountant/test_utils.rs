@@ -362,7 +362,6 @@ impl AccountantBuilder {
                 .make_result(PendingPayableDaoMock::new())
                 .make_result(PendingPayableDaoMock::new()),
         );
-        // TODO: GH-605: Consider inserting more mocks as we are doing it with other factories
         let sent_payable_dao_factory = self
             .sent_payable_dao_factory_opt
             .unwrap_or(SentPayableDaoFactoryMock::new().make_result(SentPayableDaoMock::new()));
