@@ -1410,10 +1410,12 @@ mod tests {
         let pending_payable_dao_factory = Box::new(
             PendingPayableDaoFactoryMock::new()
                 .make_result(PendingPayableDaoMock::new()) // For Accountant
-                .make_result(PendingPayableDaoMock::new()) // For Payable Scanner
                 .make_result(PendingPayableDaoMock::new()), // For PendingPayable Scanner
         );
-        let failed_payable_dao_factory = todo!("create failed payable dao factory");
+        let failed_payable_dao_factory =
+            Box::new(FailedPayableDaoFactoryMock::new().make_result(FailedPayableDaoMock::new())); // For Payable Scanner
+        let sent_payable_dao_factory =
+            Box::new(SentPayableDaoFactoryMock::new().make_result(SentPayableDaoMock::new())); // For Payable Scanner
         let receivable_dao_factory = Box::new(
             ReceivableDaoFactoryMock::new()
                 .make_result(ReceivableDaoMock::new()) // For Accountant
@@ -1428,7 +1430,7 @@ mod tests {
             bootstrapper_config,
             DaoFactories {
                 payable_dao_factory,
-                sent_payable_dao_factory: todo!(),
+                sent_payable_dao_factory,
                 pending_payable_dao_factory,
                 failed_payable_dao_factory,
                 receivable_dao_factory,
