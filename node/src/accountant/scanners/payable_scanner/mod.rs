@@ -310,12 +310,17 @@ impl PayableScanner {
     }
 
     fn verify_pending_tx_hashes_in_db(&self, pending_payables: &[PendingPayable], logger: &Logger) {
+        if pending_payables.is_empty() {
+            return;
+        }
+
         let pending_hashes: HashSet<H256> = pending_payables.iter().map(|pp| pp.hash).collect();
         let sent_payables = self
             .sent_payable_dao
             .retrieve_txs(Some(ByHash(pending_hashes.clone())));
+        eprintln!("Pending Hashes: {:?}", pending_hashes);
         let sent_hashes: HashSet<H256> = sent_payables.iter().map(|sp| sp.hash).collect();
-
+        eprintln!("Sent Hashes: {:?}", sent_hashes);
         let missing_hashes: Vec<TxHash> =
             pending_hashes.difference(&sent_hashes).cloned().collect();
 
@@ -338,6 +343,8 @@ impl PayableScanner {
         all_failures_with_reasons: &HashMap<TxHash, FailureReason>,
         logger: &Logger,
     ) {
+        eprintln!("Migrated Failures: {:?}", migrated_failures);
+        eprintln!("All Failures: {:?}", all_failures_with_reasons.keys());
         let migrated_hashes: HashSet<&TxHash> =
             migrated_failures.iter().map(|tx| &tx.hash).collect();
         let missing_hashes: Vec<&TxHash> = all_failures_with_reasons
@@ -408,7 +415,6 @@ impl PayableScanner {
     }
 
     fn handle_batch_results(&self, batch_results: Vec<IndividualBatchResult>, logger: &Logger) {
-        todo!();
         let (pending, failures) = Self::separate_batch_results(batch_results);
 
         let pending_tx_count = pending.len();
@@ -963,6 +969,137 @@ mod tests {
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {}: Local error occurred before transaction signing. Error: Signing phase: \"Test signing error\"",
             test_name
+        ));
+    }
+
+    #[test]
+    fn handle_batch_results_works_as_expected() {
+        init_test_logging();
+        let test_name = "handle_batch_results_calls_all_dao_methods_when_everything_goes_right";
+        let logger = Logger::new(test_name);
+        let failed_payable_dao_insert_params = Arc::new(Mutex::new(vec![]));
+        let sent_payable_dao_delete_params = Arc::new(Mutex::new(vec![]));
+        let pending_payable = make_pending_payable(1);
+        let failed_payable = make_rpc_payable_failure(2);
+        let batch_results = vec![
+            IndividualBatchResult::Pending(pending_payable.clone()),
+            IndividualBatchResult::Failed(failed_payable.clone()),
+        ];
+        let failed_payable_dao = FailedPayableDaoMock::default()
+            .insert_new_records_params(&failed_payable_dao_insert_params)
+            .insert_new_records_result(Ok(()));
+        let sent_payable_dao = SentPayableDaoMock::default()
+            .delete_records_params(&sent_payable_dao_delete_params)
+            .retrieve_txs_result(vec![TxBuilder::default().hash(failed_payable.hash).build()])
+            .delete_records_result(Ok(()))
+            .retrieve_txs_result(vec![TxBuilder::default()
+                .hash(pending_payable.hash)
+                .build()]);
+        let subject = PayableScannerBuilder::new()
+            .failed_payable_dao(failed_payable_dao)
+            .sent_payable_dao(sent_payable_dao)
+            .build();
+
+        subject.handle_batch_results(batch_results, &logger);
+
+        let inserted_records = &failed_payable_dao_insert_params.lock().unwrap()[0];
+        let deleted_hashes = sent_payable_dao_delete_params.lock().unwrap()[0].clone();
+        assert_eq!(inserted_records.len(), 1);
+        assert_eq!(deleted_hashes.len(), 1);
+        assert!(inserted_records
+            .iter()
+            .any(|tx| tx.hash == failed_payable.hash));
+        assert!(deleted_hashes.contains(&failed_payable.hash));
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: Processed payables while sending to RPC: \
+            Total: 2, Sent to RPC: 1, Failed to send: 1. \
+            Updating database...",
+        ));
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: Recording 1 failed transactions in database",
+        ));
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: All 1 pending transactions were present in the sent payable database",
+        ));
+    }
+
+    #[test]
+    fn handle_batch_results_handles_all_pending() {
+        init_test_logging();
+        let test_name = "handle_batch_results_calls_all_dao_methods_when_everything_goes_right";
+        let logger = Logger::new(test_name);
+        let pending_payable_1 = make_pending_payable(1);
+        let pending_payable_2 = make_pending_payable(2);
+        let batch_results = vec![
+            IndividualBatchResult::Pending(pending_payable_1.clone()),
+            IndividualBatchResult::Pending(pending_payable_2.clone()),
+        ];
+        let sent_payable_dao = SentPayableDaoMock::default().retrieve_txs_result(vec![
+            TxBuilder::default().hash(pending_payable_1.hash).build(),
+            TxBuilder::default().hash(pending_payable_2.hash).build(),
+        ]);
+        let subject = PayableScannerBuilder::new()
+            .sent_payable_dao(sent_payable_dao)
+            .build();
+
+        subject.handle_batch_results(batch_results, &logger);
+
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_containing(&format!(
+            "DEBUG: {test_name}: Processed payables while sending to RPC: \
+            Total: 2, Sent to RPC: 2, Failed to send: 0. \
+            Updating database...",
+        ));
+        tlh.exists_log_containing(&format!(
+            "DEBUG: {test_name}: All 2 pending transactions were present in the sent payable database",
+        ));
+    }
+
+    #[test]
+    fn handle_batch_results_handles_all_failed() {
+        init_test_logging();
+        let test_name = "handle_batch_results_calls_all_dao_methods_when_everything_goes_right";
+        let logger = Logger::new(test_name);
+        let failed_payable_dao_insert_params = Arc::new(Mutex::new(vec![]));
+        let sent_payable_dao_delete_params = Arc::new(Mutex::new(vec![]));
+        let failed_payable_1 = make_rpc_payable_failure(1);
+        let failed_payable_2 = make_rpc_payable_failure(2);
+        let batch_results = vec![
+            IndividualBatchResult::Failed(failed_payable_1.clone()),
+            IndividualBatchResult::Failed(failed_payable_2.clone()),
+        ];
+        let failed_payable_dao = FailedPayableDaoMock::default()
+            .insert_new_records_params(&failed_payable_dao_insert_params)
+            .insert_new_records_result(Ok(()));
+        let sent_payable_dao = SentPayableDaoMock::default()
+            .delete_records_params(&sent_payable_dao_delete_params)
+            .retrieve_txs_result(vec![
+                TxBuilder::default().hash(failed_payable_1.hash).build(),
+                TxBuilder::default().hash(failed_payable_2.hash).build(),
+            ])
+            .delete_records_result(Ok(()));
+        let subject = PayableScannerBuilder::new()
+            .failed_payable_dao(failed_payable_dao)
+            .sent_payable_dao(sent_payable_dao)
+            .build();
+
+        subject.handle_batch_results(batch_results, &logger);
+
+        let inserted_records = &failed_payable_dao_insert_params.lock().unwrap()[0];
+        let deleted_hashes = sent_payable_dao_delete_params.lock().unwrap()[0].clone();
+        assert_eq!(inserted_records.len(), 2);
+        assert_eq!(deleted_hashes.len(), 2);
+        assert!(inserted_records
+            .iter()
+            .any(|tx| tx.hash == failed_payable_1.hash));
+        assert!(deleted_hashes.contains(&failed_payable_2.hash));
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: Processed payables while sending to RPC: \
+            Total: 2, Sent to RPC: 0, Failed to send: 2. \
+            Updating database...",
+        ));
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: Recording 2 failed transactions in database",
         ));
     }
 }
