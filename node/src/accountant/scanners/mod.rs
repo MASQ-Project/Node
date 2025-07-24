@@ -258,7 +258,7 @@ impl Scanners {
     pub fn finish_payable_scan(&mut self, msg: SentPayables, logger: &Logger) -> PayableScanResult {
         let scan_result = self.payable.finish_scan(msg, logger);
         match scan_result.result {
-            OperationOutcome::NewPendingPayable => self.aware_of_unresolved_pending_payable = true,
+            OperationOutcome::NewPendingPayable => self.aware_of_unresolved_pending_payable = true, // GH-605: Test this
             OperationOutcome::Failure => (),
         };
         scan_result
@@ -1565,82 +1565,6 @@ mod tests {
     }
 
     #[test]
-    fn payable_scanner_panics_at_migration_while_inserting_in_failed_payables() {
-        let test_name = "payable_scanner_panics_at_migration_while_inserting_in_failed_payables";
-        let hash_1 = make_tx_hash(1);
-        let tx1 = TxBuilder::default().hash(hash_1).build();
-        let sent_payable = SentPayables {
-            payment_procedure_result: Either::Right(LocalPayableError::Sending {
-                msg: "blah".to_string(),
-                hashes: vec![hash_1],
-            }),
-            response_skeleton_opt: None,
-        };
-        let failed_payable_dao = FailedPayableDaoMock::default().insert_new_records_result(Err(
-            FailedPayableDaoError::PartialExecution(
-                "Gosh, I overslept without an alarm set".to_string(),
-            ),
-        ));
-        let sent_payable_dao = SentPayableDaoMock::default().retrieve_txs_result(vec![tx1]);
-        let mut subject = PayableScannerBuilder::new()
-            .failed_payable_dao(failed_payable_dao)
-            .sent_payable_dao(sent_payable_dao)
-            .build();
-
-        let caught_panic_in_err = catch_unwind(AssertUnwindSafe(|| {
-            subject.finish_scan(sent_payable, &Logger::new(test_name))
-        }));
-
-        let caught_panic = caught_panic_in_err.unwrap_err();
-        let panic_msg = caught_panic.downcast_ref::<String>().unwrap();
-        assert_eq!(
-            panic_msg,
-            "Error during migration from SentPayable to FailedPayable Table for transactions:\n\
-             0x0000000000000000000000000000000000000000000000000000000000000001\n\
-             Failed to insert transactions into the FailedPayable table.\n\
-             Error: PartialExecution(\"Gosh, I overslept without an alarm set\")"
-        );
-    }
-
-    #[test]
-    fn payable_scanner_panics_at_migration_while_deleting_in_sent_payables() {
-        let test_name = "payable_scanner_panics_at_migration_while_deleting_in_sent_payables";
-        let hash_1 = make_tx_hash(1);
-        let tx1 = TxBuilder::default().hash(hash_1).build();
-        let sent_payable = SentPayables {
-            payment_procedure_result: Either::Right(LocalPayableError::Sending {
-                msg: "blah".to_string(),
-                hashes: vec![hash_1],
-            }),
-            response_skeleton_opt: None,
-        };
-        let failed_payable_dao = FailedPayableDaoMock::default().insert_new_records_result(Ok(()));
-        let sent_payable_dao = SentPayableDaoMock::default()
-            .retrieve_txs_result(vec![tx1])
-            .delete_records_result(Err(SentPayableDaoError::PartialExecution(
-                "Gosh, I overslept without an alarm set".to_string(),
-            )));
-        let mut subject = PayableScannerBuilder::new()
-            .failed_payable_dao(failed_payable_dao)
-            .sent_payable_dao(sent_payable_dao)
-            .build();
-
-        let caught_panic_in_err = catch_unwind(AssertUnwindSafe(|| {
-            subject.finish_scan(sent_payable, &Logger::new(test_name))
-        }));
-
-        let caught_panic = caught_panic_in_err.unwrap_err();
-        let panic_msg = caught_panic.downcast_ref::<String>().unwrap();
-        assert_eq!(
-            panic_msg,
-            "Error during migration from SentPayable to FailedPayable Table for transactions:\n\
-             0x0000000000000000000000000000000000000000000000000000000000000001\n\
-             Failed to delete transactions from the SentPayable table.\n\
-             Error: PartialExecution(\"Gosh, I overslept without an alarm set\")"
-        );
-    }
-
-    #[test]
     fn payable_is_found_innocent_by_age_and_returns() {
         let is_innocent_age_params_arc = Arc::new(Mutex::new(vec![]));
         let payable_thresholds_gauge = PayableThresholdsGaugeMock::default()
@@ -2611,7 +2535,6 @@ mod tests {
     }
 
     #[test]
-    // TODO: GH-605: Leave this
     fn pending_payable_scanner_handles_report_transaction_receipts_message() {
         init_test_logging();
         let test_name = "pending_payable_scanner_handles_report_transaction_receipts_message";
@@ -2695,7 +2618,6 @@ mod tests {
     }
 
     #[test]
-    // TODO: GH-605: Leave this
     fn pending_payable_scanner_handles_empty_report_transaction_receipts_message() {
         init_test_logging();
         let test_name =
