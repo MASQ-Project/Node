@@ -9,6 +9,7 @@ use futures::Future;
 use serde_json::Value;
 use std::fmt::Display;
 use std::str::FromStr;
+use serde_derive::{Deserialize, Serialize};
 use web3::contract::{Contract, Options};
 use web3::transports::{Batch, Http};
 use web3::types::{Address, BlockNumber, Filter, Log, TransactionReceipt};
@@ -77,7 +78,7 @@ pub struct TxReceipt {
     pub status: TxStatus,
 }
 
-#[derive(Debug, Default, PartialEq, Eq, Clone)]
+#[derive(Debug, Default, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub struct TransactionBlock {
     pub block_hash: H256,
     pub block_number: U64,

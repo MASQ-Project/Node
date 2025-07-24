@@ -272,8 +272,7 @@ impl DbInitializerReal {
                 gas_price_wei_high_b integer not null,
                 gas_price_wei_low_b integer not null,
                 nonce integer not null,
-                block_hash text null,
-                block_number integer null
+                status text not null
             )",
             [],
         )
