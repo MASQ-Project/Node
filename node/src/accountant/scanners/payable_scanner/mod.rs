@@ -1303,6 +1303,7 @@ mod tests {
                 context_id: 5678,
             }),
         };
+        subject.mark_as_started(SystemTime::now());
 
         let scan_result = subject.finish_scan(sent_payables, &logger);
 
@@ -1316,5 +1317,8 @@ mod tests {
                 body: UiScanResponse {}.tmb(5678),
             })
         );
+        TestLogHandler::new().exists_log_matching(&format!(
+            "INFO: {test_name}: The Payables scan ended in \\d+ms."
+        ));
     }
 }
