@@ -365,10 +365,10 @@ impl AccountantBuilder {
         // TODO: GH-605: Consider inserting more mocks as we are doing it with other factories
         let sent_payable_dao_factory = self
             .sent_payable_dao_factory_opt
-            .unwrap_or(SentPayableDaoFactoryMock::new());
+            .unwrap_or(SentPayableDaoFactoryMock::new().make_result(SentPayableDaoMock::new()));
         let failed_payable_dao_factory = self
             .failed_payable_dao_factory_opt
-            .unwrap_or(FailedPayableDaoFactoryMock::new());
+            .unwrap_or(FailedPayableDaoFactoryMock::new().make_result(FailedPayableDaoMock::new()));
         let banned_dao_factory = self
             .banned_dao_factory_opt
             .unwrap_or(BannedDaoFactoryMock::new().make_result(BannedDaoMock::new()));
