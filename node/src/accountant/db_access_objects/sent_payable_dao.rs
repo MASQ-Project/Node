@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
-use ethereum_types::{H256, U64};
+use ethereum_types::{H256};
 use web3::types::Address;
 use masq_lib::utils::ExpectValue;
 use crate::accountant::{checked_conversion, comma_joined_stringifiable};
@@ -14,7 +14,6 @@ use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use itertools::Itertools;
 use serde_derive::{Deserialize, Serialize};
 use crate::accountant::db_access_objects::failed_payable_dao::ValidationStatus;
-use crate::blockchain::errors::AppRpcError;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SentPayableDaoError {
@@ -39,7 +38,7 @@ pub struct Tx {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TxStatus {
     Pending(ValidationStatus),
-    Confirmed{
+    Confirmed {
         block_hash: String,
         block_number: u64,
         detection: Detection,
@@ -74,7 +73,8 @@ impl From<&TxConfirmation> for TxStatus {
     fn from(tx_confirmation: &TxConfirmation) -> Self {
         TxStatus::Confirmed {
             block_hash: format!("{:?}", tx_confirmation.block_info.block_hash),
-            block_number: u64::try_from(tx_confirmation.block_info.block_number).expect("block number too big"),
+            block_number: u64::try_from(tx_confirmation.block_info.block_number)
+                .expect("block number too big"),
             detection: tx_confirmation.detection,
         }
     }
@@ -83,7 +83,7 @@ impl From<&TxConfirmation> for TxStatus {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TxConfirmation {
     block_info: TransactionBlock,
-    detection: Detection
+    detection: Detection,
 }
 
 pub enum RetrieveCondition {
@@ -284,7 +284,8 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
         for (hash, tx_confirmation) in hash_map {
             let sql = format!(
                 "UPDATE sent_payable SET status = '{}' WHERE tx_hash = '{:?}'",
-                TxStatus::from(tx_confirmation), hash
+                TxStatus::from(tx_confirmation),
+                hash
             );
 
             match self.conn.prepare(&sql).expect("Internal error").execute([]) {
@@ -433,11 +434,10 @@ mod tests {
     use ethereum_types::{ H256, U64};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::{Connection};
-    use crate::accountant::db_access_objects::failed_payable_dao::{FailureStatus, ValidationStatus};
+    use crate::accountant::db_access_objects::failed_payable_dao::{ValidationStatus};
     use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::{ByHash, IsPending};
     use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDaoError::{EmptyInput, PartialExecution};
     use crate::accountant::db_access_objects::test_utils::{make_read_only_db_connection, TxBuilder};
-    use crate::accountant::db_access_objects::utils::TxHash;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock};
     use crate::blockchain::errors::{AppRpcError, RemoteError};
     use crate::blockchain::test_utils::{make_block_hash, make_tx_hash};
@@ -452,7 +452,10 @@ mod tests {
         let tx1 = TxBuilder::default().hash(make_tx_hash(1)).build();
         let tx2 = TxBuilder::default()
             .hash(make_tx_hash(2))
-            .status(TxStatus::Pending(ValidationStatus::Reattempting {attempt:2, error: AppRpcError::Remote(RemoteError::Unreachable)}))
+            .status(TxStatus::Pending(ValidationStatus::Reattempting {
+                attempt: 2,
+                error: AppRpcError::Remote(RemoteError::Unreachable),
+            }))
             .build();
         let subject = SentPayableDaoReal::new(wrapped_conn);
         let txs = vec![tx1, tx2];
@@ -541,9 +544,7 @@ mod tests {
             .unwrap();
         let hash = make_tx_hash(1234);
         let tx1 = TxBuilder::default().hash(hash).build();
-        let tx2 = TxBuilder::default()
-            .hash(hash)
-            .build();
+        let tx2 = TxBuilder::default().hash(hash).build();
         let subject = SentPayableDaoReal::new(wrapped_conn);
         let initial_insertion_result = subject.insert_new_records(&vec![tx1]);
 
@@ -655,9 +656,7 @@ mod tests {
             .unwrap();
         let subject = SentPayableDaoReal::new(wrapped_conn);
         let tx1 = TxBuilder::default().hash(make_tx_hash(1)).build();
-        let tx2 = TxBuilder::default()
-            .hash(make_tx_hash(2))
-            .build();
+        let tx2 = TxBuilder::default().hash(make_tx_hash(2)).build();
         let tx3 = TxBuilder::default().hash(make_tx_hash(3)).build();
         subject
             .insert_new_records(&vec![tx1.clone(), tx2.clone()])
@@ -677,11 +676,16 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = SentPayableDaoReal::new(wrapped_conn);
-        let tx1 = TxBuilder::default().hash(make_tx_hash(1))
+        let tx1 = TxBuilder::default()
+            .hash(make_tx_hash(1))
             .status(TxStatus::Pending(ValidationStatus::Waiting))
             .build();
-        let tx2 = TxBuilder::default().hash(make_tx_hash(2))
-            .status(TxStatus::Pending(ValidationStatus::Reattempting {attempt:1, error: AppRpcError::Remote(RemoteError::Unreachable)}))
+        let tx2 = TxBuilder::default()
+            .hash(make_tx_hash(2))
+            .status(TxStatus::Pending(ValidationStatus::Reattempting {
+                attempt: 1,
+                error: AppRpcError::Remote(RemoteError::Unreachable),
+            }))
             .build();
         let tx3 = TxBuilder::default()
             .hash(make_tx_hash(3))
@@ -722,8 +726,7 @@ mod tests {
 
     #[test]
     fn confirm_tx_works() {
-        let home_dir =
-            ensure_node_home_directory_exists("sent_payable_dao", "confirm_tx_works");
+        let home_dir = ensure_node_home_directory_exists("sent_payable_dao", "confirm_tx_works");
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
@@ -748,7 +751,7 @@ mod tests {
                 block_hash: make_block_hash(4),
                 block_number: U64::from(2),
             },
-            detection: Detection::Reclaim
+            detection: Detection::Reclaim,
         };
         let hash_map = HashMap::from([
             (tx1.hash, tx_confirmation_1.clone()),
@@ -759,10 +762,30 @@ mod tests {
 
         let updated_txs = subject.retrieve_txs(Some(ByHash(vec![tx1.hash, tx2.hash])));
         assert_eq!(result, Ok(()));
-        assert_eq!(pre_assert_status_tx1, TxStatus::Pending(ValidationStatus::Waiting));
-        assert_eq!(updated_txs[0].status, TxStatus::Confirmed{block_hash: format!("{:?}", tx_confirmation_1.block_info.block_hash), block_number: tx_confirmation_1.block_info.block_number.as_u64(), detection: tx_confirmation_1.detection});
-        assert_eq!(pre_assert_status_tx2, TxStatus::Pending(ValidationStatus::Waiting));
-        assert_eq!(updated_txs[1].status, TxStatus::Confirmed{block_hash: format!("{:?}", tx_confirmation_2.block_info.block_hash), block_number: tx_confirmation_2.block_info.block_number.as_u64(), detection: tx_confirmation_2.detection});
+        assert_eq!(
+            pre_assert_status_tx1,
+            TxStatus::Pending(ValidationStatus::Waiting)
+        );
+        assert_eq!(
+            updated_txs[0].status,
+            TxStatus::Confirmed {
+                block_hash: format!("{:?}", tx_confirmation_1.block_info.block_hash),
+                block_number: tx_confirmation_1.block_info.block_number.as_u64(),
+                detection: tx_confirmation_1.detection
+            }
+        );
+        assert_eq!(
+            pre_assert_status_tx2,
+            TxStatus::Pending(ValidationStatus::Waiting)
+        );
+        assert_eq!(
+            updated_txs[1].status,
+            TxStatus::Confirmed {
+                block_hash: format!("{:?}", tx_confirmation_2.block_info.block_hash),
+                block_number: tx_confirmation_2.block_info.block_number.as_u64(),
+                detection: tx_confirmation_2.detection
+            }
+        );
     }
 
     #[test]
@@ -802,17 +825,23 @@ mod tests {
         let hash_map = HashMap::from([
             (
                 existent_hash,
-                TxConfirmation{block_info: TransactionBlock {
-                    block_hash: make_block_hash(1),
-                    block_number: U64::from(1),
-                }, detection: Detection::Normal}
+                TxConfirmation {
+                    block_info: TransactionBlock {
+                        block_hash: make_block_hash(1),
+                        block_number: U64::from(1),
+                    },
+                    detection: Detection::Normal,
+                },
             ),
             (
                 non_existent_hash,
-                TxConfirmation{block_info: TransactionBlock {
-                    block_hash: make_block_hash(2),
-                    block_number: U64::from(2),
-                }, detection: Detection::Normal}
+                TxConfirmation {
+                    block_info: TransactionBlock {
+                        block_hash: make_block_hash(2),
+                        block_number: U64::from(2),
+                    },
+                    detection: Detection::Normal,
+                },
             ),
         ]);
 
@@ -838,10 +867,13 @@ mod tests {
         let hash = make_tx_hash(1);
         let hash_map = HashMap::from([(
             hash,
-            TxConfirmation{block_info: TransactionBlock {
-                block_hash: make_block_hash(1),
-                block_number: U64::default(),
-            }, detection: Detection::Normal}
+            TxConfirmation {
+                block_info: TransactionBlock {
+                    block_hash: make_block_hash(1),
+                    block_number: U64::default(),
+                },
+                detection: Detection::Normal,
+            },
         )]);
 
         let result = subject.confirm_tx(&hash_map);
@@ -864,9 +896,7 @@ mod tests {
         let tx1 = TxBuilder::default().hash(make_tx_hash(1)).build();
         let tx2 = TxBuilder::default().hash(make_tx_hash(2)).build();
         let tx3 = TxBuilder::default().hash(make_tx_hash(3)).build();
-        let tx4 = TxBuilder::default()
-            .hash(make_tx_hash(4))
-            .build();
+        let tx4 = TxBuilder::default().hash(make_tx_hash(4)).build();
         subject
             .insert_new_records(&vec![tx1.clone(), tx2.clone(), tx3.clone(), tx4.clone()])
             .unwrap();
@@ -977,18 +1007,19 @@ mod tests {
             .unwrap();
         let new_tx2 = TxBuilder::default()
             .hash(make_tx_hash(22))
-            .status(TxStatus::Confirmed{block_hash: format!("{:?}", make_block_hash(123)),
+            .status(TxStatus::Confirmed {
+                block_hash: format!("{:?}", make_block_hash(123)),
                 block_number: 45454545,
-                detection: Detection::Normal
+                detection: Detection::Normal,
             })
             .nonce(2)
             .build();
         let new_tx3 = TxBuilder::default()
             .hash(make_tx_hash(33))
-            .status(TxStatus::Confirmed{
+            .status(TxStatus::Confirmed {
                 block_hash: format!("{:?}", make_block_hash(789)),
                 block_number: 45454566,
-                detection: Detection::Reclaim
+                detection: Detection::Reclaim,
             })
             .nonce(3)
             .build();
@@ -1072,18 +1103,19 @@ mod tests {
             .unwrap();
         let new_tx2 = TxBuilder::default()
             .hash(make_tx_hash(22))
-            .status(TxStatus::Confirmed{
+            .status(TxStatus::Confirmed {
                 block_hash: format!("{:?}", make_block_hash(77777)),
                 block_number: 357913,
-                detection: Detection::Normal})
+                detection: Detection::Normal,
+            })
             .nonce(2)
             .build();
         let new_tx3 = TxBuilder::default()
             .hash(make_tx_hash(33))
-            .status(TxStatus::Confirmed{
+            .status(TxStatus::Confirmed {
                 block_hash: format!("{:?}", make_block_hash(66666)),
                 block_number: 353535,
-                detection: Detection::Reclaim
+                detection: Detection::Reclaim,
             })
             .nonce(3)
             .build();
@@ -1135,7 +1167,6 @@ mod tests {
         )
     }
 
-
     #[test]
     fn tx_status_from_str_works() {
         assert_eq!(
@@ -1179,15 +1210,24 @@ mod tests {
             "expected value at line 1 column 1 in 'not a failure status'"
         );
     }
-    
+
     #[test]
-    fn tx_status_can_be_converted_from_tx_confirmation(){
-        let tx_confirmation = TxConfirmation{block_info: TransactionBlock { block_hash: make_block_hash(6), block_number: 456789_u64.into() }, detection: Detection::Normal};
-        
-        assert_eq!(TxStatus::from(&tx_confirmation), TxStatus::Confirmed{
-            block_hash: format!("{:?}", tx_confirmation.block_info.block_hash),
-            block_number: u64::try_from(tx_confirmation.block_info.block_number).unwrap(),
-            detection: tx_confirmation.detection,
-        })
+    fn tx_status_can_be_converted_from_tx_confirmation() {
+        let tx_confirmation = TxConfirmation {
+            block_info: TransactionBlock {
+                block_hash: make_block_hash(6),
+                block_number: 456789_u64.into(),
+            },
+            detection: Detection::Normal,
+        };
+
+        assert_eq!(
+            TxStatus::from(&tx_confirmation),
+            TxStatus::Confirmed {
+                block_hash: format!("{:?}", tx_confirmation.block_info.block_hash),
+                block_number: u64::try_from(tx_confirmation.block_info.block_number).unwrap(),
+                detection: tx_confirmation.detection,
+            }
+        )
     }
 }

@@ -26,7 +26,6 @@ pub enum FailedPayableDaoError {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FailureReason {
     Submission(AppRpcError),
-    Validation(AppRpcError),
     Reverted,
     PendingTooLong,
 }
@@ -592,15 +591,6 @@ mod tests {
             )))
         );
 
-        // Validation error
-        assert_eq!(
-            FailureReason::from_str(r#"{"Validation":{"Remote":{"Web3RpcError":{"code":42,"message":"Test RPC error"}}}}"#).unwrap(),
-            FailureReason::Validation(AppRpcError::Remote(RemoteError::Web3RpcError {
-                code: 42,
-                message: "Test RPC error".to_string()
-            }))
-        );
-
         // Reverted
         assert_eq!(
             FailureReason::from_str("\"Reverted\"").unwrap(),
@@ -617,7 +607,7 @@ mod tests {
         assert_eq!(
             FailureReason::from_str("\"UnknownReason\"").unwrap_err(),
             "unknown variant `UnknownReason`, \
-            expected one of `Submission`, `Validation`, `Reverted`, `PendingTooLong` \
+            expected one of `Submission`, `Reverted`, `PendingTooLong` \
             at line 1 column 15 in '\"UnknownReason\"'"
         );
 
