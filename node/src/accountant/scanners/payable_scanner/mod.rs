@@ -1092,6 +1092,10 @@ mod tests {
         assert!(inserted_records
             .iter()
             .any(|tx| tx.hash == failed_payable_1.hash));
+        assert!(inserted_records
+            .iter()
+            .any(|tx| tx.hash == failed_payable_2.hash));
+        assert!(deleted_hashes.contains(&failed_payable_1.hash));
         assert!(deleted_hashes.contains(&failed_payable_2.hash));
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: Processed payables while sending to RPC: \
@@ -1101,5 +1105,129 @@ mod tests {
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: Recording 2 failed transactions in database",
         ));
+    }
+
+    #[test]
+    fn handle_batch_results_can_panic_while_recording_failures() {
+        init_test_logging();
+        let test_name = "handle_batch_results_can_panic_while_recording_failures";
+        let logger = Logger::new(test_name);
+        let failed_payable_dao_insert_params = Arc::new(Mutex::new(vec![]));
+        let sent_payable_dao_delete_params = Arc::new(Mutex::new(vec![]));
+        let failed_payable_1 = make_rpc_payable_failure(1);
+        let failed_payable_2 = make_rpc_payable_failure(2);
+        let batch_results = vec![
+            IndividualBatchResult::Failed(failed_payable_1.clone()),
+            IndividualBatchResult::Failed(failed_payable_2.clone()),
+        ];
+        let failed_payable_dao = FailedPayableDaoMock::default()
+            .insert_new_records_params(&failed_payable_dao_insert_params)
+            .insert_new_records_result(Ok(()));
+        let sent_payable_dao = SentPayableDaoMock::default()
+            .delete_records_params(&sent_payable_dao_delete_params)
+            .retrieve_txs_result(vec![TxBuilder::default()
+                .hash(failed_payable_1.hash)
+                .build()])
+            .delete_records_result(Ok(()));
+        let subject = PayableScannerBuilder::new()
+            .failed_payable_dao(failed_payable_dao)
+            .sent_payable_dao(sent_payable_dao)
+            .build();
+
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _ = subject.handle_batch_results(batch_results, &logger);
+        }))
+        .unwrap_err();
+
+        let panic_msg = result.downcast_ref::<String>().unwrap();
+        let inserted_records = &failed_payable_dao_insert_params.lock().unwrap()[0];
+        let deleted_hashes = sent_payable_dao_delete_params.lock().unwrap()[0].clone();
+        assert_eq!(inserted_records.len(), 1);
+        assert_eq!(deleted_hashes.len(), 1);
+        assert!(inserted_records
+            .iter()
+            .any(|tx| tx.hash == failed_payable_1.hash));
+        assert!(deleted_hashes.contains(&failed_payable_1.hash));
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: Processed payables while sending to RPC: \
+            Total: 2, Sent to RPC: 0, Failed to send: 2. \
+            Updating database...",
+        ));
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: Recording 2 failed transactions in database",
+        ));
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: Successfully migrated following hashes from \
+            SentPayable table to FailedPayable table: {:?}",
+            failed_payable_1.hash
+        ));
+        assert_eq!(
+            panic_msg,
+            "The found transactions have been migrated.\n\
+             The following failed transactions were missing from the sent payable database:\n\
+             0x0000000000000000000000000000000000000000000000000000000000072a86"
+        )
+    }
+
+    #[test]
+    fn handle_batch_results_can_panic_while_verifying_pending() {
+        init_test_logging();
+        let test_name = "handle_batch_results_can_panic_while_recording_failures";
+        let logger = Logger::new(test_name);
+        let failed_payable_dao_insert_params = Arc::new(Mutex::new(vec![]));
+        let sent_payable_dao_delete_params = Arc::new(Mutex::new(vec![]));
+        let failed_payable_1 = make_rpc_payable_failure(1);
+        let pending_payable_ = make_pending_payable(2);
+        let batch_results = vec![
+            IndividualBatchResult::Failed(failed_payable_1.clone()),
+            IndividualBatchResult::Pending(pending_payable_.clone()),
+        ];
+        let failed_payable_dao = FailedPayableDaoMock::default()
+            .insert_new_records_params(&failed_payable_dao_insert_params)
+            .insert_new_records_result(Ok(()));
+        let sent_payable_dao = SentPayableDaoMock::default()
+            .delete_records_params(&sent_payable_dao_delete_params)
+            .retrieve_txs_result(vec![TxBuilder::default()
+                .hash(failed_payable_1.hash)
+                .build()])
+            .delete_records_result(Ok(()))
+            .retrieve_txs_result(vec![]);
+        let subject = PayableScannerBuilder::new()
+            .failed_payable_dao(failed_payable_dao)
+            .sent_payable_dao(sent_payable_dao)
+            .build();
+
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _ = subject.handle_batch_results(batch_results, &logger);
+        }))
+        .unwrap_err();
+
+        let panic_msg = result.downcast_ref::<String>().unwrap();
+        let inserted_records = &failed_payable_dao_insert_params.lock().unwrap()[0];
+        let deleted_hashes = sent_payable_dao_delete_params.lock().unwrap()[0].clone();
+        assert_eq!(inserted_records.len(), 1);
+        assert_eq!(deleted_hashes.len(), 1);
+        assert!(inserted_records
+            .iter()
+            .any(|tx| tx.hash == failed_payable_1.hash));
+        assert!(deleted_hashes.contains(&failed_payable_1.hash));
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: Processed payables while sending to RPC: \
+            Total: 2, Sent to RPC: 1, Failed to send: 1. \
+            Updating database...",
+        ));
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: Recording 1 failed transactions in database",
+        ));
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: Successfully migrated following hashes from \
+            SentPayable table to FailedPayable table: {:?}",
+            failed_payable_1.hash
+        ));
+        assert_eq!(
+            panic_msg,
+            "The following pending transactions were missing from the sent payable database: \
+            0x000000000000000000000000000000000000000000000000000000000090317e"
+        )
     }
 }
