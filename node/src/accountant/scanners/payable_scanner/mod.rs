@@ -451,10 +451,8 @@ impl PayableScanner {
         payment_procedure_result: Either<Vec<IndividualBatchResult>, LocalPayableError>,
         logger: &Logger,
     ) -> OperationOutcome {
-        todo!();
         match payment_procedure_result {
             Either::Left(batch_results) => {
-                // TODO: GH-605: Test me
                 self.handle_batch_results(batch_results, logger);
                 OperationOutcome::NewPendingPayable
             }
@@ -1229,5 +1227,52 @@ mod tests {
             "The following pending transactions were missing from the sent payable database: \
             0x000000000000000000000000000000000000000000000000000000000090317e"
         )
+    }
+
+    #[test]
+    fn process_result_handles_batch() {
+        init_test_logging();
+        let test_name = "process_result_handles_batch";
+        let pending_payable = make_pending_payable(1);
+        let tx = TxBuilder::default().hash(pending_payable.hash).build();
+        let sent_payable_dao = SentPayableDaoMock::default().retrieve_txs_result(vec![tx]);
+        let mut subject = PayableScannerBuilder::new()
+            .sent_payable_dao(sent_payable_dao)
+            .build();
+        let logger = Logger::new(test_name);
+        let batch_results = vec![IndividualBatchResult::Pending(pending_payable)];
+
+        let result = subject.process_result(Either::Left(batch_results), &logger);
+
+        assert_eq!(result, OperationOutcome::NewPendingPayable);
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_containing(&format!(
+            "DEBUG: {test_name}: Processed payables while sending to RPC: \
+             Total: 1, Sent to RPC: 1, Failed to send: 0. \
+             Updating database..."
+        ));
+        tlh.exists_log_containing(&format!(
+            "DEBUG: {test_name}: All 1 pending transactions were present \
+            in the sent payable database"
+        ));
+    }
+
+    #[test]
+    fn process_result_handles_error() {
+        init_test_logging();
+        let test_name = "process_result_handles_error";
+        let mut subject = PayableScannerBuilder::new().build();
+        let logger = Logger::new(test_name);
+
+        let result = subject.process_result(
+            Either::Right(LocalPayableError::MissingConsumingWallet),
+            &logger,
+        );
+
+        assert_eq!(result, OperationOutcome::Failure);
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: Local error occurred before transaction signing. \
+             Error: Missing consuming wallet to pay payable from"
+        ));
     }
 }
