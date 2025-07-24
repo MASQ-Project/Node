@@ -414,9 +414,12 @@ impl PayableScanner {
         Self::verify_failed_tx_hashes_in_db(&failed_payables, hashes_with_reason, logger);
     }
 
-    fn handle_batch_results(&self, batch_results: Vec<IndividualBatchResult>, logger: &Logger) {
+    fn handle_batch_results(
+        &self,
+        batch_results: Vec<IndividualBatchResult>,
+        logger: &Logger,
+    ) -> OperationOutcome {
         let (pending, failures) = Self::separate_batch_results(batch_results);
-
         let pending_tx_count = pending.len();
         let failed_tx_count = failures.len();
         debug!(
@@ -430,11 +433,20 @@ impl PayableScanner {
         );
 
         self.record_failed_txs_in_db(&failures, logger);
-
         self.verify_pending_tx_hashes_in_db(&pending, logger);
+
+        if pending_tx_count > 0 {
+            OperationOutcome::NewPendingPayable
+        } else {
+            OperationOutcome::Failure
+        }
     }
 
-    fn handle_local_error(&self, local_err: LocalPayableError, logger: &Logger) {
+    fn handle_local_error(
+        &self,
+        local_err: LocalPayableError,
+        logger: &Logger,
+    ) -> OperationOutcome {
         if let LocalPayableError::Sending { hashes, .. } = local_err {
             let failures = Self::map_hashes_to_local_failures(hashes);
             self.record_failed_txs_in_db(&failures, logger);
@@ -444,6 +456,8 @@ impl PayableScanner {
                 "Local error occurred before transaction signing. Error: {}", local_err
             );
         }
+
+        OperationOutcome::Failure
     }
 
     fn process_result(
@@ -452,14 +466,8 @@ impl PayableScanner {
         logger: &Logger,
     ) -> OperationOutcome {
         match payment_procedure_result {
-            Either::Left(batch_results) => {
-                self.handle_batch_results(batch_results, logger);
-                OperationOutcome::NewPendingPayable
-            }
-            Either::Right(local_err) => {
-                self.handle_local_error(local_err, logger);
-                OperationOutcome::Failure
-            }
+            Either::Left(batch_results) => self.handle_batch_results(batch_results, logger),
+            Either::Right(local_err) => self.handle_local_error(local_err, logger),
         }
     }
 
@@ -998,10 +1006,11 @@ mod tests {
             .sent_payable_dao(sent_payable_dao)
             .build();
 
-        subject.handle_batch_results(batch_results, &logger);
+        let result = subject.handle_batch_results(batch_results, &logger);
 
         let inserted_records = &failed_payable_dao_insert_params.lock().unwrap()[0];
         let deleted_hashes = sent_payable_dao_delete_params.lock().unwrap()[0].clone();
+        assert_eq!(result, OperationOutcome::NewPendingPayable);
         assert_eq!(inserted_records.len(), 1);
         assert_eq!(deleted_hashes.len(), 1);
         assert!(inserted_records
@@ -1040,8 +1049,9 @@ mod tests {
             .sent_payable_dao(sent_payable_dao)
             .build();
 
-        subject.handle_batch_results(batch_results, &logger);
+        let result = subject.handle_batch_results(batch_results, &logger);
 
+        assert_eq!(result, OperationOutcome::NewPendingPayable);
         let tlh = TestLogHandler::new();
         tlh.exists_log_containing(&format!(
             "DEBUG: {test_name}: Processed payables while sending to RPC: \
@@ -1081,10 +1091,11 @@ mod tests {
             .sent_payable_dao(sent_payable_dao)
             .build();
 
-        subject.handle_batch_results(batch_results, &logger);
+        let result = subject.handle_batch_results(batch_results, &logger);
 
         let inserted_records = &failed_payable_dao_insert_params.lock().unwrap()[0];
         let deleted_hashes = sent_payable_dao_delete_params.lock().unwrap()[0].clone();
+        assert_eq!(result, OperationOutcome::Failure);
         assert_eq!(inserted_records.len(), 2);
         assert_eq!(deleted_hashes.len(), 2);
         assert!(inserted_records
