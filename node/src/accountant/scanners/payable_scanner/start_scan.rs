@@ -1,3 +1,6 @@
+use crate::accountant::db_access_objects::failed_payable_dao::FailureRetrieveCondition;
+use crate::accountant::db_access_objects::failed_payable_dao::FailureRetrieveCondition::ByStatus;
+use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::RetryRequired;
 use crate::accountant::scanners::payable_scanner::PayableScanner;
 use crate::accountant::scanners::payable_scanner_extension::msgs::{
     QualifiedPayablesMessage, UnpricedQualifiedPayables,
@@ -56,12 +59,20 @@ impl StartableScanner<ScanForNewPayables, QualifiedPayablesMessage> for PayableS
 impl StartableScanner<ScanForRetryPayables, QualifiedPayablesMessage> for PayableScanner {
     fn start_scan(
         &mut self,
-        _consuming_wallet: &Wallet,
-        _timestamp: SystemTime,
-        _response_skeleton_opt: Option<ResponseSkeleton>,
+        consuming_wallet: &Wallet,
+        timestamp: SystemTime,
+        response_skeleton_opt: Option<ResponseSkeleton>,
         _logger: &Logger,
     ) -> Result<QualifiedPayablesMessage, StartScanError> {
-        todo!("Complete me under GH-605")
+        self.mark_as_started(timestamp);
+        self.failed_payable_dao
+            .retrieve_txs(Some(ByStatus(RetryRequired)));
+
+        Ok(QualifiedPayablesMessage {
+            qualified_payables: UnpricedQualifiedPayables { payables: vec![] },
+            consuming_wallet: consuming_wallet.clone(),
+            response_skeleton_opt,
+        })
         // 1. Find the failed payables
         // 2. Look into the payable DAO to update the amount
         // 3. Prepare UnpricedQualifiedPayables
@@ -98,8 +109,9 @@ mod tests {
         init_test_logging();
         let test_name = "start_scan_for_retry_works";
         let logger = Logger::new(test_name);
+        let timestamp = SystemTime::now();
         let consuming_wallet = make_paying_wallet(b"consuming");
-        let failed_payable_dao = FailedPayableDaoMock::new();
+        let failed_payable_dao = FailedPayableDaoMock::new().retrieve_txs_result(vec![]);
         let mut subject = PayableScannerBuilder::new()
             .failed_payable_dao(failed_payable_dao)
             .build();
@@ -108,12 +120,14 @@ mod tests {
         let result = Scanners::start_correct_payable_scanner::<ScanForRetryPayables>(
             &mut subject,
             &consuming_wallet,
-            SystemTime::now(),
+            timestamp,
             None,
             &logger,
         );
 
         System::current().stop();
+        let scan_started_at = subject.scan_started_at();
         assert!(result.is_ok());
+        assert_eq!(scan_started_at, Some(timestamp));
     }
 }
