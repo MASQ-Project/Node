@@ -72,4 +72,48 @@ impl StartableScanner<ScanForRetryPayables, QualifiedPayablesMessage> for Payabl
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::accountant::db_access_objects::failed_payable_dao::{
+        FailedPayableDao, FailedTx, FailureReason, FailureStatus,
+    };
+    use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDao};
+    use crate::accountant::db_access_objects::test_utils::FailedTxBuilder;
+    use crate::accountant::scanners::payable_scanner::test_utils::PayableScannerBuilder;
+    use crate::accountant::scanners::Scanners;
+    use crate::accountant::test_utils::{FailedPayableDaoMock, PayableDaoMock};
+    use crate::accountant::PendingPayableId;
+    use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
+    use crate::sub_lib::accountant::PaymentThresholds;
+    use crate::test_utils::make_paying_wallet;
+    use actix::System;
+    use masq_lib::logger::Logger;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
+    use std::collections::HashMap;
+    use std::time::SystemTime;
 
+    #[test]
+    fn start_scan_for_retry_works() {
+        init_test_logging();
+        let test_name = "start_scan_for_retry_works";
+        let logger = Logger::new(test_name);
+        let consuming_wallet = make_paying_wallet(b"consuming");
+        let failed_payable_dao = FailedPayableDaoMock::new();
+        let mut subject = PayableScannerBuilder::new()
+            .failed_payable_dao(failed_payable_dao)
+            .build();
+        let system = System::new(test_name);
+
+        let result = Scanners::start_correct_payable_scanner::<ScanForRetryPayables>(
+            &mut subject,
+            &consuming_wallet,
+            SystemTime::now(),
+            None,
+            &logger,
+        );
+
+        System::current().stop();
+        assert!(result.is_ok());
+    }
+}

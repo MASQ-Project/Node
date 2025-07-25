@@ -12,20 +12,16 @@ use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::B
 use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDao;
 use crate::accountant::db_access_objects::utils::TxHash;
 use crate::accountant::payment_adjuster::PaymentAdjuster;
-use crate::accountant::scanners::payable_scanner_extension::msgs::{
-    BlockchainAgentWithContextMessage, QualifiedPayablesMessage, UnpricedQualifiedPayables,
-};
+use crate::accountant::scanners::payable_scanner_extension::msgs::BlockchainAgentWithContextMessage;
 use crate::accountant::scanners::payable_scanner_extension::{
     MultistageDualPayableScanner, PreparedAdjustment, SolvencySensitivePaymentInstructor,
 };
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{
-    investigate_debt_extremes, payables_debug_summary, OperationOutcome, PayableScanResult,
-    PayableThresholdsGauge, PayableThresholdsGaugeReal,
+    payables_debug_summary, OperationOutcome, PayableThresholdsGauge, PayableThresholdsGaugeReal,
 };
-use crate::accountant::scanners::{Scanner, ScannerCommon, StartScanError, StartableScanner};
+use crate::accountant::scanners::{Scanner, ScannerCommon, StartableScanner};
 use crate::accountant::{
     comma_joined_stringifiable, gwei_to_wei, join_with_separator, ResponseSkeleton,
-    ScanForNewPayables, ScanForRetryPayables, SentPayables,
 };
 use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
 use crate::blockchain::blockchain_interface::data_structures::{
@@ -35,12 +31,9 @@ use crate::blockchain::errors::AppRpcError::Local;
 use crate::blockchain::errors::LocalError::Internal;
 use crate::sub_lib::accountant::PaymentThresholds;
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
-use crate::sub_lib::wallet::Wallet;
-use crate::time_marking_methods;
 use ethereum_types::H256;
 use itertools::{Either, Itertools};
 use masq_lib::logger::Logger;
-use masq_lib::messages::ScanType;
 use masq_lib::messages::{ToMessageBody, UiScanResponse};
 use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
 use std::collections::{HashMap, HashSet};
