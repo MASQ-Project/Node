@@ -62,9 +62,10 @@ impl StartableScanner<ScanForRetryPayables, QualifiedPayablesMessage> for Payabl
         consuming_wallet: &Wallet,
         timestamp: SystemTime,
         response_skeleton_opt: Option<ResponseSkeleton>,
-        _logger: &Logger,
+        logger: &Logger,
     ) -> Result<QualifiedPayablesMessage, StartScanError> {
         self.mark_as_started(timestamp);
+        info!(logger, "Scanning for retry payables");
         self.failed_payable_dao
             .retrieve_txs(Some(ByStatus(RetryRequired)));
 
@@ -110,6 +111,8 @@ mod tests {
         let test_name = "start_scan_for_retry_works";
         let logger = Logger::new(test_name);
         let timestamp = SystemTime::now();
+        let client_id = 1234;
+        let context_id = 4321;
         let consuming_wallet = make_paying_wallet(b"consuming");
         let failed_payable_dao = FailedPayableDaoMock::new().retrieve_txs_result(vec![]);
         let mut subject = PayableScannerBuilder::new()
@@ -121,13 +124,28 @@ mod tests {
             &mut subject,
             &consuming_wallet,
             timestamp,
-            None,
+            Some(ResponseSkeleton {
+                client_id,
+                context_id,
+            }),
             &logger,
         );
 
         System::current().stop();
         let scan_started_at = subject.scan_started_at();
-        assert!(result.is_ok());
+        assert_eq!(
+            result,
+            Ok(QualifiedPayablesMessage {
+                qualified_payables: UnpricedQualifiedPayables { payables: vec![] },
+                consuming_wallet: consuming_wallet.clone(),
+                response_skeleton_opt: Some(ResponseSkeleton {
+                    client_id,
+                    context_id,
+                }),
+            })
+        );
         assert_eq!(scan_started_at, Some(timestamp));
+        TestLogHandler::new()
+            .exists_log_containing(&format!("INFO: {test_name}: Scanning for retry payables"));
     }
 }
