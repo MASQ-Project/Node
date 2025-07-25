@@ -8,7 +8,7 @@ use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableD
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
 use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::ByHash;
 use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDao;
-use crate::accountant::db_access_objects::utils::{TxHash, TxIdentifiers};
+use crate::accountant::db_access_objects::utils::TxHash;
 use crate::accountant::payment_adjuster::PaymentAdjuster;
 use crate::accountant::scanners::payable_scanner_extension::msgs::{
     BlockchainAgentWithContextMessage, QualifiedPayablesMessage, UnpricedQualifiedPayables,
@@ -18,7 +18,7 @@ use crate::accountant::scanners::payable_scanner_extension::{
 };
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{
     investigate_debt_extremes, payables_debug_summary, OperationOutcome, PayableScanResult,
-    PayableThresholdsGauge, PayableThresholdsGaugeReal, PayableTransactingErrorEnum,
+    PayableThresholdsGauge, PayableThresholdsGaugeReal,
 };
 use crate::accountant::scanners::{Scanner, ScannerCommon, StartScanError, StartableScanner};
 use crate::accountant::{

@@ -1546,13 +1546,14 @@ mod tests {
             )),
             response_skeleton_opt: None,
         };
+        let logger = Logger::new(test_name);
         let payable_scanner = PayableScannerBuilder::new().build();
         let mut subject = make_dull_subject();
         subject.payable = Box::new(payable_scanner);
         let aware_of_unresolved_pending_payable_before =
             subject.aware_of_unresolved_pending_payable;
 
-        subject.finish_payable_scan(sent_payable, &Logger::new(test_name));
+        subject.finish_payable_scan(sent_payable, &logger);
 
         let aware_of_unresolved_pending_payable_after = subject.aware_of_unresolved_pending_payable;
         assert_eq!(aware_of_unresolved_pending_payable_before, false);
@@ -1590,7 +1591,7 @@ mod tests {
         let aware_of_unresolved_pending_payable_before =
             subject.aware_of_unresolved_pending_payable;
 
-        subject.finish_payable_scan(sent_payables, &Logger::new(test_name));
+        subject.finish_payable_scan(sent_payables, &logger);
 
         let aware_of_unresolved_pending_payable_after = subject.aware_of_unresolved_pending_payable;
         assert_eq!(aware_of_unresolved_pending_payable_before, false);
