@@ -87,6 +87,7 @@ impl StartableScanner<ScanForRetryPayables, QualifiedPayablesMessage> for Payabl
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accountant::db_access_objects::failed_payable_dao::FailureReason::PendingTooLong;
     use crate::accountant::db_access_objects::failed_payable_dao::{
         FailedPayableDao, FailedTx, FailureReason, FailureStatus,
     };
@@ -97,12 +98,14 @@ mod tests {
     use crate::accountant::test_utils::{FailedPayableDaoMock, PayableDaoMock};
     use crate::accountant::PendingPayableId;
     use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
+    use crate::blockchain::test_utils::make_tx_hash;
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::test_utils::make_paying_wallet;
     use actix::System;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
 
     #[test]
@@ -110,13 +113,25 @@ mod tests {
         init_test_logging();
         let test_name = "start_scan_for_retry_works";
         let logger = Logger::new(test_name);
+        let failed_payables_retrieve_txs_params_arc = Arc::new(Mutex::new(vec![]));
         let timestamp = SystemTime::now();
         let client_id = 1234;
         let context_id = 4321;
+        let tx_hash_1 = make_tx_hash(1);
+        let failed_tx_1 = FailedTxBuilder::default()
+            .nonce(1)
+            .hash(tx_hash_1)
+            .reason(PendingTooLong)
+            .status(RetryRequired)
+            .build();
         let consuming_wallet = make_paying_wallet(b"consuming");
-        let failed_payable_dao = FailedPayableDaoMock::new().retrieve_txs_result(vec![]);
+        let failed_payable_dao = FailedPayableDaoMock::new()
+            .retrieve_txs_params(&failed_payables_retrieve_txs_params_arc)
+            .retrieve_txs_result(vec![failed_tx_1]);
+        let payable_dao = PayableDaoMock::new();
         let mut subject = PayableScannerBuilder::new()
             .failed_payable_dao(failed_payable_dao)
+            .payable_dao(payable_dao)
             .build();
         let system = System::new(test_name);
 
@@ -133,6 +148,8 @@ mod tests {
 
         System::current().stop();
         let scan_started_at = subject.scan_started_at();
+        let failed_payables_retrieve_txs_params =
+            failed_payables_retrieve_txs_params_arc.lock().unwrap();
         assert_eq!(
             result,
             Ok(QualifiedPayablesMessage {
@@ -145,6 +162,10 @@ mod tests {
             })
         );
         assert_eq!(scan_started_at, Some(timestamp));
+        assert_eq!(
+            failed_payables_retrieve_txs_params[0],
+            Some(ByStatus(FailureStatus::RetryRequired))
+        );
         TestLogHandler::new()
             .exists_log_containing(&format!("INFO: {test_name}: Scanning for retry payables"));
     }
