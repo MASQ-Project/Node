@@ -1,3 +1,5 @@
+mod finish_scan;
+mod start_scan;
 pub mod test_utils;
 
 use crate::accountant::db_access_objects::failed_payable_dao::FailureReason::Submission;
@@ -55,88 +57,6 @@ pub struct PayableScanner {
 }
 
 impl MultistageDualPayableScanner for PayableScanner {}
-
-impl StartableScanner<ScanForNewPayables, QualifiedPayablesMessage> for PayableScanner {
-    fn start_scan(
-        &mut self,
-        consuming_wallet: &Wallet,
-        timestamp: SystemTime,
-        response_skeleton_opt: Option<ResponseSkeleton>,
-        logger: &Logger,
-    ) -> Result<QualifiedPayablesMessage, StartScanError> {
-        self.mark_as_started(timestamp);
-        info!(logger, "Scanning for new payables");
-        let all_non_pending_payables = self.payable_dao.non_pending_payables();
-
-        debug!(
-            logger,
-            "{}",
-            investigate_debt_extremes(timestamp, &all_non_pending_payables)
-        );
-
-        let qualified_payables =
-            self.sniff_out_alarming_payables_and_maybe_log_them(all_non_pending_payables, logger);
-
-        match qualified_payables.is_empty() {
-            true => {
-                self.mark_as_ended(logger);
-                Err(StartScanError::NothingToProcess)
-            }
-            false => {
-                info!(
-                    logger,
-                    "Chose {} qualified debts to pay",
-                    qualified_payables.len()
-                );
-                let qualified_payables = UnpricedQualifiedPayables::from(qualified_payables);
-                let outgoing_msg = QualifiedPayablesMessage::new(
-                    qualified_payables,
-                    consuming_wallet.clone(),
-                    response_skeleton_opt,
-                );
-                Ok(outgoing_msg)
-            }
-        }
-    }
-}
-
-impl StartableScanner<ScanForRetryPayables, QualifiedPayablesMessage> for PayableScanner {
-    fn start_scan(
-        &mut self,
-        _consuming_wallet: &Wallet,
-        _timestamp: SystemTime,
-        _response_skeleton_opt: Option<ResponseSkeleton>,
-        _logger: &Logger,
-    ) -> Result<QualifiedPayablesMessage, StartScanError> {
-        todo!("Complete me under GH-605")
-        // 1. Find the failed payables
-        // 2. Look into the payable DAO to update the amount
-        // 3. Prepare UnpricedQualifiedPayables
-
-        // 1. Fetch all records with RetryRequired
-        // 2. Query the txs with the same accounts from the PayableDao
-        // 3. Form UnpricedQualifiedPayables, a collection vector
-    }
-}
-
-impl Scanner<SentPayables, PayableScanResult> for PayableScanner {
-    fn finish_scan(&mut self, message: SentPayables, logger: &Logger) -> PayableScanResult {
-        let result = self.process_result(message.payment_procedure_result, logger);
-
-        self.mark_as_ended(logger);
-
-        let ui_response_opt = Self::generate_ui_response(message.response_skeleton_opt);
-
-        PayableScanResult {
-            ui_response_opt,
-            result,
-        }
-    }
-
-    time_marking_methods!(Payables);
-
-    as_any_ref_in_trait_impl!();
-}
 
 impl SolvencySensitivePaymentInstructor for PayableScanner {
     fn try_skipping_payment_adjustment(
@@ -1276,49 +1196,6 @@ mod tests {
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: Local error occurred before transaction signing. \
              Error: Missing consuming wallet to pay payable from"
-        ));
-    }
-
-    #[test]
-    fn finish_scan_works_as_expected() {
-        init_test_logging();
-        let test_name = "finish_scan_works_as_expected";
-        let system = System::new(test_name);
-        let pending_payable = make_pending_payable(1);
-        let tx = TxBuilder::default()
-            .hash(pending_payable.hash)
-            .nonce(1)
-            .build();
-        let sent_payable_dao = SentPayableDaoMock::default().retrieve_txs_result(vec![tx]);
-        let mut subject = PayableScannerBuilder::new()
-            .sent_payable_dao(sent_payable_dao)
-            .build();
-        let logger = Logger::new(test_name);
-        let sent_payables = SentPayables {
-            payment_procedure_result: Either::Left(vec![IndividualBatchResult::Pending(
-                pending_payable,
-            )]),
-            response_skeleton_opt: Some(ResponseSkeleton {
-                client_id: 1234,
-                context_id: 5678,
-            }),
-        };
-        subject.mark_as_started(SystemTime::now());
-
-        let scan_result = subject.finish_scan(sent_payables, &logger);
-
-        System::current().stop();
-        system.run();
-        assert_eq!(scan_result.result, OperationOutcome::NewPendingPayable);
-        assert_eq!(
-            scan_result.ui_response_opt,
-            Some(NodeToUiMessage {
-                target: MessageTarget::ClientId(1234),
-                body: UiScanResponse {}.tmb(5678),
-            })
-        );
-        TestLogHandler::new().exists_log_matching(&format!(
-            "INFO: {test_name}: The Payables scan ended in \\d+ms."
         ));
     }
 }
