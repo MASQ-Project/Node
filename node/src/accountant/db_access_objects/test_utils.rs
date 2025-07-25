@@ -1,15 +1,18 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 #![cfg(test)]
 
-use std::path::PathBuf;
-use rusqlite::{Connection, OpenFlags};
-use crate::accountant::db_access_objects::sent_payable_dao::{ Tx};
+use crate::accountant::db_access_objects::failed_payable_dao::{
+    FailedTx, FailureReason, FailureStatus, ValidationStatus,
+};
+use crate::accountant::db_access_objects::sent_payable_dao::{Tx, TxStatus};
 use crate::accountant::db_access_objects::utils::{current_unix_timestamp, TxHash};
-use web3::types::{Address};
-use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureReason, FailureStatus};
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionBlock;
-use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE};
+use crate::database::db_initializer::{
+    DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
+};
 use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
+use rusqlite::{Connection, OpenFlags};
+use std::path::PathBuf;
+use web3::types::Address;
 
 #[derive(Default)]
 pub struct TxBuilder {
@@ -19,7 +22,7 @@ pub struct TxBuilder {
     timestamp_opt: Option<i64>,
     gas_price_wei_opt: Option<u128>,
     nonce_opt: Option<u64>,
-    block_opt: Option<TransactionBlock>,
+    status_opt: Option<TxStatus>,
 }
 
 impl TxBuilder {
@@ -42,8 +45,8 @@ impl TxBuilder {
         self
     }
 
-    pub fn block(mut self, block: TransactionBlock) -> Self {
-        self.block_opt = Some(block);
+    pub fn status(mut self, status: TxStatus) -> Self {
+        self.status_opt = Some(status);
         self
     }
 
@@ -55,7 +58,9 @@ impl TxBuilder {
             timestamp: self.timestamp_opt.unwrap_or_else(current_unix_timestamp),
             gas_price_wei: self.gas_price_wei_opt.unwrap_or_default(),
             nonce: self.nonce_opt.unwrap_or_default(),
-            block_opt: self.block_opt,
+            status: self
+                .status_opt
+                .unwrap_or(TxStatus::Pending(ValidationStatus::Waiting)),
         }
     }
 }

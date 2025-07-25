@@ -16,7 +16,7 @@ use crate::accountant::db_access_objects::pending_payable_dao::{
 use crate::accountant::db_access_objects::receivable_dao::{
     ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,
 };
-use crate::accountant::db_access_objects::sent_payable_dao::{RetrieveCondition, SentPayableDao, SentPayableDaoError, SentPayableDaoFactory, Tx};
+use crate::accountant::db_access_objects::sent_payable_dao::{RetrieveCondition, SentPayableDao, SentPayableDaoError, SentPayableDaoFactory, Tx, TxConfirmation};
 use crate::accountant::db_access_objects::utils::{
     from_unix_timestamp, to_unix_timestamp, CustomQuery, TxHash, TxIdentifiers,
 };
@@ -1289,15 +1289,11 @@ impl SentPayableDao for SentPayableDaoMock {
         self.retrieve_txs_results.borrow_mut().remove(0)
     }
 
-    fn update_tx_blocks(
+    fn confirm_tx(
         &self,
-        hash_map: &HashMap<TxHash, TransactionBlock>,
+        hash_map: &HashMap<TxHash, TxConfirmation>,
     ) -> Result<(), SentPayableDaoError> {
-        self.update_tx_blocks_params
-            .lock()
-            .unwrap()
-            .push(hash_map.clone());
-        self.update_tx_blocks_results.borrow_mut().remove(0)
+        todo!()
     }
 
     fn replace_records(&self, new_txs: &[Tx]) -> Result<(), SentPayableDaoError> {
