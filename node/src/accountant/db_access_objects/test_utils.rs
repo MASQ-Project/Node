@@ -97,6 +97,11 @@ impl FailedTxBuilder {
         self
     }
 
+    pub fn receiver_address(mut self, receiver_address: Address) -> Self {
+        self.receiver_address_opt = Some(receiver_address);
+        self
+    }
+
     pub fn reason(mut self, reason: FailureReason) -> Self {
         self.reason_opt = Some(reason);
         self

@@ -1,6 +1,7 @@
 use crate::accountant::db_access_objects::failed_payable_dao::FailureRetrieveCondition;
 use crate::accountant::db_access_objects::failed_payable_dao::FailureRetrieveCondition::ByStatus;
 use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::RetryRequired;
+use crate::accountant::db_access_objects::payable_dao::PayableRetrieveCondition::ByAddresses;
 use crate::accountant::scanners::payable_scanner::PayableScanner;
 use crate::accountant::scanners::payable_scanner_extension::msgs::{
     QualifiedPayablesMessage, UnpricedQualifiedPayables,
@@ -10,7 +11,9 @@ use crate::accountant::scanners::{Scanner, StartScanError, StartableScanner};
 use crate::accountant::{ResponseSkeleton, ScanForNewPayables, ScanForRetryPayables};
 use crate::sub_lib::wallet::Wallet;
 use masq_lib::logger::Logger;
+use std::collections::BTreeSet;
 use std::time::SystemTime;
+use web3::types::Address;
 
 impl StartableScanner<ScanForNewPayables, QualifiedPayablesMessage> for PayableScanner {
     fn start_scan(
@@ -66,8 +69,16 @@ impl StartableScanner<ScanForRetryPayables, QualifiedPayablesMessage> for Payabl
     ) -> Result<QualifiedPayablesMessage, StartScanError> {
         self.mark_as_started(timestamp);
         info!(logger, "Scanning for retry payables");
-        self.failed_payable_dao
+        let retrieved_txs = self
+            .failed_payable_dao
             .retrieve_txs(Some(ByStatus(RetryRequired)));
+        let addresses: BTreeSet<Address> = retrieved_txs
+            .iter()
+            .map(|failed_tx| failed_tx.receiver_address)
+            .collect();
+        let payables = self
+            .payable_dao
+            .non_pending_payables(Some(ByAddresses(addresses)));
 
         Ok(QualifiedPayablesMessage {
             qualified_payables: UnpricedQualifiedPayables { payables: vec![] },
@@ -91,11 +102,16 @@ mod tests {
     use crate::accountant::db_access_objects::failed_payable_dao::{
         FailedPayableDao, FailedTx, FailureReason, FailureStatus,
     };
-    use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDao};
+    use crate::accountant::db_access_objects::payable_dao::PayableRetrieveCondition::ByAddresses;
+    use crate::accountant::db_access_objects::payable_dao::{
+        PayableAccount, PayableDao, PayableRetrieveCondition,
+    };
     use crate::accountant::db_access_objects::test_utils::FailedTxBuilder;
     use crate::accountant::scanners::payable_scanner::test_utils::PayableScannerBuilder;
     use crate::accountant::scanners::Scanners;
-    use crate::accountant::test_utils::{FailedPayableDaoMock, PayableDaoMock};
+    use crate::accountant::test_utils::{
+        make_payable_account, FailedPayableDaoMock, PayableDaoMock,
+    };
     use crate::accountant::PendingPayableId;
     use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
     use crate::blockchain::test_utils::make_tx_hash;
@@ -104,7 +120,7 @@ mod tests {
     use actix::System;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use std::collections::HashMap;
+    use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
 
@@ -114,21 +130,28 @@ mod tests {
         let test_name = "start_scan_for_retry_works";
         let logger = Logger::new(test_name);
         let failed_payables_retrieve_txs_params_arc = Arc::new(Mutex::new(vec![]));
+        let non_pending_payables_params_arc = Arc::new(Mutex::new(vec![]));
         let timestamp = SystemTime::now();
         let client_id = 1234;
         let context_id = 4321;
         let tx_hash_1 = make_tx_hash(1);
+        let payable_account = make_payable_account(1);
+        let receiver_address = payable_account.wallet.address();
         let failed_tx_1 = FailedTxBuilder::default()
             .nonce(1)
             .hash(tx_hash_1)
+            .receiver_address(receiver_address)
             .reason(PendingTooLong)
             .status(RetryRequired)
             .build();
+        let addresses = BTreeSet::from([receiver_address]);
         let consuming_wallet = make_paying_wallet(b"consuming");
         let failed_payable_dao = FailedPayableDaoMock::new()
             .retrieve_txs_params(&failed_payables_retrieve_txs_params_arc)
             .retrieve_txs_result(vec![failed_tx_1]);
-        let payable_dao = PayableDaoMock::new();
+        let payable_dao = PayableDaoMock::new()
+            .non_pending_payables_params(&non_pending_payables_params_arc)
+            .non_pending_payables_result(vec![payable_account]);
         let mut subject = PayableScannerBuilder::new()
             .failed_payable_dao(failed_payable_dao)
             .payable_dao(payable_dao)
@@ -150,6 +173,7 @@ mod tests {
         let scan_started_at = subject.scan_started_at();
         let failed_payables_retrieve_txs_params =
             failed_payables_retrieve_txs_params_arc.lock().unwrap();
+        let non_pending_payables_params = non_pending_payables_params_arc.lock().unwrap();
         assert_eq!(
             result,
             Ok(QualifiedPayablesMessage {
@@ -165,6 +189,10 @@ mod tests {
         assert_eq!(
             failed_payables_retrieve_txs_params[0],
             Some(ByStatus(FailureStatus::RetryRequired))
+        );
+        assert_eq!(
+            non_pending_payables_params[0],
+            Some(PayableRetrieveCondition::ByAddresses(addresses))
         );
         TestLogHandler::new()
             .exists_log_containing(&format!("INFO: {test_name}: Scanning for retry payables"));

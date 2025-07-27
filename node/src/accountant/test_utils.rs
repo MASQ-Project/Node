@@ -536,7 +536,7 @@ impl ConfigDaoFactoryMock {
 pub struct PayableDaoMock {
     more_money_payable_parameters: Arc<Mutex<Vec<(SystemTime, Wallet, u128)>>>,
     more_money_payable_results: RefCell<Vec<Result<(), PayableDaoError>>>,
-    non_pending_payables_params: Arc<Mutex<Vec<()>>>,
+    non_pending_payables_params: Arc<Mutex<Vec<Option<PayableRetrieveCondition>>>>,
     non_pending_payables_results: RefCell<Vec<Vec<PayableAccount>>>,
     mark_pending_payables_rowids_params: Arc<Mutex<Vec<Vec<(Wallet, u64)>>>>,
     mark_pending_payables_rowids_results: RefCell<Vec<Result<(), PayableDaoError>>>,
@@ -594,8 +594,10 @@ impl PayableDao for PayableDaoMock {
         &self,
         condition_opt: Option<PayableRetrieveCondition>,
     ) -> Vec<PayableAccount> {
-        // TODO: GH-605: It should store condition too
-        self.non_pending_payables_params.lock().unwrap().push(());
+        self.non_pending_payables_params
+            .lock()
+            .unwrap()
+            .push(condition_opt);
         self.non_pending_payables_results.borrow_mut().remove(0)
     }
 
@@ -632,7 +634,10 @@ impl PayableDaoMock {
         self
     }
 
-    pub fn non_pending_payables_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+    pub fn non_pending_payables_params(
+        mut self,
+        params: &Arc<Mutex<Vec<Option<PayableRetrieveCondition>>>>,
+    ) -> Self {
         self.non_pending_payables_params = params.clone();
         self
     }

@@ -44,7 +44,7 @@ pub struct PayableAccount {
     pub pending_payable_opt: Option<PendingPayableId>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PayableRetrieveCondition {
     ByAddresses(BTreeSet<Address>),
 }
