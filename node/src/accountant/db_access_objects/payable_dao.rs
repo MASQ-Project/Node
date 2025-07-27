@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use std::collections::{BTreeSet, HashSet};
 use crate::accountant::db_big_integer::big_int_db_processor::KeyVariants::{
     PendingPayableRowid, WalletAddress,
 };
@@ -13,7 +14,7 @@ use crate::accountant::db_access_objects::utils::{
 use crate::accountant::db_access_objects::payable_dao::mark_pending_payable_associated_functions::{
     compose_case_expression, execute_command, serialize_wallets,
 };
-use crate::accountant::{checked_conversion, sign_conversion, PendingPayableId};
+use crate::accountant::{checked_conversion, join_with_separator, sign_conversion, PendingPayableId};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use crate::sub_lib::wallet::Wallet;
@@ -23,12 +24,11 @@ use masq_lib::utils::ExpectValue;
 #[cfg(test)]
 use rusqlite::OptionalExtension;
 use rusqlite::{Error, Row};
-use std::fmt::Debug;
+use std::fmt::{Debug, Display, Formatter};
 use std::str::FromStr;
 use std::time::SystemTime;
 use itertools::Either;
 use web3::types::{Address, H256};
-use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum PayableDaoError {
@@ -46,7 +46,19 @@ pub struct PayableAccount {
 
 #[derive(Debug)]
 pub enum PayableRetrieveCondition {
-    ByAddress(Address),
+    ByAddresses(BTreeSet<Address>),
+}
+
+impl Display for PayableRetrieveCondition {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PayableRetrieveCondition::ByAddresses(addresses) => write!(
+                f,
+                "AND wallet_address IN ({})",
+                join_with_separator(addresses, |hash| format!("'{:?}'", hash), ", ")
+            ),
+        }
+    }
 }
 
 pub trait PayableDao: Debug + Send {
@@ -193,7 +205,7 @@ impl PayableDao for PayableDaoReal {
             .to_string();
         let sql = match condition_opt {
             None => raw_sql,
-            Some(condition) => format!("{} {:?}", raw_sql, condition),
+            Some(condition) => format!("{} {}", raw_sql, condition),
         };
         let mut stmt = self.conn.prepare(&sql).expect("Internal error");
         stmt.query_map([], |row| {
@@ -574,6 +586,7 @@ mod tests {
     use rusqlite::{ToSql};
     use std::path::Path;
     use std::str::FromStr;
+    use crate::accountant::db_access_objects::payable_dao::PayableRetrieveCondition::ByAddresses;
     use crate::database::test_utils::ConnectionWrapperMock;
 
     #[test]
@@ -1237,6 +1250,59 @@ mod tests {
     }
 
     #[test]
+    fn non_pending_payables_should_return_payables_with_no_pending_transaction_by_addresses() {
+        let home_dir = ensure_node_home_directory_exists(
+            "payable_dao",
+            "non_pending_payables_should_return_payables_with_no_pending_transaction_by_addresses",
+        );
+        let subject = PayableDaoReal::new(
+            DbInitializerReal::default()
+                .initialize(&home_dir, DbInitializationConfig::test_default())
+                .unwrap(),
+        );
+        let mut flags = OpenFlags::empty();
+        flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
+        let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
+        let conn = ConnectionWrapperReal::new(conn);
+        let insert = |wallet: &str, pending_payable_rowid: Option<i64>| {
+            insert_payable_record_fn(
+                &conn,
+                wallet,
+                1234567890123456,
+                111_111_111,
+                pending_payable_rowid,
+            );
+        };
+        let wallet1 = make_wallet("foobar");
+        let wallet2 = make_wallet("barfoo");
+        insert("0x0000000000000000000000000000000000666f6f", Some(15));
+        insert(&wallet1.to_string(), None);
+        insert("0x0000000000000000000000000000000000626172", None);
+        insert(&wallet2.to_string(), None);
+        let set = BTreeSet::from([wallet1.address(), wallet2.address()]);
+
+        let result = subject.non_pending_payables(Some(ByAddresses(set)));
+
+        assert_eq!(
+            result,
+            vec![
+                PayableAccount {
+                    wallet: wallet2,
+                    balance_wei: 1234567890123456 as u128,
+                    last_paid_timestamp: from_unix_timestamp(111_111_111),
+                    pending_payable_opt: None
+                },
+                PayableAccount {
+                    wallet: wallet1,
+                    balance_wei: 1234567890123456 as u128,
+                    last_paid_timestamp: from_unix_timestamp(111_111_111),
+                    pending_payable_opt: None
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn custom_query_handles_empty_table_in_top_records_mode() {
         let main_test_setup = |_conn: &dyn ConnectionWrapper, _insert: InsertPayableHelperFn| {};
         let subject = custom_query_test_body_for_payable(
@@ -1711,5 +1777,16 @@ mod tests {
             .execute(pending_payable_account)
             .unwrap();
         PayableDaoReal::new(conn)
+    }
+
+    #[test]
+    fn payable_retrieve_condition_to_str_works() {
+        let address_1 = make_wallet("first").address();
+        let address_2 = make_wallet("second").address();
+        assert_eq!(
+            PayableRetrieveCondition::ByAddresses(BTreeSet::from([address_1, address_2]))
+                .to_string(),
+            "AND wallet_address IN ('0x0000000000000000000000000000006669727374', '0x00000000000000000000000000007365636f6e64')"
+        );
     }
 }
