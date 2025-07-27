@@ -10,9 +10,11 @@ use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableD
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
 use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::ByHash;
 use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDao;
-use crate::accountant::db_access_objects::utils::TxHash;
+use crate::accountant::db_access_objects::utils::{from_unix_timestamp, TxHash};
 use crate::accountant::payment_adjuster::PaymentAdjuster;
-use crate::accountant::scanners::payable_scanner_extension::msgs::BlockchainAgentWithContextMessage;
+use crate::accountant::scanners::payable_scanner_extension::msgs::{
+    BlockchainAgentWithContextMessage, QualifiedPayablesBeforeGasPriceSelection,
+};
 use crate::accountant::scanners::payable_scanner_extension::{
     MultistageDualPayableScanner, PreparedAdjustment, SolvencySensitivePaymentInstructor,
 };
@@ -31,6 +33,7 @@ use crate::blockchain::errors::AppRpcError::Local;
 use crate::blockchain::errors::LocalError::Internal;
 use crate::sub_lib::accountant::PaymentThresholds;
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
+use crate::sub_lib::wallet::Wallet;
 use ethereum_types::H256;
 use itertools::{Either, Itertools};
 use masq_lib::logger::Logger;
@@ -39,6 +42,7 @@ use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::time::SystemTime;
+use web3::types::Address;
 
 pub struct PayableScanner {
     pub payable_threshold_gauge: Box<dyn PayableThresholdsGauge>,
@@ -386,6 +390,43 @@ impl PayableScanner {
             target: MessageTarget::ClientId(response_skeleton.client_id),
             body: UiScanResponse {}.tmb(response_skeleton.context_id),
         })
+    }
+
+    fn find_payable(
+        non_pending_payables: &[PayableAccount],
+        receiver: Address,
+    ) -> Option<PayableAccount> {
+        non_pending_payables
+            .iter()
+            .find(|payable| payable.wallet.address() == receiver)
+            .cloned()
+    }
+
+    fn generate_qualified_payables_before_gas_price_selection(
+        failed_tx: &FailedTx,
+        payable_opt: Option<PayableAccount>,
+    ) -> QualifiedPayablesBeforeGasPriceSelection {
+        let payable = match payable_opt {
+            Some(mut payable) => {
+                if payable.wallet.address() != failed_tx.receiver_address {
+                    panic!(
+                        "The receiver is out of sync. \
+                        Receiver in Payable: {:?}\nReceiver in failed tx: {:?}",
+                        payable.wallet.address(),
+                        failed_tx.receiver_address
+                    )
+                }
+
+                payable.balance_wei = payable.balance_wei + failed_tx.amount;
+                payable
+            }
+            None => PayableAccount::from(failed_tx),
+        };
+
+        QualifiedPayablesBeforeGasPriceSelection {
+            payable,
+            previous_attempt_gas_price_minor_opt: Some(failed_tx.gas_price_wei),
+        }
     }
 }
 

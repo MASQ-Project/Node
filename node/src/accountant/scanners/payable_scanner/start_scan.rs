@@ -85,33 +85,15 @@ impl StartableScanner<ScanForRetryPayables, QualifiedPayablesMessage> for Payabl
         let payables = failed_txs
             .iter()
             .map(|failed_tx| {
-                if let Some(payable) = non_pending_payables
-                    .iter()
-                    .find(|payable| payable.wallet.address() == failed_tx.receiver_address)
-                {
-                    QualifiedPayablesBeforeGasPriceSelection {
-                        payable: PayableAccount {
-                            wallet: payable.wallet.clone(),
-                            balance_wei: payable.balance_wei + failed_tx.amount,
-                            last_paid_timestamp: payable.last_paid_timestamp,
-                            pending_payable_opt: payable.pending_payable_opt,
-                        },
-                        previous_attempt_gas_price_minor_opt: Some(failed_tx.gas_price_wei),
-                    }
-                } else {
-                    QualifiedPayablesBeforeGasPriceSelection {
-                        payable: PayableAccount {
-                            wallet: Wallet::from(failed_tx.receiver_address),
-                            balance_wei: failed_tx.amount,
-                            last_paid_timestamp: from_unix_timestamp(failed_tx.timestamp),
-                            pending_payable_opt: None,
-                        },
-                        previous_attempt_gas_price_minor_opt: Some(failed_tx.gas_price_wei),
-                    }
-                }
+                let payable_opt =
+                    Self::find_payable(&non_pending_payables, failed_tx.receiver_address);
+
+                Self::generate_qualified_payables_before_gas_price_selection(
+                    &failed_tx,
+                    payable_opt,
+                )
             })
             .collect();
-        // TODO: Instead of filter map, use map so that you won't miss any cases
 
         Ok(QualifiedPayablesMessage {
             qualified_payables: UnpricedQualifiedPayables { payables },

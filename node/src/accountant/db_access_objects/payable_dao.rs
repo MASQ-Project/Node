@@ -7,10 +7,7 @@ use crate::accountant::db_big_integer::big_int_db_processor::KeyVariants::{
 use crate::accountant::db_big_integer::big_int_db_processor::{BigIntDbProcessor, BigIntDbProcessorReal, BigIntSqlConfig, DisplayableRusqliteParamPair, ParamByUse, SQLParamsBuilder, TableNameDAO, WeiChange, WeiChangeDirection};
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::db_access_objects::utils;
-use crate::accountant::db_access_objects::utils::{
-    sum_i128_values_from_table, to_unix_timestamp, AssemblerFeeder, CustomQuery, DaoFactoryReal,
-    RangeStmConfig, TopStmConfig, VigilantRusqliteFlatten,
-};
+use crate::accountant::db_access_objects::utils::{from_unix_timestamp, sum_i128_values_from_table, to_unix_timestamp, AssemblerFeeder, CustomQuery, DaoFactoryReal, RangeStmConfig, TopStmConfig, VigilantRusqliteFlatten};
 use crate::accountant::db_access_objects::payable_dao::mark_pending_payable_associated_functions::{
     compose_case_expression, execute_command, serialize_wallets,
 };
@@ -29,6 +26,7 @@ use std::str::FromStr;
 use std::time::SystemTime;
 use itertools::Either;
 use web3::types::{Address, H256};
+use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum PayableDaoError {
@@ -42,6 +40,17 @@ pub struct PayableAccount {
     pub balance_wei: u128,
     pub last_paid_timestamp: SystemTime,
     pub pending_payable_opt: Option<PendingPayableId>,
+}
+
+impl From<&FailedTx> for PayableAccount {
+    fn from(failed_tx: &FailedTx) -> Self {
+        PayableAccount {
+            wallet: Wallet::from(failed_tx.receiver_address),
+            balance_wei: failed_tx.amount,
+            last_paid_timestamp: from_unix_timestamp(failed_tx.timestamp),
+            pending_payable_opt: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
