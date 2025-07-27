@@ -89,6 +89,7 @@ pub struct FailedTx {
     pub status: FailureStatus,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FailureRetrieveCondition {
     ByStatus(FailureStatus),
 }

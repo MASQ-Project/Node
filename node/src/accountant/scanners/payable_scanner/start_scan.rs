@@ -22,7 +22,7 @@ impl StartableScanner<ScanForNewPayables, QualifiedPayablesMessage> for PayableS
     ) -> Result<QualifiedPayablesMessage, StartScanError> {
         self.mark_as_started(timestamp);
         info!(logger, "Scanning for new payables");
-        let all_non_pending_payables = self.payable_dao.non_pending_payables();
+        let all_non_pending_payables = self.payable_dao.non_pending_payables(None);
 
         debug!(
             logger,

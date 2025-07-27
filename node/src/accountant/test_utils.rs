@@ -7,9 +7,7 @@ use crate::accountant::db_access_objects::failed_payable_dao::{
     FailedPayableDao, FailedPayableDaoError, FailedPayableDaoFactory, FailedTx,
     FailureRetrieveCondition, FailureStatus,
 };
-use crate::accountant::db_access_objects::payable_dao::{
-    PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory,
-};
+use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory, PayableRetrieveCondition};
 use crate::accountant::db_access_objects::pending_payable_dao::{
     PendingPayableDao, PendingPayableDaoError, PendingPayableDaoFactory, TransactionHashes,
 };
@@ -592,7 +590,11 @@ impl PayableDao for PayableDaoMock {
         self.transactions_confirmed_results.borrow_mut().remove(0)
     }
 
-    fn non_pending_payables(&self) -> Vec<PayableAccount> {
+    fn non_pending_payables(
+        &self,
+        condition_opt: Option<PayableRetrieveCondition>,
+    ) -> Vec<PayableAccount> {
+        // TODO: GH-605: It should store condition too
         self.non_pending_payables_params.lock().unwrap().push(());
         self.non_pending_payables_results.borrow_mut().remove(0)
     }

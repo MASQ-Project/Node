@@ -27,7 +27,8 @@ use std::fmt::Debug;
 use std::str::FromStr;
 use std::time::SystemTime;
 use itertools::Either;
-use web3::types::H256;
+use web3::types::{Address, H256};
+use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum PayableDaoError {
@@ -41,6 +42,11 @@ pub struct PayableAccount {
     pub balance_wei: u128,
     pub last_paid_timestamp: SystemTime,
     pub pending_payable_opt: Option<PendingPayableId>,
+}
+
+#[derive(Debug)]
+pub enum PayableRetrieveCondition {
+    ByAddress(Address),
 }
 
 pub trait PayableDao: Debug + Send {
@@ -61,7 +67,10 @@ pub trait PayableDao: Debug + Send {
         confirmed_payables: &[PendingPayableFingerprint],
     ) -> Result<(), PayableDaoError>;
 
-    fn non_pending_payables(&self) -> Vec<PayableAccount>;
+    fn non_pending_payables(
+        &self,
+        condition_opt: Option<PayableRetrieveCondition>,
+    ) -> Vec<PayableAccount>;
 
     fn custom_query(&self, custom_query: CustomQuery<u64>) -> Option<Vec<PayableAccount>>;
 
@@ -174,11 +183,19 @@ impl PayableDao for PayableDaoReal {
         })
     }
 
-    fn non_pending_payables(&self) -> Vec<PayableAccount> {
-        let sql = "\
+    fn non_pending_payables(
+        &self,
+        condition_opt: Option<PayableRetrieveCondition>,
+    ) -> Vec<PayableAccount> {
+        let raw_sql = "\
         select wallet_address, balance_high_b, balance_low_b, last_paid_timestamp from \
-        payable where pending_payable_rowid is null";
-        let mut stmt = self.conn.prepare(sql).expect("Internal error");
+        payable where pending_payable_rowid is null"
+            .to_string();
+        let sql = match condition_opt {
+            None => raw_sql,
+            Some(condition) => format!("{} {:?}", raw_sql, condition),
+        };
+        let mut stmt = self.conn.prepare(&sql).expect("Internal error");
         stmt.query_map([], |row| {
             let wallet_result: Result<Wallet, Error> = row.get(0);
             let high_b_result: Result<i64, Error> = row.get(1);
@@ -1164,7 +1181,7 @@ mod tests {
                 .unwrap(),
         );
 
-        let result = subject.non_pending_payables();
+        let result = subject.non_pending_payables(None);
 
         assert_eq!(result, vec![]);
     }
@@ -1198,7 +1215,7 @@ mod tests {
         insert("0x0000000000000000000000000000000000626172", Some(16));
         insert(&make_wallet("barfoo").to_string(), None);
 
-        let result = subject.non_pending_payables();
+        let result = subject.non_pending_payables(None);
 
         assert_eq!(
             result,
