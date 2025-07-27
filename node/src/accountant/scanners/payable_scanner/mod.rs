@@ -395,49 +395,15 @@ impl PayableScanner {
         })
     }
 
-    fn find_payable(
-        payables_from_db: &[PayableAccount],
-        receiver: Address,
-    ) -> Option<PayableAccount> {
-        payables_from_db
-            .iter()
-            .find(|payable| payable.wallet.address() == receiver)
-            .cloned()
+    fn get_txs_to_retry(&self) -> Vec<FailedTx> {
+        self.failed_payable_dao
+            .retrieve_txs(Some(ByStatus(RetryRequired)))
     }
 
-    fn generate_payable_account(
-        tx_to_retry: &FailedTx,
-        payable_opt: Option<PayableAccount>,
-    ) -> PayableAccount {
-        match payable_opt {
-            Some(mut payable) => {
-                if payable.wallet.address() != tx_to_retry.receiver_address {
-                    panic!(
-                        "The receiver is out of sync. \
-                        Receiver in Payable: {:?}\nReceiver in tx to retry: {:?}",
-                        payable.wallet.address(),
-                        tx_to_retry.receiver_address
-                    )
-                }
-
-                payable.balance_wei = payable.balance_wei + tx_to_retry.amount;
-                payable
-            }
-            None => PayableAccount::from(tx_to_retry),
-        }
-    }
-
-    fn generate_qualified_payables_before_gas_price_selection(
-        payables_from_db: &[PayableAccount],
-        tx_to_retry: &FailedTx,
-    ) -> QualifiedPayablesBeforeGasPriceSelection {
-        let found_payable = Self::find_payable(payables_from_db, tx_to_retry.receiver_address);
-        let payable = Self::generate_payable_account(tx_to_retry, found_payable);
-
-        QualifiedPayablesBeforeGasPriceSelection {
-            payable,
-            previous_attempt_gas_price_minor_opt: Some(tx_to_retry.gas_price_wei),
-        }
+    fn find_corresponding_payables_in_db(&self, txs_to_retry: &[FailedTx]) -> Vec<PayableAccount> {
+        let addresses = Self::filter_receiver_addresses(&txs_to_retry);
+        self.payable_dao
+            .non_pending_payables(Some(ByAddresses(addresses)))
     }
 
     fn filter_receiver_addresses(txs_to_retry: &[FailedTx]) -> BTreeSet<Address> {
@@ -447,30 +413,34 @@ impl PayableScanner {
             .collect()
     }
 
-    fn find_corresponding_payables_in_db(&self, txs_to_retry: &[FailedTx]) -> Vec<PayableAccount> {
-        let addresses = Self::filter_receiver_addresses(&txs_to_retry);
-        self.payable_dao
-            .non_pending_payables(Some(ByAddresses(addresses)))
-    }
-
     fn create_updated_payables(
         payables_from_db: &[PayableAccount],
         txs_to_retry: &[FailedTx],
     ) -> Vec<QualifiedPayablesBeforeGasPriceSelection> {
         txs_to_retry
             .iter()
-            .map(|failed_tx| {
-                Self::generate_qualified_payables_before_gas_price_selection(
-                    &payables_from_db,
-                    &failed_tx,
-                )
+            .map(|tx_to_retry| QualifiedPayablesBeforeGasPriceSelection {
+                payable: Self::generate_payable(payables_from_db, tx_to_retry),
+                previous_attempt_gas_price_minor_opt: Some(tx_to_retry.gas_price_wei),
             })
             .collect()
     }
 
-    fn get_txs_to_retry(&self) -> Vec<FailedTx> {
-        self.failed_payable_dao
-            .retrieve_txs(Some(ByStatus(RetryRequired)))
+    fn generate_payable(
+        payables_from_db: &[PayableAccount],
+        tx_to_retry: &FailedTx,
+    ) -> PayableAccount {
+        match payables_from_db
+            .iter()
+            .find(|payable| payable.wallet.address() == tx_to_retry.receiver_address)
+        {
+            Some(payable) => {
+                let mut payable = payable.clone();
+                payable.balance_wei = payable.balance_wei + tx_to_retry.amount;
+                payable
+            }
+            None => PayableAccount::from(tx_to_retry),
+        }
     }
 }
 
