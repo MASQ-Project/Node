@@ -3,9 +3,12 @@ mod start_scan;
 pub mod test_utils;
 
 use crate::accountant::db_access_objects::failed_payable_dao::FailureReason::Submission;
+use crate::accountant::db_access_objects::failed_payable_dao::FailureRetrieveCondition::ByStatus;
+use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::RetryRequired;
 use crate::accountant::db_access_objects::failed_payable_dao::{
     FailedPayableDao, FailedTx, FailureReason, FailureStatus,
 };
+use crate::accountant::db_access_objects::payable_dao::PayableRetrieveCondition::ByAddresses;
 use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDao};
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
 use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::ByHash;
@@ -39,7 +42,7 @@ use itertools::{Either, Itertools};
 use masq_lib::logger::Logger;
 use masq_lib::messages::{ToMessageBody, UiScanResponse};
 use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
 use std::time::SystemTime;
 use web3::types::Address;
@@ -393,20 +396,20 @@ impl PayableScanner {
     }
 
     fn find_payable(
-        non_pending_payables: &[PayableAccount],
+        payables_from_db: &[PayableAccount],
         receiver: Address,
     ) -> Option<PayableAccount> {
-        non_pending_payables
+        payables_from_db
             .iter()
             .find(|payable| payable.wallet.address() == receiver)
             .cloned()
     }
 
-    fn generate_qualified_payables_before_gas_price_selection(
+    fn generate_payable_account(
         failed_tx: &FailedTx,
         payable_opt: Option<PayableAccount>,
-    ) -> QualifiedPayablesBeforeGasPriceSelection {
-        let payable = match payable_opt {
+    ) -> PayableAccount {
+        match payable_opt {
             Some(mut payable) => {
                 if payable.wallet.address() != failed_tx.receiver_address {
                     panic!(
@@ -421,12 +424,53 @@ impl PayableScanner {
                 payable
             }
             None => PayableAccount::from(failed_tx),
-        };
+        }
+    }
+
+    fn generate_qualified_payables_before_gas_price_selection(
+        payables_from_db: &[PayableAccount],
+        failed_tx: &FailedTx,
+    ) -> QualifiedPayablesBeforeGasPriceSelection {
+        let found_payable = Self::find_payable(payables_from_db, failed_tx.receiver_address);
+        let payable = Self::generate_payable_account(failed_tx, found_payable);
 
         QualifiedPayablesBeforeGasPriceSelection {
             payable,
             previous_attempt_gas_price_minor_opt: Some(failed_tx.gas_price_wei),
         }
+    }
+
+    fn filter_receiver_addresses(failed_txs: &[FailedTx]) -> BTreeSet<Address> {
+        failed_txs
+            .iter()
+            .map(|failed_tx| failed_tx.receiver_address)
+            .collect()
+    }
+
+    fn find_corresponding_payables_in_db(&self, txs_to_retry: &[FailedTx]) -> Vec<PayableAccount> {
+        let addresses = Self::filter_receiver_addresses(&txs_to_retry);
+        self.payable_dao
+            .non_pending_payables(Some(ByAddresses(addresses)))
+    }
+
+    fn create_updated_payables(
+        payables_from_db: &[PayableAccount],
+        txs_to_retry: &[FailedTx],
+    ) -> Vec<QualifiedPayablesBeforeGasPriceSelection> {
+        txs_to_retry
+            .iter()
+            .map(|failed_tx| {
+                Self::generate_qualified_payables_before_gas_price_selection(
+                    &payables_from_db,
+                    &failed_tx,
+                )
+            })
+            .collect()
+    }
+
+    fn get_txs_to_retry(&self) -> Vec<FailedTx> {
+        self.failed_payable_dao
+            .retrieve_txs(Some(ByStatus(RetryRequired)))
     }
 }
 

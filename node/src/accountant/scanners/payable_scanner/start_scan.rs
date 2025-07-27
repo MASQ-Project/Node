@@ -71,42 +71,15 @@ impl StartableScanner<ScanForRetryPayables, QualifiedPayablesMessage> for Payabl
     ) -> Result<QualifiedPayablesMessage, StartScanError> {
         self.mark_as_started(timestamp);
         info!(logger, "Scanning for retry payables");
-        let failed_txs = self
-            .failed_payable_dao
-            .retrieve_txs(Some(ByStatus(RetryRequired)));
-        let addresses: BTreeSet<Address> = failed_txs
-            .iter()
-            .map(|failed_tx| failed_tx.receiver_address)
-            .collect();
-        let non_pending_payables = self
-            .payable_dao
-            .non_pending_payables(Some(ByAddresses(addresses)));
-
-        let payables = failed_txs
-            .iter()
-            .map(|failed_tx| {
-                let payable_opt =
-                    Self::find_payable(&non_pending_payables, failed_tx.receiver_address);
-
-                Self::generate_qualified_payables_before_gas_price_selection(
-                    &failed_tx,
-                    payable_opt,
-                )
-            })
-            .collect();
+        let txs_to_retry = self.get_txs_to_retry();
+        let payables_from_db = self.find_corresponding_payables_in_db(&txs_to_retry);
+        let payables = Self::create_updated_payables(&payables_from_db, &txs_to_retry);
 
         Ok(QualifiedPayablesMessage {
             qualified_payables: UnpricedQualifiedPayables { payables },
             consuming_wallet: consuming_wallet.clone(),
             response_skeleton_opt,
         })
-        // 1. Find the failed payables
-        // 2. Look into the payable DAO to update the amount
-        // 3. Prepare UnpricedQualifiedPayables
-
-        // 1. Fetch all records with RetryRequired
-        // 2. Query the txs with the same accounts from the PayableDao
-        // 3. Form UnpricedQualifiedPayables, a collection vector
     }
 }
 
