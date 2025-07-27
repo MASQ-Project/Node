@@ -1,10 +1,12 @@
 use crate::accountant::db_access_objects::failed_payable_dao::FailureRetrieveCondition;
 use crate::accountant::db_access_objects::failed_payable_dao::FailureRetrieveCondition::ByStatus;
 use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::RetryRequired;
+use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::db_access_objects::payable_dao::PayableRetrieveCondition::ByAddresses;
+use crate::accountant::db_access_objects::utils::from_unix_timestamp;
 use crate::accountant::scanners::payable_scanner::PayableScanner;
 use crate::accountant::scanners::payable_scanner_extension::msgs::{
-    QualifiedPayablesMessage, UnpricedQualifiedPayables,
+    QualifiedPayablesBeforeGasPriceSelection, QualifiedPayablesMessage, UnpricedQualifiedPayables,
 };
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::investigate_debt_extremes;
 use crate::accountant::scanners::{Scanner, StartScanError, StartableScanner};
@@ -69,19 +71,38 @@ impl StartableScanner<ScanForRetryPayables, QualifiedPayablesMessage> for Payabl
     ) -> Result<QualifiedPayablesMessage, StartScanError> {
         self.mark_as_started(timestamp);
         info!(logger, "Scanning for retry payables");
-        let retrieved_txs = self
+        let failed_txs = self
             .failed_payable_dao
             .retrieve_txs(Some(ByStatus(RetryRequired)));
-        let addresses: BTreeSet<Address> = retrieved_txs
+        let addresses: BTreeSet<Address> = failed_txs
             .iter()
             .map(|failed_tx| failed_tx.receiver_address)
             .collect();
-        let payables = self
+        let non_pending_payables = self
             .payable_dao
             .non_pending_payables(Some(ByAddresses(addresses)));
 
+        let payables = failed_txs
+            .iter()
+            .filter_map(|failed_tx| {
+                non_pending_payables
+                    .iter()
+                    .find(|payable| payable.wallet.address() == failed_tx.receiver_address)
+                    .map(|payable| QualifiedPayablesBeforeGasPriceSelection {
+                        payable: PayableAccount {
+                            wallet: payable.wallet.clone(),
+                            balance_wei: payable.balance_wei + failed_tx.amount,
+                            last_paid_timestamp: payable.last_paid_timestamp,
+                            pending_payable_opt: payable.pending_payable_opt,
+                        },
+                        previous_attempt_gas_price_minor_opt: Some(failed_tx.gas_price_wei),
+                    })
+            })
+            .collect();
+        // TODO: Instead of filter map, use map so that you won't miss any cases
+
         Ok(QualifiedPayablesMessage {
-            qualified_payables: UnpricedQualifiedPayables { payables: vec![] },
+            qualified_payables: UnpricedQualifiedPayables { payables },
             consuming_wallet: consuming_wallet.clone(),
             response_skeleton_opt,
         })
@@ -108,6 +129,7 @@ mod tests {
     };
     use crate::accountant::db_access_objects::test_utils::FailedTxBuilder;
     use crate::accountant::scanners::payable_scanner::test_utils::PayableScannerBuilder;
+    use crate::accountant::scanners::payable_scanner_extension::msgs::QualifiedPayablesBeforeGasPriceSelection;
     use crate::accountant::scanners::Scanners;
     use crate::accountant::test_utils::{
         make_payable_account, FailedPayableDaoMock, PayableDaoMock,
@@ -135,7 +157,8 @@ mod tests {
         let client_id = 1234;
         let context_id = 4321;
         let tx_hash_1 = make_tx_hash(1);
-        let payable_account = make_payable_account(1);
+        let payable_amount = 42;
+        let payable_account = make_payable_account(payable_amount);
         let receiver_address = payable_account.wallet.address();
         let failed_tx_1 = FailedTxBuilder::default()
             .nonce(1)
@@ -148,10 +171,10 @@ mod tests {
         let consuming_wallet = make_paying_wallet(b"consuming");
         let failed_payable_dao = FailedPayableDaoMock::new()
             .retrieve_txs_params(&failed_payables_retrieve_txs_params_arc)
-            .retrieve_txs_result(vec![failed_tx_1]);
+            .retrieve_txs_result(vec![failed_tx_1.clone()]);
         let payable_dao = PayableDaoMock::new()
             .non_pending_payables_params(&non_pending_payables_params_arc)
-            .non_pending_payables_result(vec![payable_account]);
+            .non_pending_payables_result(vec![payable_account.clone()]);
         let mut subject = PayableScannerBuilder::new()
             .failed_payable_dao(failed_payable_dao)
             .payable_dao(payable_dao)
@@ -174,10 +197,17 @@ mod tests {
         let failed_payables_retrieve_txs_params =
             failed_payables_retrieve_txs_params_arc.lock().unwrap();
         let non_pending_payables_params = non_pending_payables_params_arc.lock().unwrap();
+        let mut new_payable_account = payable_account;
+        new_payable_account.balance_wei = new_payable_account.balance_wei + failed_tx_1.amount;
         assert_eq!(
             result,
             Ok(QualifiedPayablesMessage {
-                qualified_payables: UnpricedQualifiedPayables { payables: vec![] },
+                qualified_payables: UnpricedQualifiedPayables {
+                    payables: vec![QualifiedPayablesBeforeGasPriceSelection {
+                        payable: new_payable_account,
+                        previous_attempt_gas_price_minor_opt: Some(failed_tx_1.gas_price_wei),
+                    }]
+                },
                 consuming_wallet: consuming_wallet.clone(),
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id,
