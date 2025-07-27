@@ -24,7 +24,7 @@ use crate::accountant::scanners::payable_scanner_extension::msgs::{UnpricedQuali
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
 use crate::blockchain::blockchain_bridge::{BlockMarker, BlockScanRange, RegisterNewPendingPayables};
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{LowBlockchainIntWeb3, TxStatus, TxWithStatus, TxReceiptError, TxReceiptResult};
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{LowBlockchainIntWeb3, ReceiptCheck, TxWithStatus, TxReceiptError, TxReceiptResult};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::utils::{create_blockchain_agent_web3, send_payables_within_batch, BlockchainAgentFutureResult};
 use crate::blockchain::errors::{AppRpcError, RemoteError};
 // TODO We should probably begin to attach these constants to the interfaces more tightly, so that
@@ -235,7 +235,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                                         if e.to_string().contains("invalid type: null") {
                                             TxReceiptResult::Ok(TxWithStatus::new(
                                                 sent_tx,
-                                                TxStatus::Pending,
+                                                ReceiptCheck::PendingTx,
                                             ))
                                         } else {
                                             TxReceiptResult::Err(TxReceiptError::new(
@@ -471,7 +471,7 @@ mod tests {
     use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayablesBeforeGasPriceSelection, QualifiedPayableWithGasPrice};
     use crate::accountant::test_utils::make_payable_account;
     use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxStatus};
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, ReceiptCheck};
     use crate::accountant::test_utils::make_sent_tx;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{BlockchainTxFailure};
 
@@ -1125,7 +1125,7 @@ mod tests {
         );
         assert_eq!(
             result[1],
-            TxReceiptResult::Ok(TxWithStatus::new(sent_tx_2, TxStatus::Pending))
+            TxReceiptResult::Ok(TxWithStatus::new(sent_tx_2, ReceiptCheck::PendingTx))
         );
         assert_eq!(
             result[2],
@@ -1138,20 +1138,20 @@ mod tests {
         );
         assert_eq!(
             result[3],
-            TxReceiptResult::Ok(TxWithStatus::new(sent_tx_4, TxStatus::Pending))
+            TxReceiptResult::Ok(TxWithStatus::new(sent_tx_4, ReceiptCheck::PendingTx))
         );
         assert_eq!(
             result[4],
             TxReceiptResult::Ok(TxWithStatus::new(
                 sent_tx_5,
-                TxStatus::Failed(BlockchainTxFailure::Unrecognized)
+                ReceiptCheck::TxFailed(BlockchainTxFailure::Unrecognized)
             ))
         );
         assert_eq!(
             result[5],
             TxReceiptResult::Ok(TxWithStatus::new(
                 sent_tx_6,
-                TxStatus::Succeeded(TransactionBlock {
+                ReceiptCheck::TxSucceeded(TransactionBlock {
                     block_hash,
                     block_number,
                 }),

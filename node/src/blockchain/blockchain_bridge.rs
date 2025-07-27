@@ -46,7 +46,7 @@ use masq_lib::constants::DEFAULT_GAS_PRICE_MARGIN;
 use masq_lib::messages::ScanType;
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TxReceiptResult, TxStatus};
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TxReceiptResult, ReceiptCheck};
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
@@ -396,9 +396,9 @@ impl BlockchainBridge {
                     (0, 0, 0),
                     |(success, fail, pending), transaction_receipt| match transaction_receipt {
                         TxReceiptResult::Ok(tx_receipt) => match tx_receipt.status {
-                            TxStatus::Failed(_) => (success, fail + 1, pending),
-                            TxStatus::Succeeded(_) => (success + 1, fail, pending),
-                            TxStatus::Pending => (success, fail, pending + 1),
+                            ReceiptCheck::TxFailed(_) => (success, fail + 1, pending),
+                            ReceiptCheck::TxSucceeded(_) => (success + 1, fail, pending),
+                            ReceiptCheck::PendingTx => (success, fail, pending + 1),
                         },
                         TxReceiptResult::Err(_) => (success, fail, pending + 1),
                     },
@@ -578,7 +578,8 @@ mod tests {
     use libc::time;
     use web3::types::{TransactionReceipt, H160};
     use masq_lib::constants::DEFAULT_MAX_BLOCK_COUNT;
-    use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
+    use crate::accountant::db_access_objects::failed_payable_dao::ValidationStatus;
+    use crate::accountant::db_access_objects::sent_payable_dao::{SentTx, TxConfirmation, TxStatus};
     use crate::accountant::PendingPayable;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TxWithStatus, TransactionBlock, TxReceiptError};
     use crate::accountant::scanners::payable_scanner_extension::msgs::{UnpricedQualifiedPayables, QualifiedPayableWithGasPrice};
@@ -908,7 +909,10 @@ mod tests {
         assert_eq!(first_actual_sent_tx.amount_minor, account.balance_wei);
         assert_eq!(first_actual_sent_tx.gas_price_minor, 111_222_333);
         assert_eq!(first_actual_sent_tx.nonce, 0x20);
-        assert_eq!(first_actual_sent_tx.block_opt, None);
+        assert_eq!(
+            first_actual_sent_tx.status,
+            TxStatus::Pending(ValidationStatus::Waiting)
+        );
         assert!(
             to_unix_timestamp(time_before) <= first_actual_sent_tx.timestamp
                 && first_actual_sent_tx.timestamp <= to_unix_timestamp(time_after),
@@ -1204,7 +1208,7 @@ mod tests {
             &TxReceiptsMessage {
                 results: vec![
                     TxReceiptResult::Ok(TxWithStatus::new(sent_tx_1, expected_receipt.into())),
-                    TxReceiptResult::Ok(TxWithStatus::new(sent_tx_2, TxStatus::Pending))
+                    TxReceiptResult::Ok(TxWithStatus::new(sent_tx_2, ReceiptCheck::PendingTx))
                 ],
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
@@ -1342,12 +1346,12 @@ mod tests {
             *report_receipts_msg,
             TxReceiptsMessage {
                 results: vec![
-                    TxReceiptResult::Ok(TxWithStatus::new(sent_tx_1, TxStatus::Pending)),
-                    TxReceiptResult::Ok(TxWithStatus::new(sent_tx_2,  TxStatus::Succeeded(TransactionBlock {
+                    TxReceiptResult::Ok(TxWithStatus::new(sent_tx_1, ReceiptCheck::PendingTx)),
+                    TxReceiptResult::Ok(TxWithStatus::new(sent_tx_2,  ReceiptCheck::TxSucceeded(TransactionBlock {
                         block_hash: Default::default(),
                         block_number,
                     }))),
-                    TxReceiptResult::Ok(TxWithStatus::new(sent_tx_3, TxStatus::Pending)),
+                    TxReceiptResult::Ok(TxWithStatus::new(sent_tx_3, ReceiptCheck::PendingTx)),
                     TxReceiptResult::Err(
                         TxReceiptError::new(
                             sent_tx_4,

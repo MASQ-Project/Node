@@ -1,7 +1,8 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::accountant::db_access_objects::failed_payable_dao::ValidationStatus;
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
+use crate::accountant::db_access_objects::sent_payable_dao::{SentTx, TxStatus};
 use crate::accountant::db_access_objects::utils::{to_unix_timestamp, TxHash};
 use crate::accountant::scanners::payable_scanner_extension::msgs::PricedQualifiedPayables;
 use crate::accountant::PendingPayable;
@@ -236,6 +237,7 @@ pub fn sign_and_append_multiple_payments(
         .map(|(idx, payable_pack)| {
             let current_pending_nonce = initial_pending_nonce + U256::from(idx);
             let payable = &payable_pack.payable;
+
             debug!(
                 logger,
                 "Preparing tx of {} wei to {} with nonce {}",
@@ -260,7 +262,7 @@ pub fn sign_and_append_multiple_payments(
                 timestamp: unix_mow,
                 gas_price_minor: payable_pack.gas_price_minor,
                 nonce: current_pending_nonce.as_u64(),
-                block_opt: None,
+                status: TxStatus::Pending(ValidationStatus::Waiting),
             }
         })
         .collect()
@@ -460,8 +462,8 @@ mod tests {
         let account_1 = make_payable_account(1);
         let account_2 = make_payable_account(2);
         let accounts = make_priced_qualified_payables(vec![
-            (account_1.clone(), 111_111_111),
-            (account_2.clone(), 222_222_222),
+            (account_1.clone(), 111_234_111),
+            (account_2.clone(), 222_432_222),
         ]);
         let before = SystemTime::now();
 
@@ -478,34 +480,45 @@ mod tests {
         let after = SystemTime::now();
         let first_actual_sent_tx = result.remove(0);
         let second_actual_sent_tx = result.remove(0);
-        assert_eq!(
-            first_actual_sent_tx.receiver_address,
-            account_1.wallet.address()
+        assert_prepared_sent_tx_record(
+            first_actual_sent_tx,
+            now,
+            account_1,
+            "0x374b7d023f4ac7d99e612d82beda494b0747116e9b9dc975b33b865f331ee934",
+            1,
+            111_234_111,
         );
-        assert_eq!(
-            first_actual_sent_tx.hash,
-            H256::from_str("374b7d023f4ac7d99e612d82beda494b0747116e9b9dc975b33b865f331ee934")
-                .unwrap()
+        assert_prepared_sent_tx_record(
+            second_actual_sent_tx,
+            now,
+            account_2,
+            "0x5708afd876bc2573f9db984ec6d0e7f8ef222dd9f115643c9b9056d8bef8bbd9",
+            2,
+            222_432_222,
         );
-        assert_eq!(first_actual_sent_tx.amount_minor, account_1.balance_wei);
-        assert_eq!(first_actual_sent_tx.gas_price_minor, 111_111_111);
-        assert_eq!(first_actual_sent_tx.nonce, 1);
-        assert_eq!(first_actual_sent_tx.block_opt, None);
-        assert_eq!(first_actual_sent_tx.timestamp, to_unix_timestamp(now));
+    }
+
+    fn assert_prepared_sent_tx_record(
+        actual_sent_tx: SentTx,
+        now: SystemTime,
+        account_1: PayableAccount,
+        expected_tx_hash_including_prefix: &str,
+        expected_nonce: u64,
+        expected_gas_price_minor: u128,
+    ) {
+        assert_eq!(actual_sent_tx.receiver_address, account_1.wallet.address());
         assert_eq!(
-            second_actual_sent_tx.receiver_address,
-            account_2.wallet.address()
+            actual_sent_tx.hash,
+            H256::from_str(&expected_tx_hash_including_prefix[2..]).unwrap()
         );
+        assert_eq!(actual_sent_tx.amount_minor, account_1.balance_wei);
+        assert_eq!(actual_sent_tx.gas_price_minor, 111_111_111);
+        assert_eq!(actual_sent_tx.nonce, 1);
         assert_eq!(
-            second_actual_sent_tx.hash,
-            H256::from_str("5708afd876bc2573f9db984ec6d0e7f8ef222dd9f115643c9b9056d8bef8bbd9")
-                .unwrap()
+            actual_sent_tx.status,
+            TxStatus::Pending(ValidationStatus::Waiting)
         );
-        assert_eq!(second_actual_sent_tx.amount_minor, account_2.balance_wei);
-        assert_eq!(second_actual_sent_tx.gas_price_minor, 222_222_222);
-        assert_eq!(second_actual_sent_tx.nonce, 2);
-        assert_eq!(second_actual_sent_tx.block_opt, None);
-        assert_eq!(second_actual_sent_tx.timestamp, to_unix_timestamp(now));
+        assert_eq!(actual_sent_tx.timestamp, to_unix_timestamp(now));
     }
 
     #[test]
@@ -723,7 +736,7 @@ mod tests {
                 assert_eq!(tx.amount_minor, payable_account.payable.balance_wei);
                 assert_eq!(tx.gas_price_minor, payable_account.gas_price_minor);
                 assert_eq!(tx.nonce, nonce);
-                assert_eq!(tx.block_opt, None);
+                assert_eq!(tx.status, TxStatus::Pending(ValidationStatus::Waiting));
                 assert!(
                     timestamp_before <= from_unix_timestamp(tx.timestamp)
                         && from_unix_timestamp(tx.timestamp) <= timestamp_after

@@ -27,7 +27,6 @@ pub enum FailedPayableDaoError {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FailureReason {
     Submission(AppRpcError),
-    Validation(AppRpcError),
     Reverted,
     PendingTooLong,
 }
@@ -36,6 +35,7 @@ impl Display for FailureReason {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match serde_json::to_string(self) {
             Ok(json) => write!(f, "{}", json),
+            // Untestable
             Err(_) => write!(f, "<invalid FailureReason>"),
         }
     }
@@ -45,27 +45,38 @@ impl FromStr for FailureReason {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        serde_json::from_str(s).map_err(|e| e.to_string())
+        serde_json::from_str(s).map_err(|e| format!("{} in '{}'", e, s))
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FailureStatus {
     RetryRequired,
-    RecheckRequired,
+    RecheckRequired(ValidationStatus),
     Concluded,
+}
+
+impl Display for FailureStatus {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match serde_json::to_string(self) {
+            Ok(json) => write!(f, "{}", json),
+            // Untestable
+            Err(_) => write!(f, "<invalid FailureStatus>"),
+        }
+    }
 }
 
 impl FromStr for FailureStatus {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "RetryRequired" => Ok(FailureStatus::RetryRequired),
-            "RecheckRequired" => Ok(FailureStatus::RecheckRequired),
-            "Concluded" => Ok(FailureStatus::Concluded),
-            _ => Err(format!("Invalid FailureStatus: {}", s)),
-        }
+        serde_json::from_str(s).map_err(|e| format!("{} in '{}'", e, s))
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ValidationStatus {
+    Waiting,
+    Reattempting { attempt: usize, error: AppRpcError },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -83,13 +94,17 @@ pub struct FailedTx {
 #[derive(Debug, PartialEq, Eq)]
 pub enum FailureRetrieveCondition {
     ByStatus(FailureStatus),
+    EveryRecheckRequiredRecord,
 }
 
 impl Display for FailureRetrieveCondition {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             FailureRetrieveCondition::ByStatus(status) => {
-                write!(f, "WHERE status = '{:?}'", status)
+                write!(f, "WHERE status LIKE '{:?}%'", status)
+            }
+            FailureRetrieveCondition::EveryRecheckRequiredRecord => {
+                todo!()
             }
         }
     }
@@ -97,12 +112,14 @@ impl Display for FailureRetrieveCondition {
 
 pub trait FailedPayableDao {
     fn get_tx_identifiers(&self, hashes: &HashSet<TxHash>) -> TxIdentifiers;
+    //TODO potentially atomically
     fn insert_new_records(&self, txs: &[FailedTx]) -> Result<(), FailedPayableDaoError>;
     fn retrieve_txs(&self, condition: Option<FailureRetrieveCondition>) -> Vec<FailedTx>;
     fn update_statuses(
         &self,
         status_updates: HashMap<TxHash, FailureStatus>,
     ) -> Result<(), FailedPayableDaoError>;
+    //TODO potentially atomically
     fn delete_records(&self, hashes: &HashSet<TxHash>) -> Result<(), FailedPayableDaoError>;
 }
 
@@ -183,7 +200,7 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
                 let (gas_price_wei_high_b, gas_price_wei_low_b) =
                     BigIntDivider::deconstruct(gas_price_wei_checked);
                 format!(
-                    "('{:?}', '{:?}', {}, {}, {}, {}, {}, {}, '{}', '{:?}')",
+                    "('{:?}', '{:?}', {}, {}, {}, {}, {}, {}, '{}', '{}')",
                     tx.hash,
                     tx.receiver_address,
                     amount_high_b,
@@ -285,7 +302,7 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
 
         let case_statements = status_updates
             .iter()
-            .map(|(hash, status)| format!("WHEN tx_hash = '{:?}' THEN '{:?}'", hash, status))
+            .map(|(hash, status)| format!("WHEN tx_hash = '{:?}' THEN '{}'", hash, status))
             .join(" ");
         let tx_hashes = comma_joined_stringifiable(&status_updates.keys().collect_vec(), |hash| {
             format!("'{:?}'", hash)
@@ -366,7 +383,7 @@ mod tests {
     };
     use crate::accountant::db_access_objects::failed_payable_dao::{
         FailedPayableDao, FailedPayableDaoError, FailedPayableDaoReal, FailureReason,
-        FailureRetrieveCondition, FailureStatus,
+        FailureRetrieveCondition, FailureStatus, ValidationStatus,
     };
     use crate::accountant::db_access_objects::test_utils::{
         make_read_only_db_connection, FailedTxBuilder,
@@ -441,7 +458,7 @@ mod tests {
             .build();
         let tx2 = FailedTxBuilder::default()
             .hash(hash)
-            .status(RecheckRequired)
+            .status(RecheckRequired(ValidationStatus::Waiting))
             .build();
         let subject = FailedPayableDaoReal::new(wrapped_conn);
 
@@ -460,7 +477,7 @@ mod tests {
                 hash: 0x000000000000000000000000000000000000000000000000000000000000007b, \
                 receiver_address: 0x0000000000000000000000000000000000000000, \
                 amount_minor: 0, timestamp: 0, gas_price_minor: 0, \
-                nonce: 0, reason: PendingTooLong, status: RecheckRequired }]"
+                nonce: 0, reason: PendingTooLong, status: RecheckRequired(Waiting) }]"
                     .to_string()
             ))
         );
@@ -482,7 +499,7 @@ mod tests {
             .build();
         let tx2 = FailedTxBuilder::default()
             .hash(hash)
-            .status(RecheckRequired)
+            .status(RecheckRequired(ValidationStatus::Waiting))
             .build();
         let subject = FailedPayableDaoReal::new(wrapped_conn);
         let initial_insertion_result = subject.insert_new_records(&vec![tx1]);
@@ -582,54 +599,67 @@ mod tests {
             )))
         );
 
-        // Validation error
-        assert_eq!(
-            FailureReason::from_str(r#"{"Validation":{"Remote":{"Web3RpcError":{"code":42,"message":"Test RPC error"}}}}"#).unwrap(),
-            FailureReason::Validation(AppRpcError::Remote(RemoteError::Web3RpcError {
-                code: 42,
-                message: "Test RPC error".to_string()
-            }))
-        );
-
         // Reverted
         assert_eq!(
-            FailureReason::from_str(r#"{"Reverted":null}"#).unwrap(),
+            FailureReason::from_str("\"Reverted\"").unwrap(),
             FailureReason::Reverted
         );
 
         // PendingTooLong
         assert_eq!(
-            FailureReason::from_str(r#"{"PendingTooLong":null}"#).unwrap(),
+            FailureReason::from_str("\"PendingTooLong\"").unwrap(),
             FailureReason::PendingTooLong
         );
 
         // Invalid Variant
         assert_eq!(
-            FailureReason::from_str(r#"{"UnknownReason":null}"#).unwrap_err(),
+            FailureReason::from_str("\"UnknownReason\"").unwrap_err(),
             "unknown variant `UnknownReason`, \
-            expected one of `Submission`, `Validation`, `Reverted`, `PendingTooLong` \
-            at line 1 column 16"
-                .to_string()
+            expected one of `Submission`, `Reverted`, `PendingTooLong` \
+            at line 1 column 15 in '\"UnknownReason\"'"
         );
 
         // Invalid Input
         assert_eq!(
-            FailureReason::from_str("random string").unwrap_err(),
-            "expected value at line 1 column 1".to_string()
+            FailureReason::from_str("not a failure reason").unwrap_err(),
+            "expected value at line 1 column 1 in 'not a failure reason'"
         );
     }
 
     #[test]
     fn failure_status_from_str_works() {
-        assert_eq!(FailureStatus::from_str("RetryRequired"), Ok(RetryRequired));
         assert_eq!(
-            FailureStatus::from_str("RecheckRequired"),
-            Ok(RecheckRequired)
+            FailureStatus::from_str("\"RetryRequired\"").unwrap(),
+            FailureStatus::RetryRequired
         );
-        assert_eq!(FailureStatus::from_str("Concluded"), Ok(Concluded));
+
         assert_eq!(
-            FailureStatus::from_str("InvalidStatus"),
-            Err("Invalid FailureStatus: InvalidStatus".to_string())
+            FailureStatus::from_str(r#"{"RecheckRequired":"Waiting"}"#).unwrap(),
+            FailureStatus::RecheckRequired(ValidationStatus::Waiting)
+        );
+
+        assert_eq!(
+            FailureStatus::from_str(r#"{"RecheckRequired":{"Reattempting":{"attempt":2,"error":{"Remote":"Unreachable"}}}}"#).unwrap(),
+            FailureStatus::RecheckRequired(ValidationStatus::Reattempting { attempt: 2, error: AppRpcError::Remote(RemoteError::Unreachable) })
+        );
+
+        assert_eq!(
+            FailureStatus::from_str("\"Concluded\"").unwrap(),
+            FailureStatus::Concluded
+        );
+
+        // Invalid Variant
+        assert_eq!(
+            FailureStatus::from_str("\"UnknownStatus\"").unwrap_err(),
+            "unknown variant `UnknownStatus`, \
+            expected one of `RetryRequired`, `RecheckRequired`, `Concluded` \
+            at line 1 column 15 in '\"UnknownStatus\"'"
+        );
+
+        // Invalid Input
+        assert_eq!(
+            FailureStatus::from_str("not a failure status").unwrap_err(),
+            "expected value at line 1 column 1 in 'not a failure status'"
         );
     }
 
@@ -637,7 +667,7 @@ mod tests {
     fn retrieve_condition_display_works() {
         assert_eq!(
             FailureRetrieveCondition::ByStatus(RetryRequired).to_string(),
-            "WHERE status = 'RetryRequired'"
+            "WHERE status = '\"RetryRequired\"'"
         );
     }
 
@@ -691,7 +721,10 @@ mod tests {
         let tx3 = FailedTxBuilder::default()
             .hash(make_tx_hash(3))
             .reason(PendingTooLong)
-            .status(RecheckRequired)
+            .status(RecheckRequired(ValidationStatus::Reattempting {
+                attempt: 1,
+                error: AppRpcError::Remote(RemoteError::Unreachable),
+            }))
             .build();
         let tx4 = FailedTxBuilder::default()
             .hash(make_tx_hash(4))
@@ -724,24 +757,30 @@ mod tests {
         let tx2 = FailedTxBuilder::default()
             .hash(make_tx_hash(2))
             .reason(PendingTooLong)
-            .status(RetryRequired)
+            .status(RecheckRequired(ValidationStatus::Waiting))
             .build();
         let tx3 = FailedTxBuilder::default()
             .hash(make_tx_hash(3))
             .reason(PendingTooLong)
-            .status(RecheckRequired)
+            .status(RetryRequired)
             .build();
         let tx4 = FailedTxBuilder::default()
             .hash(make_tx_hash(4))
             .reason(PendingTooLong)
-            .status(RecheckRequired)
+            .status(RecheckRequired(ValidationStatus::Waiting))
             .build();
         subject
-            .insert_new_records(&vec![tx1.clone(), tx2.clone(), tx3.clone(), tx4])
+            .insert_new_records(&vec![tx1.clone(), tx2.clone(), tx3.clone(), tx4.clone()])
             .unwrap();
         let hashmap = HashMap::from([
             (tx1.hash, Concluded),
-            (tx2.hash, RecheckRequired),
+            (
+                tx2.hash,
+                RecheckRequired(ValidationStatus::Reattempting {
+                    attempt: 1,
+                    error: AppRpcError::Remote(RemoteError::Unreachable),
+                }),
+            ),
             (tx3.hash, Concluded),
         ]);
 
@@ -751,12 +790,21 @@ mod tests {
         assert_eq!(result, Ok(()));
         assert_eq!(tx1.status, RetryRequired);
         assert_eq!(updated_txs[0].status, Concluded);
-        assert_eq!(tx2.status, RetryRequired);
-        assert_eq!(updated_txs[1].status, RecheckRequired);
-        assert_eq!(tx3.status, RecheckRequired);
+        assert_eq!(tx2.status, RecheckRequired(ValidationStatus::Waiting));
+        assert_eq!(
+            updated_txs[1].status,
+            RecheckRequired(ValidationStatus::Reattempting {
+                attempt: 1,
+                error: AppRpcError::Remote(RemoteError::Unreachable)
+            })
+        );
+        assert_eq!(tx3.status, RetryRequired);
         assert_eq!(updated_txs[2].status, Concluded);
-        assert_eq!(tx3.status, RecheckRequired);
-        assert_eq!(updated_txs[3].status, RecheckRequired);
+        assert_eq!(tx4.status, RecheckRequired(ValidationStatus::Waiting));
+        assert_eq!(
+            updated_txs[3].status,
+            RecheckRequired(ValidationStatus::Waiting)
+        );
     }
 
     #[test]
@@ -784,7 +832,7 @@ mod tests {
         let wrapped_conn = make_read_only_db_connection(home_dir);
         let subject = FailedPayableDaoReal::new(Box::new(wrapped_conn));
 
-        let result = subject.update_statuses(HashMap::from([(make_tx_hash(1), RecheckRequired)]));
+        let result = subject.update_statuses(HashMap::from([(make_tx_hash(1), Concluded)]));
 
         assert_eq!(
             result,

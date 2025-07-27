@@ -324,23 +324,25 @@ pub mod pending_payable_scanner_utils {
     use masq_lib::logger::Logger;
     use masq_lib::ui_gateway::NodeToUiMessage;
     use std::time::SystemTime;
+    use clap::App;
     use thousands::Separable;
-    use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureReason, FailureStatus};
-    use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
+    use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureReason, FailureStatus, ValidationStatus};
+    use crate::accountant::db_access_objects::sent_payable_dao::{SentTx, TxStatus};
     use crate::accountant::db_access_objects::utils::{from_unix_timestamp, TxHash};
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, BlockchainTxFailure, TxReceiptError, TxStatus};
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, BlockchainTxFailure, TxReceiptError, ReceiptCheck};
+    use crate::blockchain::errors::AppRpcError;
 
     #[derive(Debug, Default, PartialEq, Eq, Clone)]
     pub struct PendingPayableReport {
-        pub failures_summary: FailuresSummary,
-        pub confirmed: Vec<SentTx>,
+        pub failures: DetectedFailures,
+        pub confirmations: Vec<SentTx>,
     }
 
     impl PendingPayableReport {
         pub fn requires_payments_retry(&self) -> Option<Retry> {
             match (
-                self.failures_summary.requires_retry(),
-                self.confirmed.is_empty(),
+                self.failures.requires_retry(),
+                self.confirmations.is_empty(),
             ) {
                 (None, true) => unreachable!("reading tx receipts gave no results"),
                 (None, _) => None,
@@ -349,26 +351,35 @@ pub mod pending_payable_scanner_utils {
         }
 
         fn register_success(&mut self, sent_tx: SentTx) {
-            self.confirmed.push(sent_tx);
+            self.confirmations.push(sent_tx);
         }
 
-        fn register_failure(&mut self, failed_tx: FailedTx) {
-            self.failures_summary.tx_failures.push(failed_tx);
+        fn register_new_failure(&mut self, failed_tx: FailedTx) {
+            self.failures.tx_failures.push(failed_tx);
         }
 
-        fn register_rpc_failure(&mut self, failed_tx_hash: TxHash) {
+        fn check_off_earlier_failure(&mut self, tx_hash: TxHash) {
+            todo!()
+        }
+
+        fn register_rpc_failure(&mut self, status_update: ValidationStatusUpdate) {
             // TODO solve me by changing just the status
-            //self.failures_summary.failures.push(failed_tx);
+            //self.failures.failures.push(failed_tx);
         }
+    }
+
+    pub struct DetectedConfirmations {
+        pub normal_confirmations: Vec<SentTx>,
+        pub reclaims: Vec<SentTx>,
     }
 
     #[derive(Debug, Default, PartialEq, Eq, Clone)]
-    pub struct FailuresSummary {
+    pub struct DetectedFailures {
         pub tx_failures: Vec<FailedTx>,
-        pub rpc_failures: Vec<TxHash>,
+        pub tx_receipt_rpc_failures: Vec<ValidationStatusUpdate>,
     }
 
-    impl FailuresSummary {
+    impl DetectedFailures {
         fn requires_retry(&self) -> Option<Retry> {
             todo!("add the logic to combine the two vecs");
             // if self.tx_failures.is_empty() {
@@ -378,6 +389,33 @@ pub mod pending_payable_scanner_utils {
             // } else {
             //     Some(Retry::RetryReceiptCheck)
             // }
+        }
+    }
+
+    #[derive(Debug, PartialEq, Eq, Clone)]
+    pub enum ValidationStatusUpdate {
+        SentPayableRecord(FailedValidation),
+        FailedPayableRecord(FailedValidation),
+    }
+
+    #[derive(Debug, PartialEq, Eq, Clone)]
+    pub struct FailedValidation {
+        pub tx_hash: TxHash,
+        pub failure: AppRpcError,
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    pub struct FailuresRequiringDoubleCheck {
+        pub failures: Vec<FailedTx>,
+    }
+
+    impl FailuresRequiringDoubleCheck {
+        pub fn new(failures: Vec<FailedTx>) -> Self {
+            todo!()
+        }
+
+        pub fn hashes(&self) -> &[TxHash] {
+            todo!()
         }
     }
 
@@ -413,12 +451,13 @@ pub mod pending_payable_scanner_utils {
         );
 
         let failed_tx = FailedTx::from((sent_tx, FailureReason::PendingTooLong));
-        scan_report.register_failure(failed_tx);
+        scan_report.register_new_failure(failed_tx);
         scan_report
     }
 
     pub fn handle_successful_tx(
         mut scan_report: PendingPayableReport,
+        unchecked_soft_failures: &[TxHash],
         sent_tx: SentTx,
         tx_block: TransactionBlock,
         logger: &Logger,
@@ -428,8 +467,18 @@ pub mod pending_payable_scanner_utils {
             "Detected tx {:?} added to block {}.", sent_tx.hash, tx_block.block_number,
         );
 
+        let detection = if !unchecked_soft_failures.contains(&sent_tx.hash) {
+            todo!()
+        } else {
+            todo!()
+        };
+
         let completed_sent_tx = SentTx {
-            block_opt: Some(tx_block),
+            status: TxStatus::Confirmed {
+                block_hash: format!("{:?}", tx_block.block_hash),
+                block_number: tx_block.block_number.as_u64(),
+                detection,
+            },
             ..sent_tx
         };
         scan_report.register_success(completed_sent_tx);
@@ -453,7 +502,7 @@ pub mod pending_payable_scanner_utils {
             blockchain_failure
         );
 
-        scan_report.register_failure(failed_tx);
+        scan_report.register_new_failure(failed_tx);
         scan_report
     }
 
@@ -470,9 +519,12 @@ pub mod pending_payable_scanner_utils {
             rpc_error.err
         );
         // TODO just to make sure we didn't ball something up badly, could be deduced also without
-        if !recheck_required_txs.contains(&rpc_error.tx.hash) {
-            scan_report.register_failure(rpc_error.tx.hash);
-        }
+        let validation_status_update = if !recheck_required_txs.contains(&rpc_error.tx.hash) {
+            todo!()
+        } else {
+            todo!()
+        };
+        scan_report.register_rpc_failure(validation_status_update);
         scan_report
     }
 
@@ -538,15 +590,15 @@ mod tests {
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::time::{Duration, SystemTime};
     use itertools::Itertools;
-    use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureReason, FailureStatus};
-    use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
-    use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{FailuresSummary, PendingPayableReport, Retry};
+    use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureReason, FailureStatus, ValidationStatus};
+    use crate::accountant::db_access_objects::sent_payable_dao::{SentTx, TxStatus};
+    use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{DetectedFailures, FailedValidation, PendingPayableReport, Retry, ValidationStatusUpdate};
     use crate::accountant::test_utils::{make_failed_tx, make_sent_tx};
     use crate::assert_on_testing_enum_with_all_its_variants;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::BlockchainTxFailure;
     use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainError, PayableTransactionError};
     use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RpcPayableFailure};
-    use crate::blockchain::errors::{AppRpcError, LocalError};
+    use crate::blockchain::errors::{AppRpcError, LocalError, RemoteError};
 
     #[test]
     fn investigate_debt_extremes_picks_the_most_relevant_records() {
@@ -897,16 +949,16 @@ mod tests {
             ),
             gas_price_minor: gwei_to_wei(424_u64),
             nonce: 456_u64.into(),
-            block_opt: None,
+            status: TxStatus::Pending(ValidationStatus::Waiting),
         };
 
-        let result = FailedTx::from((sent_tx.clone(), FailureReason::Reverted));
+        let result_1 = FailedTx::from((sent_tx.clone(), FailureReason::Reverted));
         let result_2 = FailedTx::from((
             sent_tx.clone(),
             FailureReason::Submission(AppRpcError::Local(LocalError::Internal)),
         ));
 
-        assert_conversion_into_failed_tx(result, sent_tx.clone(), FailureReason::Reverted);
+        assert_conversion_into_failed_tx(result_1, sent_tx.clone(), FailureReason::Reverted);
         assert_conversion_into_failed_tx(
             result_2,
             sent_tx,
@@ -1000,32 +1052,44 @@ mod tests {
     fn requires_payments_retry() {
         let cases = vec![
             PendingPayableReport {
-                failures_summary: FailuresSummary {
+                failures: DetectedFailures {
                     tx_failures: vec![make_failed_tx(456)],
-                    rpc_failures: false,
+                    tx_receipt_rpc_failures: vec![],
                 },
-                confirmed: vec![],
+                confirmations: vec![],
             },
             PendingPayableReport {
-                failures_summary: FailuresSummary {
+                failures: DetectedFailures {
                     tx_failures: vec![make_failed_tx(789)],
-                    rpc_failures: true,
+                    tx_receipt_rpc_failures: vec![ValidationStatusUpdate::SentPayableRecord(
+                        FailedValidation {
+                            tx_hash: make_tx_hash(2222),
+                            failure: AppRpcError::Local(LocalError::Internal),
+                        },
+                    )],
                 },
-                confirmed: vec![],
+                confirmations: vec![],
             },
             PendingPayableReport {
-                failures_summary: FailuresSummary {
+                failures: DetectedFailures {
                     tx_failures: vec![make_failed_tx(123), make_failed_tx(789)],
-                    rpc_failures: false,
+                    tx_receipt_rpc_failures: vec![],
                 },
-                confirmed: vec![make_sent_tx(777)],
+                confirmations: vec![make_sent_tx(777)],
             },
             PendingPayableReport {
-                failures_summary: FailuresSummary {
+                failures: DetectedFailures {
                     tx_failures: vec![make_failed_tx(123)],
-                    rpc_failures: true,
+                    tx_receipt_rpc_failures: vec![ValidationStatusUpdate::FailedPayableRecord(
+                        FailedValidation {
+                            tx_hash: make_tx_hash(12121),
+                            failure: AppRpcError::Remote(RemoteError::InvalidResponse(
+                                "blah".to_string(),
+                            )),
+                        },
+                    )],
                 },
-                confirmed: vec![make_sent_tx(777)],
+                confirmations: vec![make_sent_tx(777)],
             },
         ];
 
@@ -1045,18 +1109,30 @@ mod tests {
     fn requires_only_receipt_retrieval_retry() {
         let cases = vec![
             PendingPayableReport {
-                failures_summary: FailuresSummary {
+                failures: DetectedFailures {
                     tx_failures: vec![],
-                    rpc_failures: true,
+                    tx_receipt_rpc_failures: vec![ValidationStatusUpdate::SentPayableRecord(
+                        FailedValidation {
+                            tx_hash: make_tx_hash(2222),
+                            failure: AppRpcError::Local(LocalError::Internal),
+                        },
+                    )],
                 },
-                confirmed: vec![],
+                confirmations: vec![],
             },
             PendingPayableReport {
-                failures_summary: FailuresSummary {
+                failures: DetectedFailures {
                     tx_failures: vec![],
-                    rpc_failures: true,
+                    tx_receipt_rpc_failures: vec![ValidationStatusUpdate::FailedPayableRecord(
+                        FailedValidation {
+                            tx_hash: make_tx_hash(12121),
+                            failure: AppRpcError::Remote(RemoteError::InvalidResponse(
+                                "blah".to_string(),
+                            )),
+                        },
+                    )],
                 },
-                confirmed: vec![make_sent_tx(777)],
+                confirmations: vec![make_sent_tx(777)],
             },
         ];
 
@@ -1075,11 +1151,11 @@ mod tests {
     #[test]
     fn requires_payments_retry_says_no() {
         let report = PendingPayableReport {
-            failures_summary: FailuresSummary {
+            failures: DetectedFailures {
                 tx_failures: vec![],
-                rpc_failures: false,
+                tx_receipt_rpc_failures: vec![],
             },
-            confirmed: vec![make_sent_tx(123)],
+            confirmations: vec![make_sent_tx(123)],
         };
 
         let result = report.requires_payments_retry();
@@ -1094,11 +1170,11 @@ mod tests {
     )]
     fn requires_payments_retry_with_no_results_in_whole_summary() {
         let report = PendingPayableReport {
-            failures_summary: FailuresSummary {
+            failures: DetectedFailures {
                 tx_failures: vec![],
-                rpc_failures: false,
+                tx_receipt_rpc_failures: vec![],
             },
-            confirmed: vec![],
+            confirmations: vec![],
         };
 
         let _ = report.requires_payments_retry();
