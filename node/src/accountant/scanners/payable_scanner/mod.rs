@@ -406,44 +406,44 @@ impl PayableScanner {
     }
 
     fn generate_payable_account(
-        failed_tx: &FailedTx,
+        tx_to_retry: &FailedTx,
         payable_opt: Option<PayableAccount>,
     ) -> PayableAccount {
         match payable_opt {
             Some(mut payable) => {
-                if payable.wallet.address() != failed_tx.receiver_address {
+                if payable.wallet.address() != tx_to_retry.receiver_address {
                     panic!(
                         "The receiver is out of sync. \
-                        Receiver in Payable: {:?}\nReceiver in failed tx: {:?}",
+                        Receiver in Payable: {:?}\nReceiver in tx to retry: {:?}",
                         payable.wallet.address(),
-                        failed_tx.receiver_address
+                        tx_to_retry.receiver_address
                     )
                 }
 
-                payable.balance_wei = payable.balance_wei + failed_tx.amount;
+                payable.balance_wei = payable.balance_wei + tx_to_retry.amount;
                 payable
             }
-            None => PayableAccount::from(failed_tx),
+            None => PayableAccount::from(tx_to_retry),
         }
     }
 
     fn generate_qualified_payables_before_gas_price_selection(
         payables_from_db: &[PayableAccount],
-        failed_tx: &FailedTx,
+        tx_to_retry: &FailedTx,
     ) -> QualifiedPayablesBeforeGasPriceSelection {
-        let found_payable = Self::find_payable(payables_from_db, failed_tx.receiver_address);
-        let payable = Self::generate_payable_account(failed_tx, found_payable);
+        let found_payable = Self::find_payable(payables_from_db, tx_to_retry.receiver_address);
+        let payable = Self::generate_payable_account(tx_to_retry, found_payable);
 
         QualifiedPayablesBeforeGasPriceSelection {
             payable,
-            previous_attempt_gas_price_minor_opt: Some(failed_tx.gas_price_wei),
+            previous_attempt_gas_price_minor_opt: Some(tx_to_retry.gas_price_wei),
         }
     }
 
-    fn filter_receiver_addresses(failed_txs: &[FailedTx]) -> BTreeSet<Address> {
-        failed_txs
+    fn filter_receiver_addresses(txs_to_retry: &[FailedTx]) -> BTreeSet<Address> {
+        txs_to_retry
             .iter()
-            .map(|failed_tx| failed_tx.receiver_address)
+            .map(|tx_to_retry| tx_to_retry.receiver_address)
             .collect()
     }
 
