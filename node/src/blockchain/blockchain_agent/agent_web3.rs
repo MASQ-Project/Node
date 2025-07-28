@@ -41,49 +41,49 @@ impl BlockchainAgent for BlockchainAgentWeb3 {
             qualified_payables.payables.into_iter().fold(
                 init,
                 |(mut priced_payables, mut warning_data_collector_opt), unpriced_payable| {
-                    let selected_gas_price_wei =
-                        match unpriced_payable.previous_attempt_gas_price_minor_opt {
-                            None => self.latest_gas_price_wei,
-                            Some(previous_price) if self.latest_gas_price_wei < previous_price => {
-                                previous_price
-                            }
-                            Some(_) => self.latest_gas_price_wei,
-                        };
+                    let selected_gas_price_wei = todo!("TxTemplate");
+                    // match unpriced_payable.previous_attempt_gas_price_minor_opt {
+                    //     None => self.latest_gas_price_wei,
+                    //     Some(previous_price) if self.latest_gas_price_wei < previous_price => {
+                    //         previous_price
+                    //     }
+                    //     Some(_) => self.latest_gas_price_wei,
+                    // };
 
-                    let gas_price_increased_by_margin_wei =
-                        increase_gas_price_by_margin(selected_gas_price_wei);
-
-                    let price_ceiling_wei = self.chain.rec().gas_price_safe_ceiling_minor;
-                    let checked_gas_price_wei =
-                        if gas_price_increased_by_margin_wei > price_ceiling_wei {
-                            warning_data_collector_opt.as_mut().map(|collector| {
-                                match collector.data.as_mut() {
-                                    Either::Left(new_payable_data) => {
-                                        new_payable_data
-                                            .addresses
-                                            .push(unpriced_payable.payable.wallet.address());
-                                        new_payable_data.gas_price_above_limit_wei =
-                                            gas_price_increased_by_margin_wei
-                                    }
-                                    Either::Right(retry_payable_data) => retry_payable_data
-                                        .addresses_and_gas_price_value_above_limit_wei
-                                        .push((
-                                            unpriced_payable.payable.wallet.address(),
-                                            gas_price_increased_by_margin_wei,
-                                        )),
-                                }
-                            });
-                            price_ceiling_wei
-                        } else {
-                            gas_price_increased_by_margin_wei
-                        };
-
-                    priced_payables.push(QualifiedPayableWithGasPrice::new(
-                        unpriced_payable.payable,
-                        checked_gas_price_wei,
-                    ));
-
-                    (priced_payables, warning_data_collector_opt)
+                    // let gas_price_increased_by_margin_wei =
+                    //     increase_gas_price_by_margin(selected_gas_price_wei);
+                    //
+                    // let price_ceiling_wei = self.chain.rec().gas_price_safe_ceiling_minor;
+                    // let checked_gas_price_wei =
+                    //     if gas_price_increased_by_margin_wei > price_ceiling_wei {
+                    //         warning_data_collector_opt.as_mut().map(|collector| {
+                    //             match collector.data.as_mut() {
+                    //                 Either::Left(new_payable_data) => {
+                    //                     new_payable_data
+                    //                         .addresses
+                    //                         .push(unpriced_payable.payable.wallet.address());
+                    //                     new_payable_data.gas_price_above_limit_wei =
+                    //                         gas_price_increased_by_margin_wei
+                    //                 }
+                    //                 Either::Right(retry_payable_data) => retry_payable_data
+                    //                     .addresses_and_gas_price_value_above_limit_wei
+                    //                     .push((
+                    //                         unpriced_payable.payable.wallet.address(),
+                    //                         gas_price_increased_by_margin_wei,
+                    //                     )),
+                    //             }
+                    //         });
+                    //         price_ceiling_wei
+                    //     } else {
+                    //         gas_price_increased_by_margin_wei
+                    //     };
+                    //
+                    // priced_payables.push(QualifiedPayableWithGasPrice::new(
+                    //     unpriced_payable.payable,
+                    //     checked_gas_price_wei,
+                    // ));
+                    //
+                    // (priced_payables, warning_data_collector_opt)
                 },
             );
 
@@ -239,20 +239,21 @@ impl BlockchainAgentWeb3 {
     }
 
     fn is_retry(qualified_payables: &UnpricedQualifiedPayables) -> bool {
-        qualified_payables
-            .payables
-            .first()
-            .expectv("payable")
-            .previous_attempt_gas_price_minor_opt
-            .is_some()
+        todo!("TxTemplate");
+        // qualified_payables
+        //     .payables
+        //     .first()
+        //     .expectv("payable")
+        //     .previous_attempt_gas_price_minor_opt
+        //     .is_some()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::accountant::scanners::payable_scanner_extension::msgs::{
-        PricedQualifiedPayables, QualifiedPayableWithGasPrice,
-        QualifiedPayablesBeforeGasPriceSelection, UnpricedQualifiedPayables,
+        PricedQualifiedPayables, QualifiedPayableWithGasPrice, TxTemplate,
+        UnpricedQualifiedPayables,
     };
     use crate::accountant::scanners::test_utils::make_zeroed_consuming_wallet_balances;
     use crate::accountant::test_utils::{
@@ -345,10 +346,11 @@ mod tests {
             .enumerate()
             .map(|(idx, previous_attempt_gas_price_wei)| {
                 let account = make_payable_account((idx as u64 + 1) * 3_000);
-                QualifiedPayablesBeforeGasPriceSelection::new(
-                    account,
-                    Some(previous_attempt_gas_price_wei),
-                )
+                todo!("TxTemplate");
+                // TxTemplate::new(
+                //     account,
+                //     Some(previous_attempt_gas_price_wei),
+                // )
             })
             .collect_vec();
             UnpricedQualifiedPayables { payables }
@@ -356,7 +358,10 @@ mod tests {
         let accounts_from_1_to_5 = unpriced_qualified_payables
             .payables
             .iter()
-            .map(|unpriced_payable| unpriced_payable.payable.clone())
+            .map(|unpriced_payable| {
+                todo!("TxTemplate");
+                // unpriced_payable.payable.clone()
+            })
             .collect_vec();
         let mut subject = BlockchainAgentWeb3::new(
             rpc_gas_price_wei,
@@ -675,7 +680,8 @@ mod tests {
                 .clone()
                 .into_iter()
                 .map(|payable| {
-                    QualifiedPayableWithGasPrice::new(payable.payable, ceiling_gas_price_wei)
+                    todo!("TxTemplate");
+                    // QualifiedPayableWithGasPrice::new(payable.payable, ceiling_gas_price_wei)
                 })
                 .collect(),
         };
@@ -764,10 +770,11 @@ mod tests {
             .enumerate()
             .map(|(idx, previous_attempt_gas_price_wei)| {
                 let account = make_payable_account((idx as u64 + 1) * 3_000);
-                QualifiedPayablesBeforeGasPriceSelection::new(
-                    account,
-                    Some(previous_attempt_gas_price_wei),
-                )
+                todo!("TxTemplate");
+                // QualifiedPayablesBeforeGasPriceSelection::new(
+                //     account,
+                //     Some(previous_attempt_gas_price_wei),
+                // )
             })
             .collect_vec();
             UnpricedQualifiedPayables { payables }

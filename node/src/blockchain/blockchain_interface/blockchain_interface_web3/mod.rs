@@ -459,7 +459,7 @@ mod tests {
     use std::str::FromStr;
     use web3::transports::Http;
     use web3::types::{H256, U256};
-    use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayablesBeforeGasPriceSelection, QualifiedPayableWithGasPrice};
+    use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayableWithGasPrice};
     use crate::accountant::test_utils::make_payable_account;
     use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt, TxStatus};
@@ -874,44 +874,45 @@ mod tests {
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
         let account_3 = make_payable_account(56);
-        let unpriced_qualified_payables = UnpricedQualifiedPayables {
-            payables: vec![
-                QualifiedPayablesBeforeGasPriceSelection::new(
-                    account_1.clone(),
-                    Some(gas_price_wei_from_rpc_u128_wei - 1),
-                ),
-                QualifiedPayablesBeforeGasPriceSelection::new(
-                    account_2.clone(),
-                    Some(gas_price_wei_from_rpc_u128_wei),
-                ),
-                QualifiedPayablesBeforeGasPriceSelection::new(
-                    account_3.clone(),
-                    Some(gas_price_wei_from_rpc_u128_wei + 1),
-                ),
-            ],
-        };
-
-        let expected_priced_qualified_payables = {
-            let gas_price_account_1 = increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei);
-            let gas_price_account_2 = increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei);
-            let gas_price_account_3 =
-                increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei + 1);
-            PricedQualifiedPayables {
-                payables: vec![
-                    QualifiedPayableWithGasPrice::new(account_1, gas_price_account_1),
-                    QualifiedPayableWithGasPrice::new(account_2, gas_price_account_2),
-                    QualifiedPayableWithGasPrice::new(account_3, gas_price_account_3),
-                ],
-            }
-        };
-        let expected_estimated_transaction_fee_total = 285_979_200_073_328;
-
-        test_blockchain_interface_web3_can_introduce_blockchain_agent(
-            unpriced_qualified_payables,
-            gas_price_wei_from_rpc_hex,
-            expected_priced_qualified_payables,
-            expected_estimated_transaction_fee_total,
-        );
+        todo!("TxTemplate");
+        // let unpriced_qualified_payables = UnpricedQualifiedPayables {
+        //     payables: vec![
+        //         QualifiedPayablesBeforeGasPriceSelection::new(
+        //             account_1.clone(),
+        //             Some(gas_price_wei_from_rpc_u128_wei - 1),
+        //         ),
+        //         QualifiedPayablesBeforeGasPriceSelection::new(
+        //             account_2.clone(),
+        //             Some(gas_price_wei_from_rpc_u128_wei),
+        //         ),
+        //         QualifiedPayablesBeforeGasPriceSelection::new(
+        //             account_3.clone(),
+        //             Some(gas_price_wei_from_rpc_u128_wei + 1),
+        //         ),
+        //     ],
+        // };
+        //
+        // let expected_priced_qualified_payables = {
+        //     let gas_price_account_1 = increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei);
+        //     let gas_price_account_2 = increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei);
+        //     let gas_price_account_3 =
+        //         increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei + 1);
+        //     PricedQualifiedPayables {
+        //         payables: vec![
+        //             QualifiedPayableWithGasPrice::new(account_1, gas_price_account_1),
+        //             QualifiedPayableWithGasPrice::new(account_2, gas_price_account_2),
+        //             QualifiedPayableWithGasPrice::new(account_3, gas_price_account_3),
+        //         ],
+        //     }
+        // };
+        // let expected_estimated_transaction_fee_total = 285_979_200_073_328;
+        //
+        // test_blockchain_interface_web3_can_introduce_blockchain_agent(
+        //     unpriced_qualified_payables,
+        //     gas_price_wei_from_rpc_hex,
+        //     expected_priced_qualified_payables,
+        //     expected_estimated_transaction_fee_total,
+        // );
     }
 
     fn test_blockchain_interface_web3_can_introduce_blockchain_agent(

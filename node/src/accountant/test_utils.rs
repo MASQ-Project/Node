@@ -21,7 +21,7 @@ use crate::accountant::db_access_objects::utils::{
 use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdjuster};
 use crate::accountant::scanners::payable_scanner_extension::msgs::{
     BlockchainAgentWithContextMessage, PricedQualifiedPayables, QualifiedPayableWithGasPrice,
-    QualifiedPayablesBeforeGasPriceSelection, UnpricedQualifiedPayables,
+    UnpricedQualifiedPayables,
 };
 use crate::accountant::scanners::payable_scanner_extension::PreparedAdjustment;
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableThresholdsGauge;
@@ -1814,15 +1814,16 @@ pub fn make_priced_qualified_payables(
 pub fn make_unpriced_qualified_payables_for_retry_mode(
     inputs: Vec<(PayableAccount, u128)>,
 ) -> UnpricedQualifiedPayables {
-    UnpricedQualifiedPayables {
-        payables: inputs
-            .into_iter()
-            .map(|(payable, previous_attempt_gas_price_minor)| {
-                QualifiedPayablesBeforeGasPriceSelection {
-                    payable,
-                    previous_attempt_gas_price_minor_opt: Some(previous_attempt_gas_price_minor),
-                }
-            })
-            .collect(),
-    }
+    todo!("TxTemplate");
+    // UnpricedQualifiedPayables {
+    //     payables: inputs
+    //         .into_iter()
+    //         .map(|(payable, previous_attempt_gas_price_minor)| {
+    //             QualifiedPayablesBeforeGasPriceSelection {
+    //                 payable,
+    //                 previous_attempt_gas_price_minor_opt: Some(previous_attempt_gas_price_minor),
+    //             }
+    //         })
+    //         .collect(),
+    // }
 }

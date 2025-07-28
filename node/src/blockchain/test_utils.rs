@@ -16,7 +16,7 @@ use serde_derive::Deserialize;
 use std::fmt::Debug;
 use std::net::Ipv4Addr;
 use web3::transports::{EventLoopHandle, Http};
-use web3::types::{Index, Log, SignedTransaction, TransactionReceipt, H2048, U256};
+use web3::types::{Address, Index, Log, SignedTransaction, TransactionReceipt, H2048, U256};
 
 lazy_static! {
     static ref BIG_MEANINGLESS_PHRASE: Vec<&'static str> = vec![
@@ -195,6 +195,16 @@ pub fn make_tx_hash(base: u32) -> H256 {
 
 pub fn make_block_hash(base: u32) -> H256 {
     make_hash(base + 1000000000)
+}
+
+pub fn make_address(base: u32) -> Address {
+    let value = U256::from(base);
+    let mut full_bytes = [0u8; 32];
+    value.to_big_endian(&mut full_bytes);
+    let mut bytes = [0u8; 20];
+    bytes.copy_from_slice(&full_bytes[12..32]);
+
+    H160(bytes)
 }
 
 pub fn all_chains() -> [Chain; 4] {

@@ -1019,7 +1019,7 @@ mod tests {
         PendingPayable, PendingPayableDaoError, TransactionHashes,
     };
     use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp, TxIdentifiers};
-    use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayablesBeforeGasPriceSelection, QualifiedPayablesMessage, UnpricedQualifiedPayables};
+    use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayablesMessage, TxTemplate, UnpricedQualifiedPayables};
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{OperationOutcome, PayableScanResult, PendingPayableMetadata};
     use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_none_status, handle_status_with_failure, PendingPayableScanReport, PendingPayableScanResult};
     use crate::accountant::scanners::{Scanner, StartScanError, StartableScanner,  PendingPayableScanner, ReceivableScanner, ScannerCommon, Scanners, MTError};
@@ -1284,8 +1284,8 @@ mod tests {
         let qualified_payables_count = qualified_payable_accounts.len();
         let expected_unpriced_qualified_payables = UnpricedQualifiedPayables {
             payables: qualified_payable_accounts
-                .into_iter()
-                .map(|payable| QualifiedPayablesBeforeGasPriceSelection::new(payable, None))
+                .iter()
+                .map(|payable| TxTemplate::from(payable))
                 .collect::<Vec<_>>(),
         };
         assert_eq!(
