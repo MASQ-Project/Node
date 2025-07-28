@@ -195,10 +195,12 @@ mod tests {
             failed_payables_retrieve_txs_params[0],
             Some(ByStatus(FailureStatus::RetryRequired))
         );
+        assert_eq!(failed_payables_retrieve_txs_params.len(), 1);
         assert_eq!(
             non_pending_payables_params[0],
             Some(PayableRetrieveCondition::ByAddresses(expected_addresses))
         );
+        assert_eq!(non_pending_payables_params.len(), 1);
         TestLogHandler::new()
             .exists_log_containing(&format!("INFO: {test_name}: Scanning for retry payables"));
     }
