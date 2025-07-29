@@ -19,7 +19,7 @@ use crate::accountant::db_access_objects::utils::{
     from_unix_timestamp, to_unix_timestamp, CustomQuery, TxHash, TxIdentifiers,
 };
 use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdjuster};
-use crate::accountant::scanners::payable_scanner_extension::msgs::{BaseTxTemplate, BlockchainAgentWithContextMessage, PricedQualifiedPayables, QualifiedPayableWithGasPrice, RetryTxTemplate};
+use crate::accountant::scanners::payable_scanner_extension::msgs::{BlockchainAgentWithContextMessage, PricedQualifiedPayables, QualifiedPayableWithGasPrice};
 use crate::accountant::scanners::payable_scanner_extension::PreparedAdjustment;
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableThresholdsGauge;
 use crate::accountant::scanners::{PendingPayableScanner, ReceivableScanner};
@@ -52,6 +52,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use web3::types::Address;
+use crate::accountant::scanners::payable_scanner::data_structures::{BaseTxTemplate, RetryTxTemplate};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionBlock;
 
 pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableAccount {
@@ -1807,68 +1808,4 @@ pub fn make_priced_qualified_payables(
             })
             .collect(),
     }
-}
-
-pub struct RetryTxTemplateBuilder {
-    receiver_address: Option<Address>,
-    amount_in_wei: Option<u128>,
-    prev_gas_price_wei: Option<u128>,
-    prev_nonce: Option<u64>,
-}
-
-impl Default for RetryTxTemplateBuilder {
-    fn default() -> Self {
-        RetryTxTemplateBuilder::new()
-    }
-}
-
-impl RetryTxTemplateBuilder {
-    pub fn new() -> Self {
-        Self {
-            receiver_address: None,
-            amount_in_wei: None,
-            prev_gas_price_wei: None,
-            prev_nonce: None,
-        }
-    }
-
-    pub fn receiver_address(mut self, address: Address) -> Self {
-        self.receiver_address = Some(address);
-        self
-    }
-
-    pub fn amount_in_wei(mut self, amount: u128) -> Self {
-        self.amount_in_wei = Some(amount);
-        self
-    }
-
-    pub fn prev_gas_price_wei(mut self, gas_price: u128) -> Self {
-        self.prev_gas_price_wei = Some(gas_price);
-        self
-    }
-
-    pub fn prev_nonce(mut self, nonce: u64) -> Self {
-        self.prev_nonce = Some(nonce);
-        self
-    }
-
-    pub fn build(self) -> RetryTxTemplate {
-        RetryTxTemplate {
-            base: BaseTxTemplate {
-                receiver_address: self.receiver_address.unwrap_or_else(|| make_address(0)),
-                amount_in_wei: self.amount_in_wei.unwrap_or(0),
-            },
-            prev_gas_price_wei: self.prev_gas_price_wei.unwrap_or(0),
-            prev_nonce: self.prev_nonce.unwrap_or(0),
-        }
-    }
-}
-
-pub fn make_retry_tx_template(n: u32) -> RetryTxTemplate {
-    RetryTxTemplateBuilder::new()
-        .receiver_address(make_address(n))
-        .amount_in_wei(n as u128 * 1000)
-        .prev_gas_price_wei(n as u128 * 100)
-        .prev_nonce(n as u64)
-        .build()
 }

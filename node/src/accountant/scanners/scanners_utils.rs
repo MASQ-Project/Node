@@ -22,7 +22,7 @@ pub mod payable_scanner_utils {
     use crate::accountant::db_access_objects::failed_payable_dao::FailureReason;
     use crate::accountant::db_access_objects::failed_payable_dao::FailureReason::Submission;
     use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
-    use crate::accountant::scanners::payable_scanner_extension::msgs::NewTxTemplate;
+    use crate::accountant::scanners::payable_scanner::data_structures::NewTxTemplate;
     use crate::blockchain::blockchain_interface::data_structures::{IndividualBatchResult, RpcPayableFailure};
     use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
     use crate::blockchain::errors::AppRpcError::Local;

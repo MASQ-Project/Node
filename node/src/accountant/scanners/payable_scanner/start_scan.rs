@@ -88,8 +88,8 @@ mod tests {
         PayableAccount, PayableRetrieveCondition,
     };
     use crate::accountant::db_access_objects::test_utils::FailedTxBuilder;
+    use crate::accountant::scanners::payable_scanner::data_structures::RetryTxTemplate;
     use crate::accountant::scanners::payable_scanner::test_utils::PayableScannerBuilder;
-    use crate::accountant::scanners::payable_scanner_extension::msgs::RetryTxTemplate;
     use crate::accountant::scanners::Scanners;
     use crate::accountant::test_utils::{
         make_payable_account, FailedPayableDaoMock, PayableDaoMock,

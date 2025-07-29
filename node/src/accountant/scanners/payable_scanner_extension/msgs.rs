@@ -2,6 +2,9 @@
 
 use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
+use crate::accountant::scanners::payable_scanner::data_structures::{
+    NewTxTemplate, RetryTxTemplate,
+};
 use crate::accountant::{ResponseSkeleton, SkeletonOptHolder};
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::blockchain::test_utils::make_address;
@@ -19,136 +22,6 @@ pub struct QualifiedPayablesMessage {
     pub consuming_wallet: Wallet,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
-
-// #[derive(Debug, PartialEq, Eq, Clone)]
-// pub struct TxTemplates(pub Vec<TxTemplate>);
-//
-// impl Deref for TxTemplates {
-//     type Target = Vec<TxTemplate>;
-//
-//     fn deref(&self) -> &Self::Target {
-//         &self.0
-//     }
-// }
-//
-// impl TxTemplates {
-//     pub fn has_retry_template(&self) -> bool {
-//         self.iter()
-//             .any(|template| template.prev_tx_values_opt.is_some())
-//     }
-// }
-//
-// // TODO: GH-605: It can be a reference instead
-// impl From<Vec<PayableAccount>> for TxTemplates {
-//     fn from(payable_accounts: Vec<PayableAccount>) -> Self {
-//         Self(
-//             payable_accounts
-//                 .iter()
-//                 .map(|payable| TxTemplate::from(payable))
-//                 .collect(),
-//         )
-//     }
-// }
-
-// I'd suggest don't do it like this yet
-// #[derive(Debug, Clone, PartialEq, Eq)]
-// enum PrevTxValues {
-//     EVM { gas_price_wei: u128, nonce: u64 },
-// }
-
-// #[derive(Debug, Clone, PartialEq, Eq)]
-// pub struct PrevTxValues {
-//     pub gas_price_wei: u128,
-//     pub nonce: u64,
-// }
-
-// Values used to form PricedPayable: gas_price and receiver address
-// #[derive(Debug, Clone, PartialEq, Eq)]
-// pub struct TxTemplate {
-//     pub receiver_address: Address,
-//     pub amount_in_wei: u128,
-//     pub prev_tx_values_opt: Option<PrevTxValues>,
-// }
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BaseTxTemplate {
-    pub receiver_address: Address,
-    pub amount_in_wei: u128,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NewTxTemplate {
-    pub base: BaseTxTemplate,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GasPriceOnlyTxTemplate {
-    pub base: BaseTxTemplate,
-    pub gas_price_wei: u128,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RetryTxTemplate {
-    pub base: BaseTxTemplate,
-    pub prev_gas_price_wei: u128,
-    pub prev_nonce: u64,
-}
-
-impl From<&PayableAccount> for BaseTxTemplate {
-    fn from(payable_account: &PayableAccount) -> Self {
-        todo!()
-    }
-}
-
-impl From<&PayableAccount> for NewTxTemplate {
-    fn from(payable: &PayableAccount) -> Self {
-        todo!()
-        // Self {
-        //     receiver_address: payable.wallet.address(),
-        //     amount_in_wei: payable.balance_wei,
-        //     prev_tx_values_opt: None,
-        // }
-    }
-}
-
-impl From<&FailedTx> for RetryTxTemplate {
-    fn from(failed_tx: &FailedTx) -> Self {
-        todo!()
-        // Self {
-        //     receiver_address: failed_tx.receiver_address,
-        //     amount_in_wei: failed_tx.amount,
-        //     prev_tx_values_opt: Some(PrevTxValues {
-        //         gas_price_wei: failed_tx.gas_price_wei,
-        //         nonce: failed_tx.nonce,
-        //     }),
-        // }
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct NewTxTemplates(pub Vec<NewTxTemplate>);
-
-impl Deref for NewTxTemplates {
-    type Target = Vec<NewTxTemplate>;
-
-    fn deref(&self) -> &Self::Target {
-        todo!()
-        // &self.0
-    }
-}
-
-// TODO: GH-605: It can be a reference instead
-impl From<Vec<PayableAccount>> for NewTxTemplates {
-    fn from(payable_accounts: Vec<PayableAccount>) -> Self {
-        Self(
-            payable_accounts
-                .iter()
-                .map(|payable| NewTxTemplate::from(payable))
-                .collect(),
-        )
-    }
-}
-
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PricedQualifiedPayables {
     pub payables: Vec<QualifiedPayableWithGasPrice>,
@@ -226,9 +99,7 @@ mod tests {
         FailedTx, FailureReason, FailureStatus,
     };
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-    use crate::accountant::scanners::payable_scanner_extension::msgs::{
-        BaseTxTemplate, BlockchainAgentWithContextMessage, NewTxTemplate, NewTxTemplates,
-    };
+    use crate::accountant::scanners::payable_scanner_extension::msgs::BlockchainAgentWithContextMessage;
     use crate::accountant::scanners::payable_scanner_extension::test_utils::BlockchainAgentMock;
     use crate::blockchain::test_utils::{make_address, make_tx_hash};
     use crate::test_utils::make_wallet;
@@ -245,46 +116,5 @@ mod tests {
                 response_skeleton_opt: self.response_skeleton_opt,
             }
         }
-    }
-
-    #[test]
-    fn new_tx_template_can_be_created_from_payable_account() {
-        todo!()
-    }
-
-    #[test]
-    fn retry_tx_template_can_be_created_from_failed_tx() {
-        todo!()
-    }
-
-    #[test]
-    fn new_tx_templates_deref_provides_access_to_inner_vector() {
-        let template1 = NewTxTemplate {
-            base: BaseTxTemplate {
-                receiver_address: make_address(1),
-                amount_in_wei: 1000,
-            },
-        };
-        let template2 = NewTxTemplate {
-            base: BaseTxTemplate {
-                receiver_address: make_address(2),
-                amount_in_wei: 2000,
-            },
-        };
-
-        let templates = NewTxTemplates(vec![template1.clone(), template2.clone()]);
-
-        assert_eq!(templates.len(), 2);
-        assert_eq!(templates[0], template1);
-        assert_eq!(templates[1], template2);
-        assert!(!templates.is_empty());
-        assert!(templates.contains(&template1));
-        assert_eq!(
-            templates
-                .iter()
-                .map(|template| template.base.amount_in_wei)
-                .sum::<u128>(),
-            3000
-        );
     }
 }

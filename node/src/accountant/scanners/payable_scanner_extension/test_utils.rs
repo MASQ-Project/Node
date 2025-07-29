@@ -2,9 +2,10 @@
 
 #![cfg(test)]
 
-use crate::accountant::scanners::payable_scanner_extension::msgs::{
-    NewTxTemplate, PricedQualifiedPayables, RetryTxTemplate,
+use crate::accountant::scanners::payable_scanner::data_structures::{
+    NewTxTemplate, RetryTxTemplate,
 };
+use crate::accountant::scanners::payable_scanner_extension::msgs::PricedQualifiedPayables;
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;

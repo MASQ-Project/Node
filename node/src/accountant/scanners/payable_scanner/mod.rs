@@ -1,3 +1,4 @@
+pub mod data_structures;
 mod finish_scan;
 mod start_scan;
 pub mod test_utils;
@@ -15,9 +16,8 @@ use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::B
 use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDao;
 use crate::accountant::db_access_objects::utils::{from_unix_timestamp, TxHash};
 use crate::accountant::payment_adjuster::PaymentAdjuster;
-use crate::accountant::scanners::payable_scanner_extension::msgs::{
-    BaseTxTemplate, BlockchainAgentWithContextMessage, NewTxTemplate, RetryTxTemplate,
-};
+use crate::accountant::scanners::payable_scanner::data_structures::RetryTxTemplate;
+use crate::accountant::scanners::payable_scanner_extension::msgs::BlockchainAgentWithContextMessage;
 use crate::accountant::scanners::payable_scanner_extension::{
     MultistageDualPayableScanner, PreparedAdjustment, SolvencySensitivePaymentInstructor,
 };
