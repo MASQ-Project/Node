@@ -1717,7 +1717,7 @@ mod tests {
     // misleading. You can't change a database from one chain to another, because in so doing all
     // its wallet addresses, balance amounts, and transaction numbers would be invalidated.
     fn switching_config_files_changes_setup() {
-        let _ = EnvironmentGuard::new();
+        let _guard = EnvironmentGuard::new();
         let home_dir = ensure_node_home_directory_exists(
             "setup_reporter",
             "switching_config_files_changes_setup",
@@ -1764,14 +1764,14 @@ mod tests {
                 .write_all(b"scan-intervals = \"111|100|99\"\n")
                 .unwrap()
         }
-        let ropsten_dir = data_root
+        let base_sepolia_dir = data_root
             .join("MASQ")
             .join(TEST_DEFAULT_CHAIN.rec().literal_identifier);
         {
-            std::fs::create_dir_all(ropsten_dir.clone()).unwrap();
-            let mut config_file = File::create(ropsten_dir.join("config.toml")).unwrap();
+            create_dir_all(base_sepolia_dir.clone()).unwrap();
+            let mut config_file = File::create(base_sepolia_dir.join("config.toml")).unwrap();
             config_file
-                .write_all(b"blockchain-service-url = \"https://www.ropsten.com\"\n")
+                .write_all(b"blockchain-service-url = \"https://www.base-sepolia.com\"\n")
                 .unwrap();
             config_file
                 .write_all(b"clandestine-port = \"8877\"\n")
@@ -1780,12 +1780,11 @@ mod tests {
             config_file.write_all(b"consuming-private-key = \"FFEEDDCCBBAA99887766554433221100FFEEDDCCBBAA99887766554433221100\"\n").unwrap();
             config_file.write_all(b"crash-point = \"None\"\n").unwrap();
             config_file
-                .write_all(b"db-password = \"ropstenPassword\"\n")
+                .write_all(b"db-password = \"sepoliaPassword\"\n")
                 .unwrap();
             config_file
                 .write_all(b"dns-servers = \"8.7.6.5\"\n")
                 .unwrap();
-            // NOTE: You can't really change consuming-private-key without starting a new database
             config_file
                 .write_all(b"earning-wallet = \"0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"\n")
                 .unwrap();
@@ -1829,7 +1828,7 @@ mod tests {
         let expected_result = vec![
             (
                 "blockchain-service-url",
-                "https://www.ropsten.com",
+                "https://www.base-sepolia.com",
                 Configured,
             ),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Set),
@@ -1843,10 +1842,10 @@ mod tests {
             ("crash-point", "None", Configured),
             (
                 "data-directory",
-                &ropsten_dir.to_string_lossy().to_string(),
+                &base_sepolia_dir.to_string_lossy().to_string(),
                 Default,
             ),
-            ("db-password", "ropstenPassword", Configured),
+            ("db-password", "sepoliaPassword", Configured),
             ("dns-servers", "8.7.6.5", Configured),
             (
                 "earning-wallet",
@@ -2338,6 +2337,7 @@ mod tests {
 
     #[test]
     fn get_modified_setup_does_not_support_database_migration() {
+        let _guard = EnvironmentGuard::new();
         let data_dir = ensure_node_home_directory_exists(
             "setup_reporter",
             "get_modified_setup_does_not_support_database_migration",
@@ -2447,6 +2447,7 @@ mod tests {
 
     #[test]
     fn run_configuration_suppresses_db_migration_which_implies_just_use_of_config_dao_null() {
+        let _guard = EnvironmentGuard::new();
         let data_dir = ensure_node_home_directory_exists(
             "setup_reporter",
             "run_configuration_suppresses_db_migration_which_implies_just_use_of_config_dao_null",
@@ -2662,6 +2663,52 @@ mod tests {
     }
 
     #[test]
+    fn calculate_setup_with_chain_specific_dir_on_user_specified_directory() {
+        let _guard = EnvironmentGuard::new();
+        let existing_setup =
+            setup_cluster_from(vec![("real-user", "1111:1111:/home/booga", Default)]);
+        let masqhome = Path::new("/home/booga/masqhome");
+        let incoming_setup = vec![UiSetupRequestValue::new(
+            "data-directory",
+            &masqhome.to_str().unwrap(),
+        )];
+        let dirs_wrapper = Box::new(DirsWrapperReal::default());
+        let subject = SetupReporterReal::new(dirs_wrapper);
+
+        let result = subject.get_modified_setup(existing_setup, incoming_setup);
+
+        let expected = masqhome.join("polygon-mainnet");
+        assert_eq!(
+            result.unwrap().get("data-directory").unwrap().value,
+            expected.to_str().unwrap()
+        );
+    }
+
+    #[test]
+    fn calculate_setup_with_chain_specific_dir_on_default_directory() {
+        let _guard = EnvironmentGuard::new();
+        let existing_setup =
+            setup_cluster_from(vec![("real-user", "1111:1111:/home/booga", Default)]);
+        let incoming_setup = vec![UiSetupRequestValue::new("chain", "polygon-amoy")];
+        let home_directory = Path::new("/home/booga");
+        let data_directory = home_directory.join("data");
+        let expected = data_directory.join("MASQ").join("polygon-amoy");
+        let dirs_wrapper = Box::new(
+            DirsWrapperMock::new()
+                .data_dir_result(Some(data_directory))
+                .home_dir_result(Some(home_directory.to_path_buf())),
+        );
+        let subject = SetupReporterReal::new(dirs_wrapper);
+
+        let result = subject.get_modified_setup(existing_setup, incoming_setup);
+
+        assert_eq!(
+            result.unwrap().get("data-directory").unwrap().value,
+            expected.to_str().unwrap()
+        );
+    }
+
+    #[test]
     fn choose_uisrv_chooses_higher_priority_incoming_over_lower_priority_existing() {
         let existing = UiSetupResponseValue::new("name", "existing", Configured);
         let incoming = UiSetupResponseValue::new("name", "incoming", Set);
@@ -2693,6 +2740,7 @@ mod tests {
 
     #[test]
     fn config_file_not_specified_and_nonexistent() {
+        let _guard = EnvironmentGuard::new();
         let data_directory = ensure_node_home_directory_exists(
             "setup_reporter",
             "config_file_not_specified_and_nonexistent",
@@ -2799,6 +2847,7 @@ mod tests {
 
     #[test]
     fn config_file_has_relative_directory_that_does_not_exist_in_data_directory() {
+        let _guard = EnvironmentGuard::new();
         let data_directory = ensure_node_home_directory_exists(
             "setup_reporter",
             "config_file_has_relative_directory_that_does_not_exist_in_data_directory",
@@ -2829,6 +2878,7 @@ mod tests {
 
     #[test]
     fn config_file_has_absolute_path_to_file_that_exists() {
+        let _guard = EnvironmentGuard::new();
         let data_dir = ensure_node_home_directory_exists(
             "setup_reporter",
             "config_file_has_absolute_path_to_file_that_exists",
@@ -2863,6 +2913,7 @@ mod tests {
 
     #[test]
     fn config_file_has_absolute_path_to_file_that_does_not_exist() {
+        let _guard = EnvironmentGuard::new();
         let config_file_dir = ensure_node_home_directory_exists(
             "setup_reporter",
             "config_file_has_absolute_path_to_file_that_does_not_exist",
@@ -3712,51 +3763,5 @@ mod tests {
             "real-user"
         );
         assert_eq!(Scans {}.value_name(), "scans");
-    }
-
-    #[test]
-    fn calculate_setup_with_chain_specific_dir_on_user_specified_directory() {
-        let _guard = EnvironmentGuard::new();
-        let existing_setup =
-            setup_cluster_from(vec![("real-user", "1111:1111:/home/booga", Default)]);
-        let masqhome = Path::new("/home/booga/masqhome");
-        let incoming_setup = vec![UiSetupRequestValue::new(
-            "data-directory",
-            &masqhome.to_str().unwrap(),
-        )];
-        let dirs_wrapper = Box::new(DirsWrapperReal::default());
-        let subject = SetupReporterReal::new(dirs_wrapper);
-
-        let result = subject.get_modified_setup(existing_setup, incoming_setup);
-
-        let expected = masqhome.join("polygon-mainnet");
-        assert_eq!(
-            result.unwrap().get("data-directory").unwrap().value,
-            expected.to_str().unwrap()
-        );
-    }
-
-    #[test]
-    fn calculate_setup_with_chain_specific_dir_on_default_directory() {
-        let _guard = EnvironmentGuard::new();
-        let existing_setup =
-            setup_cluster_from(vec![("real-user", "1111:1111:/home/booga", Default)]);
-        let incoming_setup = vec![UiSetupRequestValue::new("chain", "polygon-amoy")];
-        let home_directory = Path::new("/home/booga");
-        let data_directory = home_directory.join("data");
-        let expected = data_directory.join("MASQ").join("polygon-amoy");
-        let dirs_wrapper = Box::new(
-            DirsWrapperMock::new()
-                .data_dir_result(Some(data_directory))
-                .home_dir_result(Some(home_directory.to_path_buf())),
-        );
-        let subject = SetupReporterReal::new(dirs_wrapper);
-
-        let result = subject.get_modified_setup(existing_setup, incoming_setup);
-
-        assert_eq!(
-            result.unwrap().get("data-directory").unwrap().value,
-            expected.to_str().unwrap()
-        );
     }
 }

@@ -112,6 +112,10 @@ impl StreamHandlerPoolReal {
     ) {
         let stream_key = payload.stream_key;
         let inner_arc_1 = inner_arc.clone();
+        let logger = Self::make_logger_copy(&inner_arc);
+        let data_len = payload.sequenced_packet.data.len();
+        let hostname = payload.target_hostname.as_ref().unwrap_or(&"<unknown>".to_string()).to_string();
+        let target_port = payload.target_port;
         match Self::find_stream_with_key(&stream_key, &inner_arc) {
             Some(sender_wrapper) => {
                 let source = sender_wrapper.peer_addr();
@@ -120,6 +124,14 @@ impl StreamHandlerPoolReal {
                         .map_err(move |error| {
                             Self::clean_up_bad_stream(inner_arc_1, &stream_key, source, error)
                         });
+                debug!(
+                    logger,
+                    "Spawning future to write {} bytes over existing stream {:?} to {}:{}",
+                    data_len,
+                    stream_key,
+                    hostname,
+                    target_port
+                );
                 actix::spawn(future);
             }
             None => {
@@ -150,6 +162,14 @@ impl StreamHandlerPoolReal {
                                 error,
                             );
                         });
+                    debug!(
+                        logger,
+                        "Spawning future to write {} bytes over new stream {:?} to {}:{}",
+                        data_len,
+                        stream_key,
+                        hostname,
+                        target_port
+                    );
                     actix::spawn(future);
                 }
             }
@@ -219,8 +239,17 @@ impl StreamHandlerPoolReal {
         let stream_key = payload.stream_key;
         let last_data = payload.sequenced_packet.last_data;
         let payload_size = payload.sequenced_packet.data.len();
+        let logger = Self::make_logger_copy(&inner_arc);
 
-        Self::perform_write(payload.sequenced_packet, sender_wrapper.clone()).and_then(move |_| {
+        debug!(
+            logger,
+            "Queueing write of {} bytes{} to {} on stream {}",
+            payload_size,
+            if last_data {" (last data)"} else {""},
+            sender_wrapper.peer_addr(),
+            stream_key,
+        );
+        Self::queue_write(payload.sequenced_packet, sender_wrapper.clone()).and_then(move |_| {
             let mut inner = inner_arc.lock().expect("Stream handler pool is poisoned");
             if payload_size > 0 {
                 match paying_wallet_opt {
@@ -246,7 +275,7 @@ impl StreamHandlerPoolReal {
                     Some(stream_senders) => {
                         debug!(
                             inner.logger,
-                            "Removing StreamWriter and Shutting down StreamReader for {:?} to {}",
+                            "Removing StreamWriter and shutting down StreamReader for {:?} to {}",
                             stream_key,
                             stream_senders.writer_data.peer_addr()
                         );
@@ -419,7 +448,28 @@ impl StreamHandlerPoolReal {
             logger,
             "Found IP addresses for {}: {:?}", target_hostname, &filtered_ip_addrs
         );
-        establisher.establish_stream(payload, filtered_ip_addrs, target_hostname)
+        let result = establisher.establish_stream(payload, filtered_ip_addrs, target_hostname.clone());
+        match result {
+            Ok(sender_wrapper) => {
+                debug!(
+                    logger,
+                    "Established stream with key {:?} to {}",
+                    payload.stream_key,
+                    sender_wrapper.peer_addr()
+                );
+                Ok(sender_wrapper)
+            },
+            Err(e) => {
+                debug!(
+                    logger,
+                    "Failed to establish stream with key {:?} to {}: {}",
+                    payload.stream_key,
+                    target_hostname,
+                    e
+                );
+                Err(io::Error::new(io::ErrorKind::Other, e))
+            }
+        }
     }
 
     fn make_fqdn(target_hostname: &str) -> String {
@@ -441,7 +491,7 @@ impl StreamHandlerPoolReal {
         inner.logger.clone()
     }
 
-    fn perform_write(
+    fn queue_write(
         sequenced_packet: SequencedPacket,
         sender_wrapper: Box<dyn SenderWrapper<SequencedPacket>>,
     ) -> FutureResult<(), String> {
@@ -989,7 +1039,7 @@ mod tests {
         assert_eq!(received, Ok(()));
         TestLogHandler::new().await_log_containing(
             &format!(
-                "DEBUG: {test_name}: Removing StreamWriter and Shutting down StreamReader \
+                "DEBUG: {test_name}: Removing StreamWriter and shutting down StreamReader \
             for oUHoHuDKHjeWq+BJzBIqHpPFBQw to 3.4.5.6:80"
             ),
             500,

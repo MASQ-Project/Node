@@ -11,6 +11,7 @@ use ethereum_types::Address;
 use itertools::Itertools;
 use serde_derive::{Deserialize, Serialize};
 use std::cmp::min;
+use std::fmt::Debug;
 use std::iter;
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -320,10 +321,21 @@ impl Route {
     }
 }
 
-#[derive(Debug)]
 pub struct RouteSegment {
     pub keys: Vec<PublicKey>,
     pub recipient: Component,
+}
+
+impl Debug for RouteSegment {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let keys_base64: Vec<String> = self.keys.iter().map(|k| k.to_string()).collect();
+        write!(
+            f,
+            "{} : {:?}",
+            keys_base64.join(" -> "),
+            self.recipient
+        )
+    }
 }
 
 impl RouteSegment {
@@ -391,6 +403,31 @@ mod tests {
         };
 
         let _ = subject.id(&cryptde2);
+    }
+
+    #[test]
+    fn route_segments_are_represented_in_base64_by_debug() {
+        let public_key_data_1: Vec<u8> = vec![12, 34, 56, 78, 90];
+        let public_key_data_2: Vec<u8> = vec![34, 56, 78, 90, 12];
+        let public_key_data_3: Vec<u8> = vec![56, 78, 90, 12, 34];
+        let subject = RouteSegment::new(
+            vec![
+                &PublicKey::new(public_key_data_1.as_slice()),
+                &PublicKey::new(public_key_data_2.as_slice()),
+                &PublicKey::new(public_key_data_3.as_slice()),
+            ],
+            Component::ProxyClient,
+        );
+
+        let result = format!("{:?}", subject);
+
+        let base64_1 = base64::encode_config(&public_key_data_1, base64::STANDARD_NO_PAD);
+        let base64_2 = base64::encode_config(&public_key_data_2, base64::STANDARD_NO_PAD);
+        let base64_3 = base64::encode_config(&public_key_data_3, base64::STANDARD_NO_PAD);
+        assert_eq!(
+            result,
+            format!("{} -> {} -> {} : ProxyClient", base64_1, base64_2, base64_3)
+        );
     }
 
     #[test]
