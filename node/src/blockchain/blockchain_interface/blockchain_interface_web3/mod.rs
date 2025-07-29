@@ -20,7 +20,7 @@ use actix::Recipient;
 use ethereum_types::U64;
 use web3::transports::{EventLoopHandle, Http};
 use web3::types::{Address, Log, H256, U256, FilterBuilder, TransactionReceipt, BlockNumber};
-use crate::accountant::scanners::payable_scanner_extension::msgs::{UnpricedQualifiedPayables, PricedQualifiedPayables};
+use crate::accountant::scanners::payable_scanner_extension::msgs::{ PricedQualifiedPayables};
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::{BlockMarker, BlockScanRange, PendingPayableFingerprintSeeds};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{LowBlockchainIntWeb3, TransactionReceiptResult, TxReceipt, TxStatus};
@@ -459,7 +459,7 @@ mod tests {
     use std::str::FromStr;
     use web3::transports::Http;
     use web3::types::{H256, U256};
-    use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayableWithGasPrice};
+    use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayableWithGasPrice, TxTemplates};
     use crate::accountant::test_utils::make_payable_account;
     use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt, TxStatus};
@@ -837,8 +837,7 @@ mod tests {
     fn blockchain_interface_web3_can_introduce_blockchain_agent_in_the_new_payables_mode() {
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
-        let unpriced_qualified_payables =
-            UnpricedQualifiedPayables::from(vec![account_1.clone(), account_2.clone()]);
+        let tx_templates = TxTemplates::from(vec![account_1.clone(), account_2.clone()]);
         let gas_price_wei_from_rpc_hex = "0x3B9ACA00"; // 1000000000
         let gas_price_wei_from_rpc_u128_wei =
             u128::from_str_radix(&gas_price_wei_from_rpc_hex[2..], 16).unwrap();
@@ -859,7 +858,7 @@ mod tests {
         let expected_estimated_transaction_fee_total = 190_652_800_000_000;
 
         test_blockchain_interface_web3_can_introduce_blockchain_agent(
-            unpriced_qualified_payables,
+            tx_templates,
             gas_price_wei_from_rpc_hex,
             expected_priced_qualified_payables,
             expected_estimated_transaction_fee_total,
@@ -916,7 +915,7 @@ mod tests {
     }
 
     fn test_blockchain_interface_web3_can_introduce_blockchain_agent(
-        unpriced_qualified_payables: UnpricedQualifiedPayables,
+        tx_templates: TxTemplates,
         gas_price_wei_from_rpc_hex: &str,
         expected_priced_qualified_payables: PricedQualifiedPayables,
         expected_estimated_transaction_fee_total: u128,
@@ -951,8 +950,7 @@ mod tests {
                 masq_token_balance_in_minor_units: expected_masq_balance
             }
         );
-        let priced_qualified_payables =
-            result.price_qualified_payables(unpriced_qualified_payables);
+        let priced_qualified_payables = result.price_qualified_payables(tx_templates);
         assert_eq!(
             priced_qualified_payables,
             expected_priced_qualified_payables

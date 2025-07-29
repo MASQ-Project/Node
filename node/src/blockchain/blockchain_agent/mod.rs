@@ -3,7 +3,7 @@
 pub mod agent_web3;
 
 use crate::accountant::scanners::payable_scanner_extension::msgs::{
-    PricedQualifiedPayables, UnpricedQualifiedPayables,
+    PricedQualifiedPayables, TxTemplates,
 };
 use crate::arbitrary_id_stamp_in_trait;
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
@@ -26,10 +26,7 @@ use masq_lib::blockchains::chains::Chain;
 //* defaulted limit
 
 pub trait BlockchainAgent: Send {
-    fn price_qualified_payables(
-        &self,
-        qualified_payables: UnpricedQualifiedPayables,
-    ) -> PricedQualifiedPayables;
+    fn price_qualified_payables(&self, tx_templates: TxTemplates) -> PricedQualifiedPayables;
     fn estimate_transaction_fee_total(&self, qualified_payables: &PricedQualifiedPayables) -> u128;
     fn consuming_wallet_balances(&self) -> ConsumingWalletBalances;
     fn consuming_wallet(&self) -> &Wallet;

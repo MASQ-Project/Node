@@ -3,7 +3,7 @@
 #![cfg(test)]
 
 use crate::accountant::scanners::payable_scanner_extension::msgs::{
-    PricedQualifiedPayables, UnpricedQualifiedPayables,
+    PricedQualifiedPayables, TxTemplates,
 };
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
@@ -34,10 +34,7 @@ impl Default for BlockchainAgentMock {
 }
 
 impl BlockchainAgent for BlockchainAgentMock {
-    fn price_qualified_payables(
-        &self,
-        _qualified_payables: UnpricedQualifiedPayables,
-    ) -> PricedQualifiedPayables {
+    fn price_qualified_payables(&self, _tx_templates: TxTemplates) -> PricedQualifiedPayables {
         unimplemented!("not needed yet")
     }
 

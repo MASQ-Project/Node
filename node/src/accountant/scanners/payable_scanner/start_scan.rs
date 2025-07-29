@@ -2,7 +2,7 @@ use crate::accountant::db_access_objects::failed_payable_dao::FailureRetrieveCon
 use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::RetryRequired;
 use crate::accountant::scanners::payable_scanner::PayableScanner;
 use crate::accountant::scanners::payable_scanner_extension::msgs::{
-    QualifiedPayablesMessage, UnpricedQualifiedPayables,
+    QualifiedPayablesMessage, TxTemplates,
 };
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::investigate_debt_extremes;
 use crate::accountant::scanners::{Scanner, StartScanError, StartableScanner};
@@ -44,7 +44,7 @@ impl StartableScanner<ScanForNewPayables, QualifiedPayablesMessage> for PayableS
                     "Chose {} qualified debts to pay",
                     qualified_payables.len()
                 );
-                let qualified_payables = UnpricedQualifiedPayables::from(qualified_payables);
+                let qualified_payables = TxTemplates::from(qualified_payables);
                 let outgoing_msg = QualifiedPayablesMessage::new(
                     qualified_payables,
                     consuming_wallet.clone(),
@@ -68,10 +68,10 @@ impl StartableScanner<ScanForRetryPayables, QualifiedPayablesMessage> for Payabl
         info!(logger, "Scanning for retry payables");
         let txs_to_retry = self.get_txs_to_retry();
         let payables_from_db = self.find_corresponding_payables_in_db(&txs_to_retry);
-        let payables = Self::generate_tx_templates(&payables_from_db, &txs_to_retry);
+        let tx_templates = Self::generate_tx_templates(&payables_from_db, &txs_to_retry);
 
         Ok(QualifiedPayablesMessage {
-            qualified_payables: UnpricedQualifiedPayables { payables },
+            tx_templates: TxTemplates(tx_templates),
             consuming_wallet: consuming_wallet.clone(),
             response_skeleton_opt,
         })
@@ -88,7 +88,7 @@ mod tests {
     };
     use crate::accountant::db_access_objects::test_utils::FailedTxBuilder;
     use crate::accountant::scanners::payable_scanner::test_utils::PayableScannerBuilder;
-    use crate::accountant::scanners::payable_scanner_extension::msgs::TxTemplate;
+    use crate::accountant::scanners::payable_scanner_extension::msgs::{TxTemplate, TxTemplates};
     use crate::accountant::scanners::Scanners;
     use crate::accountant::test_utils::{
         make_payable_account, FailedPayableDaoMock, PayableDaoMock,
@@ -157,23 +157,18 @@ mod tests {
         let failed_payables_retrieve_txs_params = retrieve_txs_params_arc.lock().unwrap();
         let non_pending_payables_params = non_pending_payables_params_arc.lock().unwrap();
         let expected_tx_templates = {
-            let mut tx_templates = vec![];
             let mut tx_template_1 = TxTemplate::from(&failed_tx_1);
             tx_template_1.amount_in_wei =
                 tx_template_1.amount_in_wei + payable_account_1.balance_wei;
-            tx_templates.push(tx_template_1);
 
             let tx_template_2 = TxTemplate::from(&failed_tx_2);
-            tx_templates.push(tx_template_2);
 
-            tx_templates
+            vec![tx_template_1, tx_template_2]
         };
         assert_eq!(
             result,
             Ok(QualifiedPayablesMessage {
-                qualified_payables: UnpricedQualifiedPayables {
-                    payables: expected_tx_templates
-                },
+                tx_templates: TxTemplates(expected_tx_templates),
                 consuming_wallet: consuming_wallet.clone(),
                 response_skeleton_opt: Some(response_skeleton),
             })

@@ -13,32 +13,25 @@ use web3::types::Address;
 
 #[derive(Debug, Message, PartialEq, Eq, Clone)]
 pub struct QualifiedPayablesMessage {
-    pub qualified_payables: UnpricedQualifiedPayables, // TODO: GH-605: The qualified_payables should be renamed to tx_templates
+    pub tx_templates: TxTemplates, // TODO: GH-605: The qualified_payables should be renamed to tx_templates
     pub consuming_wallet: Wallet,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct UnpricedQualifiedPayables {
-    pub payables: Vec<TxTemplate>,
-}
+pub struct TxTemplates(pub Vec<TxTemplate>);
 
-impl From<Vec<PayableAccount>> for UnpricedQualifiedPayables {
-    fn from(qualified_payable: Vec<PayableAccount>) -> Self {
-        UnpricedQualifiedPayables {
-            payables: qualified_payable
+// TODO: GH-605: It can be a reference instead
+impl From<Vec<PayableAccount>> for TxTemplates {
+    fn from(payable_accounts: Vec<PayableAccount>) -> Self {
+        Self(
+            payable_accounts
                 .iter()
                 .map(|payable| TxTemplate::from(payable))
                 .collect(),
-        }
+        )
     }
 }
-
-// #[derive(Debug, PartialEq, Eq, Clone)]
-// pub struct QualifiedPayablesBeforeGasPriceSelection {
-//     pub payable: PayableAccount,
-//     pub previous_attempt_gas_price_minor_opt: Option<u128>,
-// }
 
 // I'd suggest don't do it like this yet
 // #[derive(Debug, Clone, PartialEq, Eq)]
@@ -114,12 +107,12 @@ impl QualifiedPayableWithGasPrice {
 
 impl QualifiedPayablesMessage {
     pub(in crate::accountant) fn new(
-        qualified_payables: UnpricedQualifiedPayables,
+        tx_templates: TxTemplates,
         consuming_wallet: Wallet,
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) -> Self {
         Self {
-            qualified_payables,
+            tx_templates,
             consuming_wallet,
             response_skeleton_opt,
         }

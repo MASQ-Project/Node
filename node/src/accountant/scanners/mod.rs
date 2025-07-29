@@ -52,7 +52,7 @@ use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDao, Tx}
 use crate::accountant::db_access_objects::utils::{RowId, TxHash, TxIdentifiers};
 use crate::accountant::scanners::payable_scanner::PayableScanner;
 use crate::accountant::scanners::payable_scanner_extension::{MultistageDualPayableScanner, PreparedAdjustment, SolvencySensitivePaymentInstructor};
-use crate::accountant::scanners::payable_scanner_extension::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage, UnpricedQualifiedPayables};
+use crate::accountant::scanners::payable_scanner_extension::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionReceiptResult, TxStatus};
 use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
 use crate::blockchain::blockchain_interface::data_structures::{IndividualBatchResult, RpcPayableFailure};
@@ -1019,7 +1019,7 @@ mod tests {
         PendingPayable, PendingPayableDaoError, TransactionHashes,
     };
     use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp, TxIdentifiers};
-    use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayablesMessage, TxTemplate, UnpricedQualifiedPayables};
+    use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayablesMessage, TxTemplate, TxTemplates};
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{OperationOutcome, PayableScanResult, PendingPayableMetadata};
     use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_none_status, handle_status_with_failure, PendingPayableScanReport, PendingPayableScanResult};
     use crate::accountant::scanners::{Scanner, StartScanError, StartableScanner,  PendingPayableScanner, ReceivableScanner, ScannerCommon, Scanners, MTError};
@@ -1282,16 +1282,11 @@ mod tests {
         let timestamp = subject.payable.scan_started_at();
         assert_eq!(timestamp, Some(now));
         let qualified_payables_count = qualified_payable_accounts.len();
-        let expected_unpriced_qualified_payables = UnpricedQualifiedPayables {
-            payables: qualified_payable_accounts
-                .iter()
-                .map(|payable| TxTemplate::from(payable))
-                .collect::<Vec<_>>(),
-        };
+        let expected_tx_templates = TxTemplates::from(qualified_payable_accounts);
         assert_eq!(
             result,
             Ok(QualifiedPayablesMessage {
-                qualified_payables: expected_unpriced_qualified_payables,
+                tx_templates: expected_tx_templates,
                 consuming_wallet,
                 response_skeleton_opt: None,
             })
