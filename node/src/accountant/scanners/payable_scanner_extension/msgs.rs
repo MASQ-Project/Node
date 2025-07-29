@@ -20,35 +20,35 @@ pub struct QualifiedPayablesMessage {
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct TxTemplates(pub Vec<TxTemplate>);
-
-impl Deref for TxTemplates {
-    type Target = Vec<TxTemplate>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl TxTemplates {
-    pub fn has_retry_template(&self) -> bool {
-        self.iter()
-            .any(|template| template.prev_tx_values_opt.is_some())
-    }
-}
-
-// TODO: GH-605: It can be a reference instead
-impl From<Vec<PayableAccount>> for TxTemplates {
-    fn from(payable_accounts: Vec<PayableAccount>) -> Self {
-        Self(
-            payable_accounts
-                .iter()
-                .map(|payable| TxTemplate::from(payable))
-                .collect(),
-        )
-    }
-}
+// #[derive(Debug, PartialEq, Eq, Clone)]
+// pub struct TxTemplates(pub Vec<TxTemplate>);
+//
+// impl Deref for TxTemplates {
+//     type Target = Vec<TxTemplate>;
+//
+//     fn deref(&self) -> &Self::Target {
+//         &self.0
+//     }
+// }
+//
+// impl TxTemplates {
+//     pub fn has_retry_template(&self) -> bool {
+//         self.iter()
+//             .any(|template| template.prev_tx_values_opt.is_some())
+//     }
+// }
+//
+// // TODO: GH-605: It can be a reference instead
+// impl From<Vec<PayableAccount>> for TxTemplates {
+//     fn from(payable_accounts: Vec<PayableAccount>) -> Self {
+//         Self(
+//             payable_accounts
+//                 .iter()
+//                 .map(|payable| TxTemplate::from(payable))
+//                 .collect(),
+//         )
+//     }
+// }
 
 // I'd suggest don't do it like this yet
 // #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,30 +56,24 @@ impl From<Vec<PayableAccount>> for TxTemplates {
 //     EVM { gas_price_wei: u128, nonce: u64 },
 // }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PrevTxValues {
-    pub gas_price_wei: u128,
-    pub nonce: u64,
-}
+// #[derive(Debug, Clone, PartialEq, Eq)]
+// pub struct PrevTxValues {
+//     pub gas_price_wei: u128,
+//     pub nonce: u64,
+// }
 
 // Values used to form PricedPayable: gas_price and receiver address
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TxTemplate {
-    pub receiver_address: Address,
-    pub amount_in_wei: u128,
-    pub prev_tx_values_opt: Option<PrevTxValues>,
-}
+// #[derive(Debug, Clone, PartialEq, Eq)]
+// pub struct TxTemplate {
+//     pub receiver_address: Address,
+//     pub amount_in_wei: u128,
+//     pub prev_tx_values_opt: Option<PrevTxValues>,
+// }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BaseTxTemplate {
     pub receiver_address: Address,
     pub amount_in_wei: u128,
-}
-
-impl From<&PayableAccount> for BaseTxTemplate {
-    fn from(payable_account: &PayableAccount) -> Self {
-        todo!()
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -100,32 +94,58 @@ pub struct RetryTxTemplate {
     pub prev_nonce: u64,
 }
 
-impl From<&FailedTx> for RetryTxTemplate {
-    fn from(_: &FailedTx) -> Self {
+impl From<&PayableAccount> for BaseTxTemplate {
+    fn from(payable_account: &PayableAccount) -> Self {
         todo!()
     }
 }
 
-impl From<&PayableAccount> for TxTemplate {
+impl From<&PayableAccount> for NewTxTemplate {
     fn from(payable: &PayableAccount) -> Self {
-        Self {
-            receiver_address: payable.wallet.address(),
-            amount_in_wei: payable.balance_wei,
-            prev_tx_values_opt: None,
-        }
+        todo!()
+        // Self {
+        //     receiver_address: payable.wallet.address(),
+        //     amount_in_wei: payable.balance_wei,
+        //     prev_tx_values_opt: None,
+        // }
     }
 }
 
-impl From<&FailedTx> for TxTemplate {
+impl From<&FailedTx> for RetryTxTemplate {
     fn from(failed_tx: &FailedTx) -> Self {
-        Self {
-            receiver_address: failed_tx.receiver_address,
-            amount_in_wei: failed_tx.amount,
-            prev_tx_values_opt: Some(PrevTxValues {
-                gas_price_wei: failed_tx.gas_price_wei,
-                nonce: failed_tx.nonce,
-            }),
-        }
+        todo!()
+        // Self {
+        //     receiver_address: failed_tx.receiver_address,
+        //     amount_in_wei: failed_tx.amount,
+        //     prev_tx_values_opt: Some(PrevTxValues {
+        //         gas_price_wei: failed_tx.gas_price_wei,
+        //         nonce: failed_tx.nonce,
+        //     }),
+        // }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct NewTxTemplates(pub Vec<NewTxTemplate>);
+
+impl Deref for NewTxTemplates {
+    type Target = Vec<NewTxTemplate>;
+
+    fn deref(&self) -> &Self::Target {
+        todo!()
+        // &self.0
+    }
+}
+
+// TODO: GH-605: It can be a reference instead
+impl From<Vec<PayableAccount>> for NewTxTemplates {
+    fn from(payable_accounts: Vec<PayableAccount>) -> Self {
+        Self(
+            payable_accounts
+                .iter()
+                .map(|payable| NewTxTemplate::from(payable))
+                .collect(),
+        )
     }
 }
 
@@ -207,7 +227,7 @@ mod tests {
     };
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::scanners::payable_scanner_extension::msgs::{
-        BlockchainAgentWithContextMessage, PrevTxValues, TxTemplate, TxTemplates,
+        BaseTxTemplate, BlockchainAgentWithContextMessage, NewTxTemplate, NewTxTemplates,
     };
     use crate::accountant::scanners::payable_scanner_extension::test_utils::BlockchainAgentMock;
     use crate::blockchain::test_utils::{make_address, make_tx_hash};
@@ -228,95 +248,31 @@ mod tests {
     }
 
     #[test]
-    fn tx_template_can_be_created_from_payable_account() {
-        assert_eq!(
-            TxTemplate::from(&PayableAccount {
-                wallet: make_wallet("some wallet"),
-                balance_wei: 1234,
-                last_paid_timestamp: SystemTime::now(),
-                pending_payable_opt: None,
-            }),
-            TxTemplate {
-                receiver_address: make_wallet("some wallet").address(),
-                amount_in_wei: 1234,
-                prev_tx_values_opt: None,
-            }
-        );
-
-        assert_eq!(
-            TxTemplate::from(&PayableAccount {
-                wallet: make_wallet("another wallet"),
-                balance_wei: 4321,
-                last_paid_timestamp: SystemTime::now(),
-                pending_payable_opt: None,
-            }),
-            TxTemplate {
-                receiver_address: make_wallet("another wallet").address(),
-                amount_in_wei: 4321,
-                prev_tx_values_opt: None,
-            }
-        );
+    fn new_tx_template_can_be_created_from_payable_account() {
+        todo!()
     }
 
     #[test]
-    fn tx_template_can_be_created_from_failed_tx() {
-        assert_eq!(
-            TxTemplate::from(&FailedTx {
-                hash: make_tx_hash(1),
-                receiver_address: make_address(1),
-                amount: 12345,
-                timestamp: 341431,
-                gas_price_wei: 901,
-                nonce: 1,
-                reason: FailureReason::Reverted,
-                status: FailureStatus::RetryRequired,
-            }),
-            TxTemplate {
-                receiver_address: make_address(1),
-                amount_in_wei: 12345,
-                prev_tx_values_opt: Some(PrevTxValues {
-                    gas_price_wei: 901,
-                    nonce: 1,
-                }),
-            }
-        );
-
-        assert_eq!(
-            TxTemplate::from(&FailedTx {
-                hash: make_tx_hash(1),
-                receiver_address: make_address(2),
-                amount: 123456,
-                timestamp: 341431,
-                gas_price_wei: 9012,
-                nonce: 2,
-                reason: FailureReason::Reverted,
-                status: FailureStatus::RetryRequired,
-            }),
-            TxTemplate {
-                receiver_address: make_address(2),
-                amount_in_wei: 123456,
-                prev_tx_values_opt: Some(PrevTxValues {
-                    gas_price_wei: 9012,
-                    nonce: 2,
-                }),
-            }
-        );
+    fn retry_tx_template_can_be_created_from_failed_tx() {
+        todo!()
     }
 
     #[test]
-    fn tx_templates_deref_provides_access_to_inner_vector() {
-        let template1 = TxTemplate {
-            receiver_address: make_address(1),
-            amount_in_wei: 1000,
-            prev_tx_values_opt: None,
+    fn new_tx_templates_deref_provides_access_to_inner_vector() {
+        let template1 = NewTxTemplate {
+            base: BaseTxTemplate {
+                receiver_address: make_address(1),
+                amount_in_wei: 1000,
+            },
         };
-        let template2 = TxTemplate {
-            receiver_address: make_address(2),
-            amount_in_wei: 2000,
-            prev_tx_values_opt: None,
+        let template2 = NewTxTemplate {
+            base: BaseTxTemplate {
+                receiver_address: make_address(2),
+                amount_in_wei: 2000,
+            },
         };
 
-        let templates = TxTemplates(vec![template1.clone(), template2.clone()]);
+        let templates = NewTxTemplates(vec![template1.clone(), template2.clone()]);
 
         assert_eq!(templates.len(), 2);
         assert_eq!(templates[0], template1);
@@ -326,70 +282,9 @@ mod tests {
         assert_eq!(
             templates
                 .iter()
-                .map(|template| template.amount_in_wei)
+                .map(|template| template.base.amount_in_wei)
                 .sum::<u128>(),
             3000
         );
-    }
-
-    #[test]
-    fn tx_templates_is_retry_works() {
-        // Case 1: No templates are retries
-        let templates1 = TxTemplates(vec![
-            TxTemplate {
-                receiver_address: make_address(1),
-                amount_in_wei: 1000,
-                prev_tx_values_opt: None,
-            },
-            TxTemplate {
-                receiver_address: make_address(2),
-                amount_in_wei: 2000,
-                prev_tx_values_opt: None,
-            },
-        ]);
-        assert_eq!(templates1.has_retry_template(), false);
-
-        // Case 2: One template is a retry
-        let templates2 = TxTemplates(vec![
-            TxTemplate {
-                receiver_address: make_address(1),
-                amount_in_wei: 1000,
-                prev_tx_values_opt: None,
-            },
-            TxTemplate {
-                receiver_address: make_address(2),
-                amount_in_wei: 2000,
-                prev_tx_values_opt: Some(PrevTxValues {
-                    gas_price_wei: 5000,
-                    nonce: 3,
-                }),
-            },
-        ]);
-        assert_eq!(templates2.has_retry_template(), true);
-
-        // Case 3: All templates are retries
-        let templates3 = TxTemplates(vec![
-            TxTemplate {
-                receiver_address: make_address(1),
-                amount_in_wei: 1000,
-                prev_tx_values_opt: Some(PrevTxValues {
-                    gas_price_wei: 4000,
-                    nonce: 2,
-                }),
-            },
-            TxTemplate {
-                receiver_address: make_address(2),
-                amount_in_wei: 2000,
-                prev_tx_values_opt: Some(PrevTxValues {
-                    gas_price_wei: 5000,
-                    nonce: 3,
-                }),
-            },
-        ]);
-        assert_eq!(templates3.has_retry_template(), true);
-
-        // Case 4: Empty templates
-        let templates4 = TxTemplates(vec![]);
-        assert_eq!(templates4.has_retry_template(), false);
     }
 }

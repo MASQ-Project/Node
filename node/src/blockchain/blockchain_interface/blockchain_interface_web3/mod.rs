@@ -460,7 +460,7 @@ mod tests {
     use itertools::Either;
     use web3::transports::Http;
     use web3::types::{H256, U256};
-    use crate::accountant::scanners::payable_scanner_extension::msgs::{NewTxTemplate, QualifiedPayableWithGasPrice, RetryTxTemplate, TxTemplates};
+    use crate::accountant::scanners::payable_scanner_extension::msgs::{NewTxTemplate, QualifiedPayableWithGasPrice, RetryTxTemplate};
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::create_new_tx_templates;
     use crate::accountant::test_utils::make_payable_account;
     use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;

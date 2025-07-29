@@ -3,7 +3,7 @@
 pub mod agent_web3;
 
 use crate::accountant::scanners::payable_scanner_extension::msgs::{
-    NewTxTemplate, PricedQualifiedPayables, RetryTxTemplate, TxTemplates,
+    NewTxTemplate, PricedQualifiedPayables, RetryTxTemplate,
 };
 use crate::arbitrary_id_stamp_in_trait;
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;

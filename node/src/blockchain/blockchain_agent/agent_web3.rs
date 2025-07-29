@@ -2,8 +2,7 @@
 
 use crate::accountant::comma_joined_stringifiable;
 use crate::accountant::scanners::payable_scanner_extension::msgs::{
-    NewTxTemplate, PricedQualifiedPayables, QualifiedPayableWithGasPrice, RetryTxTemplate,
-    TxTemplates,
+    NewTxTemplate, PricedQualifiedPayables, RetryTxTemplate,
 };
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
@@ -226,17 +225,16 @@ impl BlockchainAgentWeb3 {
 
     fn set_up_warning_data_collector_opt(
         &self,
-        tx_templates: &TxTemplates,
+        tx_templates: &Either<Vec<NewTxTemplate>, Vec<RetryTxTemplate>>,
     ) -> Option<GasPriceAboveLimitWarningReporter> {
         self.logger.warning_enabled().then(|| {
-            let is_retry = tx_templates.has_retry_template();
-            GasPriceAboveLimitWarningReporter {
-                data: if !is_retry {
-                    Either::Left(NewPayableWarningData::default())
-                } else {
-                    Either::Right(RetryPayableWarningData::default())
-                },
-            }
+            let data = if tx_templates.is_left() {
+                Either::Left(NewPayableWarningData::default())
+            } else {
+                Either::Right(RetryPayableWarningData::default())
+            };
+
+            GasPriceAboveLimitWarningReporter { data }
         })
     }
 }
@@ -244,12 +242,13 @@ impl BlockchainAgentWeb3 {
 #[cfg(test)]
 mod tests {
     use crate::accountant::scanners::payable_scanner_extension::msgs::{
-        PricedQualifiedPayables, QualifiedPayableWithGasPrice, RetryTxTemplate, TxTemplates,
+        NewTxTemplate, NewTxTemplates, PricedQualifiedPayables, QualifiedPayableWithGasPrice,
+        RetryTxTemplate,
     };
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::create_new_tx_templates;
     use crate::accountant::scanners::test_utils::make_zeroed_consuming_wallet_balances;
     use crate::accountant::test_utils::{
-        make_payable_account, make_unpriced_qualified_payables_for_retry_mode,
+        make_payable_account, make_retry_tx_template, RetryTxTemplateBuilder,
     };
     use crate::blockchain::blockchain_agent::agent_web3::{
         BlockchainAgentWeb3, GasPriceAboveLimitWarningReporter, NewPayableWarningData,
@@ -522,10 +521,17 @@ mod tests {
         let rpc_gas_price_wei =
             (ceiling_gas_price_wei * 100) / (DEFAULT_GAS_PRICE_MARGIN as u128 + 100) + 2;
         let check_value_wei = increase_gas_price_by_margin(rpc_gas_price_wei);
-        let unpriced_qualified_payables = make_unpriced_qualified_payables_for_retry_mode(vec![
-            (account_1.clone(), rpc_gas_price_wei - 1),
-            (account_2.clone(), rpc_gas_price_wei - 2),
-        ]);
+        let template_1 = RetryTxTemplateBuilder::new()
+            .receiver_address(account_1.wallet.address())
+            .amount_in_wei(account_1.balance_wei)
+            .prev_gas_price_wei(rpc_gas_price_wei - 1)
+            .build();
+        let template_2 = RetryTxTemplateBuilder::new()
+            .receiver_address(account_2.wallet.address())
+            .amount_in_wei(account_2.balance_wei)
+            .prev_gas_price_wei(rpc_gas_price_wei - 2)
+            .build();
+        let retry_tx_templates = vec![template_1, template_2];
         let expected_surpluses_wallet_and_wei_as_text = "\
         50,000,000,001 wei for tx to 0x00000000000000000000000077616c6c65743132, 50,000,000,001 \
         wei for tx to 0x00000000000000000000000077616c6c65743334";
@@ -534,7 +540,7 @@ mod tests {
             test_name,
             chain,
             rpc_gas_price_wei,
-            unpriced_qualified_payables,
+            Either::Right(retry_tx_templates),
             expected_surpluses_wallet_and_wei_as_text,
         );
 
@@ -559,10 +565,17 @@ mod tests {
             (ceiling_gas_price_wei * 100) / (DEFAULT_GAS_PRICE_MARGIN as u128 + 100) + 2;
         let rpc_gas_price_wei = border_gas_price_wei - 1;
         let check_value_wei = increase_gas_price_by_margin(border_gas_price_wei);
-        let unpriced_qualified_payables = make_unpriced_qualified_payables_for_retry_mode(vec![
-            (account_1.clone(), border_gas_price_wei),
-            (account_2.clone(), border_gas_price_wei),
-        ]);
+        let template_1 = RetryTxTemplateBuilder::new()
+            .receiver_address(account_1.wallet.address())
+            .amount_in_wei(account_1.balance_wei)
+            .prev_gas_price_wei(border_gas_price_wei)
+            .build();
+        let template_2 = RetryTxTemplateBuilder::new()
+            .receiver_address(account_2.wallet.address())
+            .amount_in_wei(account_2.balance_wei)
+            .prev_gas_price_wei(border_gas_price_wei)
+            .build();
+        let retry_tx_templates = vec![template_1, template_2];
         let expected_surpluses_wallet_and_wei_as_text = "50,000,000,001 wei for tx to \
         0x00000000000000000000000077616c6c65743132, 50,000,000,001 wei for tx to \
         0x00000000000000000000000077616c6c65743334";
@@ -571,7 +584,7 @@ mod tests {
             test_name,
             chain,
             rpc_gas_price_wei,
-            unpriced_qualified_payables,
+            Either::Right(retry_tx_templates),
             expected_surpluses_wallet_and_wei_as_text,
         );
         assert!(check_value_wei > ceiling_gas_price_wei);
@@ -586,10 +599,17 @@ mod tests {
         let fetched_gas_price_wei = ceiling_gas_price_wei - 1;
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
-        let unpriced_qualified_payables = make_unpriced_qualified_payables_for_retry_mode(vec![
-            (account_1.clone(), fetched_gas_price_wei - 2),
-            (account_2.clone(), fetched_gas_price_wei - 3),
-        ]);
+        let template_1 = RetryTxTemplateBuilder::new()
+            .receiver_address(account_1.wallet.address())
+            .amount_in_wei(account_1.balance_wei)
+            .prev_gas_price_wei(fetched_gas_price_wei - 2)
+            .build();
+        let template_2 = RetryTxTemplateBuilder::new()
+            .receiver_address(account_2.wallet.address())
+            .amount_in_wei(account_2.balance_wei)
+            .prev_gas_price_wei(fetched_gas_price_wei - 3)
+            .build();
+        let retry_tx_templates = vec![template_1, template_2];
         let expected_surpluses_wallet_and_wei_as_text = "64,999,999,998 wei for tx to \
         0x00000000000000000000000077616c6c65743132, 64,999,999,998 wei for tx to \
         0x00000000000000000000000077616c6c65743334";
@@ -598,7 +618,7 @@ mod tests {
             test_name,
             chain,
             fetched_gas_price_wei,
-            unpriced_qualified_payables,
+            Either::Right(retry_tx_templates),
             expected_surpluses_wallet_and_wei_as_text,
         );
     }
@@ -610,10 +630,17 @@ mod tests {
         let ceiling_gas_price_wei = chain.rec().gas_price_safe_ceiling_minor;
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
-        let unpriced_qualified_payables = make_unpriced_qualified_payables_for_retry_mode(vec![
-            (account_1.clone(), ceiling_gas_price_wei - 1),
-            (account_2.clone(), ceiling_gas_price_wei - 2),
-        ]);
+        let template_1 = RetryTxTemplateBuilder::new()
+            .receiver_address(account_1.wallet.address())
+            .amount_in_wei(account_1.balance_wei)
+            .prev_gas_price_wei(ceiling_gas_price_wei - 1)
+            .build();
+        let template_2 = RetryTxTemplateBuilder::new()
+            .receiver_address(account_2.wallet.address())
+            .amount_in_wei(account_2.balance_wei)
+            .prev_gas_price_wei(ceiling_gas_price_wei - 2)
+            .build();
+        let retry_tx_templates = vec![template_1, template_2];
         let expected_surpluses_wallet_and_wei_as_text = "64,999,999,998 wei for tx to \
         0x00000000000000000000000077616c6c65743132, 64,999,999,997 wei for tx to \
         0x00000000000000000000000077616c6c65743334";
@@ -622,7 +649,7 @@ mod tests {
             test_name,
             chain,
             ceiling_gas_price_wei - 3,
-            unpriced_qualified_payables,
+            Either::Right(retry_tx_templates),
             expected_surpluses_wallet_and_wei_as_text,
         );
     }
@@ -637,10 +664,17 @@ mod tests {
         let account_2 = make_payable_account(34);
         // The values can never go above the ceiling, therefore, we can assume only values even or
         // smaller than that in the previous attempts
-        let unpriced_qualified_payables = make_unpriced_qualified_payables_for_retry_mode(vec![
-            (account_1.clone(), ceiling_gas_price_wei),
-            (account_2.clone(), ceiling_gas_price_wei),
-        ]);
+        let template_1 = RetryTxTemplateBuilder::new()
+            .receiver_address(account_1.wallet.address())
+            .amount_in_wei(account_1.balance_wei)
+            .prev_gas_price_wei(ceiling_gas_price_wei)
+            .build();
+        let template_2 = RetryTxTemplateBuilder::new()
+            .receiver_address(account_2.wallet.address())
+            .amount_in_wei(account_2.balance_wei)
+            .prev_gas_price_wei(ceiling_gas_price_wei)
+            .build();
+        let retry_tx_templates = vec![template_1, template_2];
         let expected_surpluses_wallet_and_wei_as_text =
             "650,000,000,000 wei for tx to 0x00000000000000000000\
             000077616c6c65743132, 650,000,000,000 wei for tx to 0x00000000000000000000000077616c6c65743334";
@@ -649,7 +683,7 @@ mod tests {
             test_name,
             chain,
             fetched_gas_price_wei,
-            unpriced_qualified_payables,
+            Either::Right(retry_tx_templates),
             expected_surpluses_wallet_and_wei_as_text,
         );
     }
@@ -658,7 +692,7 @@ mod tests {
         test_name: &str,
         chain: Chain,
         rpc_gas_price_wei: u128,
-        tx_templates: TxTemplates,
+        tx_templates: Either<Vec<NewTxTemplate>, Vec<RetryTxTemplate>>,
         expected_surpluses_wallet_and_wei_as_text: &str,
     ) {
         todo!("change PricedQualifiedPayables");

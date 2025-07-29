@@ -596,7 +596,7 @@ mod tests {
     use std::time::{Duration, SystemTime};
     use web3::types::{TransactionReceipt, H160};
     use masq_lib::constants::DEFAULT_MAX_BLOCK_COUNT;
-    use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayableWithGasPrice, TxTemplates};
+    use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayableWithGasPrice};
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::create_new_tx_templates;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt};
 

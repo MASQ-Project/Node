@@ -1,9 +1,7 @@
 use crate::accountant::db_access_objects::failed_payable_dao::FailureRetrieveCondition::ByStatus;
 use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::RetryRequired;
 use crate::accountant::scanners::payable_scanner::PayableScanner;
-use crate::accountant::scanners::payable_scanner_extension::msgs::{
-    QualifiedPayablesMessage, TxTemplates,
-};
+use crate::accountant::scanners::payable_scanner_extension::msgs::QualifiedPayablesMessage;
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{
     create_new_tx_templates, investigate_debt_extremes,
 };
@@ -91,9 +89,7 @@ mod tests {
     };
     use crate::accountant::db_access_objects::test_utils::FailedTxBuilder;
     use crate::accountant::scanners::payable_scanner::test_utils::PayableScannerBuilder;
-    use crate::accountant::scanners::payable_scanner_extension::msgs::{
-        RetryTxTemplate, TxTemplate, TxTemplates,
-    };
+    use crate::accountant::scanners::payable_scanner_extension::msgs::RetryTxTemplate;
     use crate::accountant::scanners::Scanners;
     use crate::accountant::test_utils::{
         make_payable_account, FailedPayableDaoMock, PayableDaoMock,

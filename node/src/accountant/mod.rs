@@ -1246,7 +1246,7 @@ mod tests {
     use crate::accountant::test_utils::DaoWithDestination::{
         ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,
     };
-    use crate::accountant::test_utils::{bc_from_earning_wallet, bc_from_wallets, make_payable_account, make_pending_payable_fingerprint, make_qualified_and_unqualified_payables, make_unpriced_qualified_payables_for_retry_mode, make_priced_qualified_payables, BannedDaoFactoryMock, ConfigDaoFactoryMock, MessageIdGeneratorMock, PayableDaoFactoryMock, PayableDaoMock, PaymentAdjusterMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock, ReceivableDaoFactoryMock, ReceivableDaoMock, FailedPayableDaoFactoryMock, FailedPayableDaoMock, SentPayableDaoFactoryMock, SentPayableDaoMock, make_retry_tx_template};
+    use crate::accountant::test_utils::{bc_from_earning_wallet, bc_from_wallets, make_payable_account, make_pending_payable_fingerprint, make_qualified_and_unqualified_payables, make_priced_qualified_payables, BannedDaoFactoryMock, ConfigDaoFactoryMock, MessageIdGeneratorMock, PayableDaoFactoryMock, PayableDaoMock, PaymentAdjusterMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock, ReceivableDaoFactoryMock, ReceivableDaoMock, FailedPayableDaoFactoryMock, FailedPayableDaoMock, SentPayableDaoFactoryMock, SentPayableDaoMock, make_retry_tx_template};
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
     use crate::accountant::Accountant;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::HashAndAmount;
@@ -1301,7 +1301,6 @@ mod tests {
     use std::sync::Mutex;
     use std::time::{Duration, UNIX_EPOCH};
     use std::vec;
-    use crate::accountant::scanners::payable_scanner_extension::msgs::{TxTemplate, TxTemplates};
     use crate::accountant::scanners::scan_schedulers::{NewPayableScanDynIntervalComputer, NewPayableScanDynIntervalComputerReal};
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{create_new_tx_templates, OperationOutcome, PayableScanResult};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt, TxStatus};

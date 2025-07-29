@@ -45,7 +45,7 @@ impl BlockchainInterfaceInitializer {
 #[cfg(test)]
 mod tests {
     use crate::accountant::scanners::payable_scanner_extension::msgs::{
-        PricedQualifiedPayables, QualifiedPayableWithGasPrice, TxTemplates,
+        PricedQualifiedPayables, QualifiedPayableWithGasPrice,
     };
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::create_new_tx_templates;
     use crate::accountant::test_utils::make_payable_account;

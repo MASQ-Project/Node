@@ -16,7 +16,7 @@ use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDao;
 use crate::accountant::db_access_objects::utils::{from_unix_timestamp, TxHash};
 use crate::accountant::payment_adjuster::PaymentAdjuster;
 use crate::accountant::scanners::payable_scanner_extension::msgs::{
-    BaseTxTemplate, BlockchainAgentWithContextMessage, NewTxTemplate, RetryTxTemplate, TxTemplate,
+    BaseTxTemplate, BlockchainAgentWithContextMessage, NewTxTemplate, RetryTxTemplate,
 };
 use crate::accountant::scanners::payable_scanner_extension::{
     MultistageDualPayableScanner, PreparedAdjustment, SolvencySensitivePaymentInstructor,
