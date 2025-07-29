@@ -47,11 +47,13 @@ mod tests {
     use crate::accountant::scanners::payable_scanner_extension::msgs::{
         PricedQualifiedPayables, QualifiedPayableWithGasPrice, TxTemplates,
     };
+    use crate::accountant::scanners::scanners_utils::payable_scanner_utils::create_new_tx_templates;
     use crate::accountant::test_utils::make_payable_account;
     use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
     use crate::blockchain::blockchain_interface_initializer::BlockchainInterfaceInitializer;
     use crate::test_utils::make_wallet;
     use futures::Future;
+    use itertools::Either;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
@@ -80,14 +82,15 @@ mod tests {
 
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
-        let tx_templates = TxTemplates::from(vec![account_1.clone(), account_2.clone()]);
+        let tx_templates = create_new_tx_templates(vec![account_1.clone(), account_2.clone()]);
         let payable_wallet = make_wallet("payable");
         let blockchain_agent = result
             .introduce_blockchain_agent(payable_wallet.clone())
             .wait()
             .unwrap();
         assert_eq!(blockchain_agent.consuming_wallet(), &payable_wallet);
-        let priced_qualified_payables = blockchain_agent.price_qualified_payables(tx_templates);
+        let priced_qualified_payables =
+            blockchain_agent.price_qualified_payables(Either::Left(tx_templates));
         let gas_price_with_margin = increase_gas_price_by_margin(1_000_000_000);
         let expected_priced_qualified_payables = PricedQualifiedPayables {
             payables: vec![

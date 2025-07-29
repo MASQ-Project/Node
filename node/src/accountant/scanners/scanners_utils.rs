@@ -22,6 +22,7 @@ pub mod payable_scanner_utils {
     use crate::accountant::db_access_objects::failed_payable_dao::FailureReason;
     use crate::accountant::db_access_objects::failed_payable_dao::FailureReason::Submission;
     use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
+    use crate::accountant::scanners::payable_scanner_extension::msgs::NewTxTemplate;
     use crate::blockchain::blockchain_interface::data_structures::{IndividualBatchResult, RpcPayableFailure};
     use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
     use crate::blockchain::errors::AppRpcError::Local;
@@ -218,6 +219,10 @@ pub mod payable_scanner_utils {
             ThresholdUtils::calculate_finite_debt_limit_by_age(payment_thresholds, debt_age)
         }
         as_any_ref_in_trait_impl!();
+    }
+
+    pub fn create_new_tx_templates(payables: Vec<PayableAccount>) -> Vec<NewTxTemplate> {
+        todo!("create_new_tx_templates")
     }
 }
 

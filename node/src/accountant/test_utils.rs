@@ -19,7 +19,7 @@ use crate::accountant::db_access_objects::utils::{
     from_unix_timestamp, to_unix_timestamp, CustomQuery, TxHash, TxIdentifiers,
 };
 use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdjuster};
-use crate::accountant::scanners::payable_scanner_extension::msgs::{BlockchainAgentWithContextMessage, PrevTxValues, PricedQualifiedPayables, QualifiedPayableWithGasPrice, TxTemplate, TxTemplates};
+use crate::accountant::scanners::payable_scanner_extension::msgs::{BaseTxTemplate, BlockchainAgentWithContextMessage, PrevTxValues, PricedQualifiedPayables, QualifiedPayableWithGasPrice, RetryTxTemplate, TxTemplate, TxTemplates};
 use crate::accountant::scanners::payable_scanner_extension::PreparedAdjustment;
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableThresholdsGauge;
 use crate::accountant::scanners::{PendingPayableScanner, ReceivableScanner};
@@ -1808,14 +1808,14 @@ pub fn make_priced_qualified_payables(
     }
 }
 
-pub fn make_tx_template_for_retry_mode(n: u32) -> TxTemplate {
-    TxTemplate {
-        receiver_address: make_address(n),
-        amount_in_wei: n as u128 * 1000,
-        prev_tx_values_opt: Some(PrevTxValues {
-            gas_price_wei: n as u128 * 100,
-            nonce: n as u64,
-        }),
+pub fn make_retry_tx_template(n: u32) -> RetryTxTemplate {
+    RetryTxTemplate {
+        base: BaseTxTemplate {
+            receiver_address: make_address(n),
+            amount_in_wei: n as u128 * 1000,
+        },
+        prev_gas_price_wei: n as u128 * 100,
+        prev_nonce: n as u64,
     }
 }
 

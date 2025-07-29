@@ -2,7 +2,8 @@
 
 use crate::accountant::comma_joined_stringifiable;
 use crate::accountant::scanners::payable_scanner_extension::msgs::{
-    PricedQualifiedPayables, QualifiedPayableWithGasPrice, TxTemplates,
+    NewTxTemplate, PricedQualifiedPayables, QualifiedPayableWithGasPrice, RetryTxTemplate,
+    TxTemplates,
 };
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
@@ -26,7 +27,10 @@ pub struct BlockchainAgentWeb3 {
 }
 
 impl BlockchainAgent for BlockchainAgentWeb3 {
-    fn price_qualified_payables(&self, tx_templates: TxTemplates) -> PricedQualifiedPayables {
+    fn price_qualified_payables(
+        &self,
+        tx_templates: Either<Vec<NewTxTemplate>, Vec<RetryTxTemplate>>,
+    ) -> PricedQualifiedPayables {
         todo!("TxTemplates");
         // let warning_data_collector_opt =
         //     self.set_up_warning_data_collector_opt(&qualified_payables);
@@ -225,7 +229,7 @@ impl BlockchainAgentWeb3 {
         tx_templates: &TxTemplates,
     ) -> Option<GasPriceAboveLimitWarningReporter> {
         self.logger.warning_enabled().then(|| {
-            let is_retry = Self::is_retry(tx_templates);
+            let is_retry = tx_templates.has_retry_template();
             GasPriceAboveLimitWarningReporter {
                 data: if !is_retry {
                     Either::Left(NewPayableWarningData::default())
@@ -235,23 +239,14 @@ impl BlockchainAgentWeb3 {
             }
         })
     }
-
-    fn is_retry(tx_templates: &TxTemplates) -> bool {
-        todo!("TxTemplate");
-        // qualified_payables
-        //     .payables
-        //     .first()
-        //     .expectv("payable")
-        //     .previous_attempt_gas_price_minor_opt
-        //     .is_some()
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::accountant::scanners::payable_scanner_extension::msgs::{
-        PricedQualifiedPayables, QualifiedPayableWithGasPrice, TxTemplates,
+        PricedQualifiedPayables, QualifiedPayableWithGasPrice, RetryTxTemplate, TxTemplates,
     };
+    use crate::accountant::scanners::scanners_utils::payable_scanner_utils::create_new_tx_templates;
     use crate::accountant::scanners::test_utils::make_zeroed_consuming_wallet_balances;
     use crate::accountant::test_utils::{
         make_payable_account, make_unpriced_qualified_payables_for_retry_mode,
@@ -263,7 +258,7 @@ mod tests {
     use crate::blockchain::blockchain_agent::BlockchainAgent;
     use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
     use crate::test_utils::make_wallet;
-    use itertools::Itertools;
+    use itertools::{Either, Itertools};
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::DEFAULT_GAS_PRICE_MARGIN;
     use masq_lib::logger::Logger;
@@ -286,8 +281,7 @@ mod tests {
         let account_2 = make_payable_account(34);
         let address_1 = account_1.wallet.address();
         let address_2 = account_2.wallet.address();
-        let unpriced_qualified_payables =
-            TxTemplates::from(vec![account_1.clone(), account_2.clone()]);
+        let new_tx_templates = create_new_tx_templates(vec![account_1.clone(), account_2.clone()]);
         let rpc_gas_price_wei = 555_666_777;
         let chain = TEST_DEFAULT_CHAIN;
         let mut subject = BlockchainAgentWeb3::new(
@@ -300,7 +294,7 @@ mod tests {
         subject.logger = Logger::new(test_name);
 
         let priced_qualified_payables =
-            subject.price_qualified_payables(unpriced_qualified_payables);
+            subject.price_qualified_payables(Either::Left(new_tx_templates));
 
         let gas_price_with_margin_wei = increase_gas_price_by_margin(rpc_gas_price_wei);
         let expected_result = PricedQualifiedPayables {
@@ -331,13 +325,13 @@ mod tests {
         let consuming_wallet_balances = make_zeroed_consuming_wallet_balances();
         let rpc_gas_price_wei = 444_555_666;
         let chain = TEST_DEFAULT_CHAIN;
-        let unpriced_qualified_payables = {
+        let retry_tx_templates: Vec<RetryTxTemplate> = {
             let tx_templates = vec![
-                rpc_gas_price_wei - 1,
-                rpc_gas_price_wei,
-                rpc_gas_price_wei + 1,
-                rpc_gas_price_wei - 123_456,
-                rpc_gas_price_wei + 456_789,
+                (rpc_gas_price_wei - 1, 1),
+                (rpc_gas_price_wei, 2),
+                (rpc_gas_price_wei + 1, 3),
+                (rpc_gas_price_wei - 123_456, 4),
+                (rpc_gas_price_wei + 456_789, 5),
             ]
             .into_iter()
             .enumerate()
@@ -350,13 +344,13 @@ mod tests {
                 // )
             })
             .collect_vec();
-            TxTemplates(tx_templates)
+
+            vec![]
         };
-        let accounts_from_1_to_5 = unpriced_qualified_payables
-            .0 // TODO: GH-605: Create a fn called inner()
+        let accounts_from_1_to_5 = retry_tx_templates
             .iter()
             .map(|unpriced_payable| {
-                todo!("TxTemplate");
+                todo!("RetryTxTemplate");
                 // unpriced_payable.payable.clone()
             })
             .collect_vec();
@@ -370,7 +364,7 @@ mod tests {
         subject.logger = Logger::new(test_name);
 
         let priced_qualified_payables =
-            subject.price_qualified_payables(unpriced_qualified_payables);
+            subject.price_qualified_payables(Either::Right(retry_tx_templates));
 
         let expected_result = {
             let price_wei_for_accounts_from_1_to_5 = vec![
@@ -482,7 +476,7 @@ mod tests {
         let consuming_wallet_balances = make_zeroed_consuming_wallet_balances();
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
-        let tx_templates = TxTemplates::from(vec![account_1.clone(), account_2.clone()]);
+        let tx_templates = create_new_tx_templates(vec![account_1.clone(), account_2.clone()]);
         let mut subject = BlockchainAgentWeb3::new(
             rpc_gas_price_wei,
             77_777,
@@ -492,7 +486,8 @@ mod tests {
         );
         subject.logger = Logger::new(test_name);
 
-        let priced_qualified_payables = subject.price_qualified_payables(tx_templates);
+        let priced_qualified_payables =
+            subject.price_qualified_payables(Either::Left(tx_templates));
 
         let expected_result = PricedQualifiedPayables {
             payables: vec![
@@ -730,7 +725,7 @@ mod tests {
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
         let chain = TEST_DEFAULT_CHAIN;
-        let tx_templates = TxTemplates::from(vec![account_1, account_2]);
+        let tx_templates = create_new_tx_templates(vec![account_1, account_2]);
         let subject = BlockchainAgentWeb3::new(
             444_555_666,
             77_777,
@@ -738,7 +733,8 @@ mod tests {
             consuming_wallet_balances,
             chain,
         );
-        let priced_qualified_payables = subject.price_qualified_payables(tx_templates);
+        let priced_qualified_payables =
+            subject.price_qualified_payables(Either::Left(tx_templates));
 
         let result = subject.estimate_transaction_fee_total(&priced_qualified_payables);
 
@@ -750,12 +746,12 @@ mod tests {
     }
 
     #[test]
-    fn estimate_transaction_fee_total_works_for_retry_payable() {
+    fn estimate_transaction_fee_total_works_for_retry_txs() {
         let consuming_wallet = make_wallet("efg");
         let consuming_wallet_balances = make_zeroed_consuming_wallet_balances();
         let rpc_gas_price_wei = 444_555_666;
         let chain = TEST_DEFAULT_CHAIN;
-        let unpriced_qualified_payables = {
+        let retry_tx_templates: Vec<RetryTxTemplate> = {
             let tx_templates = vec![
                 rpc_gas_price_wei - 1,
                 rpc_gas_price_wei,
@@ -774,7 +770,7 @@ mod tests {
                 // )
             })
             .collect_vec();
-            TxTemplates(tx_templates)
+            vec![]
         };
         let subject = BlockchainAgentWeb3::new(
             rpc_gas_price_wei,
@@ -784,7 +780,7 @@ mod tests {
             chain,
         );
         let priced_qualified_payables =
-            subject.price_qualified_payables(unpriced_qualified_payables);
+            subject.price_qualified_payables(Either::Right(retry_tx_templates));
 
         let result = subject.estimate_transaction_fee_total(&priced_qualified_payables);
 

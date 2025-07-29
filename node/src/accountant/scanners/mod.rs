@@ -1020,7 +1020,7 @@ mod tests {
     };
     use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp, TxIdentifiers};
     use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayablesMessage, TxTemplate, TxTemplates};
-    use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{OperationOutcome, PayableScanResult, PendingPayableMetadata};
+    use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{create_new_tx_templates, OperationOutcome, PayableScanResult, PendingPayableMetadata};
     use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_none_status, handle_status_with_failure, PendingPayableScanReport, PendingPayableScanResult};
     use crate::accountant::scanners::{Scanner, StartScanError, StartableScanner,  PendingPayableScanner, ReceivableScanner, ScannerCommon, Scanners, MTError};
     use crate::accountant::test_utils::{make_custom_payment_thresholds, make_payable_account, make_qualified_and_unqualified_payables, make_pending_payable_fingerprint, make_receivable_account, BannedDaoFactoryMock, BannedDaoMock, ConfigDaoFactoryMock, PayableDaoFactoryMock, PayableDaoMock, PayableThresholdsGaugeMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock, PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock, ReceivableScannerBuilder, FailedPayableDaoMock, FailedPayableDaoFactoryMock, SentPayableDaoFactoryMock, SentPayableDaoMock};
@@ -1282,11 +1282,11 @@ mod tests {
         let timestamp = subject.payable.scan_started_at();
         assert_eq!(timestamp, Some(now));
         let qualified_payables_count = qualified_payable_accounts.len();
-        let expected_tx_templates = TxTemplates::from(qualified_payable_accounts);
+        let expected_tx_templates = create_new_tx_templates(qualified_payable_accounts);
         assert_eq!(
             result,
             Ok(QualifiedPayablesMessage {
-                tx_templates: expected_tx_templates,
+                tx_templates: Either::Left(expected_tx_templates),
                 consuming_wallet,
                 response_skeleton_opt: None,
             })

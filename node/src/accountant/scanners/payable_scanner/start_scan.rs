@@ -4,10 +4,13 @@ use crate::accountant::scanners::payable_scanner::PayableScanner;
 use crate::accountant::scanners::payable_scanner_extension::msgs::{
     QualifiedPayablesMessage, TxTemplates,
 };
-use crate::accountant::scanners::scanners_utils::payable_scanner_utils::investigate_debt_extremes;
+use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{
+    create_new_tx_templates, investigate_debt_extremes,
+};
 use crate::accountant::scanners::{Scanner, StartScanError, StartableScanner};
 use crate::accountant::{ResponseSkeleton, ScanForNewPayables, ScanForRetryPayables};
 use crate::sub_lib::wallet::Wallet;
+use itertools::Either;
 use masq_lib::logger::Logger;
 use std::collections::BTreeSet;
 use std::time::SystemTime;
@@ -44,13 +47,12 @@ impl StartableScanner<ScanForNewPayables, QualifiedPayablesMessage> for PayableS
                     "Chose {} qualified debts to pay",
                     qualified_payables.len()
                 );
-                let qualified_payables = TxTemplates::from(qualified_payables);
-                let outgoing_msg = QualifiedPayablesMessage::new(
-                    qualified_payables,
-                    consuming_wallet.clone(),
+                let new_tx_templates = create_new_tx_templates(qualified_payables);
+                Ok(QualifiedPayablesMessage {
+                    tx_templates: Either::Left(new_tx_templates),
+                    consuming_wallet: consuming_wallet.clone(),
                     response_skeleton_opt,
-                );
-                Ok(outgoing_msg)
+                })
             }
         }
     }
@@ -68,10 +70,11 @@ impl StartableScanner<ScanForRetryPayables, QualifiedPayablesMessage> for Payabl
         info!(logger, "Scanning for retry payables");
         let txs_to_retry = self.get_txs_to_retry();
         let payables_from_db = self.find_corresponding_payables_in_db(&txs_to_retry);
-        let tx_templates = Self::generate_tx_templates(&payables_from_db, &txs_to_retry);
+        let retry_tx_templates =
+            Self::generate_retry_tx_templates(&payables_from_db, &txs_to_retry);
 
         Ok(QualifiedPayablesMessage {
-            tx_templates: TxTemplates(tx_templates),
+            tx_templates: Either::Right(retry_tx_templates),
             consuming_wallet: consuming_wallet.clone(),
             response_skeleton_opt,
         })
@@ -88,7 +91,9 @@ mod tests {
     };
     use crate::accountant::db_access_objects::test_utils::FailedTxBuilder;
     use crate::accountant::scanners::payable_scanner::test_utils::PayableScannerBuilder;
-    use crate::accountant::scanners::payable_scanner_extension::msgs::{TxTemplate, TxTemplates};
+    use crate::accountant::scanners::payable_scanner_extension::msgs::{
+        RetryTxTemplate, TxTemplate, TxTemplates,
+    };
     use crate::accountant::scanners::Scanners;
     use crate::accountant::test_utils::{
         make_payable_account, FailedPayableDaoMock, PayableDaoMock,
@@ -157,18 +162,18 @@ mod tests {
         let failed_payables_retrieve_txs_params = retrieve_txs_params_arc.lock().unwrap();
         let non_pending_payables_params = non_pending_payables_params_arc.lock().unwrap();
         let expected_tx_templates = {
-            let mut tx_template_1 = TxTemplate::from(&failed_tx_1);
-            tx_template_1.amount_in_wei =
-                tx_template_1.amount_in_wei + payable_account_1.balance_wei;
+            let mut tx_template_1 = RetryTxTemplate::from(&failed_tx_1);
+            tx_template_1.base.amount_in_wei =
+                tx_template_1.base.amount_in_wei + payable_account_1.balance_wei;
 
-            let tx_template_2 = TxTemplate::from(&failed_tx_2);
+            let tx_template_2 = RetryTxTemplate::from(&failed_tx_2);
 
             vec![tx_template_1, tx_template_2]
         };
         assert_eq!(
             result,
             Ok(QualifiedPayablesMessage {
-                tx_templates: TxTemplates(expected_tx_templates),
+                tx_templates: Either::Right(expected_tx_templates),
                 consuming_wallet: consuming_wallet.clone(),
                 response_skeleton_opt: Some(response_skeleton),
             })

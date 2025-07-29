@@ -16,7 +16,7 @@ use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDao;
 use crate::accountant::db_access_objects::utils::{from_unix_timestamp, TxHash};
 use crate::accountant::payment_adjuster::PaymentAdjuster;
 use crate::accountant::scanners::payable_scanner_extension::msgs::{
-    BlockchainAgentWithContextMessage, TxTemplate,
+    BaseTxTemplate, BlockchainAgentWithContextMessage, NewTxTemplate, RetryTxTemplate, TxTemplate,
 };
 use crate::accountant::scanners::payable_scanner_extension::{
     MultistageDualPayableScanner, PreparedAdjustment, SolvencySensitivePaymentInstructor,
@@ -420,23 +420,23 @@ impl PayableScanner {
     }
 
     // We can also return UnpricedQualifiedPayable here
-    fn generate_tx_templates(
+    fn generate_retry_tx_templates(
         payables_from_db: &HashMap<Address, PayableAccount>,
         txs_to_retry: &[FailedTx],
-    ) -> Vec<TxTemplate> {
+    ) -> Vec<RetryTxTemplate> {
         txs_to_retry
             .iter()
-            .map(|tx_to_retry| Self::generate_tx_template(payables_from_db, tx_to_retry))
+            .map(|tx_to_retry| Self::generate_retry_tx_template(payables_from_db, tx_to_retry))
             .collect()
     }
 
-    fn generate_tx_template(
+    fn generate_retry_tx_template(
         payables_from_db: &HashMap<Address, PayableAccount>,
         tx_to_retry: &FailedTx,
-    ) -> TxTemplate {
-        let mut tx_template = TxTemplate::from(tx_to_retry);
+    ) -> RetryTxTemplate {
+        let mut tx_template = RetryTxTemplate::from(tx_to_retry);
         if let Some(payable) = payables_from_db.get(&tx_to_retry.receiver_address) {
-            tx_template.amount_in_wei = tx_template.amount_in_wei + payable.balance_wei;
+            tx_template.base.amount_in_wei = tx_template.base.amount_in_wei + payable.balance_wei;
         };
 
         tx_template

@@ -3,13 +3,14 @@
 #![cfg(test)]
 
 use crate::accountant::scanners::payable_scanner_extension::msgs::{
-    PricedQualifiedPayables, TxTemplates,
+    NewTxTemplate, PricedQualifiedPayables, RetryTxTemplate, TxTemplates,
 };
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use crate::{arbitrary_id_stamp_in_trait_impl, set_arbitrary_id_stamp_in_mock_impl};
+use itertools::Either;
 use masq_lib::blockchains::chains::Chain;
 use std::cell::RefCell;
 
@@ -34,7 +35,10 @@ impl Default for BlockchainAgentMock {
 }
 
 impl BlockchainAgent for BlockchainAgentMock {
-    fn price_qualified_payables(&self, _tx_templates: TxTemplates) -> PricedQualifiedPayables {
+    fn price_qualified_payables(
+        &self,
+        _tx_templates: Either<Vec<NewTxTemplate>, Vec<RetryTxTemplate>>,
+    ) -> PricedQualifiedPayables {
         unimplemented!("not needed yet")
     }
 
