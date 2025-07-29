@@ -44,6 +44,7 @@ impl BlockchainInterfaceInitializer {
 
 #[cfg(test)]
 mod tests {
+    use crate::accountant::scanners::payable_scanner::data_structures::NewTxTemplates;
     use crate::accountant::scanners::payable_scanner_extension::msgs::{
         PricedQualifiedPayables, QualifiedPayableWithGasPrice,
     };
@@ -82,7 +83,7 @@ mod tests {
 
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
-        let tx_templates = create_new_tx_templates(vec![account_1.clone(), account_2.clone()]);
+        let tx_templates = NewTxTemplates::from(&vec![account_1.clone(), account_2.clone()]);
         let payable_wallet = make_wallet("payable");
         let blockchain_agent = result
             .introduce_blockchain_agent(payable_wallet.clone())

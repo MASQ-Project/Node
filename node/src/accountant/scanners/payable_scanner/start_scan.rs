@@ -1,5 +1,6 @@
 use crate::accountant::db_access_objects::failed_payable_dao::FailureRetrieveCondition::ByStatus;
 use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::RetryRequired;
+use crate::accountant::scanners::payable_scanner::data_structures::NewTxTemplates;
 use crate::accountant::scanners::payable_scanner::PayableScanner;
 use crate::accountant::scanners::payable_scanner_extension::msgs::QualifiedPayablesMessage;
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{
@@ -45,7 +46,7 @@ impl StartableScanner<ScanForNewPayables, QualifiedPayablesMessage> for PayableS
                     "Chose {} qualified debts to pay",
                     qualified_payables.len()
                 );
-                let new_tx_templates = create_new_tx_templates(qualified_payables);
+                let new_tx_templates = NewTxTemplates::from(&qualified_payables);
                 Ok(QualifiedPayablesMessage {
                     tx_templates: Either::Left(new_tx_templates),
                     consuming_wallet: consuming_wallet.clone(),
@@ -88,7 +89,9 @@ mod tests {
         PayableAccount, PayableRetrieveCondition,
     };
     use crate::accountant::db_access_objects::test_utils::FailedTxBuilder;
-    use crate::accountant::scanners::payable_scanner::data_structures::RetryTxTemplate;
+    use crate::accountant::scanners::payable_scanner::data_structures::{
+        RetryTxTemplate, RetryTxTemplates,
+    };
     use crate::accountant::scanners::payable_scanner::test_utils::PayableScannerBuilder;
     use crate::accountant::scanners::Scanners;
     use crate::accountant::test_utils::{
@@ -164,7 +167,7 @@ mod tests {
 
             let tx_template_2 = RetryTxTemplate::from(&failed_tx_2);
 
-            vec![tx_template_1, tx_template_2]
+            RetryTxTemplates(vec![tx_template_1, tx_template_2])
         };
         assert_eq!(
             result,

@@ -596,6 +596,7 @@ mod tests {
     use std::time::{Duration, SystemTime};
     use web3::types::{TransactionReceipt, H160};
     use masq_lib::constants::DEFAULT_MAX_BLOCK_COUNT;
+    use crate::accountant::scanners::payable_scanner::data_structures::NewTxTemplates;
     use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayableWithGasPrice};
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::create_new_tx_templates;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt};
@@ -723,7 +724,7 @@ mod tests {
             false,
         );
         subject.payable_payments_setup_subs_opt = Some(accountant_recipient);
-        let tx_templates = create_new_tx_templates(qualified_payables);
+        let tx_templates = NewTxTemplates::from(&qualified_payables);
         let qualified_payables_msg = QualifiedPayablesMessage {
             tx_templates: Either::Left(tx_templates.clone()),
             consuming_wallet: consuming_wallet.clone(),
@@ -800,7 +801,7 @@ mod tests {
             false,
         );
         subject.payable_payments_setup_subs_opt = Some(accountant_recipient);
-        let new_tx_templates = create_new_tx_templates(vec![make_payable_account(123)]);
+        let new_tx_templates = NewTxTemplates::from(&vec![make_payable_account(123)]);
         let qualified_payables_msg = QualifiedPayablesMessage {
             tx_templates: Either::Left(new_tx_templates),
             consuming_wallet: consuming_wallet.clone(),

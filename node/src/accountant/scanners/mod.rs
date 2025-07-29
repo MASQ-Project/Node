@@ -1064,6 +1064,7 @@ mod tests {
     use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::RetryRequired;
     use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::ByHash;
     use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDaoError;
+    use crate::accountant::scanners::payable_scanner::data_structures::NewTxTemplates;
     use crate::accountant::scanners::payable_scanner::PayableScanner;
     use crate::accountant::scanners::test_utils::{assert_timestamps_from_str, parse_system_time_from_str, MarkScanner, NullScanner, ReplacementType, ScannerReplacement};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TransactionReceiptResult, TxReceipt, TxStatus};
@@ -1282,7 +1283,7 @@ mod tests {
         let timestamp = subject.payable.scan_started_at();
         assert_eq!(timestamp, Some(now));
         let qualified_payables_count = qualified_payable_accounts.len();
-        let expected_tx_templates = create_new_tx_templates(qualified_payable_accounts);
+        let expected_tx_templates = NewTxTemplates::from(&qualified_payable_accounts);
         assert_eq!(
             result,
             Ok(QualifiedPayablesMessage {

@@ -3,7 +3,7 @@
 use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::payable_scanner::data_structures::{
-    NewTxTemplate, RetryTxTemplate,
+    NewTxTemplate, NewTxTemplates, RetryTxTemplate, RetryTxTemplates,
 };
 use crate::accountant::{ResponseSkeleton, SkeletonOptHolder};
 use crate::blockchain::blockchain_agent::BlockchainAgent;
@@ -18,7 +18,7 @@ use web3::types::Address;
 
 #[derive(Debug, Message, PartialEq, Eq, Clone)]
 pub struct QualifiedPayablesMessage {
-    pub tx_templates: Either<Vec<NewTxTemplate>, Vec<RetryTxTemplate>>,
+    pub tx_templates: Either<NewTxTemplates, RetryTxTemplates>,
     pub consuming_wallet: Wallet,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }

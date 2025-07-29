@@ -3,7 +3,7 @@
 pub mod agent_web3;
 
 use crate::accountant::scanners::payable_scanner::data_structures::{
-    NewTxTemplate, RetryTxTemplate,
+    NewTxTemplate, NewTxTemplates, RetryTxTemplate, RetryTxTemplates,
 };
 use crate::accountant::scanners::payable_scanner_extension::msgs::PricedQualifiedPayables;
 use crate::arbitrary_id_stamp_in_trait;
@@ -30,7 +30,7 @@ use masq_lib::blockchains::chains::Chain;
 pub trait BlockchainAgent: Send {
     fn price_qualified_payables(
         &self,
-        tx_templates: Either<Vec<NewTxTemplate>, Vec<RetryTxTemplate>>,
+        tx_templates: Either<NewTxTemplates, RetryTxTemplates>,
     ) -> PricedQualifiedPayables;
     fn estimate_transaction_fee_total(&self, qualified_payables: &PricedQualifiedPayables) -> u128;
     fn consuming_wallet_balances(&self) -> ConsumingWalletBalances;

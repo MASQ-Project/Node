@@ -460,7 +460,7 @@ mod tests {
     use itertools::Either;
     use web3::transports::Http;
     use web3::types::{H256, U256};
-    use crate::accountant::scanners::payable_scanner::data_structures::{NewTxTemplate, RetryTxTemplate};
+    use crate::accountant::scanners::payable_scanner::data_structures::{NewTxTemplate, NewTxTemplates, RetryTxTemplate, RetryTxTemplates};
     use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayableWithGasPrice};
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::create_new_tx_templates;
     use crate::accountant::test_utils::make_payable_account;
@@ -840,7 +840,7 @@ mod tests {
     fn blockchain_interface_web3_can_introduce_blockchain_agent_in_the_new_payables_mode() {
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
-        let tx_templates = create_new_tx_templates(vec![account_1.clone(), account_2.clone()]);
+        let tx_templates = NewTxTemplates::from(&vec![account_1.clone(), account_2.clone()]);
         let gas_price_wei_from_rpc_hex = "0x3B9ACA00"; // 1000000000
         let gas_price_wei_from_rpc_u128_wei =
             u128::from_str_radix(&gas_price_wei_from_rpc_hex[2..], 16).unwrap();
@@ -918,7 +918,7 @@ mod tests {
     }
 
     fn test_blockchain_interface_web3_can_introduce_blockchain_agent(
-        tx_templates: Either<Vec<NewTxTemplate>, Vec<RetryTxTemplate>>,
+        tx_templates: Either<NewTxTemplates, RetryTxTemplates>,
         gas_price_wei_from_rpc_hex: &str,
         expected_priced_qualified_payables: PricedQualifiedPayables,
         expected_estimated_transaction_fee_total: u128,

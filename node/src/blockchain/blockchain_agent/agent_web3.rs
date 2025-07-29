@@ -2,7 +2,7 @@
 
 use crate::accountant::comma_joined_stringifiable;
 use crate::accountant::scanners::payable_scanner::data_structures::{
-    NewTxTemplate, RetryTxTemplate,
+    NewTxTemplate, NewTxTemplates, RetryTxTemplate, RetryTxTemplates,
 };
 use crate::accountant::scanners::payable_scanner_extension::msgs::PricedQualifiedPayables;
 use crate::blockchain::blockchain_agent::BlockchainAgent;
@@ -29,7 +29,7 @@ pub struct BlockchainAgentWeb3 {
 impl BlockchainAgent for BlockchainAgentWeb3 {
     fn price_qualified_payables(
         &self,
-        tx_templates: Either<Vec<NewTxTemplate>, Vec<RetryTxTemplate>>,
+        tx_templates: Either<NewTxTemplates, RetryTxTemplates>,
     ) -> PricedQualifiedPayables {
         todo!("TxTemplates");
         // let warning_data_collector_opt =
@@ -243,7 +243,7 @@ impl BlockchainAgentWeb3 {
 #[cfg(test)]
 mod tests {
     use crate::accountant::scanners::payable_scanner::data_structures::{
-        NewTxTemplate, RetryTxTemplate,
+        NewTxTemplate, NewTxTemplates, RetryTxTemplate, RetryTxTemplates,
     };
     use crate::accountant::scanners::payable_scanner::test_utils::RetryTxTemplateBuilder;
     use crate::accountant::scanners::payable_scanner_extension::msgs::{
@@ -282,7 +282,7 @@ mod tests {
         let account_2 = make_payable_account(34);
         let address_1 = account_1.wallet.address();
         let address_2 = account_2.wallet.address();
-        let new_tx_templates = create_new_tx_templates(vec![account_1.clone(), account_2.clone()]);
+        let new_tx_templates = NewTxTemplates::from(&vec![account_1.clone(), account_2.clone()]);
         let rpc_gas_price_wei = 555_666_777;
         let chain = TEST_DEFAULT_CHAIN;
         let mut subject = BlockchainAgentWeb3::new(
@@ -365,7 +365,7 @@ mod tests {
         subject.logger = Logger::new(test_name);
 
         let priced_qualified_payables =
-            subject.price_qualified_payables(Either::Right(retry_tx_templates));
+            subject.price_qualified_payables(Either::Right(RetryTxTemplates(retry_tx_templates)));
 
         let expected_result = {
             let price_wei_for_accounts_from_1_to_5 = vec![
@@ -477,7 +477,7 @@ mod tests {
         let consuming_wallet_balances = make_zeroed_consuming_wallet_balances();
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
-        let tx_templates = create_new_tx_templates(vec![account_1.clone(), account_2.clone()]);
+        let tx_templates = NewTxTemplates::from(&vec![account_1.clone(), account_2.clone()]);
         let mut subject = BlockchainAgentWeb3::new(
             rpc_gas_price_wei,
             77_777,
@@ -761,7 +761,7 @@ mod tests {
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
         let chain = TEST_DEFAULT_CHAIN;
-        let tx_templates = create_new_tx_templates(vec![account_1, account_2]);
+        let tx_templates = NewTxTemplates::from(&vec![account_1, account_2]);
         let subject = BlockchainAgentWeb3::new(
             444_555_666,
             77_777,
@@ -816,7 +816,7 @@ mod tests {
             chain,
         );
         let priced_qualified_payables =
-            subject.price_qualified_payables(Either::Right(retry_tx_templates));
+            subject.price_qualified_payables(Either::Right(RetryTxTemplates(retry_tx_templates)));
 
         let result = subject.estimate_transaction_fee_total(&priced_qualified_payables);
 

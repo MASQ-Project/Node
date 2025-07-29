@@ -1301,6 +1301,7 @@ mod tests {
     use std::sync::Mutex;
     use std::time::{Duration, UNIX_EPOCH};
     use std::vec;
+    use crate::accountant::scanners::payable_scanner::data_structures::{NewTxTemplates, RetryTxTemplates};
     use crate::accountant::scanners::scan_schedulers::{NewPayableScanDynIntervalComputer, NewPayableScanDynIntervalComputerReal};
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{create_new_tx_templates, OperationOutcome, PayableScanResult};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt, TxStatus};
@@ -1575,11 +1576,11 @@ mod tests {
 
         system.run();
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
-        let expected_tx_templates = create_new_tx_templates(vec![payable_account]);
+        let expected_new_tx_templates = NewTxTemplates::from(&vec![payable_account]);
         assert_eq!(
             blockchain_bridge_recording.get_record::<QualifiedPayablesMessage>(0),
             &QualifiedPayablesMessage {
-                tx_templates: Either::Left(expected_tx_templates),
+                tx_templates: Either::Left(expected_new_tx_templates),
                 consuming_wallet,
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
@@ -2271,11 +2272,11 @@ mod tests {
         let blockchain_bridge_recorder = blockchain_bridge_recording_arc.lock().unwrap();
         assert_eq!(blockchain_bridge_recorder.len(), 1);
         let message = blockchain_bridge_recorder.get_record::<QualifiedPayablesMessage>(0);
-        let expected_tx_templates = create_new_tx_templates(qualified_payables);
+        let expected_new_tx_templates = NewTxTemplates::from(&qualified_payables);
         assert_eq!(
             message,
             &QualifiedPayablesMessage {
-                tx_templates: Either::Left(expected_tx_templates),
+                tx_templates: Either::Left(expected_new_tx_templates),
                 consuming_wallet,
                 response_skeleton_opt: None,
             }
@@ -2350,7 +2351,8 @@ mod tests {
             .build();
         let consuming_wallet = make_wallet("abc");
         subject.consuming_wallet_opt = Some(consuming_wallet.clone());
-        let retry_tx_templates = vec![make_retry_tx_template(1), make_retry_tx_template(2)];
+        let retry_tx_templates =
+            RetryTxTemplates(vec![make_retry_tx_template(1), make_retry_tx_template(2)]);
         let qualified_payables_msg = QualifiedPayablesMessage {
             tx_templates: Either::Right(retry_tx_templates),
             consuming_wallet: consuming_wallet.clone(),
@@ -2756,7 +2758,7 @@ mod tests {
         let _ = SystemKillerActor::new(Duration::from_secs(10)).start();
         let config = bc_from_wallets(consuming_wallet.clone(), earning_wallet.clone());
         let pp_fingerprint = make_pending_payable_fingerprint();
-        let retry_tx_templates = vec![make_retry_tx_template(1)];
+        let retry_tx_templates = RetryTxTemplates(vec![make_retry_tx_template(1)]);
         let payable_scanner = ScannerMock::new()
             .scan_started_at_result(None)
             .scan_started_at_result(None)
@@ -3520,7 +3522,7 @@ mod tests {
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let blockchain_bridge_addr = blockchain_bridge.start();
         let payable_account = make_payable_account(123);
-        let new_tx_templates = create_new_tx_templates(vec![payable_account.clone()]);
+        let new_tx_templates = NewTxTemplates::from(&vec![payable_account.clone()]);
         let priced_qualified_payables =
             make_priced_qualified_payables(vec![(payable_account, 123_456_789)]);
         let consuming_wallet = make_paying_wallet(b"consuming");
@@ -3961,7 +3963,7 @@ mod tests {
         system.run();
         let blockchain_bridge_recordings = blockchain_bridge_recordings_arc.lock().unwrap();
         let message = blockchain_bridge_recordings.get_record::<QualifiedPayablesMessage>(0);
-        let new_tx_templates = create_new_tx_templates(qualified_payables);
+        let new_tx_templates = NewTxTemplates::from(&qualified_payables);
         assert_eq!(
             message,
             &QualifiedPayablesMessage {

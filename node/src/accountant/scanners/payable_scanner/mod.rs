@@ -16,7 +16,9 @@ use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::B
 use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDao;
 use crate::accountant::db_access_objects::utils::{from_unix_timestamp, TxHash};
 use crate::accountant::payment_adjuster::PaymentAdjuster;
-use crate::accountant::scanners::payable_scanner::data_structures::RetryTxTemplate;
+use crate::accountant::scanners::payable_scanner::data_structures::{
+    RetryTxTemplate, RetryTxTemplates,
+};
 use crate::accountant::scanners::payable_scanner_extension::msgs::BlockchainAgentWithContextMessage;
 use crate::accountant::scanners::payable_scanner_extension::{
     MultistageDualPayableScanner, PreparedAdjustment, SolvencySensitivePaymentInstructor,
@@ -423,11 +425,13 @@ impl PayableScanner {
     fn generate_retry_tx_templates(
         payables_from_db: &HashMap<Address, PayableAccount>,
         txs_to_retry: &[FailedTx],
-    ) -> Vec<RetryTxTemplate> {
-        txs_to_retry
-            .iter()
-            .map(|tx_to_retry| Self::generate_retry_tx_template(payables_from_db, tx_to_retry))
-            .collect()
+    ) -> RetryTxTemplates {
+        RetryTxTemplates(
+            txs_to_retry
+                .iter()
+                .map(|tx_to_retry| Self::generate_retry_tx_template(payables_from_db, tx_to_retry))
+                .collect(),
+        )
     }
 
     fn generate_retry_tx_template(

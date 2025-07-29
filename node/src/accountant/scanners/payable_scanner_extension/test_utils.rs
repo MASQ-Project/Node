@@ -3,7 +3,7 @@
 #![cfg(test)]
 
 use crate::accountant::scanners::payable_scanner::data_structures::{
-    NewTxTemplate, RetryTxTemplate,
+    NewTxTemplate, NewTxTemplates, RetryTxTemplate, RetryTxTemplates,
 };
 use crate::accountant::scanners::payable_scanner_extension::msgs::PricedQualifiedPayables;
 use crate::blockchain::blockchain_agent::BlockchainAgent;
@@ -38,7 +38,7 @@ impl Default for BlockchainAgentMock {
 impl BlockchainAgent for BlockchainAgentMock {
     fn price_qualified_payables(
         &self,
-        _tx_templates: Either<Vec<NewTxTemplate>, Vec<RetryTxTemplate>>,
+        _tx_templates: Either<NewTxTemplates, RetryTxTemplates>,
     ) -> PricedQualifiedPayables {
         unimplemented!("not needed yet")
     }
