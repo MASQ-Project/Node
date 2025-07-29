@@ -99,6 +99,7 @@ impl Ord for TxConfirmation {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum RetrieveCondition {
     IsPending,
     ByHash(Vec<TxHash>),

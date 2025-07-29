@@ -16,6 +16,7 @@ use masq_lib::logger::Logger;
 use crate::accountant::scanners::payable_scanner_extension::msgs::{PricedQualifiedPayables};
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
+use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::TxHashByTable;
 use crate::blockchain::blockchain_bridge::{BlockMarker, BlockScanRange, RegisterNewPendingPayables};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TxReceiptResult;
 
@@ -40,7 +41,7 @@ pub trait BlockchainInterface {
 
     fn process_transaction_receipts(
         &self,
-        sent_txs: Vec<SentTx>,
+        tx_hashes: Vec<TxHashByTable>,
     ) -> Box<dyn Future<Item = Vec<TxReceiptResult>, Error = BlockchainError>>;
 
     fn submit_payables_in_batch(

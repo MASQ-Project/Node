@@ -94,7 +94,7 @@ pub struct FailedTx {
 #[derive(Debug, PartialEq, Eq)]
 pub enum FailureRetrieveCondition {
     ByStatus(FailureStatus),
-    EveryRecheckRequiredRecord,
+    RecheckRequiredRecords,
 }
 
 impl Display for FailureRetrieveCondition {
@@ -103,7 +103,7 @@ impl Display for FailureRetrieveCondition {
             FailureRetrieveCondition::ByStatus(status) => {
                 write!(f, "WHERE status LIKE '{:?}%'", status)
             }
-            FailureRetrieveCondition::EveryRecheckRequiredRecord => {
+            FailureRetrieveCondition::RecheckRequiredRecords => {
                 todo!()
             }
         }

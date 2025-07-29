@@ -321,24 +321,24 @@ pub mod payable_scanner_utils {
 }
 
 pub mod pending_payable_scanner_utils {
+    use std::collections::HashMap;
     use masq_lib::logger::Logger;
     use masq_lib::ui_gateway::NodeToUiMessage;
     use std::time::SystemTime;
-    use clap::App;
     use thousands::Separable;
     use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureReason, FailureStatus, ValidationStatus};
     use crate::accountant::db_access_objects::sent_payable_dao::{SentTx, TxStatus};
     use crate::accountant::db_access_objects::utils::{from_unix_timestamp, TxHash};
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, BlockchainTxFailure, TxReceiptError, ReceiptCheck};
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, BlockchainTxFailure, TxReceiptError, StatusReadFromReceiptCheck};
     use crate::blockchain::errors::AppRpcError;
 
     #[derive(Debug, Default, PartialEq, Eq, Clone)]
-    pub struct PendingPayableReport {
+    pub struct ReceiptScanReport {
         pub failures: DetectedFailures,
-        pub confirmations: Vec<SentTx>,
+        pub confirmations: DetectedConfirmations,
     }
 
-    impl PendingPayableReport {
+    impl ReceiptScanReport {
         pub fn requires_payments_retry(&self) -> Option<Retry> {
             match (
                 self.failures.requires_retry(),
@@ -351,14 +351,18 @@ pub mod pending_payable_scanner_utils {
         }
 
         fn register_success(&mut self, sent_tx: SentTx) {
-            self.confirmations.push(sent_tx);
+            // self.confirmations.push(sent_tx);
         }
 
-        fn register_new_failure(&mut self, failed_tx: FailedTx) {
+        fn register_failure_reclaim(&mut self, original_sent_tx: SentTx) {
+            todo!()
+        }
+
+        fn register_new_failure(&mut self, failed_tx: PresortedTxFailure) {
             self.failures.tx_failures.push(failed_tx);
         }
 
-        fn check_off_earlier_failure(&mut self, tx_hash: TxHash) {
+        fn register_finalization_of_unproven_failure(&mut self, tx_hash: TxHash) {
             todo!()
         }
 
@@ -368,28 +372,40 @@ pub mod pending_payable_scanner_utils {
         }
     }
 
+    #[derive(Debug, Default, PartialEq, Eq, Clone)]
     pub struct DetectedConfirmations {
         pub normal_confirmations: Vec<SentTx>,
         pub reclaims: Vec<SentTx>,
     }
 
+    impl DetectedConfirmations {
+        fn is_empty(&self) -> bool {
+            todo!("write a separate test") //self.normal_confirmations.is_empty() && self.reclaims.is_empty()
+        }
+    }
+
     #[derive(Debug, Default, PartialEq, Eq, Clone)]
     pub struct DetectedFailures {
-        pub tx_failures: Vec<FailedTx>,
+        pub tx_failures: Vec<PresortedTxFailure>,
         pub tx_receipt_rpc_failures: Vec<ValidationStatusUpdate>,
     }
 
     impl DetectedFailures {
         fn requires_retry(&self) -> Option<Retry> {
-            todo!("add the logic to combine the two vecs");
-            // if self.tx_failures.is_empty() {
-            //     None
-            // } else if self.tx_failures.iter().any(|failed_tx| failed_tx.status == FailureStatus::RetryRequired) {
-            //     Some(Retry::RetryPayments)
-            // } else {
-            //     Some(Retry::RetryReceiptCheck)
-            // }
+            if self.tx_failures.is_empty() && self.tx_receipt_rpc_failures.is_empty() {
+                None
+            } else if !self.tx_failures.is_empty() {
+                Some(Retry::RetryPayments)
+            } else {
+                Some(Retry::RetryOnlyTxStatusCheck)
+            }
         }
+    }
+
+    #[derive(Debug, PartialEq, Eq, Clone)]
+    pub enum PresortedTxFailure {
+        NewEntry(FailedTx),
+        RecheckCompleted(TxHash),
     }
 
     #[derive(Debug, PartialEq, Eq, Clone)]
@@ -404,14 +420,81 @@ pub mod pending_payable_scanner_utils {
         pub failure: AppRpcError,
     }
 
-    #[derive(Debug, PartialEq, Eq)]
+    pub trait PendingPayableCache<Record> {
+        fn load_cache<Collection>(&mut self, records: Collection)
+        where
+            Collection: IntoIterator<Item = (TxHash, Record)>;
+        fn get_record_by_hash(&mut self, hashes: TxHash) -> Option<Record>;
+        fn ensure_empty_cache(&mut self, logger: &Logger);
+    }
+
+    #[derive(Debug, PartialEq, Eq, Default)]
+    pub struct CurrentPendingPayables {
+        pub(super) sent_payables: HashMap<TxHash, SentTx>,
+    }
+
+    impl PendingPayableCache<SentTx> for CurrentPendingPayables {
+        fn load_cache<Collection>(&mut self, records: Collection)
+        where
+            Collection: IntoIterator<Item = (TxHash, SentTx)>,
+        {
+            self.sent_payables.extend(records);
+        }
+
+        fn get_record_by_hash(&mut self, hashes: TxHash) -> Option<SentTx> {
+            self.sent_payables.remove(&hashes)
+        }
+
+        fn ensure_empty_cache(&mut self, logger: &Logger) {
+            if !self.sent_payables.is_empty() {
+                debug!(
+                    logger,
+                    "Cache misuse - some pending payables left unprocessed: {:?}. Dumping.",
+                    self.sent_payables
+                );
+            }
+            self.sent_payables.clear()
+        }
+    }
+
+    impl CurrentPendingPayables {
+        pub fn new() -> Self {
+            Self::default()
+        }
+    }
+
+    #[derive(Debug, PartialEq, Eq, Default)]
     pub struct FailuresRequiringDoubleCheck {
-        pub failures: Vec<FailedTx>,
+        pub(super) failures: HashMap<TxHash, FailedTx>,
+    }
+
+    impl PendingPayableCache<FailedTx> for FailuresRequiringDoubleCheck {
+        fn load_cache<Collection>(&mut self, records: Collection)
+        where
+            Collection: IntoIterator<Item = (TxHash, FailedTx)>,
+        {
+            self.failures.extend(records);
+        }
+
+        fn get_record_by_hash(&mut self, hashes: TxHash) -> Option<FailedTx> {
+            self.failures.remove(&hashes)
+        }
+
+        fn ensure_empty_cache(&mut self, logger: &Logger) {
+            if !self.failures.is_empty() {
+                debug!(
+                    logger,
+                    "Cache misuse - some tx failures left unprocessed: {:?}. Dumping.",
+                    self.failures
+                );
+            }
+            self.failures.clear()
+        }
     }
 
     impl FailuresRequiringDoubleCheck {
-        pub fn new(failures: Vec<FailedTx>) -> Self {
-            todo!()
+        pub fn new() -> Self {
+            Self::default()
         }
 
         pub fn hashes(&self) -> &[TxHash] {
@@ -428,7 +511,22 @@ pub mod pending_payable_scanner_utils {
     #[derive(Debug, PartialEq, Eq)]
     pub enum Retry {
         RetryPayments,
-        RetryReceiptCheck,
+        RetryOnlyTxStatusCheck,
+    }
+
+    pub struct RecordsCoupledWithReceiptCheckResults {
+        pub prepared_couples: Vec<(TxByTable, StatusReadFromReceiptCheck)>,
+    }
+
+    pub enum TxByTable {
+        SentPayable(SentTx),
+        FailedPayable(FailedTx),
+    }
+
+    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+    pub enum TxHashByTable {
+        SentPayable(TxHash),
+        FailedPayable(TxHash),
     }
 
     pub fn elapsed_in_ms(timestamp: SystemTime) -> u128 {
@@ -439,90 +537,109 @@ pub mod pending_payable_scanner_utils {
     }
 
     pub fn handle_still_pending_tx(
-        mut scan_report: PendingPayableReport,
-        sent_tx: SentTx,
+        mut scan_report: ReceiptScanReport,
+        tx: TxByTable,
         logger: &Logger,
-    ) -> PendingPayableReport {
-        info!(
-            logger,
-            "Tx {:?} not confirmed within {} ms. Will resubmit with higher gas price",
-            sent_tx.hash,
-            elapsed_in_ms(from_unix_timestamp(sent_tx.timestamp)).separate_with_commas()
-        );
-
-        let failed_tx = FailedTx::from((sent_tx, FailureReason::PendingTooLong));
-        scan_report.register_new_failure(failed_tx);
+    ) -> ReceiptScanReport {
+        match tx {
+            TxByTable::SentPayable(sent_tx) => {
+                info!(
+                    logger,
+                    "Tx {:?} not confirmed within {} ms. Will resubmit with higher gas price",
+                    sent_tx.hash,
+                    elapsed_in_ms(from_unix_timestamp(sent_tx.timestamp)).separate_with_commas()
+                );
+                let failed_tx = FailedTx::from((sent_tx, FailureReason::PendingTooLong));
+                scan_report.register_new_failure(PresortedTxFailure::NewEntry(failed_tx));
+            }
+            TxByTable::FailedPayable(failed_tx) => todo!("What should I do here??"), // {
+                                                                                     // todo!();
+                                                                                     // scan_report.register_finalization_of_unproven_failure(failed_tx.hash);
+        }
         scan_report
     }
 
     pub fn handle_successful_tx(
-        mut scan_report: PendingPayableReport,
-        unchecked_soft_failures: &[TxHash],
-        sent_tx: SentTx,
+        mut scan_report: ReceiptScanReport,
+        unproven_failures: &[TxHash],
+        tx: TxByTable,
         tx_block: TransactionBlock,
         logger: &Logger,
-    ) -> PendingPayableReport {
-        info!(
-            logger,
-            "Detected tx {:?} added to block {}.", sent_tx.hash, tx_block.block_number,
-        );
+    ) -> ReceiptScanReport {
+        match tx {
+            TxByTable::SentPayable(sent_tx) => {
+                info!(
+                    logger,
+                    "Detected tx {:?} added to block {}.", sent_tx.hash, tx_block.block_number,
+                );
 
-        let detection = if !unchecked_soft_failures.contains(&sent_tx.hash) {
-            todo!()
-        } else {
-            todo!()
-        };
+                let detection = if !unproven_failures.contains(&sent_tx.hash) {
+                    todo!()
+                } else {
+                    todo!()
+                };
 
-        let completed_sent_tx = SentTx {
-            status: TxStatus::Confirmed {
-                block_hash: format!("{:?}", tx_block.block_hash),
-                block_number: tx_block.block_number.as_u64(),
-                detection,
-            },
-            ..sent_tx
-        };
-        scan_report.register_success(completed_sent_tx);
+                let completed_sent_tx = SentTx {
+                    status: TxStatus::Confirmed {
+                        block_hash: format!("{:?}", tx_block.block_hash),
+                        block_number: tx_block.block_number.as_u64(),
+                        detection,
+                    },
+                    ..sent_tx
+                };
+                scan_report.register_success(completed_sent_tx);
+            }
+            TxByTable::FailedPayable(failed_tx) => {
+                todo!()
+            }
+        }
         scan_report
     }
 
     //TODO: failures handling is going to need enhancement suggested by GH-693
     pub fn handle_status_with_failure(
-        mut scan_report: PendingPayableReport,
-        sent_tx: SentTx,
+        mut scan_report: ReceiptScanReport,
+        tx: TxByTable,
         blockchain_failure: BlockchainTxFailure,
         logger: &Logger,
-    ) -> PendingPayableReport {
-        let failure_reason = FailureReason::from(blockchain_failure);
-        let failed_tx = FailedTx::from((sent_tx, failure_reason));
+    ) -> ReceiptScanReport {
+        match tx {
+            TxByTable::SentPayable(sent_tx) => {
+                let failure_reason = FailureReason::from(blockchain_failure);
+                let failed_tx = FailedTx::from((sent_tx, failure_reason));
 
-        warning!(
-            logger,
-            "Tx {:?} failed on blockchain due to: {}",
-            failed_tx.hash,
-            blockchain_failure
-        );
+                warning!(
+                    logger,
+                    "Tx {:?} failed on blockchain due to: {}",
+                    failed_tx.hash,
+                    blockchain_failure
+                );
 
-        scan_report.register_new_failure(failed_tx);
+                scan_report.register_new_failure(PresortedTxFailure::NewEntry(failed_tx));
+            }
+            TxByTable::FailedPayable(failed_tx) => {
+                todo!()
+            }
+        }
         scan_report
     }
 
     pub fn handle_rpc_failure(
-        mut scan_report: PendingPayableReport,
+        mut scan_report: ReceiptScanReport,
         recheck_required_txs: &[TxHash],
         rpc_error: TxReceiptError,
         logger: &Logger,
-    ) -> PendingPayableReport {
+    ) -> ReceiptScanReport {
         warning!(
             logger,
             "Failed to retrieve tx receipt for {:?}: {:?}. Will retry receipt retrieval next cycle",
-            rpc_error.tx.hash,
+            rpc_error.tx_hash,
             rpc_error.err
         );
         // TODO just to make sure we didn't ball something up badly, could be deduced also without
-        let validation_status_update = if !recheck_required_txs.contains(&rpc_error.tx.hash) {
-            todo!()
-        } else {
-            todo!()
+        let validation_status_update = match rpc_error.tx_hash {
+            TxHashByTable::SentPayable(hash) => todo!(),
+            TxHashByTable::FailedPayable(hash) => todo!(),
         };
         scan_report.register_rpc_failure(validation_status_update);
         scan_report
@@ -590,9 +707,10 @@ mod tests {
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::time::{Duration, SystemTime};
     use itertools::Itertools;
+    use regex::Regex;
     use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureReason, FailureStatus, ValidationStatus};
     use crate::accountant::db_access_objects::sent_payable_dao::{SentTx, TxStatus};
-    use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{DetectedFailures, FailedValidation, PendingPayableReport, Retry, ValidationStatusUpdate};
+    use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{CurrentPendingPayables, DetectedFailures, FailedValidation, FailuresRequiringDoubleCheck, PendingPayableCache, PresortedTxFailure, ReceiptScanReport, Retry, ValidationStatusUpdate};
     use crate::accountant::test_utils::{make_failed_tx, make_sent_tx};
     use crate::assert_on_testing_enum_with_all_its_variants;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::BlockchainTxFailure;
@@ -1050,98 +1168,149 @@ mod tests {
 
     #[test]
     fn requires_payments_retry() {
-        let cases = vec![
-            PendingPayableReport {
-                failures: DetectedFailures {
-                    tx_failures: vec![make_failed_tx(456)],
-                    tx_receipt_rpc_failures: vec![],
-                },
-                confirmations: vec![],
+        let make_case_1 = |preprocessed_failures| ReceiptScanReport {
+            failures: DetectedFailures {
+                tx_failures: preprocessed_failures,
+                tx_receipt_rpc_failures: vec![],
             },
-            PendingPayableReport {
-                failures: DetectedFailures {
-                    tx_failures: vec![make_failed_tx(789)],
-                    tx_receipt_rpc_failures: vec![ValidationStatusUpdate::SentPayableRecord(
-                        FailedValidation {
-                            tx_hash: make_tx_hash(2222),
-                            failure: AppRpcError::Local(LocalError::Internal),
-                        },
-                    )],
-                },
-                confirmations: vec![],
+            confirmations: vec![],
+        };
+        let make_case_2 = |preprocessed_failures| ReceiptScanReport {
+            failures: DetectedFailures {
+                tx_failures: preprocessed_failures,
+                tx_receipt_rpc_failures: vec![ValidationStatusUpdate::SentPayableRecord(
+                    FailedValidation {
+                        tx_hash: make_tx_hash(2222),
+                        failure: AppRpcError::Local(LocalError::Internal),
+                    },
+                )],
             },
-            PendingPayableReport {
-                failures: DetectedFailures {
-                    tx_failures: vec![make_failed_tx(123), make_failed_tx(789)],
-                    tx_receipt_rpc_failures: vec![],
-                },
-                confirmations: vec![make_sent_tx(777)],
+            confirmations: vec![],
+        };
+        let make_case_3 = |preprocessed_failures| ReceiptScanReport {
+            failures: DetectedFailures {
+                tx_failures: preprocessed_failures,
+                tx_receipt_rpc_failures: vec![],
             },
-            PendingPayableReport {
-                failures: DetectedFailures {
-                    tx_failures: vec![make_failed_tx(123)],
-                    tx_receipt_rpc_failures: vec![ValidationStatusUpdate::FailedPayableRecord(
-                        FailedValidation {
-                            tx_hash: make_tx_hash(12121),
-                            failure: AppRpcError::Remote(RemoteError::InvalidResponse(
-                                "blah".to_string(),
-                            )),
-                        },
-                    )],
-                },
-                confirmations: vec![make_sent_tx(777)],
+            confirmations: vec![make_sent_tx(777)],
+        };
+        let make_case_4 = |preprocessed_failures| ReceiptScanReport {
+            failures: DetectedFailures {
+                tx_failures: preprocessed_failures,
+                tx_receipt_rpc_failures: vec![ValidationStatusUpdate::FailedPayableRecord(
+                    FailedValidation {
+                        tx_hash: make_tx_hash(12121),
+                        failure: AppRpcError::Remote(RemoteError::InvalidResponse(
+                            "blah".to_string(),
+                        )),
+                    },
+                )],
             },
+            confirmations: vec![make_sent_tx(777)],
+        };
+        let case_makers: Vec<&dyn Fn(Vec<PresortedTxFailure>) -> ReceiptScanReport> =
+            vec![&make_case_1, &make_case_2, &make_case_3, &make_case_4];
+        let tx_failure_feedings = vec![
+            vec![PresortedTxFailure::NewEntry(make_failed_tx(456))],
+            vec![PresortedTxFailure::RecheckCompleted(make_tx_hash(123))],
+            vec![
+                PresortedTxFailure::NewEntry(make_failed_tx(123)),
+                PresortedTxFailure::NewEntry(make_failed_tx(456)),
+            ],
+            vec![
+                PresortedTxFailure::RecheckCompleted(make_tx_hash(654)),
+                PresortedTxFailure::RecheckCompleted(make_tx_hash(321)),
+            ],
+            vec![
+                PresortedTxFailure::NewEntry(make_failed_tx(456)),
+                PresortedTxFailure::RecheckCompleted(make_tx_hash(654)),
+            ],
         ];
+        let generated_cases = case_makers.into_iter().fold(vec![], |mut acc, case_maker| {
+            tx_failure_feedings
+                .clone()
+                .into_iter()
+                .for_each(|failure_feeding| {
+                    let report = case_maker(failure_feeding.clone());
+                    acc.push(report);
+                });
+            acc
+        });
 
-        cases.into_iter().enumerate().for_each(|(idx, case)| {
-            let result = case.requires_payments_retry();
-            assert_eq!(
-                result,
-                Some(Retry::RetryPayments),
-                "We expected Some(Retry::RetryPayments), but got {:?} for case with idx {}",
-                result,
-                idx
-            )
-        })
+        generated_cases
+            .into_iter()
+            .enumerate()
+            .for_each(|(idx, case)| {
+                let result = case.requires_payments_retry();
+                assert_eq!(
+                    result,
+                    Some(Retry::RetryPayments),
+                    "We expected Some(Retry::RetryPayments), but got {:?} for case with idx {}",
+                    result,
+                    idx
+                )
+            })
     }
 
     #[test]
     fn requires_only_receipt_retrieval_retry() {
-        let cases = vec![
-            PendingPayableReport {
-                failures: DetectedFailures {
-                    tx_failures: vec![],
-                    tx_receipt_rpc_failures: vec![ValidationStatusUpdate::SentPayableRecord(
-                        FailedValidation {
-                            tx_hash: make_tx_hash(2222),
-                            failure: AppRpcError::Local(LocalError::Internal),
-                        },
-                    )],
-                },
-                confirmations: vec![],
+        let make_case_1 = |preprocessed_rpc_failures| ReceiptScanReport {
+            failures: DetectedFailures {
+                tx_failures: vec![],
+                tx_receipt_rpc_failures: preprocessed_rpc_failures,
             },
-            PendingPayableReport {
-                failures: DetectedFailures {
-                    tx_failures: vec![],
-                    tx_receipt_rpc_failures: vec![ValidationStatusUpdate::FailedPayableRecord(
-                        FailedValidation {
-                            tx_hash: make_tx_hash(12121),
-                            failure: AppRpcError::Remote(RemoteError::InvalidResponse(
-                                "blah".to_string(),
-                            )),
-                        },
-                    )],
-                },
-                confirmations: vec![make_sent_tx(777)],
+            confirmations: vec![],
+        };
+        let make_case_2 = |preprocessed_rpc_failures| ReceiptScanReport {
+            failures: DetectedFailures {
+                tx_failures: vec![],
+                tx_receipt_rpc_failures: preprocessed_rpc_failures,
             },
+            confirmations: vec![make_sent_tx(777)],
+        };
+        let case_makers: Vec<&dyn Fn(Vec<ValidationStatusUpdate>) -> ReceiptScanReport> =
+            vec![&make_case_1, &make_case_2];
+        let rpc_failure_feedings = vec![
+            vec![ValidationStatusUpdate::SentPayableRecord(
+                FailedValidation {
+                    tx_hash: make_tx_hash(2222),
+                    failure: AppRpcError::Local(LocalError::Internal),
+                },
+            )],
+            vec![ValidationStatusUpdate::FailedPayableRecord(
+                FailedValidation {
+                    tx_hash: make_tx_hash(1234),
+                    failure: AppRpcError::Remote(RemoteError::Unreachable),
+                },
+            )],
+            vec![
+                ValidationStatusUpdate::SentPayableRecord(FailedValidation {
+                    tx_hash: make_tx_hash(2222),
+                    failure: AppRpcError::Local(LocalError::Internal),
+                }),
+                ValidationStatusUpdate::FailedPayableRecord(FailedValidation {
+                    tx_hash: make_tx_hash(1234),
+                    failure: AppRpcError::Remote(RemoteError::Unreachable),
+                }),
+            ],
         ];
+        let generated_cases = case_makers.into_iter().fold(vec![], |mut acc, case_maker| {
+            rpc_failure_feedings
+                .clone()
+                .into_iter()
+                .for_each(|failure_feeding| {
+                    let report = case_maker(failure_feeding.clone());
+                    acc.push(report);
+                });
+            acc
+        });
 
-        cases.into_iter().enumerate().for_each(|(idx, case)| {
+        generated_cases.into_iter().enumerate().for_each(|(idx, case)| {
             let result = case.requires_payments_retry();
             assert_eq!(
                 result,
-                Some(Retry::RetryReceiptCheck),
-                "We expected Some(Retry::RetryReceiptCheck), but got {:?} for case with idx {}",
+                Some(Retry::RetryOnlyTxStatusCheck),
+                "We expected Some(Retry::RetryOnlyTxStatusCheck), but got {:?} for case with idx {}",
                 result,
                 idx
             )
@@ -1150,7 +1319,7 @@ mod tests {
 
     #[test]
     fn requires_payments_retry_says_no() {
-        let report = PendingPayableReport {
+        let report = ReceiptScanReport {
             failures: DetectedFailures {
                 tx_failures: vec![],
                 tx_receipt_rpc_failures: vec![],
@@ -1169,7 +1338,7 @@ mod tests {
     no results"
     )]
     fn requires_payments_retry_with_no_results_in_whole_summary() {
-        let report = PendingPayableReport {
+        let report = ReceiptScanReport {
             failures: DetectedFailures {
                 tx_failures: vec![],
                 tx_receipt_rpc_failures: vec![],
@@ -1178,5 +1347,247 @@ mod tests {
         };
 
         let _ = report.requires_payments_retry();
+    }
+
+    #[test]
+    fn pending_payables_cache_insert_and_get_methods_single_record() {
+        let mut subject = CurrentPendingPayables::new();
+        let sent_tx = make_sent_tx(123);
+        let tx_hash = sent_tx.hash;
+        let records = vec![(tx_hash, sent_tx.clone())];
+
+        let state_before = subject.sent_payables.clone();
+        subject.load_cache(records);
+        let first_attempt = subject.get_record_by_hash(tx_hash);
+        let second_attempt = subject.get_record_by_hash(tx_hash);
+
+        assert_eq!(state_before, hashmap!());
+        assert_eq!(first_attempt, Some(sent_tx));
+        assert_eq!(second_attempt, None);
+        assert!(
+            subject.sent_payables.is_empty(),
+            "Should be empty but was {:?}",
+            subject.sent_payables
+        );
+    }
+
+    #[test]
+    fn pending_payables_cache_insert_and_get_methods_multiple_records() {
+        let mut subject = CurrentPendingPayables::new();
+        let sent_tx_1 = make_sent_tx(123);
+        let tx_hash_1 = sent_tx_1.hash;
+        let sent_tx_2 = make_sent_tx(456);
+        let tx_hash_2 = sent_tx_2.hash;
+        let sent_tx_3 = make_sent_tx(789);
+        let tx_hash_3 = sent_tx_3.hash;
+        let sent_tx_4 = make_sent_tx(101);
+        let tx_hash_4 = sent_tx_4.hash;
+        let nonexistent_tx_hash = make_tx_hash(234);
+        let records = vec![
+            (tx_hash_1, sent_tx_1.clone()),
+            (tx_hash_2, sent_tx_2.clone()),
+            (tx_hash_3, sent_tx_3.clone()),
+            (tx_hash_4, sent_tx_4.clone()),
+        ];
+
+        let first_query = subject.get_record_by_hash(tx_hash_1);
+        subject.load_cache(records);
+        let second_query = subject.get_record_by_hash(nonexistent_tx_hash);
+        let third_query = subject.get_record_by_hash(tx_hash_2);
+        let fourth_query = subject.get_record_by_hash(tx_hash_1);
+        let fifth_query = subject.get_record_by_hash(tx_hash_4);
+        let sixth_query = subject.get_record_by_hash(tx_hash_1);
+        let seventh_query = subject.get_record_by_hash(tx_hash_1);
+        let eighth_query = subject.get_record_by_hash(tx_hash_3);
+
+        assert_eq!(first_query, None);
+        assert_eq!(second_query, None);
+        assert_eq!(third_query, Some(sent_tx_2));
+        assert_eq!(fourth_query, Some(sent_tx_1));
+        assert_eq!(fifth_query, Some(sent_tx_4));
+        assert_eq!(sixth_query, None);
+        assert_eq!(seventh_query, None);
+        assert_eq!(eighth_query, Some(sent_tx_3));
+        assert!(
+            subject.sent_payables.is_empty(),
+            "Expected empty cache, but got {:?}",
+            subject.sent_payables
+        );
+    }
+
+    #[test]
+    fn pending_payables_cache_ensure_empty_happy_path() {
+        init_test_logging();
+        let test_name = "pending_payables_cache_ensure_empty_happy_path";
+        let mut subject = CurrentPendingPayables::new();
+        let sent_tx = make_sent_tx(567);
+        let tx_hash = sent_tx.hash;
+        let records = vec![(tx_hash, sent_tx.clone())];
+        let logger = Logger::new(test_name);
+
+        subject.load_cache(records);
+        let _ = subject.get_record_by_hash(tx_hash);
+        subject.ensure_empty_cache(&logger);
+
+        assert!(
+            subject.sent_payables.is_empty(),
+            "Should be empty but was {:?}",
+            subject.sent_payables
+        );
+        TestLogHandler::default().exists_no_log_containing(&format!(
+            "DEBUG: {test_name}: \
+        Cache misuse - some pending payables left unprocessed:"
+        ));
+    }
+
+    #[test]
+    fn pending_payables_cache_ensure_empty_sad_path() {
+        init_test_logging();
+        let test_name = "pending_payables_cache_ensure_empty_sad_path";
+        let mut subject = CurrentPendingPayables::new();
+        let sent_tx = make_sent_tx(567);
+        let tx_hash = sent_tx.hash;
+        let tx_timestamp = sent_tx.timestamp;
+        let records = vec![(tx_hash, sent_tx.clone())];
+        let logger = Logger::new(test_name);
+
+        subject.load_cache(records);
+        subject.ensure_empty_cache(&logger);
+
+        assert!(
+            subject.sent_payables.is_empty(),
+            "Should be empty but was {:?}",
+            subject.sent_payables
+        );
+        TestLogHandler::default().exists_log_containing(&format!(
+            "DEBUG: {test_name}: \
+        Cache misuse - some pending payables left unprocessed: \
+        {{0x0000000000000000000000000000000000000000000000000000000000000237: SentTx {{ hash: \
+        0x0000000000000000000000000000000000000000000000000000000000000237, receiver_address: \
+        0x000000000000000000000077616c6c6574353637, amount_minor: 321489000000000, timestamp: \
+        {tx_timestamp}, gas_price_minor: 567000000000, nonce: 567, status: Pending(Waiting) }}}}. \
+        Dumping."
+        ));
+    }
+
+    #[test]
+    fn failure_cache_insert_and_get_methods_single_record() {
+        let mut subject = FailuresRequiringDoubleCheck::new();
+        let failed_tx = make_failed_tx(567);
+        let tx_hash = failed_tx.hash;
+        let records = vec![(tx_hash, failed_tx.clone())];
+
+        let state_before = subject.failures.clone();
+        subject.load_cache(records);
+        let first_attempt = subject.get_record_by_hash(tx_hash);
+        let second_attempt = subject.get_record_by_hash(tx_hash);
+
+        assert_eq!(state_before, hashmap!());
+        assert_eq!(first_attempt, Some(failed_tx));
+        assert_eq!(second_attempt, None);
+        assert!(
+            subject.failures.is_empty(),
+            "Should be empty but was {:?}",
+            subject.failures
+        );
+    }
+
+    #[test]
+    fn failure_cache_insert_and_get_methods_multiple_records() {
+        let mut subject = FailuresRequiringDoubleCheck::new();
+        let failed_tx_1 = make_failed_tx(123);
+        let tx_hash_1 = failed_tx_1.hash;
+        let failed_tx_2 = make_failed_tx(456);
+        let tx_hash_2 = failed_tx_2.hash;
+        let failed_tx_3 = make_failed_tx(789);
+        let tx_hash_3 = failed_tx_3.hash;
+        let failed_tx_4 = make_failed_tx(101);
+        let tx_hash_4 = failed_tx_4.hash;
+        let nonexistent_tx_hash = make_tx_hash(234);
+        let records = vec![
+            (tx_hash_1, failed_tx_1.clone()),
+            (tx_hash_2, failed_tx_2.clone()),
+            (tx_hash_3, failed_tx_3.clone()),
+            (tx_hash_4, failed_tx_4.clone()),
+        ];
+
+        let first_query = subject.get_record_by_hash(tx_hash_1);
+        subject.load_cache(records);
+        let second_query = subject.get_record_by_hash(nonexistent_tx_hash);
+        let third_query = subject.get_record_by_hash(tx_hash_2);
+        let fourth_query = subject.get_record_by_hash(tx_hash_1);
+        let fifth_query = subject.get_record_by_hash(tx_hash_4);
+        let sixth_query = subject.get_record_by_hash(tx_hash_1);
+        let seventh_query = subject.get_record_by_hash(tx_hash_1);
+        let eighth_query = subject.get_record_by_hash(tx_hash_3);
+
+        assert_eq!(first_query, None);
+        assert_eq!(second_query, None);
+        assert_eq!(third_query, Some(failed_tx_2));
+        assert_eq!(fourth_query, Some(failed_tx_1));
+        assert_eq!(fifth_query, Some(failed_tx_4));
+        assert_eq!(sixth_query, None);
+        assert_eq!(seventh_query, None);
+        assert_eq!(eighth_query, Some(failed_tx_3));
+        assert!(
+            subject.failures.is_empty(),
+            "Expected empty cache, but got {:?}",
+            subject.failures
+        );
+    }
+
+    #[test]
+    fn failure_cache_ensure_empty_happy_path() {
+        init_test_logging();
+        let test_name = "failure_cache_ensure_empty_happy_path";
+        let mut subject = FailuresRequiringDoubleCheck::new();
+        let failed_tx = make_failed_tx(567);
+        let tx_hash = failed_tx.hash;
+        let records = vec![(tx_hash, failed_tx.clone())];
+        let logger = Logger::new(test_name);
+
+        subject.load_cache(records);
+        let _ = subject.get_record_by_hash(tx_hash);
+        subject.ensure_empty_cache(&logger);
+
+        assert!(
+            subject.failures.is_empty(),
+            "Should be empty but was {:?}",
+            subject.failures
+        );
+        TestLogHandler::default().exists_no_log_containing(&format!(
+            "DEBUG: {test_name}: \
+        Cache misuse - some tx failures left unprocessed:"
+        ));
+    }
+
+    #[test]
+    fn failure_cache_ensure_empty_sad_path() {
+        init_test_logging();
+        let test_name = "failure_cache_ensure_empty_sad_path";
+        let mut subject = FailuresRequiringDoubleCheck::new();
+        let failed_tx = make_failed_tx(567);
+        let tx_hash = failed_tx.hash;
+        let tx_timestamp = failed_tx.timestamp;
+        let records = vec![(tx_hash, failed_tx.clone())];
+        let logger = Logger::new(test_name);
+
+        subject.load_cache(records);
+        subject.ensure_empty_cache(&logger);
+
+        assert!(
+            subject.failures.is_empty(),
+            "Should be empty but was {:?}",
+            subject.failures
+        );
+        TestLogHandler::default().exists_log_containing(&format!(
+            "DEBUG: {test_name}: \
+        Cache misuse - some tx failures left unprocessed: \
+        {{0x0000000000000000000000000000000000000000000000000000000000000237: FailedTx {{ hash: \
+        0x0000000000000000000000000000000000000000000000000000000000000237, receiver_address: \
+        0x000000000000000000000077616c6c6574353637, amount_minor: 321489000000000, timestamp: \
+        {tx_timestamp}, gas_price_minor: 567000000000, nonce: 567, reason: PendingTooLong, status: \
+        RetryRequired }}}}. Dumping."
+        ));
     }
 }

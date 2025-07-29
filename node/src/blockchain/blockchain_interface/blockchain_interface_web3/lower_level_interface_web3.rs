@@ -3,6 +3,7 @@
 use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureReason};
 use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
 use crate::accountant::db_access_objects::utils::TxHash;
+use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::TxHashByTable;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::CONTRACT_ABI;
 use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError;
 use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError::QueryFailed;
@@ -21,42 +22,42 @@ use web3::transports::{Batch, Http};
 use web3::types::{Address, BlockNumber, Filter, Log, TransactionReceipt};
 use web3::{Error, Web3};
 
-pub type TxReceiptResult = Result<TxWithStatus, TxReceiptError>;
+pub type TxReceiptResult = Result<RetrievedTxStatus, TxReceiptError>;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct TxWithStatus {
-    pub sent_tx: SentTx,
-    pub status: ReceiptCheck,
+pub struct RetrievedTxStatus {
+    pub tx_hash: TxHashByTable,
+    pub status: StatusReadFromReceiptCheck,
 }
 
-impl TxWithStatus {
-    pub fn new(sent_tx: SentTx, status: ReceiptCheck) -> Self {
-        Self { sent_tx, status }
+impl RetrievedTxStatus {
+    pub fn new(tx_hash: TxHashByTable, status: StatusReadFromReceiptCheck) -> Self {
+        Self { tx_hash, status }
     }
 }
 
-impl From<TransactionReceipt> for ReceiptCheck {
+impl From<TransactionReceipt> for StatusReadFromReceiptCheck {
     fn from(receipt: TransactionReceipt) -> Self {
         match (receipt.status, receipt.block_hash, receipt.block_number) {
             (Some(status), Some(block_hash), Some(block_number)) if status == U64::from(1) => {
-                ReceiptCheck::TxSucceeded(TransactionBlock {
+                StatusReadFromReceiptCheck::Succeeded(TransactionBlock {
                     block_hash,
                     block_number,
                 })
             }
             (Some(status), _, _) if status == U64::from(0) => {
-                ReceiptCheck::TxFailed(BlockchainTxFailure::Unrecognized)
+                StatusReadFromReceiptCheck::Failed(BlockchainTxFailure::Unrecognized)
             }
-            _ => ReceiptCheck::PendingTx,
+            _ => StatusReadFromReceiptCheck::Pending,
         }
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub enum ReceiptCheck {
-    TxFailed(BlockchainTxFailure),
-    TxSucceeded(TransactionBlock),
-    PendingTx,
+pub enum StatusReadFromReceiptCheck {
+    Failed(BlockchainTxFailure),
+    Succeeded(TransactionBlock),
+    Pending,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, VariantCount)]
@@ -72,20 +73,20 @@ impl Display for BlockchainTxFailure {
     }
 }
 
-impl Display for ReceiptCheck {
+impl Display for StatusReadFromReceiptCheck {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ReceiptCheck::TxFailed(reason) => {
+            StatusReadFromReceiptCheck::Failed(reason) => {
                 write!(f, "Failed(Reason: {})", reason)
             }
-            ReceiptCheck::TxSucceeded(block) => {
+            StatusReadFromReceiptCheck::Succeeded(block) => {
                 write!(
                     f,
                     "Succeeded({},{:?})",
                     block.block_number, block.block_hash
                 )
             }
-            ReceiptCheck::PendingTx => write!(f, "Pending"),
+            StatusReadFromReceiptCheck::Pending => write!(f, "Pending"),
         }
     }
 }
@@ -121,13 +122,13 @@ impl Display for ReceiptCheck {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct TxReceiptError {
-    pub tx: SentTx,
+    pub tx_hash: TxHashByTable,
     pub err: AppRpcError,
 }
 
 impl TxReceiptError {
-    pub fn new(tx: SentTx, err: AppRpcError) -> Self {
-        Self { tx, err }
+    pub fn new(tx_hash: TxHashByTable, err: AppRpcError) -> Self {
+        Self { tx_hash, err }
     }
 }
 
@@ -269,7 +270,7 @@ mod tests {
     use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
     use crate::accountant::test_utils::make_sent_tx;
     use crate::assert_on_testing_enum_with_all_its_variants;
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TxWithStatus, TransactionBlock, BlockchainTxFailure, ReceiptCheck};
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{RetrievedTxStatus, TransactionBlock, BlockchainTxFailure, StatusReadFromReceiptCheck};
 
     #[test]
     fn get_transaction_fee_balance_works() {
@@ -640,7 +641,7 @@ mod tests {
         );
 
         match tx_status {
-            ReceiptCheck::TxSucceeded(ref block) => {
+            StatusReadFromReceiptCheck::Succeeded(ref block) => {
                 assert_eq!(block.block_hash, H256::from_low_u64_be(0x1234));
                 assert_eq!(block.block_number, U64::from(10));
             }
@@ -659,7 +660,7 @@ mod tests {
 
         assert_eq!(
             tx_status,
-            ReceiptCheck::TxFailed(BlockchainTxFailure::Unrecognized)
+            StatusReadFromReceiptCheck::Failed(BlockchainTxFailure::Unrecognized)
         );
     }
 
@@ -672,7 +673,7 @@ mod tests {
             H256::from_low_u64_be(0x5678),
         );
 
-        assert_eq!(tx_status, ReceiptCheck::PendingTx);
+        assert_eq!(tx_status, StatusReadFromReceiptCheck::Pending);
     }
 
     #[test]
@@ -684,7 +685,7 @@ mod tests {
             H256::from_low_u64_be(0x5678),
         );
 
-        assert_eq!(tx_status, ReceiptCheck::PendingTx);
+        assert_eq!(tx_status, StatusReadFromReceiptCheck::Pending);
     }
 
     #[test]
@@ -696,24 +697,24 @@ mod tests {
             H256::from_low_u64_be(0x5678),
         );
 
-        assert_eq!(tx_status, ReceiptCheck::PendingTx);
+        assert_eq!(tx_status, StatusReadFromReceiptCheck::Pending);
     }
 
     #[test]
     fn tx_status_display_works() {
         // Test Failed
         assert_eq!(
-            ReceiptCheck::TxFailed(BlockchainTxFailure::Unrecognized).to_string(),
+            StatusReadFromReceiptCheck::Failed(BlockchainTxFailure::Unrecognized).to_string(),
             "Failed(Reason: Failure unrecognized)"
         );
 
         // Test Pending
-        assert_eq!(ReceiptCheck::PendingTx.to_string(), "Pending");
+        assert_eq!(StatusReadFromReceiptCheck::Pending.to_string(), "Pending");
 
         // Test Succeeded
         let block_number = U64::from(12345);
         let block_hash = H256::from_low_u64_be(0xabcdef);
-        let succeeded = ReceiptCheck::TxSucceeded(TransactionBlock {
+        let succeeded = StatusReadFromReceiptCheck::Succeeded(TransactionBlock {
             block_hash,
             block_number,
         });
@@ -817,7 +818,7 @@ mod tests {
         block_hash_opt: Option<H256>,
         block_number_opt: Option<U64>,
         transaction_hash: H256,
-    ) -> ReceiptCheck {
+    ) -> StatusReadFromReceiptCheck {
         let receipt = TransactionReceipt {
             status: num_status_opt,
             root: None,

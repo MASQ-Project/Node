@@ -41,11 +41,11 @@ use std::fmt::Debug;
 use std::path::Path;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
-use std::time::SystemTime;
+use std::time::{SystemTime, UNIX_EPOCH};
 use ethereum_types::U64;
 use web3::types::{Address};
 use crate::accountant::db_access_objects::sent_payable_dao::{RetrieveCondition, SentPayableDaoError, SentTx};
-use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::FailuresRequiringDoubleCheck;
+use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{FailuresRequiringDoubleCheck, PendingPayableCache};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock};
 
 pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableAccount {
@@ -1053,7 +1053,10 @@ impl SentPayableDaoMock {
         self
     }
 
-    pub fn retrieve_txs(mut self, params: &Arc<Mutex<Vec<Option<RetrieveCondition>>>>) -> Self {
+    pub fn retrieve_txs_params(
+        mut self,
+        params: &Arc<Mutex<Vec<Option<RetrieveCondition>>>>,
+    ) -> Self {
         self.retrieve_txs_params = params.clone();
         self
     }
@@ -1363,7 +1366,7 @@ pub struct PendingPayableScannerBuilder {
     failed_payable_dao: FailedPayableDaoMock,
     payment_thresholds: PaymentThresholds,
     financial_statistics: FinancialStatistics,
-    previous_soft_failures: Vec<FailedTx>,
+    yet_unproven_failures: HashMap<TxHash, FailedTx>,
 }
 
 impl PendingPayableScannerBuilder {
@@ -1374,7 +1377,7 @@ impl PendingPayableScannerBuilder {
             failed_payable_dao: FailedPayableDaoMock::new(),
             payment_thresholds: PaymentThresholds::default(),
             financial_statistics: FinancialStatistics::default(),
-            previous_soft_failures: vec![],
+            yet_unproven_failures: hashmap!(),
         }
     }
 
@@ -1393,8 +1396,8 @@ impl PendingPayableScannerBuilder {
         self
     }
 
-    pub fn previous_soft_failures(mut self, failures: Vec<FailedTx>) -> Self {
-        self.previous_soft_failures = failures;
+    pub fn yet_unproven_failures(mut self, failures: HashMap<TxHash, FailedTx>) -> Self {
+        self.yet_unproven_failures = failures;
         self
     }
 
@@ -1411,8 +1414,9 @@ impl PendingPayableScannerBuilder {
             Rc::new(RefCell::new(self.financial_statistics)),
         );
 
-        scanner.previous_soft_failures =
-            FailuresRequiringDoubleCheck::new(self.previous_soft_failures);
+        scanner
+            .yet_unproven_failures
+            .load_cache(self.yet_unproven_failures);
 
         scanner
     }
