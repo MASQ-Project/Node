@@ -329,12 +329,7 @@ pub struct RouteSegment {
 impl Debug for RouteSegment {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let keys_base64: Vec<String> = self.keys.iter().map(|k| k.to_string()).collect();
-        write!(
-            f,
-            "{} : {:?}",
-            keys_base64.join(" -> "),
-            self.recipient
-        )
+        write!(f, "{} : {:?}", keys_base64.join(" -> "), self.recipient)
     }
 }
 

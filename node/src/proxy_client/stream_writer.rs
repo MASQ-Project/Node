@@ -93,7 +93,7 @@ impl StreamWriter {
                         "Writing {} bytes from packet {}{} over existing stream",
                         packet.data.len(),
                         packet.sequence_number,
-                        if packet.last_data {" (last data)"} else {""}
+                        if packet.last_data { " (last data)" } else { "" }
                     );
                     match self.stream.poll_write(&packet.data) {
                         Err(e) => {
@@ -103,7 +103,7 @@ impl StreamWriter {
                                     "Error writing {} bytes from packet {}{}: {}",
                                     packet.data.len(),
                                     packet.sequence_number,
-                                    if packet.last_data {" (last data)"} else {""},
+                                    if packet.last_data { " (last data)" } else { "" },
                                     e
                                 );
                                 return Err(());

@@ -114,7 +114,11 @@ impl StreamHandlerPoolReal {
         let inner_arc_1 = inner_arc.clone();
         let logger = Self::make_logger_copy(&inner_arc);
         let data_len = payload.sequenced_packet.data.len();
-        let hostname = payload.target_hostname.as_ref().unwrap_or(&"<unknown>".to_string()).to_string();
+        let hostname = payload
+            .target_hostname
+            .as_ref()
+            .unwrap_or(&"<unknown>".to_string())
+            .to_string();
         let target_port = payload.target_port;
         match Self::find_stream_with_key(&stream_key, &inner_arc) {
             Some(sender_wrapper) => {
@@ -245,7 +249,7 @@ impl StreamHandlerPoolReal {
             logger,
             "Queueing write of {} bytes{} to {} on stream {}",
             payload_size,
-            if last_data {" (last data)"} else {""},
+            if last_data { " (last data)" } else { "" },
             sender_wrapper.peer_addr(),
             stream_key,
         );
@@ -448,7 +452,8 @@ impl StreamHandlerPoolReal {
             logger,
             "Found IP addresses for {}: {:?}", target_hostname, &filtered_ip_addrs
         );
-        let result = establisher.establish_stream(payload, filtered_ip_addrs, target_hostname.clone());
+        let result =
+            establisher.establish_stream(payload, filtered_ip_addrs, target_hostname.clone());
         match result {
             Ok(sender_wrapper) => {
                 debug!(
@@ -458,7 +463,7 @@ impl StreamHandlerPoolReal {
                     sender_wrapper.peer_addr()
                 );
                 Ok(sender_wrapper)
-            },
+            }
             Err(e) => {
                 debug!(
                     logger,
