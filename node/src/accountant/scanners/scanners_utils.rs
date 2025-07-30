@@ -321,154 +321,10 @@ pub mod payable_scanner_utils {
     }
 }
 
-pub mod pending_payable_scanner_utils {
-    use crate::accountant::PendingPayableId;
-    use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
-    use masq_lib::logger::Logger;
-    use masq_lib::ui_gateway::NodeToUiMessage;
-    use std::time::SystemTime;
-
-    #[derive(Debug, Default, PartialEq, Eq, Clone)]
-    pub struct PendingPayableScanReport {
-        pub still_pending: Vec<PendingPayableId>,
-        pub failures: Vec<PendingPayableId>,
-        pub confirmed: Vec<PendingPayableFingerprint>,
-    }
-
-    impl PendingPayableScanReport {
-        pub fn requires_payments_retry(&self) -> bool {
-            todo!("complete my within GH-642")
-        }
-    }
-
-    #[derive(Debug, PartialEq, Eq)]
-    pub enum PendingPayableScanResult {
-        NoPendingPayablesLeft(Option<NodeToUiMessage>),
-        PaymentRetryRequired,
-    }
-
-    pub fn elapsed_in_ms(timestamp: SystemTime) -> u128 {
-        timestamp
-            .elapsed()
-            .expect("time calculation for elapsed failed")
-            .as_millis()
-    }
-
-    pub fn handle_none_status(
-        mut scan_report: PendingPayableScanReport,
-        fingerprint: PendingPayableFingerprint,
-        max_pending_interval: u64,
-        logger: &Logger,
-    ) -> PendingPayableScanReport {
-        info!(
-            logger,
-            "Pending transaction {:?} couldn't be confirmed at attempt \
-            {} at {}ms after its sending",
-            fingerprint.hash,
-            fingerprint.attempt,
-            elapsed_in_ms(fingerprint.timestamp)
-        );
-        let elapsed = fingerprint
-            .timestamp
-            .elapsed()
-            .expect("we should be older now");
-        let elapsed = elapsed.as_secs();
-        if elapsed > max_pending_interval {
-            error!(
-                logger,
-                "Pending transaction {:?} has exceeded the maximum pending time \
-                ({}sec) with the age {}sec and the confirmation process is going to be aborted now \
-                at the final attempt {}; manual resolution is required from the \
-                user to complete the transaction.",
-                fingerprint.hash,
-                max_pending_interval,
-                elapsed,
-                fingerprint.attempt
-            );
-            scan_report.failures.push(fingerprint.into())
-        } else {
-            scan_report.still_pending.push(fingerprint.into())
-        }
-        scan_report
-    }
-
-    pub fn handle_status_with_success(
-        mut scan_report: PendingPayableScanReport,
-        fingerprint: PendingPayableFingerprint,
-        logger: &Logger,
-    ) -> PendingPayableScanReport {
-        info!(
-            logger,
-            "Transaction {:?} has been added to the blockchain; detected locally at attempt \
-            {} at {}ms after its sending",
-            fingerprint.hash,
-            fingerprint.attempt,
-            elapsed_in_ms(fingerprint.timestamp)
-        );
-        scan_report.confirmed.push(fingerprint);
-        scan_report
-    }
-
-    //TODO: failures handling is going to need enhancement suggested by GH-693
-    pub fn handle_status_with_failure(
-        mut scan_report: PendingPayableScanReport,
-        fingerprint: PendingPayableFingerprint,
-        logger: &Logger,
-    ) -> PendingPayableScanReport {
-        error!(
-            logger,
-            "Pending transaction {:?} announced as a failure, interpreting attempt \
-            {} after {}ms from the sending",
-            fingerprint.hash,
-            fingerprint.attempt,
-            elapsed_in_ms(fingerprint.timestamp)
-        );
-        scan_report.failures.push(fingerprint.into());
-        scan_report
-    }
-
-    pub fn handle_none_receipt(
-        mut scan_report: PendingPayableScanReport,
-        payable: PendingPayableFingerprint,
-        error_msg: &str,
-        logger: &Logger,
-    ) -> PendingPayableScanReport {
-        debug!(
-            logger,
-            "Interpreting a receipt for transaction {:?} but {}; attempt {}, {}ms since sending",
-            payable.hash,
-            error_msg,
-            payable.attempt,
-            elapsed_in_ms(payable.timestamp)
-        );
-
-        scan_report
-            .still_pending
-            .push(PendingPayableId::new(payable.rowid, payable.hash));
-        scan_report
-    }
-}
-
-pub mod receivable_scanner_utils {
-    use crate::accountant::db_access_objects::receivable_dao::ReceivableAccount;
-    use crate::accountant::wei_to_gwei;
-    use std::time::{Duration, SystemTime};
-    use thousands::Separable;
-
-    pub fn balance_and_age(time: SystemTime, account: &ReceivableAccount) -> (String, Duration) {
-        let balance = wei_to_gwei::<i64, i128>(account.balance_wei).separate_with_commas();
-        let age = time
-            .duration_since(account.last_received_timestamp)
-            .unwrap_or_else(|_| Duration::new(0, 0));
-        (balance, age)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp};
     use crate::accountant::db_access_objects::payable_dao::{PayableAccount};
-    use crate::accountant::db_access_objects::receivable_dao::ReceivableAccount;
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
         LocallyCausedError, RemotelyCausedErrors,
     };
@@ -477,7 +333,6 @@ mod tests {
         payables_debug_summary, separate_errors, PayableThresholdsGauge,
         PayableThresholdsGaugeReal,
     };
-    use crate::accountant::scanners::scanners_utils::receivable_scanner_utils::balance_and_age;
     use crate::accountant::{checked_conversion, gwei_to_wei, SentPayables};
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::sub_lib::accountant::PaymentThresholds;
@@ -528,22 +383,6 @@ mod tests {
         let result = investigate_debt_extremes(now, payables);
 
         assert_eq!(result, "Payable scan found 4 debts; the biggest is 2000000 owed for 10000sec, the oldest is 330 owed for 30000sec")
-    }
-
-    #[test]
-    fn balance_and_age_is_calculated_as_expected() {
-        let now = SystemTime::now();
-        let offset = 1000;
-        let receivable_account = ReceivableAccount {
-            wallet: make_wallet("wallet0"),
-            balance_wei: 10_000_000_000,
-            last_received_timestamp: from_unix_timestamp(to_unix_timestamp(now) - offset),
-        };
-
-        let (balance, age) = balance_and_age(now, &receivable_account);
-
-        assert_eq!(balance, "10");
-        assert_eq!(age.as_secs(), offset as u64);
     }
 
     #[test]
@@ -868,65 +707,5 @@ mod tests {
             result,
             "Got 0 properly sent payables of an unknown number of attempts"
         )
-    }
-
-    #[test]
-    fn requires_payments_retry_says_yes() {
-        todo!("complete this test with GH-604")
-        // let cases = vec![
-        //     PendingPayableScanReport {
-        //         still_pending: vec![PendingPayableId::new(12, make_tx_hash(456))],
-        //         failures: vec![],
-        //         confirmed: vec![],
-        //     },
-        //     PendingPayableScanReport {
-        //         still_pending: vec![],
-        //         failures: vec![PendingPayableId::new(456, make_tx_hash(1234))],
-        //         confirmed: vec![],
-        //     },
-        //     PendingPayableScanReport {
-        //         still_pending: vec![PendingPayableId::new(12, make_tx_hash(456))],
-        //         failures: vec![PendingPayableId::new(456, make_tx_hash(1234))],
-        //         confirmed: vec![],
-        //     },
-        //     PendingPayableScanReport {
-        //         still_pending: vec![PendingPayableId::new(12, make_tx_hash(456))],
-        //         failures: vec![PendingPayableId::new(456, make_tx_hash(1234))],
-        //         confirmed: vec![make_pending_payable_fingerprint()],
-        //     },
-        //     PendingPayableScanReport {
-        //         still_pending: vec![PendingPayableId::new(12, make_tx_hash(456))],
-        //         failures: vec![],
-        //         confirmed: vec![make_pending_payable_fingerprint()],
-        //     },
-        //     PendingPayableScanReport {
-        //         still_pending: vec![],
-        //         failures: vec![PendingPayableId::new(456, make_tx_hash(1234))],
-        //         confirmed: vec![make_pending_payable_fingerprint()],
-        //     },
-        // ];
-        //
-        // cases.into_iter().enumerate().for_each(|(idx, case)| {
-        //     let result = case.requires_payments_retry();
-        //     assert_eq!(
-        //         result, true,
-        //         "We expected true, but got false for case of idx {}",
-        //         idx
-        //     )
-        // })
-    }
-
-    #[test]
-    fn requires_payments_retry_says_no() {
-        todo!("complete this test with GH-604")
-        // let report = PendingPayableScanReport {
-        //     still_pending: vec![],
-        //     failures: vec![],
-        //     confirmed: vec![make_pending_payable_fingerprint()],
-        // };
-        //
-        // let result = report.requires_payments_retry();
-        //
-        // assert_eq!(result, false)
     }
 }
