@@ -1,17 +1,19 @@
 use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 use web3::types::Address;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BaseTxTemplate {
     pub receiver_address: Address,
     pub amount_in_wei: u128,
+    // TODO: GH-605: Introduce calculated_gas_price_opt
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewTxTemplate {
     pub base: BaseTxTemplate,
+    pub computed_gas_price_wei: Option<u128>,
 }
 
 // #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,6 +27,7 @@ pub struct RetryTxTemplate {
     pub base: BaseTxTemplate,
     pub prev_gas_price_wei: u128,
     pub prev_nonce: u64,
+    pub computed_gas_price_wei: Option<u128>,
 }
 
 impl From<&PayableAccount> for BaseTxTemplate {
@@ -40,6 +43,7 @@ impl From<&PayableAccount> for NewTxTemplate {
     fn from(payable_account: &PayableAccount) -> Self {
         Self {
             base: BaseTxTemplate::from(payable_account),
+            computed_gas_price_wei: None,
         }
     }
 }
@@ -53,6 +57,7 @@ impl From<&FailedTx> for RetryTxTemplate {
             },
             prev_gas_price_wei: failed_tx.gas_price_wei,
             prev_nonce: failed_tx.nonce,
+            computed_gas_price_wei: None,
         }
     }
 }
@@ -65,6 +70,12 @@ impl Deref for NewTxTemplates {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl DerefMut for NewTxTemplates {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 
@@ -88,6 +99,12 @@ impl Deref for RetryTxTemplates {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl DerefMut for RetryTxTemplates {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 
@@ -182,12 +199,14 @@ mod tests {
                 receiver_address: make_address(1),
                 amount_in_wei: 1000,
             },
+            computed_gas_price_wei: None,
         };
         let template2 = NewTxTemplate {
             base: BaseTxTemplate {
                 receiver_address: make_address(2),
                 amount_in_wei: 2000,
             },
+            computed_gas_price_wei: None,
         };
 
         let templates = NewTxTemplates(vec![template1.clone(), template2.clone()]);
@@ -215,6 +234,7 @@ mod tests {
             },
             prev_gas_price_wei: 20_000_000_000,
             prev_nonce: 5,
+            computed_gas_price_wei: None,
         };
         let template2 = RetryTxTemplate {
             base: BaseTxTemplate {
@@ -223,6 +243,7 @@ mod tests {
             },
             prev_gas_price_wei: 25_000_000_000,
             prev_nonce: 6,
+            computed_gas_price_wei: None,
         };
 
         let templates = RetryTxTemplates(vec![template1.clone(), template2.clone()]);

@@ -128,6 +128,7 @@ impl RetryTxTemplateBuilder {
             },
             prev_gas_price_wei: self.prev_gas_price_wei.unwrap_or(0),
             prev_nonce: self.prev_nonce.unwrap_or(0),
+            computed_gas_price_wei: None,
         }
     }
 }

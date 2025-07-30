@@ -31,7 +31,7 @@ pub trait BlockchainAgent: Send {
     fn price_qualified_payables(
         &self,
         tx_templates: Either<NewTxTemplates, RetryTxTemplates>,
-    ) -> PricedQualifiedPayables;
+    ) -> Either<NewTxTemplates, RetryTxTemplates>;
     fn estimate_transaction_fee_total(&self, qualified_payables: &PricedQualifiedPayables) -> u128;
     fn consuming_wallet_balances(&self) -> ConsumingWalletBalances;
     fn consuming_wallet(&self) -> &Wallet;

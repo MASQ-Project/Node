@@ -1,10 +1,11 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::comma_joined_stringifiable;
+use crate::accountant::db_access_objects::utils::TxHash;
 use crate::accountant::scanners::payable_scanner::data_structures::{
     NewTxTemplate, NewTxTemplates, RetryTxTemplate, RetryTxTemplates,
 };
 use crate::accountant::scanners::payable_scanner_extension::msgs::PricedQualifiedPayables;
+use crate::accountant::{comma_joined_stringifiable, join_with_separator};
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
@@ -13,6 +14,7 @@ use itertools::{Either, Itertools};
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
 use masq_lib::utils::ExpectValue;
+use std::collections::BTreeSet;
 use thousands::Separable;
 use web3::types::Address;
 
@@ -30,71 +32,43 @@ impl BlockchainAgent for BlockchainAgentWeb3 {
     fn price_qualified_payables(
         &self,
         tx_templates: Either<NewTxTemplates, RetryTxTemplates>,
-    ) -> PricedQualifiedPayables {
-        todo!("TxTemplates");
-        // let warning_data_collector_opt =
-        //     self.set_up_warning_data_collector_opt(&qualified_payables);
-        //
-        // let init: (
-        //     Vec<QualifiedPayableWithGasPrice>,
-        //     Option<GasPriceAboveLimitWarningReporter>,
-        // ) = (vec![], warning_data_collector_opt);
-        // let (priced_qualified_payables, warning_data_collector_opt) =
-        //     qualified_payables.payables.into_iter().fold(
-        //         init,
-        //         |(mut priced_payables, mut warning_data_collector_opt), unpriced_payable| {
-        //             let selected_gas_price_wei = todo!("TxTemplate");
-        //             // match unpriced_payable.previous_attempt_gas_price_minor_opt {
-        //             //     None => self.latest_gas_price_wei,
-        //             //     Some(previous_price) if self.latest_gas_price_wei < previous_price => {
-        //             //         previous_price
-        //             //     }
-        //             //     Some(_) => self.latest_gas_price_wei,
-        //             // };
-        //
-        //             // let gas_price_increased_by_margin_wei =
-        //             //     increase_gas_price_by_margin(selected_gas_price_wei);
-        //             //
-        //             // let price_ceiling_wei = self.chain.rec().gas_price_safe_ceiling_minor;
-        //             // let checked_gas_price_wei =
-        //             //     if gas_price_increased_by_margin_wei > price_ceiling_wei {
-        //             //         warning_data_collector_opt.as_mut().map(|collector| {
-        //             //             match collector.data.as_mut() {
-        //             //                 Either::Left(new_payable_data) => {
-        //             //                     new_payable_data
-        //             //                         .addresses
-        //             //                         .push(unpriced_payable.payable.wallet.address());
-        //             //                     new_payable_data.gas_price_above_limit_wei =
-        //             //                         gas_price_increased_by_margin_wei
-        //             //                 }
-        //             //                 Either::Right(retry_payable_data) => retry_payable_data
-        //             //                     .addresses_and_gas_price_value_above_limit_wei
-        //             //                     .push((
-        //             //                         unpriced_payable.payable.wallet.address(),
-        //             //                         gas_price_increased_by_margin_wei,
-        //             //                     )),
-        //             //             }
-        //             //         });
-        //             //         price_ceiling_wei
-        //             //     } else {
-        //             //         gas_price_increased_by_margin_wei
-        //             //     };
-        //             //
-        //             // priced_payables.push(QualifiedPayableWithGasPrice::new(
-        //             //     unpriced_payable.payable,
-        //             //     checked_gas_price_wei,
-        //             // ));
-        //             //
-        //             // (priced_payables, warning_data_collector_opt)
-        //         },
-        //     );
-        //
-        // warning_data_collector_opt
-        //     .map(|collector| collector.log_warning_if_some_reason(&self.logger, self.chain));
-        //
-        // PricedQualifiedPayables {
-        //     payables: priced_qualified_payables,
-        // }
+    ) -> Either<NewTxTemplates, RetryTxTemplates> {
+        match tx_templates {
+            Either::Left(mut new_tx_templates) => {
+                let all_receivers = new_tx_templates
+                    .iter()
+                    .map(|tx_template| tx_template.base.receiver_address)
+                    .collect();
+                let computed_gas_price_wei = self.compute_gas_price(None, &all_receivers);
+
+                let updated_templates = new_tx_templates
+                    .iter_mut()
+                    .map(|new_tx_template| {
+                        new_tx_template.computed_gas_price_wei = Some(computed_gas_price_wei);
+                        new_tx_template.clone()
+                    })
+                    .collect();
+
+                Either::Left(NewTxTemplates(updated_templates))
+            }
+            Either::Right(mut retry_tx_templates) => {
+                let updated_templates = retry_tx_templates
+                    .iter_mut()
+                    .map(|retry_tx_template| {
+                        let receiver = retry_tx_template.base.receiver_address;
+                        let computed_gas_price_wei = self.compute_gas_price(
+                            Some(retry_tx_template.prev_gas_price_wei),
+                            &BTreeSet::from([receiver]),
+                        );
+                        retry_tx_template.computed_gas_price_wei = Some(computed_gas_price_wei);
+
+                        retry_tx_template.clone()
+                    })
+                    .collect();
+
+                Either::Right(RetryTxTemplates(updated_templates))
+            }
+        }
     }
 
     fn estimate_transaction_fee_total(&self, qualified_payables: &PricedQualifiedPayables) -> u128 {
@@ -226,7 +200,7 @@ impl BlockchainAgentWeb3 {
 
     fn set_up_warning_data_collector_opt(
         &self,
-        tx_templates: &Either<Vec<NewTxTemplate>, Vec<RetryTxTemplate>>,
+        tx_templates: &Either<NewTxTemplates, RetryTxTemplates>,
     ) -> Option<GasPriceAboveLimitWarningReporter> {
         self.logger.warning_enabled().then(|| {
             let data = if tx_templates.is_left() {
@@ -237,6 +211,46 @@ impl BlockchainAgentWeb3 {
 
             GasPriceAboveLimitWarningReporter { data }
         })
+    }
+
+    fn safe_value_for_gas_price(
+        &self,
+        computed_gas_price_wei: u128,
+        receivers: &BTreeSet<Address>,
+    ) -> u128 {
+        let ceil_gas_price_wei = self.chain.rec().gas_price_safe_ceiling_minor;
+
+        if computed_gas_price_wei > ceil_gas_price_wei {
+            warning!(
+                self.logger,
+                "The computed gas price {computed_gas_price_wei} wei is \
+                 above the ceil value of {ceil_gas_price_wei} wei set by the Node.\n\
+                 Transaction(s) to following receivers are affected:\n\
+                 {}",
+                join_with_separator(receivers, |address| format!("{:?}", address), "\n")
+            );
+
+            ceil_gas_price_wei
+        } else {
+            computed_gas_price_wei
+        }
+    }
+
+    fn compute_gas_price(
+        &self,
+        prev_gas_price_wei_opt: Option<u128>,
+        receivers: &BTreeSet<Address>,
+    ) -> u128 {
+        let evaluated_gas_price_wei = match prev_gas_price_wei_opt {
+            Some(prev_gas_price_wei) => prev_gas_price_wei.max(self.latest_gas_price_wei),
+            None => self.latest_gas_price_wei,
+        };
+
+        let increased_gas_price_wei = increase_gas_price_by_margin(evaluated_gas_price_wei);
+
+        let safe_gas_price_wei = self.safe_value_for_gas_price(increased_gas_price_wei, receivers);
+
+        safe_gas_price_wei
     }
 }
 
