@@ -12,7 +12,7 @@ use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableT
     LocallyCausedError, RemotelyCausedErrors,
 };
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{debugging_summary_after_error_separation, err_msg_for_failure_with_expected_but_missing_sent_tx_record, investigate_debt_extremes, payables_debug_summary, separate_errors, separate_rowids_and_hashes, OperationOutcome, PayableScanResult, PayableThresholdsGauge, PayableThresholdsGaugeReal, PayableTransactingErrorEnum, PendingPayableMissingInDb};
-use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_status_with_failure, handle_successful_tx, ReceiptScanReport, PendingPayableScanResult, handle_still_pending_tx, handle_rpc_failure, DetectedFailures, FailuresRequiringDoubleCheck, CurrentPendingPayables, RecordsCoupledWithReceiptCheckResults, PresortedTxFailure, ValidationStatusUpdate, DetectedConfirmations};
+use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_status_with_failure, handle_successful_tx, ReceiptScanReport, PendingPayableScanResult, handle_still_pending_tx, handle_rpc_failure, DetectedFailures, FailuresRequiringDoubleCheck, CurrentPendingPayables, PresortedTxFailure, ValidationStatusUpdate, DetectedConfirmations, TxCaseToBeInterpreted};
 use crate::accountant::scanners::scanners_utils::receivable_scanner_utils::balance_and_age;
 use crate::accountant::{PendingPayable, PendingPayableId, ScanError, ScanForPendingPayables, ScanForRetryPayables};
 use crate::accountant::{
@@ -1025,21 +1025,18 @@ impl PendingPayableScanner {
         msg: TxReceiptsMessage,
         logger: &Logger,
     ) -> ReceiptScanReport {
-        let records_with_check_results = self.prepare_data_couples(msg);
-        self.compose_receipt_scan_report(records_with_check_results, logger)
+        let interpretable_data = self.prepare_cases_to_interpret(msg);
+        self.compose_receipt_scan_report(interpretable_data, logger)
     }
 
-    fn prepare_data_couples(
-        &mut self,
-        msg: TxReceiptsMessage,
-    ) -> RecordsCoupledWithReceiptCheckResults {
+    fn prepare_cases_to_interpret(&mut self, msg: TxReceiptsMessage) -> Vec<TxCaseToBeInterpreted> {
         //TODO pull the records out from the caches and leave them empty
         todo!()
     }
 
     fn compose_receipt_scan_report(
         &self,
-        records_with_check_results: RecordsCoupledWithReceiptCheckResults,
+        tx_cases: Vec<TxCaseToBeInterpreted>,
         logger: &Logger,
     ) -> ReceiptScanReport {
         todo!()
@@ -1516,7 +1513,7 @@ mod tests {
     use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp, TxHash};
     use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayablesBeforeGasPriceSelection, QualifiedPayablesMessage, UnpricedQualifiedPayables};
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{OperationOutcome, PayableScanResult, PendingPayableMissingInDb};
-    use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_status_with_failure, ReceiptScanReport, PendingPayableScanResult, DetectedFailures, FailuresRequiringDoubleCheck, TxHashByTable, TxByTable, PresortedTxFailure, PendingPayableCache};
+    use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_status_with_failure, ReceiptScanReport, PendingPayableScanResult, DetectedFailures, FailuresRequiringDoubleCheck, TxHashByTable, TxByTable, PresortedTxFailure, PendingPayableCache, DetectedConfirmations};
     use crate::accountant::scanners::{Scanner, StartScanError, StartableScanner, PayableScanner, PendingPayableScanner, ReceivableScanner, ScannerCommon, Scanners, MTError};
     use crate::accountant::test_utils::{make_custom_payment_thresholds, make_payable_account, make_qualified_and_unqualified_payables, make_receivable_account, BannedDaoFactoryMock, BannedDaoMock, ConfigDaoFactoryMock, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder, PayableThresholdsGaugeMock, SentPayableDaoFactoryMock, SentPayableDaoMock, PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock, ReceivableScannerBuilder, make_sent_tx, FailedPayableDaoMock, FailedPayableDaoFactoryMock, make_failed_tx, make_transaction_block, bc_from_earning_wallet, AccountantBuilder};
     use crate::accountant::{gwei_to_wei, PendingPayableId, ReceivedPayments, TxReceiptsMessage, RequestTransactionReceipts, ScanError, ScanForRetryPayables, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC, PendingPayable, ScanForPendingPayables};
@@ -3177,7 +3174,7 @@ mod tests {
                     tx_failures: vec![PresortedTxFailure::NewEntry(failed_tx)],
                     tx_receipt_rpc_failures: vec![]
                 },
-                confirmations: vec![]
+                confirmations: DetectedConfirmations::default()
             }
         );
         TestLogHandler::new().exists_log_containing(&format!(
@@ -3233,7 +3230,7 @@ mod tests {
                     tx_failures: vec![PresortedTxFailure::NewEntry(expected_failed_tx)],
                     tx_receipt_rpc_failures: vec![]
                 },
-                confirmations: vec![]
+                confirmations: DetectedConfirmations::default()
             }
         );
         let log_handler = TestLogHandler::new();
@@ -3507,14 +3504,21 @@ mod tests {
             detection: Detection::Normal,
         };
 
-        subject.handle_confirmed_transactions(vec![sent_tx_1, sent_tx_2], &Logger::new("test"));
+        subject.handle_confirmed_transactions(
+            DetectedConfirmations {
+                normal_confirmations: vec![sent_tx_1, sent_tx_2],
+                reclaims: vec![],
+            },
+            &Logger::new("test"),
+        );
     }
 
     #[test]
     fn handle_confirmed_transactions_does_nothing_if_none_found_on_the_blockchain() {
         let mut subject = PendingPayableScannerBuilder::new().build();
 
-        subject.handle_confirmed_transactions(vec![], &Logger::new("test"))
+        subject
+            .handle_confirmed_transactions(DetectedConfirmations::default(), &Logger::new("test"))
 
         // Mocked payable DAO didn't panic, which means we skipped the actual process
     }
@@ -3538,6 +3542,7 @@ mod tests {
             .build();
         let tx_hash_1 = make_tx_hash(0x123);
         let tx_hash_2 = make_tx_hash(0x567);
+        let tx_hash_3 = make_tx_hash(0x913);
         let mut sent_tx_1 = make_sent_tx(123_123);
         sent_tx_1.hash = tx_hash_1;
         let tx_block_1 = TransactionBlock {
@@ -3549,19 +3554,36 @@ mod tests {
             block_number: tx_block_1.block_number.as_u64(),
             detection: Detection::Normal,
         };
-        let mut sent_tx_2 = make_sent_tx(567_567);
+        let mut sent_tx_2 = make_sent_tx(987_987);
         sent_tx_2.hash = tx_hash_2;
         let tx_block_2 = TransactionBlock {
+            block_hash: make_block_hash(67),
+            block_number: 6_789_898_789_u64.into(),
+        };
+        sent_tx_2.status = TxStatus::Confirmed {
+            block_hash: format!("{:?}", make_block_hash(123)),
+            block_number: tx_block_2.block_number.as_u64(),
+            detection: Detection::Normal,
+        };
+        let mut sent_tx_3 = make_sent_tx(567_567);
+        sent_tx_3.hash = tx_hash_3;
+        let tx_block_3 = TransactionBlock {
             block_hash: make_block_hash(78),
             block_number: 7_898_989_878_u64.into(),
         };
-        sent_tx_2.status = TxStatus::Confirmed {
-            block_hash: format!("{:?}", tx_block_2.block_hash),
-            block_number: tx_block_2.block_number.as_u64(),
+        sent_tx_3.status = TxStatus::Confirmed {
+            block_hash: format!("{:?}", tx_block_3.block_hash),
+            block_number: tx_block_3.block_number.as_u64(),
             detection: Detection::Reclaim,
         };
 
-        subject.handle_confirmed_transactions(vec![sent_tx_1.clone(), sent_tx_2.clone()], &logger);
+        subject.handle_confirmed_transactions(
+            DetectedConfirmations {
+                normal_confirmations: vec![sent_tx_1.clone(), sent_tx_2.clone()],
+                reclaims: vec![sent_tx_3.clone()],
+            },
+            &logger,
+        );
 
         let transactions_confirmed_params = transactions_confirmed_params_arc.lock().unwrap();
         assert_eq!(
@@ -3581,6 +3603,7 @@ mod tests {
             (block 4578989878), 0x0000000000000000000000000000000000000000000000000000000000000567 \
             (block 7898989878) have been confirmed",
         ));
+        todo!("take care of the....reclaimmm")
     }
 
     #[test]
@@ -3601,7 +3624,13 @@ mod tests {
         let mut sent_tx = make_sent_tx(456);
         sent_tx.hash = hash;
 
-        subject.handle_confirmed_transactions(vec![sent_tx], &Logger::new("test"));
+        subject.handle_confirmed_transactions(
+            DetectedConfirmations {
+                normal_confirmations: vec![sent_tx],
+                reclaims: vec![],
+            },
+            &Logger::new("test"),
+        );
     }
 
     #[test]
@@ -3646,42 +3675,44 @@ mod tests {
 
     #[test]
     fn total_paid_payable_rises_with_each_bill_paid() {
-        init_test_logging();
-        let test_name = "total_paid_payable_rises_with_each_bill_paid";
-        let mut sent_tx_1 = make_sent_tx(456);
-        sent_tx_1.amount_minor = 5478;
-        sent_tx_1.status = TxStatus::Confirmed {
-            block_hash: format!("{:?}", make_block_hash(123)),
-            block_number: 89898,
-            detection: Detection::Normal,
-        };
-        let mut sent_tx_2 = make_sent_tx(789);
-        sent_tx_2.amount_minor = 6543;
-        sent_tx_2.status = TxStatus::Confirmed {
-            block_hash: format!("{:?}", make_block_hash(321)),
-            block_number: 67676,
-            detection: Detection::Reclaim,
-        };
-        let payable_dao = PayableDaoMock::default().transactions_confirmed_result(Ok(()));
-        let sent_payable_dao = SentPayableDaoMock::default().confirm_tx_result(Ok(()));
-        let mut subject = PendingPayableScannerBuilder::new()
-            .payable_dao(payable_dao)
-            .sent_payable_dao(sent_payable_dao)
-            .build();
-        let mut financial_statistics = subject.financial_statistics.borrow().clone();
-        financial_statistics.total_paid_payable_wei += 1111;
-        subject.financial_statistics.replace(financial_statistics);
-
-        subject.handle_confirmed_transactions(
-            vec![sent_tx_1.clone(), sent_tx_2.clone()],
-            &Logger::new(test_name),
-        );
-
-        let total_paid_payable = subject.financial_statistics.borrow().total_paid_payable_wei;
-        assert_eq!(total_paid_payable, 1111 + 5478 + 6543);
-        TestLogHandler::new().exists_log_containing(&format!(
-            "DEBUG: {test_name}: The total paid payables increased by 12,021 to 13,132 wei"
-        ));
+        todo!("maybe write different tests for normal conf and reclaims")
+        // init_test_logging();
+        // let test_name = "total_paid_payable_rises_with_each_bill_paid";
+        // let mut sent_tx_1 = make_sent_tx(456);
+        // sent_tx_1.amount_minor = 5478;
+        // sent_tx_1.status = TxStatus::Confirmed {
+        //     block_hash: format!("{:?}", make_block_hash(123)),
+        //     block_number: 89898,
+        //     detection: Detection::Normal,
+        // };
+        // let mut sent_tx_2 = make_sent_tx(789);
+        // sent_tx_2.amount_minor = 6543;
+        // sent_tx_2.status = TxStatus::Confirmed {
+        //     block_hash: format!("{:?}", make_block_hash(321)),
+        //     block_number: 67676,
+        //     detection: Detection::Reclaim,
+        // };
+        // let payable_dao = PayableDaoMock::default().transactions_confirmed_result(Ok(()));
+        // let sent_payable_dao = SentPayableDaoMock::default().confirm_tx_result(Ok(()));
+        // let mut subject = PendingPayableScannerBuilder::new()
+        //     .payable_dao(payable_dao)
+        //     .sent_payable_dao(sent_payable_dao)
+        //     .build();
+        // let mut financial_statistics = subject.financial_statistics.borrow().clone();
+        // financial_statistics.total_paid_payable_wei += 1111;
+        // subject.financial_statistics.replace(financial_statistics);
+        //
+        // subject.handle_confirmed_transactions(
+        //     DetectedConfirmations{normal_confirmations: vec![sent_tx_1, sent_tx_2],
+        //     reclaims
+        //     &Logger::new(test_name),
+        // );
+        //
+        // let total_paid_payable = subject.financial_statistics.borrow().total_paid_payable_wei;
+        // assert_eq!(total_paid_payable, 1111 + 5478 + 6543);
+        // TestLogHandler::new().exists_log_containing(&format!(
+        //     "DEBUG: {test_name}: The total paid payables increased by 12,021 to 13,132 wei"
+        // ));
     }
 
     #[test]

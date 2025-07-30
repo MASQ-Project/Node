@@ -379,8 +379,8 @@ pub mod pending_payable_scanner_utils {
     }
 
     impl DetectedConfirmations {
-        fn is_empty(&self) -> bool {
-            todo!("write a separate test") //self.normal_confirmations.is_empty() && self.reclaims.is_empty()
+        pub(super) fn is_empty(&self) -> bool {
+            self.normal_confirmations.is_empty() && self.reclaims.is_empty()
         }
     }
 
@@ -397,7 +397,7 @@ pub mod pending_payable_scanner_utils {
             } else if !self.tx_failures.is_empty() {
                 Some(Retry::RetryPayments)
             } else {
-                Some(Retry::RetryOnlyTxStatusCheck)
+                Some(Retry::RetryTxStatusCheckOnly)
             }
         }
     }
@@ -511,11 +511,12 @@ pub mod pending_payable_scanner_utils {
     #[derive(Debug, PartialEq, Eq)]
     pub enum Retry {
         RetryPayments,
-        RetryOnlyTxStatusCheck,
+        RetryTxStatusCheckOnly,
     }
 
-    pub struct RecordsCoupledWithReceiptCheckResults {
-        pub prepared_couples: Vec<(TxByTable, StatusReadFromReceiptCheck)>,
+    pub struct TxCaseToBeInterpreted {
+        pub tx_by_table: TxByTable,
+        pub retrieved_status: StatusReadFromReceiptCheck,
     }
 
     pub enum TxByTable {
@@ -710,7 +711,7 @@ mod tests {
     use regex::Regex;
     use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureReason, FailureStatus, ValidationStatus};
     use crate::accountant::db_access_objects::sent_payable_dao::{SentTx, TxStatus};
-    use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{CurrentPendingPayables, DetectedFailures, FailedValidation, FailuresRequiringDoubleCheck, PendingPayableCache, PresortedTxFailure, ReceiptScanReport, Retry, ValidationStatusUpdate};
+    use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{CurrentPendingPayables, DetectedConfirmations, DetectedFailures, FailedValidation, FailuresRequiringDoubleCheck, PendingPayableCache, PresortedTxFailure, ReceiptScanReport, Retry, TxByTable, ValidationStatusUpdate};
     use crate::accountant::test_utils::{make_failed_tx, make_sent_tx};
     use crate::assert_on_testing_enum_with_all_its_variants;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::BlockchainTxFailure;
@@ -1167,50 +1168,19 @@ mod tests {
     }
 
     #[test]
+    fn detected_confirmations_is_empty_works() {
+        let subject = DetectedConfirmations {
+            normal_confirmations: vec![],
+            reclaims: vec![],
+        };
+
+        assert_eq!(subject.is_empty(), true);
+    }
+
+    #[test]
     fn requires_payments_retry() {
-        let make_case_1 = |preprocessed_failures| ReceiptScanReport {
-            failures: DetectedFailures {
-                tx_failures: preprocessed_failures,
-                tx_receipt_rpc_failures: vec![],
-            },
-            confirmations: vec![],
-        };
-        let make_case_2 = |preprocessed_failures| ReceiptScanReport {
-            failures: DetectedFailures {
-                tx_failures: preprocessed_failures,
-                tx_receipt_rpc_failures: vec![ValidationStatusUpdate::SentPayableRecord(
-                    FailedValidation {
-                        tx_hash: make_tx_hash(2222),
-                        failure: AppRpcError::Local(LocalError::Internal),
-                    },
-                )],
-            },
-            confirmations: vec![],
-        };
-        let make_case_3 = |preprocessed_failures| ReceiptScanReport {
-            failures: DetectedFailures {
-                tx_failures: preprocessed_failures,
-                tx_receipt_rpc_failures: vec![],
-            },
-            confirmations: vec![make_sent_tx(777)],
-        };
-        let make_case_4 = |preprocessed_failures| ReceiptScanReport {
-            failures: DetectedFailures {
-                tx_failures: preprocessed_failures,
-                tx_receipt_rpc_failures: vec![ValidationStatusUpdate::FailedPayableRecord(
-                    FailedValidation {
-                        tx_hash: make_tx_hash(12121),
-                        failure: AppRpcError::Remote(RemoteError::InvalidResponse(
-                            "blah".to_string(),
-                        )),
-                    },
-                )],
-            },
-            confirmations: vec![make_sent_tx(777)],
-        };
-        let case_makers: Vec<&dyn Fn(Vec<PresortedTxFailure>) -> ReceiptScanReport> =
-            vec![&make_case_1, &make_case_2, &make_case_3, &make_case_4];
-        let tx_failure_feedings = vec![
+        // Maximalist approach: exhaustive set of tested variants:
+        let tx_failures_feedings = vec![
             vec![PresortedTxFailure::NewEntry(make_failed_tx(456))],
             vec![PresortedTxFailure::RecheckCompleted(make_tx_hash(123))],
             vec![
@@ -1226,50 +1196,71 @@ mod tests {
                 PresortedTxFailure::RecheckCompleted(make_tx_hash(654)),
             ],
         ];
-        let generated_cases = case_makers.into_iter().fold(vec![], |mut acc, case_maker| {
-            tx_failure_feedings
-                .clone()
-                .into_iter()
-                .for_each(|failure_feeding| {
-                    let report = case_maker(failure_feeding.clone());
-                    acc.push(report);
-                });
-            acc
-        });
+        let tx_receipt_rpc_failures_feeding = vec![
+            vec![],
+            vec![ValidationStatusUpdate::SentPayableRecord(
+                FailedValidation {
+                    tx_hash: make_tx_hash(2222),
+                    failure: AppRpcError::Local(LocalError::Internal),
+                },
+            )],
+            vec![ValidationStatusUpdate::FailedPayableRecord(
+                FailedValidation {
+                    tx_hash: make_tx_hash(12121),
+                    failure: AppRpcError::Remote(RemoteError::InvalidResponse("blah".to_string())),
+                },
+            )],
+        ];
+        let detected_confirmations_feeding = vec![
+            DetectedConfirmations {
+                normal_confirmations: vec![],
+                reclaims: vec![],
+            },
+            DetectedConfirmations {
+                normal_confirmations: vec![make_sent_tx(777)],
+                reclaims: vec![make_sent_tx(999)],
+            },
+            DetectedConfirmations {
+                normal_confirmations: vec![make_sent_tx(777)],
+                reclaims: vec![],
+            },
+            DetectedConfirmations {
+                normal_confirmations: vec![],
+                reclaims: vec![make_sent_tx(999)],
+            },
+        ];
 
-        generated_cases
-            .into_iter()
-            .enumerate()
-            .for_each(|(idx, case)| {
-                let result = case.requires_payments_retry();
-                assert_eq!(
-                    result,
-                    Some(Retry::RetryPayments),
-                    "We expected Some(Retry::RetryPayments), but got {:?} for case with idx {}",
-                    result,
-                    idx
-                )
-            })
+        tx_failures_feedings.iter().for_each(|tx_failures| {
+            tx_receipt_rpc_failures_feeding
+                .iter()
+                .for_each(|rpc_failures| {
+                    detected_confirmations_feeding
+                        .iter()
+                        .for_each(|detected_confirmations| {
+                            let case = ReceiptScanReport {
+                                failures: DetectedFailures {
+                                    tx_failures: tx_failures.clone(),
+                                    tx_receipt_rpc_failures: rpc_failures.clone(),
+                                },
+                                confirmations: detected_confirmations.clone(),
+                            };
+
+                            let result = case.requires_payments_retry();
+
+                            assert_eq!(
+                                result,
+                                Some(Retry::RetryPayments),
+                                "We expected Some(Retry::RetryPayments) but got {:?} for case {:?}",
+                                result,
+                                case
+                            );
+                        })
+                })
+        });
     }
 
     #[test]
     fn requires_only_receipt_retrieval_retry() {
-        let make_case_1 = |preprocessed_rpc_failures| ReceiptScanReport {
-            failures: DetectedFailures {
-                tx_failures: vec![],
-                tx_receipt_rpc_failures: preprocessed_rpc_failures,
-            },
-            confirmations: vec![],
-        };
-        let make_case_2 = |preprocessed_rpc_failures| ReceiptScanReport {
-            failures: DetectedFailures {
-                tx_failures: vec![],
-                tx_receipt_rpc_failures: preprocessed_rpc_failures,
-            },
-            confirmations: vec![make_sent_tx(777)],
-        };
-        let case_makers: Vec<&dyn Fn(Vec<ValidationStatusUpdate>) -> ReceiptScanReport> =
-            vec![&make_case_1, &make_case_2];
         let rpc_failure_feedings = vec![
             vec![ValidationStatusUpdate::SentPayableRecord(
                 FailedValidation {
@@ -1294,42 +1285,78 @@ mod tests {
                 }),
             ],
         ];
-        let generated_cases = case_makers.into_iter().fold(vec![], |mut acc, case_maker| {
-            rpc_failure_feedings
-                .clone()
-                .into_iter()
-                .for_each(|failure_feeding| {
-                    let report = case_maker(failure_feeding.clone());
-                    acc.push(report);
-                });
-            acc
-        });
+        let detected_confirmations_feeding = vec![
+            DetectedConfirmations {
+                normal_confirmations: vec![],
+                reclaims: vec![],
+            },
+            DetectedConfirmations {
+                normal_confirmations: vec![make_sent_tx(777)],
+                reclaims: vec![make_sent_tx(999)],
+            },
+            DetectedConfirmations {
+                normal_confirmations: vec![make_sent_tx(777)],
+                reclaims: vec![],
+            },
+            DetectedConfirmations {
+                normal_confirmations: vec![],
+                reclaims: vec![make_sent_tx(999)],
+            },
+        ];
 
-        generated_cases.into_iter().enumerate().for_each(|(idx, case)| {
-            let result = case.requires_payments_retry();
-            assert_eq!(
-                result,
-                Some(Retry::RetryOnlyTxStatusCheck),
-                "We expected Some(Retry::RetryOnlyTxStatusCheck), but got {:?} for case with idx {}",
-                result,
-                idx
-            )
-        })
+        rpc_failure_feedings.into_iter().for_each(|rpc_failures|{
+                detected_confirmations_feeding.iter().for_each(|detected_confirmations|{
+                    let case = ReceiptScanReport {
+                        failures: DetectedFailures {
+                            tx_failures: vec![], // This is the determinant
+                            tx_receipt_rpc_failures: rpc_failures.clone(),
+                        },
+                        confirmations: detected_confirmations.clone(),
+                    };
+
+                    let result = case.requires_payments_retry();
+
+                    assert_eq!(result, Some(Retry::RetryTxStatusCheckOnly), "We expected Some(Retry::RetryTxStatusCheckOnly) but got {:?} for case {:?}", result, case);
+                })
+        });
     }
 
     #[test]
     fn requires_payments_retry_says_no() {
-        let report = ReceiptScanReport {
-            failures: DetectedFailures {
-                tx_failures: vec![],
-                tx_receipt_rpc_failures: vec![],
+        let detected_confirmations_feeding = vec![
+            DetectedConfirmations {
+                normal_confirmations: vec![make_sent_tx(777)],
+                reclaims: vec![make_sent_tx(999)],
             },
-            confirmations: vec![make_sent_tx(123)],
-        };
+            DetectedConfirmations {
+                normal_confirmations: vec![make_sent_tx(777)],
+                reclaims: vec![],
+            },
+            DetectedConfirmations {
+                normal_confirmations: vec![],
+                reclaims: vec![make_sent_tx(999)],
+            },
+        ];
 
-        let result = report.requires_payments_retry();
+        detected_confirmations_feeding
+            .into_iter()
+            .for_each(|detected_confirmations| {
+                let case = ReceiptScanReport {
+                    failures: DetectedFailures {
+                        tx_failures: vec![],
+                        tx_receipt_rpc_failures: vec![],
+                    },
+                    confirmations: detected_confirmations.clone(),
+                };
 
-        assert_eq!(result, None)
+                let result = case.requires_payments_retry();
+
+                assert_eq!(
+                    result, None,
+                    "We expected None but got {:?} for case {:?}",
+                    result, case
+                );
+            });
     }
 
     #[test]
@@ -1343,7 +1370,10 @@ mod tests {
                 tx_failures: vec![],
                 tx_receipt_rpc_failures: vec![],
             },
-            confirmations: vec![],
+            confirmations: DetectedConfirmations {
+                normal_confirmations: vec![],
+                reclaims: vec![],
+            },
         };
 
         let _ = report.requires_payments_retry();

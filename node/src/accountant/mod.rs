@@ -333,7 +333,7 @@ impl Handler<TxReceiptsMessage> for Accountant {
                     response_skeleton_opt,
                     &self.logger,
                 ),
-                Retry::RetryOnlyTxStatusCheck => todo!(),
+                Retry::RetryTxStatusCheckOnly => todo!(),
             },
         };
     }
