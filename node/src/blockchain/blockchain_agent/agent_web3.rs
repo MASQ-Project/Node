@@ -610,16 +610,19 @@ mod tests {
             .prev_gas_price_wei(rpc_gas_price_wei - 2)
             .build();
         let retry_tx_templates = vec![template_1, template_2];
-        let expected_surpluses_wallet_and_wei_as_text = "\
-        50,000,000,001 wei for tx to 0x00000000000000000000000077616c6c65743132, 50,000,000,001 \
-        wei for tx to 0x00000000000000000000000077616c6c65743334";
+        let expected_log_msg = format!(
+            "The computed gas price(s) in wei is above the ceil value of 50,000,000,000 wei set by the Node.\n\
+             Transaction(s) to following receivers are affected:\n\
+             0x00000000000000000000000077616c6c65743132 with gas price 50,000,000,001\n\
+             0x00000000000000000000000077616c6c65743334 with gas price 50,000,000,001"
+        );
 
         test_gas_price_must_not_break_through_ceiling_value_in_the_retry_payable_mode(
             test_name,
             chain,
             rpc_gas_price_wei,
             Either::Right(RetryTxTemplates(retry_tx_templates)),
-            expected_surpluses_wallet_and_wei_as_text,
+            &expected_log_msg,
         );
 
         assert!(
@@ -654,16 +657,19 @@ mod tests {
             .prev_gas_price_wei(border_gas_price_wei)
             .build();
         let retry_tx_templates = vec![template_1, template_2];
-        let expected_surpluses_wallet_and_wei_as_text = "50,000,000,001 wei for tx to \
-        0x00000000000000000000000077616c6c65743132, 50,000,000,001 wei for tx to \
-        0x00000000000000000000000077616c6c65743334";
+        let expected_log_msg = format!(
+            "The computed gas price(s) in wei is above the ceil value of 50,000,000,000 wei set by the Node.\n\
+             Transaction(s) to following receivers are affected:\n\
+             0x00000000000000000000000077616c6c65743132 with gas price 50,000,000,001\n\
+             0x00000000000000000000000077616c6c65743334 with gas price 50,000,000,001"
+        );
 
         test_gas_price_must_not_break_through_ceiling_value_in_the_retry_payable_mode(
             test_name,
             chain,
             rpc_gas_price_wei,
             Either::Right(RetryTxTemplates(retry_tx_templates)),
-            expected_surpluses_wallet_and_wei_as_text,
+            &expected_log_msg,
         );
         assert!(check_value_wei > ceiling_gas_price_wei);
     }
@@ -759,16 +765,19 @@ mod tests {
             .prev_gas_price_wei(ceiling_gas_price_wei)
             .build();
         let retry_tx_templates = vec![template_1, template_2];
-        let expected_surpluses_wallet_and_wei_as_text =
-            "650,000,000,000 wei for tx to 0x00000000000000000000\
-            000077616c6c65743132, 650,000,000,000 wei for tx to 0x00000000000000000000000077616c6c65743334";
+        let expected_log_msg = format!(
+            "The computed gas price(s) in wei is above the ceil value of 50,000,000,000 wei set by the Node.\n\
+             Transaction(s) to following receivers are affected:\n\
+             0x00000000000000000000000077616c6c65743132 with gas price 650,000,000,000\n\
+             0x00000000000000000000000077616c6c65743334 with gas price 650,000,000,000"
+        );
 
         test_gas_price_must_not_break_through_ceiling_value_in_the_retry_payable_mode(
             test_name,
             chain,
             fetched_gas_price_wei,
             Either::Right(RetryTxTemplates(retry_tx_templates)),
-            expected_surpluses_wallet_and_wei_as_text,
+            &expected_log_msg,
         );
     }
 
