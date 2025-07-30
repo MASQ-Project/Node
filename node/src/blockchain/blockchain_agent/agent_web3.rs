@@ -853,10 +853,7 @@ mod tests {
             .enumerate()
             .map(|(idx, previous_attempt_gas_price_wei)| {
                 let account = make_payable_account((idx as u64 + 1) * 3_000);
-                make_retry_tx_template_with_computed_gas_price(
-                    &account,
-                    previous_attempt_gas_price_wei,
-                )
+                make_retry_tx_template_with_prev_gas_price(&account, previous_attempt_gas_price_wei)
             })
             .collect()
         };
