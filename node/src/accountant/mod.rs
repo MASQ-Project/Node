@@ -74,9 +74,9 @@ use std::path::Path;
 use std::rc::Rc;
 use std::time::SystemTime;
 use web3::types::H256;
+use crate::accountant::scanners::pending_payable_scanner::utils::{PendingPayableScanResult, Retry, TxHashByTable};
 use crate::accountant::scanners::scan_schedulers::{PayableSequenceScanner, ScanRescheduleAfterEarlyStop, ScanSchedulers};
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::OperationOutcome;
-use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{PendingPayableScanResult, Retry, TxHashByTable};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TxReceiptResult;
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
@@ -1282,19 +1282,17 @@ mod tests {
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_gateway::{MessageBody, MessagePath, NodeFromUiMessage, NodeToUiMessage};
     use std::any::{TypeId};
-    use std::fmt::format;
     use std::ops::{Sub};
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::time::{Duration, UNIX_EPOCH};
     use std::vec;
     use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureRetrieveCondition, ValidationStatus};
-    use crate::accountant::db_access_objects::failed_payable_dao::ValidationStatus::Waiting;
     use crate::accountant::scanners::payable_scanner_extension::msgs::UnpricedQualifiedPayables;
     use crate::accountant::db_access_objects::sent_payable_dao::{Detection, RetrieveCondition, SentPayableDaoError, SentTx, TxConfirmation, TxStatus};
+    use crate::accountant::scanners::pending_payable_scanner::utils::{Retry, TxByTable, TxHashByTable};
     use crate::accountant::scanners::scan_schedulers::{NewPayableScanDynIntervalComputer, NewPayableScanDynIntervalComputerReal};
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{OperationOutcome, PayableScanResult};
-    use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{TxByTable, TxHashByTable};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{RetrievedTxStatus, TransactionBlock, BlockchainTxFailure, StatusReadFromReceiptCheck, TxReceiptResult, TxReceiptError};
     use crate::test_utils::recorder_counter_msgs::SingleTypeCounterMsgSetup;
 

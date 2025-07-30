@@ -1,21 +1,17 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureReason};
-use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
-use crate::accountant::db_access_objects::utils::TxHash;
-use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::TxHashByTable;
+use crate::accountant::db_access_objects::failed_payable_dao::FailureReason;
+use crate::accountant::scanners::pending_payable_scanner::utils::TxHashByTable;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::CONTRACT_ABI;
 use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError;
 use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError::QueryFailed;
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use crate::blockchain::errors::AppRpcError;
-use crate::sub_lib::wallet::Wallet;
 use ethereum_types::{H256, U256, U64};
 use futures::Future;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt::Display;
-use std::str::FromStr;
 use variant_count::VariantCount;
 use web3::contract::{Contract, Options};
 use web3::transports::{Batch, Http};

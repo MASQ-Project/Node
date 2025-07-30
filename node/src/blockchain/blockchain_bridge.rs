@@ -427,7 +427,7 @@ impl BlockchainBridge {
                 .process_transaction_receipts(msg.tx_hashes)
                 .map_err(move |e| e.to_string())
                 .and_then(move |tx_receipt_results| {
-                    Self::log_status_of_tx_receipts(&logger, &tx_receipt_results);
+                    Self::log_status_of_tx_receipts(&logger, tx_receipt_results.as_slice());
                     accountant_recipient
                         .try_send(TxReceiptsMessage {
                             results: tx_receipt_results,
@@ -577,16 +577,14 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
-    use libc::time;
     use web3::types::{TransactionReceipt, H160};
     use masq_lib::constants::DEFAULT_MAX_BLOCK_COUNT;
     use crate::accountant::db_access_objects::failed_payable_dao::ValidationStatus;
-    use crate::accountant::db_access_objects::sent_payable_dao::{SentTx, TxConfirmation, TxStatus};
+    use crate::accountant::db_access_objects::sent_payable_dao::{TxStatus};
     use crate::accountant::PendingPayable;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{RetrievedTxStatus, TransactionBlock, TxReceiptError};
     use crate::accountant::scanners::payable_scanner_extension::msgs::{UnpricedQualifiedPayables, QualifiedPayableWithGasPrice};
-    use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::TxByTable::SentPayable;
-    use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::TxHashByTable;
+    use crate::accountant::scanners::pending_payable_scanner::utils::TxHashByTable;
     use crate::blockchain::errors::{AppRpcError, RemoteError};
 
     impl Handler<AssertionsMessage<Self>> for BlockchainBridge {

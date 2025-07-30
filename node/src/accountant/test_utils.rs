@@ -16,8 +16,10 @@ use crate::accountant::scanners::payable_scanner_extension::msgs::{
     QualifiedPayablesBeforeGasPriceSelection, UnpricedQualifiedPayables,
 };
 use crate::accountant::scanners::payable_scanner_extension::PreparedAdjustment;
+use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
+use crate::accountant::scanners::receivable_scanner::ReceivableScanner;
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableThresholdsGauge;
-use crate::accountant::scanners::{PayableScanner, PendingPayableScanner, ReceivableScanner};
+use crate::accountant::scanners::PayableScanner;
 use crate::accountant::{gwei_to_wei, Accountant, DEFAULT_PENDING_TOO_LONG_SEC};
 use crate::blockchain::blockchain_interface::data_structures::BlockchainTransaction;
 use crate::blockchain::test_utils::{make_block_hash, make_tx_hash};
@@ -45,7 +47,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use ethereum_types::U64;
 use web3::types::{Address};
 use crate::accountant::db_access_objects::sent_payable_dao::{RetrieveCondition, SentPayableDaoError, SentTx};
-use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{FailuresRequiringDoubleCheck, PendingPayableCache};
+use crate::accountant::scanners::pending_payable_scanner::utils::PendingPayableCache;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock};
 
 pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableAccount {

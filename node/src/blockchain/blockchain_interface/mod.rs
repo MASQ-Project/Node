@@ -14,9 +14,8 @@ use masq_lib::blockchains::chains::Chain;
 use web3::types::Address;
 use masq_lib::logger::Logger;
 use crate::accountant::scanners::payable_scanner_extension::msgs::{PricedQualifiedPayables};
+use crate::accountant::scanners::pending_payable_scanner::utils::TxHashByTable;
 use crate::blockchain::blockchain_agent::BlockchainAgent;
-use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
-use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::TxHashByTable;
 use crate::blockchain::blockchain_bridge::{BlockMarker, BlockScanRange, RegisterNewPendingPayables};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TxReceiptResult;
 
