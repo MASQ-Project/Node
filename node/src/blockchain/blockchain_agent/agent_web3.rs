@@ -34,39 +34,17 @@ impl BlockchainAgent for BlockchainAgentWeb3 {
         tx_templates: Either<NewTxTemplates, RetryTxTemplates>,
     ) -> Either<NewTxTemplates, RetryTxTemplates> {
         match tx_templates {
-            Either::Left(mut new_tx_templates) => {
-                let all_receivers = new_tx_templates
-                    .iter()
-                    .map(|tx_template| tx_template.base.receiver_address)
-                    .collect();
-                let computed_gas_price_wei = self.compute_gas_price(None, &all_receivers);
+            Either::Left(new_tx_templates) => {
+                let updated_new_tx_templates =
+                    self.update_gas_price_for_new_tx_templates(new_tx_templates);
 
-                let updated_templates = new_tx_templates
-                    .iter_mut()
-                    .map(|new_tx_template| {
-                        new_tx_template.computed_gas_price_wei = Some(computed_gas_price_wei);
-                        new_tx_template.clone()
-                    })
-                    .collect();
-
-                Either::Left(NewTxTemplates(updated_templates))
+                Either::Left(updated_new_tx_templates)
             }
-            Either::Right(mut retry_tx_templates) => {
-                let updated_templates = retry_tx_templates
-                    .iter_mut()
-                    .map(|retry_tx_template| {
-                        let receiver = retry_tx_template.base.receiver_address;
-                        let computed_gas_price_wei = self.compute_gas_price(
-                            Some(retry_tx_template.prev_gas_price_wei),
-                            &BTreeSet::from([receiver]),
-                        );
-                        retry_tx_template.computed_gas_price_wei = Some(computed_gas_price_wei);
+            Either::Right(retry_tx_templates) => {
+                let updated_retry_tx_templates =
+                    self.update_gas_price_for_retry_tx_templates(retry_tx_templates);
 
-                        retry_tx_template.clone()
-                    })
-                    .collect();
-
-                Either::Right(RetryTxTemplates(updated_templates))
+                Either::Right(updated_retry_tx_templates)
             }
         }
     }
@@ -225,10 +203,12 @@ impl BlockchainAgentWeb3 {
         if computed_gas_price_wei > ceil_gas_price_wei {
             warning!(
                 self.logger,
-                "The computed gas price {computed_gas_price_wei} wei is \
-                 above the ceil value of {ceil_gas_price_wei} wei set by the Node.\n\
+                "The computed gas price {} wei is \
+                 above the ceil value of {} wei set by the Node.\n\
                  Transaction(s) to following receivers are affected:\n\
                  {}",
+                computed_gas_price_wei.separate_with_commas(),
+                ceil_gas_price_wei.separate_with_commas(),
                 join_with_separator(receivers, |address| format!("{:?}", address), "\n")
             );
 
@@ -253,6 +233,48 @@ impl BlockchainAgentWeb3 {
         let safe_gas_price_wei = self.safe_value_for_gas_price(increased_gas_price_wei, receivers);
 
         safe_gas_price_wei
+    }
+
+    fn update_gas_price_for_new_tx_templates(
+        &self,
+        mut new_tx_templates: NewTxTemplates,
+    ) -> NewTxTemplates {
+        let all_receivers = new_tx_templates
+            .iter()
+            .map(|tx_template| tx_template.base.receiver_address)
+            .collect();
+        let computed_gas_price_wei = self.compute_gas_price(None, &all_receivers);
+
+        let updated_tx_templates = new_tx_templates
+            .iter_mut()
+            .map(|new_tx_template| {
+                new_tx_template.computed_gas_price_wei = Some(computed_gas_price_wei);
+                new_tx_template.clone()
+            })
+            .collect();
+
+        NewTxTemplates(updated_tx_templates)
+    }
+
+    fn update_gas_price_for_retry_tx_templates(
+        &self,
+        mut retry_tx_templates: RetryTxTemplates,
+    ) -> RetryTxTemplates {
+        let updated_tx_templates = retry_tx_templates
+            .iter_mut()
+            .map(|retry_tx_template| {
+                let receiver = retry_tx_template.base.receiver_address;
+                let computed_gas_price_wei = self.compute_gas_price(
+                    Some(retry_tx_template.prev_gas_price_wei),
+                    &BTreeSet::from([receiver]),
+                );
+                retry_tx_template.computed_gas_price_wei = Some(computed_gas_price_wei);
+
+                retry_tx_template.clone()
+            })
+            .collect();
+
+        RetryTxTemplates(updated_tx_templates)
     }
 }
 
