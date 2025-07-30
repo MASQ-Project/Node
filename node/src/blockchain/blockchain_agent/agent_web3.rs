@@ -243,7 +243,7 @@ impl BlockchainAgentWeb3 {
         &self,
         mut retry_tx_templates: RetryTxTemplates,
     ) -> RetryTxTemplates {
-        let mut log_data: HashMap<Address, u128> = HashMap::with_capacity(retry_tx_templates.len());
+        let mut log_data: Vec<(Address, u128)> = Vec::with_capacity(retry_tx_templates.len());
 
         let ceil = self.chain.rec().gas_price_safe_ceiling_minor;
 
@@ -255,7 +255,7 @@ impl BlockchainAgentWeb3 {
                     self.compute_gas_price(Some(retry_tx_template.prev_gas_price_wei));
 
                 if computed_gas_price_wei > ceil {
-                    log_data.insert(receiver, computed_gas_price_wei);
+                    log_data.push((receiver, computed_gas_price_wei));
                     retry_tx_template.computed_gas_price_wei = Some(ceil);
                 } else {
                     retry_tx_template.computed_gas_price_wei = Some(computed_gas_price_wei);
@@ -273,7 +273,7 @@ impl BlockchainAgentWeb3 {
                  {}",
             ceil.separate_with_commas(),
             join_with_separator(
-                log_data,
+                &log_data,
                 |(address, gas_price)| format!(
                     "{:?} with gas price {}",
                     address,
@@ -688,16 +688,19 @@ mod tests {
             .prev_gas_price_wei(fetched_gas_price_wei - 3)
             .build();
         let retry_tx_templates = vec![template_1, template_2];
-        let expected_surpluses_wallet_and_wei_as_text = "64,999,999,998 wei for tx to \
-        0x00000000000000000000000077616c6c65743132, 64,999,999,998 wei for tx to \
-        0x00000000000000000000000077616c6c65743334";
+        let expected_log_msg = format!(
+            "The computed gas price(s) in wei is above the ceil value of 50,000,000,000 wei set by the Node.\n\
+             Transaction(s) to following receivers are affected:\n\
+             0x00000000000000000000000077616c6c65743132 with gas price 64,999,999,998\n\
+             0x00000000000000000000000077616c6c65743334 with gas price 64,999,999,998"
+        );
 
         test_gas_price_must_not_break_through_ceiling_value_in_the_retry_payable_mode(
             test_name,
             chain,
             fetched_gas_price_wei,
             Either::Right(RetryTxTemplates(retry_tx_templates)),
-            expected_surpluses_wallet_and_wei_as_text,
+            &expected_log_msg,
         );
     }
 
@@ -719,16 +722,19 @@ mod tests {
             .prev_gas_price_wei(ceiling_gas_price_wei - 2)
             .build();
         let retry_tx_templates = vec![template_1, template_2];
-        let expected_surpluses_wallet_and_wei_as_text = "64,999,999,998 wei for tx to \
-        0x00000000000000000000000077616c6c65743132, 64,999,999,997 wei for tx to \
-        0x00000000000000000000000077616c6c65743334";
+        let expected_log_msg = format!(
+            "The computed gas price(s) in wei is above the ceil value of 50,000,000,000 wei set by the Node.\n\
+             Transaction(s) to following receivers are affected:\n\
+             0x00000000000000000000000077616c6c65743132 with gas price 64,999,999,998\n\
+             0x00000000000000000000000077616c6c65743334 with gas price 64,999,999,997"
+        );
 
         test_gas_price_must_not_break_through_ceiling_value_in_the_retry_payable_mode(
             test_name,
             chain,
             ceiling_gas_price_wei - 3,
             Either::Right(RetryTxTemplates(retry_tx_templates)),
-            expected_surpluses_wallet_and_wei_as_text,
+            &expected_log_msg,
         );
     }
 
@@ -771,7 +777,7 @@ mod tests {
         chain: Chain,
         rpc_gas_price_wei: u128,
         tx_templates: Either<NewTxTemplates, RetryTxTemplates>,
-        expected_surpluses_wallet_and_wei_as_text: &str,
+        expected_log_msg: &str,
     ) {
         init_test_logging();
         let consuming_wallet = make_wallet("efg");
@@ -810,11 +816,8 @@ mod tests {
         let result = subject.price_qualified_payables(tx_templates);
 
         assert_eq!(result, expected_result);
-        TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: {test_name}: Calculated gas price {expected_surpluses_wallet_and_wei_as_text} \
-                    surplussed the spend limit {} wei.",
-            ceiling_gas_price_wei.separate_with_commas()
-        ));
+        TestLogHandler::new()
+            .exists_log_containing(&format!("WARN: {test_name}: {expected_log_msg}"));
     }
 
     #[test]
