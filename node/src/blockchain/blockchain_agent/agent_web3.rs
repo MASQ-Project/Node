@@ -193,11 +193,7 @@ impl BlockchainAgentWeb3 {
         })
     }
 
-    fn compute_gas_price(
-        &self,
-        prev_gas_price_wei_opt: Option<u128>,
-        receivers: &BTreeSet<Address>,
-    ) -> u128 {
+    fn compute_gas_price(&self, prev_gas_price_wei_opt: Option<u128>) -> u128 {
         let evaluated_gas_price_wei = match prev_gas_price_wei_opt {
             Some(prev_gas_price_wei) => prev_gas_price_wei.max(self.latest_gas_price_wei),
             None => self.latest_gas_price_wei,
@@ -210,11 +206,11 @@ impl BlockchainAgentWeb3 {
         &self,
         mut new_tx_templates: NewTxTemplates,
     ) -> NewTxTemplates {
-        let all_receivers = new_tx_templates
+        let all_receivers: Vec<Address> = new_tx_templates
             .iter()
             .map(|tx_template| tx_template.base.receiver_address)
             .collect();
-        let mut computed_gas_price_wei = self.compute_gas_price(None, &all_receivers);
+        let mut computed_gas_price_wei = self.compute_gas_price(None);
         let ceil = self.chain.rec().gas_price_safe_ceiling_minor;
 
         if computed_gas_price_wei > ceil {
@@ -249,16 +245,14 @@ impl BlockchainAgentWeb3 {
     ) -> RetryTxTemplates {
         let mut log_data: HashMap<Address, u128> = HashMap::with_capacity(retry_tx_templates.len());
 
+        let ceil = self.chain.rec().gas_price_safe_ceiling_minor;
+
         let updated_tx_templates = retry_tx_templates
             .iter_mut()
             .map(|retry_tx_template| {
                 let receiver = retry_tx_template.base.receiver_address;
-                let computed_gas_price_wei = self.compute_gas_price(
-                    Some(retry_tx_template.prev_gas_price_wei),
-                    &BTreeSet::from([receiver]),
-                );
-
-                let ceil = self.chain.rec().gas_price_safe_ceiling_minor;
+                let computed_gas_price_wei =
+                    self.compute_gas_price(Some(retry_tx_template.prev_gas_price_wei));
 
                 if computed_gas_price_wei > ceil {
                     log_data.insert(receiver, computed_gas_price_wei);
@@ -270,6 +264,24 @@ impl BlockchainAgentWeb3 {
                 retry_tx_template.clone()
             })
             .collect();
+
+        warning!(
+            self.logger,
+            "The computed gas price(s) in wei is \
+                 above the ceil value of {} wei set by the Node.\n\
+                 Transaction(s) to following receivers are affected:\n\
+                 {}",
+            ceil.separate_with_commas(),
+            join_with_separator(
+                log_data,
+                |(address, gas_price)| format!(
+                    "{:?} with gas price {}",
+                    address,
+                    gas_price.separate_with_commas()
+                ),
+                "\n"
+            )
+        );
 
         RetryTxTemplates(updated_tx_templates)
     }
