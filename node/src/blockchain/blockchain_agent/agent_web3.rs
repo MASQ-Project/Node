@@ -73,89 +73,6 @@ impl BlockchainAgent for BlockchainAgentWeb3 {
     }
 }
 
-struct GasPriceAboveLimitWarningReporter {
-    data: Either<NewPayableWarningData, RetryPayableWarningData>,
-}
-
-impl GasPriceAboveLimitWarningReporter {
-    fn log_warning_if_some_reason(self, logger: &Logger, chain: Chain) {
-        let ceiling_value_wei = chain.rec().gas_price_safe_ceiling_minor;
-        match self.data {
-            Either::Left(new_payable_data) => {
-                if !new_payable_data.addresses.is_empty() {
-                    warning!(
-                        logger,
-                        "{}",
-                        Self::new_payables_warning_msg(new_payable_data, ceiling_value_wei)
-                    )
-                }
-            }
-            Either::Right(retry_payable_data) => {
-                if !retry_payable_data
-                    .addresses_and_gas_price_value_above_limit_wei
-                    .is_empty()
-                {
-                    warning!(
-                        logger,
-                        "{}",
-                        Self::retry_payable_warning_msg(retry_payable_data, ceiling_value_wei)
-                    )
-                }
-            }
-        }
-    }
-
-    fn new_payables_warning_msg(
-        new_payable_warning_data: NewPayableWarningData,
-        ceiling_value_wei: u128,
-    ) -> String {
-        let accounts = comma_joined_stringifiable(&new_payable_warning_data.addresses, |address| {
-            format!("{:?}", address)
-        });
-        format!(
-            "Calculated gas price {} wei for txs to {} is over the spend limit {} wei.",
-            new_payable_warning_data
-                .gas_price_above_limit_wei
-                .separate_with_commas(),
-            accounts,
-            ceiling_value_wei.separate_with_commas()
-        )
-    }
-
-    fn retry_payable_warning_msg(
-        retry_payable_warning_data: RetryPayableWarningData,
-        ceiling_value_wei: u128,
-    ) -> String {
-        let accounts = retry_payable_warning_data
-            .addresses_and_gas_price_value_above_limit_wei
-            .into_iter()
-            .map(|(address, calculated_price_wei)| {
-                format!(
-                    "{} wei for tx to {:?}",
-                    calculated_price_wei.separate_with_commas(),
-                    address
-                )
-            })
-            .join(", ");
-        format!(
-            "Calculated gas price {} surplussed the spend limit {} wei.",
-            accounts,
-            ceiling_value_wei.separate_with_commas()
-        )
-    }
-}
-
-#[derive(Default)]
-struct NewPayableWarningData {
-    addresses: Vec<Address>,
-    gas_price_above_limit_wei: u128,
-}
-
-#[derive(Default)]
-struct RetryPayableWarningData {
-    addresses_and_gas_price_value_above_limit_wei: Vec<(Address, u128)>,
-}
-
 // 64 * (64 - 12) ... std transaction has data of 64 bytes and 12 bytes are never used with us;
 // each non-zero byte costs 64 units of gas
 pub const WEB3_MAXIMAL_GAS_LIMIT_MARGIN: u128 = 3328;
@@ -176,21 +93,6 @@ impl BlockchainAgentWeb3 {
             consuming_wallet_balances,
             chain,
         }
-    }
-
-    fn set_up_warning_data_collector_opt(
-        &self,
-        tx_templates: &Either<NewTxTemplates, RetryTxTemplates>,
-    ) -> Option<GasPriceAboveLimitWarningReporter> {
-        self.logger.warning_enabled().then(|| {
-            let data = if tx_templates.is_left() {
-                Either::Left(NewPayableWarningData::default())
-            } else {
-                Either::Right(RetryPayableWarningData::default())
-            };
-
-            GasPriceAboveLimitWarningReporter { data }
-        })
     }
 
     fn compute_gas_price(&self, prev_gas_price_wei_opt: Option<u128>) -> u128 {
@@ -265,23 +167,25 @@ impl BlockchainAgentWeb3 {
             })
             .collect();
 
-        warning!(
-            self.logger,
-            "The computed gas price(s) in wei is \
+        if !log_data.is_empty() {
+            warning!(
+                self.logger,
+                "The computed gas price(s) in wei is \
                  above the ceil value of {} wei set by the Node.\n\
                  Transaction(s) to following receivers are affected:\n\
                  {}",
-            ceil.separate_with_commas(),
-            join_with_separator(
-                &log_data,
-                |(address, gas_price)| format!(
-                    "{:?} with gas price {}",
-                    address,
-                    gas_price.separate_with_commas()
-                ),
-                "\n"
-            )
-        );
+                ceil.separate_with_commas(),
+                join_with_separator(
+                    &log_data,
+                    |(address, gas_price)| format!(
+                        "{:?} with gas price {}",
+                        address,
+                        gas_price.separate_with_commas()
+                    ),
+                    "\n"
+                )
+            );
+        }
 
         RetryTxTemplates(updated_tx_templates)
     }
@@ -302,8 +206,7 @@ mod tests {
     use crate::accountant::scanners::test_utils::make_zeroed_consuming_wallet_balances;
     use crate::accountant::test_utils::make_payable_account;
     use crate::blockchain::blockchain_agent::agent_web3::{
-        BlockchainAgentWeb3, GasPriceAboveLimitWarningReporter, NewPayableWarningData,
-        RetryPayableWarningData, WEB3_MAXIMAL_GAS_LIMIT_MARGIN,
+        BlockchainAgentWeb3, WEB3_MAXIMAL_GAS_LIMIT_MARGIN,
     };
     use crate::blockchain::blockchain_agent::BlockchainAgent;
     use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
@@ -352,17 +255,7 @@ mod tests {
             make_new_tx_template_with_gas_price(&account_2, gas_price_with_margin_wei),
         ]));
         assert_eq!(result, expected_result);
-        let msg_that_should_not_occur = {
-            let mut new_payable_data = NewPayableWarningData::default();
-            new_payable_data.addresses = vec![address_1, address_2];
-
-            GasPriceAboveLimitWarningReporter::new_payables_warning_msg(
-                new_payable_data,
-                chain.rec().gas_price_safe_ceiling_minor,
-            )
-        };
-        TestLogHandler::new()
-            .exists_no_log_containing(&format!("WARN: {test_name}: {msg_that_should_not_occur}"));
+        TestLogHandler::new().exists_no_log_containing(test_name);
     }
 
     #[test]
@@ -427,26 +320,7 @@ mod tests {
             ))
         };
         assert_eq!(result, expected_result);
-        // TODO: GH-605: Work on fixing the log
-        // let msg_that_should_not_occur = {
-        //     let mut retry_payable_data = RetryPayableWarningData::default();
-        //     retry_payable_data.addresses_and_gas_price_value_above_limit_wei = expected_result
-        //         .payables
-        //         .into_iter()
-        //         .map(|payable_with_gas_price| {
-        //             (
-        //                 payable_with_gas_price.payable.wallet.address(),
-        //                 payable_with_gas_price.gas_price_minor,
-        //             )
-        //         })
-        //         .collect();
-        //     GasPriceAboveLimitWarningReporter::retry_payable_warning_msg(
-        //         retry_payable_data,
-        //         chain.rec().gas_price_safe_ceiling_minor,
-        //     )
-        // };
-        // TestLogHandler::new()
-        //     .exists_no_log_containing(&format!("WARN: {test_name}: {}", msg_that_should_not_occur));
+        TestLogHandler::new().exists_no_log_containing(test_name);
     }
 
     fn make_retry_tx_template_with_prev_gas_price(
