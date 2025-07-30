@@ -281,6 +281,7 @@ impl BlockchainAgentWeb3 {
 #[cfg(test)]
 mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
+    use crate::accountant::join_with_separator;
     use crate::accountant::scanners::payable_scanner::data_structures::{
         BaseTxTemplate, NewTxTemplate, NewTxTemplates, RetryTxTemplate, RetryTxTemplates,
     };
@@ -498,6 +499,8 @@ mod tests {
         let chain = TEST_DEFAULT_CHAIN;
         let ceiling_gas_price_wei = chain.rec().gas_price_safe_ceiling_minor;
 
+        eprintln!("ceiling: {}", ceiling_gas_price_wei);
+
         test_gas_price_must_not_break_through_ceiling_value_in_the_new_payable_mode(
             test_name,
             chain,
@@ -554,27 +557,23 @@ mod tests {
 
         let result = subject.price_qualified_payables(Either::Left(tx_templates));
 
-        let expected_result = PricedQualifiedPayables {
-            payables: vec![
-                QualifiedPayableWithGasPrice::new(account_1.clone(), ceiling_gas_price_wei),
-                QualifiedPayableWithGasPrice::new(account_2.clone(), ceiling_gas_price_wei),
-            ],
-        };
         let expected_result = Either::Left(NewTxTemplates(vec![
             make_new_tx_template_with_gas_price(&account_1, ceiling_gas_price_wei),
             make_new_tx_template_with_gas_price(&account_2, ceiling_gas_price_wei),
         ]));
         assert_eq!(result, expected_result);
+        let addresses_str = join_with_separator(
+            &vec![account_1.wallet, account_2.wallet],
+            |wallet| format!("{}", wallet),
+            "\n",
+        );
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: {test_name}: Calculated gas price {} wei for txs to {}, {} is over the spend \
-            limit {} wei.",
+            "WARN: {test_name}: The computed gas price {} wei is above the ceil value of {} wei set by the Node.\n\
+            Transaction(s) to following receivers are affected:\n\
+            {}",
             expected_calculated_surplus_value_wei.separate_with_commas(),
-            account_1.wallet,
-            account_2.wallet,
-            chain
-                .rec()
-                .gas_price_safe_ceiling_minor
-                .separate_with_commas()
+            ceiling_gas_price_wei.separate_with_commas(),
+            addresses_str
         ));
     }
 
