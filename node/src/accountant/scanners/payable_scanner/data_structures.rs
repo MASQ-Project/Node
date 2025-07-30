@@ -65,6 +65,18 @@ impl From<&FailedTx> for RetryTxTemplate {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct NewTxTemplates(pub Vec<NewTxTemplate>);
 
+impl NewTxTemplates {
+    pub fn total_gas_price(&self) -> u128 {
+        self.iter()
+            .map(|new_tx_template| {
+                new_tx_template
+                    .computed_gas_price_wei
+                    .expect("gas price should be computed")
+            })
+            .sum()
+    }
+}
+
 impl Deref for NewTxTemplates {
     type Target = Vec<NewTxTemplate>;
 
@@ -93,6 +105,18 @@ impl From<&Vec<PayableAccount>> for NewTxTemplates {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct RetryTxTemplates(pub Vec<RetryTxTemplate>);
+
+impl RetryTxTemplates {
+    pub fn total_gas_price(&self) -> u128 {
+        self.iter()
+            .map(|retry_tx_template| {
+                retry_tx_template
+                    .computed_gas_price_wei
+                    .expect("gas price should be computed")
+            })
+            .sum()
+    }
+}
 
 impl Deref for RetryTxTemplates {
     type Target = Vec<RetryTxTemplate>;

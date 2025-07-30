@@ -45,7 +45,7 @@ impl BlockchainAgent for BlockchainAgentMock {
 
     fn estimate_transaction_fee_total(
         &self,
-        _qualified_payables: &PricedQualifiedPayables,
+        _tx_templates_with_gas_price: &Either<NewTxTemplates, RetryTxTemplates>,
     ) -> u128 {
         todo!("to be implemented by GH-711")
     }

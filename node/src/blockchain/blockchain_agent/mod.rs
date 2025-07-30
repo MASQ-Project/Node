@@ -32,7 +32,10 @@ pub trait BlockchainAgent: Send {
         &self,
         tx_templates: Either<NewTxTemplates, RetryTxTemplates>,
     ) -> Either<NewTxTemplates, RetryTxTemplates>;
-    fn estimate_transaction_fee_total(&self, qualified_payables: &PricedQualifiedPayables) -> u128;
+    fn estimate_transaction_fee_total(
+        &self,
+        tx_templates_with_gas_price: &Either<NewTxTemplates, RetryTxTemplates>,
+    ) -> u128;
     fn consuming_wallet_balances(&self) -> ConsumingWalletBalances;
     fn consuming_wallet(&self) -> &Wallet;
     fn get_chain(&self) -> Chain;
