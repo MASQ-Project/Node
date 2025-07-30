@@ -14,7 +14,7 @@ use itertools::{Either, Itertools};
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
 use masq_lib::utils::ExpectValue;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use thousands::Separable;
 use web3::types::Address;
 
@@ -193,31 +193,6 @@ impl BlockchainAgentWeb3 {
         })
     }
 
-    fn safe_value_for_gas_price(
-        &self,
-        computed_gas_price_wei: u128,
-        receivers: &BTreeSet<Address>,
-    ) -> u128 {
-        let ceil_gas_price_wei = self.chain.rec().gas_price_safe_ceiling_minor;
-
-        if computed_gas_price_wei > ceil_gas_price_wei {
-            warning!(
-                self.logger,
-                "The computed gas price {} wei is \
-                 above the ceil value of {} wei set by the Node.\n\
-                 Transaction(s) to following receivers are affected:\n\
-                 {}",
-                computed_gas_price_wei.separate_with_commas(),
-                ceil_gas_price_wei.separate_with_commas(),
-                join_with_separator(receivers, |address| format!("{:?}", address), "\n")
-            );
-
-            ceil_gas_price_wei
-        } else {
-            computed_gas_price_wei
-        }
-    }
-
     fn compute_gas_price(
         &self,
         prev_gas_price_wei_opt: Option<u128>,
@@ -228,11 +203,7 @@ impl BlockchainAgentWeb3 {
             None => self.latest_gas_price_wei,
         };
 
-        let increased_gas_price_wei = increase_gas_price_by_margin(evaluated_gas_price_wei);
-
-        let safe_gas_price_wei = self.safe_value_for_gas_price(increased_gas_price_wei, receivers);
-
-        safe_gas_price_wei
+        increase_gas_price_by_margin(evaluated_gas_price_wei)
     }
 
     fn update_gas_price_for_new_tx_templates(
@@ -243,7 +214,23 @@ impl BlockchainAgentWeb3 {
             .iter()
             .map(|tx_template| tx_template.base.receiver_address)
             .collect();
-        let computed_gas_price_wei = self.compute_gas_price(None, &all_receivers);
+        let mut computed_gas_price_wei = self.compute_gas_price(None, &all_receivers);
+        let ceil = self.chain.rec().gas_price_safe_ceiling_minor;
+
+        if computed_gas_price_wei > ceil {
+            warning!(
+                self.logger,
+                "The computed gas price {} wei is \
+                 above the ceil value of {} wei set by the Node.\n\
+                 Transaction(s) to following receivers are affected:\n\
+                 {}",
+                computed_gas_price_wei.separate_with_commas(),
+                ceil.separate_with_commas(),
+                join_with_separator(&all_receivers, |address| format!("{:?}", address), "\n")
+            );
+
+            computed_gas_price_wei = ceil;
+        }
 
         let updated_tx_templates = new_tx_templates
             .iter_mut()
@@ -260,6 +247,8 @@ impl BlockchainAgentWeb3 {
         &self,
         mut retry_tx_templates: RetryTxTemplates,
     ) -> RetryTxTemplates {
+        let mut log_data: HashMap<Address, u128> = HashMap::with_capacity(retry_tx_templates.len());
+
         let updated_tx_templates = retry_tx_templates
             .iter_mut()
             .map(|retry_tx_template| {
@@ -268,7 +257,15 @@ impl BlockchainAgentWeb3 {
                     Some(retry_tx_template.prev_gas_price_wei),
                     &BTreeSet::from([receiver]),
                 );
-                retry_tx_template.computed_gas_price_wei = Some(computed_gas_price_wei);
+
+                let ceil = self.chain.rec().gas_price_safe_ceiling_minor;
+
+                if computed_gas_price_wei > ceil {
+                    log_data.insert(receiver, computed_gas_price_wei);
+                    retry_tx_template.computed_gas_price_wei = Some(ceil);
+                } else {
+                    retry_tx_template.computed_gas_price_wei = Some(computed_gas_price_wei);
+                }
 
                 retry_tx_template.clone()
             })
