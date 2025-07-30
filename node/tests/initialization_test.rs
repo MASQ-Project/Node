@@ -78,7 +78,7 @@ fn initialization_sequence_integration() {
             ("neighborhood-mode", Some("zero-hop")),
             ("log-level", Some("trace")),
             ("data-directory", Some(&data_directory.to_str().unwrap())),
-            ("blockchain-service-url", Some("https://example.com")),
+            ("blockchain-service-url", Some("https://www.example.com")),
         ]))
         .unwrap();
     let financials_request = UiFinancialsRequest {

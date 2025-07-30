@@ -694,7 +694,7 @@ pub mod unshared_test_utils {
         ClientRequestPayload_0v1 {
             stream_key: StreamKey::make_meaningful_stream_key("request"),
             sequenced_packet: SequencedPacket::new(make_garbage_data(bytes), 0, true),
-            target_hostname: Some("example.com".to_string()),
+            target_hostname: Some("www.example.com".to_string()),
             target_port: HTTP_PORT,
             protocol: ProxyProtocol::HTTP,
             originator_public_key: cryptde.public_key().clone(),
