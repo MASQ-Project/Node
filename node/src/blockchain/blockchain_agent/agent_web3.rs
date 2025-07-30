@@ -256,8 +256,9 @@ impl BlockchainAgentWeb3 {
 
 #[cfg(test)]
 mod tests {
+    use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::scanners::payable_scanner::data_structures::{
-        NewTxTemplate, NewTxTemplates, RetryTxTemplate, RetryTxTemplates,
+        BaseTxTemplate, NewTxTemplate, NewTxTemplates, RetryTxTemplate, RetryTxTemplates,
     };
     use crate::accountant::scanners::payable_scanner::test_utils::RetryTxTemplateBuilder;
     use crate::accountant::scanners::payable_scanner_extension::msgs::{
@@ -279,6 +280,7 @@ mod tests {
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+    use std::collections::BTreeSet;
     use thousands::Separable;
 
     #[test]
@@ -308,17 +310,14 @@ mod tests {
         );
         subject.logger = Logger::new(test_name);
 
-        let priced_qualified_payables =
-            subject.price_qualified_payables(Either::Left(new_tx_templates));
+        let result = subject.price_qualified_payables(Either::Left(new_tx_templates));
 
         let gas_price_with_margin_wei = increase_gas_price_by_margin(rpc_gas_price_wei);
-        let expected_result = PricedQualifiedPayables {
-            payables: vec![
-                QualifiedPayableWithGasPrice::new(account_1, gas_price_with_margin_wei),
-                QualifiedPayableWithGasPrice::new(account_2, gas_price_with_margin_wei),
-            ],
-        };
-        assert_eq!(priced_qualified_payables, expected_result);
+        let expected_result = Either::Left(NewTxTemplates(vec![
+            make_new_tx_template_with_gas_price(&account_1, gas_price_with_margin_wei),
+            make_new_tx_template_with_gas_price(&account_2, gas_price_with_margin_wei),
+        ]));
+        assert_eq!(result, expected_result);
         let msg_that_should_not_occur = {
             let mut new_payable_data = NewPayableWarningData::default();
             new_payable_data.addresses = vec![address_1, address_2];
@@ -378,7 +377,7 @@ mod tests {
         );
         subject.logger = Logger::new(test_name);
 
-        let priced_qualified_payables =
+        let result =
             subject.price_qualified_payables(Either::Right(RetryTxTemplates(retry_tx_templates)));
 
         let expected_result = {
@@ -392,36 +391,51 @@ mod tests {
             if price_wei_for_accounts_from_1_to_5.len() != accounts_from_1_to_5.len() {
                 panic!("Corrupted test")
             }
-            PricedQualifiedPayables {
-                payables: accounts_from_1_to_5
+
+            Either::Right(RetryTxTemplates(
+                accounts_from_1_to_5
                     .into_iter()
                     .zip(price_wei_for_accounts_from_1_to_5.into_iter())
                     .map(|(account, previous_attempt_price_wei)| {
-                        QualifiedPayableWithGasPrice::new(account, previous_attempt_price_wei)
+                        make_retry_tx_template_with_gas_price(&account, previous_attempt_price_wei)
                     })
                     .collect_vec(),
-            }
+            ))
         };
-        assert_eq!(priced_qualified_payables, expected_result);
-        let msg_that_should_not_occur = {
-            let mut retry_payable_data = RetryPayableWarningData::default();
-            retry_payable_data.addresses_and_gas_price_value_above_limit_wei = expected_result
-                .payables
-                .into_iter()
-                .map(|payable_with_gas_price| {
-                    (
-                        payable_with_gas_price.payable.wallet.address(),
-                        payable_with_gas_price.gas_price_minor,
-                    )
-                })
-                .collect();
-            GasPriceAboveLimitWarningReporter::retry_payable_warning_msg(
-                retry_payable_data,
-                chain.rec().gas_price_safe_ceiling_minor,
-            )
-        };
-        TestLogHandler::new()
-            .exists_no_log_containing(&format!("WARN: {test_name}: {}", msg_that_should_not_occur));
+        assert_eq!(result, expected_result);
+        todo!("work on fixing the log");
+        // let msg_that_should_not_occur = {
+        //     let mut retry_payable_data = RetryPayableWarningData::default();
+        //     retry_payable_data.addresses_and_gas_price_value_above_limit_wei = expected_result
+        //         .payables
+        //         .into_iter()
+        //         .map(|payable_with_gas_price| {
+        //             (
+        //                 payable_with_gas_price.payable.wallet.address(),
+        //                 payable_with_gas_price.gas_price_minor,
+        //             )
+        //         })
+        //         .collect();
+        //     GasPriceAboveLimitWarningReporter::retry_payable_warning_msg(
+        //         retry_payable_data,
+        //         chain.rec().gas_price_safe_ceiling_minor,
+        //     )
+        // };
+        // TestLogHandler::new()
+        //     .exists_no_log_containing(&format!("WARN: {test_name}: {}", msg_that_should_not_occur));
+    }
+
+    fn make_retry_tx_template_with_gas_price(
+        payable: &PayableAccount,
+        gas_price_wei: u128,
+    ) -> RetryTxTemplate {
+        let base = BaseTxTemplate::from(payable);
+        RetryTxTemplate {
+            base,
+            prev_gas_price_wei: 0,
+            prev_nonce: 0,
+            computed_gas_price_wei: Some(gas_price_wei),
+        }
     }
 
     #[test]
@@ -479,6 +493,16 @@ mod tests {
         );
     }
 
+    pub fn make_new_tx_template_with_gas_price(
+        payable: &PayableAccount,
+        gas_price_wei: u128,
+    ) -> NewTxTemplate {
+        let mut tx_template = NewTxTemplate::from(payable);
+        tx_template.computed_gas_price_wei = Some(gas_price_wei);
+
+        tx_template
+    }
+
     fn test_gas_price_must_not_break_through_ceiling_value_in_the_new_payable_mode(
         test_name: &str,
         chain: Chain,
@@ -501,8 +525,7 @@ mod tests {
         );
         subject.logger = Logger::new(test_name);
 
-        let priced_qualified_payables =
-            subject.price_qualified_payables(Either::Left(tx_templates));
+        let result = subject.price_qualified_payables(Either::Left(tx_templates));
 
         let expected_result = PricedQualifiedPayables {
             payables: vec![
@@ -510,7 +533,11 @@ mod tests {
                 QualifiedPayableWithGasPrice::new(account_2.clone(), ceiling_gas_price_wei),
             ],
         };
-        assert_eq!(priced_qualified_payables, expected_result);
+        let expected_result = Either::Left(NewTxTemplates(vec![
+            make_new_tx_template_with_gas_price(&account_1, ceiling_gas_price_wei),
+            make_new_tx_template_with_gas_price(&account_2, ceiling_gas_price_wei),
+        ]));
+        assert_eq!(result, expected_result);
         TestLogHandler::new().exists_log_containing(&format!(
             "WARN: {test_name}: Calculated gas price {} wei for txs to {}, {} is over the spend \
             limit {} wei.",
@@ -786,13 +813,15 @@ mod tests {
         let priced_qualified_payables =
             subject.price_qualified_payables(Either::Left(tx_templates));
 
-        let result = subject.estimate_transaction_fee_total(&priced_qualified_payables);
+        todo!("estimate_transaction_fee_total");
 
-        assert_eq!(
-            result,
-            (2 * (77_777 + WEB3_MAXIMAL_GAS_LIMIT_MARGIN))
-                * increase_gas_price_by_margin(444_555_666)
-        );
+        // let result = subject.estimate_transaction_fee_total(&priced_qualified_payables);
+        //
+        // assert_eq!(
+        //     result,
+        //     (2 * (77_777 + WEB3_MAXIMAL_GAS_LIMIT_MARGIN))
+        //         * increase_gas_price_by_margin(444_555_666)
+        // );
     }
 
     #[test]
@@ -832,20 +861,22 @@ mod tests {
         let priced_qualified_payables =
             subject.price_qualified_payables(Either::Right(RetryTxTemplates(retry_tx_templates)));
 
-        let result = subject.estimate_transaction_fee_total(&priced_qualified_payables);
+        todo!("estimate_transaction_fee_total");
 
-        let gas_prices_for_accounts_from_1_to_5 = vec![
-            increase_gas_price_by_margin(rpc_gas_price_wei),
-            increase_gas_price_by_margin(rpc_gas_price_wei),
-            increase_gas_price_by_margin(rpc_gas_price_wei + 1),
-            increase_gas_price_by_margin(rpc_gas_price_wei),
-            increase_gas_price_by_margin(rpc_gas_price_wei + 456_789),
-        ];
-        let expected_result = gas_prices_for_accounts_from_1_to_5
-            .into_iter()
-            .sum::<u128>()
-            * (77_777 + WEB3_MAXIMAL_GAS_LIMIT_MARGIN);
-        assert_eq!(result, expected_result)
+        // let result = subject.estimate_transaction_fee_total(&priced_qualified_payables);
+        //
+        // let gas_prices_for_accounts_from_1_to_5 = vec![
+        //     increase_gas_price_by_margin(rpc_gas_price_wei),
+        //     increase_gas_price_by_margin(rpc_gas_price_wei),
+        //     increase_gas_price_by_margin(rpc_gas_price_wei + 1),
+        //     increase_gas_price_by_margin(rpc_gas_price_wei),
+        //     increase_gas_price_by_margin(rpc_gas_price_wei + 456_789),
+        // ];
+        // let expected_result = gas_prices_for_accounts_from_1_to_5
+        //     .into_iter()
+        //     .sum::<u128>()
+        //     * (77_777 + WEB3_MAXIMAL_GAS_LIMIT_MARGIN);
+        // assert_eq!(result, expected_result)
     }
 
     #[test]

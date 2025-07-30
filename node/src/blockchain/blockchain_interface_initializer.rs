@@ -44,7 +44,10 @@ impl BlockchainInterfaceInitializer {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::scanners::payable_scanner::data_structures::NewTxTemplates;
+    use crate::accountant::db_access_objects::payable_dao::PayableAccount;
+    use crate::accountant::scanners::payable_scanner::data_structures::{
+        NewTxTemplate, NewTxTemplates,
+    };
     use crate::accountant::scanners::payable_scanner_extension::msgs::{
         PricedQualifiedPayables, QualifiedPayableWithGasPrice,
     };
@@ -60,6 +63,17 @@ mod tests {
     use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
     use masq_lib::utils::find_free_port;
     use std::net::Ipv4Addr;
+
+    //TODO: GH-605: This duplicate should be removed.
+    pub fn make_new_tx_template_with_gas_price(
+        payable: &PayableAccount,
+        gas_price_wei: u128,
+    ) -> NewTxTemplate {
+        let mut tx_template = NewTxTemplate::from(payable);
+        tx_template.computed_gas_price_wei = Some(gas_price_wei);
+
+        tx_template
+    }
 
     #[test]
     fn initialize_web3_interface_works() {
@@ -90,23 +104,18 @@ mod tests {
             .wait()
             .unwrap();
         assert_eq!(blockchain_agent.consuming_wallet(), &payable_wallet);
-        let priced_qualified_payables =
-            blockchain_agent.price_qualified_payables(Either::Left(tx_templates));
+        let result = blockchain_agent.price_qualified_payables(Either::Left(tx_templates));
         let gas_price_with_margin = increase_gas_price_by_margin(1_000_000_000);
-        let expected_priced_qualified_payables = PricedQualifiedPayables {
-            payables: vec![
-                QualifiedPayableWithGasPrice::new(account_1, gas_price_with_margin),
-                QualifiedPayableWithGasPrice::new(account_2, gas_price_with_margin),
-            ],
-        };
-        assert_eq!(
-            priced_qualified_payables,
-            expected_priced_qualified_payables
-        );
-        assert_eq!(
-            blockchain_agent.estimate_transaction_fee_total(&priced_qualified_payables),
-            190_652_800_000_000
-        );
+        let expected_result = Either::Left(NewTxTemplates(vec![
+            make_new_tx_template_with_gas_price(&account_1, gas_price_with_margin),
+            make_new_tx_template_with_gas_price(&account_2, gas_price_with_margin),
+        ]));
+        assert_eq!(result, expected_result);
+        todo!("estimate_transaction_fee_total");
+        // assert_eq!(
+        //     blockchain_agent.estimate_transaction_fee_total(&result),
+        //     190_652_800_000_000
+        // );
     }
 
     #[test]

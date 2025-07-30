@@ -257,27 +257,28 @@ impl BlockchainBridge {
         &mut self,
         incoming_message: QualifiedPayablesMessage,
     ) -> Box<dyn Future<Item = (), Error = String>> {
+        todo!("BlockchainAgentWithContextMessage");
         // TODO rewrite this into a batch call as soon as GH-629 gets into master
-        let accountant_recipient = self.payable_payments_setup_subs_opt.clone();
-        Box::new(
-            self.blockchain_interface
-                .introduce_blockchain_agent(incoming_message.consuming_wallet)
-                .map_err(|e| format!("Blockchain agent build error: {:?}", e))
-                .and_then(move |agent| {
-                    let priced_qualified_payables =
-                        agent.price_qualified_payables(incoming_message.tx_templates);
-                    let outgoing_message = BlockchainAgentWithContextMessage::new(
-                        priced_qualified_payables,
-                        agent,
-                        incoming_message.response_skeleton_opt,
-                    );
-                    accountant_recipient
-                        .expect("Accountant is unbound")
-                        .try_send(outgoing_message)
-                        .expect("Accountant is dead");
-                    Ok(())
-                }),
-        )
+        // let accountant_recipient = self.payable_payments_setup_subs_opt.clone();
+        // Box::new(
+        //     self.blockchain_interface
+        //         .introduce_blockchain_agent(incoming_message.consuming_wallet)
+        //         .map_err(|e| format!("Blockchain agent build error: {:?}", e))
+        //         .and_then(move |agent| {
+        //             let priced_qualified_payables =
+        //                 agent.price_qualified_payables(incoming_message.tx_templates);
+        //             // let outgoing_message = BlockchainAgentWithContextMessage::new(
+        //             //     priced_qualified_payables,
+        //             //     agent,
+        //             //     incoming_message.response_skeleton_opt,
+        //             // );
+        //             // accountant_recipient
+        //             //     .expect("Accountant is unbound")
+        //             //     .try_send(outgoing_message)
+        //             //     .expect("Accountant is dead");
+        //             // Ok(())
+        //         }),
+        // )
     }
 
     fn handle_outbound_payments_instructions(

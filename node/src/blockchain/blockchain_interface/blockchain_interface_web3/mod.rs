@@ -858,12 +858,26 @@ mod tests {
                 ),
             ],
         };
+
+        let expected_result = {
+            let expected_tx_templates = tx_templates
+                .iter()
+                .map(|tx_template| {
+                    let mut updated_tx_template = tx_template.clone();
+                    updated_tx_template.computed_gas_price_wei =
+                        Some(gas_price_wei_from_rpc_u128_wei_with_margin);
+
+                    updated_tx_template
+                })
+                .collect::<Vec<NewTxTemplate>>();
+            Either::Left(NewTxTemplates(expected_tx_templates))
+        };
         let expected_estimated_transaction_fee_total = 190_652_800_000_000;
 
         test_blockchain_interface_web3_can_introduce_blockchain_agent(
             Either::Left(tx_templates), // TODO: GH-605: There should be another test with the right
             gas_price_wei_from_rpc_hex,
-            expected_priced_qualified_payables,
+            expected_result,
             expected_estimated_transaction_fee_total,
         );
     }
@@ -920,7 +934,7 @@ mod tests {
     fn test_blockchain_interface_web3_can_introduce_blockchain_agent(
         tx_templates: Either<NewTxTemplates, RetryTxTemplates>,
         gas_price_wei_from_rpc_hex: &str,
-        expected_priced_qualified_payables: PricedQualifiedPayables,
+        expected_tx_templates: Either<NewTxTemplates, RetryTxTemplates>,
         expected_estimated_transaction_fee_total: u128,
     ) {
         let port = find_free_port();
@@ -954,14 +968,12 @@ mod tests {
             }
         );
         let priced_qualified_payables = result.price_qualified_payables(tx_templates);
-        assert_eq!(
-            priced_qualified_payables,
-            expected_priced_qualified_payables
-        );
-        assert_eq!(
-            result.estimate_transaction_fee_total(&priced_qualified_payables),
-            expected_estimated_transaction_fee_total
-        )
+        assert_eq!(priced_qualified_payables, expected_tx_templates);
+        todo!("estimate_transaction_fee_total");
+        // assert_eq!(
+        //     result.estimate_transaction_fee_total(&priced_qualified_payables),
+        //     expected_estimated_transaction_fee_total
+        // )
     }
 
     fn build_of_the_blockchain_agent_fails_on_blockchain_interface_error<F>(

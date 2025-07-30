@@ -39,7 +39,7 @@ impl BlockchainAgent for BlockchainAgentMock {
     fn price_qualified_payables(
         &self,
         _tx_templates: Either<NewTxTemplates, RetryTxTemplates>,
-    ) -> PricedQualifiedPayables {
+    ) -> Either<NewTxTemplates, RetryTxTemplates> {
         unimplemented!("not needed yet")
     }
 
