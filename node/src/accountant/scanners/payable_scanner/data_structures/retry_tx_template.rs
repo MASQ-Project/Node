@@ -27,15 +27,9 @@ impl From<&FailedTx> for RetryTxTemplate {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct RetryTxTemplates(pub Vec<RetryTxTemplate>);
 
-impl RetryTxTemplates {
-    pub fn total_gas_price(&self) -> u128 {
-        self.iter()
-            .map(|retry_tx_template| {
-                retry_tx_template
-                    .computed_gas_price_wei
-                    .expect("gas price should be computed")
-            })
-            .sum()
+impl From<Vec<RetryTxTemplate>> for RetryTxTemplates {
+    fn from(retry_tx_templates: Vec<RetryTxTemplate>) -> Self {
+        Self(retry_tx_templates)
     }
 }
 
@@ -50,6 +44,27 @@ impl Deref for RetryTxTemplates {
 impl DerefMut for RetryTxTemplates {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+impl IntoIterator for RetryTxTemplates {
+    type Item = RetryTxTemplate;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+impl RetryTxTemplates {
+    pub fn total_gas_price(&self) -> u128 {
+        self.iter()
+            .map(|retry_tx_template| {
+                retry_tx_template
+                    .computed_gas_price_wei
+                    .expect("gas price should be computed")
+            })
+            .sum()
     }
 }
 
@@ -91,6 +106,36 @@ mod tests {
     }
 
     #[test]
+    fn retry_tx_templates_can_be_created_from_vec_using_into() {
+        let template1 = RetryTxTemplate {
+            base: BaseTxTemplate {
+                receiver_address: make_address(1),
+                amount_in_wei: 1000,
+            },
+            prev_gas_price_wei: 20_000_000_000,
+            prev_nonce: 5,
+            computed_gas_price_wei: Some(22_000_000_000),
+        };
+        let template2 = RetryTxTemplate {
+            base: BaseTxTemplate {
+                receiver_address: make_address(2),
+                amount_in_wei: 2000,
+            },
+            prev_gas_price_wei: 25_000_000_000,
+            prev_nonce: 6,
+            computed_gas_price_wei: Some(27_500_000_000),
+        };
+        let templates_vec = vec![template1.clone(), template2.clone()];
+
+        let templates: RetryTxTemplates = templates_vec.into();
+
+        assert_eq!(templates.len(), 2);
+        assert_eq!(templates[0], template1);
+        assert_eq!(templates[1], template2);
+        assert_eq!(templates.total_gas_price(), 49_500_000_000);
+    }
+
+    #[test]
     fn retry_tx_templates_deref_provides_access_to_inner_vector() {
         let template1 = RetryTxTemplate {
             base: BaseTxTemplate {
@@ -125,5 +170,34 @@ mod tests {
                 .sum::<u128>(),
             3000
         );
+    }
+
+    #[test]
+    fn retry_tx_templates_into_iter_consumes_and_iterates() {
+        let template1 = RetryTxTemplate {
+            base: BaseTxTemplate {
+                receiver_address: make_address(1),
+                amount_in_wei: 1000,
+            },
+            prev_gas_price_wei: 20_000_000_000,
+            prev_nonce: 5,
+            computed_gas_price_wei: Some(22_000_000_000),
+        };
+        let template2 = RetryTxTemplate {
+            base: BaseTxTemplate {
+                receiver_address: make_address(2),
+                amount_in_wei: 2000,
+            },
+            prev_gas_price_wei: 25_000_000_000,
+            prev_nonce: 6,
+            computed_gas_price_wei: Some(27_500_000_000),
+        };
+        let templates = RetryTxTemplates(vec![template1.clone(), template2.clone()]);
+
+        let collected: Vec<RetryTxTemplate> = templates.into_iter().collect();
+
+        assert_eq!(collected.len(), 2);
+        assert_eq!(collected[0], template1);
+        assert_eq!(collected[1], template2);
     }
 }
