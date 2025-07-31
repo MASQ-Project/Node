@@ -461,6 +461,7 @@ mod tests {
     use web3::transports::Http;
     use web3::types::{H256, U256};
     use crate::accountant::scanners::payable_scanner::data_structures::{NewTxTemplate, NewTxTemplates, RetryTxTemplate, RetryTxTemplates};
+    use crate::accountant::scanners::payable_scanner::test_utils::{make_retry_tx_template, make_retry_tx_template_with_prev_gas_price, RetryTxTemplateBuilder};
     use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayableWithGasPrice};
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::create_new_tx_templates;
     use crate::accountant::test_utils::make_payable_account;
@@ -846,19 +847,6 @@ mod tests {
             u128::from_str_radix(&gas_price_wei_from_rpc_hex[2..], 16).unwrap();
         let gas_price_wei_from_rpc_u128_wei_with_margin =
             increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei);
-        let expected_priced_qualified_payables = PricedQualifiedPayables {
-            payables: vec![
-                QualifiedPayableWithGasPrice::new(
-                    account_1,
-                    gas_price_wei_from_rpc_u128_wei_with_margin,
-                ),
-                QualifiedPayableWithGasPrice::new(
-                    account_2,
-                    gas_price_wei_from_rpc_u128_wei_with_margin,
-                ),
-            ],
-        };
-
         let expected_result = {
             let expected_tx_templates = tx_templates
                 .iter()
@@ -875,7 +863,7 @@ mod tests {
         let expected_estimated_transaction_fee_total = 190_652_800_000_000;
 
         test_blockchain_interface_web3_can_introduce_blockchain_agent(
-            Either::Left(tx_templates), // TODO: GH-605: There should be another test with the right
+            Either::Left(tx_templates),
             gas_price_wei_from_rpc_hex,
             expected_result,
             expected_estimated_transaction_fee_total,
@@ -884,51 +872,43 @@ mod tests {
 
     #[test]
     fn blockchain_interface_web3_can_introduce_blockchain_agent_in_the_retry_payables_mode() {
-        let gas_price_wei_from_rpc_hex = "0x3B9ACA00"; // 1000000000
-        let gas_price_wei_from_rpc_u128_wei =
-            u128::from_str_radix(&gas_price_wei_from_rpc_hex[2..], 16).unwrap();
-        let account_1 = make_payable_account(12);
-        let account_2 = make_payable_account(34);
-        let account_3 = make_payable_account(56);
-        todo!("TxTemplate");
-        // let unpriced_qualified_payables = UnpricedQualifiedPayables {
-        //     payables: vec![
-        //         QualifiedPayablesBeforeGasPriceSelection::new(
-        //             account_1.clone(),
-        //             Some(gas_price_wei_from_rpc_u128_wei - 1),
-        //         ),
-        //         QualifiedPayablesBeforeGasPriceSelection::new(
-        //             account_2.clone(),
-        //             Some(gas_price_wei_from_rpc_u128_wei),
-        //         ),
-        //         QualifiedPayablesBeforeGasPriceSelection::new(
-        //             account_3.clone(),
-        //             Some(gas_price_wei_from_rpc_u128_wei + 1),
-        //         ),
-        //     ],
-        // };
-        //
-        // let expected_priced_qualified_payables = {
-        //     let gas_price_account_1 = increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei);
-        //     let gas_price_account_2 = increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei);
-        //     let gas_price_account_3 =
-        //         increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei + 1);
-        //     PricedQualifiedPayables {
-        //         payables: vec![
-        //             QualifiedPayableWithGasPrice::new(account_1, gas_price_account_1),
-        //             QualifiedPayableWithGasPrice::new(account_2, gas_price_account_2),
-        //             QualifiedPayableWithGasPrice::new(account_3, gas_price_account_3),
-        //         ],
-        //     }
-        // };
-        // let expected_estimated_transaction_fee_total = 285_979_200_073_328;
-        //
-        // test_blockchain_interface_web3_can_introduce_blockchain_agent(
-        //     unpriced_qualified_payables,
-        //     gas_price_wei_from_rpc_hex,
-        //     expected_priced_qualified_payables,
-        //     expected_estimated_transaction_fee_total,
-        // );
+        let gas_price_wei = "0x3B9ACA00"; // 1000000000
+        let gas_price_from_rpc = u128::from_str_radix(&gas_price_wei[2..], 16).unwrap();
+        let retry_1 = RetryTxTemplateBuilder::default()
+            .payable_account(&make_payable_account(12))
+            .prev_gas_price_wei(gas_price_from_rpc - 1);
+        let retry_2 = RetryTxTemplateBuilder::default()
+            .payable_account(&make_payable_account(34))
+            .prev_gas_price_wei(gas_price_from_rpc);
+        let retry_3 = RetryTxTemplateBuilder::default()
+            .payable_account(&make_payable_account(56))
+            .prev_gas_price_wei(gas_price_from_rpc + 1);
+
+        let retry_tx_templates = RetryTxTemplates(vec![
+            retry_1.clone().build(),
+            retry_2.clone().build(),
+            retry_3.clone().build(),
+        ]);
+        let expected_retry_tx_templates = RetryTxTemplates(vec![
+            retry_1
+                .computed_gas_price_wei(increase_gas_price_by_margin(gas_price_from_rpc))
+                .build(),
+            retry_2
+                .computed_gas_price_wei(increase_gas_price_by_margin(gas_price_from_rpc))
+                .build(),
+            retry_3
+                .computed_gas_price_wei(increase_gas_price_by_margin(gas_price_from_rpc + 1))
+                .build(),
+        ]);
+
+        let expected_estimated_transaction_fee_total = 285_979_200_073_328;
+
+        test_blockchain_interface_web3_can_introduce_blockchain_agent(
+            Either::Right(retry_tx_templates),
+            gas_price_wei,
+            Either::Right(expected_retry_tx_templates),
+            expected_estimated_transaction_fee_total,
+        );
     }
 
     fn test_blockchain_interface_web3_can_introduce_blockchain_agent(
@@ -967,13 +947,12 @@ mod tests {
                 masq_token_balance_in_minor_units: expected_masq_balance
             }
         );
-        let priced_qualified_payables = result.price_qualified_payables(tx_templates);
-        assert_eq!(priced_qualified_payables, expected_tx_templates);
-        todo!("estimate_transaction_fee_total");
-        // assert_eq!(
-        //     result.estimate_transaction_fee_total(&priced_qualified_payables),
-        //     expected_estimated_transaction_fee_total
-        // )
+        let computed_tx_templates = result.price_qualified_payables(tx_templates);
+        assert_eq!(computed_tx_templates, expected_tx_templates);
+        assert_eq!(
+            result.estimate_transaction_fee_total(&computed_tx_templates),
+            expected_estimated_transaction_fee_total
+        )
     }
 
     fn build_of_the_blockchain_agent_fails_on_blockchain_interface_error<F>(

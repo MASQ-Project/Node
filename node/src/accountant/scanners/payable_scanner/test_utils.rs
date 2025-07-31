@@ -1,3 +1,4 @@
+use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
 use crate::accountant::scanners::payable_scanner::data_structures::{
     BaseTxTemplate, RetryTxTemplate,
@@ -77,11 +78,13 @@ impl PayableScannerBuilder {
     }
 }
 
+#[derive(Clone)]
 pub struct RetryTxTemplateBuilder {
     receiver_address: Option<Address>,
     amount_in_wei: Option<u128>,
     prev_gas_price_wei: Option<u128>,
     prev_nonce: Option<u64>,
+    computed_gas_price_wei_opt: Option<u128>,
 }
 
 impl Default for RetryTxTemplateBuilder {
@@ -97,6 +100,7 @@ impl RetryTxTemplateBuilder {
             amount_in_wei: None,
             prev_gas_price_wei: None,
             prev_nonce: None,
+            computed_gas_price_wei_opt: None,
         }
     }
 
@@ -120,6 +124,17 @@ impl RetryTxTemplateBuilder {
         self
     }
 
+    pub fn computed_gas_price_wei(mut self, gas_price: u128) -> Self {
+        self.computed_gas_price_wei_opt = Some(gas_price);
+        self
+    }
+
+    pub fn payable_account(mut self, payable_account: &PayableAccount) -> Self {
+        self.receiver_address = Some(payable_account.wallet.address());
+        self.amount_in_wei = Some(payable_account.balance_wei);
+        self
+    }
+
     pub fn build(self) -> RetryTxTemplate {
         RetryTxTemplate {
             base: BaseTxTemplate {
@@ -128,7 +143,7 @@ impl RetryTxTemplateBuilder {
             },
             prev_gas_price_wei: self.prev_gas_price_wei.unwrap_or(0),
             prev_nonce: self.prev_nonce.unwrap_or(0),
-            computed_gas_price_wei: None,
+            computed_gas_price_wei: self.computed_gas_price_wei_opt,
         }
     }
 }
@@ -140,6 +155,20 @@ pub fn make_retry_tx_template(n: u32) -> RetryTxTemplate {
         .prev_gas_price_wei(n as u128 * 100)
         .prev_nonce(n as u64)
         .build()
+}
+
+// TODO: GH-605: Remove other declaration in file agent_web3.rs
+pub fn make_retry_tx_template_with_prev_gas_price(
+    payable: &PayableAccount,
+    gas_price_wei: u128,
+) -> RetryTxTemplate {
+    let base = BaseTxTemplate::from(payable);
+    RetryTxTemplate {
+        base,
+        prev_gas_price_wei: gas_price_wei,
+        prev_nonce: 0,
+        computed_gas_price_wei: None,
+    }
 }
 
 pub fn make_pending_payable(n: u32) -> PendingPayable {

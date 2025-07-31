@@ -324,7 +324,7 @@ mod tests {
         TestLogHandler::new().exists_no_log_containing(test_name);
     }
 
-    fn make_retry_tx_template_with_prev_gas_price(
+    pub fn make_retry_tx_template_with_prev_gas_price(
         payable: &PayableAccount,
         gas_price_wei: u128,
     ) -> RetryTxTemplate {
