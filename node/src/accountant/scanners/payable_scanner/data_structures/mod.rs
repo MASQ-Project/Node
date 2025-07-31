@@ -2,9 +2,11 @@ use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use web3::types::Address;
 
 pub mod new_tx_template;
+pub mod priced_new_tx_template;
+pub mod priced_retry_tx_template;
 pub mod retry_tx_template;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct BaseTxTemplate {
     pub receiver_address: Address,
     pub amount_in_wei: u128,

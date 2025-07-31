@@ -3,6 +3,8 @@
 pub mod agent_web3;
 
 use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::NewTxTemplates;
+use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::PricedNewTxTemplates;
+use crate::accountant::scanners::payable_scanner::data_structures::priced_retry_tx_template::PricedRetryTxTemplates;
 use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_template::RetryTxTemplates;
 use crate::arbitrary_id_stamp_in_trait;
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
@@ -28,11 +30,11 @@ use masq_lib::blockchains::chains::Chain;
 pub trait BlockchainAgent: Send {
     fn price_qualified_payables(
         &self,
-        tx_templates: Either<NewTxTemplates, RetryTxTemplates>,
-    ) -> Either<NewTxTemplates, RetryTxTemplates>;
+        unpriced_tx_templates: Either<NewTxTemplates, RetryTxTemplates>,
+    ) -> Either<PricedNewTxTemplates, PricedRetryTxTemplates>;
     fn estimate_transaction_fee_total(
         &self,
-        tx_templates_with_gas_price: &Either<NewTxTemplates, RetryTxTemplates>,
+        priced_tx_templates: &Either<PricedNewTxTemplates, PricedRetryTxTemplates>,
     ) -> u128;
     fn consuming_wallet_balances(&self) -> ConsumingWalletBalances;
     fn consuming_wallet(&self) -> &Wallet;

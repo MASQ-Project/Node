@@ -3,6 +3,8 @@
 #![cfg(test)]
 
 use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::NewTxTemplates;
+use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::PricedNewTxTemplates;
+use crate::accountant::scanners::payable_scanner::data_structures::priced_retry_tx_template::PricedRetryTxTemplates;
 use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_template::RetryTxTemplates;
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
@@ -37,13 +39,13 @@ impl BlockchainAgent for BlockchainAgentMock {
     fn price_qualified_payables(
         &self,
         _tx_templates: Either<NewTxTemplates, RetryTxTemplates>,
-    ) -> Either<NewTxTemplates, RetryTxTemplates> {
+    ) -> Either<PricedNewTxTemplates, PricedRetryTxTemplates> {
         unimplemented!("not needed yet")
     }
 
     fn estimate_transaction_fee_total(
         &self,
-        _tx_templates_with_gas_price: &Either<NewTxTemplates, RetryTxTemplates>,
+        _priced_tx_templates: &Either<PricedNewTxTemplates, PricedRetryTxTemplates>,
     ) -> u128 {
         todo!("to be implemented by GH-711")
     }

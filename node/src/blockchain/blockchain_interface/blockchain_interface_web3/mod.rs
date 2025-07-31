@@ -461,6 +461,8 @@ mod tests {
     use web3::transports::Http;
     use web3::types::{H256, U256};
     use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::{NewTxTemplate, NewTxTemplates};
+    use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::{PricedNewTxTemplate, PricedNewTxTemplates};
+    use crate::accountant::scanners::payable_scanner::data_structures::priced_retry_tx_template::{PricedRetryTxTemplate, PricedRetryTxTemplates};
     use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_template::RetryTxTemplates;
     use crate::accountant::scanners::payable_scanner::test_utils::{make_retry_tx_template, make_retry_tx_template_with_prev_gas_price, RetryTxTemplateBuilder};
     use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayableWithGasPrice};
@@ -848,19 +850,10 @@ mod tests {
             u128::from_str_radix(&gas_price_wei_from_rpc_hex[2..], 16).unwrap();
         let gas_price_wei_from_rpc_u128_wei_with_margin =
             increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei);
-        let expected_result = {
-            let expected_tx_templates = tx_templates
-                .iter()
-                .map(|tx_template| {
-                    let mut updated_tx_template = tx_template.clone();
-                    updated_tx_template.computed_gas_price_wei =
-                        Some(gas_price_wei_from_rpc_u128_wei_with_margin);
-
-                    updated_tx_template
-                })
-                .collect::<Vec<NewTxTemplate>>();
-            Either::Left(NewTxTemplates(expected_tx_templates))
-        };
+        let expected_result = Either::Left(PricedNewTxTemplates::new(
+            tx_templates.clone(),
+            gas_price_wei_from_rpc_u128_wei_with_margin,
+        ));
         let expected_estimated_transaction_fee_total = 190_652_800_000_000;
 
         test_blockchain_interface_web3_can_introduce_blockchain_agent(
@@ -877,29 +870,26 @@ mod tests {
         let gas_price_from_rpc = u128::from_str_radix(&gas_price_wei[2..], 16).unwrap();
         let retry_1 = RetryTxTemplateBuilder::default()
             .payable_account(&make_payable_account(12))
-            .prev_gas_price_wei(gas_price_from_rpc - 1);
+            .prev_gas_price_wei(gas_price_from_rpc - 1)
+            .build();
         let retry_2 = RetryTxTemplateBuilder::default()
             .payable_account(&make_payable_account(34))
-            .prev_gas_price_wei(gas_price_from_rpc);
+            .prev_gas_price_wei(gas_price_from_rpc)
+            .build();
         let retry_3 = RetryTxTemplateBuilder::default()
             .payable_account(&make_payable_account(56))
-            .prev_gas_price_wei(gas_price_from_rpc + 1);
+            .prev_gas_price_wei(gas_price_from_rpc + 1)
+            .build();
 
-        let retry_tx_templates = RetryTxTemplates(vec![
-            retry_1.clone().build(),
-            retry_2.clone().build(),
-            retry_3.clone().build(),
-        ]);
-        let expected_retry_tx_templates = RetryTxTemplates(vec![
-            retry_1
-                .computed_gas_price_wei(increase_gas_price_by_margin(gas_price_from_rpc))
-                .build(),
-            retry_2
-                .computed_gas_price_wei(increase_gas_price_by_margin(gas_price_from_rpc))
-                .build(),
-            retry_3
-                .computed_gas_price_wei(increase_gas_price_by_margin(gas_price_from_rpc + 1))
-                .build(),
+        let retry_tx_templates =
+            RetryTxTemplates(vec![retry_1.clone(), retry_2.clone(), retry_3.clone()]);
+        let expected_retry_tx_templates = PricedRetryTxTemplates(vec![
+            PricedRetryTxTemplate::new(retry_1, increase_gas_price_by_margin(gas_price_from_rpc)),
+            PricedRetryTxTemplate::new(retry_2, increase_gas_price_by_margin(gas_price_from_rpc)),
+            PricedRetryTxTemplate::new(
+                retry_3,
+                increase_gas_price_by_margin(gas_price_from_rpc + 1),
+            ),
         ]);
 
         let expected_estimated_transaction_fee_total = 285_979_200_073_328;
@@ -915,7 +905,7 @@ mod tests {
     fn test_blockchain_interface_web3_can_introduce_blockchain_agent(
         tx_templates: Either<NewTxTemplates, RetryTxTemplates>,
         gas_price_wei_from_rpc_hex: &str,
-        expected_tx_templates: Either<NewTxTemplates, RetryTxTemplates>,
+        expected_tx_templates: Either<PricedNewTxTemplates, PricedRetryTxTemplates>,
         expected_estimated_transaction_fee_total: u128,
     ) {
         let port = find_free_port();

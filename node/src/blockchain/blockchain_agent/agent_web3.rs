@@ -2,6 +2,12 @@
 
 use crate::accountant::join_with_separator;
 use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::NewTxTemplates;
+use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::{
+    PricedNewTxTemplate, PricedNewTxTemplates,
+};
+use crate::accountant::scanners::payable_scanner::data_structures::priced_retry_tx_template::{
+    PricedRetryTxTemplate, PricedRetryTxTemplates,
+};
 use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_template::RetryTxTemplates;
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
@@ -27,9 +33,9 @@ pub struct BlockchainAgentWeb3 {
 impl BlockchainAgent for BlockchainAgentWeb3 {
     fn price_qualified_payables(
         &self,
-        tx_templates: Either<NewTxTemplates, RetryTxTemplates>,
-    ) -> Either<NewTxTemplates, RetryTxTemplates> {
-        match tx_templates {
+        unpriced_tx_templates: Either<NewTxTemplates, RetryTxTemplates>,
+    ) -> Either<PricedNewTxTemplates, PricedRetryTxTemplates> {
+        match unpriced_tx_templates {
             Either::Left(new_tx_templates) => {
                 let updated_new_tx_templates =
                     self.update_gas_price_for_new_tx_templates(new_tx_templates);
@@ -47,9 +53,9 @@ impl BlockchainAgent for BlockchainAgentWeb3 {
 
     fn estimate_transaction_fee_total(
         &self,
-        tx_templates_with_gas_price: &Either<NewTxTemplates, RetryTxTemplates>,
+        priced_tx_templates: &Either<PricedNewTxTemplates, PricedRetryTxTemplates>,
     ) -> u128 {
-        let prices_sum = match tx_templates_with_gas_price {
+        let prices_sum = match priced_tx_templates {
             Either::Left(new_tx_templates) => new_tx_templates.total_gas_price(),
             Either::Right(retry_tx_templates) => retry_tx_templates.total_gas_price(),
         };
@@ -104,7 +110,7 @@ impl BlockchainAgentWeb3 {
     fn update_gas_price_for_new_tx_templates(
         &self,
         mut new_tx_templates: NewTxTemplates,
-    ) -> NewTxTemplates {
+    ) -> PricedNewTxTemplates {
         let all_receivers: Vec<Address> = new_tx_templates
             .iter()
             .map(|tx_template| tx_template.base.receiver_address)
@@ -127,40 +133,40 @@ impl BlockchainAgentWeb3 {
             computed_gas_price_wei = ceil;
         }
 
+        // TODO: GH-605: Maybe you can just directly call the constructor
         let updated_tx_templates = new_tx_templates
-            .iter_mut()
+            .into_iter()
             .map(|new_tx_template| {
-                new_tx_template.computed_gas_price_wei = Some(computed_gas_price_wei);
-                new_tx_template.clone()
+                PricedNewTxTemplate::new(new_tx_template, computed_gas_price_wei)
             })
             .collect();
 
-        NewTxTemplates(updated_tx_templates)
+        PricedNewTxTemplates(updated_tx_templates)
     }
 
     fn update_gas_price_for_retry_tx_templates(
         &self,
         mut retry_tx_templates: RetryTxTemplates,
-    ) -> RetryTxTemplates {
+    ) -> PricedRetryTxTemplates {
         let mut log_data: Vec<(Address, u128)> = Vec::with_capacity(retry_tx_templates.len());
 
         let ceil = self.chain.rec().gas_price_safe_ceiling_minor;
 
         let updated_tx_templates = retry_tx_templates
-            .iter_mut()
+            .into_iter()
             .map(|retry_tx_template| {
                 let receiver = retry_tx_template.base.receiver_address;
-                let computed_gas_price_wei =
+                let evaluated_gas_price_wei =
                     self.compute_gas_price(Some(retry_tx_template.prev_gas_price_wei));
 
-                if computed_gas_price_wei > ceil {
-                    log_data.push((receiver, computed_gas_price_wei));
-                    retry_tx_template.computed_gas_price_wei = Some(ceil);
+                let computed_gas_price = if evaluated_gas_price_wei > ceil {
+                    log_data.push((receiver, evaluated_gas_price_wei));
+                    ceil
                 } else {
-                    retry_tx_template.computed_gas_price_wei = Some(computed_gas_price_wei);
-                }
+                    evaluated_gas_price_wei
+                };
 
-                retry_tx_template.clone()
+                PricedRetryTxTemplate::new(retry_tx_template, computed_gas_price)
             })
             .collect();
 
@@ -184,7 +190,7 @@ impl BlockchainAgentWeb3 {
             );
         }
 
-        RetryTxTemplates(updated_tx_templates)
+        PricedRetryTxTemplates(updated_tx_templates)
     }
 }
 
@@ -194,6 +200,12 @@ mod tests {
     use crate::accountant::join_with_separator;
     use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::{
         NewTxTemplate, NewTxTemplates,
+    };
+    use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::{
+        PricedNewTxTemplate, PricedNewTxTemplates,
+    };
+    use crate::accountant::scanners::payable_scanner::data_structures::priced_retry_tx_template::{
+        PricedRetryTxTemplate, PricedRetryTxTemplates,
     };
     use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_template::{
         RetryTxTemplate, RetryTxTemplates,
@@ -244,13 +256,13 @@ mod tests {
         );
         subject.logger = Logger::new(test_name);
 
-        let result = subject.price_qualified_payables(Either::Left(new_tx_templates));
+        let result = subject.price_qualified_payables(Either::Left(new_tx_templates.clone()));
 
         let gas_price_with_margin_wei = increase_gas_price_by_margin(rpc_gas_price_wei);
-        let expected_result = Either::Left(NewTxTemplates(vec![
-            make_new_tx_template_with_gas_price(&account_1, gas_price_with_margin_wei),
-            make_new_tx_template_with_gas_price(&account_2, gas_price_with_margin_wei),
-        ]));
+        let expected_result = Either::Left(PricedNewTxTemplates::new(
+            new_tx_templates,
+            gas_price_with_margin_wei,
+        ));
         assert_eq!(result, expected_result);
         TestLogHandler::new().exists_no_log_containing(test_name);
     }
@@ -303,15 +315,12 @@ mod tests {
                 panic!("Corrupted test")
             }
 
-            Either::Right(RetryTxTemplates(
+            Either::Right(PricedRetryTxTemplates(
                 retry_tx_templates
                     .iter()
                     .zip(price_wei_for_accounts_from_1_to_5.into_iter())
                     .map(|(retry_tx_template, increased_gas_price)| {
-                        let mut updated_tx_template = retry_tx_template.clone();
-                        updated_tx_template.computed_gas_price_wei = Some(increased_gas_price);
-
-                        updated_tx_template
+                        PricedRetryTxTemplate::new(retry_tx_template.clone(), increased_gas_price)
                     })
                     .collect_vec(),
             ))
@@ -435,12 +444,12 @@ mod tests {
         );
         subject.logger = Logger::new(test_name);
 
-        let result = subject.price_qualified_payables(Either::Left(tx_templates));
+        let result = subject.price_qualified_payables(Either::Left(tx_templates.clone()));
 
-        let expected_result = Either::Left(NewTxTemplates(vec![
-            make_new_tx_template_with_gas_price(&account_1, ceiling_gas_price_wei),
-            make_new_tx_template_with_gas_price(&account_2, ceiling_gas_price_wei),
-        ]));
+        let expected_result = Either::Left(PricedNewTxTemplates::new(
+            tx_templates,
+            ceiling_gas_price_wei,
+        ));
         assert_eq!(result, expected_result);
         let addresses_str = join_with_separator(
             &vec![account_1.wallet, account_2.wallet],
@@ -664,22 +673,19 @@ mod tests {
         let consuming_wallet_balances = make_zeroed_consuming_wallet_balances();
         let ceiling_gas_price_wei = chain.rec().gas_price_safe_ceiling_minor;
         let expected_result = match tx_templates.clone() {
-            Either::Left(mut new_tx_templates) => Either::Left(NewTxTemplates(
+            Either::Left(new_tx_templates) => Either::Left(PricedNewTxTemplates(
                 new_tx_templates
-                    .iter_mut()
+                    .iter()
                     .map(|tx_template| {
-                        tx_template.computed_gas_price_wei = Some(ceiling_gas_price_wei);
-                        tx_template.clone()
+                        PricedNewTxTemplate::new(tx_template.clone(), ceiling_gas_price_wei)
                     })
                     .collect(),
             )),
-            Either::Right(retry_tx_templates) => Either::Right(RetryTxTemplates(
+            Either::Right(retry_tx_templates) => Either::Right(PricedRetryTxTemplates(
                 retry_tx_templates
-                    .clone()
-                    .iter_mut()
+                    .iter()
                     .map(|tx_template| {
-                        tx_template.computed_gas_price_wei = Some(ceiling_gas_price_wei);
-                        tx_template.clone()
+                        PricedRetryTxTemplate::new(tx_template.clone(), ceiling_gas_price_wei)
                     })
                     .collect(),
             )),

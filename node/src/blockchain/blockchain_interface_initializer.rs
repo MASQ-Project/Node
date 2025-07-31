@@ -48,6 +48,7 @@ mod tests {
     use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::{
         NewTxTemplate, NewTxTemplates,
     };
+    use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::PricedNewTxTemplates;
     use crate::accountant::test_utils::make_payable_account;
     use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
     use crate::blockchain::blockchain_interface_initializer::BlockchainInterfaceInitializer;
@@ -100,18 +101,17 @@ mod tests {
             .wait()
             .unwrap();
         assert_eq!(blockchain_agent.consuming_wallet(), &payable_wallet);
-        let result = blockchain_agent.price_qualified_payables(Either::Left(tx_templates));
+        let result = blockchain_agent.price_qualified_payables(Either::Left(tx_templates.clone()));
         let gas_price_with_margin = increase_gas_price_by_margin(1_000_000_000);
-        let expected_result = Either::Left(NewTxTemplates(vec![
-            make_new_tx_template_with_gas_price(&account_1, gas_price_with_margin),
-            make_new_tx_template_with_gas_price(&account_2, gas_price_with_margin),
-        ]));
+        let expected_result = Either::Left(PricedNewTxTemplates::new(
+            tx_templates,
+            gas_price_with_margin,
+        ));
         assert_eq!(result, expected_result);
-        todo!("estimate_transaction_fee_total");
-        // assert_eq!(
-        //     blockchain_agent.estimate_transaction_fee_total(&result),
-        //     190_652_800_000_000
-        // );
+        assert_eq!(
+            blockchain_agent.estimate_transaction_fee_total(&result),
+            190_652_800_000_000
+        );
     }
 
     #[test]
