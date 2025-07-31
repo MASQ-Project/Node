@@ -1060,16 +1060,10 @@ mod tests {
     use web3::Error;
     use masq_lib::messages::ScanType;
     use masq_lib::ui_gateway::NodeToUiMessage;
-    use crate::accountant::db_access_objects::failed_payable_dao::{FailedPayableDaoError, FailedTx, FailureReason, FailureStatus};
-    use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::RetryRequired;
-    use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::ByHash;
-    use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDaoError;
-    use crate::accountant::scanners::payable_scanner::data_structures::NewTxTemplates;
+    use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::NewTxTemplates;
     use crate::accountant::scanners::payable_scanner::PayableScanner;
     use crate::accountant::scanners::test_utils::{assert_timestamps_from_str, parse_system_time_from_str, MarkScanner, NullScanner, ReplacementType, ScannerReplacement};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TransactionReceiptResult, TxReceipt, TxStatus};
-    use crate::blockchain::errors::AppRpcError::Local;
-    use crate::blockchain::errors::LocalError::Internal;
 
     impl Scanners {
         pub fn replace_scanner(&mut self, replacement: ScannerReplacement) {

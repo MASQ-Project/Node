@@ -1,32 +1,22 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 pub mod payable_scanner_utils {
-    use crate::accountant::db_access_objects::utils::{ThresholdUtils, TxHash};
+    use crate::accountant::comma_joined_stringifiable;
     use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDaoError};
-    use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
-        LocallyCausedError, RemotelyCausedErrors,
-    };
-    use crate::accountant::{comma_joined_stringifiable, SentPayables};
+    use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
+    use crate::accountant::db_access_objects::utils::ThresholdUtils;
+    use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::NewTxTemplate;
+    use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::sub_lib::wallet::Wallet;
     use itertools::{Either, Itertools};
     use masq_lib::logger::Logger;
+    use masq_lib::ui_gateway::NodeToUiMessage;
     use std::cmp::Ordering;
-    use std::collections::HashMap;
     use std::ops::Not;
     use std::time::SystemTime;
     use thousands::Separable;
-    use web3::Error;
     use web3::types::H256;
-    use masq_lib::ui_gateway::NodeToUiMessage;
-    use crate::accountant::db_access_objects::failed_payable_dao::FailureReason;
-    use crate::accountant::db_access_objects::failed_payable_dao::FailureReason::Submission;
-    use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
-    use crate::accountant::scanners::payable_scanner::data_structures::NewTxTemplate;
-    use crate::blockchain::blockchain_interface::data_structures::{IndividualBatchResult, RpcPayableFailure};
-    use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
-    use crate::blockchain::errors::AppRpcError::Local;
-    use crate::blockchain::errors::LocalError::Internal;
 
     #[derive(Debug, PartialEq, Eq)]
     pub enum PayableTransactingErrorEnum {

@@ -2,9 +2,8 @@
 
 use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::accountant::scanners::payable_scanner::data_structures::{
-    NewTxTemplate, NewTxTemplates, RetryTxTemplate, RetryTxTemplates,
-};
+use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::NewTxTemplates;
+use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_template::RetryTxTemplates;
 use crate::accountant::{ResponseSkeleton, SkeletonOptHolder};
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::blockchain::test_utils::make_address;

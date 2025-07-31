@@ -1,11 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::db_access_objects::utils::TxHash;
-use crate::accountant::scanners::payable_scanner::data_structures::{
-    NewTxTemplate, NewTxTemplates, RetryTxTemplate, RetryTxTemplates,
-};
-use crate::accountant::scanners::payable_scanner_extension::msgs::PricedQualifiedPayables;
-use crate::accountant::{comma_joined_stringifiable, join_with_separator};
+use crate::accountant::join_with_separator;
+use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::NewTxTemplates;
+use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_template::RetryTxTemplates;
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
@@ -14,7 +11,6 @@ use itertools::{Either, Itertools};
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
 use masq_lib::utils::ExpectValue;
-use std::collections::{BTreeSet, HashMap};
 use thousands::Separable;
 use web3::types::Address;
 
@@ -196,14 +192,14 @@ impl BlockchainAgentWeb3 {
 mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::join_with_separator;
-    use crate::accountant::scanners::payable_scanner::data_structures::{
-        BaseTxTemplate, NewTxTemplate, NewTxTemplates, RetryTxTemplate, RetryTxTemplates,
+    use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::{
+        NewTxTemplate, NewTxTemplates,
     };
+    use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_template::{
+        RetryTxTemplate, RetryTxTemplates,
+    };
+    use crate::accountant::scanners::payable_scanner::data_structures::BaseTxTemplate;
     use crate::accountant::scanners::payable_scanner::test_utils::RetryTxTemplateBuilder;
-    use crate::accountant::scanners::payable_scanner_extension::msgs::{
-        PricedQualifiedPayables, QualifiedPayableWithGasPrice,
-    };
-    use crate::accountant::scanners::scanners_utils::payable_scanner_utils::create_new_tx_templates;
     use crate::accountant::scanners::test_utils::make_zeroed_consuming_wallet_balances;
     use crate::accountant::test_utils::make_payable_account;
     use crate::blockchain::blockchain_agent::agent_web3::{

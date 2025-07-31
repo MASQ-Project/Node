@@ -1301,9 +1301,10 @@ mod tests {
     use std::sync::Mutex;
     use std::time::{Duration, UNIX_EPOCH};
     use std::vec;
-    use crate::accountant::scanners::payable_scanner::data_structures::{NewTxTemplates, RetryTxTemplates};
+    use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::NewTxTemplates;
+    use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_template::RetryTxTemplates;
     use crate::accountant::scanners::scan_schedulers::{NewPayableScanDynIntervalComputer, NewPayableScanDynIntervalComputerReal};
-    use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{create_new_tx_templates, OperationOutcome, PayableScanResult};
+    use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{ OperationOutcome, PayableScanResult};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt, TxStatus};
     use crate::test_utils::recorder_counter_msgs::SingleTypeCounterMsgSetup;
 

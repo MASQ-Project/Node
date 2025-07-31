@@ -2,10 +2,8 @@
 
 pub mod agent_web3;
 
-use crate::accountant::scanners::payable_scanner::data_structures::{
-    NewTxTemplate, NewTxTemplates, RetryTxTemplate, RetryTxTemplates,
-};
-use crate::accountant::scanners::payable_scanner_extension::msgs::PricedQualifiedPayables;
+use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::NewTxTemplates;
+use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_template::RetryTxTemplates;
 use crate::arbitrary_id_stamp_in_trait;
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;

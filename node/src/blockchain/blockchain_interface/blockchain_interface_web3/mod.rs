@@ -460,7 +460,8 @@ mod tests {
     use itertools::Either;
     use web3::transports::Http;
     use web3::types::{H256, U256};
-    use crate::accountant::scanners::payable_scanner::data_structures::{NewTxTemplate, NewTxTemplates, RetryTxTemplate, RetryTxTemplates};
+    use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::{NewTxTemplate, NewTxTemplates};
+    use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_template::RetryTxTemplates;
     use crate::accountant::scanners::payable_scanner::test_utils::{make_retry_tx_template, make_retry_tx_template_with_prev_gas_price, RetryTxTemplateBuilder};
     use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayableWithGasPrice};
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::create_new_tx_templates;
