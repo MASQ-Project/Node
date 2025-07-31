@@ -50,21 +50,6 @@ impl QualifiedPayableWithGasPrice {
     }
 }
 
-//
-// impl QualifiedPayablesMessage {
-//     pub(in crate::accountant) fn new(
-//         tx_templates: TxTemplates,
-//         consuming_wallet: Wallet,
-//         response_skeleton_opt: Option<ResponseSkeleton>,
-//     ) -> Self {
-//         Self {
-//             tx_templates,
-//             consuming_wallet,
-//             response_skeleton_opt,
-//         }
-//     }
-// }
-
 impl SkeletonOptHolder for QualifiedPayablesMessage {
     fn skeleton_opt(&self) -> Option<ResponseSkeleton> {
         self.response_skeleton_opt

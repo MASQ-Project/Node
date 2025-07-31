@@ -743,7 +743,6 @@ mod tests {
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
         let blockchain_agent_with_context_msg_actual: &BlockchainAgentWithContextMessage =
             accountant_received_payment.get_record(0);
-        let expected_priced_qualified_payables = todo!("PricedQualifiedPayables");
         // let expected_priced_qualified_payables = PricedQualifiedPayables {
         //     payables: tx_templates
         //         .into_iter()
@@ -753,6 +752,15 @@ mod tests {
         //         })
         //         .collect(),
         // };
+        let expected_tx_templates = tx_templates
+            .into_iter()
+            .map(|mut tx_template| {
+                tx_template.computed_gas_price_wei =
+                    Some(increase_gas_price_by_margin(0x230000000));
+                tx_template
+            })
+            .collect::<NewTxTemplates>();
+
         // assert_eq!(
         //     blockchain_agent_with_context_msg_actual.qualified_payables,
         //     expected_priced_qualified_payables

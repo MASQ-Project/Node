@@ -49,6 +49,13 @@ impl IntoIterator for NewTxTemplates {
     }
 }
 
+// TODO: GH-605: Indirectly tested
+impl FromIterator<NewTxTemplate> for NewTxTemplates {
+    fn from_iter<I: IntoIterator<Item = NewTxTemplate>>(iter: I) -> Self {
+        NewTxTemplates(iter.into_iter().collect())
+    }
+}
+
 impl From<&Vec<PayableAccount>> for NewTxTemplates {
     fn from(payable_accounts: &Vec<PayableAccount>) -> Self {
         Self(
