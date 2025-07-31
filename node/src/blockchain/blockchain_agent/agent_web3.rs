@@ -106,16 +106,12 @@ impl BlockchainAgentWeb3 {
         increase_gas_price_by_margin(evaluated_gas_price_wei)
     }
 
-    // TODO: GH-605: Move this logic to the NewTxTemplates, use builder pattern for logging
-    fn update_gas_price_for_new_tx_templates(
-        &self,
-        mut new_tx_templates: NewTxTemplates,
-    ) -> PricedNewTxTemplates {
-        let all_receivers: Vec<Address> = new_tx_templates
+    fn evaluate_gas_price_for_new_txs(&self, templates: &NewTxTemplates) -> u128 {
+        let all_receivers: Vec<Address> = templates
             .iter()
             .map(|tx_template| tx_template.base.receiver_address)
             .collect();
-        let mut computed_gas_price_wei = self.compute_gas_price(None);
+        let computed_gas_price_wei = self.compute_gas_price(None);
         let ceil = self.chain.rec().gas_price_safe_ceiling_minor;
 
         if computed_gas_price_wei > ceil {
@@ -130,20 +126,22 @@ impl BlockchainAgentWeb3 {
                 join_with_separator(&all_receivers, |address| format!("{:?}", address), "\n")
             );
 
-            computed_gas_price_wei = ceil;
+            ceil
+        } else {
+            computed_gas_price_wei
         }
-
-        // TODO: GH-605: Maybe you can just directly call the constructor
-        let updated_tx_templates = new_tx_templates
-            .into_iter()
-            .map(|new_tx_template| {
-                PricedNewTxTemplate::new(new_tx_template, computed_gas_price_wei)
-            })
-            .collect();
-
-        PricedNewTxTemplates(updated_tx_templates)
     }
 
+    fn update_gas_price_for_new_tx_templates(
+        &self,
+        new_tx_templates: NewTxTemplates,
+    ) -> PricedNewTxTemplates {
+        let computed_gas_price_wei = self.evaluate_gas_price_for_new_txs(&new_tx_templates);
+
+        PricedNewTxTemplates::new(new_tx_templates, computed_gas_price_wei)
+    }
+
+    // TODO: GH-605: Move this logic to the RetryTxTemplates, use builder pattern for logging
     fn update_gas_price_for_retry_tx_templates(
         &self,
         mut retry_tx_templates: RetryTxTemplates,
