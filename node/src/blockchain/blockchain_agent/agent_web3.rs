@@ -104,6 +104,7 @@ impl BlockchainAgentWeb3 {
         increase_gas_price_by_margin(evaluated_gas_price_wei)
     }
 
+    // TODO: GH-605: Move this logic to the NewTxTemplates, use builder pattern for logging
     fn update_gas_price_for_new_tx_templates(
         &self,
         mut new_tx_templates: NewTxTemplates,
