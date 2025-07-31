@@ -6,7 +6,7 @@ use masq_lib::ui_gateway::NodeToUiMessage;
 use std::time::SystemTime;
 use thousands::Separable;
 use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureReason, FailureStatus};
-use crate::accountant::db_access_objects::sent_payable_dao::{SentTx, TxStatus};
+use crate::accountant::db_access_objects::sent_payable_dao::{SentTx, TxConfirmation, TxStatus};
 use crate::accountant::db_access_objects::utils::{from_unix_timestamp, TxHash};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{BlockchainTxFailure, StatusReadFromReceiptCheck, TransactionBlock, TxReceiptError};
 use crate::blockchain::errors::AppRpcError;
@@ -45,7 +45,7 @@ impl ReceiptScanReport {
         todo!()
     }
 
-    fn register_rpc_failure(&mut self, status_update: ValidationStatusUpdate) {
+    fn register_rpc_failure(&mut self, status_update: FailedValidationByTable) {
         // TODO solve me by changing just the status
         //self.failures.failures.push(failed_tx);
     }
@@ -53,8 +53,19 @@ impl ReceiptScanReport {
 
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
 pub struct DetectedConfirmations {
-    pub normal_confirmations: Vec<SentTx>,
-    pub reclaims: Vec<SentTx>,
+    pub normal_confirmations: Vec<NormalTxConfirmation>,
+    pub reclaims: Vec<TxReclaim>,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct NormalTxConfirmation{
+    pub tx_hash: TxHash,
+    pub confirmation: TxConfirmation
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct TxReclaim {
+    pub reclaimed: SentTx
 }
 
 impl DetectedConfirmations {
@@ -66,7 +77,7 @@ impl DetectedConfirmations {
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
 pub struct DetectedFailures {
     pub tx_failures: Vec<PresortedTxFailure>,
-    pub tx_receipt_rpc_failures: Vec<ValidationStatusUpdate>,
+    pub tx_receipt_rpc_failures: Vec<FailedValidationByTable>,
 }
 
 impl DetectedFailures {
@@ -88,9 +99,9 @@ pub enum PresortedTxFailure {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub enum ValidationStatusUpdate {
-    SentPayableRecord(FailedValidation),
-    FailedPayableRecord(FailedValidation),
+pub enum FailedValidationByTable {
+    SentPayable(FailedValidation),
+    FailedPayable(FailedValidation),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -349,16 +360,13 @@ impl From<(SentTx, FailureReason)> for FailedTx {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::scanners::pending_payable_scanner::utils::{
-        CurrentPendingPayables, DetectedConfirmations, DetectedFailures, FailedValidation,
-        FailuresRequiringDoubleCheck, PendingPayableCache, PresortedTxFailure, ReceiptScanReport,
-        Retry, ValidationStatusUpdate,
-    };
-    use crate::accountant::test_utils::{make_failed_tx, make_sent_tx};
+    use crate::accountant::scanners::pending_payable_scanner::utils::{CurrentPendingPayables, DetectedConfirmations, DetectedFailures, FailedValidation, FailuresRequiringDoubleCheck, PendingPayableCache, PresortedTxFailure, ReceiptScanReport, Retry, FailedValidationByTable, NormalTxConfirmation};
+    use crate::accountant::test_utils::{make_failed_tx, make_sent_tx, make_transaction_block};
     use crate::blockchain::errors::{AppRpcError, LocalError, RemoteError};
     use crate::blockchain::test_utils::make_tx_hash;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
+    use crate::accountant::db_access_objects::sent_payable_dao::{Detection, TxConfirmation};
 
     #[test]
     fn detected_confirmations_is_empty_works() {
@@ -391,13 +399,13 @@ mod tests {
         ];
         let tx_receipt_rpc_failures_feeding = vec![
             vec![],
-            vec![ValidationStatusUpdate::SentPayableRecord(
+            vec![FailedValidationByTable::SentPayable(
                 FailedValidation {
                     tx_hash: make_tx_hash(2222),
                     failure: AppRpcError::Local(LocalError::Internal),
                 },
             )],
-            vec![ValidationStatusUpdate::FailedPayableRecord(
+            vec![FailedValidationByTable::FailedPayable(
                 FailedValidation {
                     tx_hash: make_tx_hash(12121),
                     failure: AppRpcError::Remote(RemoteError::InvalidResponse("blah".to_string())),
@@ -410,7 +418,7 @@ mod tests {
                 reclaims: vec![],
             },
             DetectedConfirmations {
-                normal_confirmations: vec![make_sent_tx(777)],
+                normal_confirmations: vec![NormalTxConfirmation{ tx_hash: make_tx_hash(456), confirmation: TxConfirmation { block_info: make_transaction_block(123), detection: Detection::Normal } }],
                 reclaims: vec![make_sent_tx(999)],
             },
             DetectedConfirmations {
@@ -455,24 +463,24 @@ mod tests {
     #[test]
     fn requires_only_receipt_retrieval_retry() {
         let rpc_failure_feedings = vec![
-            vec![ValidationStatusUpdate::SentPayableRecord(
+            vec![FailedValidationByTable::SentPayable(
                 FailedValidation {
                     tx_hash: make_tx_hash(2222),
                     failure: AppRpcError::Local(LocalError::Internal),
                 },
             )],
-            vec![ValidationStatusUpdate::FailedPayableRecord(
+            vec![FailedValidationByTable::FailedPayable(
                 FailedValidation {
                     tx_hash: make_tx_hash(1234),
                     failure: AppRpcError::Remote(RemoteError::Unreachable),
                 },
             )],
             vec![
-                ValidationStatusUpdate::SentPayableRecord(FailedValidation {
+                FailedValidationByTable::SentPayable(FailedValidation {
                     tx_hash: make_tx_hash(2222),
                     failure: AppRpcError::Local(LocalError::Internal),
                 }),
-                ValidationStatusUpdate::FailedPayableRecord(FailedValidation {
+                FailedValidationByTable::FailedPayable(FailedValidation {
                     tx_hash: make_tx_hash(1234),
                     failure: AppRpcError::Remote(RemoteError::Unreachable),
                 }),

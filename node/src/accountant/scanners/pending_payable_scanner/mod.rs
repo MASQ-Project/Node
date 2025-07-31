@@ -10,11 +10,7 @@ use crate::accountant::db_access_objects::sent_payable_dao::{
     RetrieveCondition, SentPayableDao, SentPayableDaoError, SentTx, TxConfirmation,
 };
 use crate::accountant::db_access_objects::utils::TxHash;
-use crate::accountant::scanners::pending_payable_scanner::utils::{
-    handle_status_with_failure, CurrentPendingPayables, DetectedConfirmations, DetectedFailures,
-    FailuresRequiringDoubleCheck, PendingPayableScanResult, PresortedTxFailure, ReceiptScanReport,
-    TxCaseToBeInterpreted, ValidationStatusUpdate,
-};
+use crate::accountant::scanners::pending_payable_scanner::utils::{handle_status_with_failure, CurrentPendingPayables, DetectedConfirmations, DetectedFailures, FailuresRequiringDoubleCheck, PendingPayableScanResult, PresortedTxFailure, ReceiptScanReport, Retry, TxCaseToBeInterpreted, FailedValidationByTable, TxReclaim, NormalTxConfirmation};
 use crate::accountant::scanners::{
     PrivateScanner, Scanner, ScannerCommon, StartScanError, StartableScanner,
 };
@@ -109,33 +105,15 @@ impl Scanner<TxReceiptsMessage, PendingPayableScanResult> for PendingPayableScan
     ) -> PendingPayableScanResult {
         let response_skeleton_opt = message.response_skeleton_opt;
 
-        if message.results.is_empty() {
-            unreachable!("We should never receive an empty list of results. Even missing receipts can be interpreted")
-        }
-
-        debug!(
-            logger,
-            "Processing receipts for {} txs",
-            message.results.len()
-        );
-
         let scan_report = self.interpret_tx_receipts(message, logger);
 
-        let payment_retry_opt = scan_report.requires_payments_retry();
+        let retry_opt = scan_report.requires_payments_retry();
 
-        self.process_txs_by_their_state(scan_report, logger);
+        self.process_txs_by_state(scan_report, logger);
 
         self.mark_as_ended(logger);
 
-        if let Some(retry) = payment_retry_opt {
-            PendingPayableScanResult::PaymentRetryRequired(retry)
-        } else {
-            let ui_msg_opt = response_skeleton_opt.map(|response_skeleton| NodeToUiMessage {
-                target: MessageTarget::ClientId(response_skeleton.client_id),
-                body: UiScanResponse {}.tmb(response_skeleton.context_id),
-            });
-            PendingPayableScanResult::NoPendingPayablesLeft(ui_msg_opt)
-        }
+        Self::compose_scan_result(retry_opt, response_skeleton_opt)
     }
 
     time_marking_methods!(PendingPayables);
@@ -168,11 +146,25 @@ impl PendingPayableScanner {
         }
     }
 
+    fn emptiness_check(&self, msg: &TxReceiptsMessage){
+        if msg.results.is_empty() {
+            unreachable!("We should never receive an empty list of results. Even missing receipts can be interpreted")
+        }
+    }
+
     fn interpret_tx_receipts(
         &mut self,
         msg: TxReceiptsMessage,
         logger: &Logger,
     ) -> ReceiptScanReport {
+        self.emptiness_check(&msg);
+
+        debug!(
+            logger,
+            "Processing receipts for {} txs",
+            msg.results.len()
+        );
+
         let interpretable_data = self.prepare_cases_to_interpret(msg);
         self.compose_receipt_scan_report(interpretable_data, logger)
     }
@@ -224,9 +216,7 @@ impl PendingPayableScanner {
         //     )
     }
 
-    fn process_txs_by_their_state(&mut self, scan_report: ReceiptScanReport, logger: &Logger) {
-        // TODO a) confirmation of just newly pending txs
-        // b) confirmations of reclaimed txs
+    fn process_txs_by_state(&mut self, scan_report: ReceiptScanReport, logger: &Logger) {
         self.handle_confirmed_transactions(scan_report.confirmations, logger);
         self.handle_failed_transactions(scan_report.failures, logger);
     }
@@ -236,22 +226,23 @@ impl PendingPayableScanner {
         confirmed_txs: DetectedConfirmations,
         logger: &Logger,
     ) {
-        todo!("finish me")
-        // if !confirmed_txs.is_empty() {
-        //     if let Err(e) = self.payable_dao.transactions_confirmed(&confirmed_txs) {
-        //         Self::transaction_confirmed_panic(&confirmed_txs, e)
-        //     } else {
-        //         self.add_to_the_total_of_paid_payable(&confirmed_txs, logger);
-        //
-        //         let tx_confirmations = Self::compose_tx_confirmation_inputs(&confirmed_txs);
-        //
-        //         if let Err(e) = self.sent_payable_dao.confirm_tx(&tx_confirmations) {
-        //             Self::update_tx_blocks_panic(&tx_confirmations, e)
-        //         } else {
-        //             Self::log_tx_success(logger, &tx_confirmations);
-        //         }
-        //     }
-        // }
+        self.handle_tx_failure_reclaims(confirmed_txs.reclaims, logger);
+        self.handle_normal_confirmations(confirmed_txs.normal_confirmations, logger);
+
+    }
+
+    fn handle_tx_failure_reclaims(&self, reclaimed: Vec<TxReclaim>, logger: &Logger){
+        if reclaimed.is_empty() {
+
+        }
+        todo!()
+    }
+
+    fn handle_normal_confirmations(&self, confirmed_txs: Vec<NormalTxConfirmation>, logger: &Logger){
+        if confirmed_txs.is_empty() {
+            todo!()
+        }
+        todo!()
     }
 
     fn compose_tx_confirmation_inputs(confirmed_txs: &[SentTx]) -> HashMap<TxHash, TxConfirmation> {
@@ -346,15 +337,15 @@ impl PendingPayableScanner {
                     (new_failures, rechecks_completed)
                 },
             );
-        self.add_new_tx_failures(new_failures, logger);
-        self.conclude_newly_proven_old_tx_failures(rechecks_completed, logger);
+        self.add_new_failures(new_failures, logger);
+        self.finalize_unproven_failures(rechecks_completed, logger);
     }
 
-    fn add_new_tx_failures(&self, new_failures: Vec<FailedTx>, logger: &Logger) {
+    fn add_new_failures(&self, new_failures: Vec<FailedTx>, logger: &Logger) {
         todo!()
     }
 
-    fn conclude_newly_proven_old_tx_failures(
+    fn finalize_unproven_failures(
         &self,
         rechecks_completed: Vec<TxHash>,
         logger: &Logger,
@@ -362,8 +353,20 @@ impl PendingPayableScanner {
         todo!()
     }
 
-    fn handle_rpc_failures(&self, failures: Vec<ValidationStatusUpdate>, logger: &Logger) {
+    fn handle_rpc_failures(&self, failures: Vec<FailedValidationByTable>, logger: &Logger) {
         todo!()
+    }
+
+    fn compose_scan_result(retry_opt: Option<Retry>, response_skeleton_opt: Option<ResponseSkeleton>) -> PendingPayableScanResult {
+        if let Some(retry) = retry_opt {
+            PendingPayableScanResult::PaymentRetryRequired(retry)
+        } else {
+            let ui_msg_opt = response_skeleton_opt.map(|response_skeleton| NodeToUiMessage {
+                target: MessageTarget::ClientId(response_skeleton.client_id),
+                body: UiScanResponse {}.tmb(response_skeleton.context_id),
+            });
+            PendingPayableScanResult::NoPendingPayablesLeft(ui_msg_opt)
+        }
     }
 }
 

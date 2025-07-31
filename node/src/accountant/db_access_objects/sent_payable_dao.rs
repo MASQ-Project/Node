@@ -129,7 +129,7 @@ pub trait SentPayableDao {
     //TODO potentially atomically
     fn confirm_tx(
         &self,
-        hash_map: &HashMap<TxHash, TxConfirmation>,
+        hash_map: &HashMap<TxHash, TransactionBlock>,
     ) -> Result<(), SentPayableDaoError>;
     fn replace_records(&self, new_txs: &[SentTx]) -> Result<(), SentPayableDaoError>;
     //TODO potentially atomically
@@ -291,7 +291,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
 
     fn confirm_tx(
         &self,
-        hash_map: &HashMap<TxHash, TxConfirmation>,
+        hash_map: &HashMap<TxHash, TransactionBlock>,
     ) -> Result<(), SentPayableDaoError> {
         if hash_map.is_empty() {
             return Err(SentPayableDaoError::EmptyInput);

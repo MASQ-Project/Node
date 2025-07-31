@@ -137,7 +137,7 @@ impl TransactionInnerWrapper for TransactionInnerWrapperMock {
 // is to be formed.
 
 // With that said, we're relieved to have at least one working solution now. Speaking of the 'prepare'
-// method, an error would be hardly needed because the production code simply unwraps the results by
+// method, an error would hardly be needed because the production code simply unwraps the results by
 // using 'expect'. That is a function excluded from the requirement of writing tests for.
 
 // The 'Statement' produced by this method must be better understood. The 'prepare' method has
@@ -195,16 +195,16 @@ impl SetupForProdCodeAndAlteredStmts {
             None =>
             // In the prod code, all the db operations would've happened on a single wrapped txn,
             // that's why we strive to manipulate a txn also here, not the conn directly. Most
-            // importantly, sometimes multiple subsequent operations take each the previous one as
+            // importantly, sometimes multiple later operations take each the previous one as
             // necessary base. If the continuity is broken the later statement might not work. If
             // we record some changes on the transaction, other changes tried to be done from
             // a different connection might meet a different state of the database and thwart the
-            // efforts. (This behaviour probably depends on the global setup of the db).
+            // efforts. (This behavior probably depends on the global setup of the db).
             //
             //
             // Also imagine a 'Statement' that wouldn't cause an error whereupon any potential
             // rollback of this txn should best drag off both the prod code and altered statements
-            // all together, disappearing. If we did not use this txn some of the changes would stay.
+            // all together, disappearing. If we did not use this txn some changes would stay.
             {
                 self.txn_bearing_prod_code_stmts_opt
                     .as_ref()
