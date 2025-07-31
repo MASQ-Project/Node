@@ -50,11 +50,11 @@ impl StreamEstablisher {
         &mut self,
         payload: &ClientRequestPayload_0v1,
         ip_addrs: Vec<IpAddr>,
-        target_hostname: String,
+        target_hostname: &str,
     ) -> io::Result<Box<dyn SenderWrapper<SequencedPacket>>> {
         let connection_info = self.stream_connector.connect_one(
             ip_addrs,
-            &target_hostname,
+            target_hostname,
             payload.target_port,
             &self.logger,
         )?;

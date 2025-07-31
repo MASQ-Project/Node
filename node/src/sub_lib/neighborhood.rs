@@ -75,7 +75,7 @@ pub enum NeighborhoodMode {
 }
 
 impl Display for NeighborhoodMode {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             NeighborhoodMode::Standard(_, _, _) => write!(f, "Standard"),
             NeighborhoodMode::ZeroHop => write!(f, "ZeroHop"),

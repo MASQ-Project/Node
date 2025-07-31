@@ -364,7 +364,7 @@ impl StreamHandlerPoolReal {
         let mut stream_establisher = StreamHandlerPoolReal::make_establisher(inner_arc);
         Box::new(
             future::lazy(move || {
-                stream_establisher.establish_stream(&payload, vec![ip_addr], target_hostname)
+                stream_establisher.establish_stream(&payload, vec![ip_addr], &target_hostname)
             })
             .map_err(|io_error| format!("Could not establish stream: {:?}", io_error)),
         )
@@ -452,8 +452,7 @@ impl StreamHandlerPoolReal {
             logger,
             "Found IP addresses for {}: {:?}", target_hostname, &filtered_ip_addrs
         );
-        let result =
-            establisher.establish_stream(payload, filtered_ip_addrs, target_hostname.clone());
+        let result = establisher.establish_stream(payload, filtered_ip_addrs, &target_hostname);
         match result {
             Ok(sender_wrapper) => {
                 debug!(
