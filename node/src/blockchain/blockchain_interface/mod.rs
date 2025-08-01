@@ -11,9 +11,12 @@ use crate::blockchain::blockchain_interface::data_structures::{IndividualBatchRe
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use crate::sub_lib::wallet::Wallet;
 use futures::Future;
+use itertools::Either;
 use masq_lib::blockchains::chains::Chain;
 use web3::types::Address;
 use masq_lib::logger::Logger;
+use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::PricedNewTxTemplates;
+use crate::accountant::scanners::payable_scanner::data_structures::priced_retry_tx_template::PricedRetryTxTemplates;
 use crate::accountant::scanners::payable_scanner_extension::msgs::{PricedQualifiedPayables};
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::{BlockMarker, BlockScanRange, PendingPayableFingerprintSeeds};
@@ -48,7 +51,7 @@ pub trait BlockchainInterface {
         logger: Logger,
         agent: Box<dyn BlockchainAgent>,
         fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
-        affordable_accounts: PricedQualifiedPayables,
+        priced_templates: Either<PricedNewTxTemplates, PricedRetryTxTemplates>,
     ) -> Box<dyn Future<Item = Vec<IndividualBatchResult>, Error = LocalPayableError>>;
 
     as_any_ref_in_trait!();

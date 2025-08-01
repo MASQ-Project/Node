@@ -288,7 +288,7 @@ impl SolvencySensitivePaymentInstructor
         // mock, plus this functionality can be tested better with the other components mocked,
         // not the scanner itself.
         Ok(Either::Left(OutboundPaymentsInstructions {
-            affordable_accounts: msg.qualified_payables,
+            priced_templates: msg.priced_templates,
             agent: msg.agent,
             response_skeleton_opt: msg.response_skeleton_opt,
         }))

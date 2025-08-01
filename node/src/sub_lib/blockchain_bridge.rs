@@ -1,5 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::PricedNewTxTemplates;
+use crate::accountant::scanners::payable_scanner::data_structures::priced_retry_tx_template::PricedRetryTxTemplates;
 use crate::accountant::scanners::payable_scanner_extension::msgs::{
     PricedQualifiedPayables, QualifiedPayablesMessage,
 };
@@ -9,6 +11,7 @@ use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::sub_lib::peer_actors::BindMessage;
 use actix::Message;
 use actix::Recipient;
+use itertools::Either;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::fmt;
@@ -42,19 +45,19 @@ impl Debug for BlockchainBridgeSubs {
 
 #[derive(Message)]
 pub struct OutboundPaymentsInstructions {
-    pub affordable_accounts: PricedQualifiedPayables,
+    pub priced_templates: Either<PricedNewTxTemplates, PricedRetryTxTemplates>,
     pub agent: Box<dyn BlockchainAgent>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
 impl OutboundPaymentsInstructions {
     pub fn new(
-        affordable_accounts: PricedQualifiedPayables,
+        priced_templates: Either<PricedNewTxTemplates, PricedRetryTxTemplates>,
         agent: Box<dyn BlockchainAgent>,
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) -> Self {
         Self {
-            affordable_accounts,
+            priced_templates,
             agent,
             response_skeleton_opt,
         }

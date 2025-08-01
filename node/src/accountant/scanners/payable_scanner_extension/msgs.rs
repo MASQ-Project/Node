@@ -3,6 +3,8 @@
 use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::NewTxTemplates;
+use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::PricedNewTxTemplates;
+use crate::accountant::scanners::payable_scanner::data_structures::priced_retry_tx_template::PricedRetryTxTemplates;
 use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_template::RetryTxTemplates;
 use crate::accountant::{ResponseSkeleton, SkeletonOptHolder};
 use crate::blockchain::blockchain_agent::BlockchainAgent;
@@ -58,19 +60,19 @@ impl SkeletonOptHolder for QualifiedPayablesMessage {
 
 #[derive(Message)]
 pub struct BlockchainAgentWithContextMessage {
-    pub qualified_payables: PricedQualifiedPayables,
+    pub priced_templates: Either<PricedNewTxTemplates, PricedRetryTxTemplates>,
     pub agent: Box<dyn BlockchainAgent>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
 impl BlockchainAgentWithContextMessage {
     pub fn new(
-        qualified_payables: PricedQualifiedPayables,
+        priced_templates: Either<PricedNewTxTemplates, PricedRetryTxTemplates>,
         agent: Box<dyn BlockchainAgent>,
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) -> Self {
         Self {
-            qualified_payables,
+            priced_templates,
             agent,
             response_skeleton_opt,
         }
@@ -95,7 +97,7 @@ mod tests {
             let cloned_agent =
                 BlockchainAgentMock::default().set_arbitrary_id_stamp(original_agent_id);
             Self {
-                qualified_payables: self.qualified_payables.clone(),
+                priced_templates: self.priced_templates.clone(),
                 agent: Box::new(cloned_agent),
                 response_skeleton_opt: self.response_skeleton_opt,
             }

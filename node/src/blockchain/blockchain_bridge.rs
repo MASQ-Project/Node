@@ -44,6 +44,8 @@ use ethabi::Hash;
 use web3::types::H256;
 use masq_lib::constants::DEFAULT_GAS_PRICE_MARGIN;
 use masq_lib::messages::ScanType;
+use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::PricedNewTxTemplates;
+use crate::accountant::scanners::payable_scanner::data_structures::priced_retry_tx_template::PricedRetryTxTemplates;
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionReceiptResult, TxStatus};
 
@@ -257,28 +259,27 @@ impl BlockchainBridge {
         &mut self,
         incoming_message: QualifiedPayablesMessage,
     ) -> Box<dyn Future<Item = (), Error = String>> {
-        todo!("BlockchainAgentWithContextMessage");
         // TODO rewrite this into a batch call as soon as GH-629 gets into master
-        // let accountant_recipient = self.payable_payments_setup_subs_opt.clone();
-        // Box::new(
-        //     self.blockchain_interface
-        //         .introduce_blockchain_agent(incoming_message.consuming_wallet)
-        //         .map_err(|e| format!("Blockchain agent build error: {:?}", e))
-        //         .and_then(move |agent| {
-        //             let priced_qualified_payables =
-        //                 agent.price_qualified_payables(incoming_message.tx_templates);
-        //             // let outgoing_message = BlockchainAgentWithContextMessage::new(
-        //             //     priced_qualified_payables,
-        //             //     agent,
-        //             //     incoming_message.response_skeleton_opt,
-        //             // );
-        //             // accountant_recipient
-        //             //     .expect("Accountant is unbound")
-        //             //     .try_send(outgoing_message)
-        //             //     .expect("Accountant is dead");
-        //             // Ok(())
-        //         }),
-        // )
+        let accountant_recipient = self.payable_payments_setup_subs_opt.clone();
+        Box::new(
+            self.blockchain_interface
+                .introduce_blockchain_agent(incoming_message.consuming_wallet)
+                .map_err(|e| format!("Blockchain agent build error: {:?}", e))
+                .and_then(move |agent| {
+                    let priced_tx_templates =
+                        agent.price_qualified_payables(incoming_message.tx_templates);
+                    let outgoing_message = BlockchainAgentWithContextMessage::new(
+                        priced_tx_templates,
+                        agent,
+                        incoming_message.response_skeleton_opt,
+                    );
+                    accountant_recipient
+                        .expect("Accountant is unbound")
+                        .try_send(outgoing_message)
+                        .expect("Accountant is dead");
+                    Ok(())
+                }),
+        )
     }
 
     fn handle_outbound_payments_instructions(
@@ -298,7 +299,7 @@ impl BlockchainBridge {
         let send_message_if_successful = send_message_if_failure.clone();
 
         Box::new(
-            self.process_payments(msg.agent, msg.affordable_accounts)
+            self.process_payments(msg.agent, msg.priced_templates)
                 .map_err(move |e: LocalPayableError| {
                     send_message_if_failure(SentPayables {
                         payment_procedure_result: Either::Right(e.clone()),
@@ -486,7 +487,7 @@ impl BlockchainBridge {
     fn process_payments(
         &self,
         agent: Box<dyn BlockchainAgent>,
-        affordable_accounts: PricedQualifiedPayables,
+        priced_templates: Either<PricedNewTxTemplates, PricedRetryTxTemplates>,
     ) -> Box<dyn Future<Item = Vec<IndividualBatchResult>, Error = LocalPayableError>> {
         let new_fingerprints_recipient = self.new_fingerprints_recipient();
         let logger = self.logger.clone();
@@ -494,7 +495,7 @@ impl BlockchainBridge {
             logger,
             agent,
             new_fingerprints_recipient,
-            affordable_accounts,
+            priced_templates,
         )
     }
 
@@ -598,6 +599,7 @@ mod tests {
     use web3::types::{TransactionReceipt, H160};
     use masq_lib::constants::DEFAULT_MAX_BLOCK_COUNT;
     use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::NewTxTemplates;
+    use crate::accountant::scanners::payable_scanner::data_structures::test_utils::make_priced_new_tx_templates;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt};
 
     impl Handler<AssertionsMessage<Self>> for BlockchainBridge {
@@ -888,10 +890,10 @@ mod tests {
 
         let _ = addr
             .try_send(OutboundPaymentsInstructions {
-                affordable_accounts: make_priced_qualified_payables(vec![(
+                priced_templates: Either::Left(make_priced_new_tx_templates(vec![(
                     account.clone(),
                     111_222_333,
-                )]),
+                )])),
                 agent: Box::new(agent),
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
@@ -976,13 +978,12 @@ mod tests {
             .gas_price_result(123)
             .get_chain_result(Chain::PolyMainnet);
         send_bind_message!(subject_subs, peer_actors);
+        let priced_new_tx_templates =
+            make_priced_new_tx_templates(vec![(account.clone(), 111_222_333)]);
 
         let _ = addr
             .try_send(OutboundPaymentsInstructions {
-                affordable_accounts: make_priced_qualified_payables(vec![(
-                    account.clone(),
-                    111_222_333,
-                )]),
+                priced_templates: Either::Left(priced_new_tx_templates),
                 agent: Box::new(agent),
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
@@ -1043,7 +1044,7 @@ mod tests {
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
         let accounts_1 = make_payable_account(1);
         let accounts_2 = make_payable_account(2);
-        let affordable_qualified_payables = make_priced_qualified_payables(vec![
+        let priced_new_tx_templates = make_priced_new_tx_templates(vec![
             (accounts_1.clone(), 777_777_777),
             (accounts_2.clone(), 999_999_999),
         ]);
@@ -1052,8 +1053,11 @@ mod tests {
             .consuming_wallet_result(consuming_wallet)
             .gas_price_result(1)
             .get_chain_result(Chain::PolyMainnet);
-        let msg =
-            OutboundPaymentsInstructions::new(affordable_qualified_payables, Box::new(agent), None);
+        let msg = OutboundPaymentsInstructions::new(
+            Either::Left(priced_new_tx_templates),
+            Box::new(agent),
+            None,
+        );
         let persistent_config = PersistentConfigurationMock::new();
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface_web3),
@@ -1066,7 +1070,7 @@ mod tests {
             .new_pp_fingerprints_sub_opt = Some(accountant.start().recipient());
 
         let result = subject
-            .process_payments(msg.agent, msg.affordable_accounts)
+            .process_payments(msg.agent, msg.priced_templates)
             .wait();
 
         System::current().stop();
@@ -1110,8 +1114,10 @@ mod tests {
             .get_chain_result(TEST_DEFAULT_CHAIN)
             .consuming_wallet_result(consuming_wallet)
             .gas_price_result(123);
+        let priced_new_tx_templates =
+            make_priced_new_tx_templates(vec![(make_payable_account(111), 111_000_000)]);
         let msg = OutboundPaymentsInstructions::new(
-            make_priced_qualified_payables(vec![(make_payable_account(111), 111_000_000)]),
+            Either::Left(priced_new_tx_templates),
             Box::new(agent),
             None,
         );
@@ -1127,7 +1133,7 @@ mod tests {
             .new_pp_fingerprints_sub_opt = Some(accountant.start().recipient());
 
         let result = subject
-            .process_payments(msg.agent, msg.affordable_accounts)
+            .process_payments(msg.agent, msg.priced_templates)
             .wait();
 
         System::current().stop();

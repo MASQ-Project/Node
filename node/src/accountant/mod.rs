@@ -1303,6 +1303,7 @@ mod tests {
     use std::vec;
     use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::NewTxTemplates;
     use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_template::RetryTxTemplates;
+    use crate::accountant::scanners::payable_scanner::data_structures::test_utils::make_priced_new_tx_templates;
     use crate::accountant::scanners::scan_schedulers::{NewPayableScanDynIntervalComputer, NewPayableScanDynIntervalComputerReal};
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{ OperationOutcome, PayableScanResult};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt, TxStatus};
@@ -1678,60 +1679,60 @@ mod tests {
             (account_2, 1_000_000_002),
         ]);
         let msg = BlockchainAgentWithContextMessage {
-            qualified_payables: qualified_payables.clone(),
+            priced_templates: todo!("priced_templates"),
             agent: Box::new(agent),
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 1234,
                 context_id: 4321,
             }),
         };
-
-        subject_addr.try_send(msg).unwrap();
-
-        system.run();
-        let mut is_adjustment_required_params = is_adjustment_required_params_arc.lock().unwrap();
-        let (blockchain_agent_with_context_msg_actual, logger_clone) =
-            is_adjustment_required_params.remove(0);
-        assert_eq!(
-            blockchain_agent_with_context_msg_actual.qualified_payables,
-            qualified_payables.clone()
-        );
-        assert_eq!(
-            blockchain_agent_with_context_msg_actual.response_skeleton_opt,
-            Some(ResponseSkeleton {
-                client_id: 1234,
-                context_id: 4321,
-            })
-        );
-        assert_eq!(
-            blockchain_agent_with_context_msg_actual
-                .agent
-                .arbitrary_id_stamp(),
-            agent_id_stamp
-        );
-        assert!(is_adjustment_required_params.is_empty());
-        let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
-        let payments_instructions =
-            blockchain_bridge_recording.get_record::<OutboundPaymentsInstructions>(0);
-        assert_eq!(
-            payments_instructions.affordable_accounts,
-            qualified_payables
-        );
-        assert_eq!(
-            payments_instructions.response_skeleton_opt,
-            Some(ResponseSkeleton {
-                client_id: 1234,
-                context_id: 4321,
-            })
-        );
-        assert_eq!(
-            payments_instructions.agent.arbitrary_id_stamp(),
-            agent_id_stamp
-        );
-        assert_eq!(blockchain_bridge_recording.len(), 1);
-        assert_using_the_same_logger(&logger_clone, test_name, None)
-        // The adjust_payments() function doesn't require prepared results, indicating it shouldn't
-        // have been reached during the test, or it would have caused a panic.
+        //
+        // subject_addr.try_send(msg).unwrap();
+        //
+        // system.run();
+        // let mut is_adjustment_required_params = is_adjustment_required_params_arc.lock().unwrap();
+        // let (blockchain_agent_with_context_msg_actual, logger_clone) =
+        //     is_adjustment_required_params.remove(0);
+        // assert_eq!(
+        //     blockchain_agent_with_context_msg_actual.qualified_payables,
+        //     qualified_payables.clone()
+        // );
+        // assert_eq!(
+        //     blockchain_agent_with_context_msg_actual.response_skeleton_opt,
+        //     Some(ResponseSkeleton {
+        //         client_id: 1234,
+        //         context_id: 4321,
+        //     })
+        // );
+        // assert_eq!(
+        //     blockchain_agent_with_context_msg_actual
+        //         .agent
+        //         .arbitrary_id_stamp(),
+        //     agent_id_stamp
+        // );
+        // assert!(is_adjustment_required_params.is_empty());
+        // let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
+        // let payments_instructions =
+        //     blockchain_bridge_recording.get_record::<OutboundPaymentsInstructions>(0);
+        // assert_eq!(
+        //     payments_instructions.affordable_accounts,
+        //     qualified_payables
+        // );
+        // assert_eq!(
+        //     payments_instructions.response_skeleton_opt,
+        //     Some(ResponseSkeleton {
+        //         client_id: 1234,
+        //         context_id: 4321,
+        //     })
+        // );
+        // assert_eq!(
+        //     payments_instructions.agent.arbitrary_id_stamp(),
+        //     agent_id_stamp
+        // );
+        // assert_eq!(blockchain_bridge_recording.len(), 1);
+        // assert_using_the_same_logger(&logger_clone, test_name, None)
+        // // The adjust_payments() function doesn't require prepared results, indicating it shouldn't
+        // // have been reached during the test, or it would have caused a panic.
     }
 
     fn assert_using_the_same_logger(
@@ -1780,12 +1781,12 @@ mod tests {
         let agent_id_stamp_first_phase = ArbitraryIdStamp::new();
         let agent =
             BlockchainAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp_first_phase);
-        let initial_unadjusted_accounts = make_priced_qualified_payables(vec![
+        let initial_unadjusted_accounts = make_priced_new_tx_templates(vec![
             (unadjusted_account_1.clone(), 111_222_333),
             (unadjusted_account_2.clone(), 222_333_444),
         ]);
         let msg = BlockchainAgentWithContextMessage {
-            qualified_payables: initial_unadjusted_accounts.clone(),
+            priced_templates: Either::Left(initial_unadjusted_accounts.clone()),
             agent: Box::new(agent),
             response_skeleton_opt: Some(response_skeleton),
         };
@@ -1794,12 +1795,12 @@ mod tests {
         let agent_id_stamp_second_phase = ArbitraryIdStamp::new();
         let agent =
             BlockchainAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp_second_phase);
-        let affordable_accounts = make_priced_qualified_payables(vec![
+        let affordable_accounts = make_priced_new_tx_templates(vec![
             (adjusted_account_1.clone(), 111_222_333),
             (adjusted_account_2.clone(), 222_333_444),
         ]);
         let payments_instructions = OutboundPaymentsInstructions {
-            affordable_accounts: affordable_accounts.clone(),
+            priced_templates: Either::Left(affordable_accounts.clone()),
             agent: Box::new(agent),
             response_skeleton_opt: Some(response_skeleton),
         };
@@ -1832,8 +1833,8 @@ mod tests {
         assert_eq!(
             actual_prepared_adjustment
                 .original_setup_msg
-                .qualified_payables,
-            initial_unadjusted_accounts
+                .priced_templates,
+            Either::Left(initial_unadjusted_accounts)
         );
         assert_eq!(
             actual_prepared_adjustment
@@ -1858,8 +1859,8 @@ mod tests {
             agent_id_stamp_second_phase
         );
         assert_eq!(
-            payments_instructions.affordable_accounts,
-            affordable_accounts
+            payments_instructions.priced_templates,
+            Either::Left(affordable_accounts)
         );
         assert_eq!(
             payments_instructions.response_skeleton_opt,
@@ -3524,11 +3525,11 @@ mod tests {
         let blockchain_bridge_addr = blockchain_bridge.start();
         let payable_account = make_payable_account(123);
         let new_tx_templates = NewTxTemplates::from(&vec![payable_account.clone()]);
-        let priced_qualified_payables =
-            make_priced_qualified_payables(vec![(payable_account, 123_456_789)]);
+        let priced_new_tx_templates =
+            make_priced_new_tx_templates(vec![(payable_account, 123_456_789)]);
         let consuming_wallet = make_paying_wallet(b"consuming");
         let counter_msg_1 = BlockchainAgentWithContextMessage {
-            qualified_payables: priced_qualified_payables.clone(),
+            priced_templates: Either::Left(priced_new_tx_templates.clone()),
             agent: Box::new(BlockchainAgentMock::default()),
             response_skeleton_opt: None,
         };
@@ -3630,8 +3631,8 @@ mod tests {
         let actual_outbound_payment_instructions_msg =
             blockchain_bridge_recording.get_record::<OutboundPaymentsInstructions>(1);
         assert_eq!(
-            actual_outbound_payment_instructions_msg.affordable_accounts,
-            priced_qualified_payables
+            actual_outbound_payment_instructions_msg.priced_templates,
+            Either::Left(priced_new_tx_templates)
         );
         let actual_requested_receipts_1 =
             blockchain_bridge_recording.get_record::<RequestTransactionReceipts>(2);

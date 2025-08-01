@@ -71,7 +71,7 @@ impl SolvencySensitivePaymentInstructor for PayableScanner {
             .search_for_indispensable_adjustment(&msg, logger)
         {
             Ok(None) => Ok(Either::Left(OutboundPaymentsInstructions::new(
-                msg.qualified_payables,
+                msg.priced_templates,
                 msg.agent,
                 msg.response_skeleton_opt,
             ))),

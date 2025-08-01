@@ -71,9 +71,11 @@ pub enum AnalysisError {}
 #[cfg(test)]
 mod tests {
     use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
+    use crate::accountant::scanners::payable_scanner::data_structures::test_utils::make_priced_new_tx_templates;
     use crate::accountant::scanners::payable_scanner_extension::msgs::BlockchainAgentWithContextMessage;
     use crate::accountant::scanners::payable_scanner_extension::test_utils::BlockchainAgentMock;
     use crate::accountant::test_utils::{make_payable_account, make_priced_qualified_payables};
+    use itertools::Either;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
@@ -83,8 +85,9 @@ mod tests {
         let test_name = "search_for_indispensable_adjustment_always_returns_none";
         let payable = make_payable_account(123);
         let agent = BlockchainAgentMock::default();
+        let priced_new_tx_templates = make_priced_new_tx_templates(vec![(payable, 111_111_111)]);
         let setup_msg = BlockchainAgentWithContextMessage {
-            qualified_payables: make_priced_qualified_payables(vec![(payable, 111_111_111)]),
+            priced_templates: Either::Left(priced_new_tx_templates),
             agent: Box::new(agent),
             response_skeleton_opt: None,
         };

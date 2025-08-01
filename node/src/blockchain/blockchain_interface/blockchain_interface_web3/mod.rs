@@ -18,8 +18,11 @@ use std::convert::{From, TryInto};
 use std::fmt::Debug;
 use actix::Recipient;
 use ethereum_types::U64;
+use itertools::Either;
 use web3::transports::{EventLoopHandle, Http};
 use web3::types::{Address, Log, H256, U256, FilterBuilder, TransactionReceipt, BlockNumber};
+use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::PricedNewTxTemplates;
+use crate::accountant::scanners::payable_scanner::data_structures::priced_retry_tx_template::PricedRetryTxTemplates;
 use crate::accountant::scanners::payable_scanner_extension::msgs::{ PricedQualifiedPayables};
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::{BlockMarker, BlockScanRange, PendingPayableFingerprintSeeds};
@@ -252,7 +255,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         logger: Logger,
         agent: Box<dyn BlockchainAgent>,
         fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
-        affordable_accounts: PricedQualifiedPayables,
+        priced_templates: Either<PricedNewTxTemplates, PricedRetryTxTemplates>,
     ) -> Box<dyn Future<Item = Vec<IndividualBatchResult>, Error = LocalPayableError>> {
         let consuming_wallet = agent.consuming_wallet().clone();
         let web3_batch = self.lower_interface().get_web3_batch();
@@ -261,21 +264,23 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
             .get_transaction_id(consuming_wallet.address());
         let chain = agent.get_chain();
 
-        Box::new(
-            get_transaction_id
-                .map_err(LocalPayableError::TransactionID)
-                .and_then(move |pending_nonce| {
-                    send_payables_within_batch(
-                        &logger,
-                        chain,
-                        &web3_batch,
-                        consuming_wallet,
-                        pending_nonce,
-                        fingerprints_recipient,
-                        affordable_accounts,
-                    )
-                }),
-        )
+        todo!("latest nonce is fetched here");
+
+        // Box::new(
+        //     get_transaction_id
+        //         .map_err(LocalPayableError::TransactionID)
+        //         .and_then(move |pending_nonce| {
+        //             send_payables_within_batch(
+        //                 &logger,
+        //                 chain,
+        //                 &web3_batch,
+        //                 consuming_wallet,
+        //                 pending_nonce,
+        //                 fingerprints_recipient,
+        //                 priced_templates,
+        //             )
+        //         }),
+        // )
     }
 }
 
