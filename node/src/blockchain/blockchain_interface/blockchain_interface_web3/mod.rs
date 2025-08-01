@@ -270,7 +270,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                 .map_err(LocalPayableError::TransactionID)
                 .and_then(move |latest_nonce| {
                     let signable_tx_templates =
-                        SignableTxTemplates::new(priced_templates, latest_nonce.into());
+                        SignableTxTemplates::new(priced_templates, latest_nonce.as_u64());
 
                     // TODO: GH-605: We should be sending the fingerprints_recipient message from here
                     send_payables_within_batch(

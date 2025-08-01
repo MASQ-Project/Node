@@ -249,7 +249,7 @@ pub fn sign_and_append_multiple_payments(
                 chain,
                 web3_batch,
                 signable_tx_template,
-                consuming_wallet,
+                consuming_wallet.clone(), // TODO: GH-605: Eliminate this clone
                 logger,
             );
 
@@ -349,6 +349,9 @@ mod tests {
     use super::*;
     use crate::accountant::db_access_objects::utils::from_unix_timestamp;
     use crate::accountant::gwei_to_wei;
+    use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::PricedNewTxTemplate;
+    use crate::accountant::scanners::payable_scanner::data_structures::test_utils::make_priced_new_tx_templates;
+    use crate::accountant::scanners::payable_scanner::data_structures::BaseTxTemplate;
     use crate::accountant::test_utils::{
         make_payable_account, make_payable_account_with_wallet_and_balance_and_timestamp_opt,
         make_priced_qualified_payables,
@@ -363,7 +366,7 @@ mod tests {
         Failed, Pending,
     };
     use crate::blockchain::test_utils::{
-        make_tx_hash, transport_error_code, transport_error_message,
+        make_address, make_tx_hash, transport_error_code, transport_error_message,
     };
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_paying_wallet;
@@ -386,6 +389,25 @@ mod tests {
     use web3::api::Namespace;
     use web3::Error::Rpc;
 
+    fn make_signable_tx_template(
+        payable_account: &PayableAccount,
+        gas_price_wei: u128,
+    ) -> SignableTxTemplate {
+        SignableTxTemplate {
+            receiver_address: payable_account.wallet.address(),
+            amount_in_wei: payable_account.balance_wei,
+            gas_price_wei,
+            nonce: 1,
+        }
+    }
+
+    fn make_signable_tx_templates(
+        payables_and_gas_prices: Vec<(PayableAccount, u128)>,
+    ) -> SignableTxTemplates {
+        let priced_tx_templates = make_priced_new_tx_templates(payables_and_gas_prices);
+        SignableTxTemplates::new(Either::Left(priced_tx_templates), 1)
+    }
+
     #[test]
     fn sign_and_append_payment_works() {
         let port = find_free_port();
@@ -402,21 +424,16 @@ mod tests {
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
-        let pending_nonce = 1;
         let chain = DEFAULT_CHAIN;
         let gas_price_in_gwei = DEFAULT_GAS_PRICE;
         let consuming_wallet = make_paying_wallet(b"paying_wallet");
         let account = make_payable_account(1);
         let web3_batch = Web3::new(Batch::new(transport));
+        let signable_tx_template =
+            make_signable_tx_template(&account, gwei_to_wei(gas_price_in_gwei));
 
-        let result = sign_and_append_payment(
-            chain,
-            &web3_batch,
-            &account,
-            consuming_wallet,
-            pending_nonce.into(),
-            gwei_to_wei(gas_price_in_gwei),
-        );
+        let result =
+            sign_and_append_payment(chain, &web3_batch, &signable_tx_template, consuming_wallet);
 
         let mut batch_result = web3_batch.eth().transport().submit_batch().wait().unwrap();
         assert_eq!(
@@ -452,18 +469,15 @@ mod tests {
         let consuming_wallet = make_paying_wallet(b"paying_wallet");
         let account_1 = make_payable_account(1);
         let account_2 = make_payable_account(2);
-        let accounts = make_priced_qualified_payables(vec![
-            (account_1, 111_111_111),
-            (account_2, 222_222_222),
-        ]);
+        let signable_tx_templates =
+            make_signable_tx_templates(vec![(account_1, 111_111_111), (account_2, 222_222_222)]);
 
         let result = sign_and_append_multiple_payments(
             &logger,
             chain,
             &web3_batch,
+            &signable_tx_templates,
             consuming_wallet,
-            pending_nonce.into(),
-            &accounts,
         );
 
         assert_eq!(
@@ -498,7 +512,7 @@ mod tests {
             123_456_789_u128,
             gwei_to_wei(33_355_666_u64),
         ];
-        let pending_nonce = 123456789.into();
+        let latest_nonce = 123456789;
         let expected_format = "\n\
         Paying creditors\n\
         Transactions:\n\
@@ -515,7 +529,7 @@ mod tests {
             1,
             payments,
             Chain::BaseSepolia,
-            pending_nonce,
+            latest_nonce,
             expected_format,
         );
 
@@ -525,7 +539,7 @@ mod tests {
             gwei_to_wei(10_000_u64),
             44_444_555_u128,
         ];
-        let pending_nonce = 100.into();
+        let latest_nonce = 100;
         let expected_format = "\n\
         Paying creditors\n\
         Transactions:\n\
@@ -542,13 +556,13 @@ mod tests {
             2,
             payments,
             Chain::EthMainnet,
-            pending_nonce,
+            latest_nonce,
             expected_format,
         );
 
         // Case 3
         let payments = [45_000_888, 1_999_999, 444_444_555];
-        let pending_nonce = 1.into();
+        let latest_nonce = 1;
         let expected_format = "\n\
         Paying creditors\n\
         Transactions:\n\
@@ -565,7 +579,7 @@ mod tests {
             3,
             payments,
             Chain::PolyMainnet,
-            pending_nonce,
+            latest_nonce,
             expected_format,
         );
     }
@@ -574,24 +588,28 @@ mod tests {
         case: usize,
         payments: [u128; 3],
         chain: Chain,
-        pending_nonce: U256,
+        latest_nonce: u64,
         expected_result: &str,
     ) {
-        let accounts_to_process_seeds = payments
+        let priced_new_tx_templates = payments
             .iter()
             .enumerate()
-            .map(|(i, payment)| {
+            .map(|(i, amount_in_wei)| {
                 let wallet = make_wallet(&format!("wallet{}", i));
-                let gas_price = (i as u128 + 1) * 2 * 123_456_789;
-                let account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
-                    wallet, *payment, None,
-                );
-                (account, gas_price)
+                let computed_gas_price_wei = (i as u128 + 1) * 2 * 123_456_789;
+                PricedNewTxTemplate {
+                    base: BaseTxTemplate {
+                        receiver_address: wallet.address(),
+                        amount_in_wei: *amount_in_wei,
+                    },
+                    computed_gas_price_wei,
+                }
             })
-            .collect();
-        let accounts_to_process = make_priced_qualified_payables(accounts_to_process_seeds);
+            .collect::<PricedNewTxTemplates>();
+        let signable_tx_templates =
+            SignableTxTemplates::new(Either::Left(priced_new_tx_templates), latest_nonce);
 
-        let result = transmission_log(chain, &accounts_to_process, pending_nonce);
+        let result = transmission_log(chain, &signable_tx_templates);
 
         assert_eq!(
             result, expected_result,
@@ -602,21 +620,21 @@ mod tests {
 
     #[test]
     fn output_by_joining_sources_works() {
-        let accounts = vec![
-            PayableAccount {
-                wallet: make_wallet("4567"),
-                balance_wei: 2_345_678,
-                last_paid_timestamp: from_unix_timestamp(4500000),
-                pending_payable_opt: None,
+        let signable_tx_templates = SignableTxTemplates(vec![
+            SignableTxTemplate {
+                receiver_address: make_wallet("4567").address(),
+                amount_in_wei: 2_345_678,
+                gas_price_wei: 100,
+                nonce: 1,
             },
-            PayableAccount {
-                wallet: make_wallet("5656"),
-                balance_wei: 6_543_210,
-                last_paid_timestamp: from_unix_timestamp(333000),
-                pending_payable_opt: None,
+            SignableTxTemplate {
+                receiver_address: make_wallet("5656").address(),
+                amount_in_wei: 6_543_210,
+                gas_price_wei: 100,
+                nonce: 1,
             },
-        ];
-        let fingerprint_inputs = vec![
+        ]);
+        let hashes_and_amounts = vec![
             HashAndAmount {
                 hash: make_tx_hash(444),
                 amount: 2_345_678,
@@ -635,7 +653,7 @@ mod tests {
             })),
         ];
 
-        let result = merged_output_data(responses, fingerprint_inputs, accounts.to_vec());
+        let result = merged_output_data(responses, hashes_and_amounts, signable_tx_templates);
 
         assert_eq!(
             result,
@@ -659,7 +677,7 @@ mod tests {
 
     fn test_send_payables_within_batch(
         test_name: &str,
-        accounts: PricedQualifiedPayables,
+        signable_tx_templates: SignableTxTemplates,
         expected_result: Result<Vec<IndividualBatchResult>, LocalPayableError>,
         port: u16,
     ) {
@@ -678,15 +696,15 @@ mod tests {
         let new_fingerprints_recipient = accountant.start().recipient();
         let system = System::new(test_name);
         let timestamp_before = SystemTime::now();
+        let expected_transmission_log = transmission_log(chain, &signable_tx_templates);
 
         let result = send_payables_within_batch(
             &logger,
             chain,
             &web3_batch,
+            signable_tx_templates,
             consuming_wallet.clone(),
-            pending_nonce,
             new_fingerprints_recipient,
-            accounts.clone(),
         )
         .wait();
 
@@ -707,10 +725,7 @@ mod tests {
                      chain.rec().num_chain_id,
             )
         );
-        tlh.exists_log_containing(&format!(
-            "INFO: {test_name}: {}",
-            transmission_log(chain, &accounts, pending_nonce)
-        ));
+        tlh.exists_log_containing(&format!("INFO: {test_name}: {expected_transmission_log}"));
         assert_eq!(result, expected_result);
     }
 
@@ -745,10 +760,7 @@ mod tests {
 
         test_send_payables_within_batch(
             "send_payables_within_batch_works",
-            make_priced_qualified_payables(vec![
-                (account_1, 111_111_111),
-                (account_2, 222_222_222),
-            ]),
+            make_signable_tx_templates(vec![(account_1, 111_111_111), (account_2, 222_222_222)]),
             expected_result,
             port,
         );
@@ -756,7 +768,7 @@ mod tests {
 
     #[test]
     fn send_payables_within_batch_fails_on_submit_batch_call() {
-        let accounts = make_priced_qualified_payables(vec![
+        let signable_tx_templates = make_signable_tx_templates(vec![
             (make_payable_account(1), 111_222_333),
             (make_payable_account(2), 222_333_444),
         ]);
@@ -773,7 +785,7 @@ mod tests {
 
         test_send_payables_within_batch(
             "send_payables_within_batch_fails_on_submit_batch_call",
-            accounts,
+            signable_tx_templates,
             expected_result,
             port,
         );
@@ -823,10 +835,7 @@ mod tests {
 
         test_send_payables_within_batch(
             "send_payables_within_batch_all_payments_fail",
-            make_priced_qualified_payables(vec![
-                (account_1, 111_111_111),
-                (account_2, 111_111_111),
-            ]),
+            make_signable_tx_templates(vec![(account_1, 111_111_111), (account_2, 111_111_111)]),
             expected_result,
             port,
         );
@@ -866,10 +875,7 @@ mod tests {
 
         test_send_payables_within_batch(
             "send_payables_within_batch_one_payment_works_the_other_fails",
-            make_priced_qualified_payables(vec![
-                (account_1, 111_111_111),
-                (account_2, 111_111_111),
-            ]),
+            make_signable_tx_templates(vec![(account_1, 111_111_111), (account_2, 111_111_111)]),
             expected_result,
             port,
         );
@@ -895,19 +901,16 @@ mod tests {
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
-        let recipient_wallet = make_wallet("unlucky man");
         let consuming_wallet = make_wallet("bad_wallet");
         let gas_price = 123_000_000_000;
-        let nonce = U256::from(1);
+        let signable_tx_template = make_signable_tx_template(&make_payable_account(1), gas_price);
 
         sign_transaction(
             Chain::PolyAmoy,
             &Web3::new(Batch::new(transport)),
-            recipient_wallet,
+            &signable_tx_template,
             consuming_wallet,
-            444444,
-            nonce,
-            gas_price,
+            &Logger::new("test"),
         );
     }
 
@@ -923,13 +926,13 @@ mod tests {
         let chain = DEFAULT_CHAIN;
         let amount = 11_222_333_444;
         let gas_price_in_wei = 123 * 10_u128.pow(18);
-        let nonce = U256::from(5);
+        let nonce = 5;
         let recipient_wallet = make_wallet("recipient_wallet");
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
         let consuming_wallet_secret_key = consuming_wallet.prepare_secp256k1_secret().unwrap();
-        let data = sign_transaction_data(amount, recipient_wallet.clone());
+        let data = sign_transaction_data(amount, recipient_wallet.address());
         let tx_parameters = TransactionParameters {
-            nonce: Some(nonce),
+            nonce: Some(U256::from(nonce)),
             to: Some(chain.rec().contract),
             gas: gas_limit(data, chain),
             gas_price: Some(U256::from(gas_price_in_wei)),
@@ -937,14 +940,18 @@ mod tests {
             data: Bytes(data.to_vec()),
             chain_id: Some(chain.rec().num_chain_id),
         };
+        let signable_tx_template = SignableTxTemplate {
+            receiver_address: recipient_wallet.address(),
+            amount_in_wei: amount,
+            gas_price_wei: gas_price_in_wei,
+            nonce,
+        };
         let result = sign_transaction(
             chain,
             &Web3::new(Batch::new(transport)),
-            recipient_wallet,
+            &signable_tx_template,
             consuming_wallet,
-            amount,
-            nonce,
-            gas_price_in_wei,
+            &Logger::new("test"),
         );
 
         let expected_tx_result = web3
@@ -954,6 +961,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(result, expected_tx_result);
+        // TODO: GH-605: Also test the log
     }
 
     #[test]
@@ -971,7 +979,7 @@ mod tests {
         let gas_price = U256::from(5);
         let recipient_wallet = make_wallet("recipient_wallet");
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
-        let data = sign_transaction_data(amount, recipient_wallet);
+        let data = sign_transaction_data(amount, recipient_wallet.address());
         // sign_transaction makes a blockchain call because nonce is set to None
         let transaction_parameters = TransactionParameters {
             nonce: None,
@@ -1115,20 +1123,19 @@ mod tests {
             Chain::PolyAmoy => TEST_GAS_PRICE_POLYGON,
             _ => panic!("isn't our interest in this test"),
         };
-        let payable_account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
-            recipient_wallet,
-            TEST_PAYMENT_AMOUNT,
-            None,
-        );
+        let signable_tx_template = SignableTxTemplate {
+            receiver_address: recipient_wallet.address(),
+            amount_in_wei: TEST_PAYMENT_AMOUNT,
+            gas_price_wei: gwei_to_wei(gas_price_in_gwei),
+            nonce,
+        };
 
         let signed_transaction = sign_transaction(
             chain,
             &Web3::new(Batch::new(transport)),
-            payable_account.wallet,
+            &signable_tx_template,
             consuming_wallet,
-            payable_account.balance_wei,
-            nonce_correct_type,
-            gwei_to_wei(gas_price_in_gwei),
+            &Logger::new("test"),
         );
 
         let byte_set_to_compare = signed_transaction.raw_transaction.0;
@@ -1138,7 +1145,7 @@ mod tests {
     fn test_gas_limit_is_between_limits(chain: Chain) {
         let not_under_this_value = BlockchainInterfaceWeb3::web3_gas_limit_const_part(chain);
         let not_above_this_value = not_under_this_value + WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
-        let data = sign_transaction_data(1_000_000_000, make_wallet("wallet1"));
+        let data = sign_transaction_data(1_000_000_000, make_wallet("wallet1").address());
 
         let gas_limit = gas_limit(data, chain);
 
