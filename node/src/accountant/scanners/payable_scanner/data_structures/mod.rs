@@ -5,6 +5,7 @@ pub mod new_tx_template;
 pub mod priced_new_tx_template;
 pub mod priced_retry_tx_template;
 pub mod retry_tx_template;
+pub mod signable_tx_template;
 pub mod test_utils;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]

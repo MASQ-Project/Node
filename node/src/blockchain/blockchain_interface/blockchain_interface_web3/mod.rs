@@ -23,6 +23,7 @@ use web3::transports::{EventLoopHandle, Http};
 use web3::types::{Address, Log, H256, U256, FilterBuilder, TransactionReceipt, BlockNumber};
 use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::PricedNewTxTemplates;
 use crate::accountant::scanners::payable_scanner::data_structures::priced_retry_tx_template::PricedRetryTxTemplates;
+use crate::accountant::scanners::payable_scanner::data_structures::signable_tx_template::SignableTxTemplates;
 use crate::accountant::scanners::payable_scanner_extension::msgs::{ PricedQualifiedPayables};
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::{BlockMarker, BlockScanRange, PendingPayableFingerprintSeeds};
@@ -264,23 +265,24 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
             .get_transaction_id(consuming_wallet.address());
         let chain = agent.get_chain();
 
-        todo!("latest nonce is fetched here");
+        Box::new(
+            get_transaction_id
+                .map_err(LocalPayableError::TransactionID)
+                .and_then(move |latest_nonce| {
+                    let signable_tx_templates =
+                        SignableTxTemplates::new(priced_templates, latest_nonce.into());
 
-        // Box::new(
-        //     get_transaction_id
-        //         .map_err(LocalPayableError::TransactionID)
-        //         .and_then(move |pending_nonce| {
-        //             send_payables_within_batch(
-        //                 &logger,
-        //                 chain,
-        //                 &web3_batch,
-        //                 consuming_wallet,
-        //                 pending_nonce,
-        //                 fingerprints_recipient,
-        //                 priced_templates,
-        //             )
-        //         }),
-        // )
+                    // TODO: GH-605: We should be sending the fingerprints_recipient message from here
+                    send_payables_within_batch(
+                        &logger,
+                        chain,
+                        &web3_batch,
+                        signable_tx_templates,
+                        consuming_wallet,
+                        fingerprints_recipient,
+                    )
+                }),
+        )
     }
 }
 
