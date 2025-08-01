@@ -77,6 +77,14 @@ pub const NEIGHBORS_HELP: &str = "One or more Node descriptors for running Nodes
      if you don't specify a neighbor, your Node will start without being connected to any MASQ \
      Network, although other Nodes will be able to connect to yours if they know your Node's descriptor. \
      --neighbors is meaningless in --neighborhood-mode zero-hop.";
+pub const NEW_PUBLIC_KEY_HELP: &str = "Whenever you start it, the Node will try to use the same public key \
+     it used last time. That's '--new-public-key off'. If you want it to select a new public key when it \
+     starts, then specify '--new-public-key on', and you'll get a different one this time...which it will \
+     reuse next time unless you specify '--new-public-key on' again.\n\n\
+     There are some conditions under which the Node cannot use the same public key it used last time: \
+     for example, if there was no last time, or if you don't specify a `--db-password`. If you're in \
+     one of these situations and you demand the old public key with `--new-public-key off`, the Node \
+     will refuse to start.";
 
 // generated valid encoded keys for future needs
 // UJNoZW5p/PDVqEjpr3b+8jZ/93yPG8i5dOAgE1bhK+A
@@ -462,6 +470,14 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .value_name("NODE-DESCRIPTORS")
             .min_values(0)
             .help(NEIGHBORS_HELP),
+    )
+    .arg(
+        Arg::with_name("new-public-key")
+            .long("new-public-key")
+            .value_name("NEW-PUBLIC-KEY")
+            .takes_value(true)
+            .possible_values(&["on", "off"])
+            .help(NEW_PUBLIC_KEY_HELP),
     )
     .arg(real_user_arg())
     .arg(
