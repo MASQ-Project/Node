@@ -23,12 +23,6 @@ impl FromIterator<SignableTxTemplate> for SignableTxTemplates {
     }
 }
 
-// impl From<PricedNewTxTemplates> for SignableTxTemplates {
-//     fn from(priced_new_tx_templates: PricedNewTxTemplates) -> Self {
-//         todo!()
-//     }
-// }
-
 impl SignableTxTemplates {
     pub fn new(
         priced_tx_templates: Either<PricedNewTxTemplates, PricedRetryTxTemplates>,
@@ -39,7 +33,7 @@ impl SignableTxTemplates {
                 Self::from_priced_new_tx_templates(priced_new_tx_templates, latest_nonce)
             }
             Either::Right(priced_retry_tx_templates) => {
-                todo!()
+                Self::from_priced_retry_tx_templates(priced_retry_tx_templates, latest_nonce)
             }
         }
     }
@@ -58,6 +52,13 @@ impl SignableTxTemplates {
                 nonce: latest_nonce + i as u64,
             })
             .collect()
+    }
+
+    fn from_priced_retry_tx_templates(
+        priced_retry_tx_templates: PricedRetryTxTemplates,
+        latest_nonce: u64,
+    ) -> Self {
+        todo!()
     }
 
     pub fn first_nonce(&self) -> u64 {
@@ -92,28 +93,27 @@ mod tests {
     use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::{
         PricedNewTxTemplate, PricedNewTxTemplates,
     };
+    use crate::accountant::scanners::payable_scanner::data_structures::priced_retry_tx_template::{
+        PricedRetryTxTemplate, PricedRetryTxTemplates,
+    };
     use crate::accountant::scanners::payable_scanner::data_structures::signable_tx_template::SignableTxTemplates;
+    use crate::accountant::scanners::payable_scanner::data_structures::test_utils::{
+        make_priced_new_tx_template, make_priced_retry_tx_template,
+    };
     use crate::accountant::scanners::payable_scanner::data_structures::BaseTxTemplate;
     use crate::accountant::test_utils::make_payable_account;
     use itertools::Either;
     use masq_lib::constants::DEFAULT_GAS_PRICE;
 
-    fn make_priced_tx_template(n: u64) -> PricedNewTxTemplate {
-        PricedNewTxTemplate {
-            base: BaseTxTemplate::from(&make_payable_account(n)),
-            computed_gas_price_wei: DEFAULT_GAS_PRICE as u128,
-        }
-    }
-
     #[test]
     fn signable_tx_templates_can_be_created_from_priced_new_tx_templates() {
         let nonce = 10;
         let priced_new_tx_templates = PricedNewTxTemplates(vec![
-            make_priced_tx_template(1),
-            make_priced_tx_template(2),
-            make_priced_tx_template(3),
-            make_priced_tx_template(4),
-            make_priced_tx_template(5),
+            make_priced_new_tx_template(1),
+            make_priced_new_tx_template(2),
+            make_priced_new_tx_template(3),
+            make_priced_new_tx_template(4),
+            make_priced_new_tx_template(5),
         ]);
 
         let result = SignableTxTemplates::new(Either::Left(priced_new_tx_templates.clone()), nonce);
@@ -127,6 +127,38 @@ mod tests {
                 assert_eq!(signable.amount_in_wei, priced.base.amount_in_wei);
                 assert_eq!(signable.gas_price_wei, priced.computed_gas_price_wei);
                 assert_eq!(signable.nonce, nonce + index as u64);
+            });
+    }
+
+    #[test]
+    fn signable_tx_templates_can_be_created_from_priced_retry_tx_templates() {
+        let nonce = 10;
+        let retries = PricedRetryTxTemplates(vec![
+            make_priced_retry_tx_template(6), // n is same as prev_nonce here
+            make_priced_retry_tx_template(8),
+            make_priced_retry_tx_template(10),
+            make_priced_retry_tx_template(11),
+            make_priced_retry_tx_template(12),
+        ]);
+
+        let result = SignableTxTemplates::new(Either::Right(retries.clone()), nonce);
+
+        let expected_order = vec![2, 3, 4, 0, 1];
+        result
+            .iter()
+            .enumerate()
+            .zip(expected_order.into_iter())
+            .for_each(|((i, signable), index)| {
+                assert_eq!(
+                    signable.receiver_address,
+                    retries[index].base.receiver_address
+                );
+                assert_eq!(signable.nonce, nonce + i as u64);
+                assert_eq!(signable.amount_in_wei, retries[index].base.amount_in_wei);
+                assert_eq!(
+                    signable.gas_price_wei,
+                    retries[index].computed_gas_price_wei
+                );
             });
     }
 }
