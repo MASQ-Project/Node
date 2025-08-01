@@ -6,7 +6,7 @@ use masq_lib::ui_gateway::NodeToUiMessage;
 use std::time::SystemTime;
 use thousands::Separable;
 use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureReason, FailureStatus};
-use crate::accountant::db_access_objects::sent_payable_dao::{SentTx, TxConfirmation, TxStatus};
+use crate::accountant::db_access_objects::sent_payable_dao::{SentTx, TxStatus};
 use crate::accountant::db_access_objects::utils::{from_unix_timestamp, TxHash};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{BlockchainTxFailure, StatusReadFromReceiptCheck, TransactionBlock, TxReceiptError};
 use crate::blockchain::errors::AppRpcError;
@@ -58,14 +58,13 @@ pub struct DetectedConfirmations {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct NormalTxConfirmation{
-    pub tx_hash: TxHash,
-    pub confirmation: TxConfirmation
+pub struct NormalTxConfirmation {
+    pub tx: SentTx,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct TxReclaim {
-    pub reclaimed: SentTx
+    pub reclaimed: SentTx,
 }
 
 impl DetectedConfirmations {
@@ -360,13 +359,18 @@ impl From<(SentTx, FailureReason)> for FailedTx {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::scanners::pending_payable_scanner::utils::{CurrentPendingPayables, DetectedConfirmations, DetectedFailures, FailedValidation, FailuresRequiringDoubleCheck, PendingPayableCache, PresortedTxFailure, ReceiptScanReport, Retry, FailedValidationByTable, NormalTxConfirmation};
+    use crate::accountant::db_access_objects::sent_payable_dao::Detection;
+    use crate::accountant::db_access_objects::sent_payable_dao::Detection::Normal;
+    use crate::accountant::scanners::pending_payable_scanner::utils::{
+        CurrentPendingPayables, DetectedConfirmations, DetectedFailures, FailedValidation,
+        FailedValidationByTable, FailuresRequiringDoubleCheck, NormalTxConfirmation,
+        PendingPayableCache, PresortedTxFailure, ReceiptScanReport, Retry, TxReclaim,
+    };
     use crate::accountant::test_utils::{make_failed_tx, make_sent_tx, make_transaction_block};
     use crate::blockchain::errors::{AppRpcError, LocalError, RemoteError};
     use crate::blockchain::test_utils::make_tx_hash;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use crate::accountant::db_access_objects::sent_payable_dao::{Detection, TxConfirmation};
 
     #[test]
     fn detected_confirmations_is_empty_works() {
@@ -399,18 +403,14 @@ mod tests {
         ];
         let tx_receipt_rpc_failures_feeding = vec![
             vec![],
-            vec![FailedValidationByTable::SentPayable(
-                FailedValidation {
-                    tx_hash: make_tx_hash(2222),
-                    failure: AppRpcError::Local(LocalError::Internal),
-                },
-            )],
-            vec![FailedValidationByTable::FailedPayable(
-                FailedValidation {
-                    tx_hash: make_tx_hash(12121),
-                    failure: AppRpcError::Remote(RemoteError::InvalidResponse("blah".to_string())),
-                },
-            )],
+            vec![FailedValidationByTable::SentPayable(FailedValidation {
+                tx_hash: make_tx_hash(2222),
+                failure: AppRpcError::Local(LocalError::Internal),
+            })],
+            vec![FailedValidationByTable::FailedPayable(FailedValidation {
+                tx_hash: make_tx_hash(12121),
+                failure: AppRpcError::Remote(RemoteError::InvalidResponse("blah".to_string())),
+            })],
         ];
         let detected_confirmations_feeding = vec![
             DetectedConfirmations {
@@ -418,16 +418,24 @@ mod tests {
                 reclaims: vec![],
             },
             DetectedConfirmations {
-                normal_confirmations: vec![NormalTxConfirmation{ tx_hash: make_tx_hash(456), confirmation: TxConfirmation { block_info: make_transaction_block(123), detection: Detection::Normal } }],
-                reclaims: vec![make_sent_tx(999)],
+                normal_confirmations: vec![NormalTxConfirmation {
+                    tx: make_sent_tx(456),
+                }],
+                reclaims: vec![TxReclaim {
+                    reclaimed: make_sent_tx(999),
+                }],
             },
             DetectedConfirmations {
-                normal_confirmations: vec![make_sent_tx(777)],
+                normal_confirmations: vec![NormalTxConfirmation {
+                    tx: make_sent_tx(777),
+                }],
                 reclaims: vec![],
             },
             DetectedConfirmations {
                 normal_confirmations: vec![],
-                reclaims: vec![make_sent_tx(999)],
+                reclaims: vec![TxReclaim {
+                    reclaimed: make_sent_tx(999),
+                }],
             },
         ];
 
@@ -463,18 +471,14 @@ mod tests {
     #[test]
     fn requires_only_receipt_retrieval_retry() {
         let rpc_failure_feedings = vec![
-            vec![FailedValidationByTable::SentPayable(
-                FailedValidation {
-                    tx_hash: make_tx_hash(2222),
-                    failure: AppRpcError::Local(LocalError::Internal),
-                },
-            )],
-            vec![FailedValidationByTable::FailedPayable(
-                FailedValidation {
-                    tx_hash: make_tx_hash(1234),
-                    failure: AppRpcError::Remote(RemoteError::Unreachable),
-                },
-            )],
+            vec![FailedValidationByTable::SentPayable(FailedValidation {
+                tx_hash: make_tx_hash(2222),
+                failure: AppRpcError::Local(LocalError::Internal),
+            })],
+            vec![FailedValidationByTable::FailedPayable(FailedValidation {
+                tx_hash: make_tx_hash(1234),
+                failure: AppRpcError::Remote(RemoteError::Unreachable),
+            })],
             vec![
                 FailedValidationByTable::SentPayable(FailedValidation {
                     tx_hash: make_tx_hash(2222),
@@ -492,16 +496,24 @@ mod tests {
                 reclaims: vec![],
             },
             DetectedConfirmations {
-                normal_confirmations: vec![make_sent_tx(777)],
-                reclaims: vec![make_sent_tx(999)],
+                normal_confirmations: vec![NormalTxConfirmation {
+                    tx: make_sent_tx(777),
+                }],
+                reclaims: vec![TxReclaim {
+                    reclaimed: make_sent_tx(999),
+                }],
             },
             DetectedConfirmations {
-                normal_confirmations: vec![make_sent_tx(777)],
+                normal_confirmations: vec![NormalTxConfirmation {
+                    tx: make_sent_tx(777),
+                }],
                 reclaims: vec![],
             },
             DetectedConfirmations {
                 normal_confirmations: vec![],
-                reclaims: vec![make_sent_tx(999)],
+                reclaims: vec![TxReclaim {
+                    reclaimed: make_sent_tx(999),
+                }],
             },
         ];
 
@@ -526,16 +538,24 @@ mod tests {
     fn requires_payments_retry_says_no() {
         let detected_confirmations_feeding = vec![
             DetectedConfirmations {
-                normal_confirmations: vec![make_sent_tx(777)],
-                reclaims: vec![make_sent_tx(999)],
+                normal_confirmations: vec![NormalTxConfirmation {
+                    tx: make_sent_tx(777),
+                }],
+                reclaims: vec![TxReclaim {
+                    reclaimed: make_sent_tx(999),
+                }],
             },
             DetectedConfirmations {
-                normal_confirmations: vec![make_sent_tx(777)],
+                normal_confirmations: vec![NormalTxConfirmation {
+                    tx: make_sent_tx(777),
+                }],
                 reclaims: vec![],
             },
             DetectedConfirmations {
                 normal_confirmations: vec![],
-                reclaims: vec![make_sent_tx(999)],
+                reclaims: vec![TxReclaim {
+                    reclaimed: make_sent_tx(999),
+                }],
             },
         ];
 

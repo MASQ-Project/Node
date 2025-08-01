@@ -5,7 +5,7 @@
 use crate::accountant::db_access_objects::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::accountant::db_access_objects::failed_payable_dao::{FailedPayableDao, FailedPayableDaoError, FailedPayableDaoFactory, FailedTx, FailureReason, FailureRetrieveCondition, FailureStatus, ValidationStatus};
 use crate::accountant::db_access_objects::payable_dao::{MarkPendingPayableID, PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory};
-use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDao, SentPayableDaoFactory, TxConfirmation, TxStatus};
+use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDao, SentPayableDaoFactory, TxStatus};
 use crate::accountant::db_access_objects::receivable_dao::{
     ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,
 };
@@ -976,8 +976,8 @@ pub struct SentPayableDaoMock {
     insert_new_records_results: RefCell<Vec<Result<(), SentPayableDaoError>>>,
     retrieve_txs_params: Arc<Mutex<Vec<Option<RetrieveCondition>>>>,
     retrieve_txs_results: RefCell<Vec<Vec<SentTx>>>,
-    confirm_tx_params: Arc<Mutex<Vec<HashMap<TxHash, TxConfirmation>>>>,
-    confitm_tx_results: RefCell<Vec<Result<(), SentPayableDaoError>>>,
+    confirm_tx_params: Arc<Mutex<Vec<HashMap<TxHash, TransactionBlock>>>>,
+    confirm_tx_results: RefCell<Vec<Result<(), SentPayableDaoError>>>,
     replace_records_params: Arc<Mutex<Vec<Vec<SentTx>>>>,
     replace_records_results: RefCell<Vec<Result<(), SentPayableDaoError>>>,
     delete_records_params: Arc<Mutex<Vec<HashSet<TxHash>>>>,
@@ -1005,13 +1005,13 @@ impl SentPayableDao for SentPayableDaoMock {
     }
     fn confirm_tx(
         &self,
-        hash_map: &HashMap<TxHash, TxConfirmation>,
+        hash_map: &HashMap<TxHash, TransactionBlock>,
     ) -> Result<(), SentPayableDaoError> {
         self.confirm_tx_params
             .lock()
             .unwrap()
             .push(hash_map.clone());
-        self.confitm_tx_results.borrow_mut().remove(0)
+        self.confirm_tx_results.borrow_mut().remove(0)
     }
     fn replace_records(&self, new_txs: &[SentTx]) -> Result<(), SentPayableDaoError> {
         self.replace_records_params
@@ -1070,14 +1070,14 @@ impl SentPayableDaoMock {
 
     pub fn confirm_tx_params(
         mut self,
-        params: &Arc<Mutex<Vec<HashMap<TxHash, TxConfirmation>>>>,
+        params: &Arc<Mutex<Vec<HashMap<TxHash, TransactionBlock>>>>,
     ) -> Self {
         self.confirm_tx_params = params.clone();
         self
     }
 
     pub fn confirm_tx_result(self, result: Result<(), SentPayableDaoError>) -> Self {
-        self.confitm_tx_results.borrow_mut().push(result);
+        self.confirm_tx_results.borrow_mut().push(result);
         self
     }
 

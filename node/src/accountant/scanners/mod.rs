@@ -45,7 +45,7 @@ use time::OffsetDateTime;
 use variant_count::VariantCount;
 use web3::types::H256;
 use crate::accountant::db_access_objects::failed_payable_dao::{FailedPayableDao, FailedTx, FailureRetrieveCondition, FailureStatus};
-use crate::accountant::db_access_objects::sent_payable_dao::{RetrieveCondition, SentPayableDao, SentPayableDaoError, SentTx, TxConfirmation, TxStatus};
+use crate::accountant::db_access_objects::sent_payable_dao::{RetrieveCondition, SentPayableDao, SentPayableDaoError, SentTx, TxStatus};
 use crate::accountant::db_access_objects::utils::{TxHash, TxIdentifiers};
 use crate::accountant::scanners::payable_scanner_extension::{MultistageDualPayableScanner, PreparedAdjustment, SolvencySensitivePaymentInstructor};
 use crate::accountant::scanners::payable_scanner_extension::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage, UnpricedQualifiedPayables};
@@ -1223,7 +1223,7 @@ mod tests {
         let retrieve_txs_params = retrieve_txs_params_arc.lock().unwrap();
         assert_eq!(
             *retrieve_txs_params,
-            vec![Some(FailureRetrieveCondition::RecheckRequiredRecords)]
+            vec![Some(FailureRetrieveCondition::EveryRecheckRequiredRecord)]
         );
         assert_eq!(
             receivable_scanner.common.payment_thresholds.as_ref(),
@@ -1303,7 +1303,7 @@ mod tests {
         let retrieve_txs_params = retrieve_txs_params_arc.lock().unwrap();
         assert_eq!(
             *retrieve_txs_params,
-            vec![Some(FailureRetrieveCondition::RecheckRequiredRecords)]
+            vec![Some(FailureRetrieveCondition::EveryRecheckRequiredRecord)]
         );
         let mut expected_failures = FailuresRequiringDoubleCheck::default();
         expected_failures
@@ -2329,7 +2329,7 @@ mod tests {
     //     let retrieve_failed_txs_params = retrieve_failed_txs_params_arc.lock().unwrap();
     //     assert_eq!(
     //         *retrieve_failed_txs_params,
-    //         vec![Some(FailureRetrieveCondition::RecheckRequiredRecords)]
+    //         vec![Some(FailureRetrieveCondition::EveryRecheckRequiredRecord)]
     //     );
     //     let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
     //     let received_msg = blockchain_bridge_recording.get_record::<RequestTransactionReceipts>(0);
@@ -2396,7 +2396,7 @@ mod tests {
     //     let retrieve_failed_txs_params = retrieve_failed_txs_params_arc.lock().unwrap();
     //     assert_eq!(
     //         *retrieve_failed_txs_params,
-    //         vec![Some(FailureRetrieveCondition::RecheckRequiredRecords)]
+    //         vec![Some(FailureRetrieveCondition::EveryRecheckRequiredRecord)]
     //     );
     //     let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
     //     let received_msg = blockchain_bridge_recording.get_record::<RequestTransactionReceipts>(0);

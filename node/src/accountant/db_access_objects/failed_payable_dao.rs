@@ -13,6 +13,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use web3::types::Address;
+use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::RecheckRequired;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionBlock;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -93,18 +94,26 @@ pub struct FailedTx {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum FailureRetrieveCondition {
+    ByTxHash(Vec<TxHash>),
     ByStatus(FailureStatus),
-    RecheckRequiredRecords,
+    EveryRecheckRequiredRecord,
 }
 
 impl Display for FailureRetrieveCondition {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            FailureRetrieveCondition::ByStatus(status) => {
-                write!(f, "WHERE status LIKE '{:?}%'", status)
+            FailureRetrieveCondition::ByTxHash(hashes) => {
+                write!(
+                    f,
+                    "WHERE tx_hash IN ({})",
+                    comma_joined_stringifiable(hashes, |hash| format!("'{:?}'", hash))
+                )
             }
-            FailureRetrieveCondition::RecheckRequiredRecords => {
-                todo!()
+            FailureRetrieveCondition::ByStatus(status) => {
+                write!(f, "WHERE status = '{}'", status)
+            }
+            FailureRetrieveCondition::EveryRecheckRequiredRecord => {
+                write!(f, "WHERE status LIKE 'RecheckRequired%'")
             }
         }
     }
@@ -586,6 +595,29 @@ mod tests {
         assert_eq!(result.get(&present_hash), Some(&1u64));
         assert_eq!(result.get(&absent_hash), None);
         assert_eq!(result.get(&another_present_hash), Some(&2u64));
+    }
+
+    #[test]
+    fn display_for_failure_retrieve_condition_works() {
+        let tx_hash_1 = make_tx_hash(123);
+        let tx_hash_2 = make_tx_hash(456);
+        assert_eq!(FailureRetrieveCondition::ByTxHash(vec![tx_hash_1, tx_hash_2]).to_string(),
+                   "WHERE tx_hash IN ('0x000000000000000000000000000000000000000000000000000000000000007b', \
+                   '0x00000000000000000000000000000000000000000000000000000000000001c8')"
+        );
+        assert_eq!(
+            FailureRetrieveCondition::ByStatus(RetryRequired).to_string(),
+            "WHERE status = '\"RetryRequired\"'"
+        );
+        assert_eq!(
+            FailureRetrieveCondition::ByStatus(RecheckRequired(ValidationStatus::Waiting))
+                .to_string(),
+            "WHERE status = '{\"RecheckRequired\":\"Waiting\"}'"
+        );
+        assert_eq!(
+            FailureRetrieveCondition::EveryRecheckRequiredRecord.to_string(),
+            "WHERE status LIKE 'RecheckRequired%'"
+        );
     }
 
     #[test]

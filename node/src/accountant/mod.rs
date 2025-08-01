@@ -1289,7 +1289,7 @@ mod tests {
     use std::vec;
     use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureRetrieveCondition, ValidationStatus};
     use crate::accountant::scanners::payable_scanner_extension::msgs::UnpricedQualifiedPayables;
-    use crate::accountant::db_access_objects::sent_payable_dao::{Detection, RetrieveCondition, SentPayableDaoError, SentTx, TxConfirmation, TxStatus};
+    use crate::accountant::db_access_objects::sent_payable_dao::{Detection, RetrieveCondition, SentPayableDaoError, SentTx, TxStatus};
     use crate::accountant::scanners::pending_payable_scanner::utils::{Retry, TxByTable, TxHashByTable};
     use crate::accountant::scanners::scan_schedulers::{NewPayableScanDynIntervalComputer, NewPayableScanDynIntervalComputerReal};
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{OperationOutcome, PayableScanResult};
@@ -4068,7 +4068,6 @@ mod tests {
     fn scan_for_pending_payables_finds_various_payables() {
         init_test_logging();
         let test_name = "scan_for_pending_payables_finds_various_payables";
-        let now = SystemTime::now();
         let start_scan_params_arc = Arc::new(Mutex::new(vec![]));
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let blockchain_bridge_addr = blockchain_bridge
@@ -4086,12 +4085,14 @@ mod tests {
             response_skeleton_opt: None,
         };
         let pending_payable_scanner = ScannerMock::new()
+            .scan_started_at_result(None)
             .start_scan_params(&start_scan_params_arc)
             .start_scan_result(Ok(expected_composed_msg_for_blockchain_bridge.clone()));
         let consuming_wallet = make_wallet("consuming");
         let system = System::new("pending payable scan");
         let mut subject = AccountantBuilder::default()
             .consuming_wallet(consuming_wallet.clone())
+            .logger(Logger::new(test_name))
             .build();
         subject
             .scanners

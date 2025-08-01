@@ -7,7 +7,7 @@ use crate::accountant::db_access_objects::failed_payable_dao::{
 };
 use crate::accountant::db_access_objects::payable_dao::{PayableDao, PayableDaoError};
 use crate::accountant::db_access_objects::sent_payable_dao::{
-    RetrieveCondition, SentPayableDao, SentPayableDaoError, SentTx, TxConfirmation,
+    RetrieveCondition, SentPayableDao, SentPayableDaoError, SentTx,
 };
 use crate::accountant::db_access_objects::utils::TxHash;
 use crate::accountant::scanners::pending_payable_scanner::utils::{handle_status_with_failure, CurrentPendingPayables, DetectedConfirmations, DetectedFailures, FailuresRequiringDoubleCheck, PendingPayableScanResult, PresortedTxFailure, ReceiptScanReport, Retry, TxCaseToBeInterpreted, FailedValidationByTable, TxReclaim, NormalTxConfirmation};
@@ -30,6 +30,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::SystemTime;
 use thousands::Separable;
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionBlock;
 
 pub struct PendingPayableScanner {
     pub common: ScannerCommon,
@@ -70,7 +71,7 @@ impl StartableScanner<ScanForPendingPayables, RequestTransactionReceipts>
 
         let unproven_failures = self
             .failed_payable_dao
-            .retrieve_txs(Some(FailureRetrieveCondition::RecheckRequiredRecords));
+            .retrieve_txs(Some(FailureRetrieveCondition::EveryRecheckRequiredRecord));
 
         // TODO 1) check non-empty collections
         // 2) fill in the respective caches
@@ -131,7 +132,7 @@ impl PendingPayableScanner {
     ) -> Self {
         // let yet_unproven_failures = FailuresRequiringDoubleCheck::new(
         //     failed_payable_dao.retrieve_txs(Some(FailureRetrieveCondition::ByStatus(
-        //         todo!(), //FailureRetrieveCondition::RecheckRequiredRecords
+        //         todo!(), //FailureRetrieveCondition::EveryRecheckRequiredRecord
         //     ))),
         // );
 
@@ -146,7 +147,7 @@ impl PendingPayableScanner {
         }
     }
 
-    fn emptiness_check(&self, msg: &TxReceiptsMessage){
+    fn emptiness_check(&self, msg: &TxReceiptsMessage) {
         if msg.results.is_empty() {
             unreachable!("We should never receive an empty list of results. Even missing receipts can be interpreted")
         }
@@ -159,11 +160,7 @@ impl PendingPayableScanner {
     ) -> ReceiptScanReport {
         self.emptiness_check(&msg);
 
-        debug!(
-            logger,
-            "Processing receipts for {} txs",
-            msg.results.len()
-        );
+        debug!(logger, "Processing receipts for {} txs", msg.results.len());
 
         let interpretable_data = self.prepare_cases_to_interpret(msg);
         self.compose_receipt_scan_report(interpretable_data, logger)
@@ -228,24 +225,27 @@ impl PendingPayableScanner {
     ) {
         self.handle_tx_failure_reclaims(confirmed_txs.reclaims, logger);
         self.handle_normal_confirmations(confirmed_txs.normal_confirmations, logger);
-
     }
 
-    fn handle_tx_failure_reclaims(&self, reclaimed: Vec<TxReclaim>, logger: &Logger){
-        if reclaimed.is_empty() {
-
-        }
+    fn handle_tx_failure_reclaims(&self, reclaimed: Vec<TxReclaim>, logger: &Logger) {
+        if reclaimed.is_empty() {todo!()}
         todo!()
     }
 
-    fn handle_normal_confirmations(&self, confirmed_txs: Vec<NormalTxConfirmation>, logger: &Logger){
+    fn handle_normal_confirmations(
+        &self,
+        confirmed_txs: Vec<NormalTxConfirmation>,
+        logger: &Logger,
+    ) {
         if confirmed_txs.is_empty() {
             todo!()
         }
         todo!()
     }
 
-    fn compose_tx_confirmation_inputs(confirmed_txs: &[SentTx]) -> HashMap<TxHash, TxConfirmation> {
+    fn compose_tx_confirmation_inputs(
+        confirmed_txs: &[SentTx],
+    ) -> HashMap<TxHash, TransactionBlock> {
         todo!()
     }
 
@@ -263,7 +263,7 @@ impl PendingPayableScanner {
     }
 
     fn update_tx_blocks_panic(
-        tx_hashes_and_tx_blocks: &HashMap<TxHash, TxConfirmation>,
+        tx_hashes_and_tx_blocks: &HashMap<TxHash, TransactionBlock>,
         e: SentPayableDaoError,
     ) -> ! {
         panic!(
@@ -276,16 +276,16 @@ impl PendingPayableScanner {
         )
     }
 
-    fn log_tx_success(logger: &Logger, tx_hashes_and_tx_blocks: &HashMap<TxHash, TxConfirmation>) {
+    fn log_tx_success(
+        logger: &Logger,
+        tx_hashes_and_tx_blocks: &HashMap<TxHash, TransactionBlock>,
+    ) {
         logger.info(|| {
             let pretty_pairs = tx_hashes_and_tx_blocks
                 .iter()
                 .sorted()
                 .map(|(hash, tx_confirmation)| {
-                    format!(
-                        "{:?} (block {})",
-                        hash, tx_confirmation.block_info.block_number
-                    )
+                    format!("{:?} (block {})", hash, tx_confirmation.block_number)
                 })
                 .join(", ");
             match tx_hashes_and_tx_blocks.len() {
@@ -345,11 +345,7 @@ impl PendingPayableScanner {
         todo!()
     }
 
-    fn finalize_unproven_failures(
-        &self,
-        rechecks_completed: Vec<TxHash>,
-        logger: &Logger,
-    ) {
+    fn finalize_unproven_failures(&self, rechecks_completed: Vec<TxHash>, logger: &Logger) {
         todo!()
     }
 
@@ -357,7 +353,10 @@ impl PendingPayableScanner {
         todo!()
     }
 
-    fn compose_scan_result(retry_opt: Option<Retry>, response_skeleton_opt: Option<ResponseSkeleton>) -> PendingPayableScanResult {
+    fn compose_scan_result(
+        retry_opt: Option<Retry>,
+        response_skeleton_opt: Option<ResponseSkeleton>,
+    ) -> PendingPayableScanResult {
         if let Some(retry) = retry_opt {
             PendingPayableScanResult::PaymentRetryRequired(retry)
         } else {
@@ -376,15 +375,16 @@ mod tests {
     use std::time::{Duration, SystemTime};
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use crate::accountant::db_access_objects::failed_payable_dao::{FailedPayableDaoError, FailedTx, FailureReason};
+    use crate::accountant::db_access_objects::failed_payable_dao::{FailedPayableDaoError, FailedTx, FailureReason, FailureRetrieveCondition, FailureStatus, ValidationStatus};
     use crate::accountant::db_access_objects::payable_dao::PayableDaoError;
-    use crate::accountant::db_access_objects::sent_payable_dao::{Detection, SentPayableDaoError, TxConfirmation, TxStatus};
+    use crate::accountant::db_access_objects::sent_payable_dao::{Detection, RetrieveCondition, SentPayableDaoError, TxStatus};
     use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp};
     use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
-    use crate::accountant::scanners::pending_payable_scanner::utils::{handle_status_with_failure, DetectedConfirmations, DetectedFailures, PendingPayableCache, PresortedTxFailure, ReceiptScanReport, TxByTable, TxHashByTable};
+    use crate::accountant::scanners::pending_payable_scanner::utils::{handle_status_with_failure, DetectedConfirmations, DetectedFailures, FailedValidation, FailedValidationByTable, NormalTxConfirmation, PendingPayableCache, PresortedTxFailure, ReceiptScanReport, TxByTable, TxHashByTable, TxReclaim};
     use crate::accountant::test_utils::{make_failed_tx, make_sent_tx, make_transaction_block, FailedPayableDaoMock, PayableDaoMock, PendingPayableScannerBuilder, SentPayableDaoMock};
-    use crate::accountant::TxReceiptsMessage;
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{BlockchainTxFailure, RetrievedTxStatus, StatusReadFromReceiptCheck, TransactionBlock, TxReceiptResult};
+    use crate::accountant::{ResponseSkeleton, TxReceiptsMessage};
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{BlockchainTxFailure, RetrievedTxStatus, StatusReadFromReceiptCheck, TransactionBlock, TxReceiptError, TxReceiptResult};
+    use crate::blockchain::errors::{AppRpcError, LocalError, RemoteError};
     use crate::blockchain::test_utils::{make_block_hash, make_tx_hash};
     use crate::test_utils::unshared_test_utils::capture_numbers_with_separators_from_str;
 
@@ -501,51 +501,64 @@ mod tests {
     }
 
     #[test]
-    fn interprets_right_failing_in_the_attempt_to_retrieve_the_tx_receipt() {
-        todo!(
-            "this test should be doubled and written for one case when the tx is still \
-        a SentTx and another where it is already FailedTX"
-        )
-        // init_test_logging();
-        // let test_name = "interprets_right_failing_in_the_attempt_to_retrieve_the_tx_receipt";
-        // let subject = PendingPayableScannerBuilder::new().build();
-        // let hash = make_tx_hash(0x913);
-        // let sent_tx_timestamp = to_unix_timestamp(
-        //     SystemTime::now()
-        //         .checked_sub(Duration::from_secs(120))
-        //         .unwrap(),
-        // );
-        // let mut sent_tx = make_sent_tx(456);
-        // sent_tx.hash = hash;
-        // sent_tx.timestamp = sent_tx_timestamp;
-        // let rpc_error = AppRpcError::Remote(RemoteError::InvalidResponse("bluh".to_string()));
-        // let msg = TxReceiptsMessage {
-        //     results: vec![TxReceiptResult::Err(TxReceiptError::new(
-        //         sent_tx.clone(),
-        //         rpc_error.clone(),
-        //     ))],
-        //     response_skeleton_opt: None,
-        // };
-        //
-        // let result = subject.interpret_tx_receipts(msg, &Logger::new(test_name));
-        //
-        // assert_eq!(
-        //     result,
-        //     ReceiptScanReport {
-        //         failures: DetectedFailures {
-        //             tx_failures: vec![],
-        //             tx_receipt_rpc_failures: vec![V]
-        //         },
-        //         confirmations: vec![]
-        //     }
-        // );
-        // let log_handler = TestLogHandler::new();
-        // let log_idx = log_handler.exists_log_containing(&format!(
-        //     "WARN: {test_name}: Failed to retrieve tx receipt for \
-        //     0x0000000000000000000000000000000000000000000000000000000000000913: \
-        //     Remote(InvalidResponse(\"bluh\")). \
-        //     Will retry receipt retrieval next cycle"
-        // ));
+    fn interprets_a_failing_attempt_to_retrieve_a_tx_receipt() {
+        init_test_logging();
+        let test_name = "interprets_a_failing_attempt_to_retrieve_a_tx_receipt";
+        let mut subject = PendingPayableScannerBuilder::new().build();
+        let tx_hash_1 = make_tx_hash(0x913);
+        let tx_hash_2 = make_tx_hash(0x914);
+        let sent_tx_timestamp = to_unix_timestamp(
+            SystemTime::now()
+                .checked_sub(Duration::from_secs(120))
+                .unwrap(),
+        );
+        let mut sent_tx = make_sent_tx(456);
+        sent_tx.hash = tx_hash_1;
+        sent_tx.timestamp = sent_tx_timestamp;
+        let rpc_error_1 = AppRpcError::Remote(RemoteError::InvalidResponse("bluh".to_string()));
+        let rpc_error_2 = AppRpcError::Local(LocalError::Internal);
+        let msg = TxReceiptsMessage {
+            results: vec![
+                TxReceiptResult::Err(TxReceiptError::new(
+                    TxHashByTable::SentPayable(tx_hash_1),
+                    rpc_error_1.clone(),
+                )),
+                TxReceiptResult::Err(TxReceiptError::new(
+                    TxHashByTable::FailedPayable(tx_hash_2),
+                    rpc_error_2.clone(),
+                )),
+            ],
+            response_skeleton_opt: None,
+        };
+
+        let result = subject.interpret_tx_receipts(msg, &Logger::new(test_name));
+
+        assert_eq!(
+            result,
+            ReceiptScanReport {
+                failures: DetectedFailures {
+                    tx_failures: vec![],
+                    tx_receipt_rpc_failures: vec![
+                        FailedValidationByTable::SentPayable(FailedValidation {
+                            tx_hash: tx_hash_1,
+                            failure: rpc_error_1
+                        }),
+                        FailedValidationByTable::FailedPayable(FailedValidation {
+                            tx_hash: tx_hash_2,
+                            failure: rpc_error_2
+                        })
+                    ]
+                },
+                confirmations: DetectedConfirmations::default()
+            }
+        );
+        let log_handler = TestLogHandler::new();
+        let log_idx = log_handler.exists_log_containing(&format!(
+            "WARN: {test_name}: Failed to retrieve tx receipt for \
+            0x0000000000000000000000000000000000000000000000000000000000000913: \
+            Remote(InvalidResponse(\"bluh\")). \
+            Will retry receipt retrieval next cycle"
+        ));
     }
 
     #[test]
@@ -570,74 +583,173 @@ mod tests {
         failed_tx_2.hash = hash_2;
         let detected_failures = DetectedFailures {
             tx_failures: vec![
-                PresortedTxFailure::NewEntry(failed_tx_1),
-                PresortedTxFailure::NewEntry(failed_tx_2),
+                PresortedTxFailure::NewEntry(failed_tx_1.clone()),
+                PresortedTxFailure::NewEntry(failed_tx_2.clone()),
             ],
             tx_receipt_rpc_failures: vec![],
         };
 
         subject.handle_failed_transactions(detected_failures, &Logger::new("test"));
 
+        let insert_new_records_params = insert_new_records_params_arc.lock().unwrap();
+        assert_eq!(
+            *insert_new_records_params,
+            vec![vec![failed_tx_1, failed_tx_2]]
+        );
         let delete_records_params = delete_records_params_arc.lock().unwrap();
         assert_eq!(*delete_records_params, vec![hashset![hash_1, hash_2]]);
     }
 
     #[test]
     fn handle_failed_transactions_can_process_receipt_retrieval_rpc_failures() {
-        todo!("write me up")
-        // let insert_new_records_params_arc = Arc::new(Mutex::new(vec![]));
-        // let delete_records_params_arc = Arc::new(Mutex::new(vec![]));
-        // let failed_payable_dao = FailedPayableDaoMock::default()
-        //     .insert_new_records_params(&insert_new_records_params_arc)
-        //     .insert_new_records_result(Ok(()));
-        // let sent_payable_dao = SentPayableDaoMock::default()
-        //     .delete_records_params(&delete_records_params_arc)
-        //     .delete_records_result(Ok(()));
-        // let subject = PendingPayableScannerBuilder::new()
-        //     .sent_payable_dao(sent_payable_dao)
-        //     .failed_payable_dao(failed_payable_dao)
-        //     .build();
-        // let hash_1 = make_tx_hash(0x321);
-        // let hash_2 = make_tx_hash(0x654);
-        // let mut failed_tx_1 = make_failed_tx(123);
-        // failed_tx_1.hash = hash_1;
-        // let mut failed_tx_2 = make_failed_tx(456);
-        // failed_tx_2.hash = hash_2;
-        // let detected_failures = DetectedFailures { tx_failures: vec![failed_tx_1,failed_tx_2], tx_receipt_rpc_failures: vec![] };
-        //
-        // subject.handle_failed_transactions(detected_failures, &Logger::new("test"));
-        //
-        // let delete_records_params = delete_records_params_arc.lock().unwrap();
-        // assert_eq!(*delete_records_params, vec![hashset![hash_1, hash_2]]);
+        let retrieve_failed_txs_params_arc = Arc::new(Mutex::new(vec![]));
+        let update_status_params_arc = Arc::new(Mutex::new(vec![]));
+        let retrieve_sent_txs_params_arc = Arc::new(Mutex::new(vec![]));
+        let replace_records_params_arc = Arc::new(Mutex::new(vec![]));
+        let hash_1 = make_tx_hash(0x321);
+        let hash_2 = make_tx_hash(0x654);
+        let mut failed_tx_1 = make_failed_tx(123);
+        failed_tx_1.hash = hash_1;
+        failed_tx_1.status = FailureStatus::RecheckRequired(ValidationStatus::Waiting);
+        let mut failed_tx_2 = make_failed_tx(456);
+        failed_tx_2.hash = hash_2;
+        failed_tx_2.status = FailureStatus::RecheckRequired(ValidationStatus::Reattempting {
+            attempt: 1,
+            error: AppRpcError::Local(LocalError::Internal),
+        });
+        let failed_payable_dao = FailedPayableDaoMock::default()
+            .retrieve_txs_params(&retrieve_failed_txs_params_arc)
+            .retrieve_txs_result(vec![failed_tx_1, failed_tx_2])
+            .update_statuses_params(&update_status_params_arc)
+            .update_statuses_result(Ok(()));
+        let hash_3 = make_tx_hash(0x987);
+        let mut sent_tx = make_sent_tx(789);
+        sent_tx.hash = hash_3;
+        sent_tx.status = TxStatus::Pending(ValidationStatus::Waiting);
+        let sent_payable_dao = SentPayableDaoMock::default()
+            .retrieve_txs_params(&retrieve_sent_txs_params_arc)
+            .retrieve_txs_result(vec![sent_tx.clone()])
+            .replace_records_params(&replace_records_params_arc)
+            .replace_records_result(Ok(()));
+        let subject = PendingPayableScannerBuilder::new()
+            .sent_payable_dao(sent_payable_dao)
+            .failed_payable_dao(failed_payable_dao)
+            .build();
+        let detected_failures = DetectedFailures {
+            tx_failures: vec![],
+            tx_receipt_rpc_failures: vec![
+                FailedValidationByTable::FailedPayable(FailedValidation {
+                    tx_hash: hash_1,
+                    failure: AppRpcError::Remote(RemoteError::Unreachable),
+                }),
+                FailedValidationByTable::FailedPayable(FailedValidation {
+                    tx_hash: hash_2,
+                    failure: AppRpcError::Local(LocalError::Internal),
+                }),
+                FailedValidationByTable::SentPayable(FailedValidation {
+                    tx_hash: hash_1,
+                    failure: AppRpcError::Remote(RemoteError::InvalidResponse("Booga".to_string())),
+                }),
+            ],
+        };
+
+        subject.handle_failed_transactions(detected_failures, &Logger::new("test"));
+
+        let retrieve_failed_txs_params = retrieve_failed_txs_params_arc.lock().unwrap();
+        assert_eq!(
+            *retrieve_failed_txs_params,
+            vec![Some(FailureRetrieveCondition::ByTxHash(vec![
+                hash_1, hash_2
+            ]))]
+        );
+        let update_status_params = update_status_params_arc.lock().unwrap();
+        assert_eq!(
+            *update_status_params,
+            vec![
+                hashmap!(
+                    hash_1 => FailureStatus::RecheckRequired(
+                        ValidationStatus::Reattempting {
+                            attempt: 1,
+                            error: AppRpcError::Remote(RemoteError::Unreachable)
+                        }
+                    ),
+                    hash_2 => FailureStatus::RecheckRequired(
+                        ValidationStatus::Reattempting {
+                            attempt: 2,
+                            error: AppRpcError::Local(LocalError::Internal)
+                        }
+                    )
+                )
+            ]
+        );
+        let retrieve_sent_txs_params = retrieve_sent_txs_params_arc.lock().unwrap();
+        assert_eq!(
+            *retrieve_sent_txs_params,
+            vec![Some(RetrieveCondition::ByHash(vec![hash_3]))]
+        );
+        let replace_records_params = replace_records_params_arc.lock().unwrap();
+        let mut expected_updated_record = sent_tx;
+        expected_updated_record.status = TxStatus::Pending(ValidationStatus::Reattempting {
+            attempt: 1,
+            error: AppRpcError::Remote(RemoteError::InvalidResponse("Booga".to_string())),
+        });
+        assert_eq!(*replace_records_params, vec![vec![expected_updated_record]]);
     }
 
     #[test]
     fn handle_failed_transactions_can_process_mixed_failures() {
-        todo!("write me up")
-        // let insert_new_records_params_arc = Arc::new(Mutex::new(vec![]));
-        // let delete_records_params_arc = Arc::new(Mutex::new(vec![]));
-        // let failed_payable_dao = FailedPayableDaoMock::default()
-        //     .insert_new_records_params(&insert_new_records_params_arc)
-        //     .insert_new_records_result(Ok(()));
-        // let sent_payable_dao = SentPayableDaoMock::default()
-        //     .delete_records_params(&delete_records_params_arc)
-        //     .delete_records_result(Ok(()));
-        // let subject = PendingPayableScannerBuilder::new()
-        //     .sent_payable_dao(sent_payable_dao)
-        //     .failed_payable_dao(failed_payable_dao)
-        //     .build();
-        // let hash_1 = make_tx_hash(0x321);
-        // let hash_2 = make_tx_hash(0x654);
-        // let mut failed_tx_1 = make_failed_tx(123);
-        // failed_tx_1.hash = hash_1;
-        // let mut failed_tx_2 = make_failed_tx(456);
-        // failed_tx_2.hash = hash_2;
-        // let detected_failures = DetectedFailures { tx_failures: vec![failed_tx_1,failed_tx_2], tx_receipt_rpc_failures: vec![] };
-        //
-        // subject.handle_failed_transactions(detected_failures, &Logger::new("test"));
-        //
-        // let delete_records_params = delete_records_params_arc.lock().unwrap();
-        // assert_eq!(*delete_records_params, vec![hashset![hash_1, hash_2]]);
+        let insert_new_records_params_arc = Arc::new(Mutex::new(vec![]));
+        let delete_records_params_arc = Arc::new(Mutex::new(vec![]));
+        let retrieve_failed_txs_params_arc = Arc::new(Mutex::new(vec![]));
+        let update_status_params_arc = Arc::new(Mutex::new(vec![]));
+        let hash_1 = make_tx_hash(0x321);
+        let hash_2 = make_tx_hash(0x654);
+        let mut failed_tx_1 = make_failed_tx(123);
+        failed_tx_1.hash = hash_1;
+        let mut failed_tx_2 = make_failed_tx(456);
+        failed_tx_2.hash = hash_2;
+        let failed_payable_dao = FailedPayableDaoMock::default()
+            .retrieve_txs_params(&retrieve_failed_txs_params_arc)
+            .retrieve_txs_result(vec![failed_tx_1.clone()])
+            .update_statuses_params(&update_status_params_arc)
+            .update_statuses_result(Ok(()))
+            .insert_new_records_params(&insert_new_records_params_arc)
+            .insert_new_records_result(Ok(()));
+        let sent_payable_dao = SentPayableDaoMock::default()
+            .delete_records_params(&delete_records_params_arc)
+            .delete_records_result(Ok(()));
+        let subject = PendingPayableScannerBuilder::new()
+            .sent_payable_dao(sent_payable_dao)
+            .failed_payable_dao(failed_payable_dao)
+            .build();
+        let detected_failures = DetectedFailures {
+            tx_failures: vec![PresortedTxFailure::NewEntry(failed_tx_1)],
+            tx_receipt_rpc_failures: vec![FailedValidationByTable::SentPayable(FailedValidation {
+                tx_hash: hash_1,
+                failure: AppRpcError::Local(LocalError::Internal),
+            })],
+        };
+
+        subject.handle_failed_transactions(detected_failures, &Logger::new("test"));
+
+        let retrieve_failed_txs_params = retrieve_failed_txs_params_arc.lock().unwrap();
+        assert_eq!(
+            *retrieve_failed_txs_params,
+            vec![Some(FailureRetrieveCondition::ByTxHash(vec![
+                hash_1, hash_2
+            ]))]
+        );
+        let update_status_params = update_status_params_arc.lock().unwrap();
+        assert_eq!(
+            *update_status_params,
+            vec![
+                hashmap!(hash_1 => FailureStatus::RecheckRequired(ValidationStatus::Reattempting {attempt: 1,error: AppRpcError::Local(LocalError::Internal)}))
+            ]
+        );
+        let insert_new_records_params = insert_new_records_params_arc.lock().unwrap();
+        assert_eq!(*insert_new_records_params, vec![vec![failed_tx_2]]);
+        let delete_records_params = delete_records_params_arc.lock().unwrap();
+        assert_eq!(*delete_records_params, vec![hashset![hash_2]]);
     }
 
     #[test]
@@ -698,7 +810,7 @@ mod tests {
     }
 
     #[test]
-    fn handle_failed_transactions_does_nothing_if_no_tx_failures_detected() {
+    fn handle_failed_transactions_does_nothing_if_no_failure_detected() {
         let subject = PendingPayableScannerBuilder::new().build();
         let detected_failures = DetectedFailures {
             tx_failures: vec![],
@@ -747,7 +859,10 @@ mod tests {
 
         subject.handle_confirmed_transactions(
             DetectedConfirmations {
-                normal_confirmations: vec![sent_tx_1, sent_tx_2],
+                normal_confirmations: vec![
+                    NormalTxConfirmation { tx: sent_tx_1 },
+                    NormalTxConfirmation { tx: sent_tx_2 },
+                ],
                 reclaims: vec![],
             },
             &Logger::new("test"),
@@ -755,7 +870,7 @@ mod tests {
     }
 
     #[test]
-    fn handle_confirmed_transactions_does_nothing_if_none_found_on_the_blockchain() {
+    fn handle_confirmed_transactions_does_nothing_if_no_confirmation_found_on_the_blockchain() {
         let mut subject = PendingPayableScannerBuilder::new().build();
 
         subject
@@ -770,16 +885,24 @@ mod tests {
         let test_name = "handle_confirmed_transactions_works";
         let transactions_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
         let confirm_tx_params_arc = Arc::new(Mutex::new(vec![]));
+        let replace_records_params_arc = Arc::new(Mutex::new(vec![]));
+        let delete_records_params_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao = PayableDaoMock::default()
             .transactions_confirmed_params(&transactions_confirmed_params_arc)
             .transactions_confirmed_result(Ok(()));
         let sent_payable_dao = SentPayableDaoMock::default()
             .confirm_tx_params(&confirm_tx_params_arc)
-            .confirm_tx_result(Ok(()));
+            .confirm_tx_result(Ok(()))
+            .replace_records_params(&replace_records_params_arc)
+            .replace_records_result(Ok(()));
+        let failed_payable_dao = FailedPayableDaoMock::default()
+            .delete_records_params(&delete_records_params_arc)
+            .delete_records_result(Ok(()));
         let logger = Logger::new(test_name);
         let mut subject = PendingPayableScannerBuilder::new()
             .payable_dao(payable_dao)
             .sent_payable_dao(sent_payable_dao)
+            .failed_payable_dao(failed_payable_dao)
             .build();
         let tx_hash_1 = make_tx_hash(0x123);
         let tx_hash_2 = make_tx_hash(0x567);
@@ -820,8 +943,17 @@ mod tests {
 
         subject.handle_confirmed_transactions(
             DetectedConfirmations {
-                normal_confirmations: vec![sent_tx_1.clone(), sent_tx_2.clone()],
-                reclaims: vec![sent_tx_3.clone()],
+                normal_confirmations: vec![
+                    NormalTxConfirmation {
+                        tx: sent_tx_1.clone(),
+                    },
+                    NormalTxConfirmation {
+                        tx: sent_tx_2.clone(),
+                    },
+                ],
+                reclaims: vec![TxReclaim {
+                    reclaimed: sent_tx_3.clone(),
+                }],
             },
             &logger,
         );
@@ -829,22 +961,23 @@ mod tests {
         let transactions_confirmed_params = transactions_confirmed_params_arc.lock().unwrap();
         assert_eq!(
             *transactions_confirmed_params,
-            vec![vec![sent_tx_1, sent_tx_2]]
+            vec![vec![sent_tx_1, sent_tx_2, sent_tx_3.clone()]]
         );
         let confirm_tx_params = confirm_tx_params_arc.lock().unwrap();
         assert_eq!(
             *confirm_tx_params,
-            vec![
-                hashmap![tx_hash_1 => TxConfirmation { block_info: tx_block_1, detection: Detection::Normal }, tx_hash_2 => TxConfirmation { block_info: tx_block_2, detection: Detection::Reclaim }]
-            ]
+            vec![hashmap![tx_hash_1 => tx_block_1, tx_hash_2 => tx_block_2]]
         );
+        let replace_records_params = replace_records_params_arc.lock().unwrap();
+        assert_eq!(*replace_records_params, vec![vec![sent_tx_3]]);
+        let delete_records_params = delete_records_params_arc.lock().unwrap();
+        assert_eq!(*delete_records_params, vec![hashset![tx_hash_3]]);
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!(
             "INFO: {test_name}: Txs 0x0000000000000000000000000000000000000000000000000000000000000123 \
             (block 4578989878), 0x0000000000000000000000000000000000000000000000000000000000000567 \
-            (block 7898989878) have been confirmed",
+            (block 7898989878), txxxxbluh (block bluh) have been confirmed",
         ));
-        todo!("take care of the....reclaimmm")
     }
 
     #[test]
@@ -867,7 +1000,7 @@ mod tests {
 
         subject.handle_confirmed_transactions(
             DetectedConfirmations {
-                normal_confirmations: vec![sent_tx],
+                normal_confirmations: vec![NormalTxConfirmation { tx: sent_tx }],
                 reclaims: vec![],
             },
             &Logger::new("test"),
@@ -888,13 +1021,7 @@ mod tests {
         tx_block_1.block_number = 1_234_501_u64.into();
         let mut tx_block_2 = make_transaction_block(789);
         tx_block_2.block_number = 1_234_502_u64.into();
-        let mut tx_hashes_and_blocks = hashmap!(tx_hash_1 => TxConfirmation {
-            block_info: tx_block_1,
-            detection: Detection::Normal,
-        }, tx_hash_2 => TxConfirmation{
-            block_info: tx_block_2,
-            detection: Detection::Reclaim,
-        });
+        let mut tx_hashes_and_blocks = hashmap!(tx_hash_1 => tx_block_1, tx_hash_2 => tx_block_2);
 
         PendingPayableScanner::log_tx_success(&logger_plural, &tx_hashes_and_blocks);
 
@@ -916,43 +1043,56 @@ mod tests {
 
     #[test]
     fn total_paid_payable_rises_with_each_bill_paid() {
-        todo!("maybe write different tests for normal conf and reclaims")
-        // init_test_logging();
-        // let test_name = "total_paid_payable_rises_with_each_bill_paid";
-        // let mut sent_tx_1 = make_sent_tx(456);
-        // sent_tx_1.amount_minor = 5478;
-        // sent_tx_1.status = TxStatus::Confirmed {
-        //     block_hash: format!("{:?}", make_block_hash(123)),
-        //     block_number: 89898,
-        //     detection: Detection::Normal,
-        // };
-        // let mut sent_tx_2 = make_sent_tx(789);
-        // sent_tx_2.amount_minor = 6543;
-        // sent_tx_2.status = TxStatus::Confirmed {
-        //     block_hash: format!("{:?}", make_block_hash(321)),
-        //     block_number: 67676,
-        //     detection: Detection::Reclaim,
-        // };
-        // let payable_dao = PayableDaoMock::default().transactions_confirmed_result(Ok(()));
-        // let sent_payable_dao = SentPayableDaoMock::default().confirm_tx_result(Ok(()));
-        // let mut subject = PendingPayableScannerBuilder::new()
-        //     .payable_dao(payable_dao)
-        //     .sent_payable_dao(sent_payable_dao)
-        //     .build();
-        // let mut financial_statistics = subject.financial_statistics.borrow().clone();
-        // financial_statistics.total_paid_payable_wei += 1111;
-        // subject.financial_statistics.replace(financial_statistics);
-        //
-        // subject.handle_confirmed_transactions(
-        //     DetectedConfirmations{normal_confirmations: vec![sent_tx_1, sent_tx_2],
-        //     reclaims
-        //     &Logger::new(test_name),
-        // );
-        //
-        // let total_paid_payable = subject.financial_statistics.borrow().total_paid_payable_wei;
-        // assert_eq!(total_paid_payable, 1111 + 5478 + 6543);
-        // TestLogHandler::new().exists_log_containing(&format!(
-        //     "DEBUG: {test_name}: The total paid payables increased by 12,021 to 13,132 wei"
-        // ));
+        init_test_logging();
+        let test_name = "total_paid_payable_rises_with_each_bill_paid";
+        let mut sent_tx_1 = make_sent_tx(456);
+        sent_tx_1.amount_minor = 5478;
+        sent_tx_1.status = TxStatus::Confirmed {
+            block_hash: format!("{:?}", make_block_hash(123)),
+            block_number: 89898,
+            detection: Detection::Normal,
+        };
+        let mut sent_tx_2 = make_sent_tx(789);
+        sent_tx_2.amount_minor = 3344;
+        sent_tx_2.status = TxStatus::Confirmed {
+            block_hash: format!("{:?}", make_block_hash(234)),
+            block_number: 66312,
+            detection: Detection::Normal,
+        };
+        let mut sent_tx_3 = make_sent_tx(789);
+        sent_tx_3.amount_minor = 6543;
+        sent_tx_3.status = TxStatus::Confirmed {
+            block_hash: format!("{:?}", make_block_hash(321)),
+            block_number: 67676,
+            detection: Detection::Reclaim,
+        };
+        let payable_dao = PayableDaoMock::default().transactions_confirmed_result(Ok(()));
+        let sent_payable_dao = SentPayableDaoMock::default().confirm_tx_result(Ok(()));
+        let mut subject = PendingPayableScannerBuilder::new()
+            .payable_dao(payable_dao)
+            .sent_payable_dao(sent_payable_dao)
+            .build();
+        let mut financial_statistics = subject.financial_statistics.borrow().clone();
+        financial_statistics.total_paid_payable_wei += 1111;
+        subject.financial_statistics.replace(financial_statistics);
+
+        subject.handle_confirmed_transactions(
+            DetectedConfirmations {
+                normal_confirmations: vec![
+                    NormalTxConfirmation { tx: sent_tx_1 },
+                    NormalTxConfirmation { tx: sent_tx_2 },
+                ],
+                reclaims: vec![TxReclaim {
+                    reclaimed: sent_tx_3,
+                }],
+            },
+            &Logger::new(test_name),
+        );
+
+        let total_paid_payable = subject.financial_statistics.borrow().total_paid_payable_wei;
+        assert_eq!(total_paid_payable, 1111 + 5478 + 3344 + 6543);
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: The total paid payables increased by blouuh to bluuuuuh wei"
+        ));
     }
 }

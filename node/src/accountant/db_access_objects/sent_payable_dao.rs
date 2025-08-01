@@ -70,32 +70,13 @@ pub enum Detection {
     Reclaim,
 }
 
-impl From<&TxConfirmation> for TxStatus {
-    fn from(tx_confirmation: &TxConfirmation) -> Self {
+impl From<TransactionBlock> for TxStatus {
+    fn from(tx_block: TransactionBlock) -> Self {
         TxStatus::Confirmed {
-            block_hash: format!("{:?}", tx_confirmation.block_info.block_hash),
-            block_number: u64::try_from(tx_confirmation.block_info.block_number)
-                .expect("block number too big"),
-            detection: tx_confirmation.detection,
+            block_hash: format!("{:?}", tx_block.block_hash),
+            block_number: u64::try_from(tx_block.block_number).expect("block number too big"),
+            detection: Detection::Normal,
         }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TxConfirmation {
-    pub block_info: TransactionBlock,
-    pub detection: Detection,
-}
-
-impl PartialOrd for TxConfirmation {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        todo!()
-    }
-}
-
-impl Ord for TxConfirmation {
-    fn cmp(&self, other: &Self) -> Ordering {
-        todo!()
     }
 }
 
@@ -297,10 +278,10 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
             return Err(SentPayableDaoError::EmptyInput);
         }
 
-        for (hash, tx_confirmation) in hash_map {
+        for (hash, tx_block) in hash_map {
             let sql = format!(
                 "UPDATE sent_payable SET status = '{}' WHERE tx_hash = '{:?}'",
-                TxStatus::from(tx_confirmation),
+                TxStatus::from(*tx_block),
                 hash
             );
 
@@ -452,7 +433,7 @@ mod tests {
     use std::collections::{HashMap, HashSet};
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-    use crate::accountant::db_access_objects::sent_payable_dao::{Detection, RetrieveCondition, SentPayableDao, SentPayableDaoError, SentPayableDaoReal, TxConfirmation, TxStatus};
+    use crate::accountant::db_access_objects::sent_payable_dao::{Detection, RetrieveCondition, SentPayableDao, SentPayableDaoError, SentPayableDaoReal, TxStatus};
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal,
     };
@@ -765,23 +746,17 @@ mod tests {
         let updated_pre_assert_txs = subject.retrieve_txs(Some(ByHash(vec![tx1.hash, tx2.hash])));
         let pre_assert_status_tx1 = updated_pre_assert_txs[0].status.clone();
         let pre_assert_status_tx2 = updated_pre_assert_txs[1].status.clone();
-        let tx_confirmation_1 = TxConfirmation {
-            block_info: TransactionBlock {
-                block_hash: make_block_hash(3),
-                block_number: U64::from(1),
-            },
-            detection: Detection::Normal,
+        let confirmed_tx_block_1 = TransactionBlock {
+            block_hash: make_block_hash(3),
+            block_number: U64::from(1),
         };
-        let tx_confirmation_2 = TxConfirmation {
-            block_info: TransactionBlock {
-                block_hash: make_block_hash(4),
-                block_number: U64::from(2),
-            },
-            detection: Detection::Reclaim,
+        let confirmed_tx_block_2 = TransactionBlock {
+            block_hash: make_block_hash(4),
+            block_number: U64::from(2),
         };
         let hash_map = HashMap::from([
-            (tx1.hash, tx_confirmation_1.clone()),
-            (tx2.hash, tx_confirmation_2.clone()),
+            (tx1.hash, confirmed_tx_block_1.clone()),
+            (tx2.hash, confirmed_tx_block_2.clone()),
         ]);
 
         let result = subject.confirm_tx(&hash_map);
@@ -795,9 +770,9 @@ mod tests {
         assert_eq!(
             updated_txs[0].status,
             TxStatus::Confirmed {
-                block_hash: format!("{:?}", tx_confirmation_1.block_info.block_hash),
-                block_number: tx_confirmation_1.block_info.block_number.as_u64(),
-                detection: tx_confirmation_1.detection
+                block_hash: format!("{:?}", confirmed_tx_block_1.block_hash),
+                block_number: confirmed_tx_block_1.block_number.as_u64(),
+                detection: Detection::Normal
             }
         );
         assert_eq!(
@@ -807,9 +782,9 @@ mod tests {
         assert_eq!(
             updated_txs[1].status,
             TxStatus::Confirmed {
-                block_hash: format!("{:?}", tx_confirmation_2.block_info.block_hash),
-                block_number: tx_confirmation_2.block_info.block_number.as_u64(),
-                detection: tx_confirmation_2.detection
+                block_hash: format!("{:?}", confirmed_tx_block_2.block_hash),
+                block_number: confirmed_tx_block_2.block_number.as_u64(),
+                detection: Detection::Normal
             }
         );
     }
@@ -851,22 +826,16 @@ mod tests {
         let hash_map = HashMap::from([
             (
                 existent_hash,
-                TxConfirmation {
-                    block_info: TransactionBlock {
-                        block_hash: make_block_hash(1),
-                        block_number: U64::from(1),
-                    },
-                    detection: Detection::Normal,
+                TransactionBlock {
+                    block_hash: make_block_hash(1),
+                    block_number: U64::from(1),
                 },
             ),
             (
                 non_existent_hash,
-                TxConfirmation {
-                    block_info: TransactionBlock {
-                        block_hash: make_block_hash(2),
-                        block_number: U64::from(2),
-                    },
-                    detection: Detection::Normal,
+                TransactionBlock {
+                    block_hash: make_block_hash(2),
+                    block_number: U64::from(2),
                 },
             ),
         ]);
@@ -893,12 +862,9 @@ mod tests {
         let hash = make_tx_hash(1);
         let hash_map = HashMap::from([(
             hash,
-            TxConfirmation {
-                block_info: TransactionBlock {
-                    block_hash: make_block_hash(1),
-                    block_number: U64::default(),
-                },
-                detection: Detection::Normal,
+            TransactionBlock {
+                block_hash: make_block_hash(1),
+                block_number: U64::default(),
             },
         )]);
 
@@ -1238,21 +1204,18 @@ mod tests {
     }
 
     #[test]
-    fn tx_status_can_be_converted_from_tx_confirmation() {
-        let tx_confirmation = TxConfirmation {
-            block_info: TransactionBlock {
-                block_hash: make_block_hash(6),
-                block_number: 456789_u64.into(),
-            },
-            detection: Detection::Normal,
+    fn tx_status_can_be_made_from_transaction_block() {
+        let tx_block = TransactionBlock {
+            block_hash: make_block_hash(6),
+            block_number: 456789_u64.into(),
         };
 
         assert_eq!(
-            TxStatus::from(&tx_confirmation),
+            TxStatus::from(tx_block),
             TxStatus::Confirmed {
-                block_hash: format!("{:?}", tx_confirmation.block_info.block_hash),
-                block_number: u64::try_from(tx_confirmation.block_info.block_number).unwrap(),
-                detection: tx_confirmation.detection,
+                block_hash: format!("{:?}", tx_block.block_hash),
+                block_number: u64::try_from(tx_block.block_number).unwrap(),
+                detection: Detection::Normal,
             }
         )
     }

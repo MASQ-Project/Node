@@ -128,7 +128,7 @@ impl TxReceiptError {
     }
 }
 
-#[derive(Debug, Default, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Default, PartialEq, Eq, Clone, Copy, Ord, PartialOrd, Serialize, Deserialize)]
 pub struct TransactionBlock {
     pub block_hash: H256,
     pub block_number: U64,
