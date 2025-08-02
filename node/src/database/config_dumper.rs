@@ -227,6 +227,7 @@ mod tests {
 
     #[test]
     fn dump_config_does_not_migrate_obsolete_database() {
+        let _ = EnvironmentGuard::new();
         let data_dir = ensure_node_home_directory_exists(
             "config_dumper",
             "dump_config_does_not_migrate_obsolete_database",
@@ -375,6 +376,7 @@ mod tests {
 
     #[test]
     fn dump_config_dumps_existing_database_without_password_and_data_dir_specified() {
+        let _ = EnvironmentGuard::new();
         let home_dir = ensure_node_home_directory_exists(
             "config_dumper",
             "dump_config_dumps_existing_database_without_password_and_data_dir_specified",
@@ -392,6 +394,7 @@ mod tests {
 
     #[test]
     fn dump_config_dumps_existing_database_without_password_and_default_data_dir() {
+        let _ = EnvironmentGuard::new();
         let home_dir = ensure_node_home_directory_exists(
             "config_dumper",
             "dump_config_dumps_existing_database_without_password_and_default_data_dir",
@@ -415,6 +418,7 @@ mod tests {
 
     #[test]
     fn dump_config_dumps_existing_database_with_correct_password() {
+        let _ = EnvironmentGuard::new();
         let _clap_guard = ClapGuard::new();
         let data_dir = ensure_node_home_directory_exists(
             "config_dumper",
@@ -519,6 +523,7 @@ mod tests {
 
     #[test]
     fn dump_config_dumps_existing_database_with_incorrect_password() {
+        let _ = EnvironmentGuard::new();
         let _clap_guard = ClapGuard::new();
         let data_dir = ensure_node_home_directory_exists(
             "config_dumper",

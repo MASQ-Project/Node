@@ -300,6 +300,15 @@ pub fn privileged_parse_args(
         None => vec![SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)), 53)],
     };
 
+    privileged_config.new_public_key_opt = match value_m!(multi_config, "new-public-key", String) {
+        Some(value) => match value.as_str() {
+            "on" => Some(true),
+            "off" => Some(false),
+            _ => panic!("Bad clap validation for new-public-key: {}", value),
+        },
+        None => None,
+    };
+
     privileged_config.log_level =
         value_m!(multi_config, "log-level", LevelFilter).unwrap_or(LevelFilter::Warn);
 
@@ -845,6 +854,7 @@ mod tests {
                 "--consuming-private-key",
                 "ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01",
             )
+            .param("--new-public-key", "on")
             .param("--real-user", "999:999:/home/booga")
             .param("--chain", "polygon-amoy");
         let mut config = BootstrapperConfig::new();
@@ -878,10 +888,27 @@ mod tests {
             None,
         );
         assert_eq!(config.data_directory, home_dir);
+        assert_eq!(config.new_public_key_opt, Some(true));
         assert_eq!(
             config.real_user,
             RealUser::new(Some(999), Some(999), Some(PathBuf::from("/home/booga")))
         );
+    }
+
+    #[test]
+    fn privileged_parse_args_works_with_on_off_parameters() {
+        let _guard = EnvironmentGuard::new();
+        running_test();
+        let args = ArgsBuilder::new()
+            .param("--new-public-key", "on");
+        let mut config = BootstrapperConfig::new();
+        let vcls: Vec<Box<dyn VirtualCommandLine>> =
+            vec![Box::new(CommandLineVcl::new(args.into()))];
+        let multi_config = make_new_multi_config(&app_node(), vcls).unwrap();
+
+        privileged_parse_args(&DirsWrapperReal::default(), &multi_config, &mut config).unwrap();
+
+        assert_eq!(config.new_public_key_opt, Some(true));
     }
 
     #[test]
@@ -903,6 +930,7 @@ mod tests {
         );
         assert_eq!(config.crash_point, CrashPoint::None);
         assert_eq!(config.ui_gateway_config.ui_port, DEFAULT_UI_PORT);
+        assert_eq!(config.new_public_key_opt, None);
         assert_eq!(
             config.real_user,
             RealUser::new(None, None, None).populate(&DirsWrapperReal::default())
@@ -958,6 +986,7 @@ mod tests {
         );
         assert_eq!(config.crash_point, CrashPoint::None);
         assert_eq!(config.ui_gateway_config.ui_port, DEFAULT_UI_PORT);
+        assert_eq!(config.new_public_key_opt, None);
         assert_eq!(
             config.real_user,
             RealUser::new(None, None, None).populate(&DirsWrapperReal::default())
@@ -1017,6 +1046,9 @@ mod tests {
             config_file.write_all(b"min-hops = \"6\"\n").unwrap();
             config_file
                 .write_all(b"neighborhood-mode = \"zero-hop\"\n")
+                .unwrap();
+            config_file
+                .write_all(b"new-public-key = \"off\"\n")
                 .unwrap();
             config_file
                 .write_all(b"payment-thresholds = \"3333|55|33|646|999|999\"\n")
