@@ -59,47 +59,34 @@ impl SignableTxTemplates {
     }
 
     fn from_priced_retry_tx_templates(
-        priced_retry_tx_templates: PricedRetryTxTemplates,
+        mut priced_retry_tx_templates: PricedRetryTxTemplates,
         latest_nonce: u64,
     ) -> Self {
-        let mut hashmap = priced_retry_tx_templates
+        // TODO: This algorithm could be made more robust by including un-realistic permutations of tx nonces
+
+        let new_order = {
+            priced_retry_tx_templates.sort_by_key(|template| template.prev_nonce);
+
+            let split_index = priced_retry_tx_templates
+                .iter()
+                .position(|template| template.prev_nonce == latest_nonce)
+                .unwrap_or(0);
+
+            let (left, right) = priced_retry_tx_templates.split_at(split_index);
+
+            [right, left].concat()
+        };
+
+        new_order
             .iter()
-            .map(|template| (template.prev_nonce, template))
-            .collect::<HashMap<u64, &PricedRetryTxTemplate>>();
-
-        let final_nonce = latest_nonce + hashmap.len() as u64 - 1;
-
-        let mut signable_tx_templates = Vec::with_capacity(hashmap.len());
-
-        for nonce in latest_nonce..=final_nonce {
-            match hashmap.remove(&nonce) {
-                None => {
-                    let min_nonce = hashmap
-                        .keys()
-                        .min()
-                        .cloned()
-                        .expect("No minimum nonce found"); // GH-605: Test me
-                    let found = hashmap.remove(&min_nonce).expect("Entry not found"); // GH-605: Test me
-
-                    signable_tx_templates.push(SignableTxTemplate {
-                        receiver_address: found.base.receiver_address,
-                        amount_in_wei: found.base.amount_in_wei,
-                        gas_price_wei: found.computed_gas_price_wei,
-                        nonce,
-                    })
-                }
-                Some(template) => {
-                    signable_tx_templates.push(SignableTxTemplate {
-                        receiver_address: template.base.receiver_address,
-                        amount_in_wei: template.base.amount_in_wei,
-                        gas_price_wei: template.computed_gas_price_wei,
-                        nonce,
-                    });
-                }
-            }
-        }
-
-        SignableTxTemplates(signable_tx_templates)
+            .enumerate()
+            .map(|(i, template)| SignableTxTemplate {
+                receiver_address: template.base.receiver_address,
+                amount_in_wei: template.base.amount_in_wei,
+                gas_price_wei: template.computed_gas_price_wei,
+                nonce: latest_nonce + i as u64,
+            })
+            .collect()
     }
 
     pub fn first_nonce(&self) -> u64 {

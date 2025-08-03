@@ -2,7 +2,7 @@ use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_temp
     RetryTxTemplate, RetryTxTemplates,
 };
 use crate::accountant::scanners::payable_scanner::data_structures::BaseTxTemplate;
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PricedRetryTxTemplate {
@@ -29,6 +29,12 @@ impl Deref for PricedRetryTxTemplates {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl DerefMut for PricedRetryTxTemplates {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 
