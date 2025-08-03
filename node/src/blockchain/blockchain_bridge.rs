@@ -283,7 +283,13 @@ impl BlockchainBridge {
     }
 
     fn payment_procedure_result_from_error(e: LocalPayableError) -> Result<BatchResults, String> {
-        todo!()
+        match e {
+            LocalPayableError::Sending(failed_txs) => Ok(BatchResults {
+                sent_txs: vec![],
+                failed_txs,
+            }),
+            _ => Err(e.to_string()),
+        }
     }
 
     fn handle_outbound_payments_instructions(

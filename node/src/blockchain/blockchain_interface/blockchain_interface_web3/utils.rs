@@ -303,7 +303,6 @@ pub fn send_payables_within_batch(
     consuming_wallet: Wallet,
     new_fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
 ) -> Box<dyn Future<Item = BatchResults, Error = LocalPayableError> + 'static> {
-    // TODO: GH-605: We should be returning the new structure here which holds Tx and FailedTx
     debug!(
             logger,
             "Common attributes of payables to be transacted: sender wallet: {}, contract: {:?}, chain_id: {}",
