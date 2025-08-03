@@ -1,8 +1,12 @@
 use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::{
     PricedNewTxTemplate, PricedNewTxTemplates,
 };
-use crate::accountant::scanners::payable_scanner::data_structures::priced_retry_tx_template::PricedRetryTxTemplates;
-use itertools::Either;
+use crate::accountant::scanners::payable_scanner::data_structures::priced_retry_tx_template::{
+    PricedRetryTxTemplate, PricedRetryTxTemplates,
+};
+use bytes::Buf;
+use itertools::{Either, Itertools};
+use std::collections::HashMap;
 use std::ops::Deref;
 use web3::types::Address;
 
@@ -58,7 +62,44 @@ impl SignableTxTemplates {
         priced_retry_tx_templates: PricedRetryTxTemplates,
         latest_nonce: u64,
     ) -> Self {
-        todo!()
+        let mut hashmap = priced_retry_tx_templates
+            .iter()
+            .map(|template| (template.prev_nonce, template))
+            .collect::<HashMap<u64, &PricedRetryTxTemplate>>();
+
+        let final_nonce = latest_nonce + hashmap.len() as u64 - 1;
+
+        let mut signable_tx_templates = Vec::with_capacity(hashmap.len());
+
+        for nonce in latest_nonce..=final_nonce {
+            match hashmap.remove(&nonce) {
+                None => {
+                    let min_nonce = hashmap
+                        .keys()
+                        .min()
+                        .cloned()
+                        .expect("No minimum nonce found"); // GH-605: Test me
+                    let found = hashmap.remove(&min_nonce).expect("Entry not found"); // GH-605: Test me
+
+                    signable_tx_templates.push(SignableTxTemplate {
+                        receiver_address: found.base.receiver_address,
+                        amount_in_wei: found.base.amount_in_wei,
+                        gas_price_wei: found.computed_gas_price_wei,
+                        nonce,
+                    })
+                }
+                Some(template) => {
+                    signable_tx_templates.push(SignableTxTemplate {
+                        receiver_address: template.base.receiver_address,
+                        amount_in_wei: template.base.amount_in_wei,
+                        gas_price_wei: template.computed_gas_price_wei,
+                        nonce,
+                    });
+                }
+            }
+        }
+
+        SignableTxTemplates(signable_tx_templates)
     }
 
     pub fn first_nonce(&self) -> u64 {
@@ -133,17 +174,18 @@ mod tests {
     #[test]
     fn signable_tx_templates_can_be_created_from_priced_retry_tx_templates() {
         let nonce = 10;
+        // n is same as prev_nonce here
         let retries = PricedRetryTxTemplates(vec![
-            make_priced_retry_tx_template(6), // n is same as prev_nonce here
-            make_priced_retry_tx_template(8),
-            make_priced_retry_tx_template(10),
-            make_priced_retry_tx_template(11),
             make_priced_retry_tx_template(12),
+            make_priced_retry_tx_template(6),
+            make_priced_retry_tx_template(10),
+            make_priced_retry_tx_template(8),
+            make_priced_retry_tx_template(11),
         ]);
 
         let result = SignableTxTemplates::new(Either::Right(retries.clone()), nonce);
 
-        let expected_order = vec![2, 3, 4, 0, 1];
+        let expected_order = vec![2, 4, 0, 1, 3];
         result
             .iter()
             .enumerate()
