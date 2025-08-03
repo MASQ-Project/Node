@@ -55,14 +55,15 @@ fn error_with_hashes(
     error: Web3Error,
     hashes_and_paid_amounts: Vec<HashAndAmount>,
 ) -> LocalPayableError {
-    let hashes = hashes_and_paid_amounts
-        .into_iter()
-        .map(|hash_and_amount| hash_and_amount.hash)
-        .collect();
-    LocalPayableError::Sending {
-        msg: error.to_string(),
-        hashes,
-    }
+    todo!("Should generate Sending error differently");
+    // let hashes = hashes_and_paid_amounts
+    //     .into_iter()
+    //     .map(|hash_and_amount| hash_and_amount.hash)
+    //     .collect();
+    // LocalPayableError::Sending {
+    //     msg: error.to_string(),
+    //     hashes,
+    // }
 }
 
 pub fn merged_output_data(
@@ -813,20 +814,21 @@ mod tests {
         let os_code = transport_error_code();
         let os_msg = transport_error_message();
         let port = find_free_port();
-        let expected_result = Err(Sending {
-            msg: format!("Transport error: Error(Connect, Os {{ code: {}, kind: ConnectionRefused, message: {:?} }})", os_code, os_msg).to_string(),
-            hashes: vec![
-                H256::from_str("ec7ac48060b75889f949f5e8d301b386198218e60e2635c95cb6b0934a0887ea").unwrap(),
-                H256::from_str("c2d5059db0ec2fbf15f83d9157eeb0d793d6242de5e73a607935fb5660e7e925").unwrap()
-            ],
-        });
-
-        test_send_payables_within_batch(
-            "send_payables_within_batch_fails_on_submit_batch_call",
-            signable_tx_templates,
-            expected_result,
-            port,
-        );
+        todo!("SendingError");
+        // let expected_result = Err(Sending {
+        //     msg: format!("Transport error: Error(Connect, Os {{ code: {}, kind: ConnectionRefused, message: {:?} }})", os_code, os_msg).to_string(),
+        //     hashes: vec![
+        //         H256::from_str("ec7ac48060b75889f949f5e8d301b386198218e60e2635c95cb6b0934a0887ea").unwrap(),
+        //         H256::from_str("c2d5059db0ec2fbf15f83d9157eeb0d793d6242de5e73a607935fb5660e7e925").unwrap()
+        //     ],
+        // });
+        //
+        // test_send_payables_within_batch(
+        //     "send_payables_within_batch_fails_on_submit_batch_call",
+        //     signable_tx_templates,
+        //     expected_result,
+        //     port,
+        // );
     }
 
     #[test]

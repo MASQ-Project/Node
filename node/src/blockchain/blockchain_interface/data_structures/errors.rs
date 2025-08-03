@@ -1,6 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::comma_joined_stringifiable;
+use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
+use crate::accountant::{comma_joined_stringifiable, join_with_separator};
 use itertools::Either;
 use std::fmt;
 use std::fmt::{Display, Formatter};
@@ -41,7 +42,7 @@ pub enum LocalPayableError {
     TransactionID(BlockchainError),
     UnusableWallet(String),
     Signing(String),
-    Sending { msg: String, hashes: Vec<H256> },
+    Sending(Vec<FailedTx>),
     UninitializedBlockchainInterface,
 }
 
@@ -63,11 +64,10 @@ impl Display for LocalPayableError {
                 msg
             ),
             Self::Signing(msg) => write!(f, "Signing phase: \"{}\"", msg),
-            Self::Sending { msg, hashes } => write!(
+            Self::Sending(failed_txs) => write!(
                 f,
-                "Sending phase: \"{}\". Signed and hashed transactions: {}",
-                msg,
-                comma_joined_stringifiable(hashes, |hash| format!("{:?}", hash))
+                "Sending error. Signed and hashed transactions:\n{}",
+                join_with_separator(failed_txs, |failed_tx| format!("{:?}", failed_tx), "\n")
             ),
             Self::UninitializedBlockchainInterface => {
                 write!(f, "{}", BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED)
@@ -178,10 +178,7 @@ mod tests {
             LocalPayableError::Signing(
                 "You cannot sign with just three crosses here, clever boy".to_string(),
             ),
-            LocalPayableError::Sending {
-                msg: "Sending to cosmos belongs elsewhere".to_string(),
-                hashes: vec![make_tx_hash(0x6f), make_tx_hash(0xde)],
-            },
+            LocalPayableError::Sending(vec![]),
             LocalPayableError::UninitializedBlockchainInterface,
         ];
 

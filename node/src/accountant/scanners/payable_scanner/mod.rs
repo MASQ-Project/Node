@@ -360,20 +360,11 @@ impl PayableScanner {
         // }
     }
 
-    fn handle_local_error(
-        &self,
-        local_err: LocalPayableError,
-        logger: &Logger,
-    ) -> OperationOutcome {
-        if let LocalPayableError::Sending { hashes, .. } = local_err {
-            let failures = Self::map_hashes_to_local_failures(hashes);
-            self.record_failed_txs_in_db(&failures, logger);
-        } else {
-            debug!(
-                logger,
-                "Local error occurred before transaction signing. Error: {}", local_err
-            );
-        }
+    fn handle_local_error(&self, local_err: String, logger: &Logger) -> OperationOutcome {
+        debug!(
+            logger,
+            "Local error occurred before transaction signing. Error: {}", local_err
+        );
 
         OperationOutcome::Failure
     }
@@ -882,58 +873,6 @@ mod tests {
     }
 
     #[test]
-    fn handle_local_error_handles_sending_error() {
-        init_test_logging();
-        let test_name = "handle_local_error_handles_sending_error";
-        let insert_new_records_params_arc = Arc::new(Mutex::new(vec![]));
-        let delete_records_params_arc = Arc::new(Mutex::new(vec![]));
-        let logger = Logger::new(test_name);
-        let hash1 = make_tx_hash(1);
-        let hash2 = make_tx_hash(2);
-        let hashes = vec![hash1, hash2];
-        let local_err = LocalPayableError::Sending {
-            msg: "Test sending error".to_string(),
-            hashes: hashes.clone(),
-        };
-        let failed_payable_dao = FailedPayableDaoMock::default()
-            .insert_new_records_params(&insert_new_records_params_arc)
-            .insert_new_records_result(Ok(()));
-        let sent_payable_dao = SentPayableDaoMock::default()
-            .delete_records_params(&delete_records_params_arc)
-            .delete_records_result(Ok(()))
-            .retrieve_txs_result(vec![
-                TxBuilder::default().hash(hash1).build(),
-                TxBuilder::default().hash(hash2).build(),
-            ]);
-        let subject = PayableScannerBuilder::new()
-            .failed_payable_dao(failed_payable_dao)
-            .sent_payable_dao(sent_payable_dao)
-            .build();
-
-        subject.handle_local_error(local_err, &logger);
-
-        let insert_new_records_params = insert_new_records_params_arc.lock().unwrap();
-        let inserted_records = &insert_new_records_params[0];
-        let delete_records_params = delete_records_params_arc.lock().unwrap();
-        let deleted_hashes = &delete_records_params[0];
-        assert_eq!(inserted_records.len(), 2);
-        assert!(inserted_records.iter().any(|tx| tx.hash == hash1));
-        assert!(inserted_records.iter().any(|tx| tx.hash == hash2));
-        assert!(inserted_records
-            .iter()
-            .all(|tx| tx.reason == FailureReason::Submission(Local(Internal))));
-        assert!(inserted_records
-            .iter()
-            .all(|tx| tx.status == FailureStatus::RetryRequired));
-        assert_eq!(deleted_hashes.len(), 2);
-        assert!(deleted_hashes.contains(&hash1));
-        assert!(deleted_hashes.contains(&hash2));
-        TestLogHandler::new().exists_log_containing(&format!(
-            "DEBUG: {test_name}: Recording 2 failed transactions in database"
-        ));
-    }
-
-    #[test]
     fn handle_local_error_logs_non_sending_errors() {
         init_test_logging();
         let test_name = "handle_local_error_logs_non_sending_errors";
@@ -941,7 +880,7 @@ mod tests {
         let local_err = LocalPayableError::Signing("Test signing error".to_string());
         let subject = PayableScannerBuilder::new().build();
 
-        subject.handle_local_error(local_err, &logger);
+        subject.handle_local_error(local_err.to_string(), &logger);
 
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {}: Local error occurred before transaction signing. Error: Signing phase: \"Test signing error\"",

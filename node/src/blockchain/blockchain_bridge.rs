@@ -1159,16 +1159,17 @@ mod tests {
     }
 
     fn assert_sending_error(error: &LocalPayableError, error_msg: &str) {
-        if let LocalPayableError::Sending { msg, .. } = error {
-            assert!(
-                msg.contains(error_msg),
-                "Actual Error message: {} does not contain this fragment {}",
-                msg,
-                error_msg
-            );
-        } else {
-            panic!("Received wrong error: {:?}", error);
-        }
+        todo!("SendingError")
+        // if let LocalPayableError::Sending { msg, .. } = error {
+        //     assert!(
+        //         msg.contains(error_msg),
+        //         "Actual Error message: {} does not contain this fragment {}",
+        //         msg,
+        //         error_msg
+        //     );
+        // } else {
+        //     panic!("Received wrong error: {:?}", error);
+        // }
     }
 
     #[test]
