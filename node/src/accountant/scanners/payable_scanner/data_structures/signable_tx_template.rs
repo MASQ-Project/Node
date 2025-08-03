@@ -42,11 +42,8 @@ impl SignableTxTemplates {
         }
     }
 
-    fn from_new_txs(
-        priced_new_tx_templates: PricedNewTxTemplates,
-        latest_nonce: u64,
-    ) -> Self {
-        priced_new_tx_templates
+    fn from_new_txs(templates: PricedNewTxTemplates, latest_nonce: u64) -> Self {
+        templates
             .iter()
             .enumerate()
             .map(|(i, template)| SignableTxTemplate {
@@ -58,11 +55,8 @@ impl SignableTxTemplates {
             .collect()
     }
 
-    fn from_retry_txs(
-        priced_retry_tx_templates: PricedRetryTxTemplates,
-        latest_nonce: u64,
-    ) -> Self {
-        priced_retry_tx_templates
+    fn from_retry_txs(templates: PricedRetryTxTemplates, latest_nonce: u64) -> Self {
+        templates
             .reorder_by_nonces(latest_nonce)
             .iter()
             .enumerate()
