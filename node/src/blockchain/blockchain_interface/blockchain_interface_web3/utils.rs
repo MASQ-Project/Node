@@ -3,11 +3,9 @@
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
 use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::PricedNewTxTemplates;
-use crate::accountant::scanners::payable_scanner::data_structures::priced_retry_tx_template::PricedRetryTxTemplates;
 use crate::accountant::scanners::payable_scanner::data_structures::signable_tx_template::{
     SignableTxTemplate, SignableTxTemplates,
 };
-use crate::accountant::scanners::payable_scanner_extension::msgs::PricedQualifiedPayables;
 use crate::accountant::wei_to_gwei;
 use crate::blockchain::blockchain_agent::agent_web3::BlockchainAgentWeb3;
 use crate::blockchain::blockchain_agent::BlockchainAgent;
@@ -95,10 +93,6 @@ pub fn merged_output_data(
         .collect()
 }
 
-fn format_address(address: &Address) -> String {
-    format!("{:?}", address)
-}
-
 pub fn transmission_log(chain: Chain, signable_tx_templates: &SignableTxTemplates) -> String {
     let chain_name = chain.rec().literal_identifier;
     let (first_nonce, last_nonce) = signable_tx_templates.nonce_range();
@@ -136,7 +130,7 @@ pub fn transmission_log(chain: Chain, signable_tx_templates: &SignableTxTemplate
     let body = signable_tx_templates.iter().map(|signable_tx_template| {
         format!(
             "{:wallet_address_length$}   {:<payment_column_width$}   {}\n",
-            format_address(&signable_tx_template.receiver_address),
+            format!("{:?}", signable_tx_template.receiver_address),
             signable_tx_template.amount_in_wei.separate_with_commas(),
             signable_tx_template.gas_price_wei.separate_with_commas(),
             wallet_address_length = WALLET_ADDRESS_LENGTH,
@@ -166,7 +160,7 @@ pub fn sign_transaction(
     chain: Chain,
     web3_batch: &Web3<Batch<Http>>,
     signable_tx_template: &SignableTxTemplate,
-    consuming_wallet: Wallet,
+    consuming_wallet: &Wallet,
     logger: &Logger,
 ) -> SignedTransaction {
     let &SignableTxTemplate {
@@ -202,6 +196,7 @@ pub fn sign_transaction(
         data: Bytes(data.to_vec()),
         chain_id: Some(chain.rec().num_chain_id),
     };
+
     let key = consuming_wallet
         .prepare_secp256k1_secret()
         .expect("Consuming wallet doesn't contain a secret key");
@@ -233,14 +228,14 @@ pub fn sign_and_append_payment(
     chain: Chain,
     web3_batch: &Web3<Batch<Http>>,
     signable_tx_template: &SignableTxTemplate,
-    consuming_wallet: Wallet,
+    consuming_wallet: &Wallet,
     logger: &Logger,
 ) -> HashAndAmount {
     let signed_tx = sign_transaction(
         chain,
         web3_batch,
         signable_tx_template,
-        consuming_wallet.clone(), // TODO: GH-605: Eliminate this clone
+        consuming_wallet,
         logger,
     );
 
@@ -272,7 +267,7 @@ pub fn sign_and_append_multiple_payments(
                 chain,
                 web3_batch,
                 signable_tx_template,
-                consuming_wallet.clone(),
+                &consuming_wallet,
                 logger,
             )
         })
@@ -451,7 +446,7 @@ mod tests {
             chain,
             &web3_batch,
             &signable_tx_template,
-            consuming_wallet,
+            &consuming_wallet,
             &Logger::new("test"),
         );
 
@@ -929,7 +924,7 @@ mod tests {
             Chain::PolyAmoy,
             &Web3::new(Batch::new(transport)),
             &signable_tx_template,
-            consuming_wallet,
+            &consuming_wallet,
             &Logger::new("test"),
         );
     }
@@ -972,7 +967,7 @@ mod tests {
             chain,
             &Web3::new(Batch::new(transport)),
             &signable_tx_template,
-            consuming_wallet,
+            &consuming_wallet,
             &Logger::new(test_name),
         );
 
@@ -1162,7 +1157,7 @@ mod tests {
             chain,
             &Web3::new(Batch::new(transport)),
             &signable_tx_template,
-            consuming_wallet,
+            &consuming_wallet,
             &Logger::new("test"),
         );
 
