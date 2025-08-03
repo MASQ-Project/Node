@@ -96,8 +96,7 @@ pub fn merged_output_data(
 
 pub fn transmission_log(chain: Chain, signable_tx_templates: &SignableTxTemplates) -> String {
     let chain_name = chain.rec().literal_identifier;
-    let first_nonce = signable_tx_templates.first_nonce();
-    let last_nonce = signable_tx_templates.last_nonce();
+    let (first_nonce, last_nonce) = signable_tx_templates.nonce_range();
     let payment_column_width = {
         let label_length = "[payment wei]".len();
         let largest_amount_length = signable_tx_templates

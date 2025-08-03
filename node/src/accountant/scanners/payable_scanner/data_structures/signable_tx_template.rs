@@ -69,12 +69,15 @@ impl SignableTxTemplates {
             .collect()
     }
 
-    pub fn first_nonce(&self) -> u64 {
-        todo!()
-    }
+    pub fn nonce_range(&self) -> (u64, u64) {
+        let sorted: Vec<&SignableTxTemplate> = self
+            .iter()
+            .sorted_by_key(|template| template.nonce)
+            .collect();
+        let first = sorted.first().map_or(0, |template| template.nonce);
+        let last = sorted.last().map_or(0, |template| template.nonce);
 
-    pub fn last_nonce(&self) -> u64 {
-        todo!()
+        (first, last)
     }
 
     pub fn largest_amount(&self) -> u128 {
@@ -197,5 +200,67 @@ mod tests {
 
         assert_eq!(empty_templates.largest_amount(), 0);
         assert_eq!(templates.largest_amount(), 2000);
+    }
+
+    #[test]
+    fn test_nonce_range() {
+        // Test case 1: Empty templates
+        let empty_templates = SignableTxTemplates(vec![]);
+        assert_eq!(empty_templates.nonce_range(), (0, 0));
+
+        // Test case 2: Single template
+        let single_template = SignableTxTemplates(vec![SignableTxTemplate {
+            receiver_address: make_address(1),
+            amount_in_wei: 1000,
+            gas_price_wei: 10,
+            nonce: 5,
+        }]);
+        assert_eq!(single_template.nonce_range(), (5, 5));
+
+        // Test case 3: Multiple templates in order
+        let ordered_templates = SignableTxTemplates(vec![
+            SignableTxTemplate {
+                receiver_address: make_address(1),
+                amount_in_wei: 1000,
+                gas_price_wei: 10,
+                nonce: 1,
+            },
+            SignableTxTemplate {
+                receiver_address: make_address(2),
+                amount_in_wei: 2000,
+                gas_price_wei: 20,
+                nonce: 2,
+            },
+            SignableTxTemplate {
+                receiver_address: make_address(3),
+                amount_in_wei: 3000,
+                gas_price_wei: 30,
+                nonce: 3,
+            },
+        ]);
+        assert_eq!(ordered_templates.nonce_range(), (1, 3));
+
+        // Test case 4: Multiple templates out of order
+        let unordered_templates = SignableTxTemplates(vec![
+            SignableTxTemplate {
+                receiver_address: make_address(1),
+                amount_in_wei: 1000,
+                gas_price_wei: 10,
+                nonce: 3,
+            },
+            SignableTxTemplate {
+                receiver_address: make_address(2),
+                amount_in_wei: 2000,
+                gas_price_wei: 20,
+                nonce: 1,
+            },
+            SignableTxTemplate {
+                receiver_address: make_address(3),
+                amount_in_wei: 3000,
+                gas_price_wei: 30,
+                nonce: 2,
+            },
+        ]);
+        assert_eq!(unordered_templates.nonce_range(), (1, 3));
     }
 }
