@@ -1,12 +1,7 @@
-use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::{
-    PricedNewTxTemplate, PricedNewTxTemplates,
-};
-use crate::accountant::scanners::payable_scanner::data_structures::priced_retry_tx_template::{
-    PricedRetryTxTemplate, PricedRetryTxTemplates,
-};
+use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::PricedNewTxTemplates;
+use crate::accountant::scanners::payable_scanner::data_structures::priced_retry_tx_template::PricedRetryTxTemplates;
 use bytes::Buf;
 use itertools::{Either, Itertools};
-use std::collections::HashMap;
 use std::ops::Deref;
 use web3::types::Address;
 
@@ -98,23 +93,14 @@ impl Deref for SignableTxTemplates {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::{
-        PricedNewTxTemplate, PricedNewTxTemplates,
-    };
-    use crate::accountant::scanners::payable_scanner::data_structures::priced_retry_tx_template::{
-        PricedRetryTxTemplate, PricedRetryTxTemplates,
-    };
-    use crate::accountant::scanners::payable_scanner::data_structures::signable_tx_template::{
-        SignableTxTemplate, SignableTxTemplates,
-    };
+    use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::PricedNewTxTemplates;
+    use crate::accountant::scanners::payable_scanner::data_structures::priced_retry_tx_template::PricedRetryTxTemplates;
+    use crate::accountant::scanners::payable_scanner::data_structures::signable_tx_template::SignableTxTemplates;
     use crate::accountant::scanners::payable_scanner::data_structures::test_utils::{
-        make_priced_new_tx_template, make_priced_retry_tx_template,
+        make_priced_new_tx_template, make_priced_retry_tx_template, make_signable_tx_template,
     };
-    use crate::accountant::scanners::payable_scanner::data_structures::BaseTxTemplate;
-    use crate::accountant::test_utils::make_payable_account;
-    use crate::blockchain::test_utils::make_address;
+
     use itertools::Either;
-    use masq_lib::constants::DEFAULT_GAS_PRICE;
 
     #[test]
     fn signable_tx_templates_can_be_created_from_priced_new_tx_templates() {
@@ -178,28 +164,13 @@ mod tests {
     fn test_largest_amount() {
         let empty_templates = SignableTxTemplates(vec![]);
         let templates = SignableTxTemplates(vec![
-            SignableTxTemplate {
-                receiver_address: make_address(1),
-                amount_in_wei: 1000,
-                gas_price_wei: 10,
-                nonce: 1,
-            },
-            SignableTxTemplate {
-                receiver_address: make_address(2),
-                amount_in_wei: 2000,
-                gas_price_wei: 20,
-                nonce: 2,
-            },
-            SignableTxTemplate {
-                receiver_address: make_address(3),
-                amount_in_wei: 1500,
-                gas_price_wei: 15,
-                nonce: 3,
-            },
+            make_signable_tx_template(1),
+            make_signable_tx_template(2),
+            make_signable_tx_template(3),
         ]);
 
         assert_eq!(empty_templates.largest_amount(), 0);
-        assert_eq!(templates.largest_amount(), 2000);
+        assert_eq!(templates.largest_amount(), 3000);
     }
 
     #[test]
@@ -209,57 +180,22 @@ mod tests {
         assert_eq!(empty_templates.nonce_range(), (0, 0));
 
         // Test case 2: Single template
-        let single_template = SignableTxTemplates(vec![SignableTxTemplate {
-            receiver_address: make_address(1),
-            amount_in_wei: 1000,
-            gas_price_wei: 10,
-            nonce: 5,
-        }]);
+        let single_template = SignableTxTemplates(vec![make_signable_tx_template(5)]);
         assert_eq!(single_template.nonce_range(), (5, 5));
 
         // Test case 3: Multiple templates in order
         let ordered_templates = SignableTxTemplates(vec![
-            SignableTxTemplate {
-                receiver_address: make_address(1),
-                amount_in_wei: 1000,
-                gas_price_wei: 10,
-                nonce: 1,
-            },
-            SignableTxTemplate {
-                receiver_address: make_address(2),
-                amount_in_wei: 2000,
-                gas_price_wei: 20,
-                nonce: 2,
-            },
-            SignableTxTemplate {
-                receiver_address: make_address(3),
-                amount_in_wei: 3000,
-                gas_price_wei: 30,
-                nonce: 3,
-            },
+            make_signable_tx_template(1),
+            make_signable_tx_template(2),
+            make_signable_tx_template(3),
         ]);
         assert_eq!(ordered_templates.nonce_range(), (1, 3));
 
         // Test case 4: Multiple templates out of order
         let unordered_templates = SignableTxTemplates(vec![
-            SignableTxTemplate {
-                receiver_address: make_address(1),
-                amount_in_wei: 1000,
-                gas_price_wei: 10,
-                nonce: 3,
-            },
-            SignableTxTemplate {
-                receiver_address: make_address(2),
-                amount_in_wei: 2000,
-                gas_price_wei: 20,
-                nonce: 1,
-            },
-            SignableTxTemplate {
-                receiver_address: make_address(3),
-                amount_in_wei: 3000,
-                gas_price_wei: 30,
-                nonce: 2,
-            },
+            make_signable_tx_template(3),
+            make_signable_tx_template(1),
+            make_signable_tx_template(2),
         ]);
         assert_eq!(unordered_templates.nonce_range(), (1, 3));
     }
