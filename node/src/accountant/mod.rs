@@ -143,7 +143,7 @@ pub struct ReportTransactionReceipts {
 
 #[derive(Debug, Message, PartialEq, Clone)]
 pub struct SentPayables {
-    pub payment_procedure_result: Either<BatchResults, LocalPayableError>,
+    pub payment_procedure_result: Result<BatchResults, String>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
@@ -4044,7 +4044,7 @@ mod tests {
         // the first message. Now we reset the state by ending the first scan by a failure and see
         // that the third scan request is going to be accepted willingly again.
         addr.try_send(SentPayables {
-            payment_procedure_result: Either::Right(LocalPayableError::Signing("bluh".to_string())),
+            payment_procedure_result: Err("bluh".to_string()),
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 1122,
                 context_id: 7788,
@@ -4931,10 +4931,7 @@ mod tests {
         subject.scan_schedulers.pending_payable.handle =
             Box::new(NotifyLaterHandleMock::default().panic_on_schedule_attempt());
         let sent_payable = SentPayables {
-            payment_procedure_result: Either::Right(LocalPayableError::Sending {
-                msg: "booga".to_string(),
-                hashes: vec![make_tx_hash(456)],
-            }),
+            payment_procedure_result: Err("Sending error".to_string()),
             response_skeleton_opt: None,
         };
         let addr = subject.start();

@@ -1531,9 +1531,7 @@ mod tests {
         init_test_logging();
         let test_name = "finish_payable_scan_keeps_the_aware_of_unresolved_pending_payable_flag_as_false_in_case_of_err";
         let sent_payable = SentPayables {
-            payment_procedure_result: Either::Right(LocalPayableError::Signing(
-                "Some error".to_string(),
-            )),
+            payment_procedure_result: Err("Some error".to_string()),
             response_skeleton_opt: None,
         };
         let logger = Logger::new(test_name);

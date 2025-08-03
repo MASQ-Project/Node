@@ -380,12 +380,19 @@ impl PayableScanner {
 
     fn process_result(
         &self,
-        payment_procedure_result: Either<BatchResults, LocalPayableError>,
+        payment_procedure_result: Result<BatchResults, String>,
         logger: &Logger,
     ) -> OperationOutcome {
+        // match payment_procedure_result {
+        //     Either::Left(batch_results) => self.handle_batch_results(batch_results, logger),
+        //     Either::Right(local_err) => self.handle_local_error(local_err, logger),
+        // }
+
         match payment_procedure_result {
-            Either::Left(batch_results) => self.handle_batch_results(batch_results, logger),
-            Either::Right(local_err) => self.handle_local_error(local_err, logger),
+            Ok(batch_results) => self.handle_batch_results(batch_results, logger),
+            Err(e) => {
+                todo!()
+            }
         }
     }
 
@@ -1200,21 +1207,21 @@ mod tests {
             .sent_payable_dao(sent_payable_dao)
             .build();
         let logger = Logger::new(test_name);
-        let batch_results = todo!("BatchResults");
-
-        let result = subject.process_result(Either::Left(batch_results), &logger);
-
-        assert_eq!(result, OperationOutcome::NewPendingPayable);
-        let tlh = TestLogHandler::new();
-        tlh.exists_log_containing(&format!(
-            "DEBUG: {test_name}: Processed payables while sending to RPC: \
-             Total: 1, Sent to RPC: 1, Failed to send: 0. \
-             Updating database..."
-        ));
-        tlh.exists_log_containing(&format!(
-            "DEBUG: {test_name}: All 1 pending transactions were present \
-            in the sent payable database"
-        ));
+        todo!("BatchResults")
+        //
+        // let result = subject.process_result(Either::Left(batch_results), &logger);
+        //
+        // assert_eq!(result, OperationOutcome::NewPendingPayable);
+        // let tlh = TestLogHandler::new();
+        // tlh.exists_log_containing(&format!(
+        //     "DEBUG: {test_name}: Processed payables while sending to RPC: \
+        //      Total: 1, Sent to RPC: 1, Failed to send: 0. \
+        //      Updating database..."
+        // ));
+        // tlh.exists_log_containing(&format!(
+        //     "DEBUG: {test_name}: All 1 pending transactions were present \
+        //     in the sent payable database"
+        // ));
     }
 
     #[test]
@@ -1225,7 +1232,7 @@ mod tests {
         let logger = Logger::new(test_name);
 
         let result = subject.process_result(
-            Either::Right(LocalPayableError::MissingConsumingWallet),
+            Err(LocalPayableError::MissingConsumingWallet.to_string()),
             &logger,
         );
 

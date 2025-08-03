@@ -282,6 +282,10 @@ impl BlockchainBridge {
         )
     }
 
+    fn payment_procedure_result_from_error(e: LocalPayableError) -> Result<BatchResults, String> {
+        todo!()
+    }
+
     fn handle_outbound_payments_instructions(
         &mut self,
         msg: OutboundPaymentsInstructions,
@@ -302,14 +306,16 @@ impl BlockchainBridge {
             self.process_payments(msg.agent, msg.priced_templates)
                 .map_err(move |e: LocalPayableError| {
                     send_message_if_failure(SentPayables {
-                        payment_procedure_result: Either::Right(e.clone()),
+                        payment_procedure_result: Self::payment_procedure_result_from_error(
+                            e.clone(),
+                        ),
                         response_skeleton_opt: skeleton_opt,
                     });
                     format!("ReportAccountsPayable: {}", e)
                 })
-                .and_then(move |payment_result| {
+                .and_then(move |batch_results| {
                     send_message_if_successful(SentPayables {
-                        payment_procedure_result: Either::Left(payment_result),
+                        payment_procedure_result: Ok(batch_results),
                         response_skeleton_opt: skeleton_opt,
                     });
                     Ok(())
@@ -943,91 +949,92 @@ mod tests {
 
     #[test]
     fn handle_outbound_payments_instructions_sends_error_when_failing_on_submit_batch() {
-        let system = System::new(
-            "handle_outbound_payments_instructions_sends_error_when_failing_on_submit_batch",
-        );
-        let port = find_free_port();
-        // To make submit_batch failed we didn't provide any responses for batch calls
-        let _blockchain_client_server = MBCSBuilder::new(port)
-            .ok_response("0x20".to_string(), 1)
-            .start();
-        let (accountant, _, accountant_recording_arc) = make_recorder();
-        let accountant_addr = accountant
-            .system_stop_conditions(match_lazily_every_type_id!(SentPayables))
-            .start();
-        let wallet_account = make_wallet("blah");
-        let blockchain_interface = make_blockchain_interface_web3(port);
-        let persistent_configuration_mock = PersistentConfigurationMock::default();
-        let subject = BlockchainBridge::new(
-            Box::new(blockchain_interface),
-            Arc::new(Mutex::new(persistent_configuration_mock)),
-            false,
-        );
-        let addr = subject.start();
-        let subject_subs = BlockchainBridge::make_subs_from(&addr);
-        let mut peer_actors = peer_actors_builder().build();
-        peer_actors.accountant = make_accountant_subs_from_recorder(&accountant_addr);
-        let account = PayableAccount {
-            wallet: wallet_account,
-            balance_wei: 111_420_204,
-            last_paid_timestamp: from_unix_timestamp(150_000_000),
-            pending_payable_opt: None,
-        };
-        let consuming_wallet = make_paying_wallet(b"consuming_wallet");
-        let agent = BlockchainAgentMock::default()
-            .consuming_wallet_result(consuming_wallet)
-            .gas_price_result(123)
-            .get_chain_result(Chain::PolyMainnet);
-        send_bind_message!(subject_subs, peer_actors);
-        let priced_new_tx_templates =
-            make_priced_new_tx_templates(vec![(account.clone(), 111_222_333)]);
-
-        let _ = addr
-            .try_send(OutboundPaymentsInstructions {
-                priced_templates: Either::Left(priced_new_tx_templates),
-                agent: Box::new(agent),
-                response_skeleton_opt: Some(ResponseSkeleton {
-                    client_id: 1234,
-                    context_id: 4321,
-                }),
-            })
-            .unwrap();
-
-        system.run();
-        let accountant_recording = accountant_recording_arc.lock().unwrap();
-        let pending_payable_fingerprint_seeds_msg =
-            accountant_recording.get_record::<PendingPayableFingerprintSeeds>(0);
-        let sent_payables_msg = accountant_recording.get_record::<SentPayables>(1);
-        let scan_error_msg = accountant_recording.get_record::<ScanError>(2);
-        let error_message = sent_payables_msg
-            .payment_procedure_result
-            .as_ref()
-            .right_or_else(|left| panic!("Expected Right, got Left: {:?}", left));
-        assert_sending_error(error_message, "Transport error: Error(IncompleteMessage)");
-        assert_eq!(
-            pending_payable_fingerprint_seeds_msg.hashes_and_balances,
-            vec![HashAndAmount {
-                hash: H256::from_str(
-                    "81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c"
-                )
-                .unwrap(),
-                amount: account.balance_wei
-            }]
-        );
-        assert_eq!(
-            *scan_error_msg,
-            ScanError {
-                scan_type: ScanType::Payables,
-                response_skeleton_opt: Some(ResponseSkeleton {
-                    client_id: 1234,
-                    context_id: 4321
-                }),
-                msg: format!(
-                    "ReportAccountsPayable: Sending phase: \"Transport error: Error(IncompleteMessage)\". Signed and hashed transactions: 0x81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c"
-                )
-            }
-        );
-        assert_eq!(accountant_recording.len(), 3);
+        todo!("BatchResults");
+        // let system = System::new(
+        //     "handle_outbound_payments_instructions_sends_error_when_failing_on_submit_batch",
+        // );
+        // let port = find_free_port();
+        // // To make submit_batch failed we didn't provide any responses for batch calls
+        // let _blockchain_client_server = MBCSBuilder::new(port)
+        //     .ok_response("0x20".to_string(), 1)
+        //     .start();
+        // let (accountant, _, accountant_recording_arc) = make_recorder();
+        // let accountant_addr = accountant
+        //     .system_stop_conditions(match_lazily_every_type_id!(SentPayables))
+        //     .start();
+        // let wallet_account = make_wallet("blah");
+        // let blockchain_interface = make_blockchain_interface_web3(port);
+        // let persistent_configuration_mock = PersistentConfigurationMock::default();
+        // let subject = BlockchainBridge::new(
+        //     Box::new(blockchain_interface),
+        //     Arc::new(Mutex::new(persistent_configuration_mock)),
+        //     false,
+        // );
+        // let addr = subject.start();
+        // let subject_subs = BlockchainBridge::make_subs_from(&addr);
+        // let mut peer_actors = peer_actors_builder().build();
+        // peer_actors.accountant = make_accountant_subs_from_recorder(&accountant_addr);
+        // let account = PayableAccount {
+        //     wallet: wallet_account,
+        //     balance_wei: 111_420_204,
+        //     last_paid_timestamp: from_unix_timestamp(150_000_000),
+        //     pending_payable_opt: None,
+        // };
+        // let consuming_wallet = make_paying_wallet(b"consuming_wallet");
+        // let agent = BlockchainAgentMock::default()
+        //     .consuming_wallet_result(consuming_wallet)
+        //     .gas_price_result(123)
+        //     .get_chain_result(Chain::PolyMainnet);
+        // send_bind_message!(subject_subs, peer_actors);
+        // let priced_new_tx_templates =
+        //     make_priced_new_tx_templates(vec![(account.clone(), 111_222_333)]);
+        //
+        // let _ = addr
+        //     .try_send(OutboundPaymentsInstructions {
+        //         priced_templates: Either::Left(priced_new_tx_templates),
+        //         agent: Box::new(agent),
+        //         response_skeleton_opt: Some(ResponseSkeleton {
+        //             client_id: 1234,
+        //             context_id: 4321,
+        //         }),
+        //     })
+        //     .unwrap();
+        //
+        // system.run();
+        // let accountant_recording = accountant_recording_arc.lock().unwrap();
+        // let pending_payable_fingerprint_seeds_msg =
+        //     accountant_recording.get_record::<PendingPayableFingerprintSeeds>(0);
+        // let sent_payables_msg = accountant_recording.get_record::<SentPayables>(1);
+        // let scan_error_msg = accountant_recording.get_record::<ScanError>(2);
+        // let error_message = sent_payables_msg
+        //     .payment_procedure_result
+        //     .as_ref()
+        //     .right_or_else(|left| panic!("Expected Right, got Left: {:?}", left));
+        // assert_sending_error(error_message, "Transport error: Error(IncompleteMessage)");
+        // assert_eq!(
+        //     pending_payable_fingerprint_seeds_msg.hashes_and_balances,
+        //     vec![HashAndAmount {
+        //         hash: H256::from_str(
+        //             "81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c"
+        //         )
+        //         .unwrap(),
+        //         amount: account.balance_wei
+        //     }]
+        // );
+        // assert_eq!(
+        //     *scan_error_msg,
+        //     ScanError {
+        //         scan_type: ScanType::Payables,
+        //         response_skeleton_opt: Some(ResponseSkeleton {
+        //             client_id: 1234,
+        //             context_id: 4321
+        //         }),
+        //         msg: format!(
+        //             "ReportAccountsPayable: Sending phase: \"Transport error: Error(IncompleteMessage)\". Signed and hashed transactions: 0x81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c"
+        //         )
+        //     }
+        // );
+        // assert_eq!(accountant_recording.len(), 3);
     }
 
     #[test]
