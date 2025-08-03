@@ -44,4 +44,18 @@ impl PricedRetryTxTemplates {
             .map(|retry_tx_template| retry_tx_template.computed_gas_price_wei)
             .sum()
     }
+
+    pub fn reorder_by_nonces(mut self, latest_nonce: u64) -> Self {
+        // TODO: This algorithm could be made more robust by including un-realistic permutations of tx nonces
+        self.sort_by_key(|template| template.prev_nonce);
+
+        let split_index = self
+            .iter()
+            .position(|template| template.prev_nonce == latest_nonce)
+            .unwrap_or(0);
+
+        let (left, right) = self.split_at(split_index);
+
+        Self([right, left].concat())
+    }
 }

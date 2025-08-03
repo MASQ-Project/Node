@@ -34,50 +34,36 @@ impl SignableTxTemplates {
     ) -> Self {
         match priced_tx_templates {
             Either::Left(priced_new_tx_templates) => {
-                Self::from_priced_new_tx_templates(priced_new_tx_templates, latest_nonce)
+                Self::from_new_txs(priced_new_tx_templates, latest_nonce)
             }
             Either::Right(priced_retry_tx_templates) => {
-                Self::from_priced_retry_tx_templates(priced_retry_tx_templates, latest_nonce)
+                Self::from_retry_txs(priced_retry_tx_templates, latest_nonce)
             }
         }
     }
 
-    fn from_priced_new_tx_templates(
+    fn from_new_txs(
         priced_new_tx_templates: PricedNewTxTemplates,
         latest_nonce: u64,
     ) -> Self {
         priced_new_tx_templates
             .iter()
             .enumerate()
-            .map(|(i, priced_new_tx_template)| SignableTxTemplate {
-                receiver_address: priced_new_tx_template.base.receiver_address,
-                amount_in_wei: priced_new_tx_template.base.amount_in_wei,
-                gas_price_wei: priced_new_tx_template.computed_gas_price_wei,
+            .map(|(i, template)| SignableTxTemplate {
+                receiver_address: template.base.receiver_address,
+                amount_in_wei: template.base.amount_in_wei,
+                gas_price_wei: template.computed_gas_price_wei,
                 nonce: latest_nonce + i as u64,
             })
             .collect()
     }
 
-    fn from_priced_retry_tx_templates(
-        mut priced_retry_tx_templates: PricedRetryTxTemplates,
+    fn from_retry_txs(
+        priced_retry_tx_templates: PricedRetryTxTemplates,
         latest_nonce: u64,
     ) -> Self {
-        // TODO: This algorithm could be made more robust by including un-realistic permutations of tx nonces
-
-        let new_order = {
-            priced_retry_tx_templates.sort_by_key(|template| template.prev_nonce);
-
-            let split_index = priced_retry_tx_templates
-                .iter()
-                .position(|template| template.prev_nonce == latest_nonce)
-                .unwrap_or(0);
-
-            let (left, right) = priced_retry_tx_templates.split_at(split_index);
-
-            [right, left].concat()
-        };
-
-        new_order
+        priced_retry_tx_templates
+            .reorder_by_nonces(latest_nonce)
             .iter()
             .enumerate()
             .map(|(i, template)| SignableTxTemplate {
@@ -98,13 +84,10 @@ impl SignableTxTemplates {
     }
 
     pub fn largest_amount(&self) -> u128 {
-        todo!()
-
-        // let largest_amount = signable_tx_templates
-        //     .iter()
-        //     .map(|signable_tx_template| signable_tx_template.amount_in_wei)
-        //     .max()
-        //     .unwrap();
+        self.iter()
+            .map(|signable_tx_template| signable_tx_template.amount_in_wei)
+            .max()
+            .unwrap_or(0)
     }
 }
 
@@ -124,12 +107,15 @@ mod tests {
     use crate::accountant::scanners::payable_scanner::data_structures::priced_retry_tx_template::{
         PricedRetryTxTemplate, PricedRetryTxTemplates,
     };
-    use crate::accountant::scanners::payable_scanner::data_structures::signable_tx_template::SignableTxTemplates;
+    use crate::accountant::scanners::payable_scanner::data_structures::signable_tx_template::{
+        SignableTxTemplate, SignableTxTemplates,
+    };
     use crate::accountant::scanners::payable_scanner::data_structures::test_utils::{
         make_priced_new_tx_template, make_priced_retry_tx_template,
     };
     use crate::accountant::scanners::payable_scanner::data_structures::BaseTxTemplate;
     use crate::accountant::test_utils::make_payable_account;
+    use crate::blockchain::test_utils::make_address;
     use itertools::Either;
     use masq_lib::constants::DEFAULT_GAS_PRICE;
 
@@ -189,5 +175,33 @@ mod tests {
                     retries[index].computed_gas_price_wei
                 );
             });
+    }
+
+    #[test]
+    fn test_largest_amount() {
+        let empty_templates = SignableTxTemplates(vec![]);
+        let templates = SignableTxTemplates(vec![
+            SignableTxTemplate {
+                receiver_address: make_address(1),
+                amount_in_wei: 1000,
+                gas_price_wei: 10,
+                nonce: 1,
+            },
+            SignableTxTemplate {
+                receiver_address: make_address(2),
+                amount_in_wei: 2000,
+                gas_price_wei: 20,
+                nonce: 2,
+            },
+            SignableTxTemplate {
+                receiver_address: make_address(3),
+                amount_in_wei: 1500,
+                gas_price_wei: 15,
+                nonce: 3,
+            },
+        ]);
+
+        assert_eq!(empty_templates.largest_amount(), 0);
+        assert_eq!(templates.largest_amount(), 2000);
     }
 }
