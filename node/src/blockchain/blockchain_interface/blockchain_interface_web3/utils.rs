@@ -8,6 +8,7 @@ use crate::accountant::scanners::payable_scanner::data_structures::signable_tx_t
     SignableTxTemplate, SignableTxTemplates,
 };
 use crate::accountant::scanners::payable_scanner_extension::msgs::PricedQualifiedPayables;
+use crate::accountant::wei_to_gwei;
 use crate::blockchain::blockchain_agent::agent_web3::BlockchainAgentWeb3;
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
@@ -94,6 +95,10 @@ pub fn merged_output_data(
         .collect()
 }
 
+fn format_address(address: &Address) -> String {
+    format!("{:?}", address)
+}
+
 pub fn transmission_log(chain: Chain, signable_tx_templates: &SignableTxTemplates) -> String {
     let chain_name = chain.rec().literal_identifier;
     let (first_nonce, last_nonce) = signable_tx_templates.nonce_range();
@@ -131,7 +136,7 @@ pub fn transmission_log(chain: Chain, signable_tx_templates: &SignableTxTemplate
     let body = signable_tx_templates.iter().map(|signable_tx_template| {
         format!(
             "{:wallet_address_length$}   {:<payment_column_width$}   {}\n",
-            signable_tx_template.receiver_address,
+            format_address(&signable_tx_template.receiver_address),
             signable_tx_template.amount_in_wei.separate_with_commas(),
             signable_tx_template.gas_price_wei.separate_with_commas(),
             wallet_address_length = WALLET_ADDRESS_LENGTH,
@@ -173,11 +178,15 @@ pub fn sign_transaction(
 
     debug!(
         logger,
-        "Signing transaction of {} wei to {:?} with nonce {} using gas price {} wei",
+        "Signing transaction:\n\
+         Amount: {} wei,\n\
+         To: {:?},\n\
+         Nonce: {},\n\
+         Gas Price: {} gwei\n",
         amount_in_wei.separate_with_commas(),
         receiver_address,
         nonce,
-        gas_price_wei
+        wei_to_gwei::<u128, u128>(gas_price_wei).separate_with_commas()
     );
 
     let data = sign_transaction_data(amount_in_wei, receiver_address);
@@ -225,8 +234,23 @@ pub fn sign_and_append_payment(
     web3_batch: &Web3<Batch<Http>>,
     signable_tx_template: &SignableTxTemplate,
     consuming_wallet: Wallet,
+    logger: &Logger,
 ) -> HashAndAmount {
-    todo!("Not used anymore");
+    let signed_tx = sign_transaction(
+        chain,
+        web3_batch,
+        signable_tx_template,
+        consuming_wallet.clone(), // TODO: GH-605: Eliminate this clone
+        logger,
+    );
+
+    append_signed_transaction_to_batch(web3_batch, signed_tx.raw_transaction);
+
+    // TODO: GH-605: Instead of HashAndAmount, it should hold the whole Tx object
+    HashAndAmount {
+        hash: signed_tx.transaction_hash,
+        amount: signable_tx_template.amount_in_wei,
+    }
 }
 
 pub fn append_signed_transaction_to_batch(web3_batch: &Web3<Batch<Http>>, raw_transaction: Bytes) {
@@ -244,21 +268,13 @@ pub fn sign_and_append_multiple_payments(
     signable_tx_templates
         .iter()
         .map(|signable_tx_template| {
-            let signed_tx = sign_transaction(
+            sign_and_append_payment(
                 chain,
                 web3_batch,
                 signable_tx_template,
-                consuming_wallet.clone(), // TODO: GH-605: Eliminate this clone
+                consuming_wallet.clone(),
                 logger,
-            );
-
-            append_signed_transaction_to_batch(web3_batch, signed_tx.raw_transaction);
-
-            // TODO: GH-605: Instead of HashAndAmount, it should hold the whole Tx object
-            HashAndAmount {
-                hash: signed_tx.transaction_hash,
-                amount: signable_tx_template.amount_in_wei,
-            }
+            )
         })
         .collect()
 }
@@ -431,8 +447,13 @@ mod tests {
         let signable_tx_template =
             make_signable_tx_template(&account, gwei_to_wei(gas_price_in_gwei));
 
-        let result =
-            sign_and_append_payment(chain, &web3_batch, &signable_tx_template, consuming_wallet);
+        let result = sign_and_append_payment(
+            chain,
+            &web3_batch,
+            &signable_tx_template,
+            consuming_wallet,
+            &Logger::new("test"),
+        );
 
         let mut batch_result = web3_batch.eth().transport().submit_batch().wait().unwrap();
         assert_eq!(
@@ -915,6 +936,8 @@ mod tests {
 
     #[test]
     fn sign_transaction_just_works() {
+        init_test_logging();
+        let test_name = "sign_transaction_just_works";
         let port = find_free_port();
         let (_event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
@@ -924,7 +947,7 @@ mod tests {
         let web3 = Web3::new(transport.clone());
         let chain = DEFAULT_CHAIN;
         let amount = 11_222_333_444;
-        let gas_price_in_wei = 123 * 10_u128.pow(18);
+        let gas_price_in_wei = 123 * 10_u128.pow(9);
         let nonce = 5;
         let recipient_wallet = make_wallet("recipient_wallet");
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
@@ -950,7 +973,7 @@ mod tests {
             &Web3::new(Batch::new(transport)),
             &signable_tx_template,
             consuming_wallet,
-            &Logger::new("test"),
+            &Logger::new(test_name),
         );
 
         let expected_tx_result = web3
@@ -960,7 +983,13 @@ mod tests {
             .unwrap();
 
         assert_eq!(result, expected_tx_result);
-        // TODO: GH-605: Also test the log
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: Signing transaction:\n\
+             Amount: 11,222,333,444 wei,\n\
+             To: 0x00000000726563697069656e745f77616c6c6574,\n\
+             Nonce: 5,\n\
+             Gas Price: 123 gwei\n"
+        ));
     }
 
     #[test]
