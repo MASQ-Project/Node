@@ -522,27 +522,16 @@ mod tests {
             consuming_wallet,
         );
 
-        todo!("Tx");
-
-        // assert_eq!(
-        //     result,
-        //     vec![
-        //         HashAndAmount {
-        //             hash: H256::from_str(
-        //                 "374b7d023f4ac7d99e612d82beda494b0747116e9b9dc975b33b865f331ee934"
-        //             )
-        //             .unwrap(),
-        //             amount: 1000000000
-        //         },
-        //         HashAndAmount {
-        //             hash: H256::from_str(
-        //                 "5708afd876bc2573f9db984ec6d0e7f8ef222dd9f115643c9b9056d8bef8bbd9"
-        //             )
-        //             .unwrap(),
-        //             amount: 2000000000
-        //         }
-        //     ]
-        // );
+        result
+            .iter()
+            .zip(signable_tx_templates.iter())
+            .for_each(|(sent_tx, template)| {
+                assert_eq!(sent_tx.receiver_address, template.receiver_address);
+                assert_eq!(sent_tx.amount, template.amount_in_wei);
+                assert_eq!(sent_tx.gas_price_wei, template.gas_price_wei);
+                assert_eq!(sent_tx.nonce, template.nonce);
+                assert_eq!(sent_tx.status, TxStatus::Pending(ValidationStatus::Waiting))
+            })
     }
 
     #[test]
