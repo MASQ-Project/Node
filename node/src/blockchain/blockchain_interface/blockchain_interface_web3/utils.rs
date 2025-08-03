@@ -1,6 +1,8 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::db_access_objects::failed_payable_dao::ValidationStatus;
+use crate::accountant::db_access_objects::failed_payable_dao::{
+    FailedTx, FailureReason, FailureStatus, ValidationStatus,
+};
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
 use crate::accountant::db_access_objects::sent_payable_dao::{Tx, TxStatus};
@@ -51,19 +53,13 @@ pub fn advance_used_nonce(current_nonce: U256) -> U256 {
         .expect("unexpected limits")
 }
 
-fn error_with_hashes(
-    error: Web3Error,
-    hashes_and_paid_amounts: Vec<HashAndAmount>,
-) -> LocalPayableError {
-    todo!("Should generate Sending error differently");
-    // let hashes = hashes_and_paid_amounts
-    //     .into_iter()
-    //     .map(|hash_and_amount| hash_and_amount.hash)
-    //     .collect();
-    // LocalPayableError::Sending {
-    //     msg: error.to_string(),
-    //     hashes,
-    // }
+fn return_sending_error(sent_txs: &Vec<Tx>, error: &Web3Error) -> LocalPayableError {
+    LocalPayableError::Sending(
+        sent_txs
+            .iter()
+            .map(|sent_tx| FailedTx::from_sent_tx_and_web3_err(sent_tx, error))
+            .collect(),
+    )
 }
 
 pub fn merged_output_data(
@@ -98,10 +94,21 @@ pub fn merged_output_data(
 }
 
 pub fn return_batch_results(
-    sent_txs: Vec<Tx>,
+    txs: Vec<Tx>,
     responses: Vec<web3::transports::Result<Value>>,
 ) -> BatchResults {
-    todo!()
+    txs.into_iter().zip(responses).fold(
+        BatchResults::default(),
+        |mut batch_results, (sent_tx, response)| {
+            match response {
+                Ok(_) => batch_results.sent_txs.push(sent_tx), // TODO: GH-605: Validate the JSON output
+                Err(rpc_error) => batch_results
+                    .failed_txs
+                    .push(FailedTx::from_sent_tx_and_web3_err(&sent_tx, &rpc_error)),
+            }
+            batch_results
+        },
+    )
 }
 
 pub fn transmission_log(chain: Chain, signable_tx_templates: &SignableTxTemplates) -> String {
@@ -312,13 +319,12 @@ pub fn send_payables_within_batch(
         &signable_tx_templates,
         consuming_wallet,
     );
+    let sent_txs_for_err = sent_txs.clone();
 
     let hashes_and_paid_amounts: Vec<HashAndAmount> =
         sent_txs.iter().map(|tx| HashAndAmount::from(tx)).collect();
 
     let timestamp = SystemTime::now();
-    let hashes_and_paid_amounts_error = hashes_and_paid_amounts.clone();
-    let hashes_and_paid_amounts_ok = hashes_and_paid_amounts.clone();
 
     new_fingerprints_recipient
         .try_send(PendingPayableFingerprintSeeds {
@@ -337,7 +343,7 @@ pub fn send_payables_within_batch(
         web3_batch
             .transport()
             .submit_batch()
-            .map_err(|e| error_with_hashes(e, hashes_and_paid_amounts_error))
+            .map_err(move |e| return_sending_error(&sent_txs_for_err, &e))
             .and_then(move |batch_responses| Ok(return_batch_results(sent_txs, batch_responses))),
     )
 }

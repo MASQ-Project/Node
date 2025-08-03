@@ -48,7 +48,7 @@ pub enum IndividualBatchResult {
     Failed(RpcPayableFailure),
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Default, Debug, PartialEq, Clone)]
 pub struct BatchResults {
     pub sent_txs: Vec<Tx>,
     pub failed_txs: Vec<FailedTx>,

@@ -1,4 +1,5 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use crate::accountant::db_access_objects::sent_payable_dao::Tx;
 use crate::accountant::db_access_objects::utils::{
     DaoFactoryReal, TxHash, TxIdentifiers, VigilantRusqliteFlatten,
 };
@@ -12,6 +13,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use web3::types::Address;
+use web3::Error as Web3Error;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum FailedPayableDaoError {
@@ -87,6 +89,21 @@ pub struct FailedTx {
     pub nonce: u64,
     pub reason: FailureReason,
     pub status: FailureStatus,
+}
+
+impl FailedTx {
+    pub fn from_sent_tx_and_web3_err(sent_tx: &Tx, error: &Web3Error) -> Self {
+        FailedTx {
+            hash: sent_tx.hash,
+            receiver_address: sent_tx.receiver_address,
+            amount: sent_tx.amount,
+            timestamp: sent_tx.timestamp,
+            gas_price_wei: sent_tx.gas_price_wei,
+            nonce: sent_tx.nonce,
+            reason: FailureReason::Submission(error.clone().into()),
+            status: FailureStatus::RetryRequired,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
