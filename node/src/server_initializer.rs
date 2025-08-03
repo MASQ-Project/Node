@@ -821,7 +821,7 @@ pub mod tests {
             ]),
         );
 
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "Result should have been Ok(()), but was: {:?}", result);
         let real_user = RealUser::new(Some(123), Some(456), Some("/home/alice".into()));
         let chown_params = chown_params_arc.lock().unwrap();
         assert_eq!(

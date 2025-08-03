@@ -1826,7 +1826,9 @@ mod tests {
             config_file
                 .write_all(b"neighborhood-mode = \"zero-hop\"\n")
                 .unwrap();
-            config_file.write_all(b"new-public-key = \"off\"\n").unwrap();
+            config_file
+                .write_all(b"new-public-key = \"off\"\n")
+                .unwrap();
             config_file.write_all(b"scans = \"on\"\n").unwrap();
             config_file
                 .write_all(b"rate-pack = \"55|50|60|61\"\n")

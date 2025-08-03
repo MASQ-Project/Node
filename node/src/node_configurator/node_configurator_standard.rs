@@ -96,6 +96,7 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
         configure_database(&unprivileged_config, persistent_config.as_mut())?;
         let cryptde_pair = if multi_config.occurrences_of("fake-public-key") == 0 {
             configure_cryptdes(
+                None,
                 persistent_config.as_mut(),
                 &unprivileged_config.db_password_opt,
             )
@@ -354,17 +355,30 @@ fn configure_database(
 }
 
 fn configure_cryptdes(
+    new_public_key: Option<bool>,
     persistent_config: &mut dyn PersistentConfiguration,
     db_password_opt: &Option<String>,
 ) -> CryptDEPair {
     let cryptde_pair = if let Some(db_password) = db_password_opt {
         let chain = Chain::from(persistent_config.chain_name().as_str());
-        let main_result = persistent_config.cryptde(db_password);
+        let main_result = match new_public_key {
+            None | Some(false) => persistent_config.cryptde(db_password),
+            Some(true) => {
+                let main_cryptde: Box<dyn CryptDE> = Box::new(CryptDEReal::new(chain));
+                persistent_config
+                    .set_cryptde(main_cryptde.as_ref(), db_password)
+                    .expect("Failed to set cryptde");
+                Ok(Some(main_cryptde))
+            }
+        };
         match main_result {
             Ok(Some(last_main_cryptde)) => {
                 CryptDEPair::new(last_main_cryptde, Box::new(CryptDEReal::new(chain)))
             }
             Ok(None) => {
+                if new_public_key == Some(false) {
+                    panic!("--new-public-key off: Cannot reestablish old public key: no old public key available");
+                }
                 let main_cryptde: Box<dyn CryptDE> = Box::new(CryptDEReal::new(chain));
                 persistent_config
                     .set_cryptde(main_cryptde.as_ref(), db_password)
@@ -375,6 +389,9 @@ fn configure_cryptdes(
             Err(e) => panic!("Could not read last cryptde from database: {:?}", e),
         }
     } else {
+        if new_public_key == Some(false) {
+            panic!("--new-public-key off: Cannot reestablish old public key: no --db-password provided");
+        }
         let chain = Chain::from(persistent_config.chain_name().as_str());
         let main_cryptde: Box<dyn CryptDE> = Box::new(CryptDEReal::new(chain));
         let alias_cryptde: Box<dyn CryptDE> = Box::new(CryptDEReal::new(chain));
@@ -649,7 +666,17 @@ mod tests {
     }
 
     #[test]
-    fn configure_cryptdes_handles_missing_password_with_uninitialized_cryptdes() {
+    #[should_panic(
+        expected = "--new-public-key off: Cannot reestablish old public key: no --db-password provided"
+    )]
+    fn configure_cryptdes_handles_missing_password_with_uninitialized_cryptdes_and_npk_off() {
+        let mut persistent_config = PersistentConfigurationMock::new();
+
+        configure_cryptdes(Some(false), &mut persistent_config, &None);
+    }
+
+    #[test]
+    fn configure_cryptdes_handles_missing_password_with_uninitialized_cryptdes_and_npk_on() {
         let cryptde_params_arc = Arc::new(Mutex::new(vec![]));
         let set_cryptde_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_config = PersistentConfigurationMock::new()
@@ -657,7 +684,7 @@ mod tests {
             .set_cryptde_params(&set_cryptde_params_arc)
             .chain_name_result(TEST_DEFAULT_CHAIN.to_string());
 
-        let _result = configure_cryptdes(&mut persistent_config, &None);
+        let _result = configure_cryptdes(Some(true), &mut persistent_config, &None);
 
         let cryptde_params = cryptde_params_arc.lock().unwrap();
         assert_eq!(cryptde_params.len(), 0);
@@ -666,7 +693,7 @@ mod tests {
     }
 
     #[test]
-    fn configure_cryptdes_handles_missing_last_cryptde() {
+    fn configure_cryptdes_handles_missing_last_cryptde_with_no_npk_param() {
         let cryptde_params_arc = Arc::new(Mutex::new(vec![]));
         let set_cryptde_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_config = PersistentConfigurationMock::new()
@@ -676,10 +703,52 @@ mod tests {
             .set_cryptde_params(&set_cryptde_params_arc)
             .set_cryptde_result(Ok(()));
 
-        let result = configure_cryptdes(&mut persistent_config, &Some("db_password".to_string()));
+        let result = configure_cryptdes(
+            None,
+            &mut persistent_config,
+            &Some("db_password".to_string()),
+        );
 
         let cryptde_params = cryptde_params_arc.lock().unwrap();
         assert_eq!(*cryptde_params, vec!["db_password".to_string()]);
+        let set_cryptde_params = set_cryptde_params_arc.lock().unwrap();
+        let call = &set_cryptde_params[0];
+        assert_eq!(call.0.public_key(), result.main.public_key());
+        assert_eq!(call.1, "db_password".to_string());
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "--new-public-key off: Cannot reestablish old public key: no old public key available"
+    )]
+    fn configure_cryptdes_handles_missing_last_cryptde_with_npk_off() {
+        let cryptde_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .cryptde_params(&cryptde_params_arc)
+            .chain_name_result(TEST_DEFAULT_CHAIN.to_string())
+            .cryptde_result(Ok(None));
+
+        configure_cryptdes(
+            Some(false),
+            &mut persistent_config,
+            &Some("db_password".to_string()),
+        );
+    }
+
+    #[test]
+    fn configure_cryptdes_handles_missing_last_cryptde_with_npk_on() {
+        let set_cryptde_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .chain_name_result(TEST_DEFAULT_CHAIN.to_string())
+            .set_cryptde_params(&set_cryptde_params_arc)
+            .set_cryptde_result(Ok(()));
+
+        let result = configure_cryptdes(
+            Some(true),
+            &mut persistent_config,
+            &Some("db_password".to_string()),
+        );
+
         let set_cryptde_params = set_cryptde_params_arc.lock().unwrap();
         let call = &set_cryptde_params[0];
         assert_eq!(call.0.public_key(), result.main.public_key());
@@ -694,11 +763,15 @@ mod tests {
             .chain_name_result(TEST_DEFAULT_CHAIN.to_string())
             .cryptde_result(Err(PersistentConfigError::NotPresent));
 
-        let _ = configure_cryptdes(&mut persistent_config, &Some("db_password".to_string()));
+        let _ = configure_cryptdes(
+            None,
+            &mut persistent_config,
+            &Some("db_password".to_string()),
+        );
     }
 
     #[test]
-    fn configure_cryptdes_handles_populated_database() {
+    fn configure_cryptdes_handles_populated_database_with_no_npk_param() {
         let _guard = EnvironmentGuard::new();
         let stored_main_cryptde_box = Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN));
         let cryptde_params_arc = Arc::new(Mutex::new(vec![]));
@@ -707,7 +780,11 @@ mod tests {
             .chain_name_result(TEST_DEFAULT_CHAIN.to_string())
             .cryptde_result(Ok(Some(stored_main_cryptde_box.dup())));
 
-        let result = configure_cryptdes(&mut persistent_config, &Some("db_password".to_string()));
+        let result = configure_cryptdes(
+            None,
+            &mut persistent_config,
+            &Some("db_password".to_string()),
+        );
 
         assert_eq!(
             result.main.public_key(),
@@ -715,6 +792,59 @@ mod tests {
         );
         let cryptde_params = cryptde_params_arc.lock().unwrap();
         assert_eq!(*cryptde_params, vec!["db_password".to_string()]);
+    }
+
+    #[test]
+    fn configure_cryptdes_handles_populated_database_with_npk_off() {
+        let _guard = EnvironmentGuard::new();
+        let stored_main_cryptde_box = Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN));
+        let cryptde_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .cryptde_params(&cryptde_params_arc)
+            .chain_name_result(TEST_DEFAULT_CHAIN.to_string())
+            .cryptde_result(Ok(Some(stored_main_cryptde_box.dup())));
+
+        let result = configure_cryptdes(
+            Some(false),
+            &mut persistent_config,
+            &Some("db_password".to_string()),
+        );
+
+        assert_eq!(
+            result.main.public_key(),
+            stored_main_cryptde_box.public_key()
+        );
+        let cryptde_params = cryptde_params_arc.lock().unwrap();
+        assert_eq!(*cryptde_params, vec!["db_password".to_string()]);
+    }
+
+    #[test]
+    fn configure_cryptdes_handles_populated_database_with_npk_on() {
+        let _guard = EnvironmentGuard::new();
+        let stored_main_cryptde_box = Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN));
+        let set_cryptde_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .chain_name_result(TEST_DEFAULT_CHAIN.to_string())
+            .set_cryptde_params(&set_cryptde_params_arc)
+            .set_cryptde_result(Ok(()));
+
+        let result = configure_cryptdes(
+            Some(true),
+            &mut persistent_config,
+            &Some("db_password".to_string()),
+        );
+
+        assert_ne!(
+            result.main.public_key(),
+            stored_main_cryptde_box.public_key()
+        );
+        let set_cryptde_params = set_cryptde_params_arc.lock().unwrap();
+        assert_eq!(
+            set_cryptde_params[0].0.public_key(),
+            result.main.public_key()
+        );
+        assert_eq!(set_cryptde_params[0].1, "db_password".to_string());
+        assert_eq!(set_cryptde_params.len(), 1);
     }
 
     fn make_default_cli_params() -> ArgsBuilder {
@@ -899,8 +1029,7 @@ mod tests {
     fn privileged_parse_args_works_with_on_off_parameters() {
         let _guard = EnvironmentGuard::new();
         running_test();
-        let args = ArgsBuilder::new()
-            .param("--new-public-key", "on");
+        let args = ArgsBuilder::new().param("--new-public-key", "on");
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
