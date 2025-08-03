@@ -18,7 +18,7 @@ use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
 };
 use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
 use crate::blockchain::blockchain_interface::data_structures::{
-    IndividualBatchResult, RpcPayableFailure,
+    BatchResults, IndividualBatchResult, RpcPayableFailure,
 };
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
@@ -94,6 +94,13 @@ pub fn merged_output_data(
             },
         )
         .collect()
+}
+
+pub fn return_batch_results(
+    sent_txs: Vec<Tx>,
+    responses: Vec<web3::transports::Result<Value>>,
+) -> BatchResults {
+    todo!()
 }
 
 pub fn transmission_log(chain: Chain, signable_tx_templates: &SignableTxTemplates) -> String {
@@ -287,7 +294,7 @@ pub fn send_payables_within_batch(
     signable_tx_templates: SignableTxTemplates,
     consuming_wallet: Wallet,
     new_fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
-) -> Box<dyn Future<Item = Vec<IndividualBatchResult>, Error = LocalPayableError> + 'static> {
+) -> Box<dyn Future<Item = BatchResults, Error = LocalPayableError> + 'static> {
     // TODO: GH-605: We should be returning the new structure here which holds Tx and FailedTx
     debug!(
             logger,
@@ -297,7 +304,7 @@ pub fn send_payables_within_batch(
             chain.rec().num_chain_id,
         );
 
-    let tx_vec = sign_and_append_multiple_payments(
+    let sent_txs = sign_and_append_multiple_payments(
         logger,
         chain,
         web3_batch,
@@ -306,7 +313,7 @@ pub fn send_payables_within_batch(
     );
 
     let hashes_and_paid_amounts: Vec<HashAndAmount> =
-        tx_vec.iter().map(|tx| HashAndAmount::from(tx)).collect();
+        sent_txs.iter().map(|tx| HashAndAmount::from(tx)).collect();
 
     let timestamp = SystemTime::now();
     let hashes_and_paid_amounts_error = hashes_and_paid_amounts.clone();
@@ -330,13 +337,7 @@ pub fn send_payables_within_batch(
             .transport()
             .submit_batch()
             .map_err(|e| error_with_hashes(e, hashes_and_paid_amounts_error))
-            .and_then(move |batch_response| {
-                Ok(merged_output_data(
-                    batch_response,
-                    hashes_and_paid_amounts_ok,
-                    signable_tx_templates,
-                ))
-            }),
+            .and_then(move |batch_responses| Ok(return_batch_results(sent_txs, batch_responses))),
     )
 }
 
@@ -762,7 +763,8 @@ mod tests {
             )
         );
         tlh.exists_log_containing(&format!("INFO: {test_name}: {expected_transmission_log}"));
-        assert_eq!(result, expected_result);
+        todo!("BatchResults");
+        // assert_eq!(result, expected_result);
     }
 
     #[test]

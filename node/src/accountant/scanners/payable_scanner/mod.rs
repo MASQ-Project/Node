@@ -32,7 +32,7 @@ use crate::accountant::{
 };
 use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
 use crate::blockchain::blockchain_interface::data_structures::{
-    IndividualBatchResult, RpcPayableFailure,
+    BatchResults, IndividualBatchResult, RpcPayableFailure,
 };
 use crate::blockchain::errors::AppRpcError::Local;
 use crate::blockchain::errors::LocalError::Internal;
@@ -333,30 +333,31 @@ impl PayableScanner {
 
     fn handle_batch_results(
         &self,
-        batch_results: Vec<IndividualBatchResult>,
+        batch_results: BatchResults,
         logger: &Logger,
     ) -> OperationOutcome {
-        let (pending, failures) = Self::separate_batch_results(batch_results);
-        let pending_tx_count = pending.len();
-        let failed_tx_count = failures.len();
-        debug!(
-            logger,
-            "Processed payables while sending to RPC: \
-             Total: {total}, Sent to RPC: {success}, Failed to send: {failed}. \
-             Updating database...",
-            total = pending_tx_count + failed_tx_count,
-            success = pending_tx_count,
-            failed = failed_tx_count
-        );
-
-        self.record_failed_txs_in_db(&failures, logger);
-        self.verify_pending_tx_hashes_in_db(&pending, logger);
-
-        if pending_tx_count > 0 {
-            OperationOutcome::NewPendingPayable
-        } else {
-            OperationOutcome::Failure
-        }
+        todo!()
+        // let (pending, failures) = Self::separate_batch_results(batch_results);
+        // let pending_tx_count = pending.len();
+        // let failed_tx_count = failures.len();
+        // debug!(
+        //     logger,
+        //     "Processed payables while sending to RPC: \
+        //      Total: {total}, Sent to RPC: {success}, Failed to send: {failed}. \
+        //      Updating database...",
+        //     total = pending_tx_count + failed_tx_count,
+        //     success = pending_tx_count,
+        //     failed = failed_tx_count
+        // );
+        //
+        // self.record_failed_txs_in_db(&failures, logger);
+        // self.verify_pending_tx_hashes_in_db(&pending, logger);
+        //
+        // if pending_tx_count > 0 {
+        //     OperationOutcome::NewPendingPayable
+        // } else {
+        //     OperationOutcome::Failure
+        // }
     }
 
     fn handle_local_error(
@@ -379,7 +380,7 @@ impl PayableScanner {
 
     fn process_result(
         &self,
-        payment_procedure_result: Either<Vec<IndividualBatchResult>, LocalPayableError>,
+        payment_procedure_result: Either<BatchResults, LocalPayableError>,
         logger: &Logger,
     ) -> OperationOutcome {
         match payment_procedure_result {
@@ -950,10 +951,7 @@ mod tests {
         let sent_payable_dao_delete_params = Arc::new(Mutex::new(vec![]));
         let pending_payable = make_pending_payable(1);
         let failed_payable = make_rpc_payable_failure(2);
-        let batch_results = vec![
-            IndividualBatchResult::Pending(pending_payable.clone()),
-            IndividualBatchResult::Failed(failed_payable.clone()),
-        ];
+        let batch_results = todo!("BatchResults");
         let failed_payable_dao = FailedPayableDaoMock::default()
             .insert_new_records_params(&failed_payable_dao_insert_params)
             .insert_new_records_result(Ok(()));
@@ -1000,10 +998,7 @@ mod tests {
         let logger = Logger::new(test_name);
         let pending_payable_1 = make_pending_payable(1);
         let pending_payable_2 = make_pending_payable(2);
-        let batch_results = vec![
-            IndividualBatchResult::Pending(pending_payable_1.clone()),
-            IndividualBatchResult::Pending(pending_payable_2.clone()),
-        ];
+        let batch_results = todo!("BatchResults");
         let sent_payable_dao = SentPayableDaoMock::default().retrieve_txs_result(vec![
             TxBuilder::default().hash(pending_payable_1.hash).build(),
             TxBuilder::default().hash(pending_payable_2.hash).build(),
@@ -1035,10 +1030,7 @@ mod tests {
         let sent_payable_dao_delete_params = Arc::new(Mutex::new(vec![]));
         let failed_payable_1 = make_rpc_payable_failure(1);
         let failed_payable_2 = make_rpc_payable_failure(2);
-        let batch_results = vec![
-            IndividualBatchResult::Failed(failed_payable_1.clone()),
-            IndividualBatchResult::Failed(failed_payable_2.clone()),
-        ];
+        let batch_results = todo!("BatchResults");
         let failed_payable_dao = FailedPayableDaoMock::default()
             .insert_new_records_params(&failed_payable_dao_insert_params)
             .insert_new_records_result(Ok(()));
@@ -1088,10 +1080,7 @@ mod tests {
         let sent_payable_dao_delete_params = Arc::new(Mutex::new(vec![]));
         let failed_payable_1 = make_rpc_payable_failure(1);
         let failed_payable_2 = make_rpc_payable_failure(2);
-        let batch_results = vec![
-            IndividualBatchResult::Failed(failed_payable_1.clone()),
-            IndividualBatchResult::Failed(failed_payable_2.clone()),
-        ];
+        let batch_results = todo!("BatchResults");
         let failed_payable_dao = FailedPayableDaoMock::default()
             .insert_new_records_params(&failed_payable_dao_insert_params)
             .insert_new_records_result(Ok(()));
@@ -1150,10 +1139,7 @@ mod tests {
         let sent_payable_dao_delete_params = Arc::new(Mutex::new(vec![]));
         let failed_payable_1 = make_rpc_payable_failure(1);
         let pending_payable_ = make_pending_payable(2);
-        let batch_results = vec![
-            IndividualBatchResult::Failed(failed_payable_1.clone()),
-            IndividualBatchResult::Pending(pending_payable_.clone()),
-        ];
+        let batch_results = todo!("BatchResults");
         let failed_payable_dao = FailedPayableDaoMock::default()
             .insert_new_records_params(&failed_payable_dao_insert_params)
             .insert_new_records_result(Ok(()));
@@ -1214,7 +1200,7 @@ mod tests {
             .sent_payable_dao(sent_payable_dao)
             .build();
         let logger = Logger::new(test_name);
-        let batch_results = vec![IndividualBatchResult::Pending(pending_payable)];
+        let batch_results = todo!("BatchResults");
 
         let result = subject.process_result(Either::Left(batch_results), &logger);
 

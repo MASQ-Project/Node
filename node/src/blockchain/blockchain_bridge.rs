@@ -11,7 +11,7 @@ use crate::blockchain::blockchain_interface::blockchain_interface_web3::HashAndA
 use crate::blockchain::blockchain_interface::data_structures::errors::{
     BlockchainError, LocalPayableError,
 };
-use crate::blockchain::blockchain_interface::data_structures::IndividualBatchResult;
+use crate::blockchain::blockchain_interface::data_structures::{BatchResults, IndividualBatchResult};
 use crate::blockchain::blockchain_interface::BlockchainInterface;
 use crate::blockchain::blockchain_interface_initializer::BlockchainInterfaceInitializer;
 use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DbInitializerReal};
@@ -488,7 +488,7 @@ impl BlockchainBridge {
         &self,
         agent: Box<dyn BlockchainAgent>,
         priced_templates: Either<PricedNewTxTemplates, PricedRetryTxTemplates>,
-    ) -> Box<dyn Future<Item = Vec<IndividualBatchResult>, Error = LocalPayableError>> {
+    ) -> Box<dyn Future<Item = BatchResults, Error = LocalPayableError>> {
         let new_fingerprints_recipient = self.new_fingerprints_recipient();
         let logger = self.logger.clone();
         self.blockchain_interface.submit_payables_in_batch(
@@ -909,22 +909,23 @@ mod tests {
         let pending_payable_fingerprint_seeds_msg =
             accountant_recording.get_record::<PendingPayableFingerprintSeeds>(0);
         let sent_payables_msg = accountant_recording.get_record::<SentPayables>(1);
-        assert_eq!(
-            sent_payables_msg,
-            &SentPayables {
-                payment_procedure_result: Either::Left(vec![Pending(PendingPayable {
-                    recipient_wallet: account.wallet,
-                    hash: H256::from_str(
-                        "81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c"
-                    )
-                    .unwrap()
-                })]),
-                response_skeleton_opt: Some(ResponseSkeleton {
-                    client_id: 1234,
-                    context_id: 4321
-                })
-            }
-        );
+        todo!("BatchResults");
+        // assert_eq!(
+        //     sent_payables_msg,
+        //     &SentPayables {
+        //         payment_procedure_result: Either::Left(vec![Pending(PendingPayable {
+        //             recipient_wallet: account.wallet,
+        //             hash: H256::from_str(
+        //                 "81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c"
+        //             )
+        //             .unwrap()
+        //         })]),
+        //         response_skeleton_opt: Some(ResponseSkeleton {
+        //             client_id: 1234,
+        //             context_id: 4321
+        //         })
+        //     }
+        // );
         assert!(pending_payable_fingerprint_seeds_msg.batch_wide_timestamp >= time_before);
         assert!(pending_payable_fingerprint_seeds_msg.batch_wide_timestamp <= time_after);
         assert_eq!(
@@ -1076,26 +1077,27 @@ mod tests {
         System::current().stop();
         system.run();
         let processed_payments = result.unwrap();
-        assert_eq!(
-            processed_payments[0],
-            Pending(PendingPayable {
-                recipient_wallet: accounts_1.wallet,
-                hash: H256::from_str(
-                    "c0756e8da662cee896ed979456c77931668b7f8456b9f978fc3305671f8f82ad"
-                )
-                .unwrap()
-            })
-        );
-        assert_eq!(
-            processed_payments[1],
-            Pending(PendingPayable {
-                recipient_wallet: accounts_2.wallet,
-                hash: H256::from_str(
-                    "9ba19f88ce43297d700b1f57ed8bc6274d01a5c366b78dd05167f9874c867ba0"
-                )
-                .unwrap()
-            })
-        );
+        todo!("BatchResults");
+        // assert_eq!(
+        //     processed_payments[0],
+        //     Pending(PendingPayable {
+        //         recipient_wallet: accounts_1.wallet,
+        //         hash: H256::from_str(
+        //             "c0756e8da662cee896ed979456c77931668b7f8456b9f978fc3305671f8f82ad"
+        //         )
+        //         .unwrap()
+        //     })
+        // );
+        // assert_eq!(
+        //     processed_payments[1],
+        //     Pending(PendingPayable {
+        //         recipient_wallet: accounts_2.wallet,
+        //         hash: H256::from_str(
+        //             "9ba19f88ce43297d700b1f57ed8bc6274d01a5c366b78dd05167f9874c867ba0"
+        //         )
+        //         .unwrap()
+        //     })
+        // );
         let recording = accountant_recording.lock().unwrap();
         assert_eq!(recording.len(), 1);
     }

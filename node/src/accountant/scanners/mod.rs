@@ -1570,12 +1570,7 @@ mod tests {
             .sent_payable_dao(sent_payable_dao)
             .build();
         let logger = Logger::new(test_name);
-        let sent_payables = SentPayables {
-            payment_procedure_result: Either::Left(vec![IndividualBatchResult::Pending(
-                pending_payable,
-            )]),
-            response_skeleton_opt: None,
-        };
+        let sent_payables = todo!("BatchResults");
         let mut subject = make_dull_subject();
         subject.payable = Box::new(payable_scanner);
         let aware_of_unresolved_pending_payable_before =

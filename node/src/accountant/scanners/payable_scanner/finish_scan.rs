@@ -60,31 +60,32 @@ mod tests {
             .sent_payable_dao(sent_payable_dao)
             .build();
         let logger = Logger::new(test_name);
-        let sent_payables = SentPayables {
-            payment_procedure_result: Either::Left(vec![IndividualBatchResult::Pending(
-                pending_payable,
-            )]),
-            response_skeleton_opt: Some(ResponseSkeleton {
-                client_id: 1234,
-                context_id: 5678,
-            }),
-        };
-        subject.mark_as_started(SystemTime::now());
-
-        let scan_result = subject.finish_scan(sent_payables, &logger);
-
-        System::current().stop();
-        system.run();
-        assert_eq!(scan_result.result, OperationOutcome::NewPendingPayable);
-        assert_eq!(
-            scan_result.ui_response_opt,
-            Some(NodeToUiMessage {
-                target: MessageTarget::ClientId(1234),
-                body: UiScanResponse {}.tmb(5678),
-            })
-        );
-        TestLogHandler::new().exists_log_matching(&format!(
-            "INFO: {test_name}: The Payables scan ended in \\d+ms."
-        ));
+        todo!("BatchResults");
+        // let sent_payables = SentPayables {
+        //     payment_procedure_result: Either::Left(vec![IndividualBatchResult::Pending(
+        //         pending_payable,
+        //     )]),
+        //     response_skeleton_opt: Some(ResponseSkeleton {
+        //         client_id: 1234,
+        //         context_id: 5678,
+        //     }),
+        // };
+        // subject.mark_as_started(SystemTime::now());
+        //
+        // let scan_result = subject.finish_scan(sent_payables, &logger);
+        //
+        // System::current().stop();
+        // system.run();
+        // assert_eq!(scan_result.result, OperationOutcome::NewPendingPayable);
+        // assert_eq!(
+        //     scan_result.ui_response_opt,
+        //     Some(NodeToUiMessage {
+        //         target: MessageTarget::ClientId(1234),
+        //         body: UiScanResponse {}.tmb(5678),
+        //     })
+        // );
+        // TestLogHandler::new().exists_log_matching(&format!(
+        //     "INFO: {test_name}: The Payables scan ended in \\d+ms."
+        // ));
     }
 }

@@ -2,7 +2,9 @@
 
 pub mod errors;
 
+use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
+use crate::accountant::db_access_objects::sent_payable_dao::Tx;
 use crate::blockchain::blockchain_bridge::BlockMarker;
 use crate::sub_lib::wallet::Wallet;
 use std::fmt;
@@ -44,4 +46,10 @@ pub struct RpcPayableFailure {
 pub enum IndividualBatchResult {
     Pending(PendingPayable), // TODO: GH-605: It should only store the TxHash
     Failed(RpcPayableFailure),
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct BatchResults {
+    pub sent_txs: Vec<Tx>,
+    pub failed_txs: Vec<FailedTx>,
 }

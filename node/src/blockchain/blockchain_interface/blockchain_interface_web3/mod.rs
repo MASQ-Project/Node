@@ -5,7 +5,7 @@ mod utils;
 
 use std::cmp::PartialEq;
 use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainError, LocalPayableError};
-use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, IndividualBatchResult};
+use crate::blockchain::blockchain_interface::data_structures::{BatchResults, BlockchainTransaction, IndividualBatchResult};
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use crate::blockchain::blockchain_interface::RetrievedBlockchainTransactions;
 use crate::blockchain::blockchain_interface::{BlockchainAgentBuildError, BlockchainInterface};
@@ -258,7 +258,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         agent: Box<dyn BlockchainAgent>,
         fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
         priced_templates: Either<PricedNewTxTemplates, PricedRetryTxTemplates>,
-    ) -> Box<dyn Future<Item = Vec<IndividualBatchResult>, Error = LocalPayableError>> {
+    ) -> Box<dyn Future<Item = BatchResults, Error = LocalPayableError>> {
         let consuming_wallet = agent.consuming_wallet().clone();
         let web3_batch = self.lower_interface().get_web3_batch();
         let get_transaction_id = self
