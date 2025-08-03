@@ -219,7 +219,7 @@ pub fn sign_and_append_payment(
     signable_tx_template: &SignableTxTemplate,
     consuming_wallet: &Wallet,
     logger: &Logger,
-) -> HashAndAmount {
+) -> Tx {
     let &SignableTxTemplate {
         receiver_address,
         amount_in_wei,
@@ -242,21 +242,14 @@ pub fn sign_and_append_payment(
         wei_to_gwei::<u128, u128>(gas_price_wei).separate_with_commas()
     );
 
-    // TODO: GH-605: Check how IndividualBatchResults are handled before
-    // let tx = Tx {
-    //     hash,
-    //     receiver_address,
-    //     amount: amount_in_wei,
-    //     timestamp: to_unix_timestamp(SystemTime::now()),
-    //     gas_price_wei,
-    //     nonce,
-    //     status: TxStatus::Pending(ValidationStatus::Waiting),
-    // };
-
-    // TODO: GH-605: Instead of HashAndAmount, it should hold the whole Tx object
-    HashAndAmount {
-        hash: signed_tx.transaction_hash,
-        amount: signable_tx_template.amount_in_wei,
+    Tx {
+        hash,
+        receiver_address,
+        amount: amount_in_wei,
+        timestamp: to_unix_timestamp(SystemTime::now()),
+        gas_price_wei,
+        nonce,
+        status: TxStatus::Pending(ValidationStatus::Waiting),
     }
 }
 
@@ -271,7 +264,7 @@ pub fn sign_and_append_multiple_payments(
     web3_batch: &Web3<Batch<Http>>,
     signable_tx_templates: &SignableTxTemplates,
     consuming_wallet: Wallet,
-) -> Vec<HashAndAmount> {
+) -> Vec<Tx> {
     signable_tx_templates
         .iter()
         .map(|signable_tx_template| {
@@ -304,13 +297,16 @@ pub fn send_payables_within_batch(
             chain.rec().num_chain_id,
         );
 
-    let hashes_and_paid_amounts = sign_and_append_multiple_payments(
+    let tx_vec = sign_and_append_multiple_payments(
         logger,
         chain,
         web3_batch,
         &signable_tx_templates,
         consuming_wallet,
     );
+
+    let hashes_and_paid_amounts: Vec<HashAndAmount> =
+        tx_vec.iter().map(|tx| HashAndAmount::from(tx)).collect();
 
     let timestamp = SystemTime::now();
     let hashes_and_paid_amounts_error = hashes_and_paid_amounts.clone();
@@ -465,16 +461,17 @@ mod tests {
         );
 
         let mut batch_result = web3_batch.eth().transport().submit_batch().wait().unwrap();
-        assert_eq!(
-            result,
-            HashAndAmount {
-                hash: H256::from_str(
-                    "94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2"
-                )
-                .unwrap(),
-                amount: account.balance_wei
-            }
-        );
+        todo!("Tx");
+        // assert_eq!(
+        //     result,
+        //     HashAndAmount {
+        //         hash: H256::from_str(
+        //             "94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2"
+        //         )
+        //         .unwrap(),
+        //         amount: account.balance_wei
+        //     }
+        // );
         assert_eq!(
             batch_result.pop().unwrap().unwrap(),
             Value::String(
@@ -517,25 +514,27 @@ mod tests {
             consuming_wallet,
         );
 
-        assert_eq!(
-            result,
-            vec![
-                HashAndAmount {
-                    hash: H256::from_str(
-                        "374b7d023f4ac7d99e612d82beda494b0747116e9b9dc975b33b865f331ee934"
-                    )
-                    .unwrap(),
-                    amount: 1000000000
-                },
-                HashAndAmount {
-                    hash: H256::from_str(
-                        "5708afd876bc2573f9db984ec6d0e7f8ef222dd9f115643c9b9056d8bef8bbd9"
-                    )
-                    .unwrap(),
-                    amount: 2000000000
-                }
-            ]
-        );
+        todo!("Tx");
+
+        // assert_eq!(
+        //     result,
+        //     vec![
+        //         HashAndAmount {
+        //             hash: H256::from_str(
+        //                 "374b7d023f4ac7d99e612d82beda494b0747116e9b9dc975b33b865f331ee934"
+        //             )
+        //             .unwrap(),
+        //             amount: 1000000000
+        //         },
+        //         HashAndAmount {
+        //             hash: H256::from_str(
+        //                 "5708afd876bc2573f9db984ec6d0e7f8ef222dd9f115643c9b9056d8bef8bbd9"
+        //             )
+        //             .unwrap(),
+        //             amount: 2000000000
+        //         }
+        //     ]
+        // );
     }
 
     #[test]

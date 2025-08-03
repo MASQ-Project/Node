@@ -21,6 +21,7 @@ use ethereum_types::U64;
 use itertools::Either;
 use web3::transports::{EventLoopHandle, Http};
 use web3::types::{Address, Log, H256, U256, FilterBuilder, TransactionReceipt, BlockNumber};
+use crate::accountant::db_access_objects::sent_payable_dao::Tx;
 use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::PricedNewTxTemplates;
 use crate::accountant::scanners::payable_scanner::data_structures::priced_retry_tx_template::PricedRetryTxTemplates;
 use crate::accountant::scanners::payable_scanner::data_structures::signable_tx_template::SignableTxTemplates;
@@ -290,6 +291,12 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
 pub struct HashAndAmount {
     pub hash: H256,
     pub amount: u128,
+}
+
+impl From<&Tx> for HashAndAmount {
+    fn from(_: &Tx) -> Self {
+        todo!()
+    }
 }
 
 impl BlockchainInterfaceWeb3 {
