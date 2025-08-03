@@ -1,7 +1,10 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::accountant::db_access_objects::failed_payable_dao::ValidationStatus;
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
+use crate::accountant::db_access_objects::sent_payable_dao::{Tx, TxStatus};
+use crate::accountant::db_access_objects::utils::{to_unix_timestamp, TxHash};
 use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::PricedNewTxTemplates;
 use crate::accountant::scanners::payable_scanner::data_structures::signable_tx_template::{
     SignableTxTemplate, SignableTxTemplates,
@@ -161,7 +164,6 @@ pub fn sign_transaction(
     web3_batch: &Web3<Batch<Http>>,
     signable_tx_template: &SignableTxTemplate,
     consuming_wallet: &Wallet,
-    logger: &Logger,
 ) -> SignedTransaction {
     let &SignableTxTemplate {
         receiver_address,
@@ -169,19 +171,6 @@ pub fn sign_transaction(
         gas_price_wei,
         nonce,
     } = signable_tx_template;
-
-    debug!(
-        logger,
-        "Signing transaction:\n\
-         Amount: {} wei,\n\
-         To: {:?},\n\
-         Nonce: {},\n\
-         Gas Price: {} gwei\n",
-        amount_in_wei.separate_with_commas(),
-        receiver_address,
-        nonce,
-        wei_to_gwei::<u128, u128>(gas_price_wei).separate_with_commas()
-    );
 
     let data = sign_transaction_data(amount_in_wei, receiver_address);
     let gas_limit = gas_limit(data, chain);
@@ -231,15 +220,38 @@ pub fn sign_and_append_payment(
     consuming_wallet: &Wallet,
     logger: &Logger,
 ) -> HashAndAmount {
-    let signed_tx = sign_transaction(
-        chain,
-        web3_batch,
-        signable_tx_template,
-        consuming_wallet,
-        logger,
-    );
+    let &SignableTxTemplate {
+        receiver_address,
+        amount_in_wei,
+        gas_price_wei,
+        nonce,
+    } = signable_tx_template;
+
+    let signed_tx = sign_transaction(chain, web3_batch, signable_tx_template, consuming_wallet);
 
     append_signed_transaction_to_batch(web3_batch, signed_tx.raw_transaction);
+
+    let hash = signed_tx.transaction_hash;
+    debug!(
+        logger,
+        "Sending transaction with hash {:?}, amount: {} wei, to {:?}, nonce: {}, gas price: {} gwei",
+        hash,
+        amount_in_wei.separate_with_commas(),
+        receiver_address,
+        nonce,
+        wei_to_gwei::<u128, u128>(gas_price_wei).separate_with_commas()
+    );
+
+    // TODO: GH-605: Check how IndividualBatchResults are handled before
+    // let tx = Tx {
+    //     hash,
+    //     receiver_address,
+    //     amount: amount_in_wei,
+    //     timestamp: to_unix_timestamp(SystemTime::now()),
+    //     gas_price_wei,
+    //     nonce,
+    //     status: TxStatus::Pending(ValidationStatus::Waiting),
+    // };
 
     // TODO: GH-605: Instead of HashAndAmount, it should hold the whole Tx object
     HashAndAmount {
@@ -420,6 +432,8 @@ mod tests {
 
     #[test]
     fn sign_and_append_payment_works() {
+        init_test_logging();
+        let test_name = "sign_and_append_payment_works";
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .begin_batch()
@@ -447,7 +461,7 @@ mod tests {
             &web3_batch,
             &signable_tx_template,
             &consuming_wallet,
-            &Logger::new("test"),
+            &Logger::new(test_name),
         );
 
         let mut batch_result = web3_batch.eth().transport().submit_batch().wait().unwrap();
@@ -467,6 +481,14 @@ mod tests {
                 "0x94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2".to_string()
             )
         );
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: Sending transaction with hash \
+            0x94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2, \
+            amount: 1,000,000,000 wei, \
+            to 0x0000000000000000000000000077616c6c657431, \
+            nonce: 1, \
+            gas price: 1 gwei"
+        ));
     }
 
     #[test]
@@ -925,14 +947,11 @@ mod tests {
             &Web3::new(Batch::new(transport)),
             &signable_tx_template,
             &consuming_wallet,
-            &Logger::new("test"),
         );
     }
 
     #[test]
     fn sign_transaction_just_works() {
-        init_test_logging();
-        let test_name = "sign_transaction_just_works";
         let port = find_free_port();
         let (_event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
@@ -968,7 +987,6 @@ mod tests {
             &Web3::new(Batch::new(transport)),
             &signable_tx_template,
             &consuming_wallet,
-            &Logger::new(test_name),
         );
 
         let expected_tx_result = web3
@@ -978,13 +996,6 @@ mod tests {
             .unwrap();
 
         assert_eq!(result, expected_tx_result);
-        TestLogHandler::new().exists_log_containing(&format!(
-            "DEBUG: {test_name}: Signing transaction:\n\
-             Amount: 11,222,333,444 wei,\n\
-             To: 0x00000000726563697069656e745f77616c6c6574,\n\
-             Nonce: 5,\n\
-             Gas Price: 123 gwei\n"
-        ));
     }
 
     #[test]
@@ -1158,7 +1169,6 @@ mod tests {
             &Web3::new(Batch::new(transport)),
             &signable_tx_template,
             &consuming_wallet,
-            &Logger::new("test"),
         );
 
         let byte_set_to_compare = signed_transaction.raw_transaction.0;
