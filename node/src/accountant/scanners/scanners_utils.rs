@@ -671,51 +671,6 @@ mod tests {
     }
 
     #[test]
-    fn conversion_from_sent_tx_and_failure_reason_to_failed_tx_works() {
-        let sent_tx = SentTx {
-            hash: make_tx_hash(789),
-            receiver_address: make_wallet("receiver").address(),
-            amount_minor: 123_456_789,
-            timestamp: to_unix_timestamp(
-                SystemTime::now()
-                    .checked_sub(Duration::from_secs(10_000))
-                    .unwrap(),
-            ),
-            gas_price_minor: gwei_to_wei(424_u64),
-            nonce: 456_u64.into(),
-            status: TxStatus::Pending(ValidationStatus::Waiting),
-        };
-
-        let result_1 = FailedTx::from((sent_tx.clone(), FailureReason::Reverted));
-        let result_2 = FailedTx::from((
-            sent_tx.clone(),
-            FailureReason::Submission(AppRpcError::Local(LocalError::Internal)),
-        ));
-
-        assert_conversion_into_failed_tx(result_1, sent_tx.clone(), FailureReason::Reverted);
-        assert_conversion_into_failed_tx(
-            result_2,
-            sent_tx,
-            FailureReason::Submission(AppRpcError::Local(LocalError::Internal)),
-        );
-    }
-
-    fn assert_conversion_into_failed_tx(
-        result: FailedTx,
-        original_sent_tx: SentTx,
-        expected_failure_reason: FailureReason,
-    ) {
-        assert_eq!(result.hash, original_sent_tx.hash);
-        assert_eq!(result.receiver_address, original_sent_tx.receiver_address);
-        assert_eq!(result.amount_minor, original_sent_tx.amount_minor);
-        assert_eq!(result.timestamp, original_sent_tx.timestamp);
-        assert_eq!(result.gas_price_minor, original_sent_tx.gas_price_minor);
-        assert_eq!(result.nonce, original_sent_tx.nonce);
-        assert_eq!(result.status, FailureStatus::RetryRequired);
-        assert_eq!(result.reason, expected_failure_reason);
-    }
-
-    #[test]
     fn count_total_errors_says_unknown_number_for_early_local_errors() {
         let early_local_errors = [
             PayableTransactionError::TransactionID(BlockchainError::QueryFailed(

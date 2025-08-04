@@ -8,13 +8,13 @@ use ethereum_types::{H256};
 use web3::types::Address;
 use masq_lib::utils::ExpectValue;
 use crate::accountant::{checked_conversion, comma_joined_stringifiable};
-use crate::accountant::db_access_objects::utils::{DaoFactoryReal, TxHash, TxIdentifiers};
+use crate::accountant::db_access_objects::utils::{DaoFactoryReal, TxHash, TxIdentifiers, TxRecordWithHash};
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock};
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use itertools::Itertools;
 use serde_derive::{Deserialize, Serialize};
-use crate::accountant::db_access_objects::failed_payable_dao::ValidationStatus;
+use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, ValidationStatus};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SentPayableDaoError {
@@ -34,6 +34,12 @@ pub struct SentTx {
     pub gas_price_minor: u128,
     pub nonce: u64,
     pub status: TxStatus,
+}
+
+impl TxRecordWithHash for SentTx {
+    fn hash(&self) -> TxHash {
+        self.hash
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -445,6 +451,8 @@ mod tests {
     use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::{ByHash, IsPending};
     use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDaoError::{EmptyInput, PartialExecution};
     use crate::accountant::db_access_objects::test_utils::{make_read_only_db_connection, TxBuilder};
+    use crate::accountant::db_access_objects::utils::TxRecordWithHash;
+    use crate::accountant::test_utils::make_sent_tx;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock};
     use crate::blockchain::errors::{AppRpcError, RemoteError};
     use crate::blockchain::test_utils::{make_block_hash, make_tx_hash};
@@ -1218,5 +1226,15 @@ mod tests {
                 detection: Detection::Normal,
             }
         )
+    }
+
+    #[test]
+    fn tx_record_with_hash_is_implemented_for_sent_tx() {
+        let sent_tx = make_sent_tx(1234);
+        let hash = sent_tx.hash;
+
+        let hash_from_trait = sent_tx.hash();
+
+        assert_eq!(hash_from_trait, hash);
     }
 }

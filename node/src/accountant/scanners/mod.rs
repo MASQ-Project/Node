@@ -1054,7 +1054,7 @@ mod tests {
     use masq_lib::ui_gateway::NodeToUiMessage;
     use crate::accountant::db_access_objects::failed_payable_dao::{FailureRetrieveCondition, FailureStatus, ValidationStatus};
     use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDaoError;
-    use crate::accountant::scanners::pending_payable_scanner::utils::{FailuresRequiringDoubleCheck, PendingPayableCache, PendingPayableScanResult, TxHashByTable};
+    use crate::accountant::scanners::pending_payable_scanner::utils::{RecheckRequiringFailures, PendingPayableCache, PendingPayableScanResult, TxHashByTable};
     use crate::accountant::scanners::test_utils::{assert_timestamps_from_str, parse_system_time_from_str, MarkScanner, NullScanner, ReplacementType, ScannerReplacement};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{RetrievedTxStatus, TransactionBlock, StatusReadFromReceiptCheck, BlockchainTxFailure, TxReceiptResult, TxReceiptError};
     use crate::blockchain::errors::{AppRpcError, RemoteError};
@@ -1187,10 +1187,10 @@ mod tests {
             .as_any()
             .downcast_ref::<PayableScanner>()
             .unwrap();
-        let pending_payable_scanner = scanners
+        let mut pending_payable_scanner = scanners
             .pending_payable
-            .as_any()
-            .downcast_ref::<PendingPayableScanner>()
+            .as_any_mut()
+            .downcast_mut::<PendingPayableScanner>()
             .unwrap();
         let receivable_scanner = scanners
             .receivable
@@ -1216,9 +1216,13 @@ mod tests {
             pending_payable_scanner.common.initiated_at_opt.is_some(),
             false
         );
-        assert_eq!(
-            pending_payable_scanner.yet_unproven_failures,
-            FailuresRequiringDoubleCheck::default()
+        let dumped_records = pending_payable_scanner
+            .yet_unproven_failed_payables
+            .dump_cache();
+        assert!(
+            dumped_records.is_empty(),
+            "There should be no yet unproven failures but found {:?}.",
+            dumped_records
         );
         let retrieve_txs_params = retrieve_txs_params_arc.lock().unwrap();
         assert_eq!(
@@ -1282,7 +1286,7 @@ mod tests {
         let config_dao_mock = ConfigDaoMock::new().set_result(Ok(()));
         let config_dao_factory = ConfigDaoFactoryMock::new().make_result(config_dao_mock);
 
-        let scanners = Scanners::new(
+        let mut scanners = Scanners::new(
             DaoFactories {
                 payable_dao_factory: Box::new(payable_dao_factory),
                 sent_payable_dao_factory: Box::new(sent_payable_dao_factory),
@@ -1295,22 +1299,23 @@ mod tests {
             Rc::new(RefCell::new(FinancialStatistics::default())),
         );
 
-        let pending_payable_scanner = scanners
-            .pending_payable
-            .as_any()
-            .downcast_ref::<PendingPayableScanner>()
-            .unwrap();
         let retrieve_txs_params = retrieve_txs_params_arc.lock().unwrap();
         assert_eq!(
             *retrieve_txs_params,
             vec![Some(FailureRetrieveCondition::EveryRecheckRequiredRecord)]
         );
-        let mut expected_failures = FailuresRequiringDoubleCheck::default();
-        expected_failures
-            .load_cache(hashmap!(failed_tx_1.hash => failed_tx_1, failed_tx_2.hash => failed_tx_2));
+        let mut pending_payable_scanner = scanners
+            .pending_payable
+            .as_any_mut()
+            .downcast_mut::<PendingPayableScanner>()
+            .unwrap();
+        let mut expected_failures = RecheckRequiringFailures::default();
+        expected_failures.load_cache(vec![failed_tx_1, failed_tx_2]);
         assert_eq!(
-            pending_payable_scanner.yet_unproven_failures,
-            expected_failures
+            pending_payable_scanner
+                .yet_unproven_failed_payables
+                .dump_cache(),
+            expected_failures.dump_cache()
         );
     }
 
@@ -2279,8 +2284,8 @@ mod tests {
             .exists_no_log_containing(&format!("DEBUG: {test_name}: Paying qualified debts"));
     }
 
-    //TODO inspire yourself to write the right tests for the pending payable scanner when it starts
-    // #[test]
+    // //TODO inspire yourself to write the right tests for the pending payable scanner when it starts
+    // // #[test]
     // fn scan_for_pending_payables_finds_new_pending_payables() {
     //     init_test_logging();
     //     let now = SystemTime::now();
@@ -2346,7 +2351,7 @@ mod tests {
     // }
     //
     // #[test]
-    // fn scan_for_pending_payables_finds_new_pending_payable_and_unrechecked_failed_payable() {
+    // fn scan_for_pending_payables_finds_new_pending_payable_and_unproven_failed_payable() {
     //     init_test_logging();
     //     let now = SystemTime::now();
     //     let retrieve_pending_txs_params_arc = Arc::new(Mutex::new(vec![]));
@@ -2413,7 +2418,6 @@ mod tests {
     //     receipts for: 1 pending and 2 failed that require recheck");
     // }
 
-    //TODO write two tests instead, according those two above
     #[test]
     fn pending_payable_scanner_can_initiate_a_scan() {
         init_test_logging();
@@ -2707,12 +2711,12 @@ mod tests {
         );
         let msg = TxReceiptsMessage {
             results: vec![
-                TxReceiptResult::Ok(transaction_with_status_1),
-                TxReceiptResult::Ok(transaction_with_status_2),
-                TxReceiptResult::Ok(transaction_with_status_3),
-                TxReceiptResult::Err(tx_receipt_rpc_error_4),
-                TxReceiptResult::Err(tx_receipt_rpc_error_5),
-                TxReceiptResult::Ok(transaction_with_status_6),
+                TxReceiptResult(Ok(transaction_with_status_1)),
+                TxReceiptResult(Ok(transaction_with_status_2)),
+                TxReceiptResult(Ok(transaction_with_status_3)),
+                TxReceiptResult(Err(tx_receipt_rpc_error_4)),
+                TxReceiptResult(Err(tx_receipt_rpc_error_5)),
+                TxReceiptResult(Ok(transaction_with_status_6)),
             ],
             response_skeleton_opt: None,
         };

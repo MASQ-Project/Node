@@ -395,14 +395,14 @@ impl BlockchainBridge {
                 transaction_receipts_results.iter().fold(
                     (0, 0, 0),
                     |(success, fail, pending), transaction_receipt| match transaction_receipt {
-                        TxReceiptResult::Ok(tx_receipt) => match tx_receipt.status {
+                        TxReceiptResult(Ok(tx_receipt)) => match tx_receipt.status {
                             StatusReadFromReceiptCheck::Failed(_) => (success, fail + 1, pending),
                             StatusReadFromReceiptCheck::Succeeded(_) => {
                                 (success + 1, fail, pending)
                             }
                             StatusReadFromReceiptCheck::Pending => (success, fail, pending + 1),
                         },
-                        TxReceiptResult::Err(_) => (success, fail, pending + 1),
+                        TxReceiptResult(Err(_)) => (success, fail, pending + 1),
                     },
                 );
             format!(
@@ -1210,14 +1210,14 @@ mod tests {
             tx_receipts_message,
             &TxReceiptsMessage {
                 results: vec![
-                    TxReceiptResult::Ok(RetrievedTxStatus::new(
+                    TxReceiptResult(Ok(RetrievedTxStatus::new(
                         TxHashByTable::SentPayable(tx_hash_1),
                         expected_receipt.into()
-                    )),
-                    TxReceiptResult::Ok(RetrievedTxStatus::new(
+                    ))),
+                    TxReceiptResult(Ok(RetrievedTxStatus::new(
                         TxHashByTable::FailedPayable(tx_hash_2),
                         StatusReadFromReceiptCheck::Pending
-                    ))
+                    )))
                 ],
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
@@ -1349,16 +1349,16 @@ mod tests {
             *report_receipts_msg,
             TxReceiptsMessage {
                 results: vec![
-                    TxReceiptResult::Ok(RetrievedTxStatus::new(TxHashByTable::SentPayable(tx_hash_1), StatusReadFromReceiptCheck::Pending)),
-                    TxReceiptResult::Ok(RetrievedTxStatus::new(TxHashByTable::SentPayable(tx_hash_2),  StatusReadFromReceiptCheck::Succeeded(TransactionBlock {
+                    TxReceiptResult(Ok(RetrievedTxStatus::new(TxHashByTable::SentPayable(tx_hash_1), StatusReadFromReceiptCheck::Pending))),
+                    TxReceiptResult(Ok(RetrievedTxStatus::new(TxHashByTable::SentPayable(tx_hash_2),  StatusReadFromReceiptCheck::Succeeded(TransactionBlock {
                         block_hash: Default::default(),
                         block_number,
-                    }))),
-                    TxReceiptResult::Err(
+                    })))),
+                    TxReceiptResult(Err(
                         TxReceiptError::new(
                             TxHashByTable::SentPayable(tx_hash_3),
-                        AppRpcError:: Remote(RemoteError::Web3RpcError { code: 429, message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string()}))),
-                    TxReceiptResult::Ok(RetrievedTxStatus::new(TxHashByTable::SentPayable(tx_hash_1), StatusReadFromReceiptCheck::Pending)),
+                        AppRpcError:: Remote(RemoteError::Web3RpcError { code: 429, message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string()})))),
+                    TxReceiptResult(Ok(RetrievedTxStatus::new(TxHashByTable::SentPayable(tx_hash_1), StatusReadFromReceiptCheck::Pending))),
                 ],
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,

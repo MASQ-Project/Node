@@ -229,28 +229,28 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                         .map(|(response, tx_hash)| match response {
                             Ok(result) => {
                                 match serde_json::from_value::<TransactionReceipt>(result) {
-                                    Ok(receipt) => TxReceiptResult::Ok(RetrievedTxStatus::new(
+                                    Ok(receipt) => TxReceiptResult(Ok(RetrievedTxStatus::new(
                                         tx_hash,
                                         receipt.into(),
-                                    )),
+                                    ))),
                                     Err(e) => {
                                         if e.to_string().contains("invalid type: null") {
-                                            TxReceiptResult::Ok(RetrievedTxStatus::new(
+                                            TxReceiptResult(Ok(RetrievedTxStatus::new(
                                                 tx_hash,
                                                 StatusReadFromReceiptCheck::Pending,
-                                            ))
+                                            )))
                                         } else {
-                                            TxReceiptResult::Err(TxReceiptError::new(
+                                            TxReceiptResult(Err(TxReceiptError::new(
                                                 tx_hash,
                                                 AppRpcError::Remote(RemoteError::InvalidResponse(
                                                     e.to_string(),
                                                 )),
-                                            ))
+                                            )))
                                         }
                                     }
                                 }
                             }
-                            Err(e) => TxReceiptResult::Err(TxReceiptError::new(tx_hash, e.into())),
+                            Err(e) => TxReceiptResult(Err(TxReceiptError::new(tx_hash, e.into()))),
                         })
                         .collect::<Vec<TxReceiptResult>>())
                 }),
@@ -1125,7 +1125,7 @@ mod tests {
             .wait()
             .unwrap();
 
-        assert_eq!(result[0], TxReceiptResult::Err(
+        assert_eq!(result[0], TxReceiptResult(Err(
             TxReceiptError::new(
                 tx_hbt_1,
                 AppRpcError::Remote(
@@ -1135,47 +1135,47 @@ mod tests {
                     "The requests per second (RPS) of your requests are higher than your plan allows."
                         .to_string()
                 }
-            )))
+            ))))
         );
         assert_eq!(
             result[1],
-            TxReceiptResult::Ok(RetrievedTxStatus::new(
+            TxReceiptResult(Ok(RetrievedTxStatus::new(
                 tx_hbt_2,
                 StatusReadFromReceiptCheck::Pending
-            ))
+            )))
         );
         assert_eq!(
             result[2],
-            TxReceiptResult::Err(TxReceiptError::new(
+            TxReceiptResult(Err(TxReceiptError::new(
                 tx_hbt_3,
                 AppRpcError::Remote(RemoteError::InvalidResponse(
                     "invalid type: string \"trash\", expected struct Receipt".to_string()
                 ))
-            ))
+            )))
         );
         assert_eq!(
             result[3],
-            TxReceiptResult::Ok(RetrievedTxStatus::new(
+            TxReceiptResult(Ok(RetrievedTxStatus::new(
                 tx_hbt_4,
                 StatusReadFromReceiptCheck::Pending
-            ))
+            )))
         );
         assert_eq!(
             result[4],
-            TxReceiptResult::Ok(RetrievedTxStatus::new(
+            TxReceiptResult(Ok(RetrievedTxStatus::new(
                 tx_hbt_5,
                 StatusReadFromReceiptCheck::Failed(BlockchainTxFailure::Unrecognized)
-            ))
+            )))
         );
         assert_eq!(
             result[5],
-            TxReceiptResult::Ok(RetrievedTxStatus::new(
+            TxReceiptResult(Ok(RetrievedTxStatus::new(
                 tx_hbt_6,
                 StatusReadFromReceiptCheck::Succeeded(TransactionBlock {
                     block_hash,
                     block_number,
                 }),
-            ))
+            )))
         )
     }
 

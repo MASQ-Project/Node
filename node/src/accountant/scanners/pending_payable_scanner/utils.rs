@@ -8,7 +8,7 @@ use thousands::Separable;
 use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureReason, FailureStatus};
 use crate::accountant::db_access_objects::sent_payable_dao::{SentTx, TxStatus};
 use crate::accountant::db_access_objects::utils::{from_unix_timestamp, TxHash};
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{BlockchainTxFailure, StatusReadFromReceiptCheck, TransactionBlock, TxReceiptError};
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{BlockchainTxFailure, StatusReadFromReceiptCheck, TransactionBlock, TxReceiptError, TxReceiptResult};
 use crate::blockchain::errors::AppRpcError;
 
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
@@ -109,12 +109,16 @@ pub struct FailedValidation {
     pub failure: AppRpcError,
 }
 
+pub struct MismatchReport {
+    pub noticed_at: TxHashByTable,
+    pub remaining_hashes: Vec<TxHashByTable>,
+}
+
 pub trait PendingPayableCache<Record> {
-    fn load_cache<Collection>(&mut self, records: Collection)
-    where
-        Collection: IntoIterator<Item = (TxHash, Record)>;
+    fn load_cache(&mut self, records: Vec<Record>);
     fn get_record_by_hash(&mut self, hashes: TxHash) -> Option<Record>;
     fn ensure_empty_cache(&mut self, logger: &Logger);
+    fn dump_cache(&mut self) -> HashMap<TxHash, Record>;
 }
 
 #[derive(Debug, PartialEq, Eq, Default)]
@@ -123,11 +127,9 @@ pub struct CurrentPendingPayables {
 }
 
 impl PendingPayableCache<SentTx> for CurrentPendingPayables {
-    fn load_cache<Collection>(&mut self, records: Collection)
-    where
-        Collection: IntoIterator<Item = (TxHash, SentTx)>,
-    {
-        self.sent_payables.extend(records);
+    fn load_cache(&mut self, records: Vec<SentTx>) {
+        self.sent_payables
+            .extend(records.into_iter().map(|tx| (tx.hash, tx)));
     }
 
     fn get_record_by_hash(&mut self, hashes: TxHash) -> Option<SentTx> {
@@ -144,6 +146,10 @@ impl PendingPayableCache<SentTx> for CurrentPendingPayables {
         }
         self.sent_payables.clear()
     }
+
+    fn dump_cache(&mut self) -> HashMap<TxHash, SentTx> {
+        self.sent_payables.drain().collect()
+    }
 }
 
 impl CurrentPendingPayables {
@@ -153,16 +159,14 @@ impl CurrentPendingPayables {
 }
 
 #[derive(Debug, PartialEq, Eq, Default)]
-pub struct FailuresRequiringDoubleCheck {
+pub struct RecheckRequiringFailures {
     pub(super) failures: HashMap<TxHash, FailedTx>,
 }
 
-impl PendingPayableCache<FailedTx> for FailuresRequiringDoubleCheck {
-    fn load_cache<Collection>(&mut self, records: Collection)
-    where
-        Collection: IntoIterator<Item = (TxHash, FailedTx)>,
-    {
-        self.failures.extend(records);
+impl PendingPayableCache<FailedTx> for RecheckRequiringFailures {
+    fn load_cache(&mut self, records: Vec<FailedTx>) {
+        self.failures
+            .extend(records.into_iter().map(|tx| (tx.hash, tx)));
     }
 
     fn get_record_by_hash(&mut self, hashes: TxHash) -> Option<FailedTx> {
@@ -178,9 +182,13 @@ impl PendingPayableCache<FailedTx> for FailuresRequiringDoubleCheck {
         }
         self.failures.clear()
     }
+
+    fn dump_cache(&mut self) -> HashMap<TxHash, FailedTx> {
+        self.failures.drain().collect()
+    }
 }
 
-impl FailuresRequiringDoubleCheck {
+impl RecheckRequiringFailures {
     pub fn new() -> Self {
         Self::default()
     }
@@ -204,7 +212,16 @@ pub enum Retry {
 
 pub struct TxCaseToBeInterpreted {
     pub tx_by_table: TxByTable,
-    pub retrieved_status: StatusReadFromReceiptCheck,
+    pub tx_receipt_result: TxReceiptResult,
+}
+
+impl TxCaseToBeInterpreted {
+    pub fn new(tx_by_table: TxByTable, tx_receipt_result: TxReceiptResult) -> Self {
+        Self {
+            tx_by_table,
+            tx_receipt_result,
+        }
+    }
 }
 
 pub enum TxByTable {
@@ -342,29 +359,14 @@ impl From<BlockchainTxFailure> for FailureReason {
     }
 }
 
-impl From<(SentTx, FailureReason)> for FailedTx {
-    fn from((sent_tx, failure_reason): (SentTx, FailureReason)) -> Self {
-        FailedTx {
-            hash: sent_tx.hash,
-            receiver_address: sent_tx.receiver_address,
-            amount_minor: sent_tx.amount_minor,
-            timestamp: sent_tx.timestamp,
-            gas_price_minor: sent_tx.gas_price_minor,
-            nonce: sent_tx.nonce,
-            reason: failure_reason,
-            status: FailureStatus::RetryRequired,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::accountant::db_access_objects::sent_payable_dao::Detection;
     use crate::accountant::db_access_objects::sent_payable_dao::Detection::Normal;
     use crate::accountant::scanners::pending_payable_scanner::utils::{
         CurrentPendingPayables, DetectedConfirmations, DetectedFailures, FailedValidation,
-        FailedValidationByTable, FailuresRequiringDoubleCheck, NormalTxConfirmation,
-        PendingPayableCache, PresortedTxFailure, ReceiptScanReport, Retry, TxReclaim,
+        FailedValidationByTable, NormalTxConfirmation, PendingPayableCache, PresortedTxFailure,
+        ReceiptScanReport, RecheckRequiringFailures, Retry, TxReclaim,
     };
     use crate::accountant::test_utils::{make_failed_tx, make_sent_tx, make_transaction_block};
     use crate::blockchain::errors::{AppRpcError, LocalError, RemoteError};
@@ -605,10 +607,10 @@ mod tests {
         let mut subject = CurrentPendingPayables::new();
         let sent_tx = make_sent_tx(123);
         let tx_hash = sent_tx.hash;
-        let records = vec![(tx_hash, sent_tx.clone())];
-
+        let records = vec![sent_tx.clone()];
         let state_before = subject.sent_payables.clone();
         subject.load_cache(records);
+
         let first_attempt = subject.get_record_by_hash(tx_hash);
         let second_attempt = subject.get_record_by_hash(tx_hash);
 
@@ -635,10 +637,10 @@ mod tests {
         let tx_hash_4 = sent_tx_4.hash;
         let nonexistent_tx_hash = make_tx_hash(234);
         let records = vec![
-            (tx_hash_1, sent_tx_1.clone()),
-            (tx_hash_2, sent_tx_2.clone()),
-            (tx_hash_3, sent_tx_3.clone()),
-            (tx_hash_4, sent_tx_4.clone()),
+            sent_tx_1.clone(),
+            sent_tx_2.clone(),
+            sent_tx_3.clone(),
+            sent_tx_4.clone(),
         ];
 
         let first_query = subject.get_record_by_hash(tx_hash_1);
@@ -673,16 +675,16 @@ mod tests {
         let mut subject = CurrentPendingPayables::new();
         let sent_tx = make_sent_tx(567);
         let tx_hash = sent_tx.hash;
-        let records = vec![(tx_hash, sent_tx.clone())];
+        let records = vec![sent_tx.clone()];
         let logger = Logger::new(test_name);
-
         subject.load_cache(records);
         let _ = subject.get_record_by_hash(tx_hash);
+
         subject.ensure_empty_cache(&logger);
 
         assert!(
             subject.sent_payables.is_empty(),
-            "Should be empty but was {:?}",
+            "Should be empty by now but was {:?}",
             subject.sent_payables
         );
         TestLogHandler::default().exists_no_log_containing(&format!(
@@ -699,15 +701,15 @@ mod tests {
         let sent_tx = make_sent_tx(567);
         let tx_hash = sent_tx.hash;
         let tx_timestamp = sent_tx.timestamp;
-        let records = vec![(tx_hash, sent_tx.clone())];
+        let records = vec![sent_tx.clone()];
         let logger = Logger::new(test_name);
-
         subject.load_cache(records);
+
         subject.ensure_empty_cache(&logger);
 
         assert!(
             subject.sent_payables.is_empty(),
-            "Should be empty but was {:?}",
+            "Should be empty by now but was {:?}",
             subject.sent_payables
         );
         TestLogHandler::default().exists_log_containing(&format!(
@@ -722,14 +724,38 @@ mod tests {
     }
 
     #[test]
+    fn pending_payables_cache_dump_works() {
+        let mut subject = CurrentPendingPayables::new();
+        let sent_tx_1 = make_sent_tx(567);
+        let tx_hash_1 = sent_tx_1.hash;
+        let sent_tx_2 = make_sent_tx(456);
+        let tx_hash_2 = sent_tx_2.hash;
+        let sent_tx_3 = make_sent_tx(789);
+        let tx_hash_3 = sent_tx_3.hash;
+        let records = vec![sent_tx_1.clone(), sent_tx_2.clone(), sent_tx_3.clone()];
+        subject.load_cache(records);
+
+        let result = subject.dump_cache();
+
+        assert_eq!(
+            result,
+            hashmap! (
+                tx_hash_1 => sent_tx_1,
+                tx_hash_2 => sent_tx_2,
+                tx_hash_3 => sent_tx_3
+            )
+        );
+    }
+
+    #[test]
     fn failure_cache_insert_and_get_methods_single_record() {
-        let mut subject = FailuresRequiringDoubleCheck::new();
+        let mut subject = RecheckRequiringFailures::new();
         let failed_tx = make_failed_tx(567);
         let tx_hash = failed_tx.hash;
-        let records = vec![(tx_hash, failed_tx.clone())];
-
+        let records = vec![failed_tx.clone()];
         let state_before = subject.failures.clone();
         subject.load_cache(records);
+
         let first_attempt = subject.get_record_by_hash(tx_hash);
         let second_attempt = subject.get_record_by_hash(tx_hash);
 
@@ -745,7 +771,7 @@ mod tests {
 
     #[test]
     fn failure_cache_insert_and_get_methods_multiple_records() {
-        let mut subject = FailuresRequiringDoubleCheck::new();
+        let mut subject = RecheckRequiringFailures::new();
         let failed_tx_1 = make_failed_tx(123);
         let tx_hash_1 = failed_tx_1.hash;
         let failed_tx_2 = make_failed_tx(456);
@@ -756,10 +782,10 @@ mod tests {
         let tx_hash_4 = failed_tx_4.hash;
         let nonexistent_tx_hash = make_tx_hash(234);
         let records = vec![
-            (tx_hash_1, failed_tx_1.clone()),
-            (tx_hash_2, failed_tx_2.clone()),
-            (tx_hash_3, failed_tx_3.clone()),
-            (tx_hash_4, failed_tx_4.clone()),
+            failed_tx_1.clone(),
+            failed_tx_2.clone(),
+            failed_tx_3.clone(),
+            failed_tx_4.clone(),
         ];
 
         let first_query = subject.get_record_by_hash(tx_hash_1);
@@ -791,19 +817,19 @@ mod tests {
     fn failure_cache_ensure_empty_happy_path() {
         init_test_logging();
         let test_name = "failure_cache_ensure_empty_happy_path";
-        let mut subject = FailuresRequiringDoubleCheck::new();
+        let mut subject = RecheckRequiringFailures::new();
         let failed_tx = make_failed_tx(567);
         let tx_hash = failed_tx.hash;
-        let records = vec![(tx_hash, failed_tx.clone())];
+        let records = vec![failed_tx.clone()];
         let logger = Logger::new(test_name);
-
         subject.load_cache(records);
         let _ = subject.get_record_by_hash(tx_hash);
+
         subject.ensure_empty_cache(&logger);
 
         assert!(
             subject.failures.is_empty(),
-            "Should be empty but was {:?}",
+            "Should be empty by now but was {:?}",
             subject.failures
         );
         TestLogHandler::default().exists_no_log_containing(&format!(
@@ -816,19 +842,19 @@ mod tests {
     fn failure_cache_ensure_empty_sad_path() {
         init_test_logging();
         let test_name = "failure_cache_ensure_empty_sad_path";
-        let mut subject = FailuresRequiringDoubleCheck::new();
+        let mut subject = RecheckRequiringFailures::new();
         let failed_tx = make_failed_tx(567);
         let tx_hash = failed_tx.hash;
         let tx_timestamp = failed_tx.timestamp;
-        let records = vec![(tx_hash, failed_tx.clone())];
+        let records = vec![failed_tx.clone()];
         let logger = Logger::new(test_name);
-
         subject.load_cache(records);
+
         subject.ensure_empty_cache(&logger);
 
         assert!(
             subject.failures.is_empty(),
-            "Should be empty but was {:?}",
+            "Should be empty by now but was {:?}",
             subject.failures
         );
         TestLogHandler::default().exists_log_containing(&format!(
@@ -840,5 +866,33 @@ mod tests {
         {tx_timestamp}, gas_price_minor: 567000000000, nonce: 567, reason: PendingTooLong, status: \
         RetryRequired }}}}. Dumping."
         ));
+    }
+
+    #[test]
+    fn failure_cache_dump_works() {
+        let mut subject = RecheckRequiringFailures::new();
+        let failed_tx_1 = make_failed_tx(567);
+        let tx_hash_1 = failed_tx_1.hash;
+        let failed_tx_2 = make_failed_tx(456);
+        let tx_hash_2 = failed_tx_2.hash;
+        let failed_tx_3 = make_failed_tx(789);
+        let tx_hash_3 = failed_tx_3.hash;
+        let records = vec![
+            failed_tx_1.clone(),
+            failed_tx_2.clone(),
+            failed_tx_3.clone(),
+        ];
+        subject.load_cache(records);
+
+        let result = subject.dump_cache();
+
+        assert_eq!(
+            result,
+            hashmap! (
+                tx_hash_1 => failed_tx_1,
+                tx_hash_2 => failed_tx_2,
+                tx_hash_3 => failed_tx_3
+            )
+        );
     }
 }

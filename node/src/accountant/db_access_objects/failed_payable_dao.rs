@@ -1,7 +1,5 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::db_access_objects::utils::{
-    DaoFactoryReal, TxHash, TxIdentifiers, VigilantRusqliteFlatten,
-};
+use crate::accountant::db_access_objects::utils::{DaoFactoryReal, TxHash, TxIdentifiers, TxRecordWithHash, VigilantRusqliteFlatten};
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::{checked_conversion, comma_joined_stringifiable};
 use crate::blockchain::errors::AppRpcError;
@@ -90,6 +88,12 @@ pub struct FailedTx {
     pub nonce: u64,
     pub reason: FailureReason,
     pub status: FailureStatus,
+}
+
+impl TxRecordWithHash for FailedTx {
+    fn hash(&self) -> TxHash {
+        self.hash
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -397,7 +401,8 @@ mod tests {
     use crate::accountant::db_access_objects::test_utils::{
         make_read_only_db_connection, FailedTxBuilder,
     };
-    use crate::accountant::db_access_objects::utils::current_unix_timestamp;
+    use crate::accountant::db_access_objects::utils::{current_unix_timestamp, TxRecordWithHash};
+    use crate::accountant::test_utils::{make_failed_tx, make_sent_tx};
     use crate::blockchain::errors::{AppRpcError, LocalError, RemoteError};
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::database::db_initializer::{
@@ -976,5 +981,15 @@ mod tests {
                 "attempt to write a readonly database".to_string()
             ))
         )
+    }
+
+    #[test]
+    fn tx_record_with_hash_is_implemented_for_failed_tx() {
+        let failed_tx = make_failed_tx(1234);
+        let hash = failed_tx.hash;
+
+        let hash_from_trait = failed_tx.hash();
+
+        assert_eq!(hash_from_trait, hash);
     }
 }

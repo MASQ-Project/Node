@@ -7,6 +7,7 @@ use crate::blockchain::blockchain_interface::data_structures::errors::Blockchain
 use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError::QueryFailed;
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use crate::blockchain::errors::AppRpcError;
+use actix::Message;
 use ethereum_types::{H256, U256, U64};
 use futures::Future;
 use serde_derive::{Deserialize, Serialize};
@@ -18,7 +19,17 @@ use web3::transports::{Batch, Http};
 use web3::types::{Address, BlockNumber, Filter, Log, TransactionReceipt};
 use web3::{Error, Web3};
 
-pub type TxReceiptResult = Result<RetrievedTxStatus, TxReceiptError>;
+#[derive(Debug, PartialEq, Eq, Message, Clone)]
+pub struct TxReceiptResult(pub Result<RetrievedTxStatus, TxReceiptError>);
+
+impl TxReceiptResult {
+    pub fn hash(&self) -> TxHashByTable {
+        match &self.0 {
+            Ok(retrieved_tx_status) => retrieved_tx_status.tx_hash,
+            Err(tx_receipt_error) => tx_receipt_error.tx_hash,
+        }
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct RetrievedTxStatus {
@@ -86,35 +97,6 @@ impl Display for StatusReadFromReceiptCheck {
         }
     }
 }
-
-// TODO figure out where this could be used????
-// impl FromStr for TxStatus {
-//     type Err = String;
-//
-//     fn from_str(s: &str) -> Result<Self, Self::Err> {
-//         match s {
-//             "Pending" => Ok(TxStatus::Pending),
-//             "Failed" => Ok(TxStatus::Failed), // TODO: GH-631: This should be removed
-//             s if s.starts_with("Succeeded") => {
-//                 // The format is "Succeeded(block_number, block_hash)"
-//                 let parts: Vec<&str> = s[10..s.len() - 1].split(',').collect();
-//                 if parts.len() != 2 {
-//                     return Err("Invalid Succeeded format".to_string());
-//                 }
-//                 let block_number: u64 = parts[0]
-//                     .parse()
-//                     .map_err(|_| "Invalid block number".to_string())?;
-//                 let block_hash =
-//                     H256::from_str(&parts[1][2..]).map_err(|_| "Invalid block hash".to_string())?;
-//                 Ok(TxStatus::Succeeded(TransactionBlock {
-//                     block_hash,
-//                     block_number: U64::from(block_number),
-//                 }))
-//             }
-//             _ => Err(format!("Unknown status: {}", s)),
-//         }
-//     }
-// }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct TxReceiptError {
@@ -264,9 +246,11 @@ mod tests {
     use web3::types::{BlockNumber, Bytes, FilterBuilder, Log, TransactionReceipt, U256};
     use crate::accountant::db_access_objects::failed_payable_dao::FailureReason;
     use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
-    use crate::accountant::test_utils::make_sent_tx;
+    use crate::accountant::scanners::pending_payable_scanner::utils::TxHashByTable;
+    use crate::accountant::test_utils::{make_sent_tx, make_transaction_block};
     use crate::assert_on_testing_enum_with_all_its_variants;
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{RetrievedTxStatus, TransactionBlock, BlockchainTxFailure, StatusReadFromReceiptCheck};
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{RetrievedTxStatus, TransactionBlock, BlockchainTxFailure, StatusReadFromReceiptCheck, TxReceiptResult, TxReceiptError};
+    use crate::blockchain::errors::{AppRpcError, LocalError, RemoteError};
 
     #[test]
     fn get_transaction_fee_balance_works() {
@@ -737,77 +721,41 @@ mod tests {
             })
             .collect_vec();
 
-        // let initially = check_nums.len();
-        // check_nums.dedup();
-        // let deduped = check_nums.len();
-        // assert_eq!(
-        //     deduped, initially,
-        //     "Some variants were processed more than once. Expected: {}, actual: {}",
-        //     initially, deduped
-        // );
-        // assert_eq!(
-        //     inputs_len,
-        //     BlockchainTxFailure::VARIANT_COUNT,
-        //     "Input should contain one example from each variant. Expected: {}, actual: {}",
-        //     BlockchainTxFailure::VARIANT_COUNT,
-        //     inputs_len
-        // );
-        // assert_eq!(
-        //     deduped,
-        //     BlockchainTxFailure::VARIANT_COUNT,
-        //     "We should've gotten one result for each variant. Expected: {}, actual: {}",
-        //     BlockchainTxFailure::VARIANT_COUNT,
-        //     deduped
-        // );
         assert_on_testing_enum_with_all_its_variants!(BlockchainTxFailure, check_nums, inputs_len)
     }
-    //
-    // #[test]
-    // fn tx_status_from_str_works() {
-    //     // Test Pending
-    //     assert_eq!(TxStatus::from_str("Pending"), Ok(TxStatus::Pending));
-    //
-    //     // Test Failed
-    //     assert_eq!(TxStatus::from_str("Failed"), Ok(TxStatus::Failed));
-    //
-    //     // Test Succeeded with valid input
-    //     let block_number = 123456789;
-    //     let block_hash = H256::from_low_u64_be(0xabcdef);
-    //     let input = format!("Succeeded({},0x{:x})", block_number, block_hash);
-    //     assert_eq!(
-    //         TxStatus::from_str(&input),
-    //         Ok(TxStatus::Succeeded(TransactionBlock {
-    //             block_hash,
-    //             block_number: U64::from(block_number),
-    //         }))
-    //     );
-    //
-    //     // Test Succeeded with invalid format
-    //     assert_eq!(
-    //         TxStatus::from_str("Succeeded(123)"),
-    //         Err("Invalid Succeeded format".to_string())
-    //     );
-    //
-    //     // Test Succeeded with invalid block number
-    //     assert_eq!(
-    //         TxStatus::from_str(
-    //             "Succeeded(abc,0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef)"
-    //         ),
-    //         Err("Invalid block number".to_string())
-    //     );
-    //
-    //     // Test Succeeded with invalid block hash
-    //     assert_eq!(
-    //         TxStatus::from_str("Succeeded(123,0xinvalidhash)"),
-    //         Err("Invalid block hash".to_string())
-    //     );
-    //
-    //     // Test unknown status
-    //     assert_eq!(
-    //         TxStatus::from_str("InProgress"),
-    //         Err("Unknown status: InProgress".to_string())
-    //     );
-    // }
+    #[test]
+    fn hash_can_be_fetched_from_tx_receipt_result() {
+        let hash_1 = TxHashByTable::SentPayable(make_tx_hash(123));
+        let hash_2 = TxHashByTable::SentPayable(make_tx_hash(111));
+        let hash_3 = TxHashByTable::FailedPayable(make_tx_hash(222));
+        let hash_4 = TxHashByTable::FailedPayable(make_tx_hash(321));
+        let positive_with_sent_payable = TxReceiptResult(Ok(RetrievedTxStatus::new(
+            hash_1,
+            StatusReadFromReceiptCheck::Pending,
+        )));
+        let negative_with_sent_payable = TxReceiptResult(Err(TxReceiptError::new(
+            hash_2,
+            AppRpcError::Local(LocalError::Internal),
+        )));
+        let positive_with_failed_payable = TxReceiptResult(Ok(RetrievedTxStatus::new(
+            hash_3,
+            StatusReadFromReceiptCheck::Succeeded(make_transaction_block(789)),
+        )));
+        let negative_with_failed_payable = TxReceiptResult(Err(TxReceiptError::new(
+            hash_4,
+            AppRpcError::Remote(RemoteError::Unreachable),
+        )));
+
+        let result_1 = positive_with_sent_payable.hash();
+        let result_2 = negative_with_sent_payable.hash();
+        let result_3 = positive_with_failed_payable.hash();
+        let result_4 = negative_with_failed_payable.hash();
+
+        assert_eq!(result_1, hash_1);
+        assert_eq!(result_2, hash_2);
+        assert_eq!(result_3, hash_3);
+        assert_eq!(result_4, hash_4);
+    }
 
     fn test_deriving_tx_status_from_tx_receipt_and_adding_to_sent_tx(
         num_status_opt: Option<U64>,

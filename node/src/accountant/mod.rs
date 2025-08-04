@@ -1933,10 +1933,10 @@ mod tests {
             block_number: 78901234.into(),
         };
         let tx_receipts_msg = TxReceiptsMessage {
-            results: vec![TxReceiptResult::Ok(RetrievedTxStatus::new(
+            results: vec![TxReceiptResult(Ok(RetrievedTxStatus::new(
                 TxHashByTable::SentPayable(sent_tx.hash),
                 StatusReadFromReceiptCheck::Succeeded(tx_block),
-            ))],
+            )))],
             response_skeleton_opt,
         };
 
@@ -2159,10 +2159,10 @@ mod tests {
         let first_counter_msg_setup = setup_for_counter_msg_triggered_via_type_id!(
             RequestTransactionReceipts,
             TxReceiptsMessage {
-                results: vec![TxReceiptResult::Ok(RetrievedTxStatus::new(
+                results: vec![TxReceiptResult(Ok(RetrievedTxStatus::new(
                     TxHashByTable::SentPayable(sent_tx.hash),
                     StatusReadFromReceiptCheck::Failed(BlockchainTxFailure::Unrecognized)
-                )),],
+                ))),],
                 response_skeleton_opt
             },
             &subject_addr
@@ -2787,10 +2787,10 @@ mod tests {
         let subject_addr: Addr<Accountant> = subject.start();
         let subject_subs = Accountant::make_subs_from(&subject_addr);
         let expected_tx_receipts_msg = TxReceiptsMessage {
-            results: vec![TxReceiptResult::Ok(RetrievedTxStatus::new(
+            results: vec![TxReceiptResult(Ok(RetrievedTxStatus::new(
                 TxHashByTable::SentPayable(tx_hash),
                 StatusReadFromReceiptCheck::Failed(BlockchainTxFailure::Unrecognized),
-            ))],
+            )))],
             response_skeleton_opt: None,
         };
         let expected_sent_payables = SentPayables {
@@ -3526,7 +3526,7 @@ mod tests {
         );
         let requested_tx = make_tx_hash(234);
         let counter_msg_3 = TxReceiptsMessage {
-            results: vec![TxReceiptResult::Ok(tx_with_status)],
+            results: vec![TxReceiptResult(Ok(tx_with_status))],
             response_skeleton_opt: None,
         };
         let request_transaction_receipts_msg = RequestTransactionReceipts {
@@ -5292,7 +5292,7 @@ mod tests {
                     }
                 }
 
-                let result = TxReceiptResult::Ok(RetrievedTxStatus::new(tx_hash, status));
+                let result = TxReceiptResult(Ok(RetrievedTxStatus::new(tx_hash, status)));
                 let record_by_table = TxByTable::SentPayable(sent_tx);
                 (result, record_by_table)
             }
@@ -5300,7 +5300,7 @@ mod tests {
                 let mut failed_tx = make_failed_tx(1 + idx);
                 failed_tx.hash = hash;
 
-                let result = TxReceiptResult::Ok(RetrievedTxStatus::new(tx_hash, status));
+                let result = TxReceiptResult(Ok(RetrievedTxStatus::new(tx_hash, status)));
                 let record_by_table = TxByTable::FailedPayable(failed_tx);
                 (result, record_by_table)
             }

@@ -48,6 +48,7 @@ use ethereum_types::U64;
 use web3::types::{Address};
 use crate::accountant::db_access_objects::sent_payable_dao::{RetrieveCondition, SentPayableDaoError, SentTx};
 use crate::accountant::scanners::pending_payable_scanner::utils::PendingPayableCache;
+use crate::accountant::scanners::test_utils::PendingPayableCacheMock;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock};
 
 pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableAccount {
@@ -1254,28 +1255,6 @@ impl FailedPayableDaoMock {
         self.delete_records_results.borrow_mut().push(result);
         self
     }
-
-    pub fn merge_results_with(self, other: &Self) -> Self {
-        Self::merge_single_result(
-            &self.get_tx_identifiers_results,
-            &other.get_tx_identifiers_results,
-        );
-        Self::merge_single_result(
-            &self.insert_new_records_results,
-            &other.insert_new_records_results,
-        );
-        Self::merge_single_result(&self.retrieve_txs_results, &other.retrieve_txs_results);
-        Self::merge_single_result(
-            &self.update_statuses_results,
-            &other.update_statuses_results,
-        );
-        Self::merge_single_result(&self.delete_records_results, &other.delete_records_results);
-        self
-    }
-
-    fn merge_single_result<Value>(one: &RefCell<Vec<Value>>, other: &RefCell<Vec<Value>>) {
-        one.borrow_mut().append(&mut other.borrow_mut());
-    }
 }
 
 pub struct FailedPayableDaoFactoryMock {
@@ -1368,7 +1347,8 @@ pub struct PendingPayableScannerBuilder {
     failed_payable_dao: FailedPayableDaoMock,
     payment_thresholds: PaymentThresholds,
     financial_statistics: FinancialStatistics,
-    yet_unproven_failures: HashMap<TxHash, FailedTx>,
+    current_sent_payables: Box<dyn PendingPayableCache<SentTx>>,
+    yet_unproven_failed_payables: Box<dyn PendingPayableCache<FailedTx>>,
 }
 
 impl PendingPayableScannerBuilder {
@@ -1379,7 +1359,8 @@ impl PendingPayableScannerBuilder {
             failed_payable_dao: FailedPayableDaoMock::new(),
             payment_thresholds: PaymentThresholds::default(),
             financial_statistics: FinancialStatistics::default(),
-            yet_unproven_failures: hashmap!(),
+            current_sent_payables: Box::new(PendingPayableCacheMock::default()),
+            yet_unproven_failed_payables: Box::new(PendingPayableCacheMock::default()),
         }
     }
 
@@ -1398,16 +1379,20 @@ impl PendingPayableScannerBuilder {
         self
     }
 
-    pub fn yet_unproven_failures(mut self, failures: HashMap<TxHash, FailedTx>) -> Self {
-        self.yet_unproven_failures = failures;
+    pub fn pending_payables_cache(mut self, cache: Box<dyn PendingPayableCache<SentTx>>) -> Self {
+        self.current_sent_payables = cache;
+        self
+    }
+
+    pub fn failed_payables_cache(
+        mut self,
+        failures: Box<dyn PendingPayableCache<FailedTx>>,
+    ) -> Self {
+        self.yet_unproven_failed_payables = failures;
         self
     }
 
     pub fn build(mut self) -> PendingPayableScanner {
-        self.failed_payable_dao = FailedPayableDaoMock::default()
-            .retrieve_txs_result(vec![])
-            .merge_results_with(&self.failed_payable_dao);
-
         let mut scanner = PendingPayableScanner::new(
             Box::new(self.payable_dao),
             Box::new(self.sent_payable_dao),
@@ -1416,9 +1401,9 @@ impl PendingPayableScannerBuilder {
             Rc::new(RefCell::new(self.financial_statistics)),
         );
 
-        scanner
-            .yet_unproven_failures
-            .load_cache(self.yet_unproven_failures);
+        scanner.current_sent_payables = self.current_sent_payables;
+
+        scanner.yet_unproven_failed_payables = self.yet_unproven_failed_payables;
 
         scanner
     }
