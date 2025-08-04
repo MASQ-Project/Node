@@ -109,6 +109,7 @@ impl FailedTx {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FailureRetrieveCondition {
     ByStatus(FailureStatus),
+    ByReceiverAddresses(Vec<Address>),
 }
 
 impl Display for FailureRetrieveCondition {
@@ -116,6 +117,13 @@ impl Display for FailureRetrieveCondition {
         match self {
             FailureRetrieveCondition::ByStatus(status) => {
                 write!(f, "WHERE status = '{}'", status)
+            }
+            FailureRetrieveCondition::ByReceiverAddresses(addresses) => {
+                write!(
+                    f,
+                    "WHERE receiver_address IN ({})",
+                    join_with_separator(addresses, |address| format!("'{:?}'", address), ", ")
+                )
             }
         }
     }
@@ -234,6 +242,7 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
                 ", "
             )
         );
+        eprintln!("Insertion SQL: {}", sql);
 
         match self.conn.prepare(&sql).expect("Internal error").execute([]) {
             Ok(inserted_rows) => {
@@ -269,6 +278,7 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
             Some(condition) => format!("{} {}", raw_sql, condition),
         };
         let sql = format!("{} ORDER BY timestamp DESC, nonce DESC", sql);
+        eprintln!("SQL: {}", sql);
 
         let mut stmt = self
             .conn
@@ -410,7 +420,7 @@ mod tests {
     };
     use crate::accountant::db_access_objects::utils::current_unix_timestamp;
     use crate::blockchain::errors::{AppRpcError, LocalError, RemoteError};
-    use crate::blockchain::test_utils::make_tx_hash;
+    use crate::blockchain::test_utils::{make_address, make_tx_hash};
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal,
     };
@@ -697,6 +707,11 @@ mod tests {
             FailureRetrieveCondition::ByStatus(RetryRequired).to_string(),
             "WHERE status = '\"RetryRequired\"'"
         );
+        assert_eq!(
+            FailureRetrieveCondition::ByReceiverAddresses(vec![make_address(1), make_address(2)])
+                .to_string(),
+            "WHERE receiver_address IN ('0x0000000000000000000000000000000000000001', '0x0000000000000000000000000000000000000002')"
+        )
     }
 
     #[test]
@@ -791,6 +806,61 @@ mod tests {
         let result = subject.retrieve_txs(Some(FailureRetrieveCondition::ByStatus(RetryRequired)));
 
         assert_eq!(result, vec![tx2, tx1]);
+    }
+
+    #[test]
+    fn can_retrieve_txs_by_receiver_addresses() {
+        let home_dir = ensure_node_home_directory_exists(
+            "failed_payable_dao",
+            "can_retrieve_txs_by_receiver_addresses",
+        );
+        let wrapped_conn = DbInitializerReal::default()
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
+        let subject = FailedPayableDaoReal::new(wrapped_conn);
+        let address1 = make_address(1);
+        let address2 = make_address(2);
+        let address3 = make_address(3);
+        let address4 = make_address(4);
+        let tx1 = FailedTxBuilder::default()
+            .hash(make_tx_hash(1))
+            .receiver_address(address1)
+            .nonce(1)
+            .build();
+        let tx2 = FailedTxBuilder::default()
+            .hash(make_tx_hash(2))
+            .receiver_address(address2)
+            .nonce(2)
+            .build();
+        let tx3 = FailedTxBuilder::default()
+            .hash(make_tx_hash(3))
+            .receiver_address(address3)
+            .nonce(3)
+            .build();
+        let tx4 = FailedTxBuilder::default()
+            .hash(make_tx_hash(4))
+            .receiver_address(address4)
+            .nonce(4)
+            .build();
+        subject
+            .insert_new_records(&HashSet::from([
+                tx1.clone(),
+                tx2.clone(),
+                tx3.clone(),
+                tx4.clone(),
+            ]))
+            .unwrap();
+
+        let result =
+            subject.retrieve_txs(Some(FailureRetrieveCondition::ByReceiverAddresses(vec![
+                address1, address2, address3,
+            ])));
+
+        assert_eq!(result.len(), 3);
+        assert!(result.contains(&tx1));
+        assert!(result.contains(&tx2));
+        assert!(result.contains(&tx3));
+        assert!(!result.contains(&tx4));
     }
 
     #[test]
