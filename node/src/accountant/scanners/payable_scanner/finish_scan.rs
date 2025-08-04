@@ -29,10 +29,8 @@ mod tests {
     use crate::accountant::db_access_objects::failed_payable_dao::{
         FailedTx, FailureStatus, ValidationStatus,
     };
-    use crate::accountant::db_access_objects::test_utils::{FailedTxBuilder, TxBuilder};
-    use crate::accountant::scanners::payable_scanner::test_utils::{
-        make_pending_payable, PayableScannerBuilder,
-    };
+    use crate::accountant::db_access_objects::test_utils::FailedTxBuilder;
+    use crate::accountant::scanners::payable_scanner::test_utils::PayableScannerBuilder;
     use crate::accountant::scanners::payable_scanner::tests::{make_failed_tx, make_sent_tx};
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{
         OperationOutcome, PayableScanResult,
@@ -40,63 +38,14 @@ mod tests {
     use crate::accountant::scanners::Scanner;
     use crate::accountant::test_utils::{FailedPayableDaoMock, SentPayableDaoMock};
     use crate::accountant::{join_with_separator, PayableScanType, ResponseSkeleton, SentPayables};
-    use crate::blockchain::blockchain_interface::data_structures::{
-        BatchResults, IndividualBatchResult,
-    };
+    use crate::blockchain::blockchain_interface::data_structures::BatchResults;
     use crate::blockchain::test_utils::make_tx_hash;
-    use actix::System;
-    use itertools::Either;
     use masq_lib::logger::Logger;
     use masq_lib::messages::{ToMessageBody, UiScanResponse};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
-    use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
-
-    #[test]
-    fn finish_scan_works_as_expected() {
-        init_test_logging();
-        let test_name = "finish_scan_works_as_expected";
-        let system = System::new(test_name);
-        let pending_payable = make_pending_payable(1);
-        let tx = TxBuilder::default()
-            .hash(pending_payable.hash)
-            .nonce(1)
-            .build();
-        let sent_payable_dao = SentPayableDaoMock::default().retrieve_txs_result(vec![tx]);
-        let mut subject = PayableScannerBuilder::new()
-            .sent_payable_dao(sent_payable_dao)
-            .build();
-        let logger = Logger::new(test_name);
-        todo!("BatchResults");
-        // let sent_payables = SentPayables {
-        //     payment_procedure_result: Either::Left(vec![IndividualBatchResult::Pending(
-        //         pending_payable,
-        //     )]),
-        //     response_skeleton_opt: Some(ResponseSkeleton {
-        //         client_id: 1234,
-        //         context_id: 5678,
-        //     }),
-        // };
-        // subject.mark_as_started(SystemTime::now());
-        //
-        // let scan_result = subject.finish_scan(sent_payables, &logger);
-        //
-        // System::current().stop();
-        // system.run();
-        // assert_eq!(scan_result.result, OperationOutcome::NewPendingPayable);
-        // assert_eq!(
-        //     scan_result.ui_response_opt,
-        //     Some(NodeToUiMessage {
-        //         target: MessageTarget::ClientId(1234),
-        //         body: UiScanResponse {}.tmb(5678),
-        //     })
-        // );
-        // TestLogHandler::new().exists_log_matching(&format!(
-        //     "INFO: {test_name}: The Payables scan ended in \\d+ms."
-        // ));
-    }
 
     #[test]
     fn new_payable_scan_finishes_as_expected() {
