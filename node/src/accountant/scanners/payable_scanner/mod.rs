@@ -7,7 +7,8 @@ use crate::accountant::db_access_objects::failed_payable_dao::FailureReason::Sub
 use crate::accountant::db_access_objects::failed_payable_dao::FailureRetrieveCondition::ByStatus;
 use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::RetryRequired;
 use crate::accountant::db_access_objects::failed_payable_dao::{
-    FailedPayableDao, FailedTx, FailureReason, FailureStatus,
+    FailedPayableDao, FailedTx, FailureReason, FailureRetrieveCondition, FailureStatus,
+    ValidationStatus,
 };
 use crate::accountant::db_access_objects::payable_dao::PayableRetrieveCondition::ByAddresses;
 use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDao};
@@ -367,6 +368,7 @@ impl PayableScanner {
     }
 
     fn handle_local_error(&self, local_err: String, logger: &Logger) -> OperationOutcome {
+        todo!("delete this");
         debug!(
             logger,
             "Local error occurred before transaction signing. Error: {}", local_err
@@ -409,7 +411,10 @@ impl PayableScanner {
                     self.insert_records_in_failed_payables(&batch_results.failed_txs);
                 }
                 PayableScanType::Retry => {
-                    todo!()
+                    // We can do better here, possibly by creating a relationship between failed and sent txs
+                    Self::log_failed_txs(&batch_results.failed_txs, logger);
+                    self.insert_records_in_sent_payables(&batch_results.sent_txs);
+                    self.update_records_in_failed_payables(&batch_results.sent_txs);
                 }
             },
             Err(local_error) => debug!(
@@ -417,6 +422,36 @@ impl PayableScanner {
                 "Local error occurred before transaction signing. Error: {}", local_error
             ),
         }
+    }
+
+    fn update_records_in_failed_payables(&self, sent_txs: &Vec<Tx>) {
+        let receiver_addresses = sent_txs
+            .iter()
+            .map(|sent_tx| sent_tx.receiver_address)
+            .collect();
+        let retrieved_txs = self.failed_payable_dao.retrieve_txs(Some(
+            FailureRetrieveCondition::ByReceiverAddresses(receiver_addresses),
+        ));
+        let status_updates = retrieved_txs
+            .iter()
+            .map(|tx| {
+                (
+                    tx.hash,
+                    FailureStatus::RecheckRequired(ValidationStatus::Waiting),
+                )
+            })
+            .collect();
+        self.failed_payable_dao
+            .update_statuses(status_updates)
+            .unwrap_or_else(|e| panic!("Failed to update statuses in FailedPayable Table"));
+    }
+
+    fn log_failed_txs(failed_txs: &[FailedTx], logger: &Logger) {
+        debug!(
+            logger,
+            "While retrying, 2 transactions with hashes: {} have failed.",
+            join_with_separator(failed_txs, |failed_tx| format!("{:?}", failed_tx.hash), ",")
+        )
     }
 
     fn insert_records_in_sent_payables(&self, sent_txs: &Vec<Tx>) {
