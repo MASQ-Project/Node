@@ -34,6 +34,7 @@ pub mod payable_scanner_utils {
     pub enum OperationOutcome {
         // TODO: GH-667: There should be NewPayableFailure and RetryPayableFailure instead of Failure
         NewPendingPayable,
+        RetryPendingPayable,
         Failure,
     }
 

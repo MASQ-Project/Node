@@ -141,9 +141,16 @@ pub struct ReportTransactionReceipts {
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
+#[derive(Debug, PartialEq, Clone)]
+pub enum PayableScanType {
+    New,
+    Retry,
+}
+
 #[derive(Debug, Message, PartialEq, Clone)]
 pub struct SentPayables {
     pub payment_procedure_result: Result<BatchResults, String>,
+    pub payable_scan_type: PayableScanType,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
@@ -365,6 +372,7 @@ impl Handler<SentPayables> for Accountant {
                     .scan_schedulers
                     .payable
                     .schedule_new_payable_scan(ctx, &self.logger),
+                OperationOutcome::RetryPendingPayable => todo!(),
             },
             Some(node_to_ui_msg) => {
                 self.ui_message_sub_opt
@@ -4045,6 +4053,7 @@ mod tests {
         // that the third scan request is going to be accepted willingly again.
         addr.try_send(SentPayables {
             payment_procedure_result: Err("bluh".to_string()),
+            payable_scan_type: PayableScanType::New,
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 1122,
                 context_id: 7788,
@@ -4932,6 +4941,7 @@ mod tests {
             Box::new(NotifyLaterHandleMock::default().panic_on_schedule_attempt());
         let sent_payable = SentPayables {
             payment_procedure_result: Err("Sending error".to_string()),
+            payable_scan_type: PayableScanType::New,
             response_skeleton_opt: None,
         };
         let addr = subject.start();

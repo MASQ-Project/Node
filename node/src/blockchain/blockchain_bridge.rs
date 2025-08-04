@@ -1,10 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::scanners::payable_scanner_extension::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage, PricedQualifiedPayables};
-use crate::accountant::{
-    ReceivedPayments, ResponseSkeleton, ScanError,
-    SentPayables, SkeletonOptHolder,
-};
+use crate::accountant::{PayableScanType, ReceivedPayments, ResponseSkeleton, ScanError, SentPayables, SkeletonOptHolder};
 use crate::accountant::{ReportTransactionReceipts, RequestTransactionReceipts};
 use crate::actor_system_factory::SubsFactory;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::HashAndAmount;
@@ -303,6 +300,14 @@ impl BlockchainBridge {
             .expect("Accountant is unbound")
             .clone();
 
+        let payable_scan_type = if msg.priced_templates.is_left() {
+            PayableScanType::New
+        } else {
+            PayableScanType::Retry
+        };
+
+        let payable_scan_type_for_err = payable_scan_type.clone();
+
         let send_message_if_failure = move |msg: SentPayables| {
             sent_payable_subs.try_send(msg).expect("Accountant is dead");
         };
@@ -315,6 +320,7 @@ impl BlockchainBridge {
                         payment_procedure_result: Self::payment_procedure_result_from_error(
                             e.clone(),
                         ),
+                        payable_scan_type: payable_scan_type_for_err,
                         response_skeleton_opt: skeleton_opt,
                     });
                     format!("ReportAccountsPayable: {}", e)
@@ -322,6 +328,7 @@ impl BlockchainBridge {
                 .and_then(move |batch_results| {
                     send_message_if_successful(SentPayables {
                         payment_procedure_result: Ok(batch_results),
+                        payable_scan_type,
                         response_skeleton_opt: skeleton_opt,
                     });
                     Ok(())

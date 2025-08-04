@@ -13,7 +13,7 @@ use crate::accountant::db_access_objects::payable_dao::PayableRetrieveCondition:
 use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDao};
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
 use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::ByHash;
-use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDao;
+use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDao, Tx};
 use crate::accountant::db_access_objects::utils::{from_unix_timestamp, TxHash};
 use crate::accountant::payment_adjuster::PaymentAdjuster;
 use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_template::{
@@ -24,11 +24,13 @@ use crate::accountant::scanners::payable_scanner_extension::{
     MultistageDualPayableScanner, PreparedAdjustment, SolvencySensitivePaymentInstructor,
 };
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{
-    payables_debug_summary, OperationOutcome, PayableThresholdsGauge, PayableThresholdsGaugeReal,
+    payables_debug_summary, OperationOutcome, PayableScanResult, PayableThresholdsGauge,
+    PayableThresholdsGaugeReal,
 };
 use crate::accountant::scanners::{Scanner, ScannerCommon, StartableScanner};
 use crate::accountant::{
-    comma_joined_stringifiable, gwei_to_wei, join_with_separator, ResponseSkeleton,
+    comma_joined_stringifiable, gwei_to_wei, join_with_separator, PayableScanType,
+    ResponseSkeleton, SentPayables,
 };
 use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
 use crate::blockchain::blockchain_interface::data_structures::{
@@ -337,6 +339,10 @@ impl PayableScanner {
         logger: &Logger,
     ) -> OperationOutcome {
         todo!()
+        // TODO: GH-605: Do the following
+        // 1. If new scan Record all successful and failed txs
+        // 2. Check type of scan, if new scan, simply insert the failures
+        // 3. If retry scan,
         // let (pending, failures) = Self::separate_batch_results(batch_results);
         // let pending_tx_count = pending.len();
         // let failed_tx_count = failures.len();
@@ -374,16 +380,66 @@ impl PayableScanner {
         payment_procedure_result: Result<BatchResults, String>,
         logger: &Logger,
     ) -> OperationOutcome {
-        // match payment_procedure_result {
-        //     Either::Left(batch_results) => self.handle_batch_results(batch_results, logger),
-        //     Either::Right(local_err) => self.handle_local_error(local_err, logger),
-        // }
-
         match payment_procedure_result {
             Ok(batch_results) => self.handle_batch_results(batch_results, logger),
-            Err(e) => {
-                todo!()
+            Err(e) => self.handle_local_error(e, logger),
+        }
+    }
+
+    fn detect_outcome(msg: &SentPayables) -> OperationOutcome {
+        if let Ok(batch_results) = msg.clone().payment_procedure_result {
+            if batch_results.sent_txs.is_empty() {
+                OperationOutcome::Failure
+            } else {
+                match msg.payable_scan_type {
+                    PayableScanType::New => OperationOutcome::NewPendingPayable,
+                    PayableScanType::Retry => OperationOutcome::RetryPendingPayable,
+                }
             }
+        } else {
+            OperationOutcome::Failure
+        }
+    }
+
+    fn process_message(&self, msg: SentPayables, logger: &Logger) -> PayableScanResult {
+        let outcome = Self::detect_outcome(&msg);
+        match msg.payment_procedure_result {
+            Ok(batch_results) => match msg.payable_scan_type {
+                PayableScanType::New => {
+                    self.insert_records_in_sent_payables(&batch_results.sent_txs);
+                    self.insert_records_in_failed_payables(&batch_results.failed_txs);
+                }
+                PayableScanType::Retry => {
+                    todo!()
+                }
+            },
+            Err(_e) => todo!(),
+        }
+
+        PayableScanResult {
+            ui_response_opt: Self::generate_ui_response(msg.response_skeleton_opt),
+            result: outcome,
+        }
+    }
+
+    fn insert_records_in_sent_payables(&self, sent_txs: &Vec<Tx>) {
+        // TODO: GH-605: Test me
+        if let Err(e) = self.sent_payable_dao.insert_new_records(sent_txs) {
+            panic!(
+                "Failed to insert transactions into the SentPayable table. Error: {:?}",
+                e
+            );
+        }
+    }
+
+    fn insert_records_in_failed_payables(&self, failed_txs: &Vec<FailedTx>) {
+        // TODO: GH-605: Test me
+        let failed_txs_set: HashSet<FailedTx> = failed_txs.iter().cloned().collect();
+        if let Err(e) = self.failed_payable_dao.insert_new_records(&failed_txs_set) {
+            panic!(
+                "Failed to insert transactions into the FailedPayable table. Error: {:?}",
+                e
+            );
         }
     }
 
@@ -450,7 +506,7 @@ impl PayableScanner {
 mod tests {
     use super::*;
     use crate::accountant::db_access_objects::failed_payable_dao::FailedPayableDaoError;
-    use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDaoError;
+    use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDaoError, Tx};
     use crate::accountant::db_access_objects::test_utils::{FailedTxBuilder, TxBuilder};
     use crate::accountant::scanners::payable_scanner::test_utils::{
         make_pending_payable, make_rpc_payable_failure, PayableScannerBuilder,
@@ -1180,5 +1236,140 @@ mod tests {
             "DEBUG: {test_name}: Local error occurred before transaction signing. \
              Error: Missing consuming wallet to pay payable from"
         ));
+    }
+
+    //// New Code
+
+    pub fn make_failed_tx(n: u32) -> FailedTx {
+        let n = (n * 2) + 1; // Always Odd
+        FailedTxBuilder::default()
+            .hash(make_tx_hash(n))
+            .nonce(n as u64)
+            .build()
+    }
+
+    pub fn make_sent_tx(n: u32) -> Tx {
+        let n = n * 2; // Always Even
+        TxBuilder::default()
+            .hash(make_tx_hash(n))
+            .nonce(n as u64)
+            .build()
+    }
+
+    #[test]
+    fn detect_outcome_works() {
+        // Error
+        assert_eq!(
+            PayableScanner::detect_outcome(&SentPayables {
+                payment_procedure_result: Err("Any error".to_string()),
+                payable_scan_type: PayableScanType::New,
+                response_skeleton_opt: None,
+            }),
+            OperationOutcome::Failure
+        );
+        assert_eq!(
+            PayableScanner::detect_outcome(&SentPayables {
+                payment_procedure_result: Err("Any error".to_string()),
+                payable_scan_type: PayableScanType::Retry,
+                response_skeleton_opt: None,
+            }),
+            OperationOutcome::Failure
+        );
+
+        // BatchResults is empty
+        assert_eq!(
+            PayableScanner::detect_outcome(&SentPayables {
+                payment_procedure_result: Ok(BatchResults {
+                    sent_txs: vec![],
+                    failed_txs: vec![],
+                }),
+                payable_scan_type: PayableScanType::New,
+                response_skeleton_opt: None,
+            }),
+            OperationOutcome::Failure
+        );
+        assert_eq!(
+            PayableScanner::detect_outcome(&SentPayables {
+                payment_procedure_result: Ok(BatchResults {
+                    sent_txs: vec![],
+                    failed_txs: vec![],
+                }),
+                payable_scan_type: PayableScanType::Retry,
+                response_skeleton_opt: None,
+            }),
+            OperationOutcome::Failure
+        );
+
+        // Only SentTxs is empty
+        assert_eq!(
+            PayableScanner::detect_outcome(&SentPayables {
+                payment_procedure_result: Ok(BatchResults {
+                    sent_txs: vec![],
+                    failed_txs: vec![make_failed_tx(1), make_failed_tx(2)],
+                }),
+                payable_scan_type: PayableScanType::New,
+                response_skeleton_opt: None,
+            }),
+            OperationOutcome::Failure
+        );
+        assert_eq!(
+            PayableScanner::detect_outcome(&SentPayables {
+                payment_procedure_result: Ok(BatchResults {
+                    sent_txs: vec![],
+                    failed_txs: vec![make_failed_tx(1), make_failed_tx(2)],
+                }),
+                payable_scan_type: PayableScanType::Retry,
+                response_skeleton_opt: None,
+            }),
+            OperationOutcome::Failure
+        );
+
+        // Only FailedTxs is empty
+        assert_eq!(
+            PayableScanner::detect_outcome(&SentPayables {
+                payment_procedure_result: Ok(BatchResults {
+                    sent_txs: vec![make_sent_tx(1), make_sent_tx(2)],
+                    failed_txs: vec![],
+                }),
+                payable_scan_type: PayableScanType::New,
+                response_skeleton_opt: None,
+            }),
+            OperationOutcome::NewPendingPayable
+        );
+        assert_eq!(
+            PayableScanner::detect_outcome(&SentPayables {
+                payment_procedure_result: Ok(BatchResults {
+                    sent_txs: vec![make_sent_tx(1), make_sent_tx(2)],
+                    failed_txs: vec![],
+                }),
+                payable_scan_type: PayableScanType::Retry,
+                response_skeleton_opt: None,
+            }),
+            OperationOutcome::RetryPendingPayable
+        );
+
+        // Both SentTxs and FailedTxs are present
+        assert_eq!(
+            PayableScanner::detect_outcome(&SentPayables {
+                payment_procedure_result: Ok(BatchResults {
+                    sent_txs: vec![make_sent_tx(1), make_sent_tx(2)],
+                    failed_txs: vec![make_failed_tx(1), make_failed_tx(2)],
+                }),
+                payable_scan_type: PayableScanType::New,
+                response_skeleton_opt: None,
+            }),
+            OperationOutcome::NewPendingPayable
+        );
+        assert_eq!(
+            PayableScanner::detect_outcome(&SentPayables {
+                payment_procedure_result: Ok(BatchResults {
+                    sent_txs: vec![make_sent_tx(1), make_sent_tx(2)],
+                    failed_txs: vec![make_failed_tx(1), make_failed_tx(2)],
+                }),
+                payable_scan_type: PayableScanType::Retry,
+                response_skeleton_opt: None,
+            }),
+            OperationOutcome::RetryPendingPayable
+        );
     }
 }
