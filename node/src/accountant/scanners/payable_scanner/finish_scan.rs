@@ -8,21 +8,15 @@ use masq_lib::messages::ScanType;
 use std::time::SystemTime;
 
 impl Scanner<SentPayables, PayableScanResult> for PayableScanner {
-    fn finish_scan(&mut self, message: SentPayables, logger: &Logger) -> PayableScanResult {
-        // let result = self.process_result(message.payment_procedure_result, logger);
-
-        let result = self.process_message(message, logger);
+    fn finish_scan(&mut self, msg: SentPayables, logger: &Logger) -> PayableScanResult {
+        self.process_message(msg.clone(), logger);
 
         self.mark_as_ended(logger);
 
-        // let ui_response_opt = Self::generate_ui_response(message.response_skeleton_opt);
-
-        // PayableScanResult {
-        //     ui_response_opt,
-        //     result,
-        // }
-
-        result
+        PayableScanResult {
+            ui_response_opt: Self::generate_ui_response(msg.response_skeleton_opt),
+            result: Self::detect_outcome(&msg),
+        }
     }
 
     time_marking_methods!(Payables);

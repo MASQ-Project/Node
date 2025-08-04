@@ -401,8 +401,7 @@ impl PayableScanner {
         }
     }
 
-    fn process_message(&self, msg: SentPayables, logger: &Logger) -> PayableScanResult {
-        let outcome = Self::detect_outcome(&msg);
+    fn process_message(&self, msg: SentPayables, logger: &Logger) {
         match msg.payment_procedure_result {
             Ok(batch_results) => match msg.payable_scan_type {
                 PayableScanType::New => {
@@ -414,11 +413,6 @@ impl PayableScanner {
                 }
             },
             Err(_e) => todo!(),
-        }
-
-        PayableScanResult {
-            ui_response_opt: Self::generate_ui_response(msg.response_skeleton_opt),
-            result: outcome,
         }
     }
 
