@@ -1054,7 +1054,7 @@ impl ValueRetriever for NewPublicKey {
         _persistent_config: &dyn PersistentConfiguration,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
-        Some(("off".to_string(), Default))
+        Some(("".to_string(), Blank))
     }
 
     fn is_required(&self, _params: &SetupCluster) -> bool {
@@ -1475,7 +1475,7 @@ mod tests {
                 "masq://eth-mainnet:QUJDRDU2Nzg5MDEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-mainnet:RUZHSDU2Nzg5MDEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678",
                 Configured,
             ),
-            ("new-public-key", "off", Default),
+            ("new-public-key", "", Blank),
             (
                 "payment-thresholds",
                 &DEFAULT_PAYMENT_THRESHOLDS.to_string(),
@@ -3425,7 +3425,7 @@ mod tests {
             &None,
         );
 
-        assert_eq!(result, Some(("off".to_string(), Default)));
+        assert_eq!(result, Some(("".to_string(), Blank)));
     }
 
     #[cfg(not(target_os = "windows"))]
