@@ -158,4 +158,47 @@ mod tests {
             "INFO: {test_name}: The Payables scan ended in \\d+ms."
         ));
     }
+
+    #[test]
+    fn payable_scanner_with_error_works_as_expected() {
+        execute_payable_scanner_finish_scan_with_an_error(PayableScanType::New);
+        execute_payable_scanner_finish_scan_with_an_error(PayableScanType::Retry);
+    }
+
+    fn execute_payable_scanner_finish_scan_with_an_error(payable_scan_type: PayableScanType) {
+        init_test_logging();
+        let test_name = "payable_scanner_with_error_works_as_expected";
+        let response_skeleton = ResponseSkeleton {
+            client_id: 1234,
+            context_id: 5678,
+        };
+        let mut subject = PayableScannerBuilder::new().build();
+        subject.mark_as_started(SystemTime::now());
+        let sent_payables = SentPayables {
+            payment_procedure_result: Err("Any error".to_string()),
+            payable_scan_type: PayableScanType::New,
+            response_skeleton_opt: Some(response_skeleton),
+        };
+        let logger = Logger::new(test_name);
+
+        let result = subject.finish_scan(sent_payables, &logger);
+
+        assert_eq!(
+            result,
+            PayableScanResult {
+                ui_response_opt: Some(NodeToUiMessage {
+                    target: MessageTarget::ClientId(response_skeleton.client_id),
+                    body: UiScanResponse {}.tmb(response_skeleton.context_id),
+                }),
+                result: OperationOutcome::Failure,
+            }
+        );
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_matching(&format!(
+            "DEBUG: {test_name}: Local error occurred before transaction signing. Error: Any error"
+        ));
+        tlh.exists_log_matching(&format!(
+            "INFO: {test_name}: The Payables scan ended in \\d+ms."
+        ));
+    }
 }

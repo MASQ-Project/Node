@@ -412,7 +412,10 @@ impl PayableScanner {
                     todo!()
                 }
             },
-            Err(_e) => todo!(),
+            Err(local_error) => debug!(
+                logger,
+                "Local error occurred before transaction signing. Error: {}", local_error
+            ),
         }
     }
 
