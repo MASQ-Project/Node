@@ -6,6 +6,7 @@ use crate::accountant::db_access_objects::failed_payable_dao::{
 };
 use crate::accountant::db_access_objects::sent_payable_dao::{Tx, TxStatus};
 use crate::accountant::db_access_objects::utils::{current_unix_timestamp, TxHash};
+use crate::blockchain::test_utils::make_tx_hash;
 use crate::database::db_initializer::{
     DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
 };
@@ -128,6 +129,22 @@ impl FailedTxBuilder {
                 .unwrap_or_else(|| FailureStatus::RetryRequired),
         }
     }
+}
+
+pub fn make_failed_tx(n: u32) -> FailedTx {
+    let n = (n * 2) + 1; // Always Odd
+    FailedTxBuilder::default()
+        .hash(make_tx_hash(n))
+        .nonce(n as u64)
+        .build()
+}
+
+pub fn make_sent_tx(n: u32) -> Tx {
+    let n = n * 2; // Always Even
+    TxBuilder::default()
+        .hash(make_tx_hash(n))
+        .nonce(n as u64)
+        .build()
 }
 
 pub fn make_read_only_db_connection(home_dir: PathBuf) -> ConnectionWrapperReal {

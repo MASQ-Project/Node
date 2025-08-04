@@ -29,9 +29,10 @@ mod tests {
     use crate::accountant::db_access_objects::failed_payable_dao::{
         FailedTx, FailureStatus, ValidationStatus,
     };
-    use crate::accountant::db_access_objects::test_utils::FailedTxBuilder;
+    use crate::accountant::db_access_objects::test_utils::{
+        make_failed_tx, make_sent_tx, FailedTxBuilder,
+    };
     use crate::accountant::scanners::payable_scanner::test_utils::PayableScannerBuilder;
-    use crate::accountant::scanners::payable_scanner::tests::{make_failed_tx, make_sent_tx};
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{
         OperationOutcome, PayableScanResult,
     };

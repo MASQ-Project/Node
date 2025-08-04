@@ -1014,7 +1014,7 @@ impl_real_scanner_marker!(PayableScanner, PendingPayableScanner, ReceivableScann
 #[cfg(test)]
 mod tests {
     use crate::accountant::scanners::payable_scanner::test_utils::{make_pending_payable, PayableScannerBuilder};
-    use crate::accountant::db_access_objects::test_utils::{FailedTxBuilder, TxBuilder};
+    use crate::accountant::db_access_objects::test_utils::{make_sent_tx, FailedTxBuilder, TxBuilder};
     use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDaoError};
     use crate::accountant::db_access_objects::pending_payable_dao::{
         PendingPayable, PendingPayableDaoError, TransactionHashes,
@@ -1028,9 +1028,7 @@ mod tests {
     use crate::accountant::{gwei_to_wei, PayableScanType, PendingPayableId, ReceivedPayments, ReportTransactionReceipts, RequestTransactionReceipts, ResponseSkeleton, ScanError, ScanForRetryPayables, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC};
     use crate::blockchain::blockchain_bridge::{BlockMarker, PendingPayableFingerprint, RetrieveTransactions};
     use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
-    use crate::blockchain::blockchain_interface::data_structures::{
-        BlockchainTransaction, IndividualBatchResult, RpcPayableFailure,
-    };
+    use crate::blockchain::blockchain_interface::data_structures::{BatchResults, BlockchainTransaction, IndividualBatchResult, RpcPayableFailure};
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
     use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMockBuilder;
@@ -1560,19 +1558,21 @@ mod tests {
     ) {
         init_test_logging();
         let test_name = "finish_payable_scan_changes_the_aware_of_unresolved_pending_payable_flag_as_true_when_pending_txs_found";
-        let pending_payable = make_pending_payable(1);
-        let tx = TxBuilder::default()
-            .hash(pending_payable.hash)
-            .nonce(1)
-            .build();
-        let sent_payable_dao = SentPayableDaoMock::default().retrieve_txs_result(vec![tx]);
+        let sent_payable_dao = SentPayableDaoMock::default().insert_new_records_result(Ok(()));
         let payable_scanner = PayableScannerBuilder::new()
             .sent_payable_dao(sent_payable_dao)
             .build();
         let logger = Logger::new(test_name);
-        let sent_payables = todo!("BatchResults");
         let mut subject = make_dull_subject();
         subject.payable = Box::new(payable_scanner);
+        let sent_payables = SentPayables {
+            payment_procedure_result: Ok(BatchResults {
+                sent_txs: vec![make_sent_tx(1)],
+                failed_txs: vec![],
+            }),
+            payable_scan_type: PayableScanType::New,
+            response_skeleton_opt: None,
+        };
         let aware_of_unresolved_pending_payable_before =
             subject.aware_of_unresolved_pending_payable;
 
