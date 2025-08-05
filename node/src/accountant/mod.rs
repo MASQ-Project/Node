@@ -2810,65 +2810,67 @@ mod tests {
             )],
             response_skeleton_opt: None,
         };
-        todo!("BatchResults");
-        // let expected_sent_payables = SentPayables {
-        //     payment_procedure_result: Either::Left(vec![IndividualBatchResult::Pending(
-        //         PendingPayable {
-        //             recipient_wallet: make_wallet("bcd"),
-        //             hash: make_tx_hash(890),
-        //         },
-        //     )]),
-        //     response_skeleton_opt: None,
-        // };
-        // let blockchain_bridge_counter_msg_setup_for_pending_payable_scanner = setup_for_counter_msg_triggered_via_type_id!(
-        //     RequestTransactionReceipts,
-        //     expected_report_transaction_receipts.clone(),
-        //     &subject_addr
-        // );
-        // let blockchain_bridge_counter_msg_setup_for_payable_scanner = setup_for_counter_msg_triggered_via_type_id!(
-        //     QualifiedPayablesMessage,
-        //     expected_sent_payables.clone(),
-        //     &subject_addr
-        // );
-        // send_bind_message!(subject_subs, peer_actors);
-        // addresses
-        //     .blockchain_bridge_addr
-        //     .try_send(SetUpCounterMsgs::new(vec![
-        //         blockchain_bridge_counter_msg_setup_for_pending_payable_scanner,
-        //         blockchain_bridge_counter_msg_setup_for_payable_scanner,
-        //     ]))
-        //     .unwrap();
-        //
-        // send_start_message!(subject_subs);
-        //
-        // // The system is stopped by the NotifyHandleLaterMock for the PendingPayable scanner
-        // let before = SystemTime::now();
-        // system.run();
-        // let after = SystemTime::now();
-        // assert_pending_payable_scanner_for_some_pending_payable_found(
-        //     test_name,
-        //     consuming_wallet.clone(),
-        //     &scan_params,
-        //     &notify_and_notify_later_params.pending_payables_notify_later,
-        //     pending_payable_expected_notify_later_interval,
-        //     expected_report_transaction_receipts,
-        //     before,
-        //     after,
-        // );
-        // assert_payable_scanner_for_some_pending_payable_found(
-        //     test_name,
-        //     consuming_wallet,
-        //     &scan_params,
-        //     &notify_and_notify_later_params,
-        //     expected_sent_payables,
-        // );
-        // assert_receivable_scanner(
-        //     test_name,
-        //     earning_wallet,
-        //     &scan_params.receivable_start_scan,
-        //     &notify_and_notify_later_params.receivables_notify_later,
-        //     receivable_scan_interval,
-        // );
+        let sent_tx = TxBuilder::default()
+            .hash(make_tx_hash(890))
+            .receiver_address(make_wallet("bcd").address())
+            .build();
+        let expected_sent_payables = SentPayables {
+            payment_procedure_result: Ok(BatchResults {
+                sent_txs: vec![sent_tx],
+                failed_txs: vec![],
+            }),
+            payable_scan_type: PayableScanType::New,
+            response_skeleton_opt: None,
+        };
+        let blockchain_bridge_counter_msg_setup_for_pending_payable_scanner = setup_for_counter_msg_triggered_via_type_id!(
+            RequestTransactionReceipts,
+            expected_report_transaction_receipts.clone(),
+            &subject_addr
+        );
+        let blockchain_bridge_counter_msg_setup_for_payable_scanner = setup_for_counter_msg_triggered_via_type_id!(
+            QualifiedPayablesMessage,
+            expected_sent_payables.clone(),
+            &subject_addr
+        );
+        send_bind_message!(subject_subs, peer_actors);
+        addresses
+            .blockchain_bridge_addr
+            .try_send(SetUpCounterMsgs::new(vec![
+                blockchain_bridge_counter_msg_setup_for_pending_payable_scanner,
+                blockchain_bridge_counter_msg_setup_for_payable_scanner,
+            ]))
+            .unwrap();
+
+        send_start_message!(subject_subs);
+
+        // The system is stopped by the NotifyHandleLaterMock for the PendingPayable scanner
+        let before = SystemTime::now();
+        system.run();
+        let after = SystemTime::now();
+        assert_pending_payable_scanner_for_some_pending_payable_found(
+            test_name,
+            consuming_wallet.clone(),
+            &scan_params,
+            &notify_and_notify_later_params.pending_payables_notify_later,
+            pending_payable_expected_notify_later_interval,
+            expected_report_transaction_receipts,
+            before,
+            after,
+        );
+        assert_payable_scanner_for_some_pending_payable_found(
+            test_name,
+            consuming_wallet,
+            &scan_params,
+            &notify_and_notify_later_params,
+            expected_sent_payables,
+        );
+        assert_receivable_scanner(
+            test_name,
+            earning_wallet,
+            &scan_params.receivable_start_scan,
+            &notify_and_notify_later_params.receivables_notify_later,
+            receivable_scan_interval,
+        );
         // Given the assertions prove that the pending payable scanner has run multiple times
         // before the new payable scanner started or was scheduled, the front position belongs to
         // the one first mentioned, no doubts.
