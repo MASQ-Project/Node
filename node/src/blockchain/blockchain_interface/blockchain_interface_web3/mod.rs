@@ -293,8 +293,11 @@ pub struct HashAndAmount {
 }
 
 impl From<&Tx> for HashAndAmount {
-    fn from(_: &Tx) -> Self {
-        todo!()
+    fn from(tx: &Tx) -> Self {
+        HashAndAmount {
+            hash: tx.hash,
+            amount: tx.amount,
+        }
     }
 }
 

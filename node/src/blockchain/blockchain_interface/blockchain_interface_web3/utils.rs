@@ -372,6 +372,8 @@ pub fn create_blockchain_agent_web3(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accountant::db_access_objects::failed_payable_dao::ValidationStatus::Waiting;
+    use crate::accountant::db_access_objects::test_utils::{FailedTxBuilder, TxBuilder};
     use crate::accountant::db_access_objects::utils::from_unix_timestamp;
     use crate::accountant::gwei_to_wei;
     use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::PricedNewTxTemplate;
@@ -390,8 +392,11 @@ mod tests {
     use crate::blockchain::blockchain_interface::data_structures::IndividualBatchResult::{
         Failed, Pending,
     };
+    use crate::blockchain::errors::AppRpcError;
+    use crate::blockchain::errors::LocalError::Transport;
     use crate::blockchain::test_utils::{
-        make_address, make_tx_hash, transport_error_code, transport_error_message,
+        make_address, make_blockchain_interface_web3, make_tx_hash, transport_error_code,
+        transport_error_message,
     };
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_paying_wallet;
@@ -710,7 +715,7 @@ mod tests {
     fn test_send_payables_within_batch(
         test_name: &str,
         signable_tx_templates: SignableTxTemplates,
-        expected_result: Result<Vec<IndividualBatchResult>, LocalPayableError>,
+        expected_result: Result<BatchResults, LocalPayableError>,
         port: u16,
     ) {
         init_test_logging();
@@ -758,161 +763,191 @@ mod tests {
             )
         );
         tlh.exists_log_containing(&format!("INFO: {test_name}: {expected_transmission_log}"));
-        todo!("BatchResults");
-        // assert_eq!(result, expected_result);
+        assert_eq!(result, expected_result);
     }
 
     #[test]
     fn send_payables_within_batch_works() {
-        let account_1 = make_payable_account(1);
-        let account_2 = make_payable_account(2);
-        let port = find_free_port();
-        let _blockchain_client_server = MBCSBuilder::new(port)
-            .begin_batch()
-            // TODO: GH-547: This rpc_result should be validated in production code.
-            .ok_response("irrelevant_ok_rpc_response".to_string(), 7)
-            .ok_response("irrelevant_ok_rpc_response_2".to_string(), 8)
-            .end_batch()
-            .start();
-        let expected_result = Ok(vec![
-            Pending(PendingPayable {
-                recipient_wallet: account_1.wallet.clone(),
-                hash: H256::from_str(
-                    "6e7fa351eef640186f76c629cb74106b3082c8f8a1a9df75ff02fe5bfd4dd1a2",
-                )
-                .unwrap(),
-            }),
-            Pending(PendingPayable {
-                recipient_wallet: account_2.wallet.clone(),
-                hash: H256::from_str(
-                    "b67a61b29c0c48d8b63a64fda73b3247e8e2af68082c710325675d4911e113d4",
-                )
-                .unwrap(),
-            }),
-        ]);
+        todo!("Send Payables Within Batch");
+        // let account_1 = make_payable_account(1);
+        // let account_2 = make_payable_account(2);
+        // let port = find_free_port();
+        // let _blockchain_client_server = MBCSBuilder::new(port)
+        //     .begin_batch()
+        //     // TODO: GH-547: This rpc_result should be validated in production code.
+        //     .ok_response("irrelevant_ok_rpc_response".to_string(), 7)
+        //     .ok_response("irrelevant_ok_rpc_response_2".to_string(), 8)
+        //     .end_batch()
+        //     .start();
+        // let expected_result = Ok(vec![
+        //     Pending(PendingPayable {
+        //         recipient_wallet: account_1.wallet.clone(),
+        //         hash: H256::from_str(
+        //             "6e7fa351eef640186f76c629cb74106b3082c8f8a1a9df75ff02fe5bfd4dd1a2",
+        //         )
+        //         .unwrap(),
+        //     }),
+        //     Pending(PendingPayable {
+        //         recipient_wallet: account_2.wallet.clone(),
+        //         hash: H256::from_str(
+        //             "b67a61b29c0c48d8b63a64fda73b3247e8e2af68082c710325675d4911e113d4",
+        //         )
+        //         .unwrap(),
+        //     }),
+        // ]);
 
-        test_send_payables_within_batch(
-            "send_payables_within_batch_works",
-            make_signable_tx_templates(vec![(account_1, 111_111_111), (account_2, 222_222_222)]),
-            expected_result,
-            port,
-        );
-    }
-
-    #[test]
-    fn send_payables_within_batch_fails_on_submit_batch_call() {
-        let signable_tx_templates = make_signable_tx_templates(vec![
-            (make_payable_account(1), 111_222_333),
-            (make_payable_account(2), 222_333_444),
-        ]);
-        let os_code = transport_error_code();
-        let os_msg = transport_error_message();
-        let port = find_free_port();
-        todo!("SendingError");
-        // let expected_result = Err(Sending {
-        //     msg: format!("Transport error: Error(Connect, Os {{ code: {}, kind: ConnectionRefused, message: {:?} }})", os_code, os_msg).to_string(),
-        //     hashes: vec![
-        //         H256::from_str("ec7ac48060b75889f949f5e8d301b386198218e60e2635c95cb6b0934a0887ea").unwrap(),
-        //         H256::from_str("c2d5059db0ec2fbf15f83d9157eeb0d793d6242de5e73a607935fb5660e7e925").unwrap()
-        //     ],
-        // });
-        //
         // test_send_payables_within_batch(
-        //     "send_payables_within_batch_fails_on_submit_batch_call",
-        //     signable_tx_templates,
+        //     "send_payables_within_batch_works",
+        //     make_signable_tx_templates(vec![(account_1, 111_111_111), (account_2, 222_222_222)]),
         //     expected_result,
         //     port,
         // );
     }
 
     #[test]
-    fn send_payables_within_batch_all_payments_fail() {
-        let account_1 = make_payable_account(1);
-        let account_2 = make_payable_account(2);
+    fn send_payables_within_batch_fails_on_submit_batch_call() {
         let port = find_free_port();
-        let _blockchain_client_server = MBCSBuilder::new(port)
-            .begin_batch()
-            .err_response(
-                429,
-                "The requests per second (RPS) of your requests are higher than your plan allows."
-                    .to_string(),
-                7,
-            )
-            .err_response(
-                429,
-                "The requests per second (RPS) of your requests are higher than your plan allows."
-                    .to_string(),
-                8,
-            )
-            .end_batch()
-            .start();
-        let expected_result = Ok(vec![
-            Failed(RpcPayableFailure {
-                rpc_error: Rpc(Error {
-                    code: ServerError(429),
-                    message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string(),
-                    data: None,
-                }),
-                recipient_wallet: account_1.wallet.clone(),
-                hash: H256::from_str("6e7fa351eef640186f76c629cb74106b3082c8f8a1a9df75ff02fe5bfd4dd1a2").unwrap(),
-            }),
-            Failed(RpcPayableFailure {
-                rpc_error: Rpc(Error {
-                    code: ServerError(429),
-                    message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string(),
-                    data: None,
-                }),
-                recipient_wallet: account_2.wallet.clone(),
-                hash: H256::from_str("ca6ad0a60daeaf31cbca7ce6e499c0f4ff5870564c5e845de11834f1fc05bd4e").unwrap(),
-            }),
+        let (_event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        )
+        .unwrap();
+        let web3 = Web3::new(transport.clone());
+        let web3_batch = Web3::new(Batch::new(transport));
+        let consuming_wallet = make_paying_wallet(b"consuming_wallet");
+        let signable_tx_templates = SignableTxTemplates(vec![
+            SignableTxTemplate {
+                receiver_address: make_address(1),
+                amount_in_wei: 12345,
+                gas_price_wei: 99,
+                nonce: 5,
+            },
+            SignableTxTemplate {
+                receiver_address: make_address(2),
+                amount_in_wei: 22345,
+                gas_price_wei: 100,
+                nonce: 6,
+            },
         ]);
+        let os_code = transport_error_code();
+        let os_msg = transport_error_message();
+        let failed_txs = signable_tx_templates
+            .iter()
+            .map(|template| {
+                let signed_tx =
+                    sign_transaction(DEFAULT_CHAIN, &web3_batch, template, &consuming_wallet);
+                FailedTxBuilder::default()
+                    .hash(signed_tx.transaction_hash)
+                    .receiver_address(template.receiver_address)
+                    .amount(template.amount_in_wei)
+                    .timestamp(to_unix_timestamp(SystemTime::now()))
+                    .gas_price_wei(template.gas_price_wei)
+                    .nonce(template.nonce)
+                    .reason(FailureReason::Submission(AppRpcError::Local(Transport("Error(Connect, Os { code: 61, kind: ConnectionRefused, message: \"Connection refused\" })".to_string()))))
+                    .status(FailureStatus::RetryRequired)
+                    .build()
+            })
+            .collect();
+        let expected_result = Err(Sending(failed_txs));
 
         test_send_payables_within_batch(
-            "send_payables_within_batch_all_payments_fail",
-            make_signable_tx_templates(vec![(account_1, 111_111_111), (account_2, 111_111_111)]),
+            "send_payables_within_batch_fails_on_submit_batch_call",
+            signable_tx_templates,
             expected_result,
             port,
         );
     }
 
     #[test]
-    fn send_payables_within_batch_one_payment_works_the_other_fails() {
-        let account_1 = make_payable_account(1);
-        let account_2 = make_payable_account(2);
-        let port = find_free_port();
-        let _blockchain_client_server = MBCSBuilder::new(port)
-            .begin_batch()
-            .ok_response("rpc_result".to_string(), 7)
-            .err_response(
-                429,
-                "The requests per second (RPS) of your requests are higher than your plan allows."
-                    .to_string(),
-                7,
-            )
-            .end_batch()
-            .start();
-        let expected_result = Ok(vec![
-            Pending(PendingPayable {
-                recipient_wallet: account_1.wallet.clone(),
-                hash: H256::from_str("6e7fa351eef640186f76c629cb74106b3082c8f8a1a9df75ff02fe5bfd4dd1a2").unwrap(),
-            }),
-            Failed(RpcPayableFailure {
-                rpc_error: Rpc(Error {
-                    code: ServerError(429),
-                    message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string(),
-                    data: None,
-                }),
-                recipient_wallet: account_2.wallet.clone(),
-                hash: H256::from_str("ca6ad0a60daeaf31cbca7ce6e499c0f4ff5870564c5e845de11834f1fc05bd4e").unwrap(),
-            }),
-        ]);
+    fn send_payables_within_batch_all_payments_fail() {
+        todo!("Send Payables Within Batch");
+        // let account_1 = make_payable_account(1);
+        // let account_2 = make_payable_account(2);
+        // let port = find_free_port();
+        // let _blockchain_client_server = MBCSBuilder::new(port)
+        //     .begin_batch()
+        //     .err_response(
+        //         429,
+        //         "The requests per second (RPS) of your requests are higher than your plan allows."
+        //             .to_string(),
+        //         7,
+        //     )
+        //     .err_response(
+        //         429,
+        //         "The requests per second (RPS) of your requests are higher than your plan allows."
+        //             .to_string(),
+        //         8,
+        //     )
+        //     .end_batch()
+        //     .start();
+        // let expected_result = Ok(vec![
+        //     Failed(RpcPayableFailure {
+        //         rpc_error: Rpc(Error {
+        //             code: ServerError(429),
+        //             message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string(),
+        //             data: None,
+        //         }),
+        //         recipient_wallet: account_1.wallet.clone(),
+        //         hash: H256::from_str("6e7fa351eef640186f76c629cb74106b3082c8f8a1a9df75ff02fe5bfd4dd1a2").unwrap(),
+        //     }),
+        //     Failed(RpcPayableFailure {
+        //         rpc_error: Rpc(Error {
+        //             code: ServerError(429),
+        //             message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string(),
+        //             data: None,
+        //         }),
+        //         recipient_wallet: account_2.wallet.clone(),
+        //         hash: H256::from_str("ca6ad0a60daeaf31cbca7ce6e499c0f4ff5870564c5e845de11834f1fc05bd4e").unwrap(),
+        //     }),
+        // ]);
 
-        test_send_payables_within_batch(
-            "send_payables_within_batch_one_payment_works_the_other_fails",
-            make_signable_tx_templates(vec![(account_1, 111_111_111), (account_2, 111_111_111)]),
-            expected_result,
-            port,
-        );
+        // test_send_payables_within_batch(
+        //     "send_payables_within_batch_all_payments_fail",
+        //     make_signable_tx_templates(vec![(account_1, 111_111_111), (account_2, 111_111_111)]),
+        //     expected_result,
+        //     port,
+        // );
+    }
+
+    #[test]
+    fn send_payables_within_batch_one_payment_works_the_other_fails() {
+        todo!("Send Payables Within Batch");
+        // let account_1 = make_payable_account(1);
+        // let account_2 = make_payable_account(2);
+        // let port = find_free_port();
+        // let _blockchain_client_server = MBCSBuilder::new(port)
+        //     .begin_batch()
+        //     .ok_response("rpc_result".to_string(), 7)
+        //     .err_response(
+        //         429,
+        //         "The requests per second (RPS) of your requests are higher than your plan allows."
+        //             .to_string(),
+        //         7,
+        //     )
+        //     .end_batch()
+        //     .start();
+        // let expected_result = Ok(vec![
+        //     Pending(PendingPayable {
+        //         recipient_wallet: account_1.wallet.clone(),
+        //         hash: H256::from_str("6e7fa351eef640186f76c629cb74106b3082c8f8a1a9df75ff02fe5bfd4dd1a2").unwrap(),
+        //     }),
+        //     Failed(RpcPayableFailure {
+        //         rpc_error: Rpc(Error {
+        //             code: ServerError(429),
+        //             message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string(),
+        //             data: None,
+        //         }),
+        //         recipient_wallet: account_2.wallet.clone(),
+        //         hash: H256::from_str("ca6ad0a60daeaf31cbca7ce6e499c0f4ff5870564c5e845de11834f1fc05bd4e").unwrap(),
+        //     }),
+        // ]);
+
+        // test_send_payables_within_batch(
+        //     "send_payables_within_batch_one_payment_works_the_other_fails",
+        //     make_signable_tx_templates(vec![(account_1, 111_111_111), (account_2, 111_111_111)]),
+        //     expected_result,
+        //     port,
+        // );
     }
 
     #[test]
