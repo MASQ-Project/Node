@@ -81,6 +81,9 @@ pub const NEW_PUBLIC_KEY_HELP: &str = "Whenever you start it, the Node will try 
      it used last time. That's '--new-public-key off'. If you want it to select a new public key when it \
      starts, then specify '--new-public-key on', and you'll get a different one this time...which it will \
      reuse next time unless you specify '--new-public-key on' again.\n\n\
+     You should be careful about restarting your Node with the same public key too quickly. If your new \
+     Node tries to join the Network before the Network has forgotten your old Node, every Node you try \
+     to connect to will ignore you.\n\n\
      There are some conditions under which the Node cannot use the same public key it used last time: \
      for example, if there was no last time, or if you don't specify a `--db-password`. If you're in \
      one of these situations and you demand the old public key with `--new-public-key off`, the Node \
