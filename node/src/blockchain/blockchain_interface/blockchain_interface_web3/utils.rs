@@ -474,17 +474,19 @@ mod tests {
         );
 
         let mut batch_result = web3_batch.eth().transport().submit_batch().wait().unwrap();
-        todo!("Tx");
-        // assert_eq!(
-        //     result,
-        //     HashAndAmount {
-        //         hash: H256::from_str(
-        //             "94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2"
-        //         )
-        //         .unwrap(),
-        //         amount: account.balance_wei
-        //     }
-        // );
+        let expected_tx = Tx {
+            hash: H256::from_str(
+                "94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2",
+            )
+            .unwrap(),
+            receiver_address: signable_tx_template.receiver_address,
+            amount: signable_tx_template.amount_in_wei,
+            timestamp: to_unix_timestamp(SystemTime::now()),
+            gas_price_wei: signable_tx_template.gas_price_wei,
+            nonce: signable_tx_template.nonce,
+            status: TxStatus::Pending(ValidationStatus::Waiting),
+        };
+        assert_on_sent_txs(vec![result], vec![expected_tx]);
         assert_eq!(
             batch_result.pop().unwrap().unwrap(),
             Value::String(
@@ -765,15 +767,15 @@ mod tests {
         );
         tlh.exists_log_containing(&format!("INFO: {test_name}: {expected_transmission_log}"));
         match result {
-            Ok(batch) => {
+            Ok(resulted_batch) => {
                 let expected_batch = expected_result.unwrap();
-                assert_on_failed_txs(batch.failed_txs, expected_batch.failed_txs);
-                assert_on_sent_txs(batch.sent_txs, expected_batch.sent_txs);
+                assert_on_failed_txs(resulted_batch.failed_txs, expected_batch.failed_txs);
+                assert_on_sent_txs(resulted_batch.sent_txs, expected_batch.sent_txs);
             }
-            Err(err) => match err {
-                LocalPayableError::Sending(failed_txs) => {
+            Err(resulted_err) => match resulted_err {
+                LocalPayableError::Sending(resulted_failed_txs) => {
                     if let Err(LocalPayableError::Sending(expected_failed_txs)) = expected_result {
-                        assert_on_failed_txs(failed_txs, expected_failed_txs);
+                        assert_on_failed_txs(resulted_failed_txs, expected_failed_txs);
                     } else {
                         panic!(
                             "Expected different error but received  {}",
@@ -781,9 +783,8 @@ mod tests {
                         )
                     }
                 }
-                other_errs => {
-                    todo!();
-                    assert_eq!(other_errs, err)
+                other_err => {
+                    panic!("Only LocalPayableError::Sending is returned by send_payables_within_batch nut received: {} ", other_err)
                 }
             },
         }
@@ -816,40 +817,72 @@ mod tests {
 
     #[test]
     fn send_payables_within_batch_works() {
-        todo!("Send Payables Within Batch");
-        // let account_1 = make_payable_account(1);
-        // let account_2 = make_payable_account(2);
-        // let port = find_free_port();
-        // let _blockchain_client_server = MBCSBuilder::new(port)
-        //     .begin_batch()
-        //     // TODO: GH-547: This rpc_result should be validated in production code.
-        //     .ok_response("irrelevant_ok_rpc_response".to_string(), 7)
-        //     .ok_response("irrelevant_ok_rpc_response_2".to_string(), 8)
-        //     .end_batch()
-        //     .start();
-        // let expected_result = Ok(vec![
-        //     Pending(PendingPayable {
-        //         recipient_wallet: account_1.wallet.clone(),
-        //         hash: H256::from_str(
-        //             "6e7fa351eef640186f76c629cb74106b3082c8f8a1a9df75ff02fe5bfd4dd1a2",
-        //         )
-        //         .unwrap(),
-        //     }),
-        //     Pending(PendingPayable {
-        //         recipient_wallet: account_2.wallet.clone(),
-        //         hash: H256::from_str(
-        //             "b67a61b29c0c48d8b63a64fda73b3247e8e2af68082c710325675d4911e113d4",
-        //         )
-        //         .unwrap(),
-        //     }),
-        // ]);
+        let port = find_free_port();
+        let (_event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        )
+        .unwrap();
+        let web3 = Web3::new(transport.clone());
+        let web3_batch = Web3::new(Batch::new(transport));
+        let consuming_wallet = make_paying_wallet(b"consuming_wallet");
+        let template_1 = SignableTxTemplate {
+            receiver_address: make_address(1),
+            amount_in_wei: 111_222,
+            gas_price_wei: 123,
+            nonce: 1,
+        };
+        let template_2 = SignableTxTemplate {
+            receiver_address: make_address(2),
+            amount_in_wei: 222_333,
+            gas_price_wei: 234,
+            nonce: 2,
+        };
+        let signable_tx_templates =
+            SignableTxTemplates(vec![template_1.clone(), template_2.clone()]);
+        let _blockchain_client_server = MBCSBuilder::new(port)
+            .begin_batch()
+            // TODO: GH-547: This rpc_result should be validated in production code.
+            .ok_response("irrelevant_ok_rpc_response".to_string(), 7)
+            .ok_response("irrelevant_ok_rpc_response_2".to_string(), 8)
+            .end_batch()
+            .start();
+        let batch_results = {
+            let signed_tx_1 =
+                sign_transaction(DEFAULT_CHAIN, &web3_batch, &template_1, &consuming_wallet);
+            let sent_tx_1 = Tx {
+                hash: signed_tx_1.transaction_hash,
+                receiver_address: template_1.receiver_address,
+                amount: template_1.amount_in_wei,
+                timestamp: to_unix_timestamp(SystemTime::now()),
+                gas_price_wei: template_1.gas_price_wei,
+                nonce: template_1.nonce,
+                status: TxStatus::Pending(ValidationStatus::Waiting),
+            };
+            let signed_tx_2 =
+                sign_transaction(DEFAULT_CHAIN, &web3_batch, &template_2, &consuming_wallet);
+            let sent_tx_2 = Tx {
+                hash: signed_tx_2.transaction_hash,
+                receiver_address: template_2.receiver_address,
+                amount: template_2.amount_in_wei,
+                timestamp: to_unix_timestamp(SystemTime::now()),
+                gas_price_wei: template_2.gas_price_wei,
+                nonce: template_2.nonce,
+                status: TxStatus::Pending(ValidationStatus::Waiting),
+            };
 
-        // test_send_payables_within_batch(
-        //     "send_payables_within_batch_works",
-        //     make_signable_tx_templates(vec![(account_1, 111_111_111), (account_2, 222_222_222)]),
-        //     expected_result,
-        //     port,
-        // );
+            BatchResults {
+                sent_txs: vec![sent_tx_1, sent_tx_2],
+                failed_txs: vec![],
+            }
+        };
+
+        test_send_payables_within_batch(
+            "send_payables_within_batch_works",
+            signable_tx_templates,
+            Ok(batch_results),
+            port,
+        );
     }
 
     #[test]
