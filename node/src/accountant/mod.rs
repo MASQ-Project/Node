@@ -1679,65 +1679,65 @@ mod tests {
         let system = System::new("test");
         let agent_id_stamp = ArbitraryIdStamp::new();
         let agent = BlockchainAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp);
-        let qualified_payables = make_priced_qualified_payables(vec![
+        let priced_new_templates = make_priced_new_tx_templates(vec![
             (account_1, 1_000_000_001),
             (account_2, 1_000_000_002),
         ]);
         let msg = BlockchainAgentWithContextMessage {
-            priced_templates: todo!("priced_templates"),
+            priced_templates: Either::Left(priced_new_templates.clone()),
             agent: Box::new(agent),
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 1234,
                 context_id: 4321,
             }),
         };
-        //
-        // subject_addr.try_send(msg).unwrap();
-        //
-        // system.run();
-        // let mut is_adjustment_required_params = is_adjustment_required_params_arc.lock().unwrap();
-        // let (blockchain_agent_with_context_msg_actual, logger_clone) =
-        //     is_adjustment_required_params.remove(0);
-        // assert_eq!(
-        //     blockchain_agent_with_context_msg_actual.qualified_payables,
-        //     qualified_payables.clone()
-        // );
-        // assert_eq!(
-        //     blockchain_agent_with_context_msg_actual.response_skeleton_opt,
-        //     Some(ResponseSkeleton {
-        //         client_id: 1234,
-        //         context_id: 4321,
-        //     })
-        // );
-        // assert_eq!(
-        //     blockchain_agent_with_context_msg_actual
-        //         .agent
-        //         .arbitrary_id_stamp(),
-        //     agent_id_stamp
-        // );
-        // assert!(is_adjustment_required_params.is_empty());
-        // let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
-        // let payments_instructions =
-        //     blockchain_bridge_recording.get_record::<OutboundPaymentsInstructions>(0);
-        // assert_eq!(
-        //     payments_instructions.affordable_accounts,
-        //     qualified_payables
-        // );
-        // assert_eq!(
-        //     payments_instructions.response_skeleton_opt,
-        //     Some(ResponseSkeleton {
-        //         client_id: 1234,
-        //         context_id: 4321,
-        //     })
-        // );
-        // assert_eq!(
-        //     payments_instructions.agent.arbitrary_id_stamp(),
-        //     agent_id_stamp
-        // );
-        // assert_eq!(blockchain_bridge_recording.len(), 1);
-        // assert_using_the_same_logger(&logger_clone, test_name, None)
-        // // The adjust_payments() function doesn't require prepared results, indicating it shouldn't
-        // // have been reached during the test, or it would have caused a panic.
+
+        subject_addr.try_send(msg).unwrap();
+
+        system.run();
+        let mut is_adjustment_required_params = is_adjustment_required_params_arc.lock().unwrap();
+        let (blockchain_agent_with_context_msg_actual, logger_clone) =
+            is_adjustment_required_params.remove(0);
+        assert_eq!(
+            blockchain_agent_with_context_msg_actual.priced_templates,
+            Either::Left(priced_new_templates.clone())
+        );
+        assert_eq!(
+            blockchain_agent_with_context_msg_actual.response_skeleton_opt,
+            Some(ResponseSkeleton {
+                client_id: 1234,
+                context_id: 4321,
+            })
+        );
+        assert_eq!(
+            blockchain_agent_with_context_msg_actual
+                .agent
+                .arbitrary_id_stamp(),
+            agent_id_stamp
+        );
+        assert!(is_adjustment_required_params.is_empty());
+        let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
+        let payments_instructions =
+            blockchain_bridge_recording.get_record::<OutboundPaymentsInstructions>(0);
+        assert_eq!(
+            payments_instructions.priced_templates,
+            Either::Left(priced_new_templates.clone())
+        );
+        assert_eq!(
+            payments_instructions.response_skeleton_opt,
+            Some(ResponseSkeleton {
+                client_id: 1234,
+                context_id: 4321,
+            })
+        );
+        assert_eq!(
+            payments_instructions.agent.arbitrary_id_stamp(),
+            agent_id_stamp
+        );
+        assert_eq!(blockchain_bridge_recording.len(), 1);
+        assert_using_the_same_logger(&logger_clone, test_name, None)
+        // The adjust_payments() function doesn't require prepared results, indicating it shouldn't
+        // have been reached during the test, or it would have caused a panic.
     }
 
     fn assert_using_the_same_logger(
