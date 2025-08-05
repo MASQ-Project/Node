@@ -36,6 +36,11 @@ impl TxBuilder {
         self
     }
 
+    pub fn receiver_address(mut self, receiver_address: Address) -> Self {
+        self.receiver_address_opt = Some(receiver_address);
+        self
+    }
+
     pub fn timestamp(mut self, timestamp: i64) -> Self {
         self.timestamp_opt = Some(timestamp);
         self
