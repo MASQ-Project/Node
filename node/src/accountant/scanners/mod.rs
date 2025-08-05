@@ -1496,31 +1496,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Complete me with GH-605")]
-    // TODO: GH-605: Work on it while working on start_scan() method
-    fn retry_payable_scanner_panics_in_case_no_qualified_payable_is_found() {
-        let consuming_wallet = make_paying_wallet(b"consuming wallet");
-        let now = SystemTime::now();
-        let (_, unqualified_payable_accounts, _) =
-            make_qualified_and_unqualified_payables(now, &PaymentThresholds::default());
-        let payable_dao =
-            PayableDaoMock::new().non_pending_payables_result(unqualified_payable_accounts);
-        let failed_payable_dao = FailedPayableDaoMock::default().retrieve_txs_result(vec![]);
-        let mut subject = PayableScannerBuilder::new()
-            .failed_payable_dao(failed_payable_dao)
-            .payable_dao(payable_dao)
-            .build();
-
-        let _ = Scanners::start_correct_payable_scanner::<ScanForRetryPayables>(
-            &mut subject,
-            &consuming_wallet,
-            now,
-            None,
-            &Logger::new("test"),
-        );
-    }
-
-    #[test]
     fn finish_payable_scan_keeps_the_aware_of_unresolved_pending_payable_flag_as_false_in_case_of_err(
     ) {
         init_test_logging();
