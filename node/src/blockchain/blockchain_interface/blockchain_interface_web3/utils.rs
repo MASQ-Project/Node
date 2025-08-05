@@ -984,43 +984,80 @@ mod tests {
 
     #[test]
     fn send_payables_within_batch_one_payment_works_the_other_fails() {
-        todo!("Send Payables Within Batch");
-        // let account_1 = make_payable_account(1);
-        // let account_2 = make_payable_account(2);
-        // let port = find_free_port();
-        // let _blockchain_client_server = MBCSBuilder::new(port)
-        //     .begin_batch()
-        //     .ok_response("rpc_result".to_string(), 7)
-        //     .err_response(
-        //         429,
-        //         "The requests per second (RPS) of your requests are higher than your plan allows."
-        //             .to_string(),
-        //         7,
-        //     )
-        //     .end_batch()
-        //     .start();
-        // let expected_result = Ok(vec![
-        //     Pending(PendingPayable {
-        //         recipient_wallet: account_1.wallet.clone(),
-        //         hash: H256::from_str("6e7fa351eef640186f76c629cb74106b3082c8f8a1a9df75ff02fe5bfd4dd1a2").unwrap(),
-        //     }),
-        //     Failed(RpcPayableFailure {
-        //         rpc_error: Rpc(Error {
-        //             code: ServerError(429),
-        //             message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string(),
-        //             data: None,
-        //         }),
-        //         recipient_wallet: account_2.wallet.clone(),
-        //         hash: H256::from_str("ca6ad0a60daeaf31cbca7ce6e499c0f4ff5870564c5e845de11834f1fc05bd4e").unwrap(),
-        //     }),
-        // ]);
+        let port = find_free_port();
+        let (_event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        )
+        .unwrap();
+        let web3 = Web3::new(transport.clone());
+        let web3_batch = Web3::new(Batch::new(transport));
+        let consuming_wallet = make_paying_wallet(b"consuming_wallet");
+        let template_1 = SignableTxTemplate {
+            receiver_address: make_address(1),
+            amount_in_wei: 111_222,
+            gas_price_wei: 123,
+            nonce: 1,
+        };
+        let template_2 = SignableTxTemplate {
+            receiver_address: make_address(2),
+            amount_in_wei: 222_333,
+            gas_price_wei: 234,
+            nonce: 2,
+        };
+        let signable_tx_templates =
+            SignableTxTemplates(vec![template_1.clone(), template_2.clone()]);
+        let _blockchain_client_server = MBCSBuilder::new(port)
+            .begin_batch()
+            .ok_response("rpc_result".to_string(), 7)
+            .err_response(
+                429,
+                "The requests per second (RPS) of your requests are higher than your plan allows."
+                    .to_string(),
+                7,
+            )
+            .end_batch()
+            .start();
+        let batch_results = {
+            let signed_tx_1 =
+                sign_transaction(DEFAULT_CHAIN, &web3_batch, &template_1, &consuming_wallet);
+            let sent_tx = Tx {
+                hash: signed_tx_1.transaction_hash,
+                receiver_address: template_1.receiver_address,
+                amount: template_1.amount_in_wei,
+                timestamp: to_unix_timestamp(SystemTime::now()),
+                gas_price_wei: template_1.gas_price_wei,
+                nonce: template_1.nonce,
+                status: TxStatus::Pending(ValidationStatus::Waiting),
+            };
+            let signed_tx_2 =
+                sign_transaction(DEFAULT_CHAIN, &web3_batch, &template_2, &consuming_wallet);
+            let failed_tx = FailedTx {
+                hash: signed_tx_2.transaction_hash,
+                receiver_address: template_2.receiver_address,
+                amount: template_2.amount_in_wei,
+                timestamp: to_unix_timestamp(SystemTime::now()),
+                gas_price_wei: template_2.gas_price_wei,
+                nonce: template_2.nonce,
+                reason: FailureReason::Submission(AppRpcError::Remote(Web3RpcError {
+                    code: 429,
+                    message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string(),
+                })),
+                status: FailureStatus::RetryRequired,
+            };
 
-        // test_send_payables_within_batch(
-        //     "send_payables_within_batch_one_payment_works_the_other_fails",
-        //     make_signable_tx_templates(vec![(account_1, 111_111_111), (account_2, 111_111_111)]),
-        //     expected_result,
-        //     port,
-        // );
+            BatchResults {
+                sent_txs: vec![sent_tx],
+                failed_txs: vec![failed_tx],
+            }
+        };
+
+        test_send_payables_within_batch(
+            "send_payables_within_batch_one_payment_works_the_other_fails",
+            signable_tx_templates,
+            Ok(batch_results),
+            port,
+        );
     }
 
     #[test]
