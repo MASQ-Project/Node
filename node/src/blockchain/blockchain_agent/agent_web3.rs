@@ -340,19 +340,6 @@ mod tests {
         }
     }
 
-    fn make_retry_tx_template_with_computed_gas_price(
-        payable: &PayableAccount,
-        gas_price_wei: u128,
-    ) -> RetryTxTemplate {
-        let base = BaseTxTemplate::from(payable);
-        RetryTxTemplate {
-            base,
-            prev_gas_price_wei: 0,
-            prev_nonce: 0,
-            computed_gas_price_wei: Some(gas_price_wei),
-        }
-    }
-
     #[test]
     fn new_payables_gas_price_ceiling_test_if_latest_price_is_a_border_value() {
         let test_name = "new_payables_gas_price_ceiling_test_if_latest_price_is_a_border_value";
@@ -408,16 +395,6 @@ mod tests {
             10 * ceiling_gas_price_wei,
             650_000_000_000,
         );
-    }
-
-    pub fn make_new_tx_template_with_gas_price(
-        payable: &PayableAccount,
-        gas_price_wei: u128,
-    ) -> NewTxTemplate {
-        let mut tx_template = NewTxTemplate::from(payable);
-        tx_template.computed_gas_price_wei = Some(gas_price_wei);
-
-        tx_template
     }
 
     fn test_gas_price_must_not_break_through_ceiling_value_in_the_new_payable_mode(

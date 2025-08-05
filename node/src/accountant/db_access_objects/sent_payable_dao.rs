@@ -11,10 +11,9 @@ use crate::accountant::db_access_objects::utils::{DaoFactoryReal, TxHash, TxIden
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock};
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
-use itertools::Itertools;
 use serde_derive::{Deserialize, Serialize};
 use crate::accountant::db_access_objects::failed_payable_dao::ValidationStatus;
-use crate::accountant::db_access_objects::failed_payable_dao::{FailedPayableDao, FailedPayableDaoReal};
+use crate::accountant::db_access_objects::failed_payable_dao::{FailedPayableDao};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SentPayableDaoError {

@@ -1171,20 +1171,6 @@ mod tests {
         assert_eq!(recording.len(), 0);
     }
 
-    fn assert_sending_error(error: &LocalPayableError, error_msg: &str) {
-        todo!("SendingError")
-        // if let LocalPayableError::Sending { msg, .. } = error {
-        //     assert!(
-        //         msg.contains(error_msg),
-        //         "Actual Error message: {} does not contain this fragment {}",
-        //         msg,
-        //         error_msg
-        //     );
-        // } else {
-        //     panic!("Received wrong error: {:?}", error);
-        // }
-    }
-
     #[test]
     fn blockchain_bridge_processes_requests_for_a_complete_and_null_transaction_receipt() {
         let (accountant, _, accountant_recording_arc) = make_recorder();

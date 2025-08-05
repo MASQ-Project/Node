@@ -61,17 +61,6 @@ mod tests {
     use masq_lib::utils::find_free_port;
     use std::net::Ipv4Addr;
 
-    //TODO: GH-605: This duplicate should be removed.
-    pub fn make_new_tx_template_with_gas_price(
-        payable: &PayableAccount,
-        gas_price_wei: u128,
-    ) -> NewTxTemplate {
-        let mut tx_template = NewTxTemplate::from(payable);
-        tx_template.computed_gas_price_wei = Some(gas_price_wei);
-
-        tx_template
-    }
-
     #[test]
     fn initialize_web3_interface_works() {
         // TODO this test should definitely assert on the web3 requests sent to the server,

@@ -9,7 +9,7 @@ pub mod payable_scanner_utils {
     use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::sub_lib::wallet::Wallet;
-    use itertools::{Either, Itertools};
+    use itertools::Itertools;
     use masq_lib::logger::Logger;
     use masq_lib::ui_gateway::NodeToUiMessage;
     use std::cmp::Ordering;
@@ -362,27 +362,21 @@ pub mod receivable_scanner_utils {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp};
-    use crate::accountant::db_access_objects::payable_dao::{PayableAccount};
+    use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::db_access_objects::receivable_dao::ReceivableAccount;
-    use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
-        LocallyCausedError, RemotelyCausedErrors,
-    };
+    use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp};
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{
-        investigate_debt_extremes,
-        payables_debug_summary, PayableThresholdsGauge,
+        investigate_debt_extremes, payables_debug_summary, PayableThresholdsGauge,
         PayableThresholdsGaugeReal,
     };
     use crate::accountant::scanners::scanners_utils::receivable_scanner_utils::balance_and_age;
-    use crate::accountant::{checked_conversion, gwei_to_wei, SentPayables};
-    use crate::blockchain::test_utils::make_tx_hash;
+    use crate::accountant::{checked_conversion, gwei_to_wei};
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::test_utils::make_wallet;
     use masq_lib::constants::WEIS_IN_GWEI;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::time::SystemTime;
-    use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainError, LocalPayableError};
 
     #[test]
     fn investigate_debt_extremes_picks_the_most_relevant_records() {

@@ -20,10 +20,9 @@ use crate::accountant::scanners::payable_scanner_extension::{
     MultistageDualPayableScanner, PreparedAdjustment, SolvencySensitivePaymentInstructor,
 };
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{
-    payables_debug_summary, OperationOutcome, PayableScanResult, PayableThresholdsGauge,
-    PayableThresholdsGaugeReal,
+    payables_debug_summary, OperationOutcome, PayableThresholdsGauge, PayableThresholdsGaugeReal,
 };
-use crate::accountant::scanners::{Scanner, ScannerCommon, StartableScanner};
+use crate::accountant::scanners::ScannerCommon;
 use crate::accountant::{
     comma_joined_stringifiable, gwei_to_wei, join_with_separator, PayableScanType,
     ResponseSkeleton, SentPayables,
@@ -327,19 +326,13 @@ impl PayableScanner {
 mod tests {
     use super::*;
     use crate::accountant::db_access_objects::failed_payable_dao::FailedPayableDaoError;
-    use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDaoError, Tx};
+    use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDaoError;
     use crate::accountant::db_access_objects::test_utils::{
         make_failed_tx, make_sent_tx, FailedTxBuilder, TxBuilder,
     };
-    use crate::accountant::scanners::payable_scanner::test_utils::{
-        make_pending_payable, make_rpc_payable_failure, PayableScannerBuilder,
-    };
+    use crate::accountant::scanners::payable_scanner::test_utils::PayableScannerBuilder;
     use crate::accountant::test_utils::{FailedPayableDaoMock, SentPayableDaoMock};
-    use crate::blockchain::errors::AppRpcError::Remote;
-    use crate::blockchain::errors::RemoteError::Unreachable;
     use crate::blockchain::test_utils::make_tx_hash;
-    use actix::System;
-    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Mutex};
 

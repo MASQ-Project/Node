@@ -1,6 +1,4 @@
-use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_template::{
-    RetryTxTemplate, RetryTxTemplates,
-};
+use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_template::RetryTxTemplate;
 use crate::accountant::scanners::payable_scanner::data_structures::BaseTxTemplate;
 use std::ops::{Deref, DerefMut};
 

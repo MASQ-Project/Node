@@ -1,6 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::NewTxTemplates;
 use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::PricedNewTxTemplates;
@@ -8,14 +7,10 @@ use crate::accountant::scanners::payable_scanner::data_structures::priced_retry_
 use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_template::RetryTxTemplates;
 use crate::accountant::{ResponseSkeleton, SkeletonOptHolder};
 use crate::blockchain::blockchain_agent::BlockchainAgent;
-use crate::blockchain::test_utils::make_address;
 use crate::sub_lib::wallet::Wallet;
-use crate::test_utils::make_wallet;
 use actix::Message;
 use itertools::Either;
 use std::fmt::Debug;
-use std::ops::Deref;
-use web3::types::Address;
 
 #[derive(Debug, Message, PartialEq, Eq, Clone)]
 pub struct QualifiedPayablesMessage {
@@ -81,15 +76,8 @@ impl BlockchainAgentWithContextMessage {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::db_access_objects::failed_payable_dao::{
-        FailedTx, FailureReason, FailureStatus,
-    };
-    use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::scanners::payable_scanner_extension::msgs::BlockchainAgentWithContextMessage;
     use crate::accountant::scanners::payable_scanner_extension::test_utils::BlockchainAgentMock;
-    use crate::blockchain::test_utils::{make_address, make_tx_hash};
-    use crate::test_utils::make_wallet;
-    use std::time::SystemTime;
 
     impl Clone for BlockchainAgentWithContextMessage {
         fn clone(&self) -> Self {

@@ -3,15 +3,12 @@ use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::Ret
 use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::NewTxTemplates;
 use crate::accountant::scanners::payable_scanner::PayableScanner;
 use crate::accountant::scanners::payable_scanner_extension::msgs::QualifiedPayablesMessage;
-use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{
-    create_new_tx_templates, investigate_debt_extremes,
-};
+use crate::accountant::scanners::scanners_utils::payable_scanner_utils::investigate_debt_extremes;
 use crate::accountant::scanners::{Scanner, StartScanError, StartableScanner};
 use crate::accountant::{ResponseSkeleton, ScanForNewPayables, ScanForRetryPayables};
 use crate::sub_lib::wallet::Wallet;
 use itertools::Either;
 use masq_lib::logger::Logger;
-use std::collections::BTreeSet;
 use std::time::SystemTime;
 
 impl StartableScanner<ScanForNewPayables, QualifiedPayablesMessage> for PayableScanner {
@@ -90,9 +87,7 @@ mod tests {
     use super::*;
     use crate::accountant::db_access_objects::failed_payable_dao::FailureReason::PendingTooLong;
     use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus;
-    use crate::accountant::db_access_objects::payable_dao::{
-        PayableAccount, PayableRetrieveCondition,
-    };
+    use crate::accountant::db_access_objects::payable_dao::PayableRetrieveCondition;
     use crate::accountant::db_access_objects::test_utils::FailedTxBuilder;
     use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_template::{
         RetryTxTemplate, RetryTxTemplates,
@@ -104,7 +99,6 @@ mod tests {
     };
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::test_utils::{make_paying_wallet, make_wallet};
-    use actix::System;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::collections::BTreeSet;

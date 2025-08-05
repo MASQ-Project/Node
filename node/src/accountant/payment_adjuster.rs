@@ -74,7 +74,7 @@ mod tests {
     use crate::accountant::scanners::payable_scanner::data_structures::test_utils::make_priced_new_tx_templates;
     use crate::accountant::scanners::payable_scanner_extension::msgs::BlockchainAgentWithContextMessage;
     use crate::accountant::scanners::payable_scanner_extension::test_utils::BlockchainAgentMock;
-    use crate::accountant::test_utils::{make_payable_account, make_priced_qualified_payables};
+    use crate::accountant::test_utils::make_payable_account;
     use itertools::Either;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};

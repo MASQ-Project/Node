@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeSet};
 use crate::accountant::db_big_integer::big_int_db_processor::KeyVariants::{
     PendingPayableRowid, WalletAddress,
 };
