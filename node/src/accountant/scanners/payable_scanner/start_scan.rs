@@ -71,6 +71,11 @@ impl StartableScanner<ScanForRetryPayables, QualifiedPayablesMessage> for Payabl
         let payables_from_db = self.find_corresponding_payables_in_db(&txs_to_retry);
         let retry_tx_templates =
             Self::generate_retry_tx_templates(&payables_from_db, &txs_to_retry);
+        info!(
+            logger,
+            "Generated {} tx template(s) for retry",
+            retry_tx_templates.len()
+        );
 
         Ok(QualifiedPayablesMessage {
             tx_templates: Either::Right(retry_tx_templates),
