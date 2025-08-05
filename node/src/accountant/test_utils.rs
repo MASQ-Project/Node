@@ -256,6 +256,9 @@ const PENDING_PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER: [DestinationMarker; 
     DestinationMarker::PendingPayableScanner,
 ];
 
+const SENT_PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER: [DestinationMarker; 1] =
+    [DestinationMarker::PayableScanner];
+
 const RECEIVABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER: [DestinationMarker; 2] = [
     DestinationMarker::AccountantBody,
     DestinationMarker::ReceivableScanner,
@@ -317,6 +320,20 @@ impl AccountantBuilder {
             ReceivableDao,
             self
         )
+    }
+
+    pub fn sent_payable_dao(mut self, sent_payable_dao: SentPayableDaoMock) -> Self {
+        match self.sent_payable_dao_factory_opt {
+            None => {
+                self.sent_payable_dao_factory_opt =
+                    Some(SentPayableDaoFactoryMock::new().make_result(sent_payable_dao))
+            }
+            Some(sent_payable_dao_factory) => {
+                self.sent_payable_dao_factory_opt = Some(sent_payable_dao_factory)
+            }
+        }
+
+        self
     }
 
     //TODO this method seems to be never used?

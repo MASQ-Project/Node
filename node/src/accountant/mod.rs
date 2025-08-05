@@ -1307,7 +1307,8 @@ mod tests {
     use std::sync::Mutex;
     use std::time::{Duration, UNIX_EPOCH};
     use std::vec;
-    use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::NewTxTemplates;
+    use crate::accountant::db_access_objects::test_utils::{make_sent_tx, TxBuilder};
+    use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::{NewTxTemplate, NewTxTemplates};
     use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_template::RetryTxTemplates;
     use crate::accountant::scanners::payable_scanner::data_structures::test_utils::make_priced_new_tx_templates;
     use crate::accountant::scanners::scan_schedulers::{NewPayableScanDynIntervalComputer, NewPayableScanDynIntervalComputerReal};
@@ -1607,9 +1608,11 @@ mod tests {
                 no_rowid_results: vec![],
             });
         let payable_dao = PayableDaoMock::default().mark_pending_payables_rowids_result(Ok(()));
+        let sent_payable_dao = SentPayableDaoMock::default().insert_new_records_result(Ok(()));
         let mut subject = AccountantBuilder::default()
             .pending_payable_daos(vec![ForPayableScanner(pending_payable_dao)])
             .payable_daos(vec![ForPayableScanner(payable_dao)])
+            .sent_payable_dao(sent_payable_dao)
             .bootstrapper_config(config)
             .build();
         // Making sure we would get a panic if another scan was scheduled
@@ -1619,21 +1622,28 @@ mod tests {
         let subject_addr = subject.start();
         let system = System::new("test");
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
-        let sent_payable = todo!("BatchResults");
-        // subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-        //
-        // subject_addr.try_send(sent_payable).unwrap();
-        //
-        // System::current().stop();
-        // system.run();
-        // let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        // assert_eq!(
-        //     ui_gateway_recording.get_record::<NodeToUiMessage>(0),
-        //     &NodeToUiMessage {
-        //         target: ClientId(1234),
-        //         body: UiScanResponse {}.tmb(4321),
-        //     }
-        // );
+        let sent_payables = SentPayables {
+            payment_procedure_result: Ok(BatchResults {
+                sent_txs: vec![make_sent_tx(1)],
+                failed_txs: vec![],
+            }),
+            payable_scan_type: PayableScanType::New,
+            response_skeleton_opt: None,
+        };
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr.try_send(sent_payables).unwrap();
+
+        System::current().stop();
+        system.run();
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        assert_eq!(
+            ui_gateway_recording.get_record::<NodeToUiMessage>(0),
+            &NodeToUiMessage {
+                target: ClientId(1234),
+                body: UiScanResponse {}.tmb(4321),
+            }
+        );
     }
 
     #[test]
@@ -4843,62 +4853,63 @@ mod tests {
 
     #[test]
     fn accountant_processes_sent_payables_and_schedules_pending_payable_scanner() {
-        todo!("BatchResults");
-        // let fingerprints_rowids_params_arc = Arc::new(Mutex::new(vec![]));
-        // let mark_pending_payables_rowids_params_arc = Arc::new(Mutex::new(vec![]));
-        // let pending_payable_notify_later_params_arc = Arc::new(Mutex::new(vec![]));
-        // let expected_wallet = make_wallet("paying_you");
-        // let expected_hash = H256::from("transaction_hash".keccak256());
-        // let expected_rowid = 45623;
-        // let pending_payable_dao = PendingPayableDaoMock::default()
-        //     .fingerprints_rowids_params(&fingerprints_rowids_params_arc)
-        //     .fingerprints_rowids_result(TransactionHashes {
-        //         rowid_results: vec![(expected_rowid, expected_hash)],
-        //         no_rowid_results: vec![],
-        //     });
-        // let payable_dao = PayableDaoMock::new()
-        //     .mark_pending_payables_rowids_params(&mark_pending_payables_rowids_params_arc)
-        //     .mark_pending_payables_rowids_result(Ok(()));
-        // let system =
-        //     System::new("accountant_processes_sent_payables_and_schedules_pending_payable_scanner");
-        // let mut subject = AccountantBuilder::default()
-        //     .bootstrapper_config(bc_from_earning_wallet(make_wallet("some_wallet_address")))
-        //     .payable_daos(vec![ForPayableScanner(payable_dao)])
-        //     .pending_payable_daos(vec![ForPayableScanner(pending_payable_dao)])
-        //     .build();
-        // let pending_payable_interval = Duration::from_millis(55);
-        // subject.scan_schedulers.pending_payable.interval = pending_payable_interval;
-        // subject.scan_schedulers.pending_payable.handle = Box::new(
-        //     NotifyLaterHandleMock::default()
-        //         .notify_later_params(&pending_payable_notify_later_params_arc),
-        // );
-        // let expected_payable = PendingPayable::new(expected_wallet.clone(), expected_hash.clone());
-        // let sent_payable = SentPayables {
-        //     payment_procedure_result: Either::Left(vec![IndividualBatchResult::Pending(
-        //         expected_payable.clone(),
-        //     )]),
-        //     response_skeleton_opt: None,
-        // };
-        // let addr = subject.start();
-        //
-        // addr.try_send(sent_payable).expect("unexpected actix error");
-        //
-        // System::current().stop();
-        // system.run();
-        // let fingerprints_rowids_params = fingerprints_rowids_params_arc.lock().unwrap();
-        // assert_eq!(*fingerprints_rowids_params, vec![vec![expected_hash]]);
-        // let mark_pending_payables_rowids_params =
-        //     mark_pending_payables_rowids_params_arc.lock().unwrap();
-        // assert_eq!(
-        //     *mark_pending_payables_rowids_params,
-        //     vec![vec![(expected_wallet, expected_rowid)]]
-        // );
-        // let pending_payable_notify_later_params =
-        //     pending_payable_notify_later_params_arc.lock().unwrap();
-        // assert_eq!(
-        //     *pending_payable_notify_later_params,
-        //     vec![(ScanForPendingPayables::default(), pending_payable_interval)]
-        // );
+        let fingerprints_rowids_params_arc = Arc::new(Mutex::new(vec![]));
+        let mark_pending_payables_rowids_params_arc = Arc::new(Mutex::new(vec![]));
+        let pending_payable_notify_later_params_arc = Arc::new(Mutex::new(vec![]));
+        let inserted_new_records_params_arc = Arc::new(Mutex::new(vec![]));
+        let expected_wallet = make_wallet("paying_you");
+        let expected_hash = H256::from("transaction_hash".keccak256());
+        let expected_rowid = 45623;
+        let pending_payable_dao = PendingPayableDaoMock::default()
+            .fingerprints_rowids_params(&fingerprints_rowids_params_arc)
+            .fingerprints_rowids_result(TransactionHashes {
+                rowid_results: vec![(expected_rowid, expected_hash)],
+                no_rowid_results: vec![],
+            });
+        let payable_dao = PayableDaoMock::new()
+            .mark_pending_payables_rowids_params(&mark_pending_payables_rowids_params_arc)
+            .mark_pending_payables_rowids_result(Ok(()));
+        let sent_payable_dao = SentPayableDaoMock::new()
+            .insert_new_records_params(&inserted_new_records_params_arc)
+            .insert_new_records_result(Ok(()));
+        let system =
+            System::new("accountant_processes_sent_payables_and_schedules_pending_payable_scanner");
+        let mut subject = AccountantBuilder::default()
+            .bootstrapper_config(bc_from_earning_wallet(make_wallet("some_wallet_address")))
+            .payable_daos(vec![ForPayableScanner(payable_dao)])
+            .pending_payable_daos(vec![ForPayableScanner(pending_payable_dao)])
+            .sent_payable_dao(sent_payable_dao)
+            .build();
+        let pending_payable_interval = Duration::from_millis(55);
+        subject.scan_schedulers.pending_payable.interval = pending_payable_interval;
+        subject.scan_schedulers.pending_payable.handle = Box::new(
+            NotifyLaterHandleMock::default()
+                .notify_later_params(&pending_payable_notify_later_params_arc),
+        );
+        let expected_payable = PendingPayable::new(expected_wallet.clone(), expected_hash.clone());
+        let expected_tx = TxBuilder::default().hash(expected_hash.clone()).build();
+        let sent_payable = SentPayables {
+            payment_procedure_result: Ok(BatchResults {
+                sent_txs: vec![expected_tx.clone()],
+                failed_txs: vec![],
+            }),
+            payable_scan_type: PayableScanType::New,
+            response_skeleton_opt: None,
+        };
+        let addr = subject.start();
+
+        addr.try_send(sent_payable).expect("unexpected actix error");
+
+        System::current().stop();
+        system.run();
+        let inserted_new_records_params = inserted_new_records_params_arc.lock().unwrap();
+        assert_eq!(*inserted_new_records_params[0], vec![expected_tx]);
+        let pending_payable_notify_later_params =
+            pending_payable_notify_later_params_arc.lock().unwrap();
+        assert_eq!(
+            *pending_payable_notify_later_params,
+            vec![(ScanForPendingPayables::default(), pending_payable_interval)]
+        );
         // The accountant is unbound here. We don't use the bind message. It means we can prove
         // none of those other scan requests could have been sent (especially ScanForNewPayables,
         // ScanForRetryPayables)
