@@ -377,7 +377,9 @@ mod tests {
     use crate::accountant::db_access_objects::utils::from_unix_timestamp;
     use crate::accountant::gwei_to_wei;
     use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::PricedNewTxTemplate;
-    use crate::accountant::scanners::payable_scanner::data_structures::test_utils::make_priced_new_tx_templates;
+    use crate::accountant::scanners::payable_scanner::data_structures::test_utils::{
+        make_priced_new_tx_templates, make_signable_tx_template,
+    };
     use crate::accountant::scanners::payable_scanner::data_structures::BaseTxTemplate;
     use crate::accountant::test_utils::{
         make_payable_account, make_payable_account_with_wallet_and_balance_and_timestamp_opt,
@@ -418,26 +420,6 @@ mod tests {
     use std::str::FromStr;
     use std::time::SystemTime;
     use web3::api::Namespace;
-    use web3::Error::Rpc;
-
-    fn make_signable_tx_template(
-        payable_account: &PayableAccount,
-        gas_price_wei: u128,
-    ) -> SignableTxTemplate {
-        SignableTxTemplate {
-            receiver_address: payable_account.wallet.address(),
-            amount_in_wei: payable_account.balance_wei,
-            gas_price_wei,
-            nonce: 1,
-        }
-    }
-
-    fn make_signable_tx_templates(
-        payables_and_gas_prices: Vec<(PayableAccount, u128)>,
-    ) -> SignableTxTemplates {
-        let priced_tx_templates = make_priced_new_tx_templates(payables_and_gas_prices);
-        SignableTxTemplates::new(Either::Left(priced_tx_templates), 1)
-    }
 
     #[test]
     fn sign_and_append_payment_works() {
@@ -460,10 +442,13 @@ mod tests {
         let chain = DEFAULT_CHAIN;
         let gas_price_in_gwei = DEFAULT_GAS_PRICE;
         let consuming_wallet = make_paying_wallet(b"paying_wallet");
-        let account = make_payable_account(1);
         let web3_batch = Web3::new(Batch::new(transport));
-        let signable_tx_template =
-            make_signable_tx_template(&account, gwei_to_wei(gas_price_in_gwei));
+        let signable_tx_template = SignableTxTemplate {
+            receiver_address: make_wallet("wallet1").address(),
+            amount_in_wei: 1_000_000_000,
+            gas_price_wei: gwei_to_wei(gas_price_in_gwei),
+            nonce: 1,
+        };
 
         let result = sign_and_append_payment(
             chain,
@@ -513,20 +498,20 @@ mod tests {
         )
         .unwrap();
         let web3_batch = Web3::new(Batch::new(transport));
-        let chain = DEFAULT_CHAIN;
-        let pending_nonce = 1;
-        let consuming_wallet = make_paying_wallet(b"paying_wallet");
-        let account_1 = make_payable_account(1);
-        let account_2 = make_payable_account(2);
-        let signable_tx_templates =
-            make_signable_tx_templates(vec![(account_1, 111_111_111), (account_2, 222_222_222)]);
+        let signable_tx_templates = SignableTxTemplates(vec![
+            make_signable_tx_template(1),
+            make_signable_tx_template(2),
+            make_signable_tx_template(3),
+            make_signable_tx_template(4),
+            make_signable_tx_template(5),
+        ]);
 
         let result = sign_and_append_multiple_payments(
             &logger,
-            chain,
+            DEFAULT_CHAIN,
             &web3_batch,
             &signable_tx_templates,
-            consuming_wallet,
+            make_paying_wallet(b"paying_wallet"),
         );
 
         result
@@ -1115,7 +1100,12 @@ mod tests {
         .unwrap();
         let consuming_wallet = make_wallet("bad_wallet");
         let gas_price = 123_000_000_000;
-        let signable_tx_template = make_signable_tx_template(&make_payable_account(1), gas_price);
+        let signable_tx_template = SignableTxTemplate {
+            receiver_address: make_address(1),
+            amount_in_wei: 1223,
+            gas_price_wei: gas_price,
+            nonce: 1,
+        };
 
         sign_transaction(
             Chain::PolyAmoy,
