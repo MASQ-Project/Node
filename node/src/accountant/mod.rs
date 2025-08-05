@@ -29,7 +29,7 @@ use crate::accountant::scanners::{StartScanError, Scanners};
 use crate::blockchain::blockchain_bridge::{BlockMarker, PendingPayableFingerprint, PendingPayableFingerprintSeeds, RetrieveTransactions};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::HashAndAmount;
 use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
-use crate::blockchain::blockchain_interface::data_structures::{BatchResults, BlockchainTransaction, IndividualBatchResult};
+use crate::blockchain::blockchain_interface::data_structures::{BatchResults, BlockchainTransaction};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::DbInitializationConfig;
 use crate::sub_lib::accountant::AccountantSubs;

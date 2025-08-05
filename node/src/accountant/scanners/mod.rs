@@ -55,7 +55,7 @@ use crate::accountant::scanners::payable_scanner_extension::{MultistageDualPayab
 use crate::accountant::scanners::payable_scanner_extension::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionReceiptResult, TxStatus};
 use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
-use crate::blockchain::blockchain_interface::data_structures::{IndividualBatchResult, RpcPayableFailure};
+use crate::blockchain::blockchain_interface::data_structures::{RpcPayableFailure};
 use crate::blockchain::errors::AppRpcError::Local;
 use crate::blockchain::errors::LocalError::Internal;
 use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
@@ -1028,7 +1028,7 @@ mod tests {
     use crate::accountant::{gwei_to_wei, PayableScanType, PendingPayableId, ReceivedPayments, ReportTransactionReceipts, RequestTransactionReceipts, ResponseSkeleton, ScanError, ScanForRetryPayables, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC};
     use crate::blockchain::blockchain_bridge::{BlockMarker, PendingPayableFingerprint, RetrieveTransactions};
     use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
-    use crate::blockchain::blockchain_interface::data_structures::{BatchResults, BlockchainTransaction, IndividualBatchResult, RpcPayableFailure};
+    use crate::blockchain::blockchain_interface::data_structures::{BatchResults, BlockchainTransaction};
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
     use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMockBuilder;

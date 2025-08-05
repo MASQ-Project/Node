@@ -5,7 +5,7 @@ mod utils;
 
 use std::cmp::PartialEq;
 use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainError, LocalPayableError};
-use crate::blockchain::blockchain_interface::data_structures::{BatchResults, BlockchainTransaction, IndividualBatchResult};
+use crate::blockchain::blockchain_interface::data_structures::{BatchResults, BlockchainTransaction};
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use crate::blockchain::blockchain_interface::RetrievedBlockchainTransactions;
 use crate::blockchain::blockchain_interface::{BlockchainAgentBuildError, BlockchainInterface};

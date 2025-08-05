@@ -162,6 +162,31 @@ pub fn make_sent_tx(n: u32) -> Tx {
         .build()
 }
 
+pub fn assert_on_sent_txs(left: Vec<Tx>, right: Vec<Tx>) {
+    left.iter().zip(right).for_each(|(t1, t2)| {
+        assert_eq!(t1.hash, t2.hash);
+        assert_eq!(t1.receiver_address, t2.receiver_address);
+        assert_eq!(t1.amount, t2.amount);
+        assert_eq!(t1.gas_price_wei, t2.gas_price_wei);
+        assert_eq!(t1.nonce, t2.nonce);
+        assert_eq!(t1.status, t2.status);
+        assert!((t1.timestamp - t2.timestamp).abs() < 10);
+    })
+}
+
+pub fn assert_on_failed_txs(left: Vec<FailedTx>, right: Vec<FailedTx>) {
+    left.iter().zip(right).for_each(|(f1, f2)| {
+        assert_eq!(f1.hash, f2.hash);
+        assert_eq!(f1.receiver_address, f2.receiver_address);
+        assert_eq!(f1.amount, f2.amount);
+        assert_eq!(f1.gas_price_wei, f2.gas_price_wei);
+        assert_eq!(f1.nonce, f2.nonce);
+        assert_eq!(f1.reason, f2.reason);
+        assert_eq!(f1.status, f2.status);
+        assert!((f1.timestamp - f2.timestamp).abs() < 10);
+    })
+}
+
 pub fn make_read_only_db_connection(home_dir: PathBuf) -> ConnectionWrapperReal {
     {
         DbInitializerReal::default()

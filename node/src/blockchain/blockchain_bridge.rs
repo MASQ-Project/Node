@@ -8,7 +8,7 @@ use crate::blockchain::blockchain_interface::blockchain_interface_web3::HashAndA
 use crate::blockchain::blockchain_interface::data_structures::errors::{
     BlockchainError, LocalPayableError,
 };
-use crate::blockchain::blockchain_interface::data_structures::{BatchResults, IndividualBatchResult};
+use crate::blockchain::blockchain_interface::data_structures::{BatchResults};
 use crate::blockchain::blockchain_interface::BlockchainInterface;
 use crate::blockchain::blockchain_interface_initializer::BlockchainInterfaceInitializer;
 use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DbInitializerReal};
@@ -572,14 +572,13 @@ mod tests {
     use super::*;
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
-    use crate::accountant::db_access_objects::utils::from_unix_timestamp;
+    use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp};
     use crate::accountant::scanners::payable_scanner_extension::test_utils::BlockchainAgentMock;
     use crate::accountant::test_utils::{make_payable_account, make_pending_payable_fingerprint, make_priced_qualified_payables};
     use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError::TransactionID;
     use crate::blockchain::blockchain_interface::data_structures::errors::{
         BlockchainAgentBuildError, LocalPayableError,
     };
-    use crate::blockchain::blockchain_interface::data_structures::IndividualBatchResult::Pending;
     use crate::blockchain::blockchain_interface::data_structures::{
         BlockchainTransaction, RetrievedBlockchainTransactions,
     };
@@ -617,6 +616,10 @@ mod tests {
     use std::time::{Duration, SystemTime};
     use web3::types::{TransactionReceipt, H160};
     use masq_lib::constants::DEFAULT_MAX_BLOCK_COUNT;
+    use crate::accountant::db_access_objects::failed_payable_dao::ValidationStatus;
+    use crate::accountant::db_access_objects::sent_payable_dao::Tx;
+    use crate::accountant::db_access_objects::sent_payable_dao::TxStatus::Pending;
+    use crate::accountant::db_access_objects::test_utils::assert_on_sent_txs;
     use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::NewTxTemplates;
     use crate::accountant::scanners::payable_scanner::data_structures::test_utils::make_priced_new_tx_templates;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt};
@@ -1063,11 +1066,11 @@ mod tests {
             .start();
         let blockchain_interface_web3 = make_blockchain_interface_web3(port);
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
-        let accounts_1 = make_payable_account(1);
-        let accounts_2 = make_payable_account(2);
+        let account_1 = make_payable_account(1);
+        let account_2 = make_payable_account(2);
         let priced_new_tx_templates = make_priced_new_tx_templates(vec![
-            (accounts_1.clone(), 777_777_777),
-            (accounts_2.clone(), 999_999_999),
+            (account_1.clone(), 777_777_777),
+            (account_2.clone(), 999_999_999),
         ]);
         let system = System::new(test_name);
         let agent = BlockchainAgentMock::default()
@@ -1096,28 +1099,37 @@ mod tests {
 
         System::current().stop();
         system.run();
-        let processed_payments = result.unwrap();
-        todo!("BatchResults");
-        // assert_eq!(
-        //     processed_payments[0],
-        //     Pending(PendingPayable {
-        //         recipient_wallet: accounts_1.wallet,
-        //         hash: H256::from_str(
-        //             "c0756e8da662cee896ed979456c77931668b7f8456b9f978fc3305671f8f82ad"
-        //         )
-        //         .unwrap()
-        //     })
-        // );
-        // assert_eq!(
-        //     processed_payments[1],
-        //     Pending(PendingPayable {
-        //         recipient_wallet: accounts_2.wallet,
-        //         hash: H256::from_str(
-        //             "9ba19f88ce43297d700b1f57ed8bc6274d01a5c366b78dd05167f9874c867ba0"
-        //         )
-        //         .unwrap()
-        //     })
-        // );
+        let batch_results = result.unwrap();
+        assert_on_sent_txs(
+            batch_results.sent_txs,
+            vec![
+                Tx {
+                    hash: H256::from_str(
+                        "c0756e8da662cee896ed979456c77931668b7f8456b9f978fc3305671f8f82ad",
+                    )
+                    .unwrap(),
+                    receiver_address: account_1.wallet.address(),
+                    amount: account_1.balance_wei,
+                    timestamp: to_unix_timestamp(SystemTime::now()),
+                    gas_price_wei: 777_777_777,
+                    nonce: 1,
+                    status: Pending(ValidationStatus::Waiting),
+                },
+                Tx {
+                    hash: H256::from_str(
+                        "9ba19f88ce43297d700b1f57ed8bc6274d01a5c366b78dd05167f9874c867ba0",
+                    )
+                    .unwrap(),
+                    receiver_address: account_2.wallet.address(),
+                    amount: account_2.balance_wei,
+                    timestamp: to_unix_timestamp(SystemTime::now()),
+                    gas_price_wei: 999_999_999,
+                    nonce: 2,
+                    status: Pending(ValidationStatus::Waiting),
+                },
+            ],
+        );
+        assert!(batch_results.failed_txs.is_empty());
         let recording = accountant_recording.lock().unwrap();
         assert_eq!(recording.len(), 1);
     }

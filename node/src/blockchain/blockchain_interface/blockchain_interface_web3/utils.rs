@@ -19,9 +19,7 @@ use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
     BlockchainInterfaceWeb3, HashAndAmount, TRANSFER_METHOD_ID,
 };
 use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
-use crate::blockchain::blockchain_interface::data_structures::{
-    BatchResults, IndividualBatchResult, RpcPayableFailure,
-};
+use crate::blockchain::blockchain_interface::data_structures::{BatchResults, RpcPayableFailure};
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
@@ -62,36 +60,36 @@ fn return_sending_error(sent_txs: &Vec<Tx>, error: &Web3Error) -> LocalPayableEr
     )
 }
 
-pub fn merged_output_data(
-    responses: Vec<web3::transports::Result<Value>>,
-    hashes_and_paid_amounts: Vec<HashAndAmount>,
-    signable_tx_templates: SignableTxTemplates,
-) -> Vec<IndividualBatchResult> {
-    // TODO: GH-605: We can directly return Tx and FailedTx
-    // We should return a struct that holds two vectors for sent and failed transactions
-    let iterator_with_all_data = responses
-        .into_iter()
-        .zip(hashes_and_paid_amounts.into_iter())
-        .zip(signable_tx_templates.iter());
-    iterator_with_all_data
-        .map(
-            |((rpc_result, hash_and_amount), signable_tx_template)| match rpc_result {
-                Ok(_rpc_result) => {
-                    // TODO: GH-547: This rpc_result should be validated
-                    IndividualBatchResult::Pending(PendingPayable {
-                        recipient_wallet: Wallet::from(signable_tx_template.receiver_address),
-                        hash: hash_and_amount.hash,
-                    })
-                }
-                Err(rpc_error) => IndividualBatchResult::Failed(RpcPayableFailure {
-                    rpc_error,
-                    recipient_wallet: Wallet::from(signable_tx_template.receiver_address),
-                    hash: hash_and_amount.hash,
-                }),
-            },
-        )
-        .collect()
-}
+// pub fn merged_output_data(
+//     responses: Vec<web3::transports::Result<Value>>,
+//     hashes_and_paid_amounts: Vec<HashAndAmount>,
+//     signable_tx_templates: SignableTxTemplates,
+// ) -> Vec<IndividualBatchResult> {
+//     // TODO: GH-605: We can directly return Tx and FailedTx
+//     // We should return a struct that holds two vectors for sent and failed transactions
+//     let iterator_with_all_data = responses
+//         .into_iter()
+//         .zip(hashes_and_paid_amounts.into_iter())
+//         .zip(signable_tx_templates.iter());
+//     iterator_with_all_data
+//         .map(
+//             |((rpc_result, hash_and_amount), signable_tx_template)| match rpc_result {
+//                 Ok(_rpc_result) => {
+//                     // TODO: GH-547: This rpc_result should be validated
+//                     IndividualBatchResult::Pending(PendingPayable {
+//                         recipient_wallet: Wallet::from(signable_tx_template.receiver_address),
+//                         hash: hash_and_amount.hash,
+//                     })
+//                 }
+//                 Err(rpc_error) => IndividualBatchResult::Failed(RpcPayableFailure {
+//                     rpc_error,
+//                     recipient_wallet: Wallet::from(signable_tx_template.receiver_address),
+//                     hash: hash_and_amount.hash,
+//                 }),
+//             },
+//         )
+//         .collect()
+// }
 
 pub fn return_batch_results(
     txs: Vec<Tx>,
@@ -373,7 +371,9 @@ pub fn create_blockchain_agent_web3(
 mod tests {
     use super::*;
     use crate::accountant::db_access_objects::failed_payable_dao::ValidationStatus::Waiting;
-    use crate::accountant::db_access_objects::test_utils::{FailedTxBuilder, TxBuilder};
+    use crate::accountant::db_access_objects::test_utils::{
+        assert_on_failed_txs, assert_on_sent_txs, FailedTxBuilder, TxBuilder,
+    };
     use crate::accountant::db_access_objects::utils::from_unix_timestamp;
     use crate::accountant::gwei_to_wei;
     use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::PricedNewTxTemplate;
@@ -391,9 +391,6 @@ mod tests {
         BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
     };
     use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError::Sending;
-    use crate::blockchain::blockchain_interface::data_structures::IndividualBatchResult::{
-        Failed, Pending,
-    };
     use crate::blockchain::errors::AppRpcError;
     use crate::blockchain::errors::LocalError::Transport;
     use crate::blockchain::errors::RemoteError::Web3RpcError;
@@ -643,63 +640,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn output_by_joining_sources_works() {
-        let signable_tx_templates = SignableTxTemplates(vec![
-            SignableTxTemplate {
-                receiver_address: make_wallet("4567").address(),
-                amount_in_wei: 2_345_678,
-                gas_price_wei: 100,
-                nonce: 1,
-            },
-            SignableTxTemplate {
-                receiver_address: make_wallet("5656").address(),
-                amount_in_wei: 6_543_210,
-                gas_price_wei: 100,
-                nonce: 1,
-            },
-        ]);
-        let hashes_and_amounts = vec![
-            HashAndAmount {
-                hash: make_tx_hash(444),
-                amount: 2_345_678,
-            },
-            HashAndAmount {
-                hash: make_tx_hash(333),
-                amount: 6_543_210,
-            },
-        ];
-        let responses = vec![
-            Ok(Value::String(String::from("blah"))),
-            Err(web3::Error::Rpc(Error {
-                code: ErrorCode::ParseError,
-                message: "I guess we've got a problem".to_string(),
-                data: None,
-            })),
-        ];
-
-        let result = merged_output_data(responses, hashes_and_amounts, signable_tx_templates);
-
-        assert_eq!(
-            result,
-            vec![
-                Pending(PendingPayable {
-                    recipient_wallet: make_wallet("4567"),
-                    hash: make_tx_hash(444)
-                }),
-                Failed(RpcPayableFailure {
-                    rpc_error: web3::Error::Rpc(Error {
-                        code: ErrorCode::ParseError,
-                        message: "I guess we've got a problem".to_string(),
-                        data: None,
-                    }),
-                    recipient_wallet: make_wallet("5656"),
-                    hash: make_tx_hash(333)
-                })
-            ]
-        )
-    }
-
     fn test_send_payables_within_batch(
         test_name: &str,
         signable_tx_templates: SignableTxTemplates,
@@ -773,31 +713,6 @@ mod tests {
                 }
             },
         }
-    }
-
-    fn assert_on_sent_txs(left: Vec<Tx>, right: Vec<Tx>) {
-        left.iter().zip(right).for_each(|(t1, t2)| {
-            assert_eq!(t1.hash, t2.hash);
-            assert_eq!(t1.receiver_address, t2.receiver_address);
-            assert_eq!(t1.amount, t2.amount);
-            assert_eq!(t1.gas_price_wei, t2.gas_price_wei);
-            assert_eq!(t1.nonce, t2.nonce);
-            assert_eq!(t1.status, t2.status);
-            assert!((t1.timestamp - t2.timestamp).abs() < 10);
-        })
-    }
-
-    fn assert_on_failed_txs(left: Vec<FailedTx>, right: Vec<FailedTx>) {
-        left.iter().zip(right).for_each(|(f1, f2)| {
-            assert_eq!(f1.hash, f2.hash);
-            assert_eq!(f1.receiver_address, f2.receiver_address);
-            assert_eq!(f1.amount, f2.amount);
-            assert_eq!(f1.gas_price_wei, f2.gas_price_wei);
-            assert_eq!(f1.nonce, f2.nonce);
-            assert_eq!(f1.reason, f2.reason);
-            assert_eq!(f1.status, f2.status);
-            assert!((f1.timestamp - f2.timestamp).abs() < 10);
-        })
     }
 
     #[test]

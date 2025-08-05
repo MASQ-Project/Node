@@ -42,11 +42,11 @@ pub struct RpcPayableFailure {
     pub hash: H256,
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum IndividualBatchResult {
-    Pending(PendingPayable), // TODO: GH-605: It should only store the TxHash
-    Failed(RpcPayableFailure),
-}
+// #[derive(Debug, PartialEq, Clone)]
+// pub enum IndividualBatchResult {
+//     Pending(PendingPayable), // TODO: GH-605: It should only store the TxHash
+//     Failed(RpcPayableFailure),
+// }
 
 #[derive(Default, Debug, PartialEq, Clone)]
 pub struct BatchResults {
