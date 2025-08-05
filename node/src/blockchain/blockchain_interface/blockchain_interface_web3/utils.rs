@@ -394,6 +394,7 @@ mod tests {
     };
     use crate::blockchain::errors::AppRpcError;
     use crate::blockchain::errors::LocalError::Transport;
+    use crate::blockchain::errors::RemoteError::Web3RpcError;
     use crate::blockchain::test_utils::{
         make_address, make_blockchain_interface_web3, make_tx_hash, transport_error_code,
         transport_error_message,
@@ -763,7 +764,54 @@ mod tests {
             )
         );
         tlh.exists_log_containing(&format!("INFO: {test_name}: {expected_transmission_log}"));
-        assert_eq!(result, expected_result);
+        match result {
+            Ok(batch) => {
+                let expected_batch = expected_result.unwrap();
+                assert_on_failed_txs(batch.failed_txs, expected_batch.failed_txs);
+                assert_on_sent_txs(batch.sent_txs, expected_batch.sent_txs);
+            }
+            Err(err) => match err {
+                LocalPayableError::Sending(failed_txs) => {
+                    if let Err(LocalPayableError::Sending(expected_failed_txs)) = expected_result {
+                        assert_on_failed_txs(failed_txs, expected_failed_txs);
+                    } else {
+                        panic!(
+                            "Expected different error but received  {}",
+                            expected_result.unwrap_err(),
+                        )
+                    }
+                }
+                other_errs => {
+                    todo!();
+                    assert_eq!(other_errs, err)
+                }
+            },
+        }
+    }
+
+    fn assert_on_sent_txs(left: Vec<Tx>, right: Vec<Tx>) {
+        left.iter().zip(right).for_each(|(t1, t2)| {
+            assert_eq!(t1.hash, t2.hash);
+            assert_eq!(t1.receiver_address, t2.receiver_address);
+            assert_eq!(t1.amount, t2.amount);
+            assert_eq!(t1.gas_price_wei, t2.gas_price_wei);
+            assert_eq!(t1.nonce, t2.nonce);
+            assert_eq!(t1.status, t2.status);
+            assert!((t1.timestamp - t2.timestamp).abs() < 10);
+        })
+    }
+
+    fn assert_on_failed_txs(left: Vec<FailedTx>, right: Vec<FailedTx>) {
+        left.iter().zip(right).for_each(|(f1, f2)| {
+            assert_eq!(f1.hash, f2.hash);
+            assert_eq!(f1.receiver_address, f2.receiver_address);
+            assert_eq!(f1.amount, f2.amount);
+            assert_eq!(f1.gas_price_wei, f2.gas_price_wei);
+            assert_eq!(f1.nonce, f2.nonce);
+            assert_eq!(f1.reason, f2.reason);
+            assert_eq!(f1.status, f2.status);
+            assert!((f1.timestamp - f2.timestamp).abs() < 10);
+        })
     }
 
     #[test]
@@ -829,8 +877,12 @@ mod tests {
                 nonce: 6,
             },
         ]);
-        let os_code = transport_error_code();
-        let os_msg = transport_error_message();
+        let os_specific_code = transport_error_code();
+        let os_specific_msg = transport_error_message();
+        let err_msg = format!(
+            "Error(Connect, Os {{ code: {}, kind: ConnectionRefused, message: {:?} }})",
+            os_specific_code, os_specific_msg
+        );
         let failed_txs = signable_tx_templates
             .iter()
             .map(|template| {
@@ -840,10 +892,12 @@ mod tests {
                     .hash(signed_tx.transaction_hash)
                     .receiver_address(template.receiver_address)
                     .amount(template.amount_in_wei)
-                    .timestamp(to_unix_timestamp(SystemTime::now()))
+                    .timestamp(to_unix_timestamp(SystemTime::now()) - 5)
                     .gas_price_wei(template.gas_price_wei)
                     .nonce(template.nonce)
-                    .reason(FailureReason::Submission(AppRpcError::Local(Transport("Error(Connect, Os { code: 61, kind: ConnectionRefused, message: \"Connection refused\" })".to_string()))))
+                    .reason(FailureReason::Submission(AppRpcError::Local(Transport(
+                        err_msg.clone(),
+                    ))))
                     .status(FailureStatus::RetryRequired)
                     .build()
             })
@@ -860,53 +914,72 @@ mod tests {
 
     #[test]
     fn send_payables_within_batch_all_payments_fail() {
-        todo!("Send Payables Within Batch");
-        // let account_1 = make_payable_account(1);
-        // let account_2 = make_payable_account(2);
-        // let port = find_free_port();
-        // let _blockchain_client_server = MBCSBuilder::new(port)
-        //     .begin_batch()
-        //     .err_response(
-        //         429,
-        //         "The requests per second (RPS) of your requests are higher than your plan allows."
-        //             .to_string(),
-        //         7,
-        //     )
-        //     .err_response(
-        //         429,
-        //         "The requests per second (RPS) of your requests are higher than your plan allows."
-        //             .to_string(),
-        //         8,
-        //     )
-        //     .end_batch()
-        //     .start();
-        // let expected_result = Ok(vec![
-        //     Failed(RpcPayableFailure {
-        //         rpc_error: Rpc(Error {
-        //             code: ServerError(429),
-        //             message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string(),
-        //             data: None,
-        //         }),
-        //         recipient_wallet: account_1.wallet.clone(),
-        //         hash: H256::from_str("6e7fa351eef640186f76c629cb74106b3082c8f8a1a9df75ff02fe5bfd4dd1a2").unwrap(),
-        //     }),
-        //     Failed(RpcPayableFailure {
-        //         rpc_error: Rpc(Error {
-        //             code: ServerError(429),
-        //             message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string(),
-        //             data: None,
-        //         }),
-        //         recipient_wallet: account_2.wallet.clone(),
-        //         hash: H256::from_str("ca6ad0a60daeaf31cbca7ce6e499c0f4ff5870564c5e845de11834f1fc05bd4e").unwrap(),
-        //     }),
-        // ]);
+        let port = find_free_port();
+        let (_event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        )
+        .unwrap();
+        let web3 = Web3::new(transport.clone());
+        let web3_batch = Web3::new(Batch::new(transport));
+        let signable_tx_templates = SignableTxTemplates(vec![
+            SignableTxTemplate {
+                receiver_address: make_address(1),
+                amount_in_wei: 111_222,
+                gas_price_wei: 123,
+                nonce: 1,
+            },
+            SignableTxTemplate {
+                receiver_address: make_address(2),
+                amount_in_wei: 222_333,
+                gas_price_wei: 234,
+                nonce: 2,
+            },
+        ]);
+        let consuming_wallet = make_paying_wallet(b"consuming_wallet");
+        let _blockchain_client_server = MBCSBuilder::new(port)
+            .begin_batch()
+            .err_response(
+                429,
+                "The requests per second (RPS) of your requests are higher than your plan allows."
+                    .to_string(),
+                7,
+            )
+            .err_response(
+                429,
+                "The requests per second (RPS) of your requests are higher than your plan allows."
+                    .to_string(),
+                8,
+            )
+            .end_batch()
+            .start();
+        let failed_txs = signable_tx_templates
+            .iter()
+            .map(|template| {
+                let signed_tx =
+                    sign_transaction(DEFAULT_CHAIN, &web3_batch, template, &consuming_wallet);
+                FailedTxBuilder::default()
+                    .hash(signed_tx.transaction_hash)
+                    .receiver_address(template.receiver_address)
+                    .amount(template.amount_in_wei)
+                    .timestamp(to_unix_timestamp(SystemTime::now()) - 5)
+                    .gas_price_wei(template.gas_price_wei)
+                    .nonce(template.nonce)
+                    .reason(FailureReason::Submission(AppRpcError::Remote(Web3RpcError { code: 429, message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string() })))
+                    .status(FailureStatus::RetryRequired)
+                    .build()
+            })
+            .collect();
 
-        // test_send_payables_within_batch(
-        //     "send_payables_within_batch_all_payments_fail",
-        //     make_signable_tx_templates(vec![(account_1, 111_111_111), (account_2, 111_111_111)]),
-        //     expected_result,
-        //     port,
-        // );
+        test_send_payables_within_batch(
+            "send_payables_within_batch_all_payments_fail",
+            signable_tx_templates,
+            Ok(BatchResults {
+                sent_txs: vec![],
+                failed_txs,
+            }),
+            port,
+        );
     }
 
     #[test]
