@@ -1615,9 +1615,6 @@ mod tests {
             .sent_payable_dao(sent_payable_dao)
             .bootstrapper_config(config)
             .build();
-        // Making sure we would get a panic if another scan was scheduled
-        subject.scan_schedulers.pending_payable.handle =
-            Box::new(NotifyLaterHandleMock::default().panic_on_schedule_attempt());
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let subject_addr = subject.start();
         let system = System::new("test");
@@ -1628,7 +1625,10 @@ mod tests {
                 failed_txs: vec![],
             }),
             payable_scan_type: PayableScanType::New,
-            response_skeleton_opt: None,
+            response_skeleton_opt: Some(ResponseSkeleton {
+                client_id: 1234,
+                context_id: 4321,
+            }),
         };
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
@@ -4853,19 +4853,12 @@ mod tests {
 
     #[test]
     fn accountant_processes_sent_payables_and_schedules_pending_payable_scanner() {
-        let fingerprints_rowids_params_arc = Arc::new(Mutex::new(vec![]));
         let mark_pending_payables_rowids_params_arc = Arc::new(Mutex::new(vec![]));
         let pending_payable_notify_later_params_arc = Arc::new(Mutex::new(vec![]));
         let inserted_new_records_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_wallet = make_wallet("paying_you");
         let expected_hash = H256::from("transaction_hash".keccak256());
         let expected_rowid = 45623;
-        let pending_payable_dao = PendingPayableDaoMock::default()
-            .fingerprints_rowids_params(&fingerprints_rowids_params_arc)
-            .fingerprints_rowids_result(TransactionHashes {
-                rowid_results: vec![(expected_rowid, expected_hash)],
-                no_rowid_results: vec![],
-            });
         let payable_dao = PayableDaoMock::new()
             .mark_pending_payables_rowids_params(&mark_pending_payables_rowids_params_arc)
             .mark_pending_payables_rowids_result(Ok(()));
@@ -4877,7 +4870,6 @@ mod tests {
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(make_wallet("some_wallet_address")))
             .payable_daos(vec![ForPayableScanner(payable_dao)])
-            .pending_payable_daos(vec![ForPayableScanner(pending_payable_dao)])
             .sent_payable_dao(sent_payable_dao)
             .build();
         let pending_payable_interval = Duration::from_millis(55);
