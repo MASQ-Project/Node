@@ -1,15 +1,26 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::collections::HashMap;
+use crate::accountant::db_access_objects::failed_payable_dao::{
+    FailedTx, FailureReason, FailureStatus,
+};
+use crate::accountant::db_access_objects::sent_payable_dao::{
+    RetrieveCondition, SentPayableDao, SentTx, TxStatus,
+};
+use crate::accountant::db_access_objects::utils::{from_unix_timestamp, TxHash};
+use crate::blockchain::blockchain_interface::data_structures::{
+    BlockchainTxFailure, TransactionBlock, TxReceiptError, TxReceiptResult,
+};
+use crate::blockchain::errors::AppRpcError;
+use actix::Message;
+use ethereum_types::{H256, U64};
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeToUiMessage;
+use serde_derive::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::fmt::Display;
 use std::time::SystemTime;
 use thousands::Separable;
-use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureReason, FailureStatus};
-use crate::accountant::db_access_objects::sent_payable_dao::{SentTx, TxStatus};
-use crate::accountant::db_access_objects::utils::{from_unix_timestamp, TxHash};
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{BlockchainTxFailure, StatusReadFromReceiptCheck, TransactionBlock, TxReceiptError, TxReceiptResult};
-use crate::blockchain::errors::AppRpcError;
+use variant_count::VariantCount;
 
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
 pub struct ReceiptScanReport {
@@ -46,8 +57,7 @@ impl ReceiptScanReport {
     }
 
     fn register_rpc_failure(&mut self, status_update: FailedValidationByTable) {
-        // TODO solve me by changing just the status
-        //self.failures.failures.push(failed_tx);
+        self.failures.tx_receipt_rpc_failures.push(status_update);
     }
 }
 
@@ -103,10 +113,29 @@ pub enum FailedValidationByTable {
     FailedPayable(FailedValidation),
 }
 
+impl From<TxReceiptError> for FailedValidationByTable {
+    fn from(tx_receipt_error: TxReceiptError) -> Self {
+        match tx_receipt_error.tx_hash {
+            TxHashByTable::SentPayable(tx_hash) => {
+                Self::SentPayable(FailedValidation::new(tx_hash, tx_receipt_error.err))
+            }
+            TxHashByTable::FailedPayable(tx_hash) => {
+                Self::FailedPayable(FailedValidation::new(tx_hash, tx_receipt_error.err))
+            }
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct FailedValidation {
     pub tx_hash: TxHash,
     pub failure: AppRpcError,
+}
+
+impl FailedValidation {
+    pub fn new(tx_hash: TxHash, failure: AppRpcError) -> Self {
+        Self { tx_hash, failure }
+    }
 }
 
 pub struct MismatchReport {
@@ -235,6 +264,16 @@ pub enum TxHashByTable {
     FailedPayable(TxHash),
 }
 
+impl TxHashByTable {
+    fn hash(&self) -> TxHash {
+        todo!()
+        // match self {
+        //     TxHashByTable::SentPayable(hash) => *hash,
+        //     TxHashByTable::FailedPayable(hash) => *hash,
+        // }
+    }
+}
+
 pub fn elapsed_in_ms(timestamp: SystemTime) -> u128 {
     timestamp
         .elapsed()
@@ -245,6 +284,7 @@ pub fn elapsed_in_ms(timestamp: SystemTime) -> u128 {
 pub fn handle_still_pending_tx(
     mut scan_report: ReceiptScanReport,
     tx: TxByTable,
+    sent_payable_dao: &dyn SentPayableDao,
     logger: &Logger,
 ) -> ReceiptScanReport {
     match tx {
@@ -258,16 +298,30 @@ pub fn handle_still_pending_tx(
             let failed_tx = FailedTx::from((sent_tx, FailureReason::PendingTooLong));
             scan_report.register_new_failure(PresortedTxFailure::NewEntry(failed_tx));
         }
-        TxByTable::FailedPayable(failed_tx) => todo!("What should I do here??"), // {
-                                                                                 // todo!();
-                                                                                 // scan_report.register_finalization_of_unproven_failure(failed_tx.hash);
+        TxByTable::FailedPayable(failed_tx) => {
+            let replacement_tx = sent_payable_dao
+                .retrieve_txs(Some(RetrieveCondition::ByNonce(vec![failed_tx.nonce])));
+            error!(
+                logger,
+                "Failed tx on a recheck was found pending by its receipt. \
+            Unexpected behavior. Tx {:?} was supposed to be replaced by the newer {:?}",
+                failed_tx.hash,
+                replacement_tx
+                    .get(0)
+                    .unwrap_or_else(|| panic!(
+                        "Attempted to display a replacement tx for {:?} but couldn't find one \
+                in the database",
+                        failed_tx.hash
+                    ))
+                    .hash
+            )
+        }
     }
     scan_report
 }
 
 pub fn handle_successful_tx(
     mut scan_report: ReceiptScanReport,
-    unproven_failures: &[TxHash],
     tx: TxByTable,
     tx_block: TransactionBlock,
     logger: &Logger,
@@ -279,17 +333,11 @@ pub fn handle_successful_tx(
                 "Detected tx {:?} added to block {}.", sent_tx.hash, tx_block.block_number,
             );
 
-            let detection = if !unproven_failures.contains(&sent_tx.hash) {
-                todo!()
-            } else {
-                todo!()
-            };
-
             let completed_sent_tx = SentTx {
                 status: TxStatus::Confirmed {
                     block_hash: format!("{:?}", tx_block.block_hash),
                     block_number: tx_block.block_number.as_u64(),
-                    detection,
+                    detection: todo!("this must be 'Normal'"),
                 },
                 ..sent_tx
             };
@@ -332,7 +380,6 @@ pub fn handle_status_with_failure(
 
 pub fn handle_rpc_failure(
     mut scan_report: ReceiptScanReport,
-    recheck_required_txs: &[TxHash],
     rpc_error: TxReceiptError,
     logger: &Logger,
 ) -> ReceiptScanReport {
@@ -342,11 +389,7 @@ pub fn handle_rpc_failure(
         rpc_error.tx_hash,
         rpc_error.err
     );
-    // TODO just to make sure we didn't ball something up badly, could be deduced also without
-    let validation_status_update = match rpc_error.tx_hash {
-        TxHashByTable::SentPayable(hash) => todo!(),
-        TxHashByTable::FailedPayable(hash) => todo!(),
-    };
+    let validation_status_update = FailedValidationByTable::from(rpc_error);
     scan_report.register_rpc_failure(validation_status_update);
     scan_report
 }
@@ -361,12 +404,11 @@ impl From<BlockchainTxFailure> for FailureReason {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::db_access_objects::sent_payable_dao::Detection;
-    use crate::accountant::db_access_objects::sent_payable_dao::Detection::Normal;
     use crate::accountant::scanners::pending_payable_scanner::utils::{
         CurrentPendingPayables, DetectedConfirmations, DetectedFailures, FailedValidation,
         FailedValidationByTable, NormalTxConfirmation, PendingPayableCache, PresortedTxFailure,
-        ReceiptScanReport, RecheckRequiringFailures, Retry, TxReclaim,
+        ReceiptScanReport, RecheckRequiringFailures, Retry, TransactionBlock, TxHashByTable,
+        TxReceiptError, TxReceiptResult, TxReclaim,
     };
     use crate::accountant::test_utils::{make_failed_tx, make_sent_tx, make_transaction_block};
     use crate::blockchain::errors::{AppRpcError, LocalError, RemoteError};
@@ -405,14 +447,16 @@ mod tests {
         ];
         let tx_receipt_rpc_failures_feeding = vec![
             vec![],
-            vec![FailedValidationByTable::SentPayable(FailedValidation {
-                tx_hash: make_tx_hash(2222),
-                failure: AppRpcError::Local(LocalError::Internal),
-            })],
-            vec![FailedValidationByTable::FailedPayable(FailedValidation {
-                tx_hash: make_tx_hash(12121),
-                failure: AppRpcError::Remote(RemoteError::InvalidResponse("blah".to_string())),
-            })],
+            vec![FailedValidationByTable::SentPayable(FailedValidation::new(
+                make_tx_hash(2222),
+                AppRpcError::Local(LocalError::Internal),
+            ))],
+            vec![FailedValidationByTable::FailedPayable(
+                FailedValidation::new(
+                    make_tx_hash(12121),
+                    AppRpcError::Remote(RemoteError::InvalidResponse("blah".to_string())),
+                ),
+            )],
         ];
         let detected_confirmations_feeding = vec![
             DetectedConfirmations {
@@ -473,23 +517,25 @@ mod tests {
     #[test]
     fn requires_only_receipt_retrieval_retry() {
         let rpc_failure_feedings = vec![
-            vec![FailedValidationByTable::SentPayable(FailedValidation {
-                tx_hash: make_tx_hash(2222),
-                failure: AppRpcError::Local(LocalError::Internal),
-            })],
-            vec![FailedValidationByTable::FailedPayable(FailedValidation {
-                tx_hash: make_tx_hash(1234),
-                failure: AppRpcError::Remote(RemoteError::Unreachable),
-            })],
+            vec![FailedValidationByTable::SentPayable(FailedValidation::new(
+                make_tx_hash(2222),
+                AppRpcError::Local(LocalError::Internal),
+            ))],
+            vec![FailedValidationByTable::FailedPayable(
+                FailedValidation::new(
+                    make_tx_hash(1234),
+                    AppRpcError::Remote(RemoteError::Unreachable),
+                ),
+            )],
             vec![
-                FailedValidationByTable::SentPayable(FailedValidation {
-                    tx_hash: make_tx_hash(2222),
-                    failure: AppRpcError::Local(LocalError::Internal),
-                }),
-                FailedValidationByTable::FailedPayable(FailedValidation {
-                    tx_hash: make_tx_hash(1234),
-                    failure: AppRpcError::Remote(RemoteError::Unreachable),
-                }),
+                FailedValidationByTable::SentPayable(FailedValidation::new(
+                    make_tx_hash(2222),
+                    AppRpcError::Local(LocalError::Internal),
+                )),
+                FailedValidationByTable::FailedPayable(FailedValidation::new(
+                    make_tx_hash(1234),
+                    AppRpcError::Remote(RemoteError::Unreachable),
+                )),
             ],
         ];
         let detected_confirmations_feeding = vec![
@@ -893,6 +939,40 @@ mod tests {
                 tx_hash_2 => failed_tx_2,
                 tx_hash_3 => failed_tx_3
             )
+        );
+    }
+
+    #[test]
+    fn tx_receipt_error_can_be_converted_to_failed_validation_by_table() {
+        let tx_hash_sent_tx = make_tx_hash(123);
+        let api_error_sent_tx = AppRpcError::Local(LocalError::Internal);
+        let receipt_error_for_sent_tx = TxReceiptError::new(
+            TxHashByTable::SentPayable(tx_hash_sent_tx),
+            api_error_sent_tx.clone(),
+        );
+        let tx_hash_failed_tx = make_tx_hash(456);
+        let api_error_failed_tx = AppRpcError::Remote(RemoteError::Unreachable);
+        let receipt_error_for_failed_tx = TxReceiptError::new(
+            TxHashByTable::FailedPayable(tx_hash_failed_tx),
+            api_error_failed_tx.clone(),
+        );
+
+        let result_1 = FailedValidationByTable::from(receipt_error_for_sent_tx);
+        let result_2 = FailedValidationByTable::from(receipt_error_for_failed_tx);
+
+        assert_eq!(
+            result_1,
+            FailedValidationByTable::SentPayable(FailedValidation::new(
+                tx_hash_sent_tx,
+                api_error_sent_tx
+            ))
+        );
+        assert_eq!(
+            result_2,
+            FailedValidationByTable::FailedPayable(FailedValidation::new(
+                tx_hash_failed_tx,
+                api_error_failed_tx
+            ))
         );
     }
 }

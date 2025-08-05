@@ -1,17 +1,23 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::scanners::payable_scanner_extension::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage, PricedQualifiedPayables};
-use crate::accountant::{
-    ReceivedPayments, ResponseSkeleton, ScanError,
-    SentPayables, SkeletonOptHolder,
+use crate::accountant::db_access_objects::payable_dao::PayableAccount;
+use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
+use crate::accountant::scanners::payable_scanner_extension::msgs::{
+    BlockchainAgentWithContextMessage, PricedQualifiedPayables, QualifiedPayablesMessage,
 };
-use crate::accountant::{TxReceiptsMessage, RequestTransactionReceipts};
+use crate::accountant::{
+    ReceivedPayments, ResponseSkeleton, ScanError, SentPayables, SkeletonOptHolder,
+};
+use crate::accountant::{RequestTransactionReceipts, TxReceiptsMessage};
 use crate::actor_system_factory::SubsFactory;
+use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::HashAndAmount;
 use crate::blockchain::blockchain_interface::data_structures::errors::{
     BlockchainError, PayableTransactionError,
 };
-use crate::blockchain::blockchain_interface::data_structures::ProcessedPayableFallible;
+use crate::blockchain::blockchain_interface::data_structures::{
+    ProcessedPayableFallible, StatusReadFromReceiptCheck, TxReceiptResult,
+};
 use crate::blockchain::blockchain_interface::BlockchainInterface;
 use crate::blockchain::blockchain_interface_initializer::BlockchainInterfaceInitializer;
 use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DbInitializerReal};
@@ -19,35 +25,29 @@ use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
-use crate::sub_lib::blockchain_bridge::{
-    BlockchainBridgeSubs, OutboundPaymentsInstructions,
-};
+use crate::sub_lib::blockchain_bridge::{BlockchainBridgeSubs, OutboundPaymentsInstructions};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request};
-use crate::sub_lib::wallet::{Wallet};
+use crate::sub_lib::wallet::Wallet;
 use actix::Actor;
 use actix::Context;
 use actix::Handler;
 use actix::Message;
 use actix::{Addr, Recipient};
+use ethabi::Hash;
 use futures::Future;
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
+use masq_lib::constants::DEFAULT_GAS_PRICE_MARGIN;
 use masq_lib::logger::Logger;
+use masq_lib::messages::ScanType;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use regex::Regex;
 use std::path::Path;
 use std::string::ToString;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
-use ethabi::Hash;
 use web3::types::H256;
-use masq_lib::constants::DEFAULT_GAS_PRICE_MARGIN;
-use masq_lib::messages::ScanType;
-use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TxReceiptResult, StatusReadFromReceiptCheck};
-use crate::blockchain::blockchain_agent::BlockchainAgent;
 
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
 pub const DEFAULT_BLOCKCHAIN_SERVICE_URL: &str = "https://0.0.0.0";
@@ -532,19 +532,28 @@ impl SubsFactory<BlockchainBridge, BlockchainBridgeSubs> for BlockchainBridgeSub
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accountant::db_access_objects::failed_payable_dao::ValidationStatus;
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
+    use crate::accountant::db_access_objects::sent_payable_dao::TxStatus;
     use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp};
+    use crate::accountant::scanners::payable_scanner_extension::msgs::{
+        QualifiedPayableWithGasPrice, UnpricedQualifiedPayables,
+    };
     use crate::accountant::scanners::payable_scanner_extension::test_utils::BlockchainAgentMock;
+    use crate::accountant::scanners::pending_payable_scanner::utils::TxHashByTable;
+    use crate::accountant::test_utils::make_priced_qualified_payables;
     use crate::accountant::test_utils::{make_payable_account, make_sent_tx};
-    use crate::accountant::test_utils::{make_priced_qualified_payables};
+    use crate::accountant::PendingPayable;
     use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError::TransactionID;
     use crate::blockchain::blockchain_interface::data_structures::errors::{
         BlockchainAgentBuildError, PayableTransactionError,
     };
     use crate::blockchain::blockchain_interface::data_structures::ProcessedPayableFallible::Correct;
     use crate::blockchain::blockchain_interface::data_structures::{
-        BlockchainTransaction, RetrievedBlockchainTransactions,
+        BlockchainTransaction, RetrievedBlockchainTransactions, RetrievedTxStatus,
+        TransactionBlock, TxReceiptError,
     };
+    use crate::blockchain::errors::{AppRpcError, RemoteError};
     use crate::blockchain::test_utils::{
         make_blockchain_interface_web3, make_tx_hash, ReceiptResponseBuilder,
     };
@@ -565,6 +574,7 @@ mod tests {
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use actix::System;
     use ethereum_types::U64;
+    use masq_lib::constants::DEFAULT_MAX_BLOCK_COUNT;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
     use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
@@ -578,14 +588,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
     use web3::types::{TransactionReceipt, H160};
-    use masq_lib::constants::DEFAULT_MAX_BLOCK_COUNT;
-    use crate::accountant::db_access_objects::failed_payable_dao::ValidationStatus;
-    use crate::accountant::db_access_objects::sent_payable_dao::{TxStatus};
-    use crate::accountant::PendingPayable;
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{RetrievedTxStatus, TransactionBlock, TxReceiptError};
-    use crate::accountant::scanners::payable_scanner_extension::msgs::{UnpricedQualifiedPayables, QualifiedPayableWithGasPrice};
-    use crate::accountant::scanners::pending_payable_scanner::utils::TxHashByTable;
-    use crate::blockchain::errors::{AppRpcError, RemoteError};
 
     impl Handler<AssertionsMessage<Self>> for BlockchainBridge {
         type Result = ();

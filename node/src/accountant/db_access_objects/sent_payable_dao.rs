@@ -1,20 +1,22 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, ValidationStatus};
+use crate::accountant::db_access_objects::utils::{
+    DaoFactoryReal, TxHash, TxIdentifiers, TxRecordWithHash,
+};
+use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
+use crate::accountant::{checked_conversion, comma_joined_stringifiable};
+use crate::blockchain::blockchain_interface::data_structures::TransactionBlock;
+use crate::database::rusqlite_wrappers::ConnectionWrapper;
+use ethereum_types::H256;
+use itertools::Itertools;
+use masq_lib::utils::ExpectValue;
+use serde_derive::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
-use ethereum_types::{H256};
 use web3::types::Address;
-use masq_lib::utils::ExpectValue;
-use crate::accountant::{checked_conversion, comma_joined_stringifiable};
-use crate::accountant::db_access_objects::utils::{DaoFactoryReal, TxHash, TxIdentifiers, TxRecordWithHash};
-use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock};
-use crate::database::rusqlite_wrappers::ConnectionWrapper;
-use itertools::Itertools;
-use serde_derive::{Deserialize, Serialize};
-use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, ValidationStatus};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SentPayableDaoError {
@@ -90,6 +92,7 @@ impl From<TransactionBlock> for TxStatus {
 pub enum RetrieveCondition {
     IsPending,
     ByHash(Vec<TxHash>),
+    ByNonce(Vec<u64>),
 }
 
 impl Display for RetrieveCondition {
@@ -103,6 +106,13 @@ impl Display for RetrieveCondition {
                     f,
                     "WHERE tx_hash IN ({})",
                     comma_joined_stringifiable(tx_hashes, |hash| format!("'{:?}'", hash))
+                )
+            }
+            RetrieveCondition::ByNonce(nonces) => {
+                write!(
+                    f,
+                    "WHERE nonce IN ({})",
+                    comma_joined_stringifiable(nonces, |nonce| nonce.to_string())
                 )
             }
         }
@@ -436,26 +446,35 @@ impl SentPayableDaoFactory for DaoFactoryReal {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{HashMap, HashSet};
-    use std::str::FromStr;
-    use std::sync::{Arc, Mutex};
-    use crate::accountant::db_access_objects::sent_payable_dao::{Detection, RetrieveCondition, SentPayableDao, SentPayableDaoError, SentPayableDaoReal, TxStatus};
+    use crate::accountant::db_access_objects::failed_payable_dao::ValidationStatus;
+    use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::{
+        ByHash, ByNonce, IsPending,
+    };
+    use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDaoError::{
+        EmptyInput, PartialExecution,
+    };
+    use crate::accountant::db_access_objects::sent_payable_dao::{
+        Detection, RetrieveCondition, SentPayableDao, SentPayableDaoError, SentPayableDaoReal,
+        TxStatus,
+    };
+    use crate::accountant::db_access_objects::test_utils::{
+        make_read_only_db_connection, TxBuilder,
+    };
+    use crate::accountant::db_access_objects::utils::TxRecordWithHash;
+    use crate::accountant::test_utils::make_sent_tx;
+    use crate::blockchain::blockchain_interface::data_structures::TransactionBlock;
+    use crate::blockchain::errors::{AppRpcError, RemoteError};
+    use crate::blockchain::test_utils::{make_block_hash, make_tx_hash};
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal,
     };
     use crate::database::test_utils::ConnectionWrapperMock;
-    use ethereum_types::{ H256, U64};
+    use ethereum_types::{H256, U64};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use rusqlite::{Connection};
-    use crate::accountant::db_access_objects::failed_payable_dao::{ValidationStatus};
-    use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::{ByHash, IsPending};
-    use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDaoError::{EmptyInput, PartialExecution};
-    use crate::accountant::db_access_objects::test_utils::{make_read_only_db_connection, TxBuilder};
-    use crate::accountant::db_access_objects::utils::TxRecordWithHash;
-    use crate::accountant::test_utils::make_sent_tx;
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock};
-    use crate::blockchain::errors::{AppRpcError, RemoteError};
-    use crate::blockchain::test_utils::{make_block_hash, make_tx_hash};
+    use rusqlite::Connection;
+    use std::collections::{HashMap, HashSet};
+    use std::str::FromStr;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn insert_new_records_works() {
@@ -658,8 +677,8 @@ mod tests {
             '0x0000000000000000000000000000000000000000000000000000000123456789', \
             '0x0000000000000000000000000000000000000000000000000000000987654321'\
             )"
-            .to_string()
         );
+        assert_eq!(ByNonce(vec![45, 47]).to_string(), "WHERE nonce IN (45, 47)")
     }
 
     #[test]
@@ -735,6 +754,35 @@ mod tests {
             .unwrap();
 
         let result = subject.retrieve_txs(Some(ByHash(vec![tx1.hash, tx3.hash])));
+
+        assert_eq!(result, vec![tx1, tx3]);
+    }
+
+    #[test]
+    fn tx_can_be_retrieved_by_nonce() {
+        let home_dir =
+            ensure_node_home_directory_exists("sent_payable_dao", "tx_can_be_retrieved_by_nonce");
+        let wrapped_conn = DbInitializerReal::default()
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
+        let subject = SentPayableDaoReal::new(wrapped_conn);
+        let tx1 = TxBuilder::default()
+            .hash(make_tx_hash(123))
+            .nonce(33)
+            .build();
+        let tx2 = TxBuilder::default()
+            .hash(make_tx_hash(456))
+            .nonce(34)
+            .build();
+        let tx3 = TxBuilder::default()
+            .hash(make_tx_hash(789))
+            .nonce(35)
+            .build();
+        subject
+            .insert_new_records(&vec![tx1.clone(), tx2, tx3.clone()])
+            .unwrap();
+
+        let result = subject.retrieve_txs(Some(ByNonce(vec![33, 35])));
 
         assert_eq!(result, vec![tx1, tx3]);
     }

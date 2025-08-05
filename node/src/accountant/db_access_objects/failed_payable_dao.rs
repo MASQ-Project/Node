@@ -1,5 +1,8 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::db_access_objects::utils::{DaoFactoryReal, TxHash, TxIdentifiers, TxRecordWithHash, VigilantRusqliteFlatten};
+use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::RecheckRequired;
+use crate::accountant::db_access_objects::utils::{
+    DaoFactoryReal, TxHash, TxIdentifiers, TxRecordWithHash, VigilantRusqliteFlatten,
+};
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::{checked_conversion, comma_joined_stringifiable};
 use crate::blockchain::errors::AppRpcError;
@@ -11,8 +14,6 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use web3::types::Address;
-use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::RecheckRequired;
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionBlock;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum FailedPayableDaoError {

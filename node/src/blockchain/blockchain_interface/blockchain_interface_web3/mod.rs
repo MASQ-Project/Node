@@ -5,7 +5,7 @@ mod utils;
 
 use std::cmp::PartialEq;
 use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainError, PayableTransactionError};
-use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, ProcessedPayableFallible};
+use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, ProcessedPayableFallible, RetrievedTxStatus, StatusReadFromReceiptCheck, TxReceiptError, TxReceiptResult};
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use crate::blockchain::blockchain_interface::RetrievedBlockchainTransactions;
 use crate::blockchain::blockchain_interface::{BlockchainAgentBuildError, BlockchainInterface};
@@ -25,7 +25,7 @@ use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::accountant::db_access_objects::utils::TxHash;
 use crate::accountant::scanners::pending_payable_scanner::utils::TxHashByTable;
 use crate::blockchain::blockchain_bridge::{BlockMarker, BlockScanRange, RegisterNewPendingPayables};
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{LowBlockchainIntWeb3, StatusReadFromReceiptCheck, RetrievedTxStatus, TxReceiptError, TxReceiptResult};
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::LowBlockchainIntWeb3;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::utils::{create_blockchain_agent_web3, send_payables_within_batch, BlockchainAgentFutureResult};
 use crate::blockchain::errors::{AppRpcError, RemoteError};
 // TODO We should probably begin to attach these constants to the interfaces more tightly, so that
@@ -454,17 +454,29 @@ impl BlockchainInterfaceWeb3 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accountant::scanners::payable_scanner_extension::msgs::{
+        QualifiedPayableWithGasPrice, QualifiedPayablesBeforeGasPriceSelection,
+        UnpricedQualifiedPayables,
+    };
+    use crate::accountant::scanners::pending_payable_scanner::utils::TxHashByTable;
+    use crate::accountant::test_utils::make_payable_account;
+    use crate::accountant::test_utils::make_sent_tx;
+    use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
         BlockchainInterfaceWeb3, CONTRACT_ABI, REQUESTS_IN_PARALLEL, TRANSACTION_LITERAL,
         TRANSFER_METHOD_ID,
     };
     use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError::QueryFailed;
-    use crate::blockchain::blockchain_interface::data_structures::BlockchainTransaction;
+    use crate::blockchain::blockchain_interface::data_structures::{
+        BlockchainTransaction, BlockchainTxFailure, TransactionBlock,
+    };
     use crate::blockchain::blockchain_interface::{
         BlockchainAgentBuildError, BlockchainError, BlockchainInterface,
         RetrievedBlockchainTransactions,
     };
-    use crate::blockchain::test_utils::{all_chains, make_blockchain_interface_web3, make_tx_hash, ReceiptResponseBuilder};
+    use crate::blockchain::test_utils::{
+        all_chains, make_blockchain_interface_web3, make_tx_hash, ReceiptResponseBuilder,
+    };
     use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_paying_wallet;
@@ -480,12 +492,6 @@ mod tests {
     use std::str::FromStr;
     use web3::transports::Http;
     use web3::types::{H256, U256};
-    use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayablesBeforeGasPriceSelection, QualifiedPayableWithGasPrice, UnpricedQualifiedPayables};
-    use crate::accountant::test_utils::make_payable_account;
-    use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, StatusReadFromReceiptCheck};
-    use crate::accountant::test_utils::make_sent_tx;
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{BlockchainTxFailure};
 
     #[test]
     fn constants_are_correct() {

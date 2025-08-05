@@ -341,14 +341,10 @@ mod tests {
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::time::{Duration, SystemTime};
     use itertools::Itertools;
-    use regex::Regex;
     use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureReason, FailureStatus, ValidationStatus};
-    use crate::accountant::db_access_objects::sent_payable_dao::{SentTx, TxStatus};
     use crate::assert_on_testing_enum_with_all_its_variants;
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::BlockchainTxFailure;
     use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainError, PayableTransactionError};
-    use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RpcPayableFailure};
-    use crate::blockchain::errors::{AppRpcError, LocalError, RemoteError};
+    use crate::blockchain::blockchain_interface::data_structures::{BlockchainTxFailure, ProcessedPayableFallible, RpcPayableFailure};
 
     #[test]
     fn investigate_debt_extremes_picks_the_most_relevant_records() {

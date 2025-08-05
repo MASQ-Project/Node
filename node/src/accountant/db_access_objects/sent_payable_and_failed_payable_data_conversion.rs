@@ -1,8 +1,10 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureReason, FailureStatus};
+use crate::accountant::db_access_objects::failed_payable_dao::{
+    FailedTx, FailureReason, FailureStatus,
+};
 use crate::accountant::db_access_objects::sent_payable_dao::{Detection, SentTx, TxStatus};
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionBlock;
+use crate::blockchain::blockchain_interface::data_structures::TransactionBlock;
 
 impl From<(FailedTx, TransactionBlock)> for SentTx {
     fn from((failed_tx, confirmation_block): (FailedTx, TransactionBlock)) -> Self {

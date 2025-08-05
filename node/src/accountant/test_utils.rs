@@ -3,25 +3,41 @@
 #![cfg(test)]
 
 use crate::accountant::db_access_objects::banned_dao::{BannedDao, BannedDaoFactory};
-use crate::accountant::db_access_objects::failed_payable_dao::{FailedPayableDao, FailedPayableDaoError, FailedPayableDaoFactory, FailedTx, FailureReason, FailureRetrieveCondition, FailureStatus, ValidationStatus};
-use crate::accountant::db_access_objects::payable_dao::{MarkPendingPayableID, PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory};
-use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDao, SentPayableDaoFactory, TxStatus};
+use crate::accountant::db_access_objects::failed_payable_dao::{
+    FailedPayableDao, FailedPayableDaoError, FailedPayableDaoFactory, FailedTx, FailureReason,
+    FailureRetrieveCondition, FailureStatus, ValidationStatus,
+};
+use crate::accountant::db_access_objects::payable_dao::{
+    MarkPendingPayableID, PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory,
+};
 use crate::accountant::db_access_objects::receivable_dao::{
     ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,
 };
-use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp, CustomQuery, TxHash, TxIdentifiers};
+use crate::accountant::db_access_objects::sent_payable_dao::{
+    RetrieveCondition, SentPayableDaoError, SentTx,
+};
+use crate::accountant::db_access_objects::sent_payable_dao::{
+    SentPayableDao, SentPayableDaoFactory, TxStatus,
+};
+use crate::accountant::db_access_objects::utils::{
+    from_unix_timestamp, to_unix_timestamp, CustomQuery, TxHash, TxIdentifiers,
+};
 use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdjuster};
 use crate::accountant::scanners::payable_scanner_extension::msgs::{
     BlockchainAgentWithContextMessage, PricedQualifiedPayables, QualifiedPayableWithGasPrice,
     QualifiedPayablesBeforeGasPriceSelection, UnpricedQualifiedPayables,
 };
 use crate::accountant::scanners::payable_scanner_extension::PreparedAdjustment;
+use crate::accountant::scanners::pending_payable_scanner::utils::PendingPayableCache;
 use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
 use crate::accountant::scanners::receivable_scanner::ReceivableScanner;
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableThresholdsGauge;
+use crate::accountant::scanners::test_utils::PendingPayableCacheMock;
 use crate::accountant::scanners::PayableScanner;
 use crate::accountant::{gwei_to_wei, Accountant, DEFAULT_PENDING_TOO_LONG_SEC};
-use crate::blockchain::blockchain_interface::data_structures::BlockchainTransaction;
+use crate::blockchain::blockchain_interface::data_structures::{
+    BlockchainTransaction, TransactionBlock,
+};
 use crate::blockchain::test_utils::{make_block_hash, make_tx_hash};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
@@ -34,6 +50,7 @@ use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
 use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 use crate::test_utils::unshared_test_utils::make_bc_with_defaults;
+use ethereum_types::U64;
 use masq_lib::logger::Logger;
 use rusqlite::{Connection, OpenFlags, Row};
 use std::any::type_name;
@@ -44,12 +61,7 @@ use std::path::Path;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
-use ethereum_types::U64;
-use web3::types::{Address};
-use crate::accountant::db_access_objects::sent_payable_dao::{RetrieveCondition, SentPayableDaoError, SentTx};
-use crate::accountant::scanners::pending_payable_scanner::utils::PendingPayableCache;
-use crate::accountant::scanners::test_utils::PendingPayableCacheMock;
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock};
+use web3::types::Address;
 
 pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableAccount {
     let now = to_unix_timestamp(SystemTime::now());
