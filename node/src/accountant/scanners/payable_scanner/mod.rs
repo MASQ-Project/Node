@@ -237,6 +237,7 @@ impl PayableScanner {
                          Updating database...",
                         total = sent + failed,
                     );
+                    // TODO: GH-605: Would it be a good ides to update Retry attempt of previous tx?
                     Self::log_failed_txs(&batch_results.failed_txs, logger);
                     self.handle_successful_retries(&batch_results.sent_txs); // Here it only means Sent to RPC
                 }
