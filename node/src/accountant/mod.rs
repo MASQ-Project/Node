@@ -1309,6 +1309,7 @@ mod tests {
     use std::sync::Mutex;
     use std::time::{Duration, UNIX_EPOCH};
     use std::vec;
+    use crate::accountant::db_access_objects::sent_payable_dao::Tx;
     use crate::accountant::db_access_objects::test_utils::{make_sent_tx, TxBuilder};
     use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::{NewTxTemplate, NewTxTemplates};
     use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_template::RetryTxTemplates;
@@ -2200,37 +2201,44 @@ mod tests {
             },
             &subject_addr
         );
-        let sent_payables = todo!("BatchResults");
-        // let second_counter_msg_setup = setup_for_counter_msg_triggered_via_type_id!(
-        //     QualifiedPayablesMessage,
-        //     sent_payables,
-        //     &subject_addr
-        // );
-        // peer_addresses
-        //     .blockchain_bridge_addr
-        //     .try_send(SetUpCounterMsgs::new(vec![
-        //         first_counter_msg_setup,
-        //         second_counter_msg_setup,
-        //     ]))
-        //     .unwrap();
-        // subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-        // let pending_payable_request = ScanForPendingPayables {
-        //     response_skeleton_opt,
-        // };
-        //
-        // subject_addr.try_send(pending_payable_request).unwrap();
-        //
-        // system.run();
-        // let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        // assert_eq!(
-        //     ui_gateway_recording.get_record::<NodeToUiMessage>(0),
-        //     &NodeToUiMessage {
-        //         target: ClientId(4555),
-        //         body: UiScanResponse {}.tmb(5566),
-        //     }
-        // );
-        // let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
-        // assert_eq!(blockchain_bridge_recording.len(), 2);
+        let sent_payables = SentPayables {
+            payment_procedure_result: Ok(BatchResults {
+                sent_txs: vec![make_sent_tx(1)],
+                failed_txs: vec![],
+            }),
+            payable_scan_type: PayableScanType::New,
+            response_skeleton_opt,
+        };
+        let second_counter_msg_setup = setup_for_counter_msg_triggered_via_type_id!(
+            QualifiedPayablesMessage,
+            sent_payables,
+            &subject_addr
+        );
+        peer_addresses
+            .blockchain_bridge_addr
+            .try_send(SetUpCounterMsgs::new(vec![
+                first_counter_msg_setup,
+                second_counter_msg_setup,
+            ]))
+            .unwrap();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        let pending_payable_request = ScanForPendingPayables {
+            response_skeleton_opt,
+        };
+
+        subject_addr.try_send(pending_payable_request).unwrap();
+
+        system.run();
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        assert_eq!(
+            ui_gateway_recording.get_record::<NodeToUiMessage>(0),
+            &NodeToUiMessage {
+                target: ClientId(4555),
+                body: UiScanResponse {}.tmb(5566),
+            }
+        );
+        let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
+        assert_eq!(blockchain_bridge_recording.len(), 2);
     }
 
     #[test]
