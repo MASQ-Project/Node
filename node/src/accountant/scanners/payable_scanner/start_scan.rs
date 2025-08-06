@@ -1,8 +1,8 @@
 use crate::accountant::db_access_objects::failed_payable_dao::FailureRetrieveCondition::ByStatus;
 use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::RetryRequired;
 use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::NewTxTemplates;
+use crate::accountant::scanners::payable_scanner::payable_scanner_extension::msgs::QualifiedPayablesMessage;
 use crate::accountant::scanners::payable_scanner::PayableScanner;
-use crate::accountant::scanners::payable_scanner_extension::msgs::QualifiedPayablesMessage;
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::investigate_debt_extremes;
 use crate::accountant::scanners::{Scanner, StartScanError, StartableScanner};
 use crate::accountant::{ResponseSkeleton, ScanForNewPayables, ScanForRetryPayables};

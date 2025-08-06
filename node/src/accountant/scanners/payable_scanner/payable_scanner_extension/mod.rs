@@ -4,7 +4,7 @@ pub mod msgs;
 pub mod test_utils;
 
 use crate::accountant::payment_adjuster::Adjustment;
-use crate::accountant::scanners::payable_scanner_extension::msgs::{
+use crate::accountant::scanners::payable_scanner::payable_scanner_extension::msgs::{
     BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
 };
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableScanResult;
@@ -55,7 +55,7 @@ impl PreparedAdjustment {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::scanners::payable_scanner_extension::PreparedAdjustment;
+    use crate::accountant::scanners::payable_scanner::payable_scanner_extension::PreparedAdjustment;
 
     impl Clone for PreparedAdjustment {
         fn clone(&self) -> Self {

@@ -2,7 +2,7 @@
 
 use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::PricedNewTxTemplates;
 use crate::accountant::scanners::payable_scanner::data_structures::priced_retry_tx_template::PricedRetryTxTemplates;
-use crate::accountant::scanners::payable_scanner_extension::msgs::QualifiedPayablesMessage;
+use crate::accountant::scanners::payable_scanner::payable_scanner_extension::msgs::QualifiedPayablesMessage;
 use crate::accountant::{RequestTransactionReceipts, ResponseSkeleton, SkeletonOptHolder};
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;

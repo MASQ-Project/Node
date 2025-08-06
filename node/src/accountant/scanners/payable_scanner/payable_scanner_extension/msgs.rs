@@ -76,8 +76,8 @@ impl BlockchainAgentWithContextMessage {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::scanners::payable_scanner_extension::msgs::BlockchainAgentWithContextMessage;
-    use crate::accountant::scanners::payable_scanner_extension::test_utils::BlockchainAgentMock;
+    use crate::accountant::scanners::payable_scanner::payable_scanner_extension::msgs::BlockchainAgentWithContextMessage;
+    use crate::accountant::scanners::payable_scanner::payable_scanner_extension::test_utils::BlockchainAgentMock;
 
     impl Clone for BlockchainAgentWithContextMessage {
         fn clone(&self) -> Self {

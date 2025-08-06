@@ -1,7 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 pub mod payable_scanner;
-pub mod payable_scanner_extension;
 pub mod pending_payable_scanner;
 pub mod receivable_scanner;
 pub mod scan_schedulers;
@@ -49,9 +48,9 @@ use crate::accountant::db_access_objects::failed_payable_dao::FailureReason::Sub
 use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::ByHash;
 use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDao, Tx};
 use crate::accountant::db_access_objects::utils::{RowId, TxHash, TxIdentifiers};
+use crate::accountant::scanners::payable_scanner::payable_scanner_extension::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage};
+use crate::accountant::scanners::payable_scanner::payable_scanner_extension::{MultistageDualPayableScanner, PreparedAdjustment};
 use crate::accountant::scanners::payable_scanner::PayableScanner;
-use crate::accountant::scanners::payable_scanner_extension::{MultistageDualPayableScanner, PreparedAdjustment, SolvencySensitivePaymentInstructor};
-use crate::accountant::scanners::payable_scanner_extension::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage};
 use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
 use crate::accountant::scanners::pending_payable_scanner::utils::PendingPayableScanResult;
 use crate::accountant::scanners::receivable_scanner::ReceivableScanner;
@@ -594,12 +593,8 @@ impl_real_scanner_marker!(PayableScanner, PendingPayableScanner, ReceivableScann
 mod tests {
     use crate::accountant::scanners::payable_scanner::test_utils::{PayableScannerBuilder};
     use crate::accountant::db_access_objects::test_utils::{make_failed_tx, make_sent_tx};
-    use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDaoError};
-    use crate::accountant::db_access_objects::pending_payable_dao::{
-        PendingPayableDaoError,
-    };
+    use crate::accountant::db_access_objects::payable_dao::{PayableAccount};
     use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp};
-    use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayablesMessage, };
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{PayableScanResult};
     use crate::accountant::scanners::{Scanner, StartScanError, StartableScanner,  PendingPayableScanner, ReceivableScanner, ScannerCommon, Scanners, ManulTriggerError};
     use crate::accountant::test_utils::{make_custom_payment_thresholds, make_payable_account, make_qualified_and_unqualified_payables, make_pending_payable_fingerprint, make_receivable_account, BannedDaoFactoryMock, BannedDaoMock, ConfigDaoFactoryMock, PayableDaoFactoryMock, PayableDaoMock, PayableThresholdsGaugeMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock, PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock, ReceivableScannerBuilder, FailedPayableDaoMock, FailedPayableDaoFactoryMock, SentPayableDaoFactoryMock, SentPayableDaoMock};
@@ -638,6 +633,7 @@ mod tests {
     use masq_lib::ui_gateway::NodeToUiMessage;
     use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::NewTxTemplates;
     use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_template::{RetryTxTemplate, RetryTxTemplates};
+    use crate::accountant::scanners::payable_scanner::payable_scanner_extension::msgs::QualifiedPayablesMessage;
     use crate::accountant::scanners::payable_scanner::PayableScanner;
     use crate::accountant::scanners::pending_payable_scanner::utils::PendingPayableScanResult;
     use crate::accountant::scanners::test_utils::{assert_timestamps_from_str, parse_system_time_from_str, MarkScanner, NullScanner, ReplacementType, ScannerReplacement};

@@ -1,5 +1,6 @@
 pub mod data_structures;
 mod finish_scan;
+pub mod payable_scanner_extension;
 mod start_scan;
 pub mod test_utils;
 
@@ -15,8 +16,8 @@ use crate::accountant::payment_adjuster::PaymentAdjuster;
 use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_template::{
     RetryTxTemplate, RetryTxTemplates,
 };
-use crate::accountant::scanners::payable_scanner_extension::msgs::BlockchainAgentWithContextMessage;
-use crate::accountant::scanners::payable_scanner_extension::{
+use crate::accountant::scanners::payable_scanner::payable_scanner_extension::msgs::BlockchainAgentWithContextMessage;
+use crate::accountant::scanners::payable_scanner::payable_scanner_extension::{
     MultistageDualPayableScanner, PreparedAdjustment, SolvencySensitivePaymentInstructor,
 };
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{

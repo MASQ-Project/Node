@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::scanners::payable_scanner_extension::msgs::BlockchainAgentWithContextMessage;
-use crate::accountant::scanners::payable_scanner_extension::PreparedAdjustment;
+use crate::accountant::scanners::payable_scanner::payable_scanner_extension::msgs::BlockchainAgentWithContextMessage;
+use crate::accountant::scanners::payable_scanner::payable_scanner_extension::PreparedAdjustment;
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use masq_lib::logger::Logger;
 use std::time::SystemTime;
@@ -72,8 +72,8 @@ pub enum AnalysisError {}
 mod tests {
     use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
     use crate::accountant::scanners::payable_scanner::data_structures::test_utils::make_priced_new_tx_templates;
-    use crate::accountant::scanners::payable_scanner_extension::msgs::BlockchainAgentWithContextMessage;
-    use crate::accountant::scanners::payable_scanner_extension::test_utils::BlockchainAgentMock;
+    use crate::accountant::scanners::payable_scanner::payable_scanner_extension::msgs::BlockchainAgentWithContextMessage;
+    use crate::accountant::scanners::payable_scanner::payable_scanner_extension::test_utils::BlockchainAgentMock;
     use crate::accountant::test_utils::make_payable_account;
     use itertools::Either;
     use masq_lib::logger::Logger;
