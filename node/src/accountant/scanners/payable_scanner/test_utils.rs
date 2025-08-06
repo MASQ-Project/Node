@@ -2,10 +2,13 @@ use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
 use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_template::RetryTxTemplate;
 use crate::accountant::scanners::payable_scanner::data_structures::BaseTxTemplate;
+use crate::accountant::scanners::payable_scanner::payable_scanner_extension::msgs::BlockchainAgentWithContextMessage;
+use crate::accountant::scanners::payable_scanner::payable_scanner_extension::PreparedAdjustment;
 use crate::accountant::scanners::payable_scanner::PayableScanner;
 use crate::accountant::test_utils::{
     FailedPayableDaoMock, PayableDaoMock, PaymentAdjusterMock, SentPayableDaoMock,
 };
+use crate::blockchain::blockchain_agent::test_utils::BlockchainAgentMock;
 use crate::blockchain::blockchain_interface::data_structures::RpcPayableFailure;
 use crate::blockchain::test_utils::{make_address, make_tx_hash};
 use crate::sub_lib::accountant::PaymentThresholds;
@@ -143,6 +146,27 @@ impl RetryTxTemplateBuilder {
             prev_gas_price_wei: self.prev_gas_price_wei.unwrap_or(0),
             prev_nonce: self.prev_nonce.unwrap_or(0),
             computed_gas_price_wei: self.computed_gas_price_wei_opt,
+        }
+    }
+}
+
+impl Clone for BlockchainAgentWithContextMessage {
+    fn clone(&self) -> Self {
+        let original_agent_id = self.agent.arbitrary_id_stamp();
+        let cloned_agent = BlockchainAgentMock::default().set_arbitrary_id_stamp(original_agent_id);
+        Self {
+            priced_templates: self.priced_templates.clone(),
+            agent: Box::new(cloned_agent),
+            response_skeleton_opt: self.response_skeleton_opt,
+        }
+    }
+}
+
+impl Clone for PreparedAdjustment {
+    fn clone(&self) -> Self {
+        Self {
+            original_setup_msg: self.original_setup_msg.clone(),
+            adjustment: self.adjustment.clone(),
         }
     }
 }
