@@ -383,7 +383,7 @@ mod tests {
         NewPayableScanDynIntervalComputer, NewPayableScanDynIntervalComputerReal,
         PayableSequenceScanner, ScanRescheduleAfterEarlyStop, ScanSchedulers,
     };
-    use crate::accountant::scanners::{MTError, StartScanError};
+    use crate::accountant::scanners::{ManulTriggerError, StartScanError};
     use crate::sub_lib::accountant::ScanIntervals;
     use itertools::Itertools;
     use lazy_static::lazy_static;
@@ -538,7 +538,7 @@ mod tests {
                 StartScanError::NothingToProcess,
                 StartScanError::NoConsumingWalletFound,
                 StartScanError::ScanAlreadyRunning { cross_scan_cause_opt: None, started_at: SystemTime::now()},
-                StartScanError::ManualTriggerError(MTError::AutomaticScanConflict),
+                StartScanError::ManualTriggerError(ManulTriggerError::AutomaticScanConflict),
                 StartScanError::CalledFromNullScanner
             ];
 

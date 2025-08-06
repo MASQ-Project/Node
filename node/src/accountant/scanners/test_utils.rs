@@ -9,12 +9,12 @@ use crate::accountant::scanners::payable_scanner_extension::msgs::{
 use crate::accountant::scanners::payable_scanner_extension::{
     MultistageDualPayableScanner, PreparedAdjustment, SolvencySensitivePaymentInstructor,
 };
+use crate::accountant::scanners::pending_payable_scanner::utils::PendingPayableScanResult;
 use crate::accountant::scanners::scan_schedulers::{
     NewPayableScanDynIntervalComputer, PayableSequenceScanner, RescheduleScanOnErrorResolver,
     ScanRescheduleAfterEarlyStop,
 };
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableScanResult;
-use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::PendingPayableScanResult;
 use crate::accountant::scanners::{
     PendingPayableScanner, PrivateScanner, RealScannerMarker, ReceivableScanner, Scanner,
     StartScanError, StartableScanner,

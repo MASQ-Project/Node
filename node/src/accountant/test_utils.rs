@@ -22,7 +22,6 @@ use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdju
 use crate::accountant::scanners::payable_scanner_extension::msgs::{BlockchainAgentWithContextMessage, PricedQualifiedPayables, QualifiedPayableWithGasPrice};
 use crate::accountant::scanners::payable_scanner_extension::PreparedAdjustment;
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableThresholdsGauge;
-use crate::accountant::scanners::{PendingPayableScanner, ReceivableScanner};
 use crate::accountant::{gwei_to_wei, Accountant, DEFAULT_PENDING_TOO_LONG_SEC};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::HashAndAmount;
@@ -51,6 +50,8 @@ use std::path::Path;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
+use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
+use crate::accountant::scanners::receivable_scanner::ReceivableScanner;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionBlock;
 
 pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableAccount {
