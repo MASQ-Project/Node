@@ -370,21 +370,13 @@ pub fn create_blockchain_agent_web3(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::db_access_objects::failed_payable_dao::ValidationStatus::Waiting;
     use crate::accountant::db_access_objects::test_utils::{
-        assert_on_failed_txs, assert_on_sent_txs, FailedTxBuilder, TxBuilder,
+        assert_on_failed_txs, assert_on_sent_txs, FailedTxBuilder,
     };
-    use crate::accountant::db_access_objects::utils::from_unix_timestamp;
     use crate::accountant::gwei_to_wei;
     use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::PricedNewTxTemplate;
-    use crate::accountant::scanners::payable_scanner::data_structures::test_utils::{
-        make_priced_new_tx_templates, make_signable_tx_template,
-    };
+    use crate::accountant::scanners::payable_scanner::data_structures::test_utils::make_signable_tx_template;
     use crate::accountant::scanners::payable_scanner::data_structures::BaseTxTemplate;
-    use crate::accountant::test_utils::{
-        make_payable_account, make_payable_account_with_wallet_and_balance_and_timestamp_opt,
-        make_priced_qualified_payables,
-    };
     use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
     use crate::blockchain::blockchain_agent::agent_web3::WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::{

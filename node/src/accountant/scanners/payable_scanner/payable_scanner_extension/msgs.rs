@@ -18,34 +18,6 @@ pub struct QualifiedPayablesMessage {
     pub consuming_wallet: Wallet,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct PricedQualifiedPayables {
-    pub payables: Vec<QualifiedPayableWithGasPrice>,
-}
-
-impl Into<Vec<PayableAccount>> for PricedQualifiedPayables {
-    fn into(self) -> Vec<PayableAccount> {
-        self.payables
-            .into_iter()
-            .map(|qualified_payable| qualified_payable.payable)
-            .collect()
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct QualifiedPayableWithGasPrice {
-    pub payable: PayableAccount,
-    pub gas_price_minor: u128,
-}
-
-impl QualifiedPayableWithGasPrice {
-    pub fn new(payable: PayableAccount, gas_price_minor: u128) -> Self {
-        Self {
-            payable,
-            gas_price_minor,
-        }
-    }
-}
 
 impl SkeletonOptHolder for QualifiedPayablesMessage {
     fn skeleton_opt(&self) -> Option<ResponseSkeleton> {
@@ -58,37 +30,4 @@ pub struct BlockchainAgentWithContextMessage {
     pub priced_templates: Either<PricedNewTxTemplates, PricedRetryTxTemplates>,
     pub agent: Box<dyn BlockchainAgent>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
-}
-
-impl BlockchainAgentWithContextMessage {
-    pub fn new(
-        priced_templates: Either<PricedNewTxTemplates, PricedRetryTxTemplates>,
-        agent: Box<dyn BlockchainAgent>,
-        response_skeleton_opt: Option<ResponseSkeleton>,
-    ) -> Self {
-        Self {
-            priced_templates,
-            agent,
-            response_skeleton_opt,
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::accountant::scanners::payable_scanner::payable_scanner_extension::msgs::BlockchainAgentWithContextMessage;
-    use crate::accountant::scanners::payable_scanner::payable_scanner_extension::test_utils::BlockchainAgentMock;
-
-    impl Clone for BlockchainAgentWithContextMessage {
-        fn clone(&self) -> Self {
-            let original_agent_id = self.agent.arbitrary_id_stamp();
-            let cloned_agent =
-                BlockchainAgentMock::default().set_arbitrary_id_stamp(original_agent_id);
-            Self {
-                priced_templates: self.priced_templates.clone(),
-                agent: Box::new(cloned_agent),
-                response_skeleton_opt: self.response_skeleton_opt,
-            }
-        }
-    }
 }

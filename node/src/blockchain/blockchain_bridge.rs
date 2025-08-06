@@ -263,13 +263,13 @@ impl BlockchainBridge {
                 .introduce_blockchain_agent(incoming_message.consuming_wallet)
                 .map_err(|e| format!("Blockchain agent build error: {:?}", e))
                 .and_then(move |agent| {
-                    let priced_tx_templates =
+                    let priced_templates =
                         agent.price_qualified_payables(incoming_message.tx_templates);
-                    let outgoing_message = BlockchainAgentWithContextMessage::new(
-                        priced_tx_templates,
+                    let outgoing_message = BlockchainAgentWithContextMessage {
+                        priced_templates,
                         agent,
-                        incoming_message.response_skeleton_opt,
-                    );
+                        response_skeleton_opt: incoming_message.response_skeleton_opt,
+                    };
                     accountant_recipient
                         .expect("Accountant is unbound")
                         .try_send(outgoing_message)
@@ -572,7 +572,7 @@ mod tests {
     use super::*;
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp};
-    use crate::accountant::test_utils::{make_payable_account, make_pending_payable_fingerprint, make_priced_qualified_payables};
+    use crate::accountant::test_utils::{make_payable_account, make_pending_payable_fingerprint};
     use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError::TransactionID;
     use crate::blockchain::blockchain_interface::data_structures::errors::{
         BlockchainAgentBuildError, LocalPayableError,

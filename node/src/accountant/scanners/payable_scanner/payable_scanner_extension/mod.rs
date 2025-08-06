@@ -52,17 +52,3 @@ impl PreparedAdjustment {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use crate::accountant::scanners::payable_scanner::payable_scanner_extension::PreparedAdjustment;
-
-    impl Clone for PreparedAdjustment {
-        fn clone(&self) -> Self {
-            Self {
-                original_setup_msg: self.original_setup_msg.clone(),
-                adjustment: self.adjustment.clone(),
-            }
-        }
-    }
-}

@@ -48,7 +48,7 @@ use std::path::Path;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
-use crate::accountant::scanners::payable_scanner::payable_scanner_extension::msgs::{BlockchainAgentWithContextMessage, PricedQualifiedPayables, QualifiedPayableWithGasPrice};
+use crate::accountant::scanners::payable_scanner::payable_scanner_extension::msgs::{BlockchainAgentWithContextMessage};
 use crate::accountant::scanners::payable_scanner::payable_scanner_extension::PreparedAdjustment;
 use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
 use crate::accountant::scanners::receivable_scanner::ReceivableScanner;
@@ -1822,19 +1822,5 @@ impl PaymentAdjusterMock {
     pub fn adjust_payments_result(self, result: OutboundPaymentsInstructions) -> Self {
         self.adjust_payments_results.borrow_mut().push(result);
         self
-    }
-}
-
-pub fn make_priced_qualified_payables(
-    inputs: Vec<(PayableAccount, u128)>,
-) -> PricedQualifiedPayables {
-    PricedQualifiedPayables {
-        payables: inputs
-            .into_iter()
-            .map(|(payable, gas_price_minor)| QualifiedPayableWithGasPrice {
-                payable,
-                gas_price_minor,
-            })
-            .collect(),
     }
 }
