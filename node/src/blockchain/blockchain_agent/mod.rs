@@ -1,6 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 pub mod agent_web3;
+pub mod test_utils;
 
 use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::NewTxTemplates;
 use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::PricedNewTxTemplates;

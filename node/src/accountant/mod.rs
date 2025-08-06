@@ -1311,9 +1311,9 @@ mod tests {
     use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::{NewTxTemplate, NewTxTemplates};
     use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_template::RetryTxTemplates;
     use crate::accountant::scanners::payable_scanner::data_structures::test_utils::make_priced_new_tx_templates;
-    use crate::accountant::scanners::payable_scanner::payable_scanner_extension::test_utils::BlockchainAgentMock;
     use crate::accountant::scanners::scan_schedulers::{NewPayableScanDynIntervalComputer, NewPayableScanDynIntervalComputerReal};
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{ OperationOutcome, PayableScanResult};
+    use crate::blockchain::blockchain_agent::test_utils::BlockchainAgentMock;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt, TxStatus};
     use crate::test_utils::recorder_counter_msgs::SingleTypeCounterMsgSetup;
 

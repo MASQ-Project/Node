@@ -622,7 +622,7 @@ mod tests {
     use crate::accountant::db_access_objects::test_utils::{assert_on_failed_txs, assert_on_sent_txs};
     use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::NewTxTemplates;
     use crate::accountant::scanners::payable_scanner::data_structures::test_utils::make_priced_new_tx_templates;
-    use crate::accountant::scanners::payable_scanner::payable_scanner_extension::test_utils::BlockchainAgentMock;
+    use crate::blockchain::blockchain_agent::test_utils::BlockchainAgentMock;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt};
     use crate::blockchain::errors::AppRpcError::Local;
     use crate::blockchain::errors::LocalError::Transport;
