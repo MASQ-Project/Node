@@ -64,10 +64,7 @@ use masq_lib::constants::{EXIT_COUNTRY_MISSING_COUNTRIES_ERROR, PAYLOAD_ZERO_SIZ
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::exit_locations::ExitLocationSet;
 use masq_lib::logger::Logger;
-use masq_lib::messages::{
-    ExitLocation, FromMessageBody, ToMessageBody, UiConnectionStage, UiConnectionStatusRequest,
-    UiSetExitLocationRequest, UiSetExitLocationResponse,
-};
+use masq_lib::messages::{ExitLocation, FromMessageBody, ToMessageBody, UiConnectionStage, UiConnectionStatusRequest, UiGetNeighborhoodGraphRequest, UiGetNeighborhoodGraphResponse, UiSetExitLocationRequest, UiSetExitLocationResponse};
 use masq_lib::messages::{UiConnectionStatusResponse, UiShutdownRequest};
 use masq_lib::ui_gateway::MessagePath::Conversation;
 use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
@@ -362,6 +359,8 @@ impl Handler<NodeFromUiMessage> for Neighborhood {
         let client_id = msg.client_id;
         if let Ok((message, context_id)) = UiSetExitLocationRequest::fmb(msg.body.clone()) {
             self.handle_exit_location_message(message, client_id, context_id);
+        } else if let Ok((_, context_id)) = UiGetNeighborhoodGraphRequest::fmb(msg.body.clone()) {
+            self.handle_neighborhood_graph_message(client_id, context_id);
         } else if let Ok((_, context_id)) = UiConnectionStatusRequest::fmb(msg.body.clone()) {
             self.handle_connection_status_message(client_id, context_id);
         } else if let Ok((body, _)) = UiShutdownRequest::fmb(msg.body.clone()) {
@@ -1611,6 +1610,21 @@ impl Neighborhood {
         undesirability + node_undesirability
     }
 
+    fn handle_neighborhood_graph_message(&self, client_id: u64, context_id: u64 ) {
+        let graph = self.neighborhood_database.to_dot_graph();
+        let message = NodeToUiMessage {
+            target: MessageTarget::ClientId(client_id),
+            body: UiGetNeighborhoodGraphResponse {
+                graph
+            }.tmb(context_id),
+        };
+        self.node_to_ui_recipient_opt
+            .as_ref()
+            .expect("UI Gateway is unbound")
+            .try_send(message)
+            .expect("UiGateway is dead");
+    }
+
     fn handle_exit_location_message(
         &mut self,
         message: UiSetExitLocationRequest,
@@ -2181,6 +2195,7 @@ mod tests {
     use std::thread;
     use std::time::Duration;
     use std::time::Instant;
+    use serde_derive::{Deserialize, Serialize};
     use tokio::prelude::Future;
 
     use masq_lib::constants::{DEFAULT_CHAIN, TLS_PORT};
@@ -2188,7 +2203,7 @@ mod tests {
         CountryGroups, ToMessageBody, UiConnectionChangeBroadcast, UiConnectionStage,
     };
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
-    use masq_lib::ui_gateway::MessageBody;
+    use masq_lib::ui_gateway::{MessageBody};
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_gateway::MessageTarget;
     use masq_lib::utils::running_test;
@@ -3632,6 +3647,83 @@ mod tests {
         };
         assert_eq!(juicy_parts(result_0), (0, 0));
         assert_eq!(juicy_parts(result_1), (1, 1));
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    struct Graph {
+        graph: String
+    }
+
+    #[test]
+    fn handle_neighborhood_graph_message_works() {
+        let test_name = "handle_neighborhood_graph_message_works";
+        let system = System::new(test_name);
+        let (ui_gateway, _recorder, arc_recorder) = make_recorder();
+        let mut subject = make_standard_subject();
+        let root_node_ch = subject.neighborhood_database.root().clone();
+        let neighbor_one_au = make_node_record_cc(1234, true, "AU");
+        let neighbor_two_fr = make_node_record_cc(2345, true, "FR");
+        let neighbor_three_cn = make_node_record_cc(3456, true, "CN");
+        let neighbor_four_us = make_node_record_cc(4567, true, "US");
+        let root_pubkey = format!("{}", root_node_ch.public_key());
+        let neighbor_one_pubkey = format!("{}", neighbor_one_au.public_key());
+        let neighbor_two_pubkey = format!("{}", neighbor_two_fr.public_key());
+        let neighbor_three_pubkey = format!("{}", neighbor_three_cn.public_key());
+        let neighbor_four_pubkey = format!("{}", neighbor_four_us.public_key());
+        subject
+            .neighborhood_database
+            .add_node(neighbor_one_au.clone())
+            .unwrap();
+        subject
+            .neighborhood_database
+            .add_node(neighbor_two_fr.clone())
+            .unwrap();
+        subject
+            .neighborhood_database
+            .add_node(neighbor_three_cn.clone())
+            .unwrap();
+        subject
+            .neighborhood_database
+            .add_node(neighbor_four_us.clone())
+            .unwrap();
+        subject
+            .neighborhood_database
+            .add_arbitrary_full_neighbor(root_node_ch.public_key(), neighbor_one_au.public_key());
+        subject.neighborhood_database.add_arbitrary_full_neighbor(
+            neighbor_one_au.public_key(),
+            neighbor_two_fr.public_key(),
+        );
+        subject.neighborhood_database.add_arbitrary_full_neighbor(
+            neighbor_two_fr.public_key(),
+            neighbor_three_cn.public_key(),
+        );
+        subject.neighborhood_database.add_arbitrary_full_neighbor(
+            neighbor_three_cn.public_key(),
+            neighbor_four_us.public_key(),
+        );
+        let request = UiGetNeighborhoodGraphRequest {};
+        let message = NodeFromUiMessage {
+            client_id: 456,
+            body: request.tmb(465),
+        };
+        let subject_addr = subject.start();
+        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr.try_send(message).unwrap();
+        System::current().stop();
+        system.run();
+
+        let recorder_result = arc_recorder.lock().unwrap();
+        let result = recorder_result.get_record::<NodeToUiMessage>(0).body.clone().payload.unwrap();
+        let result_object: Graph = serde_json::from_str(&result).unwrap();
+        assert!(result_object.graph.contains(&root_pubkey));
+        assert!(result_object.graph.contains(&neighbor_one_pubkey));
+        assert!(result_object.graph.contains(&neighbor_two_pubkey));
+        assert!(result_object.graph.contains(&neighbor_three_pubkey));
+        assert!(result_object.graph.contains(&neighbor_four_pubkey));
+
+
     }
 
     #[test]
