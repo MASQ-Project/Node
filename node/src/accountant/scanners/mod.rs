@@ -1013,21 +1013,20 @@ impl_real_scanner_marker!(PayableScanner, PendingPayableScanner, ReceivableScann
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::scanners::payable_scanner::test_utils::{make_pending_payable, PayableScannerBuilder};
-    use crate::accountant::db_access_objects::test_utils::{make_failed_tx, make_sent_tx, FailedTxBuilder, TxBuilder};
+    use crate::accountant::scanners::payable_scanner::test_utils::{PayableScannerBuilder};
+    use crate::accountant::db_access_objects::test_utils::{make_failed_tx, make_sent_tx};
     use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDaoError};
     use crate::accountant::db_access_objects::pending_payable_dao::{
-        PendingPayable, PendingPayableDaoError, TransactionHashes,
+        PendingPayableDaoError,
     };
-    use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp, TxIdentifiers};
+    use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp};
     use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayablesMessage, };
-    use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{create_new_tx_templates, OperationOutcome, PayableScanResult, PendingPayableMetadata};
+    use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{PayableScanResult};
     use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_none_status, handle_status_with_failure, PendingPayableScanReport, PendingPayableScanResult};
     use crate::accountant::scanners::{Scanner, StartScanError, StartableScanner,  PendingPayableScanner, ReceivableScanner, ScannerCommon, Scanners, MTError};
     use crate::accountant::test_utils::{make_custom_payment_thresholds, make_payable_account, make_qualified_and_unqualified_payables, make_pending_payable_fingerprint, make_receivable_account, BannedDaoFactoryMock, BannedDaoMock, ConfigDaoFactoryMock, PayableDaoFactoryMock, PayableDaoMock, PayableThresholdsGaugeMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock, PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock, ReceivableScannerBuilder, FailedPayableDaoMock, FailedPayableDaoFactoryMock, SentPayableDaoFactoryMock, SentPayableDaoMock};
     use crate::accountant::{gwei_to_wei, PayableScanType, PendingPayableId, ReceivedPayments, ReportTransactionReceipts, RequestTransactionReceipts, ResponseSkeleton, ScanError, ScanForRetryPayables, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC};
     use crate::blockchain::blockchain_bridge::{BlockMarker, PendingPayableFingerprint, RetrieveTransactions};
-    use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
     use crate::blockchain::blockchain_interface::data_structures::{BatchResults, BlockchainTransaction};
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::database::rusqlite_wrappers::TransactionSafeWrapper;

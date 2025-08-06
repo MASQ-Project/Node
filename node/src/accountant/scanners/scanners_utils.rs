@@ -211,10 +211,6 @@ pub mod payable_scanner_utils {
         }
         as_any_ref_in_trait_impl!();
     }
-
-    pub fn create_new_tx_templates(payables: Vec<PayableAccount>) -> Vec<NewTxTemplate> {
-        todo!("create_new_tx_templates")
-    }
 }
 
 pub mod pending_payable_scanner_utils {
