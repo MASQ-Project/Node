@@ -238,8 +238,7 @@ impl PayableScanner {
                         total = sent + failed,
                     );
                     Self::log_failed_txs(&batch_results.failed_txs, logger);
-                    self.insert_records_in_sent_payables(&batch_results.sent_txs);
-                    self.update_records_in_failed_payables(&batch_results.sent_txs);
+                    self.handle_sent_txs_after_retry(&batch_results.sent_txs);
                 }
             },
             Err(local_error) => debug!(
@@ -249,7 +248,12 @@ impl PayableScanner {
         }
     }
 
-    fn update_records_in_failed_payables(&self, sent_txs: &Vec<Tx>) {
+    fn handle_sent_txs_after_retry(&self, sent_txs: &Vec<Tx>) {
+        self.insert_records_in_sent_payables(sent_txs);
+        self.mark_prev_failed_payables_as_concluded(sent_txs);
+    }
+
+    fn mark_prev_failed_payables_as_concluded(&self, sent_txs: &Vec<Tx>) {
         if sent_txs.is_empty() {
             return; //TODO: GH-605: Test Me
         }
@@ -268,12 +272,7 @@ impl PayableScanner {
 
         let status_updates = retrieved_txs
             .iter()
-            .map(|tx| {
-                (
-                    tx.hash,
-                    FailureStatus::RecheckRequired(ValidationStatus::Waiting),
-                )
-            })
+            .map(|tx| (tx.hash, FailureStatus::Concluded))
             .collect();
         self.failed_payable_dao
             .update_statuses(status_updates)

@@ -182,11 +182,11 @@ mod tests {
         assert_eq!(updated_statuses.len(), 2);
         assert_eq!(
             updated_statuses.get(&make_tx_hash(10)).unwrap(),
-            &FailureStatus::RecheckRequired(ValidationStatus::Waiting)
+            &FailureStatus::Concluded
         );
         assert_eq!(
             updated_statuses.get(&make_tx_hash(20)).unwrap(),
-            &FailureStatus::RecheckRequired(ValidationStatus::Waiting)
+            &FailureStatus::Concluded
         );
         assert_eq!(
             result,
