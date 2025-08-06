@@ -2161,10 +2161,6 @@ mod tests {
     #[test]
     fn pending_payable_scan_response_is_sent_to_ui_gateway_when_both_participating_scanners_have_completed(
     ) {
-        let response_skeleton_opt = Some(ResponseSkeleton {
-            client_id: 4555,
-            context_id: 5566,
-        });
         // TODO when we have more logic in place with the other cards taken in, we'll need to configure these
         // accordingly
         let payable_dao = PayableDaoMock::default().transactions_confirmed_result(Ok(()));
@@ -2187,6 +2183,10 @@ mod tests {
             .build_and_provide_addresses();
         let subject_addr = subject.start();
         let system = System::new("test");
+        let response_skeleton_opt = Some(ResponseSkeleton {
+            client_id: 4555,
+            context_id: 5566,
+        });
         let first_counter_msg_setup = setup_for_counter_msg_triggered_via_type_id!(
             RequestTransactionReceipts,
             ReportTransactionReceipts {
