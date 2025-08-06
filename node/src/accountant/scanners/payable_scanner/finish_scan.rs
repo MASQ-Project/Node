@@ -105,7 +105,7 @@ mod tests {
                     target: MessageTarget::ClientId(response_skeleton.client_id),
                     body: UiScanResponse {}.tmb(response_skeleton.context_id),
                 }),
-                result: OperationOutcome::NewPendingPayable,
+                result: OperationOutcome::PendingPayableScan,
             }
         );
         TestLogHandler::new().exists_log_matching(&format!(
@@ -195,7 +195,7 @@ mod tests {
                     target: MessageTarget::ClientId(response_skeleton.client_id),
                     body: UiScanResponse {}.tmb(response_skeleton.context_id),
                 }),
-                result: OperationOutcome::RetryPendingPayable,
+                result: OperationOutcome::PendingPayableScan,
             }
         );
         let tlh = TestLogHandler::new();
@@ -239,7 +239,7 @@ mod tests {
                     target: MessageTarget::ClientId(response_skeleton.client_id),
                     body: UiScanResponse {}.tmb(response_skeleton.context_id),
                 }),
-                result: OperationOutcome::Failure,
+                result: OperationOutcome::NewPayableScan,
             }
         );
         let tlh = TestLogHandler::new();

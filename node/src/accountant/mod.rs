@@ -361,18 +361,15 @@ impl Handler<SentPayables> for Accountant {
 
         match scan_result.ui_response_opt {
             None => match scan_result.result {
-                OperationOutcome::NewPendingPayable => self
+                OperationOutcome::PendingPayableScan => self
                     .scan_schedulers
                     .pending_payable
                     .schedule(ctx, &self.logger),
-                OperationOutcome::RetryPendingPayable => self
-                    .scan_schedulers
-                    .pending_payable
-                    .schedule(ctx, &self.logger),
-                OperationOutcome::Failure => self
+                OperationOutcome::NewPayableScan => self
                     .scan_schedulers
                     .payable
                     .schedule_new_payable_scan(ctx, &self.logger), // I think we should be scheduling retry scan here
+                OperationOutcome::RetryPayableScan => todo!(), // TODO: Outcome
             },
             Some(node_to_ui_msg) => {
                 self.ui_message_sub_opt
@@ -2781,7 +2778,7 @@ mod tests {
             // Important
             .finish_scan_result(PayableScanResult {
                 ui_response_opt: None,
-                result: OperationOutcome::NewPendingPayable,
+                result: OperationOutcome::PendingPayableScan,
             });
         let pending_payable_scanner = ScannerMock::new()
             .scan_started_at_result(None)
@@ -3705,7 +3702,7 @@ mod tests {
             .start_scan_result(Ok(qualified_payables_msg.clone()))
             .finish_scan_result(PayableScanResult {
                 ui_response_opt: None,
-                result: OperationOutcome::NewPendingPayable,
+                result: OperationOutcome::PendingPayableScan, // TODO: Outcome
             });
         let mut config = bc_from_earning_wallet(make_wallet("hi"));
         config.scan_intervals_opt = Some(ScanIntervals {
@@ -4999,7 +4996,7 @@ mod tests {
                     .finish_scan_params(&finish_scan_params_arc)
                     .finish_scan_result(PayableScanResult {
                         ui_response_opt: None,
-                        result: OperationOutcome::Failure,
+                        result: OperationOutcome::NewPayableScan,
                     }),
             )));
         // Important. Otherwise, the scan would've been handled through a different endpoint and

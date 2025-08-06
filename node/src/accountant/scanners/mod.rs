@@ -258,11 +258,8 @@ impl Scanners {
     pub fn finish_payable_scan(&mut self, msg: SentPayables, logger: &Logger) -> PayableScanResult {
         let scan_result = self.payable.finish_scan(msg, logger);
         match scan_result.result {
-            OperationOutcome::NewPendingPayable => self.aware_of_unresolved_pending_payable = true,
-            OperationOutcome::RetryPendingPayable => {
-                self.aware_of_unresolved_pending_payable = true
-            }
-            OperationOutcome::Failure => (),
+            OperationOutcome::PendingPayableScan => self.aware_of_unresolved_pending_payable = true,
+            _ => (),
         };
         scan_result
     }

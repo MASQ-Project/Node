@@ -32,10 +32,13 @@ pub mod payable_scanner_utils {
 
     #[derive(Debug, PartialEq, Eq)]
     pub enum OperationOutcome {
+        PendingPayableScan,
+        NewPayableScan,
+        RetryPayableScan,
         // TODO: GH-667: There should be NewPayableFailure and RetryPayableFailure instead of Failure
-        NewPendingPayable,
-        RetryPendingPayable,
-        Failure,
+        // NewPendingPayable,
+        // RetryPendingPayable,
+        // Failure,
     }
 
     //debugging purposes only
