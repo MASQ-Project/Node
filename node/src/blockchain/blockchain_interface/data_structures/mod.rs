@@ -92,7 +92,7 @@ pub enum BlockchainTxFailure {
 impl Display for BlockchainTxFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BlockchainTxFailure::Unrecognized => write!(f, "Failure unrecognized"),
+            BlockchainTxFailure::Unrecognized => write!(f, "Unrecognized failure"),
         }
     }
 }
@@ -152,7 +152,7 @@ mod tests {
         // Test Failed
         assert_eq!(
             StatusReadFromReceiptCheck::Failed(BlockchainTxFailure::Unrecognized).to_string(),
-            "Failed(Reason: Failure unrecognized)"
+            "Failed(Reason: Unrecognized failure)"
         );
 
         // Test Pending
@@ -174,7 +174,7 @@ mod tests {
     #[test]
     fn display_for_blockchain_tx_failure_works() {
         let input_and_expected_results =
-            vec![(BlockchainTxFailure::Unrecognized, "Failure unrecognized")];
+            vec![(BlockchainTxFailure::Unrecognized, "Unrecognized failure")];
         let inputs_len = input_and_expected_results.len();
 
         let mut check_nums = input_and_expected_results

@@ -4,7 +4,7 @@ use crate::accountant::db_access_objects::failed_payable_dao::{
     FailedTx, FailureReason, FailureStatus,
 };
 use crate::accountant::db_access_objects::sent_payable_dao::{
-    RetrieveCondition, SentPayableDao, SentTx, TxStatus,
+    Detection, RetrieveCondition, SentPayableDao, SentTx, TxStatus,
 };
 use crate::accountant::db_access_objects::utils::{from_unix_timestamp, TxHash};
 use crate::blockchain::blockchain_interface::data_structures::{
@@ -40,12 +40,12 @@ impl ReceiptScanReport {
         }
     }
 
-    fn register_success(&mut self, sent_tx: SentTx) {
-        // self.confirmations.push(sent_tx);
+    fn register_confirmed_tx(&mut self, confirmation: NormalTxConfirmation) {
+        self.confirmations.normal_confirmations.push(confirmation);
     }
 
-    fn register_failure_reclaim(&mut self, original_sent_tx: SentTx) {
-        todo!()
+    fn register_failure_reclaim(&mut self, reclaim: TxReclaim) {
+        self.confirmations.reclaims.push(reclaim)
     }
 
     fn register_new_failure(&mut self, failed_tx: PresortedTxFailure) {
@@ -264,16 +264,6 @@ pub enum TxHashByTable {
     FailedPayable(TxHash),
 }
 
-impl TxHashByTable {
-    fn hash(&self) -> TxHash {
-        todo!()
-        // match self {
-        //     TxHashByTable::SentPayable(hash) => *hash,
-        //     TxHashByTable::FailedPayable(hash) => *hash,
-        // }
-    }
-}
-
 pub fn elapsed_in_ms(timestamp: SystemTime) -> u128 {
     timestamp
         .elapsed()
@@ -303,14 +293,14 @@ pub fn handle_still_pending_tx(
                 .retrieve_txs(Some(RetrieveCondition::ByNonce(vec![failed_tx.nonce])));
             error!(
                 logger,
-                "Failed tx on a recheck was found pending by its receipt. \
-            Unexpected behavior. Tx {:?} was supposed to be replaced by the newer {:?}",
+                "Failed tx on a recheck was found pending by its receipt. Unexpected behavior. \
+                Tx {:?} was supposed to be replaced by the newer {:?}",
                 failed_tx.hash,
                 replacement_tx
                     .get(0)
                     .unwrap_or_else(|| panic!(
-                        "Attempted to display a replacement tx for {:?} but couldn't find one \
-                in the database",
+                        "Attempted to display a replacement tx for {:?} but couldn't find \
+                        one in the database",
                         failed_tx.hash
                     ))
                     .hash
@@ -320,7 +310,7 @@ pub fn handle_still_pending_tx(
     scan_report
 }
 
-pub fn handle_successful_tx(
+pub fn handle_tx_confirmation(
     mut scan_report: ReceiptScanReport,
     tx: TxByTable,
     tx_block: TransactionBlock,
@@ -330,27 +320,38 @@ pub fn handle_successful_tx(
         TxByTable::SentPayable(sent_tx) => {
             info!(
                 logger,
-                "Detected tx {:?} added to block {}.", sent_tx.hash, tx_block.block_number,
+                "Pending tx {:?} was confirmed on the blockchain", sent_tx.hash,
             );
 
             let completed_sent_tx = SentTx {
                 status: TxStatus::Confirmed {
                     block_hash: format!("{:?}", tx_block.block_hash),
                     block_number: tx_block.block_number.as_u64(),
-                    detection: todo!("this must be 'Normal'"),
+                    detection: Detection::Normal,
                 },
                 ..sent_tx
             };
-            scan_report.register_success(completed_sent_tx);
+            let tx_confirmation = NormalTxConfirmation {
+                tx: completed_sent_tx,
+            };
+            scan_report.register_confirmed_tx(tx_confirmation);
         }
         TxByTable::FailedPayable(failed_tx) => {
-            todo!()
+            info!(
+                logger,
+                "Failed tx {:?} was later confirmed on the blockchain and will be reclaimed",
+                failed_tx.hash
+            );
+
+            let sent_tx = SentTx::from((failed_tx, tx_block));
+            let reclaim = TxReclaim { reclaimed: sent_tx };
+            scan_report.register_failure_reclaim(reclaim);
         }
     }
     scan_report
 }
 
-//TODO: failures handling is going to need enhancement suggested by GH-693
+//TODO: failures handling might need enhancement suggested by GH-693
 pub fn handle_status_with_failure(
     mut scan_report: ReceiptScanReport,
     tx: TxByTable,
@@ -364,7 +365,7 @@ pub fn handle_status_with_failure(
 
             warning!(
                 logger,
-                "Tx {:?} failed on blockchain due to: {}",
+                "Pending tx {:?} failed on the blockchain due to: {}",
                 failed_tx.hash,
                 blockchain_failure
             );
@@ -372,7 +373,16 @@ pub fn handle_status_with_failure(
             scan_report.register_new_failure(PresortedTxFailure::NewEntry(failed_tx));
         }
         TxByTable::FailedPayable(failed_tx) => {
-            todo!()
+            debug!(
+                logger,
+                "Failed tx {:?} on a recheck after {}. Status will be changed to \
+            \"Concluded\" due to blockchain failure: {}",
+                failed_tx.hash,
+                failed_tx.reason,
+                blockchain_failure
+            );
+
+            scan_report.register_new_failure(PresortedTxFailure::RecheckCompleted(failed_tx.hash));
         }
     }
     scan_report
