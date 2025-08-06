@@ -40,15 +40,3 @@ pub struct PreparedAdjustment {
     pub original_setup_msg: BlockchainAgentWithContextMessage,
     pub adjustment: Adjustment,
 }
-
-impl PreparedAdjustment {
-    pub fn new(
-        original_setup_msg: BlockchainAgentWithContextMessage,
-        adjustment: Adjustment,
-    ) -> Self {
-        Self {
-            original_setup_msg,
-            adjustment,
-        }
-    }
-}

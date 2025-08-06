@@ -67,7 +67,10 @@ impl SolvencySensitivePaymentInstructor for PayableScanner {
                 msg.agent,
                 msg.response_skeleton_opt,
             ))),
-            Ok(Some(adjustment)) => Ok(Either::Right(PreparedAdjustment::new(msg, adjustment))),
+            Ok(Some(adjustment)) => Ok(Either::Right(PreparedAdjustment {
+                original_setup_msg: msg,
+                adjustment,
+            })),
             Err(_e) => todo!("be implemented with GH-711"),
         }
     }
