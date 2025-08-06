@@ -238,7 +238,7 @@ impl PayableScanner {
                         total = sent + failed,
                     );
                     Self::log_failed_txs(&batch_results.failed_txs, logger);
-                    self.handle_sent_txs_after_retry(&batch_results.sent_txs);
+                    self.handle_successful_retries(&batch_results.sent_txs); // Here it only means Sent to RPC
                 }
             },
             Err(local_error) => debug!(
@@ -248,12 +248,12 @@ impl PayableScanner {
         }
     }
 
-    fn handle_sent_txs_after_retry(&self, sent_txs: &Vec<Tx>) {
+    fn handle_successful_retries(&self, sent_txs: &Vec<Tx>) {
         self.insert_records_in_sent_payables(sent_txs);
-        self.mark_prev_failed_payables_as_concluded(sent_txs);
+        self.mark_prev_txs_as_concluded(sent_txs);
     }
 
-    fn mark_prev_failed_payables_as_concluded(&self, sent_txs: &Vec<Tx>) {
+    fn mark_prev_txs_as_concluded(&self, sent_txs: &Vec<Tx>) {
         if sent_txs.is_empty() {
             return; //TODO: GH-605: Test Me
         }
