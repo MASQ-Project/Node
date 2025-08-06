@@ -3,10 +3,8 @@
 use crate::accountant::db_access_objects::failed_payable_dao::{
     FailedTx, FailureReason, FailureStatus, ValidationStatus,
 };
-use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
 use crate::accountant::db_access_objects::sent_payable_dao::{Tx, TxStatus};
-use crate::accountant::db_access_objects::utils::{to_unix_timestamp, TxHash};
+use crate::accountant::db_access_objects::utils::to_unix_timestamp;
 use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::PricedNewTxTemplates;
 use crate::accountant::scanners::payable_scanner::data_structures::signable_tx_template::{
     SignableTxTemplate, SignableTxTemplates,
@@ -45,11 +43,6 @@ pub struct BlockchainAgentFutureResult {
     pub transaction_fee_balance: U256,
     pub masq_token_balance: U256,
 }
-pub fn advance_used_nonce(current_nonce: U256) -> U256 {
-    current_nonce
-        .checked_add(U256::one())
-        .expect("unexpected limits")
-}
 
 fn return_sending_error(sent_txs: &Vec<Tx>, error: &Web3Error) -> LocalPayableError {
     LocalPayableError::Sending(
@@ -59,37 +52,6 @@ fn return_sending_error(sent_txs: &Vec<Tx>, error: &Web3Error) -> LocalPayableEr
             .collect(),
     )
 }
-
-// pub fn merged_output_data(
-//     responses: Vec<web3::transports::Result<Value>>,
-//     hashes_and_paid_amounts: Vec<HashAndAmount>,
-//     signable_tx_templates: SignableTxTemplates,
-// ) -> Vec<IndividualBatchResult> {
-//     // TODO: GH-605: We can directly return Tx and FailedTx
-//     // We should return a struct that holds two vectors for sent and failed transactions
-//     let iterator_with_all_data = responses
-//         .into_iter()
-//         .zip(hashes_and_paid_amounts.into_iter())
-//         .zip(signable_tx_templates.iter());
-//     iterator_with_all_data
-//         .map(
-//             |((rpc_result, hash_and_amount), signable_tx_template)| match rpc_result {
-//                 Ok(_rpc_result) => {
-//                     // TODO: GH-547: This rpc_result should be validated
-//                     IndividualBatchResult::Pending(PendingPayable {
-//                         recipient_wallet: Wallet::from(signable_tx_template.receiver_address),
-//                         hash: hash_and_amount.hash,
-//                     })
-//                 }
-//                 Err(rpc_error) => IndividualBatchResult::Failed(RpcPayableFailure {
-//                     rpc_error,
-//                     recipient_wallet: Wallet::from(signable_tx_template.receiver_address),
-//                     hash: hash_and_amount.hash,
-//                 }),
-//             },
-//         )
-//         .collect()
-// }
 
 pub fn return_batch_results(
     txs: Vec<Tx>,
@@ -247,7 +209,7 @@ pub fn sign_and_append_payment(
     let hash = signed_tx.transaction_hash;
     debug!(
         logger,
-        "Sending transaction with hash {:?}, amount: {} wei, to {:?}, nonce: {}, gas price: {} gwei",
+        "Appending transaction with hash {:?}, amount: {} wei, to {:?}, nonce: {}, gas price: {} gwei",
         hash,
         amount_in_wei.separate_with_commas(),
         receiver_address,
@@ -468,7 +430,7 @@ mod tests {
             )
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "DEBUG: {test_name}: Sending transaction with hash \
+            "DEBUG: {test_name}: Appending transaction with hash \
             0x94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2, \
             amount: 1,000,000,000 wei, \
             to 0x0000000000000000000000000077616c6c657431, \
@@ -983,15 +945,6 @@ mod tests {
             Ok(batch_results),
             port,
         );
-    }
-
-    #[test]
-    fn advance_used_nonce_works() {
-        let initial_nonce = U256::from(55);
-
-        let result = advance_used_nonce(initial_nonce);
-
-        assert_eq!(result, U256::from(56))
     }
 
     #[test]
