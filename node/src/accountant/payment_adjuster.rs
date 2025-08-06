@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::scanners::payable_scanner::payable_scanner_extension::msgs::BlockchainAgentWithContextMessage;
-use crate::accountant::scanners::payable_scanner::payable_scanner_extension::PreparedAdjustment;
+use crate::accountant::scanners::payable_scanner::PreparedAdjustment;
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use masq_lib::logger::Logger;
 use std::time::SystemTime;

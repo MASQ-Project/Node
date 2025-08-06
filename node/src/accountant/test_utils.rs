@@ -49,7 +49,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use crate::accountant::scanners::payable_scanner::payable_scanner_extension::msgs::{BlockchainAgentWithContextMessage};
-use crate::accountant::scanners::payable_scanner::payable_scanner_extension::PreparedAdjustment;
+use crate::accountant::scanners::payable_scanner::PreparedAdjustment;
 use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
 use crate::accountant::scanners::receivable_scanner::ReceivableScanner;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionBlock;

@@ -12,21 +12,21 @@ use crate::accountant::db_access_objects::failed_payable_dao::{
 use crate::accountant::db_access_objects::payable_dao::PayableRetrieveCondition::ByAddresses;
 use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDao};
 use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDao, Tx};
-use crate::accountant::payment_adjuster::PaymentAdjuster;
+use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjuster};
 use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_template::{
     RetryTxTemplate, RetryTxTemplates,
 };
-use crate::accountant::scanners::payable_scanner::payable_scanner_extension::msgs::BlockchainAgentWithContextMessage;
-use crate::accountant::scanners::payable_scanner::payable_scanner_extension::{
-    MultistageDualPayableScanner, PreparedAdjustment, SolvencySensitivePaymentInstructor,
+use crate::accountant::scanners::payable_scanner::payable_scanner_extension::msgs::{
+    BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
 };
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{
-    payables_debug_summary, OperationOutcome, PayableThresholdsGauge, PayableThresholdsGaugeReal,
+    payables_debug_summary, OperationOutcome, PayableScanResult, PayableThresholdsGauge,
+    PayableThresholdsGaugeReal,
 };
-use crate::accountant::scanners::ScannerCommon;
+use crate::accountant::scanners::{Scanner, ScannerCommon, StartableScanner};
 use crate::accountant::{
     comma_joined_stringifiable, gwei_to_wei, join_with_separator, PayableScanType,
-    ResponseSkeleton, SentPayables,
+    ResponseSkeleton, ScanForNewPayables, ScanForRetryPayables, SentPayables,
 };
 use crate::blockchain::blockchain_interface::data_structures::BatchResults;
 use crate::sub_lib::accountant::PaymentThresholds;
@@ -50,7 +50,34 @@ pub struct PayableScanner {
     pub payment_adjuster: Box<dyn PaymentAdjuster>,
 }
 
+pub struct PreparedAdjustment {
+    pub original_setup_msg: BlockchainAgentWithContextMessage,
+    pub adjustment: Adjustment,
+}
+
+pub(in crate::accountant::scanners) trait MultistageDualPayableScanner:
+    StartableScanner<ScanForNewPayables, QualifiedPayablesMessage>
+    + StartableScanner<ScanForRetryPayables, QualifiedPayablesMessage>
+    + SolvencySensitivePaymentInstructor
+    + Scanner<SentPayables, PayableScanResult>
+{
+}
+
 impl MultistageDualPayableScanner for PayableScanner {}
+
+pub(in crate::accountant::scanners) trait SolvencySensitivePaymentInstructor {
+    fn try_skipping_payment_adjustment(
+        &self,
+        msg: BlockchainAgentWithContextMessage,
+        logger: &Logger,
+    ) -> Result<Either<OutboundPaymentsInstructions, PreparedAdjustment>, String>;
+
+    fn perform_payment_adjustment(
+        &self,
+        setup: PreparedAdjustment,
+        logger: &Logger,
+    ) -> OutboundPaymentsInstructions;
+}
 
 impl SolvencySensitivePaymentInstructor for PayableScanner {
     fn try_skipping_payment_adjustment(

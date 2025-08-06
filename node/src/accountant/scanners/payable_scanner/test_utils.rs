@@ -3,8 +3,7 @@ use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
 use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_template::RetryTxTemplate;
 use crate::accountant::scanners::payable_scanner::data_structures::BaseTxTemplate;
 use crate::accountant::scanners::payable_scanner::payable_scanner_extension::msgs::BlockchainAgentWithContextMessage;
-use crate::accountant::scanners::payable_scanner::payable_scanner_extension::PreparedAdjustment;
-use crate::accountant::scanners::payable_scanner::PayableScanner;
+use crate::accountant::scanners::payable_scanner::{PayableScanner, PreparedAdjustment};
 use crate::accountant::test_utils::{
     FailedPayableDaoMock, PayableDaoMock, PaymentAdjusterMock, SentPayableDaoMock,
 };

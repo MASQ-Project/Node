@@ -49,8 +49,7 @@ use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::B
 use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDao, Tx};
 use crate::accountant::db_access_objects::utils::{RowId, TxHash, TxIdentifiers};
 use crate::accountant::scanners::payable_scanner::payable_scanner_extension::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage};
-use crate::accountant::scanners::payable_scanner::payable_scanner_extension::{MultistageDualPayableScanner, PreparedAdjustment};
-use crate::accountant::scanners::payable_scanner::PayableScanner;
+use crate::accountant::scanners::payable_scanner::{MultistageDualPayableScanner, PayableScanner, PreparedAdjustment};
 use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
 use crate::accountant::scanners::pending_payable_scanner::utils::PendingPayableScanResult;
 use crate::accountant::scanners::receivable_scanner::ReceivableScanner;
