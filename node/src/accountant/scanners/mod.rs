@@ -258,8 +258,10 @@ impl Scanners {
     pub fn finish_payable_scan(&mut self, msg: SentPayables, logger: &Logger) -> PayableScanResult {
         let scan_result = self.payable.finish_scan(msg, logger);
         match scan_result.result {
-            OperationOutcome::NewPendingPayable => self.aware_of_unresolved_pending_payable = true, // GH-605: Test this
-            OperationOutcome::RetryPendingPayable => todo!(),
+            OperationOutcome::NewPendingPayable => self.aware_of_unresolved_pending_payable = true,
+            OperationOutcome::RetryPendingPayable => {
+                self.aware_of_unresolved_pending_payable = true
+            }
             OperationOutcome::Failure => (),
         };
         scan_result
@@ -1466,7 +1468,7 @@ mod tests {
             expected_needle_2,
             panic_msg
         );
-        // TODO: GH-605: Check why aren't these timestamps are inaccurate
+        // TODO: GH-605: Check why are these timestamps inaccurate
         // check_timestamps_in_panic_for_already_running_retry_payable_scanner(
         //     &panic_msg, before, after,
         // )
@@ -1554,6 +1556,44 @@ mod tests {
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!(
             "DEBUG: {test_name}: Processed payables while sending to RPC: \
+            Total: 1, Sent to RPC: 1, Failed to send: 0. \
+            Updating database..."
+        ));
+    }
+
+    #[test]
+    fn finish_payable_scan_changes_the_aware_of_unresolved_pending_payable_flag_as_true_when_pending_txs_found_in_retry_mode(
+    ) {
+        init_test_logging();
+        let test_name = "finish_payable_scan_changes_the_aware_of_unresolved_pending_payable_flag_as_true_when_pending_txs_found_in_retry_mode";
+        let sent_payable_dao = SentPayableDaoMock::default().insert_new_records_result(Ok(()));
+        let failed_payable_dao = FailedPayableDaoMock::default().retrieve_txs_result(vec![]);
+        let payable_scanner = PayableScannerBuilder::new()
+            .sent_payable_dao(sent_payable_dao)
+            .failed_payable_dao(failed_payable_dao)
+            .build();
+        let logger = Logger::new(test_name);
+        let mut subject = make_dull_subject();
+        subject.payable = Box::new(payable_scanner);
+        let sent_payables = SentPayables {
+            payment_procedure_result: Ok(BatchResults {
+                sent_txs: vec![make_sent_tx(1)],
+                failed_txs: vec![],
+            }),
+            payable_scan_type: PayableScanType::Retry,
+            response_skeleton_opt: None,
+        };
+        let aware_of_unresolved_pending_payable_before =
+            subject.aware_of_unresolved_pending_payable;
+
+        subject.finish_payable_scan(sent_payables, &logger);
+
+        let aware_of_unresolved_pending_payable_after = subject.aware_of_unresolved_pending_payable;
+        assert_eq!(aware_of_unresolved_pending_payable_before, false);
+        assert_eq!(aware_of_unresolved_pending_payable_after, true);
+        let log_handler = TestLogHandler::new();
+        log_handler.exists_log_containing(&format!(
+            "DEBUG: {test_name}: Processed retried txs while sending to RPC: \
             Total: 1, Sent to RPC: 1, Failed to send: 0. \
             Updating database..."
         ));

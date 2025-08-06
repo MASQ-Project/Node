@@ -256,9 +256,6 @@ const PENDING_PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER: [DestinationMarker; 
     DestinationMarker::PendingPayableScanner,
 ];
 
-const SENT_PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER: [DestinationMarker; 1] =
-    [DestinationMarker::PayableScanner];
-
 const RECEIVABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER: [DestinationMarker; 2] = [
     DestinationMarker::AccountantBody,
     DestinationMarker::ReceivableScanner,

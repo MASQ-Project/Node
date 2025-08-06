@@ -198,6 +198,15 @@ impl PayableScanner {
                 }
                 PayableScanType::Retry => {
                     // We can do better here, possibly by creating a relationship between failed and sent txs
+                    let sent = batch_results.sent_txs.len();
+                    let failed = batch_results.failed_txs.len();
+                    debug!(
+                        logger,
+                        "Processed retried txs while sending to RPC: \
+                         Total: {total}, Sent to RPC: {sent}, Failed to send: {failed}. \
+                         Updating database...",
+                        total = sent + failed,
+                    );
                     Self::log_failed_txs(&batch_results.failed_txs, logger);
                     self.insert_records_in_sent_payables(&batch_results.sent_txs);
                     self.update_records_in_failed_payables(&batch_results.sent_txs);
@@ -211,6 +220,10 @@ impl PayableScanner {
     }
 
     fn update_records_in_failed_payables(&self, sent_txs: &Vec<Tx>) {
+        if sent_txs.is_empty() {
+            return; //TODO: GH-605: Test Me
+        }
+
         let receiver_addresses = sent_txs
             .iter()
             .map(|sent_tx| sent_tx.receiver_address)
@@ -218,6 +231,11 @@ impl PayableScanner {
         let retrieved_txs = self.failed_payable_dao.retrieve_txs(Some(
             FailureRetrieveCondition::ByReceiverAddresses(receiver_addresses),
         ));
+
+        if retrieved_txs.is_empty() {
+            return;
+        }
+
         let status_updates = retrieved_txs
             .iter()
             .map(|tx| {
