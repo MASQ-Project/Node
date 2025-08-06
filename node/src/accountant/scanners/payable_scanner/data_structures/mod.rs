@@ -17,6 +17,7 @@ pub mod retry_tx_template;
 pub mod signable_tx_template;
 pub mod test_utils;
 
+// TODO: GH-605: Rename this to TxTemplates Message
 #[derive(Debug, Message, PartialEq, Eq, Clone)]
 pub struct QualifiedPayablesMessage {
     pub tx_templates: Either<NewTxTemplates, RetryTxTemplates>,

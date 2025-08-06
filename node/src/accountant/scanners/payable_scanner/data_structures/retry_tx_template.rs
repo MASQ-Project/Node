@@ -7,7 +7,6 @@ pub struct RetryTxTemplate {
     pub base: BaseTxTemplate,
     pub prev_gas_price_wei: u128,
     pub prev_nonce: u64,
-    pub computed_gas_price_wei: Option<u128>,
 }
 
 impl From<&FailedTx> for RetryTxTemplate {
@@ -19,7 +18,6 @@ impl From<&FailedTx> for RetryTxTemplate {
             },
             prev_gas_price_wei: failed_tx.gas_price_wei,
             prev_nonce: failed_tx.nonce,
-            computed_gas_price_wei: None,
         }
     }
 }
@@ -53,18 +51,6 @@ impl IntoIterator for RetryTxTemplates {
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
-    }
-}
-
-impl RetryTxTemplates {
-    pub fn total_gas_price(&self) -> u128 {
-        self.iter()
-            .map(|retry_tx_template| {
-                retry_tx_template
-                    .computed_gas_price_wei
-                    .expect("gas price should be computed")
-            })
-            .sum()
     }
 }
 
@@ -114,7 +100,6 @@ mod tests {
             },
             prev_gas_price_wei: 20_000_000_000,
             prev_nonce: 5,
-            computed_gas_price_wei: Some(22_000_000_000),
         };
         let template2 = RetryTxTemplate {
             base: BaseTxTemplate {
@@ -123,7 +108,6 @@ mod tests {
             },
             prev_gas_price_wei: 25_000_000_000,
             prev_nonce: 6,
-            computed_gas_price_wei: Some(27_500_000_000),
         };
         let templates_vec = vec![template1.clone(), template2.clone()];
 
@@ -132,7 +116,6 @@ mod tests {
         assert_eq!(templates.len(), 2);
         assert_eq!(templates[0], template1);
         assert_eq!(templates[1], template2);
-        assert_eq!(templates.total_gas_price(), 49_500_000_000);
     }
 
     #[test]
@@ -144,7 +127,6 @@ mod tests {
             },
             prev_gas_price_wei: 20_000_000_000,
             prev_nonce: 5,
-            computed_gas_price_wei: None,
         };
         let template2 = RetryTxTemplate {
             base: BaseTxTemplate {
@@ -153,7 +135,6 @@ mod tests {
             },
             prev_gas_price_wei: 25_000_000_000,
             prev_nonce: 6,
-            computed_gas_price_wei: None,
         };
 
         let templates = RetryTxTemplates(vec![template1.clone(), template2.clone()]);
@@ -181,7 +162,6 @@ mod tests {
             },
             prev_gas_price_wei: 20_000_000_000,
             prev_nonce: 5,
-            computed_gas_price_wei: Some(22_000_000_000),
         };
         let template2 = RetryTxTemplate {
             base: BaseTxTemplate {
@@ -190,7 +170,6 @@ mod tests {
             },
             prev_gas_price_wei: 25_000_000_000,
             prev_nonce: 6,
-            computed_gas_price_wei: Some(27_500_000_000),
         };
         let templates = RetryTxTemplates(vec![template1.clone(), template2.clone()]);
 

@@ -86,7 +86,6 @@ pub struct RetryTxTemplateBuilder {
     amount_in_wei: Option<u128>,
     prev_gas_price_wei: Option<u128>,
     prev_nonce: Option<u64>,
-    computed_gas_price_wei_opt: Option<u128>,
 }
 
 impl Default for RetryTxTemplateBuilder {
@@ -102,7 +101,6 @@ impl RetryTxTemplateBuilder {
             amount_in_wei: None,
             prev_gas_price_wei: None,
             prev_nonce: None,
-            computed_gas_price_wei_opt: None,
         }
     }
 
@@ -126,11 +124,6 @@ impl RetryTxTemplateBuilder {
         self
     }
 
-    pub fn computed_gas_price_wei(mut self, gas_price: u128) -> Self {
-        self.computed_gas_price_wei_opt = Some(gas_price);
-        self
-    }
-
     pub fn payable_account(mut self, payable_account: &PayableAccount) -> Self {
         self.receiver_address = Some(payable_account.wallet.address());
         self.amount_in_wei = Some(payable_account.balance_wei);
@@ -145,7 +138,6 @@ impl RetryTxTemplateBuilder {
             },
             prev_gas_price_wei: self.prev_gas_price_wei.unwrap_or(0),
             prev_nonce: self.prev_nonce.unwrap_or(0),
-            computed_gas_price_wei: self.computed_gas_price_wei_opt,
         }
     }
 }
@@ -190,7 +182,6 @@ pub fn make_retry_tx_template_with_prev_gas_price(
         base,
         prev_gas_price_wei: gas_price_wei,
         prev_nonce: 0,
-        computed_gas_price_wei: None,
     }
 }
 

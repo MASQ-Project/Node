@@ -336,7 +336,6 @@ mod tests {
             base,
             prev_gas_price_wei: gas_price_wei,
             prev_nonce: 0,
-            computed_gas_price_wei: None,
         }
     }
 
