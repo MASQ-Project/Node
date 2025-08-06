@@ -367,12 +367,14 @@ impl Handler<SentPayables> for Accountant {
                     .scan_schedulers
                     .pending_payable
                     .schedule(ctx, &self.logger),
-                // TODO: GH-605: These txs were never sent to the blockchain, so we should retry them
+                OperationOutcome::RetryPendingPayable => self
+                    .scan_schedulers
+                    .pending_payable
+                    .schedule(ctx, &self.logger),
                 OperationOutcome::Failure => self
                     .scan_schedulers
                     .payable
-                    .schedule_new_payable_scan(ctx, &self.logger),
-                OperationOutcome::RetryPendingPayable => todo!(),
+                    .schedule_new_payable_scan(ctx, &self.logger), // I think we should be scheduling retry scan here
             },
             Some(node_to_ui_msg) => {
                 self.ui_message_sub_opt
@@ -4893,6 +4895,65 @@ mod tests {
                 failed_txs: vec![],
             }),
             payable_scan_type: PayableScanType::New,
+            response_skeleton_opt: None,
+        };
+        let addr = subject.start();
+
+        addr.try_send(sent_payable).expect("unexpected actix error");
+
+        System::current().stop();
+        system.run();
+        let inserted_new_records_params = inserted_new_records_params_arc.lock().unwrap();
+        assert_eq!(*inserted_new_records_params[0], vec![expected_tx]);
+        let pending_payable_notify_later_params =
+            pending_payable_notify_later_params_arc.lock().unwrap();
+        assert_eq!(
+            *pending_payable_notify_later_params,
+            vec![(ScanForPendingPayables::default(), pending_payable_interval)]
+        );
+        // The accountant is unbound here. We don't use the bind message. It means we can prove
+        // none of those other scan requests could have been sent (especially ScanForNewPayables,
+        // ScanForRetryPayables)
+    }
+
+    #[test]
+    fn accountant_processes_sent_payables_with_retry_and_schedules_pending_payable_scanner() {
+        let mark_pending_payables_rowids_params_arc = Arc::new(Mutex::new(vec![]));
+        let pending_payable_notify_later_params_arc = Arc::new(Mutex::new(vec![]));
+        let inserted_new_records_params_arc = Arc::new(Mutex::new(vec![]));
+        let expected_wallet = make_wallet("paying_you");
+        let expected_hash = H256::from("transaction_hash".keccak256());
+        let expected_rowid = 45623;
+        let payable_dao = PayableDaoMock::new()
+            .mark_pending_payables_rowids_params(&mark_pending_payables_rowids_params_arc)
+            .mark_pending_payables_rowids_result(Ok(()));
+        let sent_payable_dao = SentPayableDaoMock::new()
+            .insert_new_records_params(&inserted_new_records_params_arc)
+            .insert_new_records_result(Ok(()));
+        let failed_payble_dao = FailedPayableDaoMock::new().retrieve_txs_result(vec![]);
+        let system = System::new(
+            "accountant_processes_sent_payables_with_retry_and_schedules_pending_payable_scanner",
+        );
+        let mut subject = AccountantBuilder::default()
+            .bootstrapper_config(bc_from_earning_wallet(make_wallet("some_wallet_address")))
+            .payable_daos(vec![ForPayableScanner(payable_dao)])
+            .failed_payable_dao(failed_payble_dao)
+            .sent_payable_dao(sent_payable_dao)
+            .build();
+        let pending_payable_interval = Duration::from_millis(55);
+        subject.scan_schedulers.pending_payable.interval = pending_payable_interval;
+        subject.scan_schedulers.pending_payable.handle = Box::new(
+            NotifyLaterHandleMock::default()
+                .notify_later_params(&pending_payable_notify_later_params_arc),
+        );
+        let expected_payable = PendingPayable::new(expected_wallet.clone(), expected_hash.clone());
+        let expected_tx = TxBuilder::default().hash(expected_hash.clone()).build();
+        let sent_payable = SentPayables {
+            payment_procedure_result: Ok(BatchResults {
+                sent_txs: vec![expected_tx.clone()],
+                failed_txs: vec![],
+            }),
+            payable_scan_type: PayableScanType::Retry,
             response_skeleton_opt: None,
         };
         let addr = subject.start();

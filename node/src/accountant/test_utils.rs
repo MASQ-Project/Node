@@ -326,7 +326,23 @@ impl AccountantBuilder {
                     Some(SentPayableDaoFactoryMock::new().make_result(sent_payable_dao))
             }
             Some(sent_payable_dao_factory) => {
-                self.sent_payable_dao_factory_opt = Some(sent_payable_dao_factory)
+                self.sent_payable_dao_factory_opt =
+                    Some(sent_payable_dao_factory.make_result(sent_payable_dao))
+            }
+        }
+
+        self
+    }
+
+    pub fn failed_payable_dao(mut self, failed_payable_dao: FailedPayableDaoMock) -> Self {
+        match self.failed_payable_dao_factory_opt {
+            None => {
+                self.failed_payable_dao_factory_opt =
+                    Some(FailedPayableDaoFactoryMock::new().make_result(failed_payable_dao))
+            }
+            Some(failed_payable_dao_factory) => {
+                self.failed_payable_dao_factory_opt =
+                    Some(failed_payable_dao_factory.make_result(failed_payable_dao))
             }
         }
 
