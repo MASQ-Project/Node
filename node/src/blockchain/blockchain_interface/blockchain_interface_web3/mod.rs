@@ -479,7 +479,7 @@ mod tests {
     use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::{PricedNewTxTemplate, PricedNewTxTemplates};
     use crate::accountant::scanners::payable_scanner::data_structures::priced_retry_tx_template::{PricedRetryTxTemplate, PricedRetryTxTemplates};
     use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_template::RetryTxTemplates;
-    use crate::accountant::scanners::payable_scanner::test_utils::{make_retry_tx_template, make_retry_tx_template_with_prev_gas_price, RetryTxTemplateBuilder};
+    use crate::accountant::scanners::payable_scanner::test_utils::{make_retry_tx_template, RetryTxTemplateBuilder};
     use crate::accountant::test_utils::make_payable_account;
     use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt, TxStatus};

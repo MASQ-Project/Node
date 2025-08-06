@@ -1,5 +1,4 @@
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
 use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_template::RetryTxTemplate;
 use crate::accountant::scanners::payable_scanner::data_structures::{
     BaseTxTemplate, BlockchainAgentWithContextMessage,
@@ -9,12 +8,19 @@ use crate::accountant::test_utils::{
     FailedPayableDaoMock, PayableDaoMock, PaymentAdjusterMock, SentPayableDaoMock,
 };
 use crate::blockchain::blockchain_agent::test_utils::BlockchainAgentMock;
-use crate::blockchain::blockchain_interface::data_structures::RpcPayableFailure;
-use crate::blockchain::test_utils::{make_address, make_tx_hash};
+use crate::blockchain::test_utils::make_address;
 use crate::sub_lib::accountant::PaymentThresholds;
-use crate::test_utils::make_wallet;
 use std::rc::Rc;
 use web3::types::Address;
+
+pub fn make_retry_tx_template(n: u32) -> RetryTxTemplate {
+    RetryTxTemplateBuilder::new()
+        .receiver_address(make_address(n))
+        .amount_in_wei(n as u128 * 1000)
+        .prev_gas_price_wei(n as u128 * 100)
+        .prev_nonce(n as u64)
+        .build()
+}
 
 pub struct PayableScannerBuilder {
     payable_dao: PayableDaoMock,
@@ -160,42 +166,5 @@ impl Clone for PreparedAdjustment {
             original_setup_msg: self.original_setup_msg.clone(),
             adjustment: self.adjustment.clone(),
         }
-    }
-}
-
-pub fn make_retry_tx_template(n: u32) -> RetryTxTemplate {
-    RetryTxTemplateBuilder::new()
-        .receiver_address(make_address(n))
-        .amount_in_wei(n as u128 * 1000)
-        .prev_gas_price_wei(n as u128 * 100)
-        .prev_nonce(n as u64)
-        .build()
-}
-
-// TODO: GH-605: Remove other declaration in file agent_web3.rs
-pub fn make_retry_tx_template_with_prev_gas_price(
-    payable: &PayableAccount,
-    gas_price_wei: u128,
-) -> RetryTxTemplate {
-    let base = BaseTxTemplate::from(payable);
-    RetryTxTemplate {
-        base,
-        prev_gas_price_wei: gas_price_wei,
-        prev_nonce: 0,
-    }
-}
-
-pub fn make_pending_payable(n: u32) -> PendingPayable {
-    PendingPayable {
-        recipient_wallet: make_wallet(&format!("pending_payable_recipient_{n}")),
-        hash: make_tx_hash(n * 4724927),
-    }
-}
-
-pub fn make_rpc_payable_failure(n: u32) -> RpcPayableFailure {
-    RpcPayableFailure {
-        recipient_wallet: make_wallet(&format!("rpc_payable_failure_recipient_{n}")),
-        hash: make_tx_hash(n * 234819),
-        rpc_error: web3::Error::Rpc(jsonrpc_core::Error::internal_error()),
     }
 }

@@ -283,9 +283,13 @@ mod tests {
             ]
             .into_iter()
             .enumerate()
-            .map(|(idx, previous_attempt_gas_price_wei)| {
+            .map(|(idx, prev_gas_price_wei)| {
                 let account = make_payable_account((idx as u64 + 1) * 3_000);
-                make_retry_tx_template_with_prev_gas_price(&account, previous_attempt_gas_price_wei)
+                RetryTxTemplate {
+                    base: BaseTxTemplate::from(&account),
+                    prev_gas_price_wei,
+                    prev_nonce: idx as u64,
+                }
             })
             .collect_vec()
         };
@@ -325,18 +329,6 @@ mod tests {
         };
         assert_eq!(result, expected_result);
         TestLogHandler::new().exists_no_log_containing(test_name);
-    }
-
-    pub fn make_retry_tx_template_with_prev_gas_price(
-        payable: &PayableAccount,
-        gas_price_wei: u128,
-    ) -> RetryTxTemplate {
-        let base = BaseTxTemplate::from(payable);
-        RetryTxTemplate {
-            base,
-            prev_gas_price_wei: gas_price_wei,
-            prev_nonce: 0,
-        }
     }
 
     #[test]
@@ -744,9 +736,13 @@ mod tests {
             ]
             .into_iter()
             .enumerate()
-            .map(|(idx, previous_attempt_gas_price_wei)| {
+            .map(|(idx, prev_gas_price_wei)| {
                 let account = make_payable_account((idx as u64 + 1) * 3_000);
-                make_retry_tx_template_with_prev_gas_price(&account, previous_attempt_gas_price_wei)
+                RetryTxTemplate {
+                    base: BaseTxTemplate::from(&account),
+                    prev_gas_price_wei,
+                    prev_nonce: idx as u64,
+                }
             })
             .collect()
         };
