@@ -2,7 +2,7 @@
 
 #![cfg(test)]
 
-use crate::accountant::scanners::payable_scanner::payable_scanner_extension::msgs::{
+use crate::accountant::scanners::payable_scanner::data_structures::{
     BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
 };
 use crate::accountant::scanners::payable_scanner::{

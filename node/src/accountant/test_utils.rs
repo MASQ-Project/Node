@@ -48,7 +48,7 @@ use std::path::Path;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
-use crate::accountant::scanners::payable_scanner::payable_scanner_extension::msgs::{BlockchainAgentWithContextMessage};
+use crate::accountant::scanners::payable_scanner::data_structures::BlockchainAgentWithContextMessage;
 use crate::accountant::scanners::payable_scanner::PreparedAdjustment;
 use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
 use crate::accountant::scanners::receivable_scanner::ReceivableScanner;

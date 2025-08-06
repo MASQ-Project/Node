@@ -48,8 +48,8 @@ use crate::accountant::db_access_objects::failed_payable_dao::FailureReason::Sub
 use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::ByHash;
 use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDao, Tx};
 use crate::accountant::db_access_objects::utils::{RowId, TxHash, TxIdentifiers};
-use crate::accountant::scanners::payable_scanner::payable_scanner_extension::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage};
 use crate::accountant::scanners::payable_scanner::{MultistageDualPayableScanner, PayableScanner, PreparedAdjustment};
+use crate::accountant::scanners::payable_scanner::data_structures::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage};
 use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
 use crate::accountant::scanners::pending_payable_scanner::utils::PendingPayableScanResult;
 use crate::accountant::scanners::receivable_scanner::ReceivableScanner;
@@ -631,8 +631,8 @@ mod tests {
     use masq_lib::messages::ScanType;
     use masq_lib::ui_gateway::NodeToUiMessage;
     use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::NewTxTemplates;
+    use crate::accountant::scanners::payable_scanner::data_structures::QualifiedPayablesMessage;
     use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_template::{RetryTxTemplate, RetryTxTemplates};
-    use crate::accountant::scanners::payable_scanner::payable_scanner_extension::msgs::QualifiedPayablesMessage;
     use crate::accountant::scanners::payable_scanner::PayableScanner;
     use crate::accountant::scanners::pending_payable_scanner::utils::PendingPayableScanResult;
     use crate::accountant::scanners::test_utils::{assert_timestamps_from_str, parse_system_time_from_str, MarkScanner, NullScanner, ReplacementType, ScannerReplacement};
