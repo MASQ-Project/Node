@@ -42,7 +42,7 @@ use masq_lib::logger::Logger;
 use rusqlite::{Connection, OpenFlags, Row};
 use std::any::type_name;
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt::Debug;
 use std::path::Path;
 use std::rc::Rc;
@@ -1133,20 +1133,20 @@ impl PendingPayableDaoFactoryMock {
 
 #[derive(Default)]
 pub struct FailedPayableDaoMock {
-    get_tx_identifiers_params: Arc<Mutex<Vec<HashSet<TxHash>>>>,
+    get_tx_identifiers_params: Arc<Mutex<Vec<BTreeSet<TxHash>>>>,
     get_tx_identifiers_results: RefCell<Vec<TxIdentifiers>>,
-    insert_new_records_params: Arc<Mutex<Vec<HashSet<FailedTx>>>>,
+    insert_new_records_params: Arc<Mutex<Vec<BTreeSet<FailedTx>>>>,
     insert_new_records_results: RefCell<Vec<Result<(), FailedPayableDaoError>>>,
     retrieve_txs_params: Arc<Mutex<Vec<Option<FailureRetrieveCondition>>>>,
     retrieve_txs_results: RefCell<Vec<Vec<FailedTx>>>,
     update_statuses_params: Arc<Mutex<Vec<HashMap<TxHash, FailureStatus>>>>,
     update_statuses_results: RefCell<Vec<Result<(), FailedPayableDaoError>>>,
-    delete_records_params: Arc<Mutex<Vec<HashSet<TxHash>>>>,
+    delete_records_params: Arc<Mutex<Vec<BTreeSet<TxHash>>>>,
     delete_records_results: RefCell<Vec<Result<(), FailedPayableDaoError>>>,
 }
 
 impl FailedPayableDao for FailedPayableDaoMock {
-    fn get_tx_identifiers(&self, hashes: &HashSet<TxHash>) -> TxIdentifiers {
+    fn get_tx_identifiers(&self, hashes: &BTreeSet<TxHash>) -> TxIdentifiers {
         self.get_tx_identifiers_params
             .lock()
             .unwrap()
@@ -1154,7 +1154,7 @@ impl FailedPayableDao for FailedPayableDaoMock {
         self.get_tx_identifiers_results.borrow_mut().remove(0)
     }
 
-    fn insert_new_records(&self, txs: &HashSet<FailedTx>) -> Result<(), FailedPayableDaoError> {
+    fn insert_new_records(&self, txs: &BTreeSet<FailedTx>) -> Result<(), FailedPayableDaoError> {
         self.insert_new_records_params
             .lock()
             .unwrap()
@@ -1178,7 +1178,7 @@ impl FailedPayableDao for FailedPayableDaoMock {
         self.update_statuses_results.borrow_mut().remove(0)
     }
 
-    fn delete_records(&self, hashes: &HashSet<TxHash>) -> Result<(), FailedPayableDaoError> {
+    fn delete_records(&self, hashes: &BTreeSet<TxHash>) -> Result<(), FailedPayableDaoError> {
         self.delete_records_params
             .lock()
             .unwrap()
@@ -1192,7 +1192,7 @@ impl FailedPayableDaoMock {
         Self::default()
     }
 
-    pub fn get_tx_identifiers_params(mut self, params: &Arc<Mutex<Vec<HashSet<TxHash>>>>) -> Self {
+    pub fn get_tx_identifiers_params(mut self, params: &Arc<Mutex<Vec<BTreeSet<TxHash>>>>) -> Self {
         self.get_tx_identifiers_params = params.clone();
         self
     }
@@ -1204,7 +1204,7 @@ impl FailedPayableDaoMock {
 
     pub fn insert_new_records_params(
         mut self,
-        params: &Arc<Mutex<Vec<HashSet<FailedTx>>>>,
+        params: &Arc<Mutex<Vec<BTreeSet<FailedTx>>>>,
     ) -> Self {
         self.insert_new_records_params = params.clone();
         self
@@ -1241,7 +1241,7 @@ impl FailedPayableDaoMock {
         self
     }
 
-    pub fn delete_records_params(mut self, params: &Arc<Mutex<Vec<HashSet<TxHash>>>>) -> Self {
+    pub fn delete_records_params(mut self, params: &Arc<Mutex<Vec<BTreeSet<TxHash>>>>) -> Self {
         self.delete_records_params = params.clone();
         self
     }

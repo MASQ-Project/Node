@@ -2,13 +2,13 @@ use serde_derive::{Deserialize, Serialize};
 use web3::error::Error as Web3Error;
 
 // Prefixed with App to clearly distinguish app-specific errors from library errors.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub enum AppRpcError {
     Local(LocalError),
     Remote(RemoteError),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub enum LocalError {
     Decoder(String),
     Internal,
@@ -17,7 +17,7 @@ pub enum LocalError {
     Transport(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub enum RemoteError {
     InvalidResponse(String),
     Unreachable,

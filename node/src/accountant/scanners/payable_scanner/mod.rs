@@ -305,7 +305,7 @@ impl PayableScanner {
 
     fn insert_records_in_failed_payables(&self, failed_txs: &Vec<FailedTx>) {
         if !failed_txs.is_empty() {
-            let failed_txs_set: HashSet<FailedTx> = failed_txs.iter().cloned().collect();
+            let failed_txs_set: BTreeSet<FailedTx> = failed_txs.iter().cloned().collect();
             if let Err(e) = self.failed_payable_dao.insert_new_records(&failed_txs_set) {
                 panic!(
                     "Failed to insert transactions into the FailedPayable table. Error: {:?}",
@@ -610,7 +610,7 @@ mod tests {
 
         let params = insert_new_records_params.lock().unwrap();
         assert_eq!(params.len(), 1);
-        assert_eq!(params[0], HashSet::from([failed_tx1, failed_tx2]));
+        assert_eq!(params[0], BTreeSet::from([failed_tx1, failed_tx2]));
     }
 
     #[test]
