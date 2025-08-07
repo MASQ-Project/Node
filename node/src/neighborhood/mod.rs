@@ -3649,11 +3649,6 @@ mod tests {
         assert_eq!(juicy_parts(result_1), (1, 1));
     }
 
-    #[derive(Debug, Serialize, Deserialize)]
-    struct Graph {
-        graph: String
-    }
-
     #[test]
     fn handle_neighborhood_graph_message_works() {
         let test_name = "handle_neighborhood_graph_message_works";
@@ -3716,14 +3711,12 @@ mod tests {
 
         let recorder_result = arc_recorder.lock().unwrap();
         let result = recorder_result.get_record::<NodeToUiMessage>(0).body.clone().payload.unwrap();
-        let result_object: Graph = serde_json::from_str(&result).unwrap();
+        let result_object: UiGetNeighborhoodGraphResponse = serde_json::from_str(&result).unwrap();
         assert!(result_object.graph.contains(&root_pubkey));
         assert!(result_object.graph.contains(&neighbor_one_pubkey));
         assert!(result_object.graph.contains(&neighbor_two_pubkey));
         assert!(result_object.graph.contains(&neighbor_three_pubkey));
         assert!(result_object.graph.contains(&neighbor_four_pubkey));
-
-
     }
 
     #[test]
