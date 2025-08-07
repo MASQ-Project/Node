@@ -1298,6 +1298,7 @@ mod tests {
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_gateway::{MessageBody, MessagePath, NodeFromUiMessage, NodeToUiMessage};
     use std::any::{TypeId};
+    use std::collections::BTreeSet;
     use std::ops::{Sub};
     use std::sync::Arc;
     use std::sync::Mutex;
@@ -4907,7 +4908,10 @@ mod tests {
         System::current().stop();
         system.run();
         let inserted_new_records_params = inserted_new_records_params_arc.lock().unwrap();
-        assert_eq!(*inserted_new_records_params[0], vec![expected_tx]);
+        assert_eq!(
+            inserted_new_records_params[0],
+            BTreeSet::from([expected_tx])
+        );
         let pending_payable_notify_later_params =
             pending_payable_notify_later_params_arc.lock().unwrap();
         assert_eq!(
@@ -4966,7 +4970,10 @@ mod tests {
         System::current().stop();
         system.run();
         let inserted_new_records_params = inserted_new_records_params_arc.lock().unwrap();
-        assert_eq!(*inserted_new_records_params[0], vec![expected_tx]);
+        assert_eq!(
+            inserted_new_records_params[0],
+            BTreeSet::from([expected_tx])
+        );
         let pending_payable_notify_later_params =
             pending_payable_notify_later_params_arc.lock().unwrap();
         assert_eq!(

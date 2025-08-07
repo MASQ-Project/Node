@@ -294,7 +294,10 @@ impl PayableScanner {
 
     fn insert_records_in_sent_payables(&self, sent_txs: &Vec<Tx>) {
         if !sent_txs.is_empty() {
-            if let Err(e) = self.sent_payable_dao.insert_new_records(sent_txs) {
+            if let Err(e) = self
+                .sent_payable_dao
+                .insert_new_records(&sent_txs.iter().cloned().collect())
+            {
                 panic!(
                     "Failed to insert transactions into the SentPayable table. Error: {:?}",
                     e
@@ -554,7 +557,7 @@ mod tests {
 
         let params = insert_new_records_params.lock().unwrap();
         assert_eq!(params.len(), 1);
-        assert_eq!(params[0], sent_txs);
+        assert_eq!(params[0], sent_txs.into_iter().collect());
     }
 
     #[test]

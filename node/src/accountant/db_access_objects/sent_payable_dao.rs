@@ -1,6 +1,6 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use ethereum_types::{H256};
@@ -24,7 +24,7 @@ pub enum SentPayableDaoError {
     SqlExecutionFailed(String),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Tx {
     pub hash: TxHash,
     pub receiver_address: Address,
@@ -35,7 +35,7 @@ pub struct Tx {
     pub status: TxStatus,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord)]
 pub enum TxStatus {
     Pending(ValidationStatus),
     Confirmed {
@@ -63,7 +63,7 @@ impl Display for TxStatus {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord)]
 pub enum Detection {
     Normal,
     Reclaim,
@@ -89,7 +89,7 @@ pub struct TxConfirmation {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RetrieveCondition {
     IsPending,
-    ByHash(HashSet<TxHash>), // TODO: GH-605: Want to implement lifetime here?
+    ByHash(BTreeSet<TxHash>),
 }
 
 impl Display for RetrieveCondition {
@@ -110,15 +110,15 @@ impl Display for RetrieveCondition {
 }
 
 pub trait SentPayableDao {
-    fn get_tx_identifiers(&self, hashes: &HashSet<TxHash>) -> TxIdentifiers;
-    fn insert_new_records(&self, txs: &[Tx]) -> Result<(), SentPayableDaoError>;
-    fn retrieve_txs(&self, condition: Option<RetrieveCondition>) -> Vec<Tx>; // TODO: GH-605: Turn it into HashSet
+    fn get_tx_identifiers(&self, hashes: &BTreeSet<TxHash>) -> TxIdentifiers;
+    fn insert_new_records(&self, txs: &BTreeSet<Tx>) -> Result<(), SentPayableDaoError>;
+    fn retrieve_txs(&self, condition: Option<RetrieveCondition>) -> BTreeSet<Tx>;
     fn confirm_tx(
         &self,
         hash_map: &HashMap<TxHash, TxConfirmation>,
     ) -> Result<(), SentPayableDaoError>;
-    fn replace_records(&self, new_txs: &[Tx]) -> Result<(), SentPayableDaoError>;
-    fn delete_records(&self, hashes: &HashSet<TxHash>) -> Result<(), SentPayableDaoError>;
+    fn replace_records(&self, new_txs: &BTreeSet<Tx>) -> Result<(), SentPayableDaoError>;
+    fn delete_records(&self, hashes: &BTreeSet<TxHash>) -> Result<(), SentPayableDaoError>;
 }
 
 #[derive(Debug)]
@@ -133,7 +133,7 @@ impl<'a> SentPayableDaoReal<'a> {
 }
 
 impl SentPayableDao for SentPayableDaoReal<'_> {
-    fn get_tx_identifiers(&self, hashes: &HashSet<TxHash>) -> TxIdentifiers {
+    fn get_tx_identifiers(&self, hashes: &BTreeSet<TxHash>) -> TxIdentifiers {
         let sql = format!(
             "SELECT tx_hash, rowid FROM sent_payable WHERE tx_hash IN ({})",
             join_with_separator(hashes, |hash| format!("'{:?}'", hash), ", ")
@@ -156,12 +156,12 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
         .collect()
     }
 
-    fn insert_new_records(&self, txs: &[Tx]) -> Result<(), SentPayableDaoError> {
+    fn insert_new_records(&self, txs: &BTreeSet<Tx>) -> Result<(), SentPayableDaoError> {
         if txs.is_empty() {
             return Err(SentPayableDaoError::EmptyInput);
         }
 
-        let unique_hashes: HashSet<TxHash> = txs.iter().map(|tx| tx.hash).collect();
+        let unique_hashes: BTreeSet<TxHash> = txs.iter().map(|tx| tx.hash).collect();
         if unique_hashes.len() != txs.len() {
             return Err(SentPayableDaoError::InvalidInput(format!(
                 "Duplicate hashes found in the input. Input Transactions: {:?}",
@@ -230,7 +230,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
         }
     }
 
-    fn retrieve_txs(&self, condition_opt: Option<RetrieveCondition>) -> Vec<Tx> {
+    fn retrieve_txs(&self, condition_opt: Option<RetrieveCondition>) -> BTreeSet<Tx> {
         let raw_sql = "SELECT tx_hash, receiver_address, amount_high_b, amount_low_b, \
             timestamp, gas_price_wei_high_b, gas_price_wei_low_b, nonce, status FROM sent_payable"
             .to_string();
@@ -312,7 +312,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
         Ok(())
     }
 
-    fn replace_records(&self, new_txs: &[Tx]) -> Result<(), SentPayableDaoError> {
+    fn replace_records(&self, new_txs: &BTreeSet<Tx>) -> Result<(), SentPayableDaoError> {
         if new_txs.is_empty() {
             return Err(SentPayableDaoError::EmptyInput);
         }
@@ -396,7 +396,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
         }
     }
 
-    fn delete_records(&self, hashes: &HashSet<TxHash>) -> Result<(), SentPayableDaoError> {
+    fn delete_records(&self, hashes: &BTreeSet<TxHash>) -> Result<(), SentPayableDaoError> {
         if hashes.is_empty() {
             return Err(SentPayableDaoError::EmptyInput);
         }
@@ -437,7 +437,7 @@ impl SentPayableDaoFactory for DaoFactoryReal {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{HashMap, HashSet};
+    use std::collections::{BTreeSet, HashMap, HashSet};
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use crate::accountant::db_access_objects::sent_payable_dao::{Detection, RetrieveCondition, SentPayableDao, SentPayableDaoError, SentPayableDaoReal, TxConfirmation, TxStatus};
@@ -472,7 +472,7 @@ mod tests {
             }))
             .build();
         let subject = SentPayableDaoReal::new(wrapped_conn);
-        let txs = vec![tx1, tx2];
+        let txs = BTreeSet::from([tx1, tx2]);
 
         let result = subject.insert_new_records(&txs);
 
@@ -491,7 +491,7 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = SentPayableDaoReal::new(wrapped_conn);
-        let empty_input = vec![];
+        let empty_input = BTreeSet::new();
 
         let result = subject.insert_new_records(&empty_input);
 
@@ -524,13 +524,13 @@ mod tests {
             .build();
         let subject = SentPayableDaoReal::new(wrapped_conn);
 
-        let result = subject.insert_new_records(&vec![tx1, tx2]);
+        let result = subject.insert_new_records(&BTreeSet::from([tx1, tx2]));
 
         assert_eq!(
             result,
             Err(SentPayableDaoError::InvalidInput(
                 "Duplicate hashes found in the input. Input Transactions: \
-                [Tx { \
+                {Tx { \
                 hash: 0x00000000000000000000000000000000000000000000000000000000000004d2, \
                 receiver_address: 0x0000000000000000000000000000000000000000, \
                 amount: 0, timestamp: 1749204017, gas_price_wei: 0, \
@@ -541,7 +541,7 @@ mod tests {
                 amount: 0, timestamp: 1749204020, gas_price_wei: 0, \
                 nonce: 0, status: Confirmed { block_hash: \
                 \"0x000000000000000000000000000000000000000000000000000000003b9acbc8\", \
-                block_number: 7890123, detection: Reclaim } }]"
+                block_number: 7890123, detection: Reclaim } }}"
                     .to_string()
             ))
         );
@@ -560,9 +560,9 @@ mod tests {
         let tx1 = TxBuilder::default().hash(hash).build();
         let tx2 = TxBuilder::default().hash(hash).build();
         let subject = SentPayableDaoReal::new(wrapped_conn);
-        let initial_insertion_result = subject.insert_new_records(&vec![tx1]);
+        let initial_insertion_result = subject.insert_new_records(&BTreeSet::from([tx1]));
 
-        let result = subject.insert_new_records(&vec![tx2]);
+        let result = subject.insert_new_records(&BTreeSet::from([tx2]));
 
         assert_eq!(initial_insertion_result, Ok(()));
         assert_eq!(
@@ -589,7 +589,7 @@ mod tests {
         let tx = TxBuilder::default().build();
         let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
 
-        let result = subject.insert_new_records(&vec![tx]);
+        let result = subject.insert_new_records(&BTreeSet::from([tx]));
 
         assert_eq!(
             result,
@@ -609,7 +609,7 @@ mod tests {
         let wrapped_conn = make_read_only_db_connection(home_dir);
         let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
 
-        let result = subject.insert_new_records(&vec![tx]);
+        let result = subject.insert_new_records(&BTreeSet::from([tx]));
 
         assert_eq!(
             result,
@@ -630,11 +630,11 @@ mod tests {
         let present_hash = make_tx_hash(1);
         let absent_hash = make_tx_hash(2);
         let another_present_hash = make_tx_hash(3);
-        let hashset = HashSet::from([present_hash, absent_hash, another_present_hash]);
+        let hashset = BTreeSet::from([present_hash, absent_hash, another_present_hash]);
         let present_tx = TxBuilder::default().hash(present_hash).build();
         let another_present_tx = TxBuilder::default().hash(another_present_hash).build();
         subject
-            .insert_new_records(&vec![present_tx, another_present_tx])
+            .insert_new_records(&BTreeSet::from([present_tx, another_present_tx]))
             .unwrap();
 
         let result = subject.get_tx_identifiers(&hashset);
@@ -649,14 +649,14 @@ mod tests {
         assert_eq!(IsPending.to_string(), "WHERE status LIKE '%\"Pending\":%'");
         // 0x0000000000000000000000000000000000000000000000000000000123456789
         assert_eq!(
-            ByHash(HashSet::from([
+            ByHash(BTreeSet::from([
                 H256::from_low_u64_be(0x123456789),
                 H256::from_low_u64_be(0x987654321),
             ]))
             .to_string(),
             "WHERE tx_hash IN (\
-            '0x0000000000000000000000000000000000000000000000000000000987654321', \
-            '0x0000000000000000000000000000000000000000000000000000000123456789'\
+            '0x0000000000000000000000000000000000000000000000000000000123456789', \
+            '0x0000000000000000000000000000000000000000000000000000000987654321'\
             )"
             .to_string()
         );
@@ -674,13 +674,15 @@ mod tests {
         let tx2 = TxBuilder::default().hash(make_tx_hash(2)).build();
         let tx3 = TxBuilder::default().hash(make_tx_hash(3)).build();
         subject
-            .insert_new_records(&vec![tx1.clone(), tx2.clone()])
+            .insert_new_records(&BTreeSet::from([tx1.clone(), tx2.clone()]))
             .unwrap();
-        subject.insert_new_records(&vec![tx3.clone()]).unwrap();
+        subject
+            .insert_new_records(&BTreeSet::from([tx3.clone()]))
+            .unwrap();
 
         let result = subject.retrieve_txs(None);
 
-        assert_eq!(result, vec![tx1, tx2, tx3]);
+        assert_eq!(result, BTreeSet::from([tx1, tx2, tx3]));
     }
 
     #[test]
@@ -711,12 +713,12 @@ mod tests {
             })
             .build();
         subject
-            .insert_new_records(&vec![tx1.clone(), tx2.clone(), tx3])
+            .insert_new_records(&BTreeSet::from([tx1.clone(), tx2.clone(), tx3]))
             .unwrap();
 
         let result = subject.retrieve_txs(Some(RetrieveCondition::IsPending));
 
-        assert_eq!(result, vec![tx1, tx2]);
+        assert_eq!(result, BTreeSet::from([tx1, tx2]));
     }
 
     #[test]
@@ -731,12 +733,12 @@ mod tests {
         let tx2 = TxBuilder::default().hash(make_tx_hash(2)).build();
         let tx3 = TxBuilder::default().hash(make_tx_hash(3)).build();
         subject
-            .insert_new_records(&vec![tx1.clone(), tx2, tx3.clone()])
+            .insert_new_records(&BTreeSet::from([tx1.clone(), tx2, tx3.clone()]))
             .unwrap();
 
-        let result = subject.retrieve_txs(Some(ByHash(HashSet::from([tx1.hash, tx3.hash]))));
+        let result = subject.retrieve_txs(Some(ByHash(BTreeSet::from([tx1.hash, tx3.hash]))));
 
-        assert_eq!(result, vec![tx1, tx3]);
+        assert_eq!(result, BTreeSet::from([tx1, tx3]));
     }
 
     #[test]
@@ -753,9 +755,9 @@ mod tests {
         let tx2 = TxBuilder::default().hash(make_tx_hash(2)).nonce(2).build();
         let tx3 = TxBuilder::default().hash(make_tx_hash(3)).nonce(3).build();
         subject
-            .insert_new_records(&[tx1.clone(), tx2.clone(), tx3.clone()])
+            .insert_new_records(&BTreeSet::from([tx1.clone(), tx2.clone(), tx3.clone()]))
             .unwrap();
-        let mut query_hashes = HashSet::new();
+        let mut query_hashes = BTreeSet::new();
         query_hashes.insert(make_tx_hash(1)); // Exists
         query_hashes.insert(make_tx_hash(2)); // Exists
         query_hashes.insert(make_tx_hash(4)); // Does not exist
@@ -784,15 +786,17 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = SentPayableDaoReal::new(wrapped_conn);
-        let tx1 = TxBuilder::default().hash(make_tx_hash(1)).build();
-        let tx2 = TxBuilder::default().hash(make_tx_hash(2)).build();
+        let hash1 = make_tx_hash(1);
+        let hash2 = make_tx_hash(2);
+        let tx1 = TxBuilder::default().hash(hash1).build();
+        let tx2 = TxBuilder::default().hash(hash2).build();
         subject
-            .insert_new_records(&vec![tx1.clone(), tx2.clone()])
+            .insert_new_records(&BTreeSet::from([tx1.clone(), tx2.clone()]))
             .unwrap();
         let updated_pre_assert_txs =
-            subject.retrieve_txs(Some(ByHash(HashSet::from([tx1.hash, tx2.hash]))));
-        let pre_assert_status_tx1 = updated_pre_assert_txs[0].status.clone();
-        let pre_assert_status_tx2 = updated_pre_assert_txs[1].status.clone();
+            subject.retrieve_txs(Some(ByHash(BTreeSet::from([hash1, hash2]))));
+        let pre_assert_status_tx1 = updated_pre_assert_txs.get(&tx1).unwrap().status.clone();
+        let pre_assert_status_tx2 = updated_pre_assert_txs.get(&tx2).unwrap().status.clone();
         let tx_confirmation_1 = TxConfirmation {
             block_info: TransactionBlock {
                 block_hash: make_block_hash(3),
@@ -814,14 +818,16 @@ mod tests {
 
         let result = subject.confirm_tx(&hash_map);
 
-        let updated_txs = subject.retrieve_txs(Some(ByHash(HashSet::from([tx1.hash, tx2.hash]))));
+        let updated_txs = subject.retrieve_txs(Some(ByHash(BTreeSet::from([tx1.hash, tx2.hash]))));
+        let updated_tx1 = updated_txs.iter().find(|tx| tx.hash == hash1).unwrap();
+        let updated_tx2 = updated_txs.iter().find(|tx| tx.hash == hash2).unwrap();
         assert_eq!(result, Ok(()));
         assert_eq!(
             pre_assert_status_tx1,
             TxStatus::Pending(ValidationStatus::Waiting)
         );
         assert_eq!(
-            updated_txs[0].status,
+            updated_tx1.status,
             TxStatus::Confirmed {
                 block_hash: format!("{:?}", tx_confirmation_1.block_info.block_hash),
                 block_number: tx_confirmation_1.block_info.block_number.as_u64(),
@@ -833,7 +839,7 @@ mod tests {
             TxStatus::Pending(ValidationStatus::Waiting)
         );
         assert_eq!(
-            updated_txs[1].status,
+            updated_tx2.status,
             TxStatus::Confirmed {
                 block_hash: format!("{:?}", tx_confirmation_2.block_info.block_hash),
                 block_number: tx_confirmation_2.block_info.block_number.as_u64(),
@@ -854,7 +860,7 @@ mod tests {
         let subject = SentPayableDaoReal::new(wrapped_conn);
         let existent_hash = make_tx_hash(1);
         let tx = TxBuilder::default().hash(existent_hash).build();
-        subject.insert_new_records(&vec![tx]).unwrap();
+        subject.insert_new_records(&BTreeSet::from([tx])).unwrap();
         let hash_map = HashMap::new();
 
         let result = subject.confirm_tx(&hash_map);
@@ -875,7 +881,7 @@ mod tests {
         let existent_hash = make_tx_hash(1);
         let non_existent_hash = make_tx_hash(999);
         let tx = TxBuilder::default().hash(existent_hash).build();
-        subject.insert_new_records(&vec![tx]).unwrap();
+        subject.insert_new_records(&BTreeSet::from([tx])).unwrap();
         let hash_map = HashMap::from([
             (
                 existent_hash,
@@ -952,15 +958,20 @@ mod tests {
         let tx3 = TxBuilder::default().hash(make_tx_hash(3)).build();
         let tx4 = TxBuilder::default().hash(make_tx_hash(4)).build();
         subject
-            .insert_new_records(&vec![tx1.clone(), tx2.clone(), tx3.clone(), tx4.clone()])
+            .insert_new_records(&BTreeSet::from([
+                tx1.clone(),
+                tx2.clone(),
+                tx3.clone(),
+                tx4.clone(),
+            ]))
             .unwrap();
-        let hashset = HashSet::from([tx1.hash, tx3.hash]);
+        let hashset = BTreeSet::from([tx1.hash, tx3.hash]);
 
         let result = subject.delete_records(&hashset);
 
         let remaining_records = subject.retrieve_txs(None);
         assert_eq!(result, Ok(()));
-        assert_eq!(remaining_records, vec![tx2, tx4]);
+        assert_eq!(remaining_records, BTreeSet::from([tx2, tx4]));
     }
 
     #[test]
@@ -974,7 +985,7 @@ mod tests {
             .unwrap();
         let subject = SentPayableDaoReal::new(wrapped_conn);
 
-        let result = subject.delete_records(&HashSet::new());
+        let result = subject.delete_records(&BTreeSet::new());
 
         assert_eq!(result, Err(SentPayableDaoError::EmptyInput));
     }
@@ -990,7 +1001,7 @@ mod tests {
             .unwrap();
         let subject = SentPayableDaoReal::new(wrapped_conn);
         let non_existent_hash = make_tx_hash(999);
-        let hashset = HashSet::from([non_existent_hash]);
+        let hashset = BTreeSet::from([non_existent_hash]);
 
         let result = subject.delete_records(&hashset);
 
@@ -1010,8 +1021,8 @@ mod tests {
         let present_hash = make_tx_hash(1);
         let absent_hash = make_tx_hash(2);
         let tx = TxBuilder::default().hash(present_hash).build();
-        subject.insert_new_records(&vec![tx]).unwrap();
-        let hashset = HashSet::from([present_hash, absent_hash]);
+        subject.insert_new_records(&BTreeSet::from([tx])).unwrap();
+        let hashset = BTreeSet::from([present_hash, absent_hash]);
 
         let result = subject.delete_records(&hashset);
 
@@ -1031,7 +1042,7 @@ mod tests {
         );
         let wrapped_conn = make_read_only_db_connection(home_dir);
         let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
-        let hashes = HashSet::from([make_tx_hash(1)]);
+        let hashes = BTreeSet::from([make_tx_hash(1)]);
 
         let result = subject.delete_records(&hashes);
 
@@ -1057,7 +1068,7 @@ mod tests {
         let tx2 = TxBuilder::default().hash(make_tx_hash(2)).nonce(2).build();
         let tx3 = TxBuilder::default().hash(make_tx_hash(3)).nonce(3).build();
         subject
-            .insert_new_records(&vec![tx1.clone(), tx2, tx3])
+            .insert_new_records(&BTreeSet::from([tx1.clone(), tx2, tx3]))
             .unwrap();
         let new_tx2 = TxBuilder::default()
             .hash(make_tx_hash(22))
@@ -1078,11 +1089,11 @@ mod tests {
             .nonce(3)
             .build();
 
-        let result = subject.replace_records(&[new_tx2.clone(), new_tx3.clone()]);
+        let result = subject.replace_records(&BTreeSet::from([new_tx2.clone(), new_tx3.clone()]));
 
         let retrieved_txs = subject.retrieve_txs(None);
         assert_eq!(result, Ok(()));
-        assert_eq!(retrieved_txs, vec![tx1, new_tx2, new_tx3]);
+        assert_eq!(retrieved_txs, BTreeSet::from([tx1, new_tx2, new_tx3]));
     }
 
     #[test]
@@ -1101,7 +1112,7 @@ mod tests {
         let tx2 = TxBuilder::default().hash(make_tx_hash(2)).nonce(2).build();
         let tx3 = TxBuilder::default().hash(make_tx_hash(3)).nonce(3).build();
 
-        let _ = subject.replace_records(&[tx1, tx2, tx3]);
+        let _ = subject.replace_records(&BTreeSet::from([tx1, tx2, tx3]));
 
         let captured_params = prepare_params.lock().unwrap();
         let sql = &captured_params[0];
@@ -1133,9 +1144,11 @@ mod tests {
         let subject = SentPayableDaoReal::new(wrapped_conn);
         let tx1 = TxBuilder::default().hash(make_tx_hash(1)).nonce(1).build();
         let tx2 = TxBuilder::default().hash(make_tx_hash(2)).nonce(2).build();
-        subject.insert_new_records(&vec![tx1, tx2]).unwrap();
+        subject
+            .insert_new_records(&BTreeSet::from([tx1, tx2]))
+            .unwrap();
 
-        let result = subject.replace_records(&[]);
+        let result = subject.replace_records(&BTreeSet::new());
 
         assert_eq!(result, Err(EmptyInput));
     }
@@ -1153,7 +1166,7 @@ mod tests {
         let tx1 = TxBuilder::default().hash(make_tx_hash(1)).nonce(1).build();
         let tx2 = TxBuilder::default().hash(make_tx_hash(2)).nonce(2).build();
         subject
-            .insert_new_records(&vec![tx1.clone(), tx2.clone()])
+            .insert_new_records(&BTreeSet::from([tx1.clone(), tx2.clone()]))
             .unwrap();
         let new_tx2 = TxBuilder::default()
             .hash(make_tx_hash(22))
@@ -1174,7 +1187,7 @@ mod tests {
             .nonce(3)
             .build();
 
-        let result = subject.replace_records(&[new_tx2, new_tx3]);
+        let result = subject.replace_records(&BTreeSet::from([new_tx2, new_tx3]));
 
         assert_eq!(
             result,
@@ -1196,7 +1209,7 @@ mod tests {
         let subject = SentPayableDaoReal::new(wrapped_conn);
         let tx = TxBuilder::default().hash(make_tx_hash(1)).nonce(42).build();
 
-        let result = subject.replace_records(&[tx]);
+        let result = subject.replace_records(&BTreeSet::from([tx]));
 
         assert_eq!(result, Err(SentPayableDaoError::NoChange));
     }
@@ -1211,7 +1224,7 @@ mod tests {
         let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
         let tx = TxBuilder::default().hash(make_tx_hash(1)).nonce(1).build();
 
-        let result = subject.replace_records(&[tx]);
+        let result = subject.replace_records(&BTreeSet::from([tx]));
 
         assert_eq!(
             result,

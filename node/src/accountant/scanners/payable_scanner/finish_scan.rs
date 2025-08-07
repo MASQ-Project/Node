@@ -45,6 +45,7 @@ mod tests {
     use masq_lib::messages::{ToMessageBody, UiScanResponse};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
+    use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
 
@@ -93,7 +94,7 @@ mod tests {
         assert_eq!(sent_payable_insert_new_records_params.len(), 1);
         assert_eq!(
             sent_payable_insert_new_records_params[0],
-            vec![sent_tx_1, sent_tx_2]
+            BTreeSet::from([sent_tx_1, sent_tx_2])
         );
         assert_eq!(failed_payable_insert_new_records_params.len(), 1);
         assert!(failed_payable_insert_new_records_params[0].contains(&failed_tx_1));
@@ -176,7 +177,10 @@ mod tests {
         let failed_payable_update_statuses_params =
             failed_payable_update_statuses_params_arc.lock().unwrap();
         assert_eq!(sent_payable_insert_new_records_params.len(), 1);
-        assert_eq!(sent_payable_insert_new_records_params[0], sent_txs);
+        assert_eq!(
+            sent_payable_insert_new_records_params[0],
+            sent_txs.iter().cloned().collect::<BTreeSet<_>>()
+        );
         assert_eq!(failed_payable_update_statuses_params.len(), 1);
         let updated_statuses = failed_payable_update_statuses_params[0].clone();
         assert_eq!(updated_statuses.len(), 2);
