@@ -300,13 +300,21 @@ impl PendingPayableScanner {
     }
 
     fn panic_dump(&mut self, mismatch_report: MismatchReport) -> ! {
+        fn rearrange<Record>(hashmap: HashMap<TxHash, Record>) -> Vec<Record> {
+            hashmap
+                .into_iter()
+                .sorted_by_key(|(tx_hash, _)| *tx_hash)
+                .map(|(_, record)| record)
+                .collect_vec()
+        }
+
         panic!(
             "Looking up '{:?}' in the cache, the record could not be found. Dumping \
             the remaining values. Pending payables: {:?}. Unproven failures: {:?}. \
             All yet-to-look-up hashes: {:?}.",
             mismatch_report.noticed_at,
-            self.current_sent_payables.dump_cache(),
-            self.yet_unproven_failed_payables.dump_cache(),
+            rearrange(self.current_sent_payables.dump_cache()),
+            rearrange(self.yet_unproven_failed_payables.dump_cache()),
             mismatch_report.remaining_hashes
         )
     }
@@ -744,15 +752,15 @@ mod tests {
         let panic_msg = panic.downcast_ref::<String>().unwrap();
         let regex_str_in_pieces = vec![
             r#"Looking up 'SentPayable\(0x0000000000000000000000000000000000000000000000000000000000000309\)'"#,
-            r#" in the cache, the record could not be found. Dumping the remaining values. Pending payables: \{\}."#,
-            r#" Unproven failures: \{0x0000000000000000000000000000000000000000000000000000000000000237: FailedTx \{"#,
+            r#" in the cache, the record could not be found. Dumping the remaining values. Pending payables: \[\]."#,
+            r#" Unproven failures: \[FailedTx \{"#,
             r#" hash: 0x0000000000000000000000000000000000000000000000000000000000000237, receiver_address:"#,
             r#" 0x000000000000000000000077616c6c6574353637, amount_minor: 321489000000000, timestamp: \d*,"#,
             r#" gas_price_minor: 567000000000, nonce: 567, reason: PendingTooLong, status: RetryRequired \},"#,
-            r#" 0x000000000000000000000000000000000000000000000000000000000000037a: FailedTx \{ hash:"#,
+            r#" FailedTx \{ hash:"#,
             r#" 0x000000000000000000000000000000000000000000000000000000000000037a, receiver_address:"#,
             r#" 0x000000000000000000000077616c6c6574383930, amount_minor: 792100000000000, timestamp: \d*,"#,
-            r#" gas_price_minor: 890000000000, nonce: 890, reason: PendingTooLong, status: RetryRequired \}\}."#,
+            r#" gas_price_minor: 890000000000, nonce: 890, reason: PendingTooLong, status: RetryRequired \}\]."#,
             r#" All yet-to-look-up hashes: \[FailedPayable\(0x000000000000000000000000000000000000000000000000000"#,
             r#"0000000000237\), FailedPayable\(0x000000000000000000000000000000000000000000000000000000000000037a\)\]."#,
         ];
@@ -760,8 +768,7 @@ mod tests {
         let expected_msg_regex = Regex::new(&regex_str).unwrap();
         assert!(
             expected_msg_regex.is_match(panic_msg),
-            "Expected string that matches this regex '{}' \
-        but it couldn't with '{}'",
+            "Expected string that matches this regex '{}' but it couldn't with '{}'",
             regex_str,
             panic_msg
         );
@@ -812,15 +819,14 @@ mod tests {
         let panic_msg = panic.downcast_ref::<String>().unwrap();
         let regex_str_in_pieces = vec![
             r#"Looking up 'FailedPayable\(0x0000000000000000000000000000000000000000000000000000000000000385\)'"#,
-            r#" in the cache, the record could not be found. Dumping the remaining values. Pending payables: \{\}."#,
-            r#" Unproven failures: \{\}. All yet-to-look-up hashes: \[\]."#,
+            r#" in the cache, the record could not be found. Dumping the remaining values. Pending payables: \[\]."#,
+            r#" Unproven failures: \[\]. All yet-to-look-up hashes: \[\]."#,
         ];
         let regex_str = regex_str_in_pieces.join("");
         let expected_msg_regex = Regex::new(&regex_str).unwrap();
         assert!(
             expected_msg_regex.is_match(panic_msg),
-            "Expected string that matches this regex '{}' \
-        but it couldn't with '{}'",
+            "Expected string that matches this regex '{}' but it couldn't with '{}'",
             regex_str,
             panic_msg
         );
