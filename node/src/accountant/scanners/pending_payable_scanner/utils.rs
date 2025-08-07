@@ -40,23 +40,23 @@ impl ReceiptScanReport {
         }
     }
 
-    fn register_confirmed_tx(&mut self, confirmation: NormalTxConfirmation) {
+    pub(super) fn register_confirmed_tx(&mut self, confirmation: NormalTxConfirmation) {
         self.confirmations.normal_confirmations.push(confirmation);
     }
 
-    fn register_failure_reclaim(&mut self, reclaim: TxReclaim) {
+    pub(super) fn register_failure_reclaim(&mut self, reclaim: TxReclaim) {
         self.confirmations.reclaims.push(reclaim)
     }
 
-    fn register_new_failure(&mut self, failed_tx: PresortedTxFailure) {
+    pub(super) fn register_new_failure(&mut self, failed_tx: PresortedTxFailure) {
         self.failures.tx_failures.push(failed_tx);
     }
 
-    fn register_finalization_of_unproven_failure(&mut self, tx_hash: TxHash) {
+    pub(super) fn register_finalization_of_unproven_failure(&mut self, tx_hash: TxHash) {
         todo!()
     }
 
-    fn register_rpc_failure(&mut self, status_update: FailedValidationByTable) {
+    pub(super) fn register_rpc_failure(&mut self, status_update: FailedValidationByTable) {
         self.failures.tx_receipt_rpc_failures.push(status_update);
     }
 }
@@ -262,146 +262,6 @@ pub enum TxByTable {
 pub enum TxHashByTable {
     SentPayable(TxHash),
     FailedPayable(TxHash),
-}
-
-pub fn elapsed_in_ms(timestamp: SystemTime) -> u128 {
-    timestamp
-        .elapsed()
-        .expect("time calculation for elapsed failed")
-        .as_millis()
-}
-
-pub fn handle_still_pending_tx(
-    mut scan_report: ReceiptScanReport,
-    tx: TxByTable,
-    sent_payable_dao: &dyn SentPayableDao,
-    logger: &Logger,
-) -> ReceiptScanReport {
-    match tx {
-        TxByTable::SentPayable(sent_tx) => {
-            info!(
-                logger,
-                "Tx {:?} not confirmed within {} ms. Will resubmit with higher gas price",
-                sent_tx.hash,
-                elapsed_in_ms(from_unix_timestamp(sent_tx.timestamp)).separate_with_commas()
-            );
-            let failed_tx = FailedTx::from((sent_tx, FailureReason::PendingTooLong));
-            scan_report.register_new_failure(PresortedTxFailure::NewEntry(failed_tx));
-        }
-        TxByTable::FailedPayable(failed_tx) => {
-            let replacement_tx = sent_payable_dao
-                .retrieve_txs(Some(RetrieveCondition::ByNonce(vec![failed_tx.nonce])));
-            error!(
-                logger,
-                "Failed tx on a recheck was found pending by its receipt. Unexpected behavior. \
-                Tx {:?} was supposed to be replaced by the newer {:?}",
-                failed_tx.hash,
-                replacement_tx
-                    .get(0)
-                    .unwrap_or_else(|| panic!(
-                        "Attempted to display a replacement tx for {:?} but couldn't find \
-                        one in the database",
-                        failed_tx.hash
-                    ))
-                    .hash
-            )
-        }
-    }
-    scan_report
-}
-
-pub fn handle_tx_confirmation(
-    mut scan_report: ReceiptScanReport,
-    tx: TxByTable,
-    tx_block: TransactionBlock,
-    logger: &Logger,
-) -> ReceiptScanReport {
-    match tx {
-        TxByTable::SentPayable(sent_tx) => {
-            info!(
-                logger,
-                "Pending tx {:?} was confirmed on the blockchain", sent_tx.hash,
-            );
-
-            let completed_sent_tx = SentTx {
-                status: TxStatus::Confirmed {
-                    block_hash: format!("{:?}", tx_block.block_hash),
-                    block_number: tx_block.block_number.as_u64(),
-                    detection: Detection::Normal,
-                },
-                ..sent_tx
-            };
-            let tx_confirmation = NormalTxConfirmation {
-                tx: completed_sent_tx,
-            };
-            scan_report.register_confirmed_tx(tx_confirmation);
-        }
-        TxByTable::FailedPayable(failed_tx) => {
-            info!(
-                logger,
-                "Failed tx {:?} was later confirmed on the blockchain and will be reclaimed",
-                failed_tx.hash
-            );
-
-            let sent_tx = SentTx::from((failed_tx, tx_block));
-            let reclaim = TxReclaim { reclaimed: sent_tx };
-            scan_report.register_failure_reclaim(reclaim);
-        }
-    }
-    scan_report
-}
-
-//TODO: failures handling might need enhancement suggested by GH-693
-pub fn handle_status_with_failure(
-    mut scan_report: ReceiptScanReport,
-    tx: TxByTable,
-    blockchain_failure: BlockchainTxFailure,
-    logger: &Logger,
-) -> ReceiptScanReport {
-    match tx {
-        TxByTable::SentPayable(sent_tx) => {
-            let failure_reason = FailureReason::from(blockchain_failure);
-            let failed_tx = FailedTx::from((sent_tx, failure_reason));
-
-            warning!(
-                logger,
-                "Pending tx {:?} failed on the blockchain due to: {}",
-                failed_tx.hash,
-                blockchain_failure
-            );
-
-            scan_report.register_new_failure(PresortedTxFailure::NewEntry(failed_tx));
-        }
-        TxByTable::FailedPayable(failed_tx) => {
-            debug!(
-                logger,
-                "Failed tx {:?} on a recheck after {}. Status will be changed to \
-            \"Concluded\" due to blockchain failure: {}",
-                failed_tx.hash,
-                failed_tx.reason,
-                blockchain_failure
-            );
-
-            scan_report.register_new_failure(PresortedTxFailure::RecheckCompleted(failed_tx.hash));
-        }
-    }
-    scan_report
-}
-
-pub fn handle_rpc_failure(
-    mut scan_report: ReceiptScanReport,
-    rpc_error: TxReceiptError,
-    logger: &Logger,
-) -> ReceiptScanReport {
-    warning!(
-        logger,
-        "Failed to retrieve tx receipt for {:?}: {:?}. Will retry receipt retrieval next cycle",
-        rpc_error.tx_hash,
-        rpc_error.err
-    );
-    let validation_status_update = FailedValidationByTable::from(rpc_error);
-    scan_report.register_rpc_failure(validation_status_update);
-    scan_report
 }
 
 impl From<BlockchainTxFailure> for FailureReason {
