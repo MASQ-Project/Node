@@ -36,7 +36,7 @@ use masq_lib::logger::Logger;
 use masq_lib::messages::{ScanType, ToMessageBody, UiScanResponse};
 use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::time::SystemTime;
 use thousands::Separable;
@@ -333,13 +333,16 @@ impl PendingPayableScanner {
         self.handle_normal_confirmations(confirmed_txs.normal_confirmations, logger);
     }
 
+    // TODO a single test for emptiness here
     fn handle_tx_failure_reclaims(&self, reclaimed: Vec<TxReclaim>, logger: &Logger) {
         if reclaimed.is_empty() {
             todo!()
         }
+
         todo!()
     }
 
+    // TODO a single test for emptiness here
     fn handle_normal_confirmations(
         &self,
         confirmed_txs: Vec<NormalTxConfirmation>,
@@ -348,6 +351,7 @@ impl PendingPayableScanner {
         if confirmed_txs.is_empty() {
             todo!()
         }
+
         todo!()
     }
 
@@ -430,34 +434,80 @@ impl PendingPayableScanner {
     }
 
     fn handle_tx_failures(&self, failures: Vec<PresortedTxFailure>, logger: &Logger) {
-        let (new_failures, rechecks_completed): (Vec<FailedTx>, Vec<TxHash>) =
-            failures.into_iter().fold(
-                (vec![], vec![]),
-                |(mut new_failures, mut rechecks_completed), failure| {
+        #[derive(Default)]
+        struct GroupedFailures {
+            new_failures: Vec<FailedTx>,
+            rechecks_completed: Vec<TxHash>,
+        }
+
+        let grouped_failures =
+            failures
+                .into_iter()
+                .fold(GroupedFailures::default(), |mut acc, failure| {
                     match failure {
                         PresortedTxFailure::NewEntry(failed_tx) => {
-                            todo!()
+                            acc.new_failures.push(failed_tx);
                         }
                         PresortedTxFailure::RecheckCompleted(hash) => {
                             todo!()
                         }
                     }
-                    (new_failures, rechecks_completed)
-                },
-            );
-        self.add_new_failures(new_failures, logger);
-        self.finalize_unproven_failures(rechecks_completed, logger);
+                    acc
+                });
+
+        self.add_new_failures(grouped_failures.new_failures, logger);
+        self.finalize_unproven_failures(grouped_failures.rechecks_completed, logger);
     }
 
+    // TODO a single test for emptiness here
     fn add_new_failures(&self, new_failures: Vec<FailedTx>, logger: &Logger) {
-        todo!()
+        fn prepare_hashset(failures: &[FailedTx]) -> HashSet<TxHash> {
+            failures.iter().map(|failure| failure.hash).collect()
+        }
+        fn log_procedure_finished(logger: &Logger, new_failures: &[FailedTx]) {
+            info!(
+                logger,
+                "Failed txs {:?} were processed in the db",
+                comma_joined_stringifiable(new_failures, |failure| format!("{:?}", failure.hash))
+            )
+        }
+
+        if new_failures.is_empty() {
+            todo!()
+        }
+
+        if let Err(e) = self.failed_payable_dao.insert_new_records(&new_failures) {
+            todo!()
+        }
+
+        match self
+            .sent_payable_dao
+            .delete_records(&prepare_hashset(&new_failures))
+        {
+            Ok(_) => {
+                log_procedure_finished(logger, &new_failures);
+            }
+            Err(_) => {
+                todo!()
+            }
+        }
     }
 
+    // TODO a single test for emptiness here
     fn finalize_unproven_failures(&self, rechecks_completed: Vec<TxHash>, logger: &Logger) {
+        if rechecks_completed.is_empty() {
+            todo!()
+        }
+
         todo!()
     }
 
+    // TODO a single test for emptiness here
     fn handle_rpc_failures(&self, failures: Vec<FailedValidationByTable>, logger: &Logger) {
+        if failures.is_empty() {
+            todo!()
+        }
+
         todo!()
     }
 
@@ -531,6 +581,7 @@ mod tests {
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use regex::Regex;
+    use std::fmt::format;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
@@ -660,7 +711,6 @@ mod tests {
 
         let result = subject.finish_scan(msg, &logger);
 
-        //TODO write db assertion for processing both records
         assert_eq!(
             result,
             PendingPayableScanResult::PaymentRetryRequired(Retry::RetryPayments)
@@ -834,6 +884,8 @@ mod tests {
 
     #[test]
     fn handle_failed_transactions_can_process_standard_tx_failures() {
+        init_test_logging();
+        let test_name = "handle_failed_transactions_can_process_standard_tx_failures";
         let insert_new_records_params_arc = Arc::new(Mutex::new(vec![]));
         let delete_records_params_arc = Arc::new(Mutex::new(vec![]));
         let failed_payable_dao = FailedPayableDaoMock::default()
@@ -860,7 +912,7 @@ mod tests {
             tx_receipt_rpc_failures: vec![],
         };
 
-        subject.handle_failed_transactions(detected_failures, &Logger::new("test"));
+        subject.handle_failed_transactions(detected_failures, &Logger::new(test_name));
 
         let insert_new_records_params = insert_new_records_params_arc.lock().unwrap();
         assert_eq!(
@@ -869,6 +921,10 @@ mod tests {
         );
         let delete_records_params = delete_records_params_arc.lock().unwrap();
         assert_eq!(*delete_records_params, vec![hashset![hash_1, hash_2]]);
+        TestLogHandler::new().exists_log_containing(&format!(
+            "INFO: {test_name}: Failed txs
+        bluh were processed in the db"
+        ));
     }
 
     #[test]
