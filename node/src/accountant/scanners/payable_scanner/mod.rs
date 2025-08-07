@@ -327,14 +327,14 @@ impl PayableScanner {
         })
     }
 
-    fn get_txs_to_retry(&self) -> Vec<FailedTx> {
+    fn get_txs_to_retry(&self) -> BTreeSet<FailedTx> {
         self.failed_payable_dao
             .retrieve_txs(Some(ByStatus(RetryRequired)))
     }
 
     fn find_corresponding_payables_in_db(
         &self,
-        txs_to_retry: &[FailedTx],
+        txs_to_retry: &BTreeSet<FailedTx>,
     ) -> HashMap<Address, PayableAccount> {
         let addresses = Self::filter_receiver_addresses(&txs_to_retry);
         self.payable_dao
@@ -344,7 +344,7 @@ impl PayableScanner {
             .collect()
     }
 
-    fn filter_receiver_addresses(txs_to_retry: &[FailedTx]) -> BTreeSet<Address> {
+    fn filter_receiver_addresses(txs_to_retry: &BTreeSet<FailedTx>) -> BTreeSet<Address> {
         txs_to_retry
             .iter()
             .map(|tx_to_retry| tx_to_retry.receiver_address)
@@ -354,7 +354,7 @@ impl PayableScanner {
     // We can also return UnpricedQualifiedPayable here
     fn generate_retry_tx_templates(
         payables_from_db: &HashMap<Address, PayableAccount>,
-        txs_to_retry: &[FailedTx],
+        txs_to_retry: &BTreeSet<FailedTx>,
     ) -> RetryTxTemplates {
         RetryTxTemplates(
             txs_to_retry

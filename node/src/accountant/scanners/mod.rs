@@ -616,7 +616,7 @@ mod tests {
     use regex::{Regex};
     use rusqlite::{ffi, ErrorCode};
     use std::cell::RefCell;
-    use std::collections::{HashMap, HashSet};
+    use std::collections::{BTreeSet, HashMap, HashSet};
     use std::ops::Sub;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::rc::Rc;
@@ -951,7 +951,7 @@ mod tests {
         let payable_dao =
             PayableDaoMock::new().non_pending_payables_result(all_non_pending_payables);
         let failed_payable_dao =
-            FailedPayableDaoMock::new().retrieve_txs_result(vec![failed_tx.clone()]);
+            FailedPayableDaoMock::new().retrieve_txs_result(BTreeSet::from([failed_tx.clone()]));
         let mut subject = make_dull_subject();
         let payable_scanner = PayableScannerBuilder::new()
             .payable_dao(payable_dao)
@@ -993,7 +993,8 @@ mod tests {
         );
         let payable_dao =
             PayableDaoMock::new().non_pending_payables_result(all_non_pending_payables);
-        let failed_payable_dao = FailedPayableDaoMock::default().retrieve_txs_result(vec![]);
+        let failed_payable_dao =
+            FailedPayableDaoMock::default().retrieve_txs_result(BTreeSet::new());
         let mut subject = make_dull_subject();
         let payable_scanner = PayableScannerBuilder::new()
             .payable_dao(payable_dao)
@@ -1136,7 +1137,8 @@ mod tests {
         init_test_logging();
         let test_name = "finish_payable_scan_changes_the_aware_of_unresolved_pending_payable_flag_as_true_when_pending_txs_found_in_retry_mode";
         let sent_payable_dao = SentPayableDaoMock::default().insert_new_records_result(Ok(()));
-        let failed_payable_dao = FailedPayableDaoMock::default().retrieve_txs_result(vec![]);
+        let failed_payable_dao =
+            FailedPayableDaoMock::default().retrieve_txs_result(BTreeSet::new());
         let payable_scanner = PayableScannerBuilder::new()
             .sent_payable_dao(sent_payable_dao)
             .failed_payable_dao(failed_payable_dao)

@@ -1138,7 +1138,7 @@ pub struct FailedPayableDaoMock {
     insert_new_records_params: Arc<Mutex<Vec<BTreeSet<FailedTx>>>>,
     insert_new_records_results: RefCell<Vec<Result<(), FailedPayableDaoError>>>,
     retrieve_txs_params: Arc<Mutex<Vec<Option<FailureRetrieveCondition>>>>,
-    retrieve_txs_results: RefCell<Vec<Vec<FailedTx>>>,
+    retrieve_txs_results: RefCell<Vec<BTreeSet<FailedTx>>>,
     update_statuses_params: Arc<Mutex<Vec<HashMap<TxHash, FailureStatus>>>>,
     update_statuses_results: RefCell<Vec<Result<(), FailedPayableDaoError>>>,
     delete_records_params: Arc<Mutex<Vec<BTreeSet<TxHash>>>>,
@@ -1162,7 +1162,7 @@ impl FailedPayableDao for FailedPayableDaoMock {
         self.insert_new_records_results.borrow_mut().remove(0)
     }
 
-    fn retrieve_txs(&self, condition: Option<FailureRetrieveCondition>) -> Vec<FailedTx> {
+    fn retrieve_txs(&self, condition: Option<FailureRetrieveCondition>) -> BTreeSet<FailedTx> {
         self.retrieve_txs_params.lock().unwrap().push(condition);
         self.retrieve_txs_results.borrow_mut().remove(0)
     }
@@ -1223,7 +1223,7 @@ impl FailedPayableDaoMock {
         self
     }
 
-    pub fn retrieve_txs_result(self, result: Vec<FailedTx>) -> Self {
+    pub fn retrieve_txs_result(self, result: BTreeSet<FailedTx>) -> Self {
         self.retrieve_txs_results.borrow_mut().push(result);
         self
     }

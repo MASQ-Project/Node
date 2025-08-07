@@ -129,7 +129,7 @@ mod tests {
             .insert_new_records_result(Ok(()));
         let sent_txs = vec![make_sent_tx(1), make_sent_tx(2)];
         let failed_txs = vec![make_failed_tx(1), make_failed_tx(2)];
-        let prev_failed_txs: Vec<FailedTx> = sent_txs
+        let prev_failed_txs: BTreeSet<FailedTx> = sent_txs
             .iter()
             .enumerate()
             .map(|(i, tx)| {
@@ -141,12 +141,6 @@ mod tests {
                     .build()
             })
             .collect();
-        let expected_status_updates = prev_failed_txs.iter().map(|tx| {
-            (
-                tx.hash,
-                FailureStatus::RecheckRequired(ValidationStatus::Waiting),
-            )
-        });
         let failed_paybale_dao = FailedPayableDaoMock::default()
             .update_statuses_params(&failed_payable_update_statuses_params_arc)
             .retrieve_txs_result(prev_failed_txs)

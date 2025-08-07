@@ -139,7 +139,7 @@ mod tests {
         let expected_addresses = BTreeSet::from([receiver_address_1, receiver_address_2]);
         let failed_payable_dao = FailedPayableDaoMock::new()
             .retrieve_txs_params(&retrieve_txs_params_arc)
-            .retrieve_txs_result(vec![failed_tx_1.clone(), failed_tx_2.clone()]);
+            .retrieve_txs_result(BTreeSet::from([failed_tx_1.clone(), failed_tx_2.clone()]));
         let payable_dao = PayableDaoMock::new()
             .non_pending_payables_params(&non_pending_payables_params_arc)
             .non_pending_payables_result(vec![payable_account_1.clone()]); // the second record is absent

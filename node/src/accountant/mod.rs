@@ -4937,7 +4937,7 @@ mod tests {
         let sent_payable_dao = SentPayableDaoMock::new()
             .insert_new_records_params(&inserted_new_records_params_arc)
             .insert_new_records_result(Ok(()));
-        let failed_payble_dao = FailedPayableDaoMock::new().retrieve_txs_result(vec![]);
+        let failed_payble_dao = FailedPayableDaoMock::new().retrieve_txs_result(BTreeSet::new());
         let system = System::new(
             "accountant_processes_sent_payables_with_retry_and_schedules_pending_payable_scanner",
         );

@@ -133,7 +133,7 @@ impl Display for FailureRetrieveCondition {
 pub trait FailedPayableDao {
     fn get_tx_identifiers(&self, hashes: &BTreeSet<TxHash>) -> TxIdentifiers;
     fn insert_new_records(&self, txs: &BTreeSet<FailedTx>) -> Result<(), FailedPayableDaoError>;
-    fn retrieve_txs(&self, condition: Option<FailureRetrieveCondition>) -> Vec<FailedTx>;
+    fn retrieve_txs(&self, condition: Option<FailureRetrieveCondition>) -> BTreeSet<FailedTx>;
     fn update_statuses(
         &self,
         status_updates: HashMap<TxHash, FailureStatus>,
@@ -261,7 +261,7 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
         }
     }
 
-    fn retrieve_txs(&self, condition: Option<FailureRetrieveCondition>) -> Vec<FailedTx> {
+    fn retrieve_txs(&self, condition: Option<FailureRetrieveCondition>) -> BTreeSet<FailedTx> {
         let raw_sql = "SELECT tx_hash, \
                               receiver_address, \
                               amount_high_b, \
@@ -454,7 +454,7 @@ mod tests {
 
         let retrieved_txs = subject.retrieve_txs(None);
         assert_eq!(result, Ok(()));
-        assert_eq!(retrieved_txs, vec![tx2, tx1]);
+        assert_eq!(retrieved_txs, BTreeSet::from([tx2, tx1]));
     }
 
     #[test]
@@ -754,7 +754,7 @@ mod tests {
 
         let result = subject.retrieve_txs(None);
 
-        assert_eq!(result, vec![tx4, tx3, tx2, tx1]);
+        assert_eq!(result, BTreeSet::from([tx4, tx3, tx2, tx1]));
     }
 
     #[test]
@@ -805,7 +805,7 @@ mod tests {
 
         let result = subject.retrieve_txs(Some(FailureRetrieveCondition::ByStatus(RetryRequired)));
 
-        assert_eq!(result, vec![tx2, tx1]);
+        assert_eq!(result, BTreeSet::from([tx2, tx1]));
     }
 
     #[test]
@@ -870,26 +870,30 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = FailedPayableDaoReal::new(wrapped_conn);
+        let hash1 = make_tx_hash(1);
+        let hash2 = make_tx_hash(2);
+        let hash3 = make_tx_hash(3);
+        let hash4 = make_tx_hash(4);
         let tx1 = FailedTxBuilder::default()
-            .hash(make_tx_hash(1))
+            .hash(hash1)
             .reason(Reverted)
             .status(RetryRequired)
             .nonce(4)
             .build();
         let tx2 = FailedTxBuilder::default()
-            .hash(make_tx_hash(2))
+            .hash(hash2)
             .reason(PendingTooLong)
             .status(RecheckRequired(ValidationStatus::Waiting))
             .nonce(3)
             .build();
         let tx3 = FailedTxBuilder::default()
-            .hash(make_tx_hash(3))
+            .hash(hash3)
             .reason(PendingTooLong)
             .status(RetryRequired)
             .nonce(2)
             .build();
         let tx4 = FailedTxBuilder::default()
-            .hash(make_tx_hash(4))
+            .hash(hash4)
             .reason(PendingTooLong)
             .status(RecheckRequired(ValidationStatus::Waiting))
             .nonce(1)
@@ -917,22 +921,26 @@ mod tests {
         let result = subject.update_statuses(hashmap);
 
         let updated_txs = subject.retrieve_txs(None);
+        let updated_tx1 = updated_txs.iter().find(|tx| tx.hash == hash1).unwrap();
+        let updated_tx2 = updated_txs.iter().find(|tx| tx.hash == hash2).unwrap();
+        let updated_tx3 = updated_txs.iter().find(|tx| tx.hash == hash3).unwrap();
+        let updated_tx4 = updated_txs.iter().find(|tx| tx.hash == hash4).unwrap();
         assert_eq!(result, Ok(()));
         assert_eq!(tx1.status, RetryRequired);
-        assert_eq!(updated_txs[0].status, Concluded);
+        assert_eq!(updated_tx1.status, Concluded);
         assert_eq!(tx2.status, RecheckRequired(ValidationStatus::Waiting));
         assert_eq!(
-            updated_txs[1].status,
+            updated_tx2.status,
             RecheckRequired(ValidationStatus::Reattempting {
                 attempt: 1,
                 error: AppRpcError::Remote(RemoteError::Unreachable)
             })
         );
         assert_eq!(tx3.status, RetryRequired);
-        assert_eq!(updated_txs[2].status, Concluded);
+        assert_eq!(updated_tx3.status, Concluded);
         assert_eq!(tx4.status, RecheckRequired(ValidationStatus::Waiting));
         assert_eq!(
-            updated_txs[3].status,
+            updated_tx4.status,
             RecheckRequired(ValidationStatus::Waiting)
         );
     }
@@ -1010,7 +1018,7 @@ mod tests {
 
         let remaining_records = subject.retrieve_txs(None);
         assert_eq!(result, Ok(()));
-        assert_eq!(remaining_records, vec![tx4, tx2]);
+        assert_eq!(remaining_records, BTreeSet::from([tx4, tx2]));
     }
 
     #[test]
