@@ -1,5 +1,6 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -12,7 +13,7 @@ use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock};
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use serde_derive::{Deserialize, Serialize};
-use crate::accountant::db_access_objects::failed_payable_dao::ValidationStatus;
+use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, ValidationStatus};
 use crate::accountant::db_access_objects::failed_payable_dao::{FailedPayableDao};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -24,7 +25,7 @@ pub enum SentPayableDaoError {
     SqlExecutionFailed(String),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Tx {
     pub hash: TxHash,
     pub receiver_address: Address,
@@ -33,6 +34,23 @@ pub struct Tx {
     pub gas_price_wei: u128,
     pub nonce: u64,
     pub status: TxStatus,
+}
+
+impl PartialOrd for Tx {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Tx {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // Descending Order
+        other
+            .timestamp
+            .cmp(&self.timestamp)
+            .then_with(|| other.nonce.cmp(&self.nonce))
+            .then_with(|| other.amount.cmp(&self.amount))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord)]
@@ -440,7 +458,7 @@ mod tests {
     use std::collections::{BTreeSet, HashMap, HashSet};
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-    use crate::accountant::db_access_objects::sent_payable_dao::{Detection, RetrieveCondition, SentPayableDao, SentPayableDaoError, SentPayableDaoReal, TxConfirmation, TxStatus};
+    use crate::accountant::db_access_objects::sent_payable_dao::{Detection, RetrieveCondition, SentPayableDao, SentPayableDaoError, SentPayableDaoReal, Tx, TxConfirmation, TxStatus};
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal,
     };
@@ -454,7 +472,7 @@ mod tests {
     use crate::accountant::db_access_objects::test_utils::{make_read_only_db_connection, TxBuilder};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock};
     use crate::blockchain::errors::{AppRpcError, RemoteError};
-    use crate::blockchain::test_utils::{make_block_hash, make_tx_hash};
+    use crate::blockchain::test_utils::{make_address, make_block_hash, make_tx_hash};
 
     #[test]
     fn insert_new_records_works() {
@@ -530,19 +548,21 @@ mod tests {
             result,
             Err(SentPayableDaoError::InvalidInput(
                 "Duplicate hashes found in the input. Input Transactions: \
-                {Tx { \
-                hash: 0x00000000000000000000000000000000000000000000000000000000000004d2, \
-                receiver_address: 0x0000000000000000000000000000000000000000, \
-                amount: 0, timestamp: 1749204017, gas_price_wei: 0, \
-                nonce: 0, status: Pending(Waiting) }, \
+                {\
                 Tx { \
                 hash: 0x00000000000000000000000000000000000000000000000000000000000004d2, \
                 receiver_address: 0x0000000000000000000000000000000000000000, \
                 amount: 0, timestamp: 1749204020, gas_price_wei: 0, \
                 nonce: 0, status: Confirmed { block_hash: \
                 \"0x000000000000000000000000000000000000000000000000000000003b9acbc8\", \
-                block_number: 7890123, detection: Reclaim } }}"
-                    .to_string()
+                block_number: 7890123, detection: Reclaim } }, \
+                Tx { \
+                hash: 0x00000000000000000000000000000000000000000000000000000000000004d2, \
+                receiver_address: 0x0000000000000000000000000000000000000000, \
+                amount: 0, timestamp: 1749204017, gas_price_wei: 0, \
+                nonce: 0, status: Pending(Waiting) }\
+                }"
+                .to_string()
             ))
         );
     }
@@ -1125,7 +1145,7 @@ mod tests {
         assert!(sql.contains("gas_price_wei_high_b = CASE"));
         assert!(sql.contains("gas_price_wei_low_b = CASE"));
         assert!(sql.contains("status = CASE"));
-        assert!(sql.contains("WHERE nonce IN (1, 2, 3)"));
+        assert!(sql.contains("WHERE nonce IN (3, 2, 1)"));
         assert!(sql.contains("WHEN nonce = 1 THEN '0x0000000000000000000000000000000000000000000000000000000000000001'"));
         assert!(sql.contains("WHEN nonce = 2 THEN '0x0000000000000000000000000000000000000000000000000000000000000002'"));
         assert!(sql.contains("WHEN nonce = 3 THEN '0x0000000000000000000000000000000000000000000000000000000000000003'"));
@@ -1296,5 +1316,44 @@ mod tests {
                 detection: tx_confirmation.detection,
             }
         )
+    }
+
+    #[test]
+    fn tx_ordering_works() {
+        let tx1 = Tx {
+            hash: make_tx_hash(1),
+            receiver_address: make_address(1),
+            amount: 100,
+            timestamp: 1000,
+            gas_price_wei: 10,
+            nonce: 1,
+            status: TxStatus::Pending(ValidationStatus::Waiting),
+        };
+        let tx2 = Tx {
+            hash: make_tx_hash(2),
+            receiver_address: make_address(2),
+            amount: 200,
+            timestamp: 1000,
+            gas_price_wei: 20,
+            nonce: 1,
+            status: TxStatus::Pending(ValidationStatus::Waiting),
+        };
+        let tx3 = Tx {
+            hash: make_tx_hash(3),
+            receiver_address: make_address(3),
+            amount: 100,
+            timestamp: 2000,
+            gas_price_wei: 30,
+            nonce: 2,
+            status: TxStatus::Pending(ValidationStatus::Waiting),
+        };
+
+        let mut set = BTreeSet::new();
+        set.insert(tx1.clone());
+        set.insert(tx2.clone());
+        set.insert(tx3.clone());
+
+        let expected_order = vec![tx3, tx2, tx1];
+        assert_eq!(set.into_iter().collect::<Vec<_>>(), expected_order);
     }
 }
