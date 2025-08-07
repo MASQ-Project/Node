@@ -80,7 +80,7 @@ pub enum ValidationStatus {
     Reattempting { attempt: usize, error: AppRpcError },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct FailedTx {
     pub hash: TxHash,
     pub receiver_address: Address,
@@ -90,6 +90,24 @@ pub struct FailedTx {
     pub nonce: u64,
     pub reason: FailureReason,
     pub status: FailureStatus,
+}
+
+// PartialOrd and Ord are used to create BTreeSet
+impl PartialOrd for FailedTx {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for FailedTx {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // Descending Order
+        other
+            .timestamp
+            .cmp(&self.timestamp)
+            .then_with(|| other.nonce.cmp(&self.nonce))
+            .then_with(|| other.amount.cmp(&self.amount))
+    }
 }
 
 impl FailedTx {
@@ -181,14 +199,6 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
             return Err(FailedPayableDaoError::EmptyInput);
         }
 
-        // Sorted by timestamp and nonce (in descending order)
-        let mut txs: Vec<&FailedTx> = txs.iter().collect();
-        txs.sort_by(|a, b| {
-            b.timestamp
-                .cmp(&a.timestamp)
-                .then_with(|| b.nonce.cmp(&a.nonce))
-        });
-
         let unique_hashes: BTreeSet<TxHash> = txs.iter().map(|tx| tx.hash).collect();
         if unique_hashes.len() != txs.len() {
             return Err(FailedPayableDaoError::InvalidInput(format!(
@@ -219,7 +229,7 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
              status
              ) VALUES {}",
             join_with_separator(
-                &txs,
+                txs,
                 |tx| {
                     let amount_checked = checked_conversion::<u128, i128>(tx.amount);
                     let gas_price_wei_checked = checked_conversion::<u128, i128>(tx.gas_price_wei);
@@ -243,7 +253,6 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
                 ", "
             )
         );
-        eprintln!("Insertion SQL: {}", sql);
 
         match self.conn.prepare(&sql).expect("Internal error").execute([]) {
             Ok(inserted_rows) => {
@@ -278,7 +287,6 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
             None => raw_sql,
             Some(condition) => format!("{} {}", raw_sql, condition),
         };
-        let sql = format!("{} ORDER BY timestamp DESC, nonce DESC", sql);
 
         let mut stmt = self
             .conn
@@ -502,7 +510,7 @@ mod tests {
             result,
             Err(FailedPayableDaoError::InvalidInput(
                 "Duplicate hashes found in the input. Input Transactions: \
-                [FailedTx { \
+                {FailedTx { \
                 hash: 0x000000000000000000000000000000000000000000000000000000000000007b, \
                 receiver_address: 0x0000000000000000000000000000000000000000, \
                 amount: 0, timestamp: 1719990000, gas_price_wei: 0, \
@@ -511,7 +519,7 @@ mod tests {
                 hash: 0x000000000000000000000000000000000000000000000000000000000000007b, \
                 receiver_address: 0x0000000000000000000000000000000000000000, \
                 amount: 0, timestamp: 1719990000, gas_price_wei: 0, \
-                nonce: 1, reason: PendingTooLong, status: RetryRequired }]"
+                nonce: 1, reason: PendingTooLong, status: RetryRequired }}"
                     .to_string()
             ))
         );
@@ -1099,5 +1107,42 @@ mod tests {
                 "attempt to write a readonly database".to_string()
             ))
         )
+    }
+
+    #[test]
+    fn failed_tx_ordering_in_btree_set_works() {
+        let tx1 = FailedTxBuilder::default()
+            .hash(make_tx_hash(1))
+            .timestamp(1000)
+            .nonce(1)
+            .amount(100)
+            .build();
+        let tx2 = FailedTxBuilder::default()
+            .hash(make_tx_hash(2))
+            .timestamp(1000)
+            .nonce(1)
+            .amount(200)
+            .build();
+        let tx3 = FailedTxBuilder::default()
+            .hash(make_tx_hash(3))
+            .timestamp(1000)
+            .nonce(2)
+            .amount(100)
+            .build();
+        let tx4 = FailedTxBuilder::default()
+            .hash(make_tx_hash(4))
+            .timestamp(2000)
+            .nonce(3)
+            .amount(100)
+            .build();
+
+        let mut set = BTreeSet::new();
+        set.insert(tx1.clone());
+        set.insert(tx2.clone());
+        set.insert(tx3.clone());
+        set.insert(tx4.clone());
+
+        let expected_order = vec![tx4, tx3, tx2, tx1];
+        assert_eq!(set.into_iter().collect::<Vec<_>>(), expected_order);
     }
 }

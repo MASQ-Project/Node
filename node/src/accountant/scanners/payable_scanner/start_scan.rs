@@ -166,7 +166,7 @@ mod tests {
 
             let tx_template_2 = RetryTxTemplate::from(&failed_tx_2);
 
-            RetryTxTemplates(vec![tx_template_1, tx_template_2])
+            RetryTxTemplates(vec![tx_template_2, tx_template_1])
         };
         assert_eq!(
             result,
