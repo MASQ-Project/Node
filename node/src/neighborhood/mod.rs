@@ -64,7 +64,11 @@ use masq_lib::constants::{EXIT_COUNTRY_MISSING_COUNTRIES_ERROR, PAYLOAD_ZERO_SIZ
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::exit_locations::ExitLocationSet;
 use masq_lib::logger::Logger;
-use masq_lib::messages::{ExitLocation, FromMessageBody, ToMessageBody, UiConnectionStage, UiConnectionStatusRequest, UiGetNeighborhoodGraphRequest, UiGetNeighborhoodGraphResponse, UiSetExitLocationRequest, UiSetExitLocationResponse};
+use masq_lib::messages::{
+    ExitLocation, FromMessageBody, ToMessageBody, UiConnectionStage, UiConnectionStatusRequest,
+    UiGetNeighborhoodGraphRequest, UiGetNeighborhoodGraphResponse, UiSetExitLocationRequest,
+    UiSetExitLocationResponse,
+};
 use masq_lib::messages::{UiConnectionStatusResponse, UiShutdownRequest};
 use masq_lib::ui_gateway::MessagePath::Conversation;
 use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
@@ -1610,13 +1614,11 @@ impl Neighborhood {
         undesirability + node_undesirability
     }
 
-    fn handle_neighborhood_graph_message(&self, client_id: u64, context_id: u64 ) {
+    fn handle_neighborhood_graph_message(&self, client_id: u64, context_id: u64) {
         let graph = self.neighborhood_database.to_dot_graph();
         let message = NodeToUiMessage {
             target: MessageTarget::ClientId(client_id),
-            body: UiGetNeighborhoodGraphResponse {
-                graph
-            }.tmb(context_id),
+            body: UiGetNeighborhoodGraphResponse { graph }.tmb(context_id),
         };
         self.node_to_ui_recipient_opt
             .as_ref()
@@ -2195,7 +2197,6 @@ mod tests {
     use std::thread;
     use std::time::Duration;
     use std::time::Instant;
-    use serde_derive::{Deserialize, Serialize};
     use tokio::prelude::Future;
 
     use masq_lib::constants::{DEFAULT_CHAIN, TLS_PORT};
@@ -2203,7 +2204,7 @@ mod tests {
         CountryGroups, ToMessageBody, UiConnectionChangeBroadcast, UiConnectionStage,
     };
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
-    use masq_lib::ui_gateway::{MessageBody};
+    use masq_lib::ui_gateway::MessageBody;
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_gateway::MessageTarget;
     use masq_lib::utils::running_test;
@@ -3710,7 +3711,12 @@ mod tests {
         system.run();
 
         let recorder_result = arc_recorder.lock().unwrap();
-        let result = recorder_result.get_record::<NodeToUiMessage>(0).body.clone().payload.unwrap();
+        let result = recorder_result
+            .get_record::<NodeToUiMessage>(0)
+            .body
+            .clone()
+            .payload
+            .unwrap();
         let result_object: UiGetNeighborhoodGraphResponse = serde_json::from_str(&result).unwrap();
         assert!(result_object.graph.contains(&root_pubkey));
         assert!(result_object.graph.contains(&neighbor_one_pubkey));

@@ -1,12 +1,16 @@
-use std::sync::{Arc, Mutex};
 use clap::{App, SubCommand};
 use masq_lib::{as_any_ref_in_trait_impl, short_writeln};
+use std::sync::{Arc, Mutex};
 
-use masq_lib::messages::{ToMessageBody, UiGetNeighborhoodGraphRequest, UiGetNeighborhoodGraphResponse};
 use crate::command_context::CommandContext;
-use crate::commands::commands_common::{Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS, transaction};
 use crate::commands::commands_common::CommandError::Payload;
+use crate::commands::commands_common::{
+    transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
+};
 use crate::test_utils::mocks::CommandContextMock;
+use masq_lib::messages::{
+    ToMessageBody, UiGetNeighborhoodGraphRequest, UiGetNeighborhoodGraphResponse,
+};
 
 const NEIGHBORHOOD_GRAPH_HELP: &str = "";
 
@@ -29,7 +33,8 @@ impl GetNeighborhoodGraphCommand {
 impl Command for GetNeighborhoodGraphCommand {
     fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
         let input = UiGetNeighborhoodGraphRequest {};
-        let output: Result<UiGetNeighborhoodGraphResponse, CommandError> = transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS);
+        let output: Result<UiGetNeighborhoodGraphResponse, CommandError> =
+            transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS);
         match output {
             Ok(neigoborhood_graph) => {
                 short_writeln!(
@@ -38,7 +43,7 @@ impl Command for GetNeighborhoodGraphCommand {
                     neigoborhood_graph.graph.as_str()
                 );
                 Ok(())
-            },
+            }
             Err(Payload(code, message)) => {
                 short_writeln!(context.stderr(), "code: {}\nmessage: {}", code, message);
                 Err(Payload(code, message))
@@ -63,9 +68,7 @@ fn can_deserialize_ui_get_neighborhood_graph() {
         }.tmb(0)));
     let stderr_arc = context.stderr_arc();
     let stdout_arc = context.stdout_arc();
-    let subject = GetNeighborhoodGraphCommand::new(&[
-        "neighborhood-graph".to_string(),
-    ]).unwrap();
+    let subject = GetNeighborhoodGraphCommand::new(&["neighborhood-graph".to_string()]).unwrap();
 
     let result = subject.execute(&mut context);
 
@@ -79,8 +82,7 @@ fn can_deserialize_ui_get_neighborhood_graph() {
     );
     let stdout = stdout_arc.lock().unwrap();
     let graph_str = "Graph of the Neighborhood: digraph db { \"AQIDBA\" [label=\"AR v0 AU\\nAQIDBA\\n1.2.3.4:1234\"]; \"HZ5vwwJPhfUZVy85E76GZUUam9SMgyaw+QaZvAMuizo\" [label=\"AR v0 ZZ\\nHZ5vwwJP\\n9.9.9.9:9999\"] [style=filled]; \"AgMEBQ\" [label=\"AR v0 FR\\nAgMEBQ\\n2.3.4.5:2345\"]; \"AwQFBg\" [label=\"AR v0 CN\\nAwQFBg\\n3.4.5.6:3456\"]; \"BAUGBw\" [label=\"AR v0 US\\nBAUGBw\\n4.5.6.7:4567\"]; \"AQIDBA\" -> \"HZ5vwwJPhfUZVy85E76GZUUam9SMgyaw+QaZvAMuizo\"; \"AQIDBA\" -> \"AgMEBQ\"; \"HZ5vwwJPhfUZVy85E76GZUUam9SMgyaw+QaZvAMuizo\" -> \"AQIDBA\"; \"AgMEBQ\" -> \"AwQFBg\"; \"AgMEBQ\" -> \"AQIDBA\"; \"AwQFBg\" -> \"BAUGBw\"; \"AwQFBg\" -> \"AgMEBQ\"; \"BAUGBw\" -> \"AwQFBg\"; }\n";
-    assert_eq!(&stdout.get_string(),  graph_str);
+    assert_eq!(&stdout.get_string(), graph_str);
     let stderr = stderr_arc.lock().unwrap();
     assert_eq!(&stderr.get_string(), "");
-
 }
