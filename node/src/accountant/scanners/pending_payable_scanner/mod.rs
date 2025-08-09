@@ -4,19 +4,19 @@ mod tx_receipt_interpreter;
 pub mod utils;
 
 use crate::accountant::db_access_objects::failed_payable_dao::{
-    FailedPayableDao, FailedTx, FailureRetrieveCondition,
+    FailedPayableDao, FailedTx, FailureRetrieveCondition, FailureStatus,
 };
 use crate::accountant::db_access_objects::payable_dao::{PayableDao, PayableDaoError};
 use crate::accountant::db_access_objects::sent_payable_dao::{
-    RetrieveCondition, SentPayableDao, SentPayableDaoError, SentTx,
+    RetrieveCondition, SentPayableDao, SentPayableDaoError, SentTx, TxStatus,
 };
 use crate::accountant::db_access_objects::utils::{TxHash, TxRecordWithHash};
 use crate::accountant::scanners::pending_payable_scanner::tx_receipt_interpreter::TxReceiptInterpreter;
 use crate::accountant::scanners::pending_payable_scanner::utils::{
-    CurrentPendingPayables, DetectedConfirmations, DetectedFailures, FailedValidationByTable,
-    MismatchReport, NormalTxConfirmation, PendingPayableCache, PendingPayableScanResult,
-    PresortedTxFailure, ReceiptScanReport, RecheckRequiringFailures, Retry, TxByTable,
-    TxCaseToBeInterpreted, TxHashByTable, TxReclaim,
+    CurrentPendingPayables, DetectedConfirmations, DetectedFailures, FailedValidation,
+    FailedValidationByTable, MismatchReport, NormalTxConfirmation, PendingPayableCache,
+    PendingPayableScanResult, PresortedTxFailure, ReceiptScanReport, RecheckRequiringFailures,
+    Retry, TxByTable, TxCaseToBeInterpreted, TxHashByTable, TxReclaim, UpdatableValidationStatus,
 };
 use crate::accountant::scanners::{
     PrivateScanner, Scanner, ScannerCommon, StartScanError, StartableScanner,
@@ -37,6 +37,7 @@ use masq_lib::messages::{ScanType, ToMessageBody, UiScanResponse};
 use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::fmt::Display;
 use std::rc::Rc;
 use std::time::SystemTime;
 use thousands::Separable;
@@ -84,8 +85,8 @@ impl StartableScanner<ScanForPendingPayables, RequestTransactionReceipts>
         }
 
         Self::log_records_found_for_receipt_check(
-            &pending_tx_hashes_opt,
-            &failure_hashes_opt,
+            pending_tx_hashes_opt.as_ref(),
+            failure_hashes_opt.as_ref(),
             logger,
         );
 
@@ -134,12 +135,6 @@ impl PendingPayableScanner {
         payment_thresholds: Rc<PaymentThresholds>,
         financial_statistics: Rc<RefCell<FinancialStatistics>>,
     ) -> Self {
-        // let yet_unproven_failed_payables = RecheckRequiringFailures::new(
-        //     failed_payable_dao.retrieve_txs(Some(FailureRetrieveCondition::ByStatus(
-        //         todo!(), //FailureRetrieveCondition::EveryRecheckRequiredRecord
-        //     ))),
-        // );
-
         Self {
             common: ScannerCommon::new(payment_thresholds),
             payable_dao,
@@ -233,7 +228,7 @@ impl PendingPayableScanner {
         let either = msg
             .results
             .into_iter()
-            .fold(init, |mut acc, receipt_result| match acc {
+            .fold(init, |acc, receipt_result| match acc {
                 Either::Left(cases) => {
                     let tx_hash = receipt_result.hash();
 
@@ -333,26 +328,39 @@ impl PendingPayableScanner {
         self.handle_normal_confirmations(confirmed_txs.normal_confirmations, logger);
     }
 
-    // TODO a single test for emptiness here
     fn handle_tx_failure_reclaims(&self, reclaimed: Vec<TxReclaim>, logger: &Logger) {
         if reclaimed.is_empty() {
-            todo!()
+            return;
         }
 
         todo!()
     }
 
-    // TODO a single test for emptiness here
     fn handle_normal_confirmations(
         &self,
         confirmed_txs: Vec<NormalTxConfirmation>,
         logger: &Logger,
     ) {
         if confirmed_txs.is_empty() {
-            todo!()
+            return;
         }
 
         todo!()
+        // if !confirmed_txs.is_empty() {
+        //     if let Err(e) = self.payable_dao.transactions_confirmed(&confirmed_txs) {
+        //         Self::transaction_confirmed_panic(&confirmed_txs, e)
+        //     } else {
+        //         self.add_to_the_total_of_paid_payable(&confirmed_txs, logger);
+        //
+        //         let tx_confirmations = Self::compose_tx_confirmation_inputs(&confirmed_txs);
+        //
+        //         if let Err(e) = self.sent_payable_dao.confirm_tx(&tx_confirmations) {
+        //             Self::update_tx_blocks_panic(&tx_confirmations, e)
+        //         } else {
+        //             Self::log_tx_success(logger, &tx_confirmations);
+        //         }
+        //     }
+        // }
     }
 
     fn compose_tx_confirmation_inputs(
@@ -459,7 +467,6 @@ impl PendingPayableScanner {
         self.finalize_unproven_failures(grouped_failures.rechecks_completed, logger);
     }
 
-    // TODO a single test for emptiness here
     fn add_new_failures(&self, new_failures: Vec<FailedTx>, logger: &Logger) {
         fn prepare_hashset(failures: &[FailedTx]) -> HashSet<TxHash> {
             failures.iter().map(|failure| failure.hash).collect()
@@ -467,17 +474,21 @@ impl PendingPayableScanner {
         fn log_procedure_finished(logger: &Logger, new_failures: &[FailedTx]) {
             info!(
                 logger,
-                "Failed txs {:?} were processed in the db",
+                "Failed txs {} were processed in the db",
                 comma_joined_stringifiable(new_failures, |failure| format!("{:?}", failure.hash))
             )
         }
 
         if new_failures.is_empty() {
-            todo!()
+            return;
         }
 
         if let Err(e) = self.failed_payable_dao.insert_new_records(&new_failures) {
-            todo!()
+            panic!(
+                "Unable to persist failed txs {} due to {:?}",
+                comma_joined_stringifiable(&new_failures, |failure| format!("{:?}", failure.hash)),
+                e
+            )
         }
 
         match self
@@ -487,28 +498,123 @@ impl PendingPayableScanner {
             Ok(_) => {
                 log_procedure_finished(logger, &new_failures);
             }
-            Err(_) => {
-                todo!()
+            Err(e) => {
+                panic!(
+                    "Unable to purge sent payable records for failed txs {} due to {:?}",
+                    comma_joined_stringifiable(&new_failures, |failure| format!(
+                        "{:?}",
+                        failure.hash
+                    )),
+                    e
+                )
             }
         }
     }
 
-    // TODO a single test for emptiness here
     fn finalize_unproven_failures(&self, rechecks_completed: Vec<TxHash>, logger: &Logger) {
         if rechecks_completed.is_empty() {
-            todo!()
+            return;
         }
 
         todo!()
     }
 
-    // TODO a single test for emptiness here
     fn handle_rpc_failures(&self, failures: Vec<FailedValidationByTable>, logger: &Logger) {
         if failures.is_empty() {
-            todo!()
+            return;
         }
 
-        todo!()
+        let (sent_payable_failures, failed_payable_failures): (
+            Vec<FailedValidation<TxStatus>>,
+            Vec<FailedValidation<FailureStatus>>,
+        ) = failures.into_iter().partition_map(|failure| match failure {
+            FailedValidationByTable::SentPayable(failed_validation) => {
+                Either::Left(failed_validation)
+            }
+            FailedValidationByTable::FailedPayable(failed_validation) => {
+                Either::Right(failed_validation)
+            }
+        });
+
+        self.update_validation_status_for_sent_txs(sent_payable_failures, logger);
+
+        self.update_validation_status_for_failed_txs(failed_payable_failures, logger);
+    }
+
+    fn update_validation_status_for_sent_txs(
+        &self,
+        sent_payable_failures: Vec<FailedValidation<TxStatus>>,
+        logger: &Logger,
+    ) {
+        if !sent_payable_failures.is_empty() {
+            let updatable = Self::prepare_statuses_for_update(&sent_payable_failures, logger);
+            if !updatable.is_empty() {
+                match self.sent_payable_dao.update_statuses(&updatable) {
+                    Ok(_) => {
+                        info!(logger, "Pending-tx statuses were processed in the db for validation failure of txs {}", comma_joined_stringifiable(&sent_payable_failures, |failure|{
+                    format!("{:?}", failure.tx_hash)
+                }))
+                    }
+                    Err(_) => {
+                        todo!()
+                    }
+                }
+            }
+        }
+    }
+
+    fn update_validation_status_for_failed_txs(
+        &self,
+        failed_txs_validation_failures: Vec<FailedValidation<FailureStatus>>,
+        logger: &Logger,
+    ) {
+        if !failed_txs_validation_failures.is_empty() {
+            let updatable =
+                Self::prepare_statuses_for_update(&failed_txs_validation_failures, logger);
+            if !updatable.is_empty() {
+                match self.failed_payable_dao.update_statuses(&updatable) {
+                    Ok(_) => {
+                        info!(logger, "Failed-tx statuses were processed in the db for validation failure of txs {}", comma_joined_stringifiable(&failed_txs_validation_failures, |failure|{
+                    format!("{:?}", failure.tx_hash)
+                }))
+                    }
+                    Err(_) => {
+                        todo!()
+                    }
+                }
+            }
+        }
+    }
+
+    fn prepare_statuses_for_update<Status: UpdatableValidationStatus + Display>(
+        failures: &[FailedValidation<Status>],
+        logger: &Logger,
+    ) -> HashMap<TxHash, Status> {
+        failures
+            .iter()
+            .flat_map(|failure| {
+                failure
+                    .new_status()
+                    .map(|tx_status| (failure.tx_hash, tx_status))
+                    .or_else(|| {
+                        debug!(
+                            logger,
+                            "{}",
+                            PendingPayableScanner::status_not_updatable_log_msg(
+                                &failure.current_status
+                            )
+                        );
+                        None
+                    })
+            })
+            .collect()
+    }
+
+    fn status_not_updatable_log_msg(status: &dyn Display) -> String {
+        format!(
+            "Handling a validation failure, but the status {} cannot be updated.",
+            status
+        )
     }
 
     fn compose_scan_result(
@@ -527,21 +633,19 @@ impl PendingPayableScanner {
     }
 
     fn log_records_found_for_receipt_check(
-        pending_tx_hashes_opt: &Option<Vec<TxHashByTable>>,
-        failure_hashes_opt: &Option<Vec<TxHashByTable>>,
+        pending_tx_hashes_opt: Option<&Vec<TxHashByTable>>,
+        failure_hashes_opt: Option<&Vec<TxHashByTable>>,
         logger: &Logger,
     ) {
+        fn resolve_optional_vec(vec_opt: Option<&Vec<TxHashByTable>>) -> usize {
+            vec_opt.map(|hashes| hashes.len()).unwrap_or_default()
+        }
+
         debug!(
             logger,
             "Found {} pending payables and {} unfinalized failures to be checked",
-            pending_tx_hashes_opt
-                .as_ref()
-                .map(|hashes| hashes.len())
-                .unwrap_or_default(),
-            failure_hashes_opt
-                .as_ref()
-                .map(|hashes| hashes.len())
-                .unwrap_or_default(),
+            resolve_optional_vec(pending_tx_hashes_opt),
+            resolve_optional_vec(failure_hashes_opt)
         );
     }
 }
@@ -922,19 +1026,22 @@ mod tests {
         let delete_records_params = delete_records_params_arc.lock().unwrap();
         assert_eq!(*delete_records_params, vec![hashset![hash_1, hash_2]]);
         TestLogHandler::new().exists_log_containing(&format!(
-            "INFO: {test_name}: Failed txs
-        bluh were processed in the db"
+            "INFO: {test_name}: Failed txs 0x0000000000000000000000000000000000000000000000000000000000000321, \
+            0x0000000000000000000000000000000000000000000000000000000000000654 were processed in the db"
         ));
     }
 
     #[test]
     fn handle_failed_transactions_can_process_receipt_retrieval_rpc_failures() {
+        init_test_logging();
+        let test_name = "handle_failed_transactions_can_process_receipt_retrieval_rpc_failures";
         let retrieve_failed_txs_params_arc = Arc::new(Mutex::new(vec![]));
-        let update_status_params_arc = Arc::new(Mutex::new(vec![]));
+        let update_statuses_sent_tx_params_arc = Arc::new(Mutex::new(vec![]));
         let retrieve_sent_txs_params_arc = Arc::new(Mutex::new(vec![]));
-        let replace_records_params_arc = Arc::new(Mutex::new(vec![]));
+        let update_statuses_failed_tx_params_arc = Arc::new(Mutex::new(vec![]));
         let hash_1 = make_tx_hash(0x321);
         let hash_2 = make_tx_hash(0x654);
+        let hash_3 = make_tx_hash(0x987);
         let mut failed_tx_1 = make_failed_tx(123);
         failed_tx_1.hash = hash_1;
         failed_tx_1.status = FailureStatus::RecheckRequired(ValidationStatus::Waiting);
@@ -947,17 +1054,16 @@ mod tests {
         let failed_payable_dao = FailedPayableDaoMock::default()
             .retrieve_txs_params(&retrieve_failed_txs_params_arc)
             .retrieve_txs_result(vec![failed_tx_1, failed_tx_2])
-            .update_statuses_params(&update_status_params_arc)
+            .update_statuses_params(&update_statuses_sent_tx_params_arc)
             .update_statuses_result(Ok(()));
-        let hash_3 = make_tx_hash(0x987);
         let mut sent_tx = make_sent_tx(789);
         sent_tx.hash = hash_3;
         sent_tx.status = TxStatus::Pending(ValidationStatus::Waiting);
         let sent_payable_dao = SentPayableDaoMock::default()
             .retrieve_txs_params(&retrieve_sent_txs_params_arc)
             .retrieve_txs_result(vec![sent_tx.clone()])
-            .replace_records_params(&replace_records_params_arc)
-            .replace_records_result(Ok(()));
+            .update_statuses_params(&update_statuses_failed_tx_params_arc)
+            .update_statuses_result(Ok(()));
         let subject = PendingPayableScannerBuilder::new()
             .sent_payable_dao(sent_payable_dao)
             .failed_payable_dao(failed_payable_dao)
@@ -965,33 +1071,32 @@ mod tests {
         let detected_failures = DetectedFailures {
             tx_failures: vec![],
             tx_receipt_rpc_failures: vec![
-                FailedValidationByTable::FailedPayable(FailedValidation {
-                    tx_hash: hash_1,
-                    failure: AppRpcError::Remote(RemoteError::Unreachable),
-                }),
-                FailedValidationByTable::FailedPayable(FailedValidation {
-                    tx_hash: hash_2,
-                    failure: AppRpcError::Local(LocalError::Internal),
-                }),
-                FailedValidationByTable::SentPayable(FailedValidation {
-                    tx_hash: hash_1,
-                    failure: AppRpcError::Remote(RemoteError::InvalidResponse("Booga".to_string())),
-                }),
+                FailedValidationByTable::FailedPayable(FailedValidation::new(
+                    hash_1,
+                    AppRpcError::Remote(RemoteError::Unreachable),
+                    FailureStatus::RecheckRequired(ValidationStatus::Waiting),
+                )),
+                FailedValidationByTable::FailedPayable(FailedValidation::new(
+                    hash_2,
+                    AppRpcError::Local(LocalError::Internal),
+                    FailureStatus::RecheckRequired(ValidationStatus::Reattempting {
+                        attempt: 1,
+                        error: AppRpcError::Local(LocalError::Internal),
+                    }),
+                )),
+                FailedValidationByTable::SentPayable(FailedValidation::new(
+                    hash_3,
+                    AppRpcError::Remote(RemoteError::InvalidResponse("Booga".to_string())),
+                    TxStatus::Pending(ValidationStatus::Waiting),
+                )),
             ],
         };
 
-        subject.handle_failed_transactions(detected_failures, &Logger::new("test"));
+        subject.handle_failed_transactions(detected_failures, &Logger::new(test_name));
 
-        let retrieve_failed_txs_params = retrieve_failed_txs_params_arc.lock().unwrap();
+        let update_statuses_sent_tx_params = update_statuses_sent_tx_params_arc.lock().unwrap();
         assert_eq!(
-            *retrieve_failed_txs_params,
-            vec![Some(FailureRetrieveCondition::ByTxHash(vec![
-                hash_1, hash_2
-            ]))]
-        );
-        let update_status_params = update_status_params_arc.lock().unwrap();
-        assert_eq!(
-            *update_status_params,
+            *update_statuses_sent_tx_params,
             vec![hashmap!(
                 hash_1 => FailureStatus::RecheckRequired(
                     ValidationStatus::Reattempting {
@@ -1007,18 +1112,81 @@ mod tests {
                 )
             )]
         );
-        let retrieve_sent_txs_params = retrieve_sent_txs_params_arc.lock().unwrap();
+        let update_statuses_failed_tx_params = update_statuses_failed_tx_params_arc.lock().unwrap();
         assert_eq!(
-            *retrieve_sent_txs_params,
-            vec![Some(RetrieveCondition::ByHash(vec![hash_3]))]
+            *update_statuses_failed_tx_params,
+            vec![
+                hashmap![hash_3 => TxStatus::Pending(ValidationStatus::Reattempting {
+                    attempt: 1,
+                    error: AppRpcError::Remote(RemoteError::InvalidResponse("Booga".to_string())),
+                })]
+            ]
         );
-        let replace_records_params = replace_records_params_arc.lock().unwrap();
-        let mut expected_updated_record = sent_tx;
-        expected_updated_record.status = TxStatus::Pending(ValidationStatus::Reattempting {
-            attempt: 1,
-            error: AppRpcError::Remote(RemoteError::InvalidResponse("Booga".to_string())),
-        });
-        assert_eq!(*replace_records_params, vec![vec![expected_updated_record]]);
+        let test_log_handler = TestLogHandler::new();
+        test_log_handler.exists_log_containing(&format!(
+            "INFO: {test_name}: Pending-tx statuses were processed in the db for validation failure \
+            of txs 0x0000000000000000000000000000000000000000000000000000000000000987"
+        ));
+        test_log_handler.exists_log_containing(&format!(
+            "INFO: {test_name}: Failed-tx statuses were processed in the db for validation failure \
+            of txs 0x0000000000000000000000000000000000000000000000000000000000000321, \
+            0x0000000000000000000000000000000000000000000000000000000000000654"
+        ));
+        let expectedly_missing_log_msg_fragment = "Handling a validation failure, but the status";
+        let otherwise_possible_log_msg =
+            PendingPayableScanner::status_not_updatable_log_msg(&"Something");
+        assert!(
+            otherwise_possible_log_msg.contains(expectedly_missing_log_msg_fragment),
+            "We expected to select a true log fragment '{}', but it is not included in '{}'",
+            expectedly_missing_log_msg_fragment,
+            otherwise_possible_log_msg
+        );
+        test_log_handler.exists_no_log_containing(&format!(
+            "DEBUG: {test_name}: {}",
+            expectedly_missing_log_msg_fragment
+        ))
+    }
+
+    #[test]
+    fn handle_rpc_failures_when_requested_for_a_status_which_cannot_be_updated() {
+        init_test_logging();
+        let test_name = "handle_rpc_failures_when_requested_for_a_status_which_cannot_be_updated";
+        let hash_1 = make_tx_hash(0x321);
+        let hash_2 = make_tx_hash(0x654);
+        let subject = PendingPayableScannerBuilder::new().build();
+
+        subject.handle_rpc_failures(
+            vec![
+                FailedValidationByTable::FailedPayable(FailedValidation::new(
+                    hash_1,
+                    AppRpcError::Remote(RemoteError::Unreachable),
+                    FailureStatus::RetryRequired,
+                )),
+                FailedValidationByTable::SentPayable(FailedValidation::new(
+                    hash_2,
+                    AppRpcError::Remote(RemoteError::InvalidResponse("Booga".to_string())),
+                    TxStatus::Confirmed {
+                        block_hash: "abc".to_string(),
+                        block_number: 0,
+                        detection: Detection::Normal,
+                    },
+                )),
+            ],
+            &Logger::new(test_name),
+        );
+
+        let test_log_handler = TestLogHandler::new();
+        test_log_handler.exists_no_log_containing(&format!("INFO: {test_name}: "));
+        test_log_handler.exists_log_containing(&format!(
+            "DEBUG: {test_name}: Handling a validation failure, but the status \
+            {{\"Confirmed\":{{\"block_hash\":\"abc\",\"block_number\":0,\"detection\":\"Normal\"}}}} cannot be updated.",
+        ));
+        test_log_handler.exists_log_containing(&format!(
+            "DEBUG: {test_name}: Handling a validation failure, but the status \"RetryRequired\" \
+            cannot be updated."
+        ));
+        // It didn't panic, which means none of the DAO methods was called because the DAOs are
+        // mocked in this test
     }
 
     #[test]
@@ -1049,10 +1217,13 @@ mod tests {
             .build();
         let detected_failures = DetectedFailures {
             tx_failures: vec![PresortedTxFailure::NewEntry(failed_tx_1)],
-            tx_receipt_rpc_failures: vec![FailedValidationByTable::SentPayable(FailedValidation {
-                tx_hash: hash_1,
-                failure: AppRpcError::Local(LocalError::Internal),
-            })],
+            tx_receipt_rpc_failures: vec![FailedValidationByTable::SentPayable(
+                FailedValidation::new(
+                    hash_1,
+                    AppRpcError::Local(LocalError::Internal),
+                    TxStatus::Pending(ValidationStatus::Waiting),
+                ),
+            )],
         };
 
         subject.handle_failed_transactions(detected_failures, &Logger::new("test"));
@@ -1078,7 +1249,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Unable to record failed payables \
+    #[should_panic(expected = "Unable to persist failed txs \
         0x000000000000000000000000000000000000000000000000000000000000014d, \
         0x00000000000000000000000000000000000000000000000000000000000001bc due to NoChange")]
     fn handle_failed_transactions_panics_when_it_fails_to_insert_failed_tx_record() {
@@ -1105,7 +1276,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Unable to delete sent_payable entries for failed txs \
+    #[should_panic(expected = "Unable to purge sent payable records for failed txs \
         0x000000000000000000000000000000000000000000000000000000000000014d, \
         0x00000000000000000000000000000000000000000000000000000000000001bc due to \
         InvalidInput(\"Booga\")")]

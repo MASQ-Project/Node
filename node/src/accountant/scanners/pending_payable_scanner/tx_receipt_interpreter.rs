@@ -59,7 +59,7 @@ impl TxReceiptInterpreter {
                         ),
                     },
                     TxReceiptResult(Err(e)) => {
-                        Self::handle_rpc_failure(scan_report_so_far, e, logger)
+                        Self::handle_rpc_failure(scan_report_so_far, tx_case.tx_by_table, e, logger)
                     }
                 }
             })
@@ -193,6 +193,7 @@ impl TxReceiptInterpreter {
 
     fn handle_rpc_failure(
         mut scan_report: ReceiptScanReport,
+        tx_by_table: TxByTable,
         rpc_error: TxReceiptError,
         logger: &Logger,
     ) -> ReceiptScanReport {
@@ -202,7 +203,14 @@ impl TxReceiptInterpreter {
             rpc_error.tx_hash,
             rpc_error.err
         );
-        let validation_status_update = FailedValidationByTable::from(rpc_error);
+        let validation_status_update = match tx_by_table {
+            TxByTable::SentPayable(sent_tx) => {
+                FailedValidationByTable::from((rpc_error, sent_tx.status))
+            }
+            TxByTable::FailedPayable(failed_tx) => {
+                FailedValidationByTable::from((rpc_error, failed_tx.status))
+            }
+        };
         scan_report.register_rpc_failure(validation_status_update);
         scan_report
     }
@@ -538,12 +546,38 @@ mod tests {
     }
 
     #[test]
-    fn interprets_tx_a_failed_retrieval_of_the_receipt_for_pending_payable() {
+    fn interprets_failed_retrieval_of_receipt_for_pending_payable_in_first_attempt() {
+        let test_name =
+            "interprets_failed_retrieval_of_receipt_for_pending_payable_in_first_attempt";
+
+        test_failed_retrieval_of_receipt_for_pending_payable(
+            test_name,
+            TxStatus::Pending(ValidationStatus::Waiting),
+        );
+    }
+
+    #[test]
+    fn interprets_failed_retrieval_of_receipt_for_pending_payable_as_reattempt() {
+        let test_name = "interprets_failed_retrieval_of_receipt_for_pending_payable_as_reattempt";
+
+        test_failed_retrieval_of_receipt_for_pending_payable(
+            test_name,
+            TxStatus::Pending(ValidationStatus::Reattempting {
+                attempt: 1,
+                error: AppRpcError::Local(LocalError::Internal),
+            }),
+        );
+    }
+
+    fn test_failed_retrieval_of_receipt_for_pending_payable(
+        test_name: &str,
+        current_tx_status: TxStatus,
+    ) {
         init_test_logging();
-        let test_name = "interprets_tx_a_failed_retrieval_of_the_receipt_for_pending_payable";
         let tx_hash = make_tx_hash(913);
         let mut sent_tx = make_sent_tx(456);
         sent_tx.hash = tx_hash;
+        sent_tx.status = current_tx_status.clone();
         let rpc_error = AppRpcError::Remote(RemoteError::InvalidResponse("bluh".to_string()));
         let tx_receipt_error =
             TxReceiptError::new(TxHashByTable::SentPayable(tx_hash), rpc_error.clone());
@@ -551,6 +585,7 @@ mod tests {
 
         let result = TxReceiptInterpreter::handle_rpc_failure(
             scan_report,
+            TxByTable::SentPayable(sent_tx),
             tx_receipt_error,
             &Logger::new(test_name),
         );
@@ -561,10 +596,7 @@ mod tests {
                 failures: DetectedFailures {
                     tx_failures: vec![],
                     tx_receipt_rpc_failures: vec![FailedValidationByTable::SentPayable(
-                        FailedValidation {
-                            tx_hash,
-                            failure: rpc_error
-                        }
+                        FailedValidation::new(tx_hash, rpc_error, current_tx_status)
                     ),]
                 },
                 confirmations: DetectedConfirmations::default()
@@ -577,12 +609,37 @@ mod tests {
     }
 
     #[test]
-    fn interprets_tx_a_failed_retrieval_of_the_receipt_for_failed_tx() {
+    fn interprets_failed_retrieval_of_receipt_for_failed_tx_in_first_attempt() {
+        let test_name = "interprets_failed_retrieval_of_receipt_for_failed_tx_in_first_attempt";
+
+        test_failed_retrieval_of_receipt_for_failed_tx(
+            test_name,
+            FailureStatus::RecheckRequired(ValidationStatus::Waiting),
+        );
+    }
+
+    #[test]
+    fn interprets_failed_retrieval_of_receipt_for_failed_tx_as_reattempt() {
+        let test_name = "interprets_failed_retrieval_of_receipt_for_failed_tx_as_reattempt";
+
+        test_failed_retrieval_of_receipt_for_failed_tx(
+            test_name,
+            FailureStatus::RecheckRequired(ValidationStatus::Reattempting {
+                attempt: 1,
+                error: AppRpcError::Local(LocalError::Internal),
+            }),
+        );
+    }
+
+    fn test_failed_retrieval_of_receipt_for_failed_tx(
+        test_name: &str,
+        current_failure_status: FailureStatus,
+    ) {
         init_test_logging();
-        let test_name = "interprets_tx_a_failed_retrieval_of_the_receipt_for_failed_tx";
         let tx_hash = make_tx_hash(914);
-        let mut failed_tx = make_failed_tx(789);
+        let mut failed_tx = make_failed_tx(456);
         failed_tx.hash = tx_hash;
+        failed_tx.status = current_failure_status.clone();
         let rpc_error = AppRpcError::Local(LocalError::Internal);
         let tx_receipt_error =
             TxReceiptError::new(TxHashByTable::FailedPayable(tx_hash), rpc_error.clone());
@@ -590,6 +647,7 @@ mod tests {
 
         let result = TxReceiptInterpreter::handle_rpc_failure(
             scan_report,
+            TxByTable::FailedPayable(failed_tx),
             tx_receipt_error,
             &Logger::new(test_name),
         );
@@ -600,19 +658,16 @@ mod tests {
                 failures: DetectedFailures {
                     tx_failures: vec![],
                     tx_receipt_rpc_failures: vec![FailedValidationByTable::FailedPayable(
-                        FailedValidation {
-                            tx_hash,
-                            failure: rpc_error
-                        }
-                    ),]
+                        FailedValidation::new(tx_hash, rpc_error, current_failure_status)
+                    )]
                 },
                 confirmations: DetectedConfirmations::default()
             }
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: {test_name}: Failed to retrieve tx receipt for FailedPayable(0x000000000\
-            0000000000000000000000000000000000000000000000000000392): Local(Internal). Will retry \
-            receipt retrieval next cycle"
+            "WARN: {test_name}: Failed to retrieve tx receipt for FailedPayable(0x0000000000\
+            000000000000000000000000000000000000000000000000000392): Local(Internal). \
+            Will retry receipt retrieval next cycle"
         ));
     }
 }

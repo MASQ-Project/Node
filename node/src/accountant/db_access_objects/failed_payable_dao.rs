@@ -131,7 +131,7 @@ pub trait FailedPayableDao {
     fn retrieve_txs(&self, condition: Option<FailureRetrieveCondition>) -> Vec<FailedTx>;
     fn update_statuses(
         &self,
-        status_updates: HashMap<TxHash, FailureStatus>,
+        status_updates: &HashMap<TxHash, FailureStatus>,
     ) -> Result<(), FailedPayableDaoError>;
     //TODO potentially atomically
     fn delete_records(&self, hashes: &HashSet<TxHash>) -> Result<(), FailedPayableDaoError>;
@@ -308,7 +308,7 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
 
     fn update_statuses(
         &self,
-        status_updates: HashMap<TxHash, FailureStatus>,
+        status_updates: &HashMap<TxHash, FailureStatus>,
     ) -> Result<(), FailedPayableDaoError> {
         if status_updates.is_empty() {
             return Err(FailedPayableDaoError::EmptyInput);
@@ -822,7 +822,7 @@ mod tests {
             (tx3.hash, Concluded),
         ]);
 
-        let result = subject.update_statuses(hashmap);
+        let result = subject.update_statuses(&hashmap);
 
         let updated_txs = subject.retrieve_txs(None);
         assert_eq!(result, Ok(()));
@@ -856,7 +856,7 @@ mod tests {
             .unwrap();
         let subject = FailedPayableDaoReal::new(wrapped_conn);
 
-        let result = subject.update_statuses(HashMap::new());
+        let result = subject.update_statuses(&HashMap::new());
 
         assert_eq!(result, Err(FailedPayableDaoError::EmptyInput));
     }
@@ -870,7 +870,7 @@ mod tests {
         let wrapped_conn = make_read_only_db_connection(home_dir);
         let subject = FailedPayableDaoReal::new(Box::new(wrapped_conn));
 
-        let result = subject.update_statuses(HashMap::from([(make_tx_hash(1), Concluded)]));
+        let result = subject.update_statuses(&HashMap::from([(make_tx_hash(1), Concluded)]));
 
         assert_eq!(
             result,

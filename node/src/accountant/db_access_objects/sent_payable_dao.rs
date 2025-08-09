@@ -129,6 +129,10 @@ pub trait SentPayableDao {
         hash_map: &HashMap<TxHash, TransactionBlock>,
     ) -> Result<(), SentPayableDaoError>;
     fn replace_records(&self, new_txs: &[SentTx]) -> Result<(), SentPayableDaoError>;
+    fn update_statuses(
+        &self,
+        hash_map: &HashMap<TxHash, TxStatus>,
+    ) -> Result<(), SentPayableDaoError>;
     //TODO potentially atomically
     fn delete_records(&self, hashes: &HashSet<TxHash>) -> Result<(), SentPayableDaoError>;
 }
@@ -404,6 +408,13 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
         }
     }
 
+    fn update_statuses(
+        &self,
+        hash_map: &HashMap<TxHash, TxStatus>,
+    ) -> Result<(), SentPayableDaoError> {
+        todo!()
+    }
+
     fn delete_records(&self, hashes: &HashSet<TxHash>) -> Result<(), SentPayableDaoError> {
         if hashes.is_empty() {
             return Err(SentPayableDaoError::EmptyInput);
@@ -446,7 +457,15 @@ impl SentPayableDaoFactory for DaoFactoryReal {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::db_access_objects::failed_payable_dao::ValidationStatus;
+    use crate::accountant::db_access_objects::failed_payable_dao::FailureReason::{
+        PendingTooLong, Reverted,
+    };
+    use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::{
+        Concluded, RecheckRequired, RetryRequired,
+    };
+    use crate::accountant::db_access_objects::failed_payable_dao::{
+        FailedPayableDaoError, FailedPayableDaoReal, ValidationStatus,
+    };
     use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::{
         ByHash, ByNonce, IsPending,
     };
@@ -458,12 +477,12 @@ mod tests {
         TxStatus,
     };
     use crate::accountant::db_access_objects::test_utils::{
-        make_read_only_db_connection, TxBuilder,
+        make_read_only_db_connection, FailedTxBuilder, TxBuilder,
     };
     use crate::accountant::db_access_objects::utils::TxRecordWithHash;
     use crate::accountant::test_utils::make_sent_tx;
     use crate::blockchain::blockchain_interface::data_structures::TransactionBlock;
-    use crate::blockchain::errors::{AppRpcError, RemoteError};
+    use crate::blockchain::errors::{AppRpcError, LocalError, RemoteError};
     use crate::blockchain::test_utils::{make_block_hash, make_tx_hash};
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal,
@@ -473,6 +492,7 @@ mod tests {
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::Connection;
     use std::collections::{HashMap, HashSet};
+    use std::fmt::format;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
 
@@ -1035,6 +1055,123 @@ mod tests {
                 "attempt to write a readonly database".to_string()
             ))
         )
+    }
+
+    #[test]
+    fn update_statuses_works() {
+        let home_dir =
+            ensure_node_home_directory_exists("sent_payable_dao", "update_statuses_works");
+        let wrapped_conn = DbInitializerReal::default()
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
+        let subject = SentPayableDaoReal::new(wrapped_conn);
+        let mut tx1 = make_sent_tx(456);
+        tx1.status = TxStatus::Pending(ValidationStatus::Waiting);
+        let mut tx2 = make_sent_tx(789);
+        tx2.status = TxStatus::Pending(ValidationStatus::Reattempting {
+            attempt: 2,
+            error: AppRpcError::Remote(RemoteError::Unreachable),
+        });
+        let mut tx3 = make_sent_tx(123);
+        tx3.status = TxStatus::Pending(ValidationStatus::Waiting);
+        subject
+            .insert_new_records(&vec![tx1.clone(), tx2.clone(), tx3.clone()])
+            .unwrap();
+        let hashmap = HashMap::from([
+            (
+                tx1.hash,
+                TxStatus::Pending(ValidationStatus::Reattempting {
+                    attempt: 1,
+                    error: AppRpcError::Local(LocalError::Internal),
+                }),
+            ),
+            (
+                tx2.hash,
+                TxStatus::Pending(ValidationStatus::Reattempting {
+                    attempt: 2,
+                    error: AppRpcError::Remote(RemoteError::Unreachable),
+                }),
+            ),
+            (
+                tx3.hash,
+                TxStatus::Confirmed {
+                    block_hash:
+                        "0x0000000000000000000000000000000000000000000000000000000000000002"
+                            .to_string(),
+                    block_number: 123,
+                    detection: Detection::Normal,
+                },
+            ),
+        ]);
+
+        let result = subject.update_statuses(&hashmap);
+
+        let updated_txs = subject.retrieve_txs(None);
+        assert_eq!(result, Ok(()));
+        assert_eq!(
+            updated_txs[0].status,
+            TxStatus::Pending(ValidationStatus::Reattempting {
+                attempt: 1,
+                error: AppRpcError::Local(LocalError::Internal)
+            })
+        );
+        assert_eq!(
+            updated_txs[1].status,
+            TxStatus::Pending(ValidationStatus::Reattempting {
+                attempt: 2,
+                error: AppRpcError::Remote(RemoteError::Unreachable)
+            })
+        );
+        assert_eq!(
+            updated_txs[2].status,
+            TxStatus::Confirmed {
+                block_hash: "0x0000000000000000000000000000000000000000000000000000000000000002"
+                    .to_string(),
+                block_number: 123,
+                detection: Detection::Normal,
+            }
+        );
+    }
+
+    #[test]
+    fn update_statuses_handles_empty_input_error() {
+        let home_dir = ensure_node_home_directory_exists(
+            "sent_payable_dao",
+            "update_statuses_handles_empty_input_error",
+        );
+        let wrapped_conn = DbInitializerReal::default()
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
+        let subject = SentPayableDaoReal::new(wrapped_conn);
+
+        let result = subject.update_statuses(&HashMap::new());
+
+        assert_eq!(result, Err(SentPayableDaoError::EmptyInput));
+    }
+
+    #[test]
+    fn update_statuses_handles_sql_error() {
+        let home_dir = ensure_node_home_directory_exists(
+            "sent_payable_dao",
+            "update_statuses_handles_sql_error",
+        );
+        let wrapped_conn = make_read_only_db_connection(home_dir);
+        let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
+
+        let result = subject.update_statuses(&HashMap::from([(
+            make_tx_hash(1),
+            TxStatus::Pending(ValidationStatus::Reattempting {
+                attempt: 1,
+                error: AppRpcError::Remote(RemoteError::Unreachable),
+            }),
+        )]));
+
+        assert_eq!(
+            result,
+            Err(SentPayableDaoError::SqlExecutionFailed(
+                "attempt to write a readonly database".to_string()
+            ))
+        );
     }
 
     #[test]

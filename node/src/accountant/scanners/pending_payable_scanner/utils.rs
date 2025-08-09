@@ -1,7 +1,7 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::db_access_objects::failed_payable_dao::{
-    FailedTx, FailureReason, FailureStatus,
+    FailedTx, FailureReason, FailureStatus, ValidationStatus,
 };
 use crate::accountant::db_access_objects::sent_payable_dao::{
     Detection, RetrieveCondition, SentPayableDao, SentTx, TxStatus,
@@ -109,32 +109,112 @@ pub enum PresortedTxFailure {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum FailedValidationByTable {
-    SentPayable(FailedValidation),
-    FailedPayable(FailedValidation),
+    SentPayable(FailedValidation<TxStatus>),
+    FailedPayable(FailedValidation<FailureStatus>),
 }
 
-impl From<TxReceiptError> for FailedValidationByTable {
-    fn from(tx_receipt_error: TxReceiptError) -> Self {
+impl From<(TxReceiptError, TxStatus)> for FailedValidationByTable {
+    fn from((tx_receipt_error, current_status): (TxReceiptError, TxStatus)) -> Self {
         match tx_receipt_error.tx_hash {
-            TxHashByTable::SentPayable(tx_hash) => {
-                Self::SentPayable(FailedValidation::new(tx_hash, tx_receipt_error.err))
-            }
+            TxHashByTable::SentPayable(tx_hash) => Self::SentPayable(FailedValidation::new(
+                tx_hash,
+                tx_receipt_error.err,
+                current_status,
+            )),
+
             TxHashByTable::FailedPayable(tx_hash) => {
-                Self::FailedPayable(FailedValidation::new(tx_hash, tx_receipt_error.err))
+                todo!()
+            }
+        }
+    }
+}
+
+impl From<(TxReceiptError, FailureStatus)> for FailedValidationByTable {
+    fn from((tx_receipt_error, current_status): (TxReceiptError, FailureStatus)) -> Self {
+        match tx_receipt_error.tx_hash {
+            TxHashByTable::FailedPayable(tx_hash) => Self::FailedPayable(FailedValidation::new(
+                tx_hash,
+                tx_receipt_error.err,
+                current_status,
+            )),
+            TxHashByTable::SentPayable(tx_hash) => {
+                todo!()
             }
         }
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct FailedValidation {
+pub struct FailedValidation<RecordStatus> {
     pub tx_hash: TxHash,
-    pub failure: AppRpcError,
+    pub validation_failure: AppRpcError,
+    pub current_status: RecordStatus,
 }
 
-impl FailedValidation {
-    pub fn new(tx_hash: TxHash, failure: AppRpcError) -> Self {
-        Self { tx_hash, failure }
+impl<RecordStatus> FailedValidation<RecordStatus>
+where
+    RecordStatus: UpdatableValidationStatus,
+{
+    pub fn new(
+        tx_hash: TxHash,
+        validation_failure: AppRpcError,
+        current_status: RecordStatus,
+    ) -> Self {
+        Self {
+            tx_hash,
+            validation_failure,
+            current_status,
+        }
+    }
+
+    pub fn new_status(&self) -> Option<RecordStatus> {
+        self.current_status
+            .update_after_failure(self.validation_failure.clone())
+    }
+}
+
+pub trait UpdatableValidationStatus {
+    fn update_after_failure(&self, error: AppRpcError) -> Option<Self>
+    where
+        Self: Sized;
+}
+
+impl UpdatableValidationStatus for TxStatus {
+    fn update_after_failure(&self, error: AppRpcError) -> Option<Self> {
+        match self {
+            TxStatus::Pending(ValidationStatus::Waiting) => {
+                Some(TxStatus::Pending(ValidationStatus::Reattempting {
+                    attempt: 1,
+                    error,
+                }))
+            }
+            TxStatus::Pending(ValidationStatus::Reattempting { attempt, .. }) => {
+                Some(TxStatus::Pending(ValidationStatus::Reattempting {
+                    attempt: attempt + 1,
+                    error,
+                }))
+            }
+            TxStatus::Confirmed { .. } => None,
+        }
+    }
+}
+
+impl UpdatableValidationStatus for FailureStatus {
+    fn update_after_failure(&self, error: AppRpcError) -> Option<Self> {
+        match self {
+            FailureStatus::RecheckRequired(ValidationStatus::Waiting) => {
+                Some(FailureStatus::RecheckRequired(
+                    ValidationStatus::Reattempting { attempt: 1, error },
+                ))
+            }
+            FailureStatus::RecheckRequired(ValidationStatus::Reattempting { attempt, .. }) => Some(
+                FailureStatus::RecheckRequired(ValidationStatus::Reattempting {
+                    attempt: attempt + 1,
+                    error,
+                }),
+            ),
+            FailureStatus::RetryRequired | FailureStatus::Concluded => None,
+        }
     }
 }
 
@@ -274,6 +354,10 @@ impl From<BlockchainTxFailure> for FailureReason {
 
 #[cfg(test)]
 mod tests {
+    use crate::accountant::db_access_objects::failed_payable_dao::{
+        FailureStatus, ValidationStatus,
+    };
+    use crate::accountant::db_access_objects::sent_payable_dao::{Detection, TxStatus};
     use crate::accountant::scanners::pending_payable_scanner::utils::{
         CurrentPendingPayables, DetectedConfirmations, DetectedFailures, FailedValidation,
         FailedValidationByTable, NormalTxConfirmation, PendingPayableCache, PresortedTxFailure,
@@ -285,6 +369,7 @@ mod tests {
     use crate::blockchain::test_utils::make_tx_hash;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
+    use std::vec;
 
     #[test]
     fn detected_confirmations_is_empty_works() {
@@ -320,11 +405,16 @@ mod tests {
             vec![FailedValidationByTable::SentPayable(FailedValidation::new(
                 make_tx_hash(2222),
                 AppRpcError::Local(LocalError::Internal),
+                TxStatus::Pending(ValidationStatus::Waiting),
             ))],
             vec![FailedValidationByTable::FailedPayable(
                 FailedValidation::new(
                     make_tx_hash(12121),
                     AppRpcError::Remote(RemoteError::InvalidResponse("blah".to_string())),
+                    FailureStatus::RecheckRequired(ValidationStatus::Reattempting {
+                        attempt: 1,
+                        error: AppRpcError::Local(LocalError::Internal),
+                    }),
                 ),
             )],
         ];
@@ -390,21 +480,31 @@ mod tests {
             vec![FailedValidationByTable::SentPayable(FailedValidation::new(
                 make_tx_hash(2222),
                 AppRpcError::Local(LocalError::Internal),
+                TxStatus::Pending(ValidationStatus::Waiting),
             ))],
             vec![FailedValidationByTable::FailedPayable(
                 FailedValidation::new(
                     make_tx_hash(1234),
                     AppRpcError::Remote(RemoteError::Unreachable),
+                    FailureStatus::RecheckRequired(ValidationStatus::Waiting),
                 ),
             )],
             vec![
                 FailedValidationByTable::SentPayable(FailedValidation::new(
                     make_tx_hash(2222),
                     AppRpcError::Local(LocalError::Internal),
+                    TxStatus::Pending(ValidationStatus::Reattempting {
+                        attempt: 1,
+                        error: AppRpcError::Local(LocalError::Internal),
+                    }),
                 )),
                 FailedValidationByTable::FailedPayable(FailedValidation::new(
                     make_tx_hash(1234),
                     AppRpcError::Remote(RemoteError::Unreachable),
+                    FailureStatus::RecheckRequired(ValidationStatus::Reattempting {
+                        attempt: 1,
+                        error: AppRpcError::Local(LocalError::Internal),
+                    }),
                 )),
             ],
         ];
@@ -827,22 +927,141 @@ mod tests {
             api_error_failed_tx.clone(),
         );
 
-        let result_1 = FailedValidationByTable::from(receipt_error_for_sent_tx);
-        let result_2 = FailedValidationByTable::from(receipt_error_for_failed_tx);
+        let result_1 = FailedValidationByTable::from((
+            receipt_error_for_sent_tx,
+            TxStatus::Pending(ValidationStatus::Waiting),
+        ));
+        let result_2 = FailedValidationByTable::from((
+            receipt_error_for_failed_tx,
+            FailureStatus::RecheckRequired(ValidationStatus::Waiting),
+        ));
 
         assert_eq!(
             result_1,
             FailedValidationByTable::SentPayable(FailedValidation::new(
                 tx_hash_sent_tx,
-                api_error_sent_tx
+                api_error_sent_tx,
+                TxStatus::Pending(ValidationStatus::Waiting)
             ))
         );
         assert_eq!(
             result_2,
             FailedValidationByTable::FailedPayable(FailedValidation::new(
                 tx_hash_failed_tx,
-                api_error_failed_tx
+                api_error_failed_tx,
+                FailureStatus::RecheckRequired(ValidationStatus::Waiting)
             ))
         );
+    }
+
+    #[test]
+    fn failed_validation_new_status_works_fine() {
+        let mal_validated_tx_statuses = vec![
+            (
+                FailedValidation::new(
+                    make_tx_hash(123),
+                    AppRpcError::Local(LocalError::Internal),
+                    TxStatus::Pending(ValidationStatus::Waiting),
+                ),
+                Some(TxStatus::Pending(ValidationStatus::Reattempting {
+                    attempt: 1,
+                    error: AppRpcError::Local(LocalError::Internal),
+                })),
+            ),
+            (
+                FailedValidation::new(
+                    make_tx_hash(123),
+                    AppRpcError::Remote(RemoteError::Unreachable),
+                    TxStatus::Pending(ValidationStatus::Reattempting {
+                        attempt: 2,
+                        error: AppRpcError::Local(LocalError::Internal),
+                    }),
+                ),
+                Some(TxStatus::Pending(ValidationStatus::Reattempting {
+                    attempt: 3,
+                    error: AppRpcError::Remote(RemoteError::Unreachable),
+                })),
+            ),
+        ];
+        let mal_validated_failure_statuses = vec![
+            (
+                FailedValidation::new(
+                    make_tx_hash(456),
+                    AppRpcError::Local(LocalError::Internal),
+                    FailureStatus::RecheckRequired(ValidationStatus::Waiting),
+                ),
+                Some(FailureStatus::RecheckRequired(
+                    ValidationStatus::Reattempting {
+                        attempt: 1,
+                        error: AppRpcError::Local(LocalError::Internal),
+                    },
+                )),
+            ),
+            (
+                FailedValidation::new(
+                    make_tx_hash(456),
+                    AppRpcError::Remote(RemoteError::Unreachable),
+                    FailureStatus::RecheckRequired(ValidationStatus::Reattempting {
+                        attempt: 2,
+                        error: AppRpcError::Remote(RemoteError::Unreachable),
+                    }),
+                ),
+                Some(FailureStatus::RecheckRequired(
+                    ValidationStatus::Reattempting {
+                        attempt: 3,
+                        error: AppRpcError::Remote(RemoteError::Unreachable),
+                    },
+                )),
+            ),
+        ];
+
+        mal_validated_tx_statuses.into_iter().for_each(
+            |(failed_validation, expected_tx_status)| {
+                assert_eq!(failed_validation.new_status(), expected_tx_status);
+            },
+        );
+        mal_validated_failure_statuses.into_iter().for_each(
+            |(failed_validation, expected_failed_tx_status)| {
+                assert_eq!(failed_validation.new_status(), expected_failed_tx_status);
+            },
+        )
+    }
+
+    #[test]
+    fn failed_validation_new_status_has_no_effect_on_unexpected_current_status() {
+        let mal_validated_tx_status = FailedValidation::new(
+            make_tx_hash(123),
+            AppRpcError::Local(LocalError::Internal),
+            TxStatus::Confirmed {
+                block_hash: "".to_string(),
+                block_number: 0,
+                detection: Detection::Normal,
+            },
+        );
+        let mal_validated_failure_statuses = vec![
+            FailedValidation::new(
+                make_tx_hash(456),
+                AppRpcError::Local(LocalError::Internal),
+                FailureStatus::RetryRequired,
+            ),
+            FailedValidation::new(
+                make_tx_hash(789),
+                AppRpcError::Remote(RemoteError::Unreachable),
+                FailureStatus::Concluded,
+            ),
+        ];
+
+        assert_eq!(mal_validated_tx_status.new_status(), None);
+        mal_validated_failure_statuses
+            .into_iter()
+            .enumerate()
+            .for_each(|(idx, failed_validation)| {
+                let result = failed_validation.new_status();
+                assert_eq!(
+                    result, None,
+                    "Failed validation should evaluate to 'None' but was '{:?}' for idx: {}",
+                    result, idx
+                )
+            });
     }
 }

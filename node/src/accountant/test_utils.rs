@@ -991,6 +991,8 @@ pub struct SentPayableDaoMock {
     retrieve_txs_results: RefCell<Vec<Vec<SentTx>>>,
     confirm_tx_params: Arc<Mutex<Vec<HashMap<TxHash, TransactionBlock>>>>,
     confirm_tx_results: RefCell<Vec<Result<(), SentPayableDaoError>>>,
+    update_statuses_params: Arc<Mutex<Vec<HashMap<TxHash, TxStatus>>>>,
+    update_statuses_results: RefCell<Vec<Result<(), SentPayableDaoError>>>,
     replace_records_params: Arc<Mutex<Vec<Vec<SentTx>>>>,
     replace_records_results: RefCell<Vec<Result<(), SentPayableDaoError>>>,
     delete_records_params: Arc<Mutex<Vec<HashSet<TxHash>>>>,
@@ -1032,6 +1034,17 @@ impl SentPayableDao for SentPayableDaoMock {
             .unwrap()
             .push(new_txs.to_vec());
         self.replace_records_results.borrow_mut().remove(0)
+    }
+
+    fn update_statuses(
+        &self,
+        hash_map: &HashMap<TxHash, TxStatus>,
+    ) -> Result<(), SentPayableDaoError> {
+        self.update_statuses_params
+            .lock()
+            .unwrap()
+            .push(hash_map.clone());
+        self.update_statuses_results.borrow_mut().remove(0)
     }
 
     fn delete_records(&self, hashes: &HashSet<TxHash>) -> Result<(), SentPayableDaoError> {
@@ -1101,6 +1114,19 @@ impl SentPayableDaoMock {
 
     pub fn replace_records_result(self, result: Result<(), SentPayableDaoError>) -> Self {
         self.replace_records_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn update_statuses_params(
+        mut self,
+        params: &Arc<Mutex<Vec<HashMap<TxHash, TxStatus>>>>,
+    ) -> Self {
+        self.update_statuses_params = params.clone();
+        self
+    }
+
+    pub fn update_statuses_result(self, result: Result<(), SentPayableDaoError>) -> Self {
+        self.update_statuses_results.borrow_mut().push(result);
         self
     }
 
@@ -1189,12 +1215,12 @@ impl FailedPayableDao for FailedPayableDaoMock {
 
     fn update_statuses(
         &self,
-        status_updates: HashMap<TxHash, FailureStatus>,
+        status_updates: &HashMap<TxHash, FailureStatus>,
     ) -> Result<(), FailedPayableDaoError> {
         self.update_statuses_params
             .lock()
             .unwrap()
-            .push(status_updates);
+            .push(status_updates.clone());
         self.update_statuses_results.borrow_mut().remove(0)
     }
 
