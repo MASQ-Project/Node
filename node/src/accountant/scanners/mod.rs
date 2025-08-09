@@ -2649,23 +2649,6 @@ mod tests {
     }
 
     #[test]
-    fn pending_payable_scanner_throws_an_error_when_no_sent_tx_record_is_found() {
-        let now = SystemTime::now();
-        let consuming_wallet = make_paying_wallet(b"consuming_wallet");
-        let sent_payable_dao = SentPayableDaoMock::new().retrieve_txs_result(vec![]);
-        let mut pending_payable_scanner = PendingPayableScannerBuilder::new()
-            .sent_payable_dao(sent_payable_dao)
-            .build();
-
-        let result =
-            pending_payable_scanner.start_scan(&consuming_wallet, now, None, &Logger::new("test"));
-
-        let is_scan_running = pending_payable_scanner.scan_started_at().is_some();
-        assert_eq!(result, Err(StartScanError::NothingToProcess));
-        assert_eq!(is_scan_running, false);
-    }
-
-    #[test]
     fn check_general_conditions_for_pending_payable_scan_if_it_is_initial_pending_payable_scan() {
         let mut subject = make_dull_subject();
         subject.initial_pending_payable_scan = true;

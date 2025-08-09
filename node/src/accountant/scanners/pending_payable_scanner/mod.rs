@@ -79,9 +79,8 @@ impl StartableScanner<ScanForPendingPayables, RequestTransactionReceipts>
         let failure_hashes_opt = self.handle_unproven_failures();
 
         if pending_tx_hashes_opt.is_none() && failure_hashes_opt.is_none() {
-            todo!()
-            // self.mark_as_ended(logger);
-            // Err(StartScanError::NothingToProcess)
+            self.mark_as_ended(logger);
+            return Err(StartScanError::NothingToProcess);
         }
 
         Self::log_records_found_for_receipt_check(
@@ -125,6 +124,8 @@ impl Scanner<TxReceiptsMessage, PendingPayableScanResult> for PendingPayableScan
     time_marking_methods!(PendingPayables);
 
     as_any_ref_in_trait_impl!();
+
+    as_any_mut_in_trait_impl!();
 }
 
 impl PendingPayableScanner {
@@ -151,9 +152,7 @@ impl PendingPayableScanner {
             .sent_payable_dao
             .retrieve_txs(Some(RetrieveCondition::IsPending));
 
-        if pending_txs.is_empty() {
-            todo!() //return None
-        } else {
+        if !pending_txs.is_empty() {
             let pending_tx_hashes =
                 Self::get_wrapped_hashes(&pending_txs, TxHashByTable::SentPayable);
 
@@ -162,6 +161,8 @@ impl PendingPayableScanner {
             }
 
             Some(pending_tx_hashes)
+        } else {
+            None
         }
     }
 
@@ -170,9 +171,7 @@ impl PendingPayableScanner {
             .failed_payable_dao
             .retrieve_txs(Some(FailureRetrieveCondition::EveryRecheckRequiredRecord));
 
-        if failures.is_empty() {
-            todo!() //return None
-        } else {
+        if !failures.is_empty() {
             let failure_hashes = Self::get_wrapped_hashes(&failures, TxHashByTable::FailedPayable);
 
             if !failures.is_empty() {
@@ -180,6 +179,8 @@ impl PendingPayableScanner {
             }
 
             Some(failure_hashes)
+        } else {
+            None
         }
     }
 
@@ -199,6 +200,21 @@ impl PendingPayableScanner {
     fn emptiness_check(&self, msg: &TxReceiptsMessage) {
         if msg.results.is_empty() {
             unreachable!("We should never receive an empty list of results. Even missing receipts can be interpreted")
+        }
+    }
+
+    fn compose_scan_result(
+        retry_opt: Option<Retry>,
+        response_skeleton_opt: Option<ResponseSkeleton>,
+    ) -> PendingPayableScanResult {
+        if let Some(retry) = retry_opt {
+            PendingPayableScanResult::PaymentRetryRequired(retry)
+        } else {
+            let ui_msg_opt = response_skeleton_opt.map(|response_skeleton| NodeToUiMessage {
+                target: MessageTarget::ClientId(response_skeleton.client_id),
+                body: UiScanResponse {}.tmb(response_skeleton.context_id),
+            });
+            PendingPayableScanResult::NoPendingPayablesLeft(ui_msg_opt)
         }
     }
 
@@ -551,12 +567,21 @@ impl PendingPayableScanner {
             if !updatable.is_empty() {
                 match self.sent_payable_dao.update_statuses(&updatable) {
                     Ok(_) => {
-                        info!(logger, "Pending-tx statuses were processed in the db for validation failure of txs {}", comma_joined_stringifiable(&sent_payable_failures, |failure|{
-                    format!("{:?}", failure.tx_hash)
-                }))
+                        info!(
+                            logger,
+                            "Pending-tx statuses were processed in the db for validation \
+                        failure of txs {}",
+                            comma_joined_stringifiable(&sent_payable_failures, |failure| {
+                                format!("{:?}", failure.tx_hash)
+                            })
+                        )
                     }
-                    Err(_) => {
-                        todo!()
+                    Err(e) => {
+                        panic!(
+                            "Unable to update pending-tx statuses for validation failures '{:?}' \
+                        due to {:?}",
+                            sent_payable_failures, e
+                        )
                     }
                 }
             }
@@ -574,12 +599,22 @@ impl PendingPayableScanner {
             if !updatable.is_empty() {
                 match self.failed_payable_dao.update_statuses(&updatable) {
                     Ok(_) => {
-                        info!(logger, "Failed-tx statuses were processed in the db for validation failure of txs {}", comma_joined_stringifiable(&failed_txs_validation_failures, |failure|{
-                    format!("{:?}", failure.tx_hash)
-                }))
+                        info!(
+                            logger,
+                            "Failed-tx statuses were processed in the db for validation \
+                        failure of txs {}",
+                            comma_joined_stringifiable(
+                                &failed_txs_validation_failures,
+                                |failure| { format!("{:?}", failure.tx_hash) }
+                            )
+                        )
                     }
-                    Err(_) => {
-                        todo!()
+                    Err(e) => {
+                        panic!(
+                            "Unable to update failed-tx statuses for validation failures '{:?}' \
+                        due to {:?}",
+                            failed_txs_validation_failures, e
+                        )
                     }
                 }
             }
@@ -615,21 +650,6 @@ impl PendingPayableScanner {
             "Handling a validation failure, but the status {} cannot be updated.",
             status
         )
-    }
-
-    fn compose_scan_result(
-        retry_opt: Option<Retry>,
-        response_skeleton_opt: Option<ResponseSkeleton>,
-    ) -> PendingPayableScanResult {
-        if let Some(retry) = retry_opt {
-            PendingPayableScanResult::PaymentRetryRequired(retry)
-        } else {
-            let ui_msg_opt = response_skeleton_opt.map(|response_skeleton| NodeToUiMessage {
-                target: MessageTarget::ClientId(response_skeleton.client_id),
-                body: UiScanResponse {}.tmb(response_skeleton.context_id),
-            });
-            PendingPayableScanResult::NoPendingPayablesLeft(ui_msg_opt)
-        }
     }
 
     fn log_records_found_for_receipt_check(
@@ -669,7 +689,7 @@ mod tests {
     };
     use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
     use crate::accountant::scanners::test_utils::PendingPayableCacheMock;
-    use crate::accountant::scanners::{Scanner, StartableScanner};
+    use crate::accountant::scanners::{Scanner, StartScanError, StartableScanner};
     use crate::accountant::test_utils::{
         make_failed_tx, make_sent_tx, make_transaction_block, FailedPayableDaoMock, PayableDaoMock,
         PendingPayableScannerBuilder, SentPayableDaoMock,
@@ -681,7 +701,7 @@ mod tests {
     };
     use crate::blockchain::errors::{AppRpcError, LocalError, RemoteError};
     use crate::blockchain::test_utils::{make_block_hash, make_tx_hash};
-    use crate::test_utils::make_wallet;
+    use crate::test_utils::{make_paying_wallet, make_wallet};
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use regex::Regex;
@@ -987,6 +1007,24 @@ mod tests {
     }
 
     #[test]
+    fn throws_an_error_when_no_records_to_process_were_found() {
+        let now = SystemTime::now();
+        let consuming_wallet = make_paying_wallet(b"consuming_wallet");
+        let sent_payable_dao = SentPayableDaoMock::new().retrieve_txs_result(vec![]);
+        let failed_payable_dao = FailedPayableDaoMock::new().retrieve_txs_result(vec![]);
+        let mut subject = PendingPayableScannerBuilder::new()
+            .failed_payable_dao(failed_payable_dao)
+            .sent_payable_dao(sent_payable_dao)
+            .build();
+
+        let result = subject.start_scan(&consuming_wallet, now, None, &Logger::new("test"));
+
+        let is_scan_running = subject.scan_started_at().is_some();
+        assert_eq!(result, Err(StartScanError::NothingToProcess));
+        assert_eq!(is_scan_running, false);
+    }
+
+    #[test]
     fn handle_failed_transactions_can_process_standard_tx_failures() {
         init_test_logging();
         let test_name = "handle_failed_transactions_can_process_standard_tx_failures";
@@ -1179,7 +1217,8 @@ mod tests {
         test_log_handler.exists_no_log_containing(&format!("INFO: {test_name}: "));
         test_log_handler.exists_log_containing(&format!(
             "DEBUG: {test_name}: Handling a validation failure, but the status \
-            {{\"Confirmed\":{{\"block_hash\":\"abc\",\"block_number\":0,\"detection\":\"Normal\"}}}} cannot be updated.",
+            {{\"Confirmed\":{{\"block_hash\":\"abc\",\"block_number\":0,\"detection\":\"Normal\"}}}} \
+            cannot be updated.",
         ));
         test_log_handler.exists_log_containing(&format!(
             "DEBUG: {test_name}: Handling a validation failure, but the status \"RetryRequired\" \
@@ -1187,6 +1226,52 @@ mod tests {
         ));
         // It didn't panic, which means none of the DAO methods was called because the DAOs are
         // mocked in this test
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Unable to update pending-tx statuses for validation failures \
+    '[FailedValidation { tx_hash: 0x00000000000000000000000000000000000000000000000000000000000001c8, \
+    validation_failure: Local(Internal), current_status: Pending(Waiting) }]' due to \
+    InvalidInput(\"bluh\")"
+    )]
+    fn update_validation_status_for_sent_txs_panics_on_update_statuses() {
+        let failed_validation = FailedValidation::new(
+            make_tx_hash(456),
+            AppRpcError::Local(LocalError::Internal),
+            TxStatus::Pending(ValidationStatus::Waiting),
+        );
+        let sent_payable_dao = SentPayableDaoMock::default()
+            .update_statuses_result(Err(SentPayableDaoError::InvalidInput("bluh".to_string())));
+        let subject = PendingPayableScannerBuilder::new()
+            .sent_payable_dao(sent_payable_dao)
+            .build();
+
+        let _ = subject
+            .update_validation_status_for_sent_txs(vec![failed_validation], &Logger::new("test"));
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Unable to update failed-tx statuses for validation failures \
+    '[FailedValidation { tx_hash: 0x00000000000000000000000000000000000000000000000000000000000001c8, \
+    validation_failure: Local(Internal), current_status: RecheckRequired(Waiting) }]' due to \
+    InvalidInput(\"bluh\")"
+    )]
+    fn update_validation_status_for_failed_txs_panics_on_update_statuses() {
+        let failed_validation = FailedValidation::new(
+            make_tx_hash(456),
+            AppRpcError::Local(LocalError::Internal),
+            FailureStatus::RecheckRequired(ValidationStatus::Waiting),
+        );
+        let failed_payable_dao = FailedPayableDaoMock::default()
+            .update_statuses_result(Err(FailedPayableDaoError::InvalidInput("bluh".to_string())));
+        let subject = PendingPayableScannerBuilder::new()
+            .failed_payable_dao(failed_payable_dao)
+            .build();
+
+        let _ = subject
+            .update_validation_status_for_failed_txs(vec![failed_validation], &Logger::new("test"));
     }
 
     #[test]
