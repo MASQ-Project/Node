@@ -35,9 +35,7 @@ use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableT
 use crate::accountant::scanners::test_utils::PendingPayableCacheMock;
 use crate::accountant::scanners::PayableScanner;
 use crate::accountant::{gwei_to_wei, Accountant, DEFAULT_PENDING_TOO_LONG_SEC};
-use crate::blockchain::blockchain_interface::data_structures::{
-    BlockchainTransaction, TransactionBlock,
-};
+use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, TxBlock};
 use crate::blockchain::test_utils::{make_block_hash, make_tx_hash};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
@@ -129,8 +127,8 @@ pub fn make_failed_tx(num: u64) -> FailedTx {
     }
 }
 
-pub fn make_transaction_block(num: u64) -> TransactionBlock {
-    TransactionBlock {
+pub fn make_transaction_block(num: u64) -> TxBlock {
+    TxBlock {
         block_hash: make_block_hash(num as u32),
         block_number: U64::from(num * num * num),
     }
@@ -989,7 +987,7 @@ pub struct SentPayableDaoMock {
     insert_new_records_results: RefCell<Vec<Result<(), SentPayableDaoError>>>,
     retrieve_txs_params: Arc<Mutex<Vec<Option<RetrieveCondition>>>>,
     retrieve_txs_results: RefCell<Vec<Vec<SentTx>>>,
-    confirm_tx_params: Arc<Mutex<Vec<HashMap<TxHash, TransactionBlock>>>>,
+    confirm_tx_params: Arc<Mutex<Vec<HashMap<TxHash, TxBlock>>>>,
     confirm_tx_results: RefCell<Vec<Result<(), SentPayableDaoError>>>,
     update_statuses_params: Arc<Mutex<Vec<HashMap<TxHash, TxStatus>>>>,
     update_statuses_results: RefCell<Vec<Result<(), SentPayableDaoError>>>,
@@ -1018,10 +1016,7 @@ impl SentPayableDao for SentPayableDaoMock {
         self.retrieve_txs_params.lock().unwrap().push(condition);
         self.retrieve_txs_results.borrow_mut().remove(0)
     }
-    fn confirm_tx(
-        &self,
-        hash_map: &HashMap<TxHash, TransactionBlock>,
-    ) -> Result<(), SentPayableDaoError> {
+    fn confirm_tx(&self, hash_map: &HashMap<TxHash, TxBlock>) -> Result<(), SentPayableDaoError> {
         self.confirm_tx_params
             .lock()
             .unwrap()
@@ -1094,10 +1089,7 @@ impl SentPayableDaoMock {
         self
     }
 
-    pub fn confirm_tx_params(
-        mut self,
-        params: &Arc<Mutex<Vec<HashMap<TxHash, TransactionBlock>>>>,
-    ) -> Self {
+    pub fn confirm_tx_params(mut self, params: &Arc<Mutex<Vec<HashMap<TxHash, TxBlock>>>>) -> Self {
         self.confirm_tx_params = params.clone();
         self
     }

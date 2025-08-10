@@ -4,10 +4,10 @@ use crate::accountant::db_access_objects::failed_payable_dao::{
     FailedTx, FailureReason, FailureStatus,
 };
 use crate::accountant::db_access_objects::sent_payable_dao::{Detection, SentTx, TxStatus};
-use crate::blockchain::blockchain_interface::data_structures::TransactionBlock;
+use crate::blockchain::blockchain_interface::data_structures::TxBlock;
 
-impl From<(FailedTx, TransactionBlock)> for SentTx {
-    fn from((failed_tx, confirmation_block): (FailedTx, TransactionBlock)) -> Self {
+impl From<(FailedTx, TxBlock)> for SentTx {
+    fn from((failed_tx, confirmation_block): (FailedTx, TxBlock)) -> Self {
         SentTx {
             hash: failed_tx.hash,
             receiver_address: failed_tx.receiver_address,

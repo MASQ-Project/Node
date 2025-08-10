@@ -80,7 +80,7 @@ impl RetrievedTxStatus {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum StatusReadFromReceiptCheck {
     Failed(BlockchainTxFailure),
-    Succeeded(TransactionBlock),
+    Succeeded(TxBlock),
     Pending,
 }
 
@@ -128,7 +128,7 @@ impl TxReceiptError {
 }
 
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy, Ord, PartialOrd, Serialize, Deserialize)]
-pub struct TransactionBlock {
+pub struct TxBlock {
     pub block_hash: H256,
     pub block_number: U64,
 }
@@ -139,7 +139,7 @@ mod tests {
     use crate::accountant::test_utils::make_transaction_block;
     use crate::assert_on_testing_enum_with_all_its_variants;
     use crate::blockchain::blockchain_interface::data_structures::{
-        BlockchainTxFailure, RetrievedTxStatus, StatusReadFromReceiptCheck, TransactionBlock,
+        BlockchainTxFailure, RetrievedTxStatus, StatusReadFromReceiptCheck, TxBlock,
         TxReceiptError, TxReceiptResult,
     };
     use crate::blockchain::errors::{AppRpcError, LocalError, RemoteError};
@@ -161,7 +161,7 @@ mod tests {
         // Test Succeeded
         let block_number = U64::from(12345);
         let block_hash = H256::from_low_u64_be(0xabcdef);
-        let succeeded = StatusReadFromReceiptCheck::Succeeded(TransactionBlock {
+        let succeeded = StatusReadFromReceiptCheck::Succeeded(TxBlock {
             block_hash,
             block_number,
         });

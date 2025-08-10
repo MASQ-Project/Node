@@ -550,8 +550,8 @@ mod tests {
     };
     use crate::blockchain::blockchain_interface::data_structures::ProcessedPayableFallible::Correct;
     use crate::blockchain::blockchain_interface::data_structures::{
-        BlockchainTransaction, RetrievedBlockchainTransactions, RetrievedTxStatus,
-        TransactionBlock, TxReceiptError,
+        BlockchainTransaction, RetrievedBlockchainTransactions, RetrievedTxStatus, TxBlock,
+        TxReceiptError,
     };
     use crate::blockchain::errors::{AppRpcError, RemoteError};
     use crate::blockchain::test_utils::{
@@ -1352,7 +1352,7 @@ mod tests {
             TxReceiptsMessage {
                 results: vec![
                     TxReceiptResult(Ok(RetrievedTxStatus::new(TxHashByTable::SentPayable(tx_hash_1), StatusReadFromReceiptCheck::Pending))),
-                    TxReceiptResult(Ok(RetrievedTxStatus::new(TxHashByTable::SentPayable(tx_hash_2),  StatusReadFromReceiptCheck::Succeeded(TransactionBlock {
+                    TxReceiptResult(Ok(RetrievedTxStatus::new(TxHashByTable::SentPayable(tx_hash_2),  StatusReadFromReceiptCheck::Succeeded(TxBlock {
                         block_hash: Default::default(),
                         block_number,
                     })))),

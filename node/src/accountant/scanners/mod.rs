@@ -1049,8 +1049,7 @@ mod tests {
     use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
     use crate::blockchain::blockchain_interface::data_structures::{
         BlockchainTransaction, BlockchainTxFailure, ProcessedPayableFallible, RetrievedTxStatus,
-        RpcPayableFailure, StatusReadFromReceiptCheck, TransactionBlock, TxReceiptError,
-        TxReceiptResult,
+        RpcPayableFailure, StatusReadFromReceiptCheck, TxBlock, TxReceiptError, TxReceiptResult,
     };
     use crate::blockchain::errors::{AppRpcError, RemoteError};
     use crate::blockchain::test_utils::{make_block_hash, make_tx_hash};
@@ -2678,7 +2677,7 @@ mod tests {
         let tx_hash_1 = make_tx_hash(4545);
         let mut sent_tx_1 = make_sent_tx(123);
         sent_tx_1.hash = tx_hash_1;
-        let tx_block_1 = TransactionBlock {
+        let tx_block_1 = TxBlock {
             block_hash: make_block_hash(333),
             block_number: U64::from(1234),
         };
@@ -2689,7 +2688,7 @@ mod tests {
         let tx_hash_2 = make_tx_hash(1234);
         let mut sent_tx_2 = make_sent_tx(789);
         sent_tx_2.hash = tx_hash_2;
-        let tx_block_2 = TransactionBlock {
+        let tx_block_2 = TxBlock {
             block_hash: make_block_hash(222),
             block_number: U64::from(2345),
         };

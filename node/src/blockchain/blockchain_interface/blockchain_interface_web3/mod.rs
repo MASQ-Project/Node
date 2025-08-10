@@ -468,7 +468,7 @@ mod tests {
     };
     use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError::QueryFailed;
     use crate::blockchain::blockchain_interface::data_structures::{
-        BlockchainTransaction, BlockchainTxFailure, TransactionBlock,
+        BlockchainTransaction, BlockchainTxFailure, TxBlock,
     };
     use crate::blockchain::blockchain_interface::{
         BlockchainAgentBuildError, BlockchainError, BlockchainInterface,
@@ -1177,7 +1177,7 @@ mod tests {
             result[5],
             TxReceiptResult(Ok(RetrievedTxStatus::new(
                 tx_hbt_6,
-                StatusReadFromReceiptCheck::Succeeded(TransactionBlock {
+                StatusReadFromReceiptCheck::Succeeded(TxBlock {
                     block_hash,
                     block_number,
                 }),

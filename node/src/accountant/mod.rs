@@ -1271,7 +1271,7 @@ mod tests {
     use crate::accountant::Accountant;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::HashAndAmount;
     use crate::blockchain::blockchain_interface::data_structures::{
-        BlockchainTxFailure, RetrievedTxStatus, StatusReadFromReceiptCheck, TransactionBlock,
+        BlockchainTxFailure, RetrievedTxStatus, StatusReadFromReceiptCheck, TxBlock,
         TxReceiptResult,
     };
     use crate::blockchain::test_utils::make_tx_hash;
@@ -1959,7 +1959,7 @@ mod tests {
         subject.ui_message_sub_opt = Some(ui_gateway_addr.recipient());
         let subject_addr = subject.start();
         let mut sent_tx = make_sent_tx(123);
-        let tx_block = TransactionBlock {
+        let tx_block = TxBlock {
             block_hash: make_tx_hash(456),
             block_number: 78901234.into(),
         };
@@ -3550,7 +3550,7 @@ mod tests {
         };
         let tx_with_status = RetrievedTxStatus::new(
             TxHashByTable::SentPayable(tx_hash),
-            StatusReadFromReceiptCheck::Succeeded(TransactionBlock {
+            StatusReadFromReceiptCheck::Succeeded(TxBlock {
                 block_hash: make_tx_hash(369369),
                 block_number: 4444444444u64.into(),
             }),
@@ -5072,14 +5072,14 @@ mod tests {
         let (msg, two_sent_txs) = make_tx_receipts_msg(vec![
             SeedsToMakeUpPayableWithStatus {
                 tx_hash: TxHashByTable::SentPayable(make_tx_hash(123)),
-                status: StatusReadFromReceiptCheck::Succeeded(TransactionBlock {
+                status: StatusReadFromReceiptCheck::Succeeded(TxBlock {
                     block_hash: make_tx_hash(123),
                     block_number: U64::from(100),
                 }),
             },
             SeedsToMakeUpPayableWithStatus {
                 tx_hash: TxHashByTable::FailedPayable(make_tx_hash(555)),
-                status: StatusReadFromReceiptCheck::Succeeded(TransactionBlock {
+                status: StatusReadFromReceiptCheck::Succeeded(TxBlock {
                     block_hash: make_tx_hash(234),
                     block_number: U64::from(200),
                 }),
@@ -5242,7 +5242,7 @@ mod tests {
         let subject_addr = subject.start();
         let (msg, _) = make_tx_receipts_msg(vec![SeedsToMakeUpPayableWithStatus {
             tx_hash: TxHashByTable::SentPayable(make_tx_hash(123)),
-            status: StatusReadFromReceiptCheck::Succeeded(TransactionBlock {
+            status: StatusReadFromReceiptCheck::Succeeded(TxBlock {
                 block_hash: make_tx_hash(123),
                 block_number: U64::from(100),
             }),

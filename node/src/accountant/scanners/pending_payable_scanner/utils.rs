@@ -8,7 +8,7 @@ use crate::accountant::db_access_objects::sent_payable_dao::{
 };
 use crate::accountant::db_access_objects::utils::{from_unix_timestamp, TxHash};
 use crate::blockchain::blockchain_interface::data_structures::{
-    BlockchainTxFailure, TransactionBlock, TxReceiptError, TxReceiptResult,
+    BlockchainTxFailure, TxBlock, TxReceiptError, TxReceiptResult,
 };
 use crate::blockchain::errors::AppRpcError;
 use actix::Message;
@@ -361,8 +361,8 @@ mod tests {
     use crate::accountant::scanners::pending_payable_scanner::utils::{
         CurrentPendingPayables, DetectedConfirmations, DetectedFailures, FailedValidation,
         FailedValidationByTable, NormalTxConfirmation, PendingPayableCache, PresortedTxFailure,
-        ReceiptScanReport, RecheckRequiringFailures, Retry, TransactionBlock, TxHashByTable,
-        TxReceiptError, TxReceiptResult, TxReclaim,
+        ReceiptScanReport, RecheckRequiringFailures, Retry, TxBlock, TxHashByTable, TxReceiptError,
+        TxReceiptResult, TxReclaim,
     };
     use crate::accountant::test_utils::{make_failed_tx, make_sent_tx, make_transaction_block};
     use crate::blockchain::errors::{AppRpcError, LocalError, RemoteError};

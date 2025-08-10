@@ -12,8 +12,7 @@ use crate::accountant::scanners::pending_payable_scanner::utils::{
 use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
 use crate::accountant::TxReceiptsMessage;
 use crate::blockchain::blockchain_interface::data_structures::{
-    BlockchainTxFailure, StatusReadFromReceiptCheck, TransactionBlock, TxReceiptError,
-    TxReceiptResult,
+    BlockchainTxFailure, StatusReadFromReceiptCheck, TxBlock, TxReceiptError, TxReceiptResult,
 };
 use masq_lib::logger::Logger;
 use std::time::SystemTime;
@@ -115,7 +114,7 @@ impl TxReceiptInterpreter {
     fn handle_tx_confirmation(
         mut scan_report: ReceiptScanReport,
         tx: TxByTable,
-        tx_block: TransactionBlock,
+        tx_block: TxBlock,
         logger: &Logger,
     ) -> ReceiptScanReport {
         match tx {

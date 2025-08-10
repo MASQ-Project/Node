@@ -6,7 +6,7 @@ use crate::accountant::db_access_objects::utils::{
 };
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::{checked_conversion, comma_joined_stringifiable};
-use crate::blockchain::blockchain_interface::data_structures::TransactionBlock;
+use crate::blockchain::blockchain_interface::data_structures::TxBlock;
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use ethereum_types::H256;
 use itertools::Itertools;
@@ -78,8 +78,8 @@ pub enum Detection {
     Reclaim,
 }
 
-impl From<TransactionBlock> for TxStatus {
-    fn from(tx_block: TransactionBlock) -> Self {
+impl From<TxBlock> for TxStatus {
+    fn from(tx_block: TxBlock) -> Self {
         TxStatus::Confirmed {
             block_hash: format!("{:?}", tx_block.block_hash),
             block_number: u64::try_from(tx_block.block_number).expect("block number too big"),
@@ -124,10 +124,7 @@ pub trait SentPayableDao {
     fn insert_new_records(&self, txs: &[SentTx]) -> Result<(), SentPayableDaoError>;
     fn retrieve_txs(&self, condition: Option<RetrieveCondition>) -> Vec<SentTx>;
     //TODO potentially atomically
-    fn confirm_tx(
-        &self,
-        hash_map: &HashMap<TxHash, TransactionBlock>,
-    ) -> Result<(), SentPayableDaoError>;
+    fn confirm_tx(&self, hash_map: &HashMap<TxHash, TxBlock>) -> Result<(), SentPayableDaoError>;
     fn replace_records(&self, new_txs: &[SentTx]) -> Result<(), SentPayableDaoError>;
     fn update_statuses(
         &self,
@@ -290,10 +287,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
         .collect()
     }
 
-    fn confirm_tx(
-        &self,
-        hash_map: &HashMap<TxHash, TransactionBlock>,
-    ) -> Result<(), SentPayableDaoError> {
+    fn confirm_tx(&self, hash_map: &HashMap<TxHash, TxBlock>) -> Result<(), SentPayableDaoError> {
         if hash_map.is_empty() {
             return Err(SentPayableDaoError::EmptyInput);
         }
@@ -481,7 +475,7 @@ mod tests {
     };
     use crate::accountant::db_access_objects::utils::TxRecordWithHash;
     use crate::accountant::test_utils::make_sent_tx;
-    use crate::blockchain::blockchain_interface::data_structures::TransactionBlock;
+    use crate::blockchain::blockchain_interface::data_structures::TxBlock;
     use crate::blockchain::errors::{AppRpcError, LocalError, RemoteError};
     use crate::blockchain::test_utils::{make_block_hash, make_tx_hash};
     use crate::database::db_initializer::{
@@ -822,11 +816,11 @@ mod tests {
         let updated_pre_assert_txs = subject.retrieve_txs(Some(ByHash(vec![tx1.hash, tx2.hash])));
         let pre_assert_status_tx1 = updated_pre_assert_txs[0].status.clone();
         let pre_assert_status_tx2 = updated_pre_assert_txs[1].status.clone();
-        let confirmed_tx_block_1 = TransactionBlock {
+        let confirmed_tx_block_1 = TxBlock {
             block_hash: make_block_hash(3),
             block_number: U64::from(1),
         };
-        let confirmed_tx_block_2 = TransactionBlock {
+        let confirmed_tx_block_2 = TxBlock {
             block_hash: make_block_hash(4),
             block_number: U64::from(2),
         };
@@ -902,14 +896,14 @@ mod tests {
         let hash_map = HashMap::from([
             (
                 existent_hash,
-                TransactionBlock {
+                TxBlock {
                     block_hash: make_block_hash(1),
                     block_number: U64::from(1),
                 },
             ),
             (
                 non_existent_hash,
-                TransactionBlock {
+                TxBlock {
                     block_hash: make_block_hash(2),
                     block_number: U64::from(2),
                 },
@@ -938,7 +932,7 @@ mod tests {
         let hash = make_tx_hash(1);
         let hash_map = HashMap::from([(
             hash,
-            TransactionBlock {
+            TxBlock {
                 block_hash: make_block_hash(1),
                 block_number: U64::default(),
             },
@@ -1398,7 +1392,7 @@ mod tests {
 
     #[test]
     fn tx_status_can_be_made_from_transaction_block() {
-        let tx_block = TransactionBlock {
+        let tx_block = TxBlock {
             block_hash: make_block_hash(6),
             block_number: 456789_u64.into(),
         };

@@ -5,7 +5,7 @@ use crate::blockchain::blockchain_interface::blockchain_interface_web3::CONTRACT
 use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError;
 use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError::QueryFailed;
 use crate::blockchain::blockchain_interface::data_structures::{
-    BlockchainTxFailure, StatusReadFromReceiptCheck, TransactionBlock,
+    BlockchainTxFailure, StatusReadFromReceiptCheck, TxBlock,
 };
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use crate::blockchain::errors::AppRpcError;
@@ -25,7 +25,7 @@ impl From<TransactionReceipt> for StatusReadFromReceiptCheck {
     fn from(receipt: TransactionReceipt) -> Self {
         match (receipt.status, receipt.block_hash, receipt.block_number) {
             (Some(status), Some(block_hash), Some(block_number)) if status == U64::from(1) => {
-                StatusReadFromReceiptCheck::Succeeded(TransactionBlock {
+                StatusReadFromReceiptCheck::Succeeded(TxBlock {
                     block_hash,
                     block_number,
                 })
