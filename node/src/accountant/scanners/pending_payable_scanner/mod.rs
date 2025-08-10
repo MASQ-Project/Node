@@ -472,8 +472,8 @@ impl PendingPayableScanner {
                         PresortedTxFailure::NewEntry(failed_tx) => {
                             acc.new_failures.push(failed_tx);
                         }
-                        PresortedTxFailure::RecheckCompleted(hash) => {
-                            todo!()
+                        PresortedTxFailure::RecheckCompleted(tx_hash) => {
+                            acc.rechecks_completed.push(tx_hash);
                         }
                     }
                     acc
@@ -528,11 +528,42 @@ impl PendingPayableScanner {
     }
 
     fn finalize_unproven_failures(&self, rechecks_completed: Vec<TxHash>, logger: &Logger) {
+        fn prepare_hashmap(rechecks_completed: &[TxHash]) -> HashMap<TxHash, FailureStatus> {
+            rechecks_completed
+                .iter()
+                .map(|tx_hash| (tx_hash.clone(), FailureStatus::Concluded))
+                .collect()
+        }
+
         if rechecks_completed.is_empty() {
             return;
         }
 
-        todo!()
+        match self
+            .failed_payable_dao
+            .update_statuses(&prepare_hashmap(&rechecks_completed))
+        {
+            Ok(_) => {
+                debug!(
+                    logger,
+                    "Concluded failures that had required rechecks: {}.",
+                    comma_joined_stringifiable(&rechecks_completed, |tx_hash| format!(
+                        "{:?}",
+                        tx_hash
+                    ))
+                );
+            }
+            Err(e) => {
+                panic!(
+                    "Unable to conclude rechecks for failed txs {} due to {:?}",
+                    comma_joined_stringifiable(&rechecks_completed, |tx_hash| format!(
+                        "{:?}",
+                        tx_hash
+                    )),
+                    e
+                )
+            }
+        }
     }
 
     fn handle_rpc_failures(&self, failures: Vec<FailedValidationByTable>, logger: &Logger) {
@@ -1278,21 +1309,18 @@ mod tests {
     fn handle_failed_transactions_can_process_mixed_failures() {
         let insert_new_records_params_arc = Arc::new(Mutex::new(vec![]));
         let delete_records_params_arc = Arc::new(Mutex::new(vec![]));
-        let retrieve_failed_txs_params_arc = Arc::new(Mutex::new(vec![]));
         let update_status_params_arc = Arc::new(Mutex::new(vec![]));
-        let hash_1 = make_tx_hash(0x321);
-        let hash_2 = make_tx_hash(0x654);
+        let tx_hash_1 = make_tx_hash(0x321);
+        let tx_hash_2 = make_tx_hash(0x654);
         let mut failed_tx_1 = make_failed_tx(123);
-        failed_tx_1.hash = hash_1;
+        failed_tx_1.hash = tx_hash_1;
         let mut failed_tx_2 = make_failed_tx(456);
-        failed_tx_2.hash = hash_2;
+        failed_tx_2.hash = tx_hash_2;
         let failed_payable_dao = FailedPayableDaoMock::default()
-            .retrieve_txs_params(&retrieve_failed_txs_params_arc)
-            .retrieve_txs_result(vec![failed_tx_1.clone()])
-            .update_statuses_params(&update_status_params_arc)
-            .update_statuses_result(Ok(()))
             .insert_new_records_params(&insert_new_records_params_arc)
-            .insert_new_records_result(Ok(()));
+            .insert_new_records_result(Ok(()))
+            .update_statuses_params(&update_status_params_arc)
+            .update_statuses_result(Ok(()));
         let sent_payable_dao = SentPayableDaoMock::default()
             .delete_records_params(&delete_records_params_arc)
             .delete_records_result(Ok(()));
@@ -1301,10 +1329,10 @@ mod tests {
             .failed_payable_dao(failed_payable_dao)
             .build();
         let detected_failures = DetectedFailures {
-            tx_failures: vec![PresortedTxFailure::NewEntry(failed_tx_1)],
+            tx_failures: vec![PresortedTxFailure::NewEntry(failed_tx_1.clone())],
             tx_receipt_rpc_failures: vec![FailedValidationByTable::SentPayable(
                 FailedValidation::new(
-                    hash_1,
+                    tx_hash_2,
                     AppRpcError::Local(LocalError::Internal),
                     TxStatus::Pending(ValidationStatus::Waiting),
                 ),
@@ -1313,24 +1341,17 @@ mod tests {
 
         subject.handle_failed_transactions(detected_failures, &Logger::new("test"));
 
-        let retrieve_failed_txs_params = retrieve_failed_txs_params_arc.lock().unwrap();
+        let insert_new_records_params = insert_new_records_params_arc.lock().unwrap();
+        assert_eq!(*insert_new_records_params, vec![vec![failed_tx_1]]);
+        let delete_records_params = delete_records_params_arc.lock().unwrap();
+        assert_eq!(*delete_records_params, vec![hashset![tx_hash_1]]);
+        let update_statuses_params = update_status_params_arc.lock().unwrap();
         assert_eq!(
-            *retrieve_failed_txs_params,
-            vec![Some(FailureRetrieveCondition::ByTxHash(vec![
-                hash_1, hash_2
-            ]))]
-        );
-        let update_status_params = update_status_params_arc.lock().unwrap();
-        assert_eq!(
-            *update_status_params,
+            *update_statuses_params,
             vec![
-                hashmap!(hash_1 => FailureStatus::RecheckRequired(ValidationStatus::Reattempting {attempt: 1,error: AppRpcError::Local(LocalError::Internal)}))
+                hashmap!(tx_hash_2 => FailureStatus::RecheckRequired(ValidationStatus::Reattempting {attempt: 1,error: AppRpcError::Local(LocalError::Internal)}))
             ]
         );
-        let insert_new_records_params = insert_new_records_params_arc.lock().unwrap();
-        assert_eq!(*insert_new_records_params, vec![vec![failed_tx_2]]);
-        let delete_records_params = delete_records_params_arc.lock().unwrap();
-        assert_eq!(*delete_records_params, vec![hashset![hash_2]]);
     }
 
     #[test]
@@ -1383,6 +1404,65 @@ mod tests {
             tx_failures: vec![
                 PresortedTxFailure::NewEntry(failed_tx_1),
                 PresortedTxFailure::NewEntry(failed_tx_2),
+            ],
+            tx_receipt_rpc_failures: vec![],
+        };
+
+        subject.handle_failed_transactions(detected_failures, &Logger::new("test"));
+    }
+
+    #[test]
+    fn handle_failed_transactions_can_conclude_rechecked_failures() {
+        let update_status_params_arc = Arc::new(Mutex::new(vec![]));
+        let tx_hash_1 = make_tx_hash(0x321);
+        let tx_hash_2 = make_tx_hash(0x654);
+        let mut failed_tx_1 = make_failed_tx(123);
+        failed_tx_1.hash = tx_hash_1;
+        let mut failed_tx_2 = make_failed_tx(456);
+        failed_tx_2.hash = tx_hash_2;
+        let failed_payable_dao = FailedPayableDaoMock::default()
+            .update_statuses_params(&update_status_params_arc)
+            .update_statuses_result(Ok(()));
+        let subject = PendingPayableScannerBuilder::new()
+            .failed_payable_dao(failed_payable_dao)
+            .build();
+        let detected_failures = DetectedFailures {
+            tx_failures: vec![
+                PresortedTxFailure::RecheckCompleted(tx_hash_1),
+                PresortedTxFailure::RecheckCompleted(tx_hash_2),
+            ],
+            tx_receipt_rpc_failures: vec![],
+        };
+
+        subject.handle_failed_transactions(detected_failures, &Logger::new("test"));
+
+        let update_status_params = update_status_params_arc.lock().unwrap();
+        assert_eq!(
+            *update_status_params,
+            vec![
+                hashmap!(tx_hash_1 => FailureStatus::Concluded, tx_hash_2 => FailureStatus::Concluded),
+            ]
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Unable to conclude rechecks for failed txs \
+    0x0000000000000000000000000000000000000000000000000000000000000321, \
+    0x0000000000000000000000000000000000000000000000000000000000000654 due to \
+    InvalidInput(\"Booga\")")]
+    fn concluding_rechecks_fails_on_updating_statuses() {
+        let tx_hash_1 = make_tx_hash(0x321);
+        let tx_hash_2 = make_tx_hash(0x654);
+        let failed_payable_dao = FailedPayableDaoMock::default().update_statuses_result(Err(
+            FailedPayableDaoError::InvalidInput("Booga".to_string()),
+        ));
+        let subject = PendingPayableScannerBuilder::new()
+            .failed_payable_dao(failed_payable_dao)
+            .build();
+        let detected_failures = DetectedFailures {
+            tx_failures: vec![
+                PresortedTxFailure::RecheckCompleted(tx_hash_1),
+                PresortedTxFailure::RecheckCompleted(tx_hash_2),
             ],
             tx_receipt_rpc_failures: vec![],
         };
