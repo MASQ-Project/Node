@@ -11,6 +11,7 @@ use crate::commands::descriptor_command::descriptor_subcommand;
 use crate::commands::exit_location_command::exit_location_subcommand;
 use crate::commands::financials_command::args_validation::financials_subcommand;
 use crate::commands::generate_wallets_command::generate_wallets_subcommand;
+use crate::commands::neighborhood_graph_command::get_neighborhood_graph_subcommand;
 use crate::commands::recover_wallets_command::recover_wallets_subcommand;
 use crate::commands::scan_command::scan_subcommand;
 use crate::commands::set_configuration_command::set_configuration_subcommand;
@@ -71,6 +72,7 @@ pub fn app() -> App<'static, 'static> {
         .subcommand(exit_location_subcommand())
         .subcommand(financials_subcommand())
         .subcommand(generate_wallets_subcommand())
+        .subcommand(get_neighborhood_graph_subcommand())
         .subcommand(recover_wallets_subcommand())
         .subcommand(scan_subcommand())
         .subcommand(set_configuration_subcommand())
