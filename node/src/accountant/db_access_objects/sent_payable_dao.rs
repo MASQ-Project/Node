@@ -124,7 +124,7 @@ pub trait SentPayableDao {
     fn insert_new_records(&self, txs: &[SentTx]) -> Result<(), SentPayableDaoError>;
     fn retrieve_txs(&self, condition: Option<RetrieveCondition>) -> Vec<SentTx>;
     //TODO potentially atomically
-    fn confirm_tx(&self, hash_map: &HashMap<TxHash, TxBlock>) -> Result<(), SentPayableDaoError>;
+    fn confirm_txs(&self, hash_map: &HashMap<TxHash, TxBlock>) -> Result<(), SentPayableDaoError>;
     fn replace_records(&self, new_txs: &[SentTx]) -> Result<(), SentPayableDaoError>;
     fn update_statuses(
         &self,
@@ -287,7 +287,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
         .collect()
     }
 
-    fn confirm_tx(&self, hash_map: &HashMap<TxHash, TxBlock>) -> Result<(), SentPayableDaoError> {
+    fn confirm_txs(&self, hash_map: &HashMap<TxHash, TxBlock>) -> Result<(), SentPayableDaoError> {
         if hash_map.is_empty() {
             return Err(SentPayableDaoError::EmptyInput);
         }
@@ -829,7 +829,7 @@ mod tests {
             (tx2.hash, confirmed_tx_block_2.clone()),
         ]);
 
-        let result = subject.confirm_tx(&hash_map);
+        let result = subject.confirm_txs(&hash_map);
 
         let updated_txs = subject.retrieve_txs(Some(ByHash(vec![tx1.hash, tx2.hash])));
         assert_eq!(result, Ok(()));
@@ -874,7 +874,7 @@ mod tests {
         subject.insert_new_records(&vec![tx]).unwrap();
         let hash_map = HashMap::new();
 
-        let result = subject.confirm_tx(&hash_map);
+        let result = subject.confirm_txs(&hash_map);
 
         assert_eq!(result, Err(SentPayableDaoError::EmptyInput));
     }
@@ -910,7 +910,7 @@ mod tests {
             ),
         ]);
 
-        let result = subject.confirm_tx(&hash_map);
+        let result = subject.confirm_txs(&hash_map);
 
         assert_eq!(
             result,
@@ -938,7 +938,7 @@ mod tests {
             },
         )]);
 
-        let result = subject.confirm_tx(&hash_map);
+        let result = subject.confirm_txs(&hash_map);
 
         assert_eq!(
             result,

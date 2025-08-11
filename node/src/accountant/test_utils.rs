@@ -1016,7 +1016,7 @@ impl SentPayableDao for SentPayableDaoMock {
         self.retrieve_txs_params.lock().unwrap().push(condition);
         self.retrieve_txs_results.borrow_mut().remove(0)
     }
-    fn confirm_tx(&self, hash_map: &HashMap<TxHash, TxBlock>) -> Result<(), SentPayableDaoError> {
+    fn confirm_txs(&self, hash_map: &HashMap<TxHash, TxBlock>) -> Result<(), SentPayableDaoError> {
         self.confirm_tx_params
             .lock()
             .unwrap()
