@@ -620,12 +620,15 @@ mod tests {
     use crate::accountant::db_access_objects::sent_payable_dao::Tx;
     use crate::accountant::db_access_objects::sent_payable_dao::TxStatus::Pending;
     use crate::accountant::db_access_objects::test_utils::{assert_on_failed_txs, assert_on_sent_txs};
+    use crate::accountant::scanners::payable_scanner::data_structures::BaseTxTemplate;
     use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::NewTxTemplates;
+    use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::PricedNewTxTemplate;
     use crate::accountant::scanners::payable_scanner::data_structures::test_utils::make_priced_new_tx_templates;
     use crate::blockchain::blockchain_agent::test_utils::BlockchainAgentMock;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt};
     use crate::blockchain::errors::AppRpcError::Local;
     use crate::blockchain::errors::LocalError::Transport;
+    use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 
     impl Handler<AssertionsMessage<Self>> for BlockchainBridge {
         type Result = ();
@@ -770,48 +773,39 @@ mod tests {
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
         let blockchain_agent_with_context_msg_actual: &BlockchainAgentWithContextMessage =
             accountant_received_payment.get_record(0);
-        // let expected_priced_qualified_payables = PricedQualifiedPayables {
-        //     payables: tx_templates
-        //         .into_iter()
-        //         .map(|payable| QualifiedPayableWithGasPrice {
-        //             payable,
-        //             gas_price_minor: increase_gas_price_by_margin(0x230000000),
-        //         })
-        //         .collect(),
-        // };
+        let computed_gas_price_wei = increase_gas_price_by_margin(0x230000000);
         let expected_tx_templates = tx_templates
-            .into_iter()
-            .map(|mut tx_template| {
-                tx_template.computed_gas_price_wei =
-                    Some(increase_gas_price_by_margin(0x230000000));
-                tx_template
+            .iter()
+            .map(|tx_template| PricedNewTxTemplate {
+                base: tx_template.base,
+                computed_gas_price_wei,
             })
-            .collect::<NewTxTemplates>();
+            .collect::<PricedNewTxTemplates>();
 
-        // assert_eq!(
-        //     blockchain_agent_with_context_msg_actual.qualified_payables,
-        //     expected_priced_qualified_payables
-        // );
-        // let actual_agent = blockchain_agent_with_context_msg_actual.agent.as_ref();
-        // assert_eq!(actual_agent.consuming_wallet(), &consuming_wallet);
-        // assert_eq!(
-        //     actual_agent.consuming_wallet_balances(),
-        //     ConsumingWalletBalances::new(0xAAAA.into(), 0xFFFF.into())
-        // );
-        // assert_eq!(
-        //     actual_agent.estimate_transaction_fee_total(
-        //         &actual_agent.price_qualified_payables(tx_templates)
-        //     ),
-        //     1_791_228_995_698_688
-        // );
-        // assert_eq!(
-        //     blockchain_agent_with_context_msg_actual.response_skeleton_opt,
-        //     Some(ResponseSkeleton {
-        //         client_id: 11122,
-        //         context_id: 444
-        //     })
-        // );
-        // assert_eq!(accountant_received_payment.len(), 1);
+        assert_eq!(
+            blockchain_agent_with_context_msg_actual.priced_templates,
+            Either::Left(expected_tx_templates)
+        );
+        let actual_agent = blockchain_agent_with_context_msg_actual.agent.as_ref();
+        assert_eq!(actual_agent.consuming_wallet(), &consuming_wallet);
+        assert_eq!(
+            actual_agent.consuming_wallet_balances(),
+            ConsumingWalletBalances::new(0xAAAA.into(), 0xFFFF.into())
+        );
+        assert_eq!(
+            actual_agent.estimate_transaction_fee_total(
+                &actual_agent.price_qualified_payables(Either::Left(tx_templates))
+            ),
+            1_791_228_995_698_688
+        );
+        assert_eq!(
+            blockchain_agent_with_context_msg_actual.response_skeleton_opt,
+            Some(ResponseSkeleton {
+                client_id: 11122,
+                context_id: 444
+            })
+        );
+        assert_eq!(accountant_received_payment.len(), 1);
     }
 
     #[test]

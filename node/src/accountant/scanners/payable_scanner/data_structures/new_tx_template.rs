@@ -5,14 +5,12 @@ use std::ops::{Deref, DerefMut};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewTxTemplate {
     pub base: BaseTxTemplate,
-    pub computed_gas_price_wei: Option<u128>,
 }
 
 impl From<&PayableAccount> for NewTxTemplate {
     fn from(payable_account: &PayableAccount) -> Self {
         Self {
             base: BaseTxTemplate::from(payable_account),
-            computed_gas_price_wei: None,
         }
     }
 }
@@ -67,18 +65,6 @@ impl From<&Vec<PayableAccount>> for NewTxTemplates {
     }
 }
 
-impl NewTxTemplates {
-    pub fn total_gas_price(&self) -> u128 {
-        self.iter()
-            .map(|new_tx_template| {
-                new_tx_template
-                    .computed_gas_price_wei
-                    .expect("gas price should be computed")
-            })
-            .sum()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
@@ -114,14 +100,12 @@ mod tests {
                 receiver_address: make_address(1),
                 amount_in_wei: 1000,
             },
-            computed_gas_price_wei: Some(5000),
         };
         let template2 = NewTxTemplate {
             base: BaseTxTemplate {
                 receiver_address: make_address(2),
                 amount_in_wei: 2000,
             },
-            computed_gas_price_wei: Some(6000),
         };
         let templates_vec = vec![template1.clone(), template2.clone()];
 
@@ -130,7 +114,6 @@ mod tests {
         assert_eq!(templates.len(), 2);
         assert_eq!(templates[0], template1);
         assert_eq!(templates[1], template2);
-        assert_eq!(templates.total_gas_price(), 11000);
     }
 
     #[test]
@@ -140,14 +123,12 @@ mod tests {
                 receiver_address: make_address(1),
                 amount_in_wei: 1000,
             },
-            computed_gas_price_wei: None,
         };
         let template2 = NewTxTemplate {
             base: BaseTxTemplate {
                 receiver_address: make_address(2),
                 amount_in_wei: 2000,
             },
-            computed_gas_price_wei: None,
         };
 
         let templates = NewTxTemplates(vec![template1.clone(), template2.clone()]);
@@ -173,14 +154,12 @@ mod tests {
                 receiver_address: make_address(1),
                 amount_in_wei: 1000,
             },
-            computed_gas_price_wei: Some(5000),
         };
         let template2 = NewTxTemplate {
             base: BaseTxTemplate {
                 receiver_address: make_address(2),
                 amount_in_wei: 2000,
             },
-            computed_gas_price_wei: Some(6000),
         };
         let templates = NewTxTemplates(vec![template1.clone(), template2.clone()]);
 
