@@ -3,14 +3,11 @@
 pub mod errors;
 
 use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
-use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
 use crate::accountant::db_access_objects::sent_payable_dao::Tx;
 use crate::blockchain::blockchain_bridge::BlockMarker;
 use crate::sub_lib::wallet::Wallet;
 use std::fmt;
 use std::fmt::Formatter;
-use web3::types::H256;
-use web3::Error;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BlockchainTransaction {
@@ -34,19 +31,6 @@ pub struct RetrievedBlockchainTransactions {
     pub new_start_block: BlockMarker,
     pub transactions: Vec<BlockchainTransaction>,
 }
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct RpcPayableFailure {
-    pub rpc_error: Error,
-    pub recipient_wallet: Wallet,
-    pub hash: H256,
-}
-
-// #[derive(Debug, PartialEq, Clone)]
-// pub enum IndividualBatchResult {
-//     Pending(PendingPayable), // TODO: GH-605: It should only store the TxHash
-//     Failed(RpcPayableFailure),
-// }
 
 #[derive(Default, Debug, PartialEq, Clone)]
 pub struct BatchResults {

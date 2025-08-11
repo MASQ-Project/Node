@@ -27,13 +27,12 @@ use crate::accountant::scanners::payable_scanner::utils::{
 };
 use crate::accountant::scanners::{Scanner, ScannerCommon, StartableScanner};
 use crate::accountant::{
-    comma_joined_stringifiable, gwei_to_wei, join_with_separator, PayableScanType,
-    ResponseSkeleton, ScanForNewPayables, ScanForRetryPayables, SentPayables,
+    gwei_to_wei, join_with_separator, PayableScanType, ResponseSkeleton, ScanForNewPayables,
+    ScanForRetryPayables, SentPayables,
 };
 use crate::blockchain::blockchain_interface::data_structures::BatchResults;
 use crate::sub_lib::accountant::PaymentThresholds;
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
-use ethereum_types::H256;
 use itertools::{Either, Itertools};
 use masq_lib::logger::Logger;
 use masq_lib::messages::{ToMessageBody, UiScanResponse};

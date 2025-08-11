@@ -1,6 +1,4 @@
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::blockchain::blockchain_agent::BlockchainAgent;
-use actix::Message;
 use web3::types::Address;
 
 pub mod initial;

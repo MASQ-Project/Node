@@ -41,10 +41,14 @@ impl BlockchainAgent for BlockchainAgentWeb3 {
                 Either::Left(updated_new_tx_templates)
             }
             Either::Right(retry_tx_templates) => {
-                let updated_retry_tx_templates =
-                    self.update_gas_price_for_retry_tx_templates(retry_tx_templates);
+                let priced_templates = PricedRetryTxTemplates::from_initial_with_logging(
+                    retry_tx_templates,
+                    self.latest_gas_price_wei,
+                    self.chain.rec().gas_price_safe_ceiling_minor,
+                    &self.logger,
+                );
 
-                Either::Right(updated_retry_tx_templates)
+                Either::Right(priced_templates)
             }
         }
     }
@@ -137,56 +141,6 @@ impl BlockchainAgentWeb3 {
         let computed_gas_price_wei = self.evaluate_gas_price_for_new_txs(&new_tx_templates);
 
         PricedNewTxTemplates::new(new_tx_templates, computed_gas_price_wei)
-    }
-
-    // TODO: GH-605: Move this logic to the RetryTxTemplates, use builder pattern for logging
-    fn update_gas_price_for_retry_tx_templates(
-        &self,
-        retry_tx_templates: RetryTxTemplates,
-    ) -> PricedRetryTxTemplates {
-        let mut log_data: Vec<(Address, u128)> = Vec::with_capacity(retry_tx_templates.len());
-
-        let ceil = self.chain.rec().gas_price_safe_ceiling_minor;
-
-        let updated_tx_templates = retry_tx_templates
-            .into_iter()
-            .map(|retry_tx_template| {
-                let receiver = retry_tx_template.base.receiver_address;
-                let evaluated_gas_price_wei =
-                    self.compute_gas_price(Some(retry_tx_template.prev_gas_price_wei));
-
-                let computed_gas_price = if evaluated_gas_price_wei > ceil {
-                    log_data.push((receiver, evaluated_gas_price_wei));
-                    ceil
-                } else {
-                    evaluated_gas_price_wei
-                };
-
-                PricedRetryTxTemplate::new(retry_tx_template, computed_gas_price)
-            })
-            .collect();
-
-        if !log_data.is_empty() {
-            warning!(
-                self.logger,
-                "The computed gas price(s) in wei is \
-                 above the ceil value of {} wei set by the Node.\n\
-                 Transaction(s) to following receivers are affected:\n\
-                 {}",
-                ceil.separate_with_commas(),
-                join_with_separator(
-                    &log_data,
-                    |(address, gas_price)| format!(
-                        "{:?} with gas price {}",
-                        address,
-                        gas_price.separate_with_commas()
-                    ),
-                    "\n"
-                )
-            );
-        }
-
-        PricedRetryTxTemplates(updated_tx_templates)
     }
 }
 

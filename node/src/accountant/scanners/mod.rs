@@ -6,17 +6,15 @@ pub mod receivable_scanner;
 pub mod scan_schedulers;
 pub mod test_utils;
 
-use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDao};
 use crate::accountant::db_access_objects::pending_payable_dao::{PendingPayable, PendingPayableDao};
-use crate::accountant::db_access_objects::receivable_dao::ReceivableDao;
-use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
-use crate::accountant::{join_with_separator, PendingPayableId, ScanError, ScanForPendingPayables, ScanForRetryPayables};
+use crate::accountant::payment_adjuster::{PaymentAdjusterReal};
+use crate::accountant::{ScanError, ScanForPendingPayables, ScanForRetryPayables};
 use crate::accountant::{
-    comma_joined_stringifiable, gwei_to_wei, ReceivedPayments,
+    ReceivedPayments,
     ReportTransactionReceipts, RequestTransactionReceipts, ResponseSkeleton, ScanForNewPayables,
     ScanForReceivables, SentPayables,
 };
-use crate::blockchain::blockchain_bridge::{BlockMarker, PendingPayableFingerprint, RetrieveTransactions};
+use crate::blockchain::blockchain_bridge::{RetrieveTransactions};
 use crate::sub_lib::accountant::{
     DaoFactories, FinancialStatistics, PaymentThresholds,
 };
@@ -51,7 +49,6 @@ use crate::accountant::scanners::pending_payable_scanner::utils::PendingPayableS
 use crate::accountant::scanners::receivable_scanner::ReceivableScanner;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TxStatus};
 use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
-use crate::blockchain::blockchain_interface::data_structures::{RpcPayableFailure};
 use crate::blockchain::errors::AppRpcError::Local;
 use crate::blockchain::errors::LocalError::Internal;
 use crate::db_config::persistent_configuration::{PersistentConfigurationReal};
