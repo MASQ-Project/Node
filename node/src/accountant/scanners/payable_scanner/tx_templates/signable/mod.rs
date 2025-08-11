@@ -1,5 +1,5 @@
-use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::PricedNewTxTemplates;
-use crate::accountant::scanners::payable_scanner::data_structures::priced_retry_tx_template::PricedRetryTxTemplates;
+use crate::accountant::scanners::payable_scanner::tx_templates::priced::new::PricedNewTxTemplates;
+use crate::accountant::scanners::payable_scanner::tx_templates::priced::retry::PricedRetryTxTemplates;
 use bytes::Buf;
 use itertools::{Either, Itertools};
 use std::ops::Deref;
@@ -93,13 +93,13 @@ impl Deref for SignableTxTemplates {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::PricedNewTxTemplates;
-    use crate::accountant::scanners::payable_scanner::data_structures::priced_retry_tx_template::PricedRetryTxTemplates;
-    use crate::accountant::scanners::payable_scanner::data_structures::signable_tx_template::SignableTxTemplates;
-    use crate::accountant::scanners::payable_scanner::data_structures::test_utils::{
+
+    use crate::accountant::scanners::payable_scanner::tx_templates::priced::new::PricedNewTxTemplates;
+    use crate::accountant::scanners::payable_scanner::tx_templates::priced::retry::PricedRetryTxTemplates;
+    use crate::accountant::scanners::payable_scanner::tx_templates::signable::SignableTxTemplates;
+    use crate::accountant::scanners::payable_scanner::tx_templates::test_utils::{
         make_priced_new_tx_template, make_priced_retry_tx_template, make_signable_tx_template,
     };
-
     use itertools::Either;
 
     #[test]

@@ -1,219 +1,205 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-pub mod payable_scanner_utils {
-    use crate::accountant::comma_joined_stringifiable;
-    use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDaoError};
-    use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
-    use crate::accountant::db_access_objects::utils::ThresholdUtils;
-    use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::NewTxTemplate;
-    use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
-    use crate::sub_lib::accountant::PaymentThresholds;
-    use crate::sub_lib::wallet::Wallet;
-    use itertools::Itertools;
-    use masq_lib::logger::Logger;
-    use masq_lib::ui_gateway::NodeToUiMessage;
-    use std::cmp::Ordering;
-    use std::ops::Not;
-    use std::time::SystemTime;
-    use thousands::Separable;
-    use web3::types::H256;
+use crate::accountant::comma_joined_stringifiable;
+use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDaoError};
+use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
+use crate::accountant::db_access_objects::utils::ThresholdUtils;
+use crate::sub_lib::accountant::PaymentThresholds;
+use crate::sub_lib::wallet::Wallet;
+use itertools::Itertools;
+use masq_lib::logger::Logger;
+use masq_lib::ui_gateway::NodeToUiMessage;
+use std::cmp::Ordering;
+use std::ops::Not;
+use std::time::SystemTime;
+use thousands::Separable;
+use web3::types::H256;
 
-    #[derive(Debug, PartialEq, Eq)]
-    pub enum PayableTransactingErrorEnum {
-        LocallyCausedError(LocalPayableError),
-        RemotelyCausedErrors(Vec<H256>),
+#[derive(Debug, PartialEq)]
+pub struct PayableScanResult {
+    pub ui_response_opt: Option<NodeToUiMessage>,
+    pub result: OperationOutcome,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum OperationOutcome {
+    PendingPayableScan,
+    NewPayableScan,
+    RetryPayableScan,
+}
+
+//debugging purposes only
+pub fn investigate_debt_extremes(
+    timestamp: SystemTime,
+    all_non_pending_payables: &[PayableAccount],
+) -> String {
+    #[derive(Clone, Copy, Default)]
+    struct PayableInfo {
+        balance_wei: u128,
+        age: u64,
     }
-
-    #[derive(Debug, PartialEq)]
-    pub struct PayableScanResult {
-        pub ui_response_opt: Option<NodeToUiMessage>,
-        pub result: OperationOutcome,
-    }
-
-    #[derive(Debug, PartialEq, Eq)]
-    pub enum OperationOutcome {
-        PendingPayableScan,
-        NewPayableScan,
-        RetryPayableScan,
-        // TODO: GH-667: There should be NewPayableFailure and RetryPayableFailure instead of Failure
-        // NewPendingPayable,
-        // RetryPendingPayable,
-        // Failure,
-    }
-
-    //debugging purposes only
-    pub fn investigate_debt_extremes(
-        timestamp: SystemTime,
-        all_non_pending_payables: &[PayableAccount],
-    ) -> String {
-        #[derive(Clone, Copy, Default)]
-        struct PayableInfo {
-            balance_wei: u128,
-            age: u64,
-        }
-        fn bigger(payable_1: PayableInfo, payable_2: PayableInfo) -> PayableInfo {
-            match payable_1.balance_wei.cmp(&payable_2.balance_wei) {
-                Ordering::Greater => payable_1,
-                Ordering::Less => payable_2,
-                Ordering::Equal => {
-                    if payable_1.age == payable_2.age {
-                        payable_1
-                    } else {
-                        older(payable_1, payable_2)
-                    }
+    fn bigger(payable_1: PayableInfo, payable_2: PayableInfo) -> PayableInfo {
+        match payable_1.balance_wei.cmp(&payable_2.balance_wei) {
+            Ordering::Greater => payable_1,
+            Ordering::Less => payable_2,
+            Ordering::Equal => {
+                if payable_1.age == payable_2.age {
+                    payable_1
+                } else {
+                    older(payable_1, payable_2)
                 }
             }
         }
-        fn older(payable_1: PayableInfo, payable_2: PayableInfo) -> PayableInfo {
-            match payable_1.age.cmp(&payable_2.age) {
-                Ordering::Greater => payable_1,
-                Ordering::Less => payable_2,
-                Ordering::Equal => {
-                    if payable_1.balance_wei == payable_2.balance_wei {
-                        payable_1
-                    } else {
-                        bigger(payable_1, payable_2)
-                    }
+    }
+    fn older(payable_1: PayableInfo, payable_2: PayableInfo) -> PayableInfo {
+        match payable_1.age.cmp(&payable_2.age) {
+            Ordering::Greater => payable_1,
+            Ordering::Less => payable_2,
+            Ordering::Equal => {
+                if payable_1.balance_wei == payable_2.balance_wei {
+                    payable_1
+                } else {
+                    bigger(payable_1, payable_2)
                 }
             }
         }
+    }
 
-        if all_non_pending_payables.is_empty() {
-            return "Payable scan found no debts".to_string();
-        }
-        let (biggest, oldest) = all_non_pending_payables
-            .iter()
-            .map(|payable| PayableInfo {
-                balance_wei: payable.balance_wei,
-                age: timestamp
-                    .duration_since(payable.last_paid_timestamp)
-                    .expect("Payable time is corrupt")
-                    .as_secs(),
-            })
-            .fold(
-                Default::default(),
-                |(so_far_biggest, so_far_oldest): (PayableInfo, PayableInfo), payable| {
-                    (
-                        bigger(so_far_biggest, payable),
-                        older(so_far_oldest, payable),
-                    )
-                },
-            );
-        format!("Payable scan found {} debts; the biggest is {} owed for {}sec, the oldest is {} owed for {}sec",
+    if all_non_pending_payables.is_empty() {
+        return "Payable scan found no debts".to_string();
+    }
+    let (biggest, oldest) = all_non_pending_payables
+        .iter()
+        .map(|payable| PayableInfo {
+            balance_wei: payable.balance_wei,
+            age: timestamp
+                .duration_since(payable.last_paid_timestamp)
+                .expect("Payable time is corrupt")
+                .as_secs(),
+        })
+        .fold(
+            Default::default(),
+            |(so_far_biggest, so_far_oldest): (PayableInfo, PayableInfo), payable| {
+                (
+                    bigger(so_far_biggest, payable),
+                    older(so_far_oldest, payable),
+                )
+            },
+        );
+    format!("Payable scan found {} debts; the biggest is {} owed for {}sec, the oldest is {} owed for {}sec",
                 all_non_pending_payables.len(), biggest.balance_wei, biggest.age,
                 oldest.balance_wei, oldest.age)
-    }
+}
 
-    pub fn payables_debug_summary(qualified_accounts: &[(PayableAccount, u128)], logger: &Logger) {
-        if qualified_accounts.is_empty() {
-            return;
+pub fn payables_debug_summary(qualified_accounts: &[(PayableAccount, u128)], logger: &Logger) {
+    if qualified_accounts.is_empty() {
+        return;
+    }
+    debug!(logger, "Paying qualified debts:\n{}", {
+        let now = SystemTime::now();
+        qualified_accounts
+            .iter()
+            .map(|(payable, threshold_point)| {
+                let p_age = now
+                    .duration_since(payable.last_paid_timestamp)
+                    .expect("Payable time is corrupt");
+                format!(
+                    "{} wei owed for {} sec exceeds threshold: {} wei; creditor: {}",
+                    payable.balance_wei.separate_with_commas(),
+                    p_age.as_secs(),
+                    threshold_point.separate_with_commas(),
+                    payable.wallet
+                )
+            })
+            .join("\n")
+    })
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct PendingPayableMetadata<'a> {
+    pub recipient: &'a Wallet,
+    pub hash: H256,
+    pub rowid_opt: Option<u64>,
+}
+
+impl<'a> PendingPayableMetadata<'a> {
+    pub fn new(
+        recipient: &'a Wallet,
+        hash: H256,
+        rowid_opt: Option<u64>,
+    ) -> PendingPayableMetadata<'a> {
+        PendingPayableMetadata {
+            recipient,
+            hash,
+            rowid_opt,
         }
-        debug!(logger, "Paying qualified debts:\n{}", {
-            let now = SystemTime::now();
-            qualified_accounts
-                .iter()
-                .map(|(payable, threshold_point)| {
-                    let p_age = now
-                        .duration_since(payable.last_paid_timestamp)
-                        .expect("Payable time is corrupt");
-                    format!(
-                        "{} wei owed for {} sec exceeds threshold: {} wei; creditor: {}",
-                        payable.balance_wei.separate_with_commas(),
-                        p_age.as_secs(),
-                        threshold_point.separate_with_commas(),
-                        payable.wallet
-                    )
-                })
-                .join("\n")
-        })
+    }
+}
+
+pub fn mark_pending_payable_fatal_error(
+    sent_payments: &[&PendingPayable],
+    nonexistent: &[PendingPayableMetadata],
+    error: PayableDaoError,
+    missing_fingerprints_msg_maker: fn(&[PendingPayableMetadata]) -> String,
+    logger: &Logger,
+) {
+    if !nonexistent.is_empty() {
+        error!(logger, "{}", missing_fingerprints_msg_maker(nonexistent))
+    };
+    panic!(
+        "Unable to create a mark in the payable table for wallets {} due to {:?}",
+        comma_joined_stringifiable(sent_payments, |pending_p| pending_p
+            .recipient_wallet
+            .to_string()),
+        error
+    )
+}
+
+pub fn err_msg_for_failure_with_expected_but_missing_fingerprints(
+    nonexistent: Vec<H256>,
+    serialize_hashes: fn(&[H256]) -> String,
+) -> Option<String> {
+    nonexistent.is_empty().not().then_some(format!(
+        "Ran into failed transactions {} with missing fingerprints. System no longer reliable",
+        serialize_hashes(&nonexistent),
+    ))
+}
+
+pub fn separate_rowids_and_hashes(ids_of_payments: Vec<(u64, H256)>) -> (Vec<u64>, Vec<H256>) {
+    ids_of_payments.into_iter().unzip()
+}
+
+pub trait PayableThresholdsGauge {
+    fn is_innocent_age(&self, age: u64, limit: u64) -> bool;
+    fn is_innocent_balance(&self, balance: u128, limit: u128) -> bool;
+    fn calculate_payout_threshold_in_gwei(
+        &self,
+        payment_thresholds: &PaymentThresholds,
+        x: u64,
+    ) -> u128;
+    as_any_ref_in_trait!();
+}
+
+#[derive(Default)]
+pub struct PayableThresholdsGaugeReal {}
+
+impl PayableThresholdsGauge for PayableThresholdsGaugeReal {
+    fn is_innocent_age(&self, age: u64, limit: u64) -> bool {
+        age <= limit
     }
 
-    #[derive(Debug, PartialEq, Eq)]
-    pub struct PendingPayableMetadata<'a> {
-        pub recipient: &'a Wallet,
-        pub hash: H256,
-        pub rowid_opt: Option<u64>,
+    fn is_innocent_balance(&self, balance: u128, limit: u128) -> bool {
+        balance <= limit
     }
 
-    impl<'a> PendingPayableMetadata<'a> {
-        pub fn new(
-            recipient: &'a Wallet,
-            hash: H256,
-            rowid_opt: Option<u64>,
-        ) -> PendingPayableMetadata<'a> {
-            PendingPayableMetadata {
-                recipient,
-                hash,
-                rowid_opt,
-            }
-        }
+    fn calculate_payout_threshold_in_gwei(
+        &self,
+        payment_thresholds: &PaymentThresholds,
+        debt_age: u64,
+    ) -> u128 {
+        ThresholdUtils::calculate_finite_debt_limit_by_age(payment_thresholds, debt_age)
     }
-
-    pub fn mark_pending_payable_fatal_error(
-        sent_payments: &[&PendingPayable],
-        nonexistent: &[PendingPayableMetadata],
-        error: PayableDaoError,
-        missing_fingerprints_msg_maker: fn(&[PendingPayableMetadata]) -> String,
-        logger: &Logger,
-    ) {
-        if !nonexistent.is_empty() {
-            error!(logger, "{}", missing_fingerprints_msg_maker(nonexistent))
-        };
-        panic!(
-            "Unable to create a mark in the payable table for wallets {} due to {:?}",
-            comma_joined_stringifiable(sent_payments, |pending_p| pending_p
-                .recipient_wallet
-                .to_string()),
-            error
-        )
-    }
-
-    pub fn err_msg_for_failure_with_expected_but_missing_fingerprints(
-        nonexistent: Vec<H256>,
-        serialize_hashes: fn(&[H256]) -> String,
-    ) -> Option<String> {
-        nonexistent.is_empty().not().then_some(format!(
-            "Ran into failed transactions {} with missing fingerprints. System no longer reliable",
-            serialize_hashes(&nonexistent),
-        ))
-    }
-
-    pub fn separate_rowids_and_hashes(ids_of_payments: Vec<(u64, H256)>) -> (Vec<u64>, Vec<H256>) {
-        ids_of_payments.into_iter().unzip()
-    }
-
-    pub trait PayableThresholdsGauge {
-        fn is_innocent_age(&self, age: u64, limit: u64) -> bool;
-        fn is_innocent_balance(&self, balance: u128, limit: u128) -> bool;
-        fn calculate_payout_threshold_in_gwei(
-            &self,
-            payment_thresholds: &PaymentThresholds,
-            x: u64,
-        ) -> u128;
-        as_any_ref_in_trait!();
-    }
-
-    #[derive(Default)]
-    pub struct PayableThresholdsGaugeReal {}
-
-    impl PayableThresholdsGauge for PayableThresholdsGaugeReal {
-        fn is_innocent_age(&self, age: u64, limit: u64) -> bool {
-            age <= limit
-        }
-
-        fn is_innocent_balance(&self, balance: u128, limit: u128) -> bool {
-            balance <= limit
-        }
-
-        fn calculate_payout_threshold_in_gwei(
-            &self,
-            payment_thresholds: &PaymentThresholds,
-            debt_age: u64,
-        ) -> u128 {
-            ThresholdUtils::calculate_finite_debt_limit_by_age(payment_thresholds, debt_age)
-        }
-        as_any_ref_in_trait_impl!();
-    }
+    as_any_ref_in_trait_impl!();
 }
 
 #[cfg(test)]
@@ -221,11 +207,11 @@ mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::db_access_objects::receivable_dao::ReceivableAccount;
     use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp};
-    use crate::accountant::scanners::receivable_scanner::utils::balance_and_age;
-    use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{
+    use crate::accountant::scanners::payable_scanner::utils::{
         investigate_debt_extremes, payables_debug_summary, PayableThresholdsGauge,
         PayableThresholdsGaugeReal,
     };
+    use crate::accountant::scanners::receivable_scanner::utils::balance_and_age;
     use crate::accountant::{checked_conversion, gwei_to_wei};
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::test_utils::make_wallet;

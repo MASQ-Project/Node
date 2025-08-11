@@ -435,7 +435,7 @@ mod tests {
     use crate::database::test_utils::ConnectionWrapperMock;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::Connection;
-    use std::collections::{BTreeSet, HashMap, HashSet};
+    use std::collections::{BTreeSet, HashMap};
     use std::str::FromStr;
 
     #[test]

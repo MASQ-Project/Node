@@ -5,8 +5,7 @@ use crate::accountant::db_access_objects::failed_payable_dao::{
 };
 use crate::accountant::db_access_objects::sent_payable_dao::{Tx, TxStatus};
 use crate::accountant::db_access_objects::utils::to_unix_timestamp;
-use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::PricedNewTxTemplates;
-use crate::accountant::scanners::payable_scanner::data_structures::signable_tx_template::{
+use crate::accountant::scanners::payable_scanner::tx_templates::signable::{
     SignableTxTemplate, SignableTxTemplates,
 };
 use crate::accountant::wei_to_gwei;
@@ -17,7 +16,7 @@ use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
     BlockchainInterfaceWeb3, HashAndAmount, TRANSFER_METHOD_ID,
 };
 use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
-use crate::blockchain::blockchain_interface::data_structures::{BatchResults, RpcPayableFailure};
+use crate::blockchain::blockchain_interface::data_structures::BatchResults;
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
@@ -336,9 +335,11 @@ mod tests {
         assert_on_failed_txs, assert_on_sent_txs, FailedTxBuilder,
     };
     use crate::accountant::gwei_to_wei;
-    use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::PricedNewTxTemplate;
-    use crate::accountant::scanners::payable_scanner::data_structures::test_utils::make_signable_tx_template;
-    use crate::accountant::scanners::payable_scanner::data_structures::BaseTxTemplate;
+    use crate::accountant::scanners::payable_scanner::tx_templates::priced::new::{
+        PricedNewTxTemplate, PricedNewTxTemplates,
+    };
+    use crate::accountant::scanners::payable_scanner::tx_templates::test_utils::make_signable_tx_template;
+    use crate::accountant::scanners::payable_scanner::tx_templates::BaseTxTemplate;
     use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
     use crate::blockchain::blockchain_agent::agent_web3::WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
@@ -606,7 +607,6 @@ mod tests {
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
-        let pending_nonce: U256 = 1.into();
         let web3_batch = Web3::new(Batch::new(transport));
         let (accountant, _, accountant_recording) = make_recorder();
         let logger = Logger::new(test_name);
@@ -677,7 +677,6 @@ mod tests {
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
-        let web3 = Web3::new(transport.clone());
         let web3_batch = Web3::new(Batch::new(transport));
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
         let template_1 = SignableTxTemplate {
@@ -747,7 +746,6 @@ mod tests {
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
-        let web3 = Web3::new(transport.clone());
         let web3_batch = Web3::new(Batch::new(transport));
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
         let signable_tx_templates = SignableTxTemplates(vec![
@@ -807,7 +805,6 @@ mod tests {
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
-        let web3 = Web3::new(transport.clone());
         let web3_batch = Web3::new(Batch::new(transport));
         let signable_tx_templates = SignableTxTemplates(vec![
             SignableTxTemplate {
@@ -877,7 +874,6 @@ mod tests {
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
-        let web3 = Web3::new(transport.clone());
         let web3_batch = Web3::new(Batch::new(transport));
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
         let template_1 = SignableTxTemplate {
@@ -1174,7 +1170,6 @@ mod tests {
             let address = Address::from_slice(&recipient_address_bytes);
             Wallet::from(address)
         };
-        let nonce_correct_type = U256::from(nonce);
         let gas_price_in_gwei = match chain {
             Chain::EthMainnet => TEST_GAS_PRICE_ETH,
             Chain::EthRopsten => TEST_GAS_PRICE_ETH,

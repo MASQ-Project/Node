@@ -1,8 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::PricedNewTxTemplates;
-use crate::accountant::scanners::payable_scanner::data_structures::priced_retry_tx_template::PricedRetryTxTemplates;
-use crate::accountant::scanners::payable_scanner::data_structures::QualifiedPayablesMessage;
+use crate::accountant::scanners::payable_scanner::msgs::QualifiedPayablesMessage;
+use crate::accountant::scanners::payable_scanner::tx_templates::priced::new::PricedNewTxTemplates;
+use crate::accountant::scanners::payable_scanner::tx_templates::priced::retry::PricedRetryTxTemplates;
 use crate::accountant::{RequestTransactionReceipts, ResponseSkeleton, SkeletonOptHolder};
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;

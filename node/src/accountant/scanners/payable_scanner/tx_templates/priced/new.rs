@@ -1,7 +1,7 @@
-use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::{
+use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::{
     NewTxTemplate, NewTxTemplates,
 };
-use crate::accountant::scanners::payable_scanner::data_structures::BaseTxTemplate;
+use crate::accountant::scanners::payable_scanner::tx_templates::BaseTxTemplate;
 use std::ops::Deref;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

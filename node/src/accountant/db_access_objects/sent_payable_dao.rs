@@ -1,7 +1,7 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use std::cmp::Ordering;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use ethereum_types::{H256};
@@ -13,7 +13,7 @@ use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock};
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use serde_derive::{Deserialize, Serialize};
-use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, ValidationStatus};
+use crate::accountant::db_access_objects::failed_payable_dao::{ValidationStatus};
 use crate::accountant::db_access_objects::failed_payable_dao::{FailedPayableDao};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -455,7 +455,7 @@ impl SentPayableDaoFactory for DaoFactoryReal {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{BTreeSet, HashMap, HashSet};
+    use std::collections::{BTreeSet, HashMap};
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use crate::accountant::db_access_objects::sent_payable_dao::{Detection, RetrieveCondition, SentPayableDao, SentPayableDaoError, SentPayableDaoReal, Tx, TxConfirmation, TxStatus};

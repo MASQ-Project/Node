@@ -3,10 +3,10 @@
 pub mod agent_web3;
 pub mod test_utils;
 
-use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::NewTxTemplates;
-use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::PricedNewTxTemplates;
-use crate::accountant::scanners::payable_scanner::data_structures::priced_retry_tx_template::PricedRetryTxTemplates;
-use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_template::RetryTxTemplates;
+use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::NewTxTemplates;
+use crate::accountant::scanners::payable_scanner::tx_templates::initial::retry::RetryTxTemplates;
+use crate::accountant::scanners::payable_scanner::tx_templates::priced::new::PricedNewTxTemplates;
+use crate::accountant::scanners::payable_scanner::tx_templates::priced::retry::PricedRetryTxTemplates;
 use crate::arbitrary_id_stamp_in_trait;
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;

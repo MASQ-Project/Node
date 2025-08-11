@@ -1,9 +1,9 @@
 use crate::accountant::db_access_objects::failed_payable_dao::FailureRetrieveCondition::ByStatus;
 use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::RetryRequired;
-use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::NewTxTemplates;
-use crate::accountant::scanners::payable_scanner::data_structures::QualifiedPayablesMessage;
+use crate::accountant::scanners::payable_scanner::msgs::QualifiedPayablesMessage;
+use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::NewTxTemplates;
+use crate::accountant::scanners::payable_scanner::utils::investigate_debt_extremes;
 use crate::accountant::scanners::payable_scanner::PayableScanner;
-use crate::accountant::scanners::scanners_utils::payable_scanner_utils::investigate_debt_extremes;
 use crate::accountant::scanners::{Scanner, StartScanError, StartableScanner};
 use crate::accountant::{ResponseSkeleton, ScanForNewPayables, ScanForRetryPayables};
 use crate::sub_lib::wallet::Wallet;
@@ -89,10 +89,10 @@ mod tests {
     use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus;
     use crate::accountant::db_access_objects::payable_dao::PayableRetrieveCondition;
     use crate::accountant::db_access_objects::test_utils::FailedTxBuilder;
-    use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_template::{
+    use crate::accountant::scanners::payable_scanner::test_utils::PayableScannerBuilder;
+    use crate::accountant::scanners::payable_scanner::tx_templates::initial::retry::{
         RetryTxTemplate, RetryTxTemplates,
     };
-    use crate::accountant::scanners::payable_scanner::test_utils::PayableScannerBuilder;
     use crate::accountant::scanners::Scanners;
     use crate::accountant::test_utils::{
         make_payable_account, FailedPayableDaoMock, PayableDaoMock,

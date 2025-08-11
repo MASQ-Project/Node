@@ -1,5 +1,5 @@
-use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_template::RetryTxTemplate;
-use crate::accountant::scanners::payable_scanner::data_structures::BaseTxTemplate;
+use crate::accountant::scanners::payable_scanner::tx_templates::initial::retry::RetryTxTemplate;
+use crate::accountant::scanners::payable_scanner::tx_templates::BaseTxTemplate;
 use std::ops::{Deref, DerefMut};
 
 #[derive(Debug, Clone, PartialEq, Eq)]

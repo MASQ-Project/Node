@@ -1,5 +1,5 @@
 use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
-use crate::accountant::scanners::payable_scanner::data_structures::BaseTxTemplate;
+use crate::accountant::scanners::payable_scanner::tx_templates::BaseTxTemplate;
 use std::ops::{Deref, DerefMut};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,10 +59,10 @@ mod tests {
     use crate::accountant::db_access_objects::failed_payable_dao::{
         FailedTx, FailureReason, FailureStatus,
     };
-    use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_template::{
+    use crate::accountant::scanners::payable_scanner::tx_templates::initial::retry::{
         RetryTxTemplate, RetryTxTemplates,
     };
-    use crate::accountant::scanners::payable_scanner::data_structures::BaseTxTemplate;
+    use crate::accountant::scanners::payable_scanner::tx_templates::BaseTxTemplate;
     use crate::blockchain::test_utils::{make_address, make_tx_hash};
 
     #[test]

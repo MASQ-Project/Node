@@ -1,5 +1,5 @@
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::accountant::scanners::payable_scanner::data_structures::BaseTxTemplate;
+use crate::accountant::scanners::payable_scanner::tx_templates::BaseTxTemplate;
 use std::ops::{Deref, DerefMut};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,10 +68,10 @@ impl From<&Vec<PayableAccount>> for NewTxTemplates {
 #[cfg(test)]
 mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-    use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::{
+    use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::{
         NewTxTemplate, NewTxTemplates,
     };
-    use crate::accountant::scanners::payable_scanner::data_structures::BaseTxTemplate;
+    use crate::accountant::scanners::payable_scanner::tx_templates::BaseTxTemplate;
     use crate::blockchain::test_utils::make_address;
     use crate::test_utils::make_wallet;
     use std::time::SystemTime;

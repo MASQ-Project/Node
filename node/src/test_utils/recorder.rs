@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 #![cfg(test)]
 
-use crate::accountant::scanners::payable_scanner::data_structures::{
+use crate::accountant::scanners::payable_scanner::msgs::{
     BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
 };
 use crate::accountant::{

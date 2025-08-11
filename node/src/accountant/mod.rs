@@ -72,10 +72,10 @@ use std::path::Path;
 use std::rc::Rc;
 use std::time::SystemTime;
 use web3::types::H256;
-use crate::accountant::scanners::payable_scanner::data_structures::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage};
+use crate::accountant::scanners::payable_scanner::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage};
+use crate::accountant::scanners::payable_scanner::utils::OperationOutcome;
 use crate::accountant::scanners::pending_payable_scanner::utils::PendingPayableScanResult;
 use crate::accountant::scanners::scan_schedulers::{PayableSequenceScanner, ScanRescheduleAfterEarlyStop, ScanSchedulers};
-use crate::accountant::scanners::scanners_utils::payable_scanner_utils::OperationOutcome;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionReceiptResult;
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
@@ -1233,7 +1233,7 @@ pub fn wei_to_gwei<T: TryFrom<S>, S: Display + Copy + Div<Output = S> + From<u32
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::scanners::payable_scanner::test_utils::{make_retry_tx_template, PayableScannerBuilder};
+    use crate::accountant::scanners::payable_scanner::test_utils::{PayableScannerBuilder};
     use crate::accountant::db_access_objects::payable_dao::{
         PayableAccount, PayableDaoError, PayableDaoFactory,
     };
@@ -1304,13 +1304,12 @@ mod tests {
     use std::sync::Mutex;
     use std::time::{Duration, UNIX_EPOCH};
     use std::vec;
-    use crate::accountant::db_access_objects::sent_payable_dao::Tx;
     use crate::accountant::db_access_objects::test_utils::{make_sent_tx, TxBuilder};
-    use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::{NewTxTemplate, NewTxTemplates};
-    use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_template::RetryTxTemplates;
-    use crate::accountant::scanners::payable_scanner::data_structures::test_utils::make_priced_new_tx_templates;
+    use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::NewTxTemplates;
+    use crate::accountant::scanners::payable_scanner::tx_templates::initial::retry::RetryTxTemplates;
+    use crate::accountant::scanners::payable_scanner::tx_templates::test_utils::{make_priced_new_tx_templates, make_retry_tx_template};
+    use crate::accountant::scanners::payable_scanner::utils::PayableScanResult;
     use crate::accountant::scanners::scan_schedulers::{NewPayableScanDynIntervalComputer, NewPayableScanDynIntervalComputerReal};
-    use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{ OperationOutcome, PayableScanResult};
     use crate::blockchain::blockchain_agent::test_utils::BlockchainAgentMock;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt, TxStatus};
     use crate::test_utils::recorder_counter_msgs::SingleTypeCounterMsgSetup;
@@ -1608,7 +1607,7 @@ mod tests {
             });
         let payable_dao = PayableDaoMock::default().mark_pending_payables_rowids_result(Ok(()));
         let sent_payable_dao = SentPayableDaoMock::default().insert_new_records_result(Ok(()));
-        let mut subject = AccountantBuilder::default()
+        let subject = AccountantBuilder::default()
             .pending_payable_daos(vec![ForPayableScanner(pending_payable_dao)])
             .payable_daos(vec![ForPayableScanner(payable_dao)])
             .sent_payable_dao(sent_payable_dao)
@@ -4871,7 +4870,6 @@ mod tests {
         let inserted_new_records_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_wallet = make_wallet("paying_you");
         let expected_hash = H256::from("transaction_hash".keccak256());
-        let expected_rowid = 45623;
         let payable_dao = PayableDaoMock::new()
             .mark_pending_payables_rowids_params(&mark_pending_payables_rowids_params_arc)
             .mark_pending_payables_rowids_result(Ok(()));
@@ -4891,7 +4889,6 @@ mod tests {
             NotifyLaterHandleMock::default()
                 .notify_later_params(&pending_payable_notify_later_params_arc),
         );
-        let expected_payable = PendingPayable::new(expected_wallet.clone(), expected_hash.clone());
         let expected_tx = TxBuilder::default().hash(expected_hash.clone()).build();
         let sent_payable = SentPayables {
             payment_procedure_result: Ok(BatchResults {
@@ -4930,7 +4927,6 @@ mod tests {
         let inserted_new_records_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_wallet = make_wallet("paying_you");
         let expected_hash = H256::from("transaction_hash".keccak256());
-        let expected_rowid = 45623;
         let payable_dao = PayableDaoMock::new()
             .mark_pending_payables_rowids_params(&mark_pending_payables_rowids_params_arc)
             .mark_pending_payables_rowids_result(Ok(()));
@@ -4953,7 +4949,6 @@ mod tests {
             NotifyLaterHandleMock::default()
                 .notify_later_params(&pending_payable_notify_later_params_arc),
         );
-        let expected_payable = PendingPayable::new(expected_wallet.clone(), expected_hash.clone());
         let expected_tx = TxBuilder::default().hash(expected_hash.clone()).build();
         let sent_payable = SentPayables {
             payment_procedure_result: Ok(BatchResults {

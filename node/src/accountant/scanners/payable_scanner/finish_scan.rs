@@ -1,5 +1,5 @@
+use crate::accountant::scanners::payable_scanner::utils::PayableScanResult;
 use crate::accountant::scanners::payable_scanner::PayableScanner;
-use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableScanResult;
 use crate::accountant::scanners::Scanner;
 use crate::accountant::SentPayables;
 use crate::time_marking_methods;
@@ -26,14 +26,12 @@ impl Scanner<SentPayables, PayableScanResult> for PayableScanner {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::db_access_objects::failed_payable_dao::{
-        FailedTx, FailureStatus, ValidationStatus,
-    };
+    use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureStatus};
     use crate::accountant::db_access_objects::test_utils::{
         make_failed_tx, make_sent_tx, FailedTxBuilder,
     };
     use crate::accountant::scanners::payable_scanner::test_utils::PayableScannerBuilder;
-    use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{
+    use crate::accountant::scanners::payable_scanner::utils::{
         OperationOutcome, PayableScanResult,
     };
     use crate::accountant::scanners::Scanner;

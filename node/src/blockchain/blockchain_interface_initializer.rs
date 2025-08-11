@@ -44,11 +44,8 @@ impl BlockchainInterfaceInitializer {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-    use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::{
-        NewTxTemplate, NewTxTemplates,
-    };
-    use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::PricedNewTxTemplates;
+    use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::NewTxTemplates;
+    use crate::accountant::scanners::payable_scanner::tx_templates::priced::new::PricedNewTxTemplates;
     use crate::accountant::test_utils::make_payable_account;
     use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
     use crate::blockchain::blockchain_interface_initializer::BlockchainInterfaceInitializer;

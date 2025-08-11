@@ -40,9 +40,9 @@ use ethabi::Hash;
 use web3::types::H256;
 use masq_lib::constants::DEFAULT_GAS_PRICE_MARGIN;
 use masq_lib::messages::ScanType;
-use crate::accountant::scanners::payable_scanner::data_structures::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage};
-use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::PricedNewTxTemplates;
-use crate::accountant::scanners::payable_scanner::data_structures::priced_retry_tx_template::PricedRetryTxTemplates;
+use crate::accountant::scanners::payable_scanner::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage};
+use crate::accountant::scanners::payable_scanner::tx_templates::priced::new::PricedNewTxTemplates;
+use crate::accountant::scanners::payable_scanner::tx_templates::priced::retry::PricedRetryTxTemplates;
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionReceiptResult, TxStatus};
 
@@ -620,10 +620,9 @@ mod tests {
     use crate::accountant::db_access_objects::sent_payable_dao::Tx;
     use crate::accountant::db_access_objects::sent_payable_dao::TxStatus::Pending;
     use crate::accountant::db_access_objects::test_utils::{assert_on_failed_txs, assert_on_sent_txs};
-    use crate::accountant::scanners::payable_scanner::data_structures::BaseTxTemplate;
-    use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::NewTxTemplates;
-    use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::PricedNewTxTemplate;
-    use crate::accountant::scanners::payable_scanner::data_structures::test_utils::make_priced_new_tx_templates;
+    use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::NewTxTemplates;
+    use crate::accountant::scanners::payable_scanner::tx_templates::priced::new::PricedNewTxTemplate;
+    use crate::accountant::scanners::payable_scanner::tx_templates::test_utils::make_priced_new_tx_templates;
     use crate::blockchain::blockchain_agent::test_utils::BlockchainAgentMock;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt};
     use crate::blockchain::errors::AppRpcError::Local;

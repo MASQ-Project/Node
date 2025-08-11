@@ -1,14 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::join_with_separator;
-use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::NewTxTemplates;
-use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::{
-    PricedNewTxTemplate, PricedNewTxTemplates,
-};
-use crate::accountant::scanners::payable_scanner::data_structures::priced_retry_tx_template::{
+use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::NewTxTemplates;
+use crate::accountant::scanners::payable_scanner::tx_templates::initial::retry::RetryTxTemplates;
+use crate::accountant::scanners::payable_scanner::tx_templates::priced::new::PricedNewTxTemplates;
+use crate::accountant::scanners::payable_scanner::tx_templates::priced::retry::{
     PricedRetryTxTemplate, PricedRetryTxTemplates,
 };
-use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_template::RetryTxTemplates;
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
@@ -144,7 +142,7 @@ impl BlockchainAgentWeb3 {
     // TODO: GH-605: Move this logic to the RetryTxTemplates, use builder pattern for logging
     fn update_gas_price_for_retry_tx_templates(
         &self,
-        mut retry_tx_templates: RetryTxTemplates,
+        retry_tx_templates: RetryTxTemplates,
     ) -> PricedRetryTxTemplates {
         let mut log_data: Vec<(Address, u128)> = Vec::with_capacity(retry_tx_templates.len());
 
@@ -194,22 +192,19 @@ impl BlockchainAgentWeb3 {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::join_with_separator;
-    use crate::accountant::scanners::payable_scanner::data_structures::new_tx_template::{
-        NewTxTemplate, NewTxTemplates,
-    };
-    use crate::accountant::scanners::payable_scanner::data_structures::priced_new_tx_template::{
-        PricedNewTxTemplate, PricedNewTxTemplates,
-    };
-    use crate::accountant::scanners::payable_scanner::data_structures::priced_retry_tx_template::{
-        PricedRetryTxTemplate, PricedRetryTxTemplates,
-    };
-    use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_template::{
+    use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::NewTxTemplates;
+    use crate::accountant::scanners::payable_scanner::tx_templates::initial::retry::{
         RetryTxTemplate, RetryTxTemplates,
     };
-    use crate::accountant::scanners::payable_scanner::data_structures::BaseTxTemplate;
-    use crate::accountant::scanners::payable_scanner::test_utils::RetryTxTemplateBuilder;
+    use crate::accountant::scanners::payable_scanner::tx_templates::priced::new::{
+        PricedNewTxTemplate, PricedNewTxTemplates,
+    };
+    use crate::accountant::scanners::payable_scanner::tx_templates::priced::retry::{
+        PricedRetryTxTemplate, PricedRetryTxTemplates,
+    };
+    use crate::accountant::scanners::payable_scanner::tx_templates::test_utils::RetryTxTemplateBuilder;
+    use crate::accountant::scanners::payable_scanner::tx_templates::BaseTxTemplate;
     use crate::accountant::scanners::test_utils::make_zeroed_consuming_wallet_balances;
     use crate::accountant::test_utils::make_payable_account;
     use crate::blockchain::blockchain_agent::agent_web3::{
@@ -224,7 +219,6 @@ mod tests {
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
-    use std::collections::BTreeSet;
     use thousands::Separable;
 
     #[test]
@@ -240,8 +234,6 @@ mod tests {
         let consuming_wallet_balances = make_zeroed_consuming_wallet_balances();
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
-        let address_1 = account_1.wallet.address();
-        let address_2 = account_2.wallet.address();
         let new_tx_templates = NewTxTemplates::from(&vec![account_1.clone(), account_2.clone()]);
         let rpc_gas_price_wei = 555_666_777;
         let chain = TEST_DEFAULT_CHAIN;

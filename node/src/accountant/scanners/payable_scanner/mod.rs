@@ -1,24 +1,27 @@
-pub mod data_structures;
 mod finish_scan;
+pub mod msgs;
 mod start_scan;
 pub mod test_utils;
+pub mod tx_templates;
+
+pub mod utils;
 
 use crate::accountant::db_access_objects::failed_payable_dao::FailureRetrieveCondition::ByStatus;
 use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::RetryRequired;
 use crate::accountant::db_access_objects::failed_payable_dao::{
-    FailedPayableDao, FailedTx, FailureRetrieveCondition, FailureStatus, ValidationStatus,
+    FailedPayableDao, FailedTx, FailureRetrieveCondition, FailureStatus,
 };
 use crate::accountant::db_access_objects::payable_dao::PayableRetrieveCondition::ByAddresses;
 use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDao};
 use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDao, Tx};
 use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjuster};
-use crate::accountant::scanners::payable_scanner::data_structures::retry_tx_template::{
-    RetryTxTemplate, RetryTxTemplates,
-};
-use crate::accountant::scanners::payable_scanner::data_structures::{
+use crate::accountant::scanners::payable_scanner::msgs::{
     BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
 };
-use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{
+use crate::accountant::scanners::payable_scanner::tx_templates::initial::retry::{
+    RetryTxTemplate, RetryTxTemplates,
+};
+use crate::accountant::scanners::payable_scanner::utils::{
     payables_debug_summary, OperationOutcome, PayableScanResult, PayableThresholdsGauge,
     PayableThresholdsGaugeReal,
 };
@@ -35,7 +38,7 @@ use itertools::{Either, Itertools};
 use masq_lib::logger::Logger;
 use masq_lib::messages::{ToMessageBody, UiScanResponse};
 use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap};
 use std::rc::Rc;
 use std::time::SystemTime;
 use web3::types::Address;
@@ -189,10 +192,6 @@ impl PayableScanner {
         } else {
             None
         }
-    }
-
-    fn serialize_hashes(hashes: &[H256]) -> String {
-        comma_joined_stringifiable(hashes, |hash| format!("{:?}", hash))
     }
 
     fn detect_outcome(msg: &SentPayables) -> OperationOutcome {

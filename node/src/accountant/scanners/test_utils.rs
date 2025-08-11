@@ -2,9 +2,10 @@
 
 #![cfg(test)]
 
-use crate::accountant::scanners::payable_scanner::data_structures::{
+use crate::accountant::scanners::payable_scanner::msgs::{
     BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
 };
+use crate::accountant::scanners::payable_scanner::utils::PayableScanResult;
 use crate::accountant::scanners::payable_scanner::{
     MultistageDualPayableScanner, PayableScanner, PreparedAdjustment,
     SolvencySensitivePaymentInstructor,
@@ -14,7 +15,6 @@ use crate::accountant::scanners::scan_schedulers::{
     NewPayableScanDynIntervalComputer, PayableSequenceScanner, RescheduleScanOnErrorResolver,
     ScanRescheduleAfterEarlyStop,
 };
-use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableScanResult;
 use crate::accountant::scanners::{
     PendingPayableScanner, PrivateScanner, RealScannerMarker, ReceivableScanner, Scanner,
     StartScanError, StartableScanner,
