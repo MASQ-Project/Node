@@ -662,7 +662,7 @@ mod tests {
     #[test]
     fn blockchain_interface_is_constructed_with_a_blockchain_service_url() {
         init_test_logging();
-        let blockchain_service_url = "https://example.com";
+        let blockchain_service_url = "https://www.example.com";
         let subject = BlockchainBridge::initialize_blockchain_interface(
             Some(blockchain_service_url.to_string()),
             TEST_DEFAULT_CHAIN,

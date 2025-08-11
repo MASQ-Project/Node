@@ -24,7 +24,7 @@ fn http_through_node_integration() {
     stream
         .set_read_timeout(Some(Duration::from_millis(1000)))
         .unwrap();
-    let request = "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n".as_bytes();
+    let request = "GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n".as_bytes();
 
     stream.write(request.clone()).unwrap();
     let buf = read_until_timeout(&mut stream);
