@@ -1587,7 +1587,7 @@ mod tests {
         assert_eq!(
             blockchain_bridge_recording.get_record::<QualifiedPayablesMessage>(0),
             &QualifiedPayablesMessage {
-                tx_templates: Either::Left(expected_new_tx_templates),
+                initial_templates: Either::Left(expected_new_tx_templates),
                 consuming_wallet,
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
@@ -2281,7 +2281,7 @@ mod tests {
         assert_eq!(
             message,
             &QualifiedPayablesMessage {
-                tx_templates: Either::Left(expected_new_tx_templates),
+                initial_templates: Either::Left(expected_new_tx_templates),
                 consuming_wallet,
                 response_skeleton_opt: None,
             }
@@ -2359,7 +2359,7 @@ mod tests {
         let retry_tx_templates =
             RetryTxTemplates(vec![make_retry_tx_template(1), make_retry_tx_template(2)]);
         let qualified_payables_msg = QualifiedPayablesMessage {
-            tx_templates: Either::Right(retry_tx_templates),
+            initial_templates: Either::Right(retry_tx_templates),
             consuming_wallet: consuming_wallet.clone(),
             response_skeleton_opt: None,
         };
@@ -2770,7 +2770,7 @@ mod tests {
             // These values belong to the RetryPayableScanner
             .start_scan_params(&scan_params.payable_start_scan)
             .start_scan_result(Ok(QualifiedPayablesMessage {
-                tx_templates: Either::Right(retry_tx_templates),
+                initial_templates: Either::Right(retry_tx_templates),
                 consuming_wallet: consuming_wallet.clone(),
                 response_skeleton_opt: None,
             }))
@@ -3573,7 +3573,7 @@ mod tests {
             response_skeleton_opt: None,
         };
         let qualified_payables_msg = QualifiedPayablesMessage {
-            tx_templates: Either::Left(new_tx_templates),
+            initial_templates: Either::Left(new_tx_templates),
             consuming_wallet: consuming_wallet.clone(),
             response_skeleton_opt: None,
         };
@@ -3981,7 +3981,7 @@ mod tests {
         assert_eq!(
             message,
             &QualifiedPayablesMessage {
-                tx_templates: Either::Left(new_tx_templates),
+                initial_templates: Either::Left(new_tx_templates),
                 consuming_wallet,
                 response_skeleton_opt: None,
             }

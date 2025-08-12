@@ -11,7 +11,7 @@ use itertools::Either;
 // TODO: GH-605: Rename this to TxTemplates Message
 #[derive(Debug, Message, PartialEq, Eq, Clone)]
 pub struct QualifiedPayablesMessage {
-    pub tx_templates: Either<NewTxTemplates, RetryTxTemplates>,
+    pub initial_templates: Either<NewTxTemplates, RetryTxTemplates>,
     pub consuming_wallet: Wallet,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }

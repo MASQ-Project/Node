@@ -264,7 +264,7 @@ impl BlockchainBridge {
                 .map_err(|e| format!("Blockchain agent build error: {:?}", e))
                 .and_then(move |agent| {
                     let priced_templates =
-                        agent.price_qualified_payables(incoming_message.tx_templates);
+                        agent.price_qualified_payables(incoming_message.initial_templates);
                     let outgoing_message = BlockchainAgentWithContextMessage {
                         priced_templates,
                         agent,
@@ -754,7 +754,7 @@ mod tests {
         subject.payable_payments_setup_subs_opt = Some(accountant_recipient);
         let tx_templates = NewTxTemplates::from(&qualified_payables);
         let qualified_payables_msg = QualifiedPayablesMessage {
-            tx_templates: Either::Left(tx_templates.clone()),
+            initial_templates: Either::Left(tx_templates.clone()),
             consuming_wallet: consuming_wallet.clone(),
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 11122,
@@ -830,7 +830,7 @@ mod tests {
         subject.payable_payments_setup_subs_opt = Some(accountant_recipient);
         let new_tx_templates = NewTxTemplates::from(&vec![make_payable_account(123)]);
         let qualified_payables_msg = QualifiedPayablesMessage {
-            tx_templates: Either::Left(new_tx_templates),
+            initial_templates: Either::Left(new_tx_templates),
             consuming_wallet: consuming_wallet.clone(),
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 11122,

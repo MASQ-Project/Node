@@ -45,7 +45,7 @@ impl StartableScanner<ScanForNewPayables, QualifiedPayablesMessage> for PayableS
                 );
                 let new_tx_templates = NewTxTemplates::from(&qualified_payables);
                 Ok(QualifiedPayablesMessage {
-                    tx_templates: Either::Left(new_tx_templates),
+                    initial_templates: Either::Left(new_tx_templates),
                     consuming_wallet: consuming_wallet.clone(),
                     response_skeleton_opt,
                 })
@@ -75,7 +75,7 @@ impl StartableScanner<ScanForRetryPayables, QualifiedPayablesMessage> for Payabl
         );
 
         Ok(QualifiedPayablesMessage {
-            tx_templates: Either::Right(retry_tx_templates),
+            initial_templates: Either::Right(retry_tx_templates),
             consuming_wallet: consuming_wallet.clone(),
             response_skeleton_opt,
         })
@@ -171,7 +171,7 @@ mod tests {
         assert_eq!(
             result,
             Ok(QualifiedPayablesMessage {
-                tx_templates: Either::Right(expected_tx_templates),
+                initial_templates: Either::Right(expected_tx_templates),
                 consuming_wallet: consuming_wallet.clone(),
                 response_skeleton_opt: Some(response_skeleton),
             })

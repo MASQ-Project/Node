@@ -861,7 +861,7 @@ mod tests {
         assert_eq!(
             result,
             Ok(QualifiedPayablesMessage {
-                tx_templates: Either::Left(expected_tx_templates),
+                initial_templates: Either::Left(expected_tx_templates),
                 consuming_wallet,
                 response_skeleton_opt: None,
             })
@@ -982,7 +982,7 @@ mod tests {
         assert_eq!(
             result,
             Ok(QualifiedPayablesMessage {
-                tx_templates: Either::Right(RetryTxTemplates(vec![expected_template])),
+                initial_templates: Either::Right(RetryTxTemplates(vec![expected_template])),
                 consuming_wallet,
                 response_skeleton_opt: Some(response_skeleton),
             })
