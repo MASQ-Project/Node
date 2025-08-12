@@ -918,7 +918,6 @@ conversation_message!(UiGetNeighborhoodGraphRequest, "neighborhoodGraph");
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiGetNeighborhoodGraphResponse {
-    #[serde(rename = "graph")]
     pub graph: String,
 }
 

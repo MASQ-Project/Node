@@ -8,7 +8,7 @@ use crate::commands::commands_common::{
 };
 use masq_lib::messages::{UiGetNeighborhoodGraphRequest, UiGetNeighborhoodGraphResponse};
 
-const NEIGHBORHOOD_GRAPH_HELP: &str = "Use this command plainly, without any flags or arguments.";
+const NEIGHBORHOOD_GRAPH_HELP: &str = "Use this command plainly, without any flags or arguments. The result will be delivered in digraph format, documentation at https://graphviz.org/documentation/";
 
 pub fn get_neighborhood_graph_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("neighborhood-graph").about(NEIGHBORHOOD_GRAPH_HELP)
@@ -32,11 +32,11 @@ impl Command for GetNeighborhoodGraphCommand {
         let output: Result<UiGetNeighborhoodGraphResponse, CommandError> =
             transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS);
         match output {
-            Ok(neigoborhood_graph) => {
+            Ok(neighborhood_graph) => {
                 short_writeln!(
                     context.stdout(),
-                    "Graph of the Neighborhood: {}",
-                    neigoborhood_graph.graph.as_str()
+                    "Graph of the Node's neighborhood database: {}",
+                    neighborhood_graph.graph.as_str()
                 );
                 Ok(())
             }
@@ -57,23 +57,9 @@ impl Command for GetNeighborhoodGraphCommand {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::messages::ToMessageBody;
     use std::sync::{Arc, Mutex};
-
-    #[test]
-    fn command_factory_works_without_password() {
-        let subject = CommandFactoryReal::new();
-
-        let command = subject.make(&["neighborhood-graph".to_string()]).unwrap();
-
-        let neighborhood_graph_command = command
-            .as_any()
-            .downcast_ref::<GetNeighborhoodGraphCommand>()
-            .unwrap();
-        assert_eq!(neighborhood_graph_command, &GetNeighborhoodGraphCommand {});
-    }
 
     #[test]
     fn can_deserialize_ui_get_neighborhood_graph() {

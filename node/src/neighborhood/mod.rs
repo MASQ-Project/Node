@@ -363,12 +363,12 @@ impl Handler<NodeFromUiMessage> for Neighborhood {
         let client_id = msg.client_id;
         if let Ok((message, context_id)) = UiSetExitLocationRequest::fmb(msg.body.clone()) {
             self.handle_exit_location_message(message, client_id, context_id);
-        } else if let Ok((_, context_id)) = UiGetNeighborhoodGraphRequest::fmb(msg.body.clone()) {
-            self.handle_neighborhood_graph_message(client_id, context_id);
         } else if let Ok((_, context_id)) = UiConnectionStatusRequest::fmb(msg.body.clone()) {
             self.handle_connection_status_message(client_id, context_id);
         } else if let Ok((body, _)) = UiShutdownRequest::fmb(msg.body.clone()) {
             self.handle_shutdown_order(client_id, body);
+        } else if let Ok((_, context_id)) = UiGetNeighborhoodGraphRequest::fmb(msg.body.clone()) {
+            self.handle_neighborhood_graph_message(client_id, context_id);
         } else {
             handle_ui_crash_request(msg, &self.logger, self.crashable, CRASH_KEY)
         }
