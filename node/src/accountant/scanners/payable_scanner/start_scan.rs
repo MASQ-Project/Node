@@ -1,6 +1,6 @@
 use crate::accountant::db_access_objects::failed_payable_dao::FailureRetrieveCondition::ByStatus;
 use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::RetryRequired;
-use crate::accountant::scanners::payable_scanner::msgs::QualifiedPayablesMessage;
+use crate::accountant::scanners::payable_scanner::msgs::InitialTemplatesMessage;
 use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::NewTxTemplates;
 use crate::accountant::scanners::payable_scanner::utils::investigate_debt_extremes;
 use crate::accountant::scanners::payable_scanner::PayableScanner;
@@ -11,14 +11,14 @@ use itertools::Either;
 use masq_lib::logger::Logger;
 use std::time::SystemTime;
 
-impl StartableScanner<ScanForNewPayables, QualifiedPayablesMessage> for PayableScanner {
+impl StartableScanner<ScanForNewPayables, InitialTemplatesMessage> for PayableScanner {
     fn start_scan(
         &mut self,
         consuming_wallet: &Wallet,
         timestamp: SystemTime,
         response_skeleton_opt: Option<ResponseSkeleton>,
         logger: &Logger,
-    ) -> Result<QualifiedPayablesMessage, StartScanError> {
+    ) -> Result<InitialTemplatesMessage, StartScanError> {
         self.mark_as_started(timestamp);
         info!(logger, "Scanning for new payables");
         let all_non_pending_payables = self.payable_dao.non_pending_payables(None);
@@ -44,7 +44,7 @@ impl StartableScanner<ScanForNewPayables, QualifiedPayablesMessage> for PayableS
                     qualified_payables.len()
                 );
                 let new_tx_templates = NewTxTemplates::from(&qualified_payables);
-                Ok(QualifiedPayablesMessage {
+                Ok(InitialTemplatesMessage {
                     initial_templates: Either::Left(new_tx_templates),
                     consuming_wallet: consuming_wallet.clone(),
                     response_skeleton_opt,
@@ -54,14 +54,14 @@ impl StartableScanner<ScanForNewPayables, QualifiedPayablesMessage> for PayableS
     }
 }
 
-impl StartableScanner<ScanForRetryPayables, QualifiedPayablesMessage> for PayableScanner {
+impl StartableScanner<ScanForRetryPayables, InitialTemplatesMessage> for PayableScanner {
     fn start_scan(
         &mut self,
         consuming_wallet: &Wallet,
         timestamp: SystemTime,
         response_skeleton_opt: Option<ResponseSkeleton>,
         logger: &Logger,
-    ) -> Result<QualifiedPayablesMessage, StartScanError> {
+    ) -> Result<InitialTemplatesMessage, StartScanError> {
         self.mark_as_started(timestamp);
         info!(logger, "Scanning for retry payables");
         let txs_to_retry = self.get_txs_to_retry();
@@ -74,7 +74,7 @@ impl StartableScanner<ScanForRetryPayables, QualifiedPayablesMessage> for Payabl
             retry_tx_templates.len()
         );
 
-        Ok(QualifiedPayablesMessage {
+        Ok(InitialTemplatesMessage {
             initial_templates: Either::Right(retry_tx_templates),
             consuming_wallet: consuming_wallet.clone(),
             response_skeleton_opt,
@@ -170,7 +170,7 @@ mod tests {
         };
         assert_eq!(
             result,
-            Ok(QualifiedPayablesMessage {
+            Ok(InitialTemplatesMessage {
                 initial_templates: Either::Right(expected_tx_templates),
                 consuming_wallet: consuming_wallet.clone(),
                 response_skeleton_opt: Some(response_skeleton),

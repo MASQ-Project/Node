@@ -8,22 +8,21 @@ use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use itertools::Either;
 
-// TODO: GH-605: Rename this to TxTemplates Message
 #[derive(Debug, Message, PartialEq, Eq, Clone)]
-pub struct QualifiedPayablesMessage {
+pub struct InitialTemplatesMessage {
     pub initial_templates: Either<NewTxTemplates, RetryTxTemplates>,
     pub consuming_wallet: Wallet,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
 #[derive(Message)]
-pub struct BlockchainAgentWithContextMessage {
+pub struct PricedTemplatesMessage {
     pub priced_templates: Either<PricedNewTxTemplates, PricedRetryTxTemplates>,
     pub agent: Box<dyn BlockchainAgent>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
-impl SkeletonOptHolder for QualifiedPayablesMessage {
+impl SkeletonOptHolder for InitialTemplatesMessage {
     fn skeleton_opt(&self) -> Option<ResponseSkeleton> {
         self.response_skeleton_opt
     }

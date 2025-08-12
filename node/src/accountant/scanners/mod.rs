@@ -42,7 +42,7 @@ use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::B
 use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDao, Tx};
 use crate::accountant::db_access_objects::utils::{RowId, TxHash, TxIdentifiers};
 use crate::accountant::scanners::payable_scanner::{MultistageDualPayableScanner, PayableScanner, PreparedAdjustment};
-use crate::accountant::scanners::payable_scanner::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage};
+use crate::accountant::scanners::payable_scanner::msgs::{PricedTemplatesMessage, InitialTemplatesMessage};
 use crate::accountant::scanners::payable_scanner::utils::{OperationOutcome, PayableScanResult};
 use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
 use crate::accountant::scanners::pending_payable_scanner::utils::PendingPayableScanResult;
@@ -126,7 +126,7 @@ impl Scanners {
         response_skeleton_opt: Option<ResponseSkeleton>,
         logger: &Logger,
         automatic_scans_enabled: bool,
-    ) -> Result<QualifiedPayablesMessage, StartScanError> {
+    ) -> Result<InitialTemplatesMessage, StartScanError> {
         let triggered_manually = response_skeleton_opt.is_some();
         if triggered_manually && automatic_scans_enabled {
             return Err(StartScanError::ManualTriggerError(
@@ -157,7 +157,7 @@ impl Scanners {
         timestamp: SystemTime,
         response_skeleton_opt: Option<ResponseSkeleton>,
         logger: &Logger,
-    ) -> Result<QualifiedPayablesMessage, StartScanError> {
+    ) -> Result<InitialTemplatesMessage, StartScanError> {
         if let Some(started_at) = self.payable.scan_started_at() {
             unreachable!(
                 "Guards should ensure that no payable scanner can run if the pending payable \
@@ -289,7 +289,7 @@ impl Scanners {
 
     pub fn try_skipping_payable_adjustment(
         &self,
-        msg: BlockchainAgentWithContextMessage,
+        msg: PricedTemplatesMessage,
         logger: &Logger,
     ) -> Result<Either<OutboundPaymentsInstructions, PreparedAdjustment>, String> {
         self.payable.try_skipping_payment_adjustment(msg, logger)
@@ -321,15 +321,15 @@ impl Scanners {
         timestamp: SystemTime,
         response_skeleton_opt: Option<ResponseSkeleton>,
         logger: &Logger,
-    ) -> Result<QualifiedPayablesMessage, StartScanError>
+    ) -> Result<InitialTemplatesMessage, StartScanError>
     where
         TriggerMessage: Message,
         (dyn MultistageDualPayableScanner + 'a):
-            StartableScanner<TriggerMessage, QualifiedPayablesMessage>,
+            StartableScanner<TriggerMessage, InitialTemplatesMessage>,
     {
         <(dyn MultistageDualPayableScanner + 'a) as StartableScanner<
             TriggerMessage,
-            QualifiedPayablesMessage,
+            InitialTemplatesMessage,
         >>::start_scan(scanner, wallet, timestamp, response_skeleton_opt, logger)
     }
 
@@ -583,7 +583,7 @@ mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::db_access_objects::test_utils::{make_failed_tx, make_sent_tx};
     use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp};
-    use crate::accountant::scanners::payable_scanner::msgs::QualifiedPayablesMessage;
+    use crate::accountant::scanners::payable_scanner::msgs::InitialTemplatesMessage;
     use crate::accountant::scanners::payable_scanner::test_utils::PayableScannerBuilder;
     use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::NewTxTemplates;
     use crate::accountant::scanners::payable_scanner::tx_templates::initial::retry::{
@@ -860,7 +860,7 @@ mod tests {
         let expected_tx_templates = NewTxTemplates::from(&qualified_payable_accounts);
         assert_eq!(
             result,
-            Ok(QualifiedPayablesMessage {
+            Ok(InitialTemplatesMessage {
                 initial_templates: Either::Left(expected_tx_templates),
                 consuming_wallet,
                 response_skeleton_opt: None,
@@ -981,7 +981,7 @@ mod tests {
         assert_eq!(timestamp, Some(now));
         assert_eq!(
             result,
-            Ok(QualifiedPayablesMessage {
+            Ok(InitialTemplatesMessage {
                 initial_templates: Either::Right(RetryTxTemplates(vec![expected_template])),
                 consuming_wallet,
                 response_skeleton_opt: Some(response_skeleton),
@@ -1020,7 +1020,7 @@ mod tests {
         );
 
         let caught_panic = catch_unwind(AssertUnwindSafe(|| {
-            let _: Result<QualifiedPayablesMessage, StartScanError> = subject
+            let _: Result<InitialTemplatesMessage, StartScanError> = subject
                 .start_retry_payable_scan_guarded(
                     &consuming_wallet,
                     SystemTime::now(),

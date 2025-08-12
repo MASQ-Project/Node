@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::scanners::payable_scanner::msgs::QualifiedPayablesMessage;
+use crate::accountant::scanners::payable_scanner::msgs::InitialTemplatesMessage;
 use crate::accountant::scanners::payable_scanner::tx_templates::priced::new::PricedNewTxTemplates;
 use crate::accountant::scanners::payable_scanner::tx_templates::priced::retry::PricedRetryTxTemplates;
 use crate::accountant::{RequestTransactionReceipts, ResponseSkeleton, SkeletonOptHolder};
@@ -29,7 +29,7 @@ pub struct BlockchainBridgeConfig {
 pub struct BlockchainBridgeSubs {
     pub bind: Recipient<BindMessage>,
     pub outbound_payments_instructions: Recipient<OutboundPaymentsInstructions>,
-    pub qualified_payables: Recipient<QualifiedPayablesMessage>,
+    pub qualified_payables: Recipient<InitialTemplatesMessage>,
     pub retrieve_transactions: Recipient<RetrieveTransactions>,
     pub ui_sub: Recipient<NodeFromUiMessage>,
     pub request_transaction_receipts: Recipient<RequestTransactionReceipts>,

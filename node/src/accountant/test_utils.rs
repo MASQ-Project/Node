@@ -47,7 +47,7 @@ use std::path::Path;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
-use crate::accountant::scanners::payable_scanner::msgs::BlockchainAgentWithContextMessage;
+use crate::accountant::scanners::payable_scanner::msgs::PricedTemplatesMessage;
 use crate::accountant::scanners::payable_scanner::PreparedAdjustment;
 use crate::accountant::scanners::payable_scanner::utils::PayableThresholdsGauge;
 use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
@@ -1755,8 +1755,7 @@ pub fn trick_rusqlite_with_read_only_conn(
 
 #[derive(Default)]
 pub struct PaymentAdjusterMock {
-    search_for_indispensable_adjustment_params:
-        Arc<Mutex<Vec<(BlockchainAgentWithContextMessage, Logger)>>>,
+    search_for_indispensable_adjustment_params: Arc<Mutex<Vec<(PricedTemplatesMessage, Logger)>>>,
     search_for_indispensable_adjustment_results:
         RefCell<Vec<Result<Option<Adjustment>, AnalysisError>>>,
     adjust_payments_params: Arc<Mutex<Vec<(PreparedAdjustment, SystemTime, Logger)>>>,
@@ -1766,7 +1765,7 @@ pub struct PaymentAdjusterMock {
 impl PaymentAdjuster for PaymentAdjusterMock {
     fn search_for_indispensable_adjustment(
         &self,
-        msg: &BlockchainAgentWithContextMessage,
+        msg: &PricedTemplatesMessage,
         logger: &Logger,
     ) -> Result<Option<Adjustment>, AnalysisError> {
         self.search_for_indispensable_adjustment_params
@@ -1795,7 +1794,7 @@ impl PaymentAdjuster for PaymentAdjusterMock {
 impl PaymentAdjusterMock {
     pub fn is_adjustment_required_params(
         mut self,
-        params: &Arc<Mutex<Vec<(BlockchainAgentWithContextMessage, Logger)>>>,
+        params: &Arc<Mutex<Vec<(PricedTemplatesMessage, Logger)>>>,
     ) -> Self {
         self.search_for_indispensable_adjustment_params = params.clone();
         self

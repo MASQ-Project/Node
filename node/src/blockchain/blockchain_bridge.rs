@@ -40,7 +40,7 @@ use ethabi::Hash;
 use web3::types::H256;
 use masq_lib::constants::DEFAULT_GAS_PRICE_MARGIN;
 use masq_lib::messages::ScanType;
-use crate::accountant::scanners::payable_scanner::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage};
+use crate::accountant::scanners::payable_scanner::msgs::{PricedTemplatesMessage, InitialTemplatesMessage};
 use crate::accountant::scanners::payable_scanner::tx_templates::priced::new::PricedNewTxTemplates;
 use crate::accountant::scanners::payable_scanner::tx_templates::priced::retry::PricedRetryTxTemplates;
 use crate::blockchain::blockchain_agent::BlockchainAgent;
@@ -54,7 +54,7 @@ pub struct BlockchainBridge {
     logger: Logger,
     persistent_config_arc: Arc<Mutex<dyn PersistentConfiguration>>,
     sent_payable_subs_opt: Option<Recipient<SentPayables>>,
-    payable_payments_setup_subs_opt: Option<Recipient<BlockchainAgentWithContextMessage>>,
+    payable_payments_setup_subs_opt: Option<Recipient<PricedTemplatesMessage>>,
     received_payments_subs_opt: Option<Recipient<ReceivedPayments>>,
     scan_error_subs_opt: Option<Recipient<ScanError>>,
     crashable: bool,
@@ -142,10 +142,10 @@ impl Handler<RequestTransactionReceipts> for BlockchainBridge {
     }
 }
 
-impl Handler<QualifiedPayablesMessage> for BlockchainBridge {
+impl Handler<InitialTemplatesMessage> for BlockchainBridge {
     type Result = ();
 
-    fn handle(&mut self, msg: QualifiedPayablesMessage, _ctx: &mut Self::Context) {
+    fn handle(&mut self, msg: InitialTemplatesMessage, _ctx: &mut Self::Context) {
         self.handle_scan_future(Self::handle_qualified_payable_msg, ScanType::Payables, msg);
     }
 }
@@ -245,7 +245,7 @@ impl BlockchainBridge {
         BlockchainBridgeSubs {
             bind: recipient!(addr, BindMessage),
             outbound_payments_instructions: recipient!(addr, OutboundPaymentsInstructions),
-            qualified_payables: recipient!(addr, QualifiedPayablesMessage),
+            qualified_payables: recipient!(addr, InitialTemplatesMessage),
             retrieve_transactions: recipient!(addr, RetrieveTransactions),
             ui_sub: recipient!(addr, NodeFromUiMessage),
             request_transaction_receipts: recipient!(addr, RequestTransactionReceipts),
@@ -254,7 +254,7 @@ impl BlockchainBridge {
 
     fn handle_qualified_payable_msg(
         &mut self,
-        incoming_message: QualifiedPayablesMessage,
+        incoming_message: InitialTemplatesMessage,
     ) -> Box<dyn Future<Item = (), Error = String>> {
         // TODO rewrite this into a batch call as soon as GH-629 gets into master
         let accountant_recipient = self.payable_payments_setup_subs_opt.clone();
@@ -265,7 +265,7 @@ impl BlockchainBridge {
                 .and_then(move |agent| {
                     let priced_templates =
                         agent.price_qualified_payables(incoming_message.initial_templates);
-                    let outgoing_message = BlockchainAgentWithContextMessage {
+                    let outgoing_message = PricedTemplatesMessage {
                         priced_templates,
                         agent,
                         response_skeleton_opt: incoming_message.response_skeleton_opt,
@@ -753,7 +753,7 @@ mod tests {
         );
         subject.payable_payments_setup_subs_opt = Some(accountant_recipient);
         let tx_templates = NewTxTemplates::from(&qualified_payables);
-        let qualified_payables_msg = QualifiedPayablesMessage {
+        let qualified_payables_msg = InitialTemplatesMessage {
             initial_templates: Either::Left(tx_templates.clone()),
             consuming_wallet: consuming_wallet.clone(),
             response_skeleton_opt: Some(ResponseSkeleton {
@@ -770,7 +770,7 @@ mod tests {
         System::current().stop();
         system.run();
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
-        let blockchain_agent_with_context_msg_actual: &BlockchainAgentWithContextMessage =
+        let blockchain_agent_with_context_msg_actual: &PricedTemplatesMessage =
             accountant_received_payment.get_record(0);
         let computed_gas_price_wei = increase_gas_price_by_margin(0x230000000);
         let expected_tx_templates = tx_templates
@@ -829,7 +829,7 @@ mod tests {
         );
         subject.payable_payments_setup_subs_opt = Some(accountant_recipient);
         let new_tx_templates = NewTxTemplates::from(&vec![make_payable_account(123)]);
-        let qualified_payables_msg = QualifiedPayablesMessage {
+        let qualified_payables_msg = InitialTemplatesMessage {
             initial_templates: Either::Left(new_tx_templates),
             consuming_wallet: consuming_wallet.clone(),
             response_skeleton_opt: Some(ResponseSkeleton {

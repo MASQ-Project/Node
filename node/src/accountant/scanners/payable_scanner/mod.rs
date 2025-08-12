@@ -16,7 +16,7 @@ use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableD
 use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDao, Tx};
 use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjuster};
 use crate::accountant::scanners::payable_scanner::msgs::{
-    BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
+    InitialTemplatesMessage, PricedTemplatesMessage,
 };
 use crate::accountant::scanners::payable_scanner::tx_templates::initial::retry::{
     RetryTxTemplate, RetryTxTemplates,
@@ -52,13 +52,13 @@ pub struct PayableScanner {
 }
 
 pub struct PreparedAdjustment {
-    pub original_setup_msg: BlockchainAgentWithContextMessage,
+    pub original_setup_msg: PricedTemplatesMessage,
     pub adjustment: Adjustment,
 }
 
 pub(in crate::accountant::scanners) trait MultistageDualPayableScanner:
-    StartableScanner<ScanForNewPayables, QualifiedPayablesMessage>
-    + StartableScanner<ScanForRetryPayables, QualifiedPayablesMessage>
+    StartableScanner<ScanForNewPayables, InitialTemplatesMessage>
+    + StartableScanner<ScanForRetryPayables, InitialTemplatesMessage>
     + SolvencySensitivePaymentInstructor
     + Scanner<SentPayables, PayableScanResult>
 {
@@ -69,7 +69,7 @@ impl MultistageDualPayableScanner for PayableScanner {}
 pub(in crate::accountant::scanners) trait SolvencySensitivePaymentInstructor {
     fn try_skipping_payment_adjustment(
         &self,
-        msg: BlockchainAgentWithContextMessage,
+        msg: PricedTemplatesMessage,
         logger: &Logger,
     ) -> Result<Either<OutboundPaymentsInstructions, PreparedAdjustment>, String>;
 
@@ -83,7 +83,7 @@ pub(in crate::accountant::scanners) trait SolvencySensitivePaymentInstructor {
 impl SolvencySensitivePaymentInstructor for PayableScanner {
     fn try_skipping_payment_adjustment(
         &self,
-        msg: BlockchainAgentWithContextMessage,
+        msg: PricedTemplatesMessage,
         logger: &Logger,
     ) -> Result<Either<OutboundPaymentsInstructions, PreparedAdjustment>, String> {
         match self

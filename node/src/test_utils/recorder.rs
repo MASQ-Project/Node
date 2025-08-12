@@ -2,7 +2,7 @@
 #![cfg(test)]
 
 use crate::accountant::scanners::payable_scanner::msgs::{
-    BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
+    InitialTemplatesMessage, PricedTemplatesMessage,
 };
 use crate::accountant::{
     ReceivedPayments, RequestTransactionReceipts, ScanError, ScanForNewPayables,
@@ -131,7 +131,7 @@ recorder_message_handler_t_m_p!(AddReturnRouteMessage);
 recorder_message_handler_t_m_p!(AddRouteResultMessage);
 recorder_message_handler_t_p!(AddStreamMsg);
 recorder_message_handler_t_m_p!(BindMessage);
-recorder_message_handler_t_p!(BlockchainAgentWithContextMessage);
+recorder_message_handler_t_p!(PricedTemplatesMessage);
 recorder_message_handler_t_m_p!(ConfigChangeMsg);
 recorder_message_handler_t_m_p!(ConnectionProgressMessage);
 recorder_message_handler_t_m_p!(CrashNotification);
@@ -155,7 +155,7 @@ recorder_message_handler_t_m_p!(NoLookupIncipientCoresPackage);
 recorder_message_handler_t_p!(OutboundPaymentsInstructions);
 recorder_message_handler_t_m_p!(PendingPayableFingerprintSeeds);
 recorder_message_handler_t_m_p!(PoolBindMessage);
-recorder_message_handler_t_m_p!(QualifiedPayablesMessage);
+recorder_message_handler_t_m_p!(InitialTemplatesMessage);
 recorder_message_handler_t_m_p!(ReceivedPayments);
 recorder_message_handler_t_m_p!(RemoveNeighborMessage);
 recorder_message_handler_t_m_p!(RemoveStreamMsg);
@@ -527,7 +527,7 @@ pub fn make_accountant_subs_from_recorder(addr: &Addr<Recorder>) -> AccountantSu
         report_routing_service_provided: recipient!(addr, ReportRoutingServiceProvidedMessage),
         report_exit_service_provided: recipient!(addr, ReportExitServiceProvidedMessage),
         report_services_consumed: recipient!(addr, ReportServicesConsumedMessage),
-        report_payable_payments_setup: recipient!(addr, BlockchainAgentWithContextMessage),
+        report_payable_payments_setup: recipient!(addr, PricedTemplatesMessage),
         report_inbound_payments: recipient!(addr, ReceivedPayments),
         init_pending_payable_fingerprints: recipient!(addr, PendingPayableFingerprintSeeds),
         report_transaction_receipts: recipient!(addr, ReportTransactionReceipts),
@@ -549,7 +549,7 @@ pub fn make_blockchain_bridge_subs_from_recorder(addr: &Addr<Recorder>) -> Block
     BlockchainBridgeSubs {
         bind: recipient!(addr, BindMessage),
         outbound_payments_instructions: recipient!(addr, OutboundPaymentsInstructions),
-        qualified_payables: recipient!(addr, QualifiedPayablesMessage),
+        qualified_payables: recipient!(addr, InitialTemplatesMessage),
         retrieve_transactions: recipient!(addr, RetrieveTransactions),
         ui_sub: recipient!(addr, NodeFromUiMessage),
         request_transaction_receipts: recipient!(addr, RequestTransactionReceipts),

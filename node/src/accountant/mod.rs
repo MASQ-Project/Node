@@ -72,7 +72,7 @@ use std::path::Path;
 use std::rc::Rc;
 use std::time::SystemTime;
 use web3::types::H256;
-use crate::accountant::scanners::payable_scanner::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage};
+use crate::accountant::scanners::payable_scanner::msgs::{PricedTemplatesMessage, InitialTemplatesMessage};
 use crate::accountant::scanners::payable_scanner::utils::OperationOutcome;
 use crate::accountant::scanners::pending_payable_scanner::utils::PendingPayableScanResult;
 use crate::accountant::scanners::scan_schedulers::{PayableSequenceScanner, ScanRescheduleAfterEarlyStop, ScanSchedulers};
@@ -92,7 +92,7 @@ pub struct Accountant {
     scan_schedulers: ScanSchedulers,
     financial_statistics: Rc<RefCell<FinancialStatistics>>,
     outbound_payments_instructions_sub_opt: Option<Recipient<OutboundPaymentsInstructions>>,
-    qualified_payables_sub_opt: Option<Recipient<QualifiedPayablesMessage>>,
+    qualified_payables_sub_opt: Option<Recipient<InitialTemplatesMessage>>,
     retrieve_transactions_sub_opt: Option<Recipient<RetrieveTransactions>>,
     request_transaction_receipts_sub_opt: Option<Recipient<RequestTransactionReceipts>>,
     report_inbound_payments_sub_opt: Option<Recipient<ReceivedPayments>>,
@@ -341,14 +341,10 @@ impl Handler<ReportTransactionReceipts> for Accountant {
     }
 }
 
-impl Handler<BlockchainAgentWithContextMessage> for Accountant {
+impl Handler<PricedTemplatesMessage> for Accountant {
     type Result = ();
 
-    fn handle(
-        &mut self,
-        msg: BlockchainAgentWithContextMessage,
-        _ctx: &mut Self::Context,
-    ) -> Self::Result {
+    fn handle(&mut self, msg: PricedTemplatesMessage, _ctx: &mut Self::Context) -> Self::Result {
         self.handle_payable_payment_setup(msg)
     }
 }
@@ -564,7 +560,7 @@ impl Accountant {
             report_routing_service_provided: recipient!(addr, ReportRoutingServiceProvidedMessage),
             report_exit_service_provided: recipient!(addr, ReportExitServiceProvidedMessage),
             report_services_consumed: recipient!(addr, ReportServicesConsumedMessage),
-            report_payable_payments_setup: recipient!(addr, BlockchainAgentWithContextMessage),
+            report_payable_payments_setup: recipient!(addr, PricedTemplatesMessage),
             report_inbound_payments: recipient!(addr, ReceivedPayments),
             init_pending_payable_fingerprints: recipient!(addr, PendingPayableFingerprintSeeds),
             report_transaction_receipts: recipient!(addr, ReportTransactionReceipts),
@@ -777,7 +773,7 @@ impl Accountant {
         })
     }
 
-    fn handle_payable_payment_setup(&mut self, msg: BlockchainAgentWithContextMessage) {
+    fn handle_payable_payment_setup(&mut self, msg: PricedTemplatesMessage) {
         let blockchain_bridge_instructions = match self
             .scanners
             .try_skipping_payable_adjustment(msg, &self.logger)
@@ -930,7 +926,7 @@ impl Accountant {
         &mut self,
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) -> ScanRescheduleAfterEarlyStop {
-        let result: Result<QualifiedPayablesMessage, StartScanError> =
+        let result: Result<InitialTemplatesMessage, StartScanError> =
             match self.consuming_wallet_opt.as_ref() {
                 Some(consuming_wallet) => self.scanners.start_new_payable_scan_guarded(
                     consuming_wallet,
@@ -963,7 +959,7 @@ impl Accountant {
         &mut self,
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) {
-        let result: Result<QualifiedPayablesMessage, StartScanError> =
+        let result: Result<InitialTemplatesMessage, StartScanError> =
             match self.consuming_wallet_opt.as_ref() {
                 Some(consuming_wallet) => self.scanners.start_retry_payable_scan_guarded(
                     consuming_wallet,
@@ -1560,7 +1556,7 @@ mod tests {
             .build();
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let blockchain_bridge = blockchain_bridge
-            .system_stop_conditions(match_lazily_every_type_id!(QualifiedPayablesMessage));
+            .system_stop_conditions(match_lazily_every_type_id!(InitialTemplatesMessage));
         let blockchain_bridge_addr = blockchain_bridge.start();
         // Important
         subject.scan_schedulers.automatic_scans_enabled = false;
@@ -1585,8 +1581,8 @@ mod tests {
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
         let expected_new_tx_templates = NewTxTemplates::from(&vec![payable_account]);
         assert_eq!(
-            blockchain_bridge_recording.get_record::<QualifiedPayablesMessage>(0),
-            &QualifiedPayablesMessage {
+            blockchain_bridge_recording.get_record::<InitialTemplatesMessage>(0),
+            &InitialTemplatesMessage {
                 initial_templates: Either::Left(expected_new_tx_templates),
                 consuming_wallet,
                 response_skeleton_opt: Some(ResponseSkeleton {
@@ -1681,7 +1677,7 @@ mod tests {
             (account_1, 1_000_000_001),
             (account_2, 1_000_000_002),
         ]);
-        let msg = BlockchainAgentWithContextMessage {
+        let msg = PricedTemplatesMessage {
             priced_templates: Either::Left(priced_new_templates.clone()),
             agent: Box::new(agent),
             response_skeleton_opt: Some(ResponseSkeleton {
@@ -1788,7 +1784,7 @@ mod tests {
             (unadjusted_account_1.clone(), 111_222_333),
             (unadjusted_account_2.clone(), 222_333_444),
         ]);
-        let msg = BlockchainAgentWithContextMessage {
+        let msg = PricedTemplatesMessage {
             priced_templates: Either::Left(initial_unadjusted_accounts.clone()),
             agent: Box::new(agent),
             response_skeleton_opt: Some(response_skeleton),
@@ -2205,7 +2201,7 @@ mod tests {
             response_skeleton_opt,
         };
         let second_counter_msg_setup = setup_for_counter_msg_triggered_via_type_id!(
-            QualifiedPayablesMessage,
+            InitialTemplatesMessage,
             sent_payables,
             &subject_addr
         );
@@ -2276,11 +2272,11 @@ mod tests {
         system.run();
         let blockchain_bridge_recorder = blockchain_bridge_recording_arc.lock().unwrap();
         assert_eq!(blockchain_bridge_recorder.len(), 1);
-        let message = blockchain_bridge_recorder.get_record::<QualifiedPayablesMessage>(0);
+        let message = blockchain_bridge_recorder.get_record::<InitialTemplatesMessage>(0);
         let expected_new_tx_templates = NewTxTemplates::from(&qualified_payables);
         assert_eq!(
             message,
-            &QualifiedPayablesMessage {
+            &InitialTemplatesMessage {
                 initial_templates: Either::Left(expected_new_tx_templates),
                 consuming_wallet,
                 response_skeleton_opt: None,
@@ -2358,7 +2354,7 @@ mod tests {
         subject.consuming_wallet_opt = Some(consuming_wallet.clone());
         let retry_tx_templates =
             RetryTxTemplates(vec![make_retry_tx_template(1), make_retry_tx_template(2)]);
-        let qualified_payables_msg = QualifiedPayablesMessage {
+        let qualified_payables_msg = InitialTemplatesMessage {
             initial_templates: Either::Right(retry_tx_templates),
             consuming_wallet: consuming_wallet.clone(),
             response_skeleton_opt: None,
@@ -2407,7 +2403,7 @@ mod tests {
             start_scan_params
         );
         let blockchain_bridge_recorder = blockchain_bridge_recording_arc.lock().unwrap();
-        let message = blockchain_bridge_recorder.get_record::<QualifiedPayablesMessage>(0);
+        let message = blockchain_bridge_recorder.get_record::<InitialTemplatesMessage>(0);
         assert_eq!(message, &qualified_payables_msg);
         assert_eq!(blockchain_bridge_recorder.len(), 1);
         assert_using_the_same_logger(&actual_logger, test_name, None)
@@ -2769,7 +2765,7 @@ mod tests {
             .scan_started_at_result(None)
             // These values belong to the RetryPayableScanner
             .start_scan_params(&scan_params.payable_start_scan)
-            .start_scan_result(Ok(QualifiedPayablesMessage {
+            .start_scan_result(Ok(InitialTemplatesMessage {
                 initial_templates: Either::Right(retry_tx_templates),
                 consuming_wallet: consuming_wallet.clone(),
                 response_skeleton_opt: None,
@@ -2833,7 +2829,7 @@ mod tests {
             &subject_addr
         );
         let blockchain_bridge_counter_msg_setup_for_payable_scanner = setup_for_counter_msg_triggered_via_type_id!(
-            QualifiedPayablesMessage,
+            InitialTemplatesMessage,
             expected_sent_payables.clone(),
             &subject_addr
         );
@@ -2918,7 +2914,7 @@ mod tests {
             ReceivedPayments,
             Option<NodeToUiMessage>,
         >,
-        payable_scanner: ScannerMock<QualifiedPayablesMessage, SentPayables, PayableScanResult>,
+        payable_scanner: ScannerMock<InitialTemplatesMessage, SentPayables, PayableScanResult>,
     ) -> (Accountant, Duration, Duration) {
         let mut subject = make_subject_and_inject_scanners(
             test_name,
@@ -2966,7 +2962,7 @@ mod tests {
         test_name: &str,
         notify_and_notify_later_params: &NotifyAndNotifyLaterParams,
         config: BootstrapperConfig,
-        payable_scanner: ScannerMock<QualifiedPayablesMessage, SentPayables, PayableScanResult>,
+        payable_scanner: ScannerMock<InitialTemplatesMessage, SentPayables, PayableScanResult>,
         pending_payable_scanner: ScannerMock<
             RequestTransactionReceipts,
             ReportTransactionReceipts,
@@ -3031,7 +3027,7 @@ mod tests {
             ReceivedPayments,
             Option<NodeToUiMessage>,
         >,
-        payable_scanner: ScannerMock<QualifiedPayablesMessage, SentPayables, PayableScanResult>,
+        payable_scanner: ScannerMock<InitialTemplatesMessage, SentPayables, PayableScanResult>,
     ) -> Accountant {
         let mut subject = AccountantBuilder::default()
             .logger(Logger::new(test_name))
@@ -3534,7 +3530,7 @@ mod tests {
         let priced_new_tx_templates =
             make_priced_new_tx_templates(vec![(payable_account, 123_456_789)]);
         let consuming_wallet = make_paying_wallet(b"consuming");
-        let counter_msg_1 = BlockchainAgentWithContextMessage {
+        let counter_msg_1 = PricedTemplatesMessage {
             priced_templates: Either::Left(priced_new_tx_templates.clone()),
             agent: Box::new(BlockchainAgentMock::default()),
             response_skeleton_opt: None,
@@ -3572,7 +3568,7 @@ mod tests {
             pending_payable_fingerprints: vec![pending_payable_fingerprint],
             response_skeleton_opt: None,
         };
-        let qualified_payables_msg = QualifiedPayablesMessage {
+        let qualified_payables_msg = InitialTemplatesMessage {
             initial_templates: Either::Left(new_tx_templates),
             consuming_wallet: consuming_wallet.clone(),
             response_skeleton_opt: None,
@@ -3591,7 +3587,7 @@ mod tests {
         let subject_addr = subject.start();
         let set_up_counter_msgs = SetUpCounterMsgs::new(vec![
             setup_for_counter_msg_triggered_via_type_id!(
-                QualifiedPayablesMessage,
+                InitialTemplatesMessage,
                 counter_msg_1,
                 &subject_addr
             ),
@@ -3638,7 +3634,7 @@ mod tests {
         assert_using_the_same_logger(&logger, test_name, Some("start scan pending payable"));
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
         let actual_qualified_payables_msg =
-            blockchain_bridge_recording.get_record::<QualifiedPayablesMessage>(0);
+            blockchain_bridge_recording.get_record::<InitialTemplatesMessage>(0);
         assert_eq!(actual_qualified_payables_msg, &qualified_payables_msg);
         let actual_outbound_payment_instructions_msg =
             blockchain_bridge_recording.get_record::<OutboundPaymentsInstructions>(1);
@@ -3676,7 +3672,7 @@ mod tests {
         test_name: &str,
         blockchain_bridge_addr: &Addr<Recorder>,
         consuming_wallet: &Wallet,
-        qualified_payables_msg: &QualifiedPayablesMessage,
+        qualified_payables_msg: &InitialTemplatesMessage,
         request_transaction_receipts: &RequestTransactionReceipts,
         start_scan_pending_payable_params_arc: &Arc<
             Mutex<Vec<(Wallet, SystemTime, Option<ResponseSkeleton>, Logger, String)>>,
@@ -3976,11 +3972,11 @@ mod tests {
         System::current().stop();
         system.run();
         let blockchain_bridge_recordings = blockchain_bridge_recordings_arc.lock().unwrap();
-        let message = blockchain_bridge_recordings.get_record::<QualifiedPayablesMessage>(0);
+        let message = blockchain_bridge_recordings.get_record::<InitialTemplatesMessage>(0);
         let new_tx_templates = NewTxTemplates::from(&qualified_payables);
         assert_eq!(
             message,
-            &QualifiedPayablesMessage {
+            &InitialTemplatesMessage {
                 initial_templates: Either::Left(new_tx_templates),
                 consuming_wallet,
                 response_skeleton_opt: None,
@@ -4022,8 +4018,8 @@ mod tests {
         let (blockchain_bridge, _, blockchain_bridge_recording) = make_recorder();
         let blockchain_bridge_addr = blockchain_bridge
             .system_stop_conditions(match_lazily_every_type_id!(
-                QualifiedPayablesMessage,
-                QualifiedPayablesMessage
+                InitialTemplatesMessage,
+                InitialTemplatesMessage
             ))
             .start();
         let qualified_payables_sub = blockchain_bridge_addr.clone().recipient();
@@ -4085,13 +4081,13 @@ mod tests {
         addr.try_send(message_after.clone()).unwrap();
         system.run();
         let blockchain_bridge_recording = blockchain_bridge_recording.lock().unwrap();
-        let first_message_actual: &QualifiedPayablesMessage =
+        let first_message_actual: &InitialTemplatesMessage =
             blockchain_bridge_recording.get_record(0);
         assert_eq!(
             first_message_actual.response_skeleton_opt,
             message_before.response_skeleton_opt
         );
-        let second_message_actual: &QualifiedPayablesMessage =
+        let second_message_actual: &InitialTemplatesMessage =
             blockchain_bridge_recording.get_record(1);
         assert_eq!(
             second_message_actual.response_skeleton_opt,

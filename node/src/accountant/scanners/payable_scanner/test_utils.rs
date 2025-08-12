@@ -1,4 +1,4 @@
-use crate::accountant::scanners::payable_scanner::msgs::BlockchainAgentWithContextMessage;
+use crate::accountant::scanners::payable_scanner::msgs::PricedTemplatesMessage;
 use crate::accountant::scanners::payable_scanner::{PayableScanner, PreparedAdjustment};
 use crate::accountant::test_utils::{
     FailedPayableDaoMock, PayableDaoMock, PaymentAdjusterMock, SentPayableDaoMock,
@@ -71,7 +71,7 @@ impl PayableScannerBuilder {
     }
 }
 
-impl Clone for BlockchainAgentWithContextMessage {
+impl Clone for PricedTemplatesMessage {
     fn clone(&self) -> Self {
         let original_agent_id = self.agent.arbitrary_id_stamp();
         let cloned_agent = BlockchainAgentMock::default().set_arbitrary_id_stamp(original_agent_id);

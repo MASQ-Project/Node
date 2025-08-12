@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::scanners::payable_scanner::msgs::BlockchainAgentWithContextMessage;
+use crate::accountant::scanners::payable_scanner::msgs::PricedTemplatesMessage;
 use crate::accountant::scanners::payable_scanner::PreparedAdjustment;
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use masq_lib::logger::Logger;
@@ -9,7 +9,7 @@ use std::time::SystemTime;
 pub trait PaymentAdjuster {
     fn search_for_indispensable_adjustment(
         &self,
-        msg: &BlockchainAgentWithContextMessage,
+        msg: &PricedTemplatesMessage,
         logger: &Logger,
     ) -> Result<Option<Adjustment>, AnalysisError>;
 
@@ -28,7 +28,7 @@ pub struct PaymentAdjusterReal {}
 impl PaymentAdjuster for PaymentAdjusterReal {
     fn search_for_indispensable_adjustment(
         &self,
-        _msg: &BlockchainAgentWithContextMessage,
+        _msg: &PricedTemplatesMessage,
         _logger: &Logger,
     ) -> Result<Option<Adjustment>, AnalysisError> {
         Ok(None)
@@ -71,7 +71,7 @@ pub enum AnalysisError {}
 #[cfg(test)]
 mod tests {
     use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
-    use crate::accountant::scanners::payable_scanner::msgs::BlockchainAgentWithContextMessage;
+    use crate::accountant::scanners::payable_scanner::msgs::PricedTemplatesMessage;
     use crate::accountant::scanners::payable_scanner::tx_templates::test_utils::make_priced_new_tx_templates;
     use crate::accountant::test_utils::make_payable_account;
     use crate::blockchain::blockchain_agent::test_utils::BlockchainAgentMock;
@@ -86,7 +86,7 @@ mod tests {
         let payable = make_payable_account(123);
         let agent = BlockchainAgentMock::default();
         let priced_new_tx_templates = make_priced_new_tx_templates(vec![(payable, 111_111_111)]);
-        let setup_msg = BlockchainAgentWithContextMessage {
+        let setup_msg = PricedTemplatesMessage {
             priced_templates: Either::Left(priced_new_tx_templates),
             agent: Box::new(agent),
             response_skeleton_opt: None,

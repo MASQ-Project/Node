@@ -3,7 +3,7 @@
 #![cfg(test)]
 
 use crate::accountant::scanners::payable_scanner::msgs::{
-    BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
+    InitialTemplatesMessage, PricedTemplatesMessage,
 };
 use crate::accountant::scanners::payable_scanner::utils::PayableScanResult;
 use crate::accountant::scanners::payable_scanner::{
@@ -92,7 +92,7 @@ impl MultistageDualPayableScanner for NullScanner {}
 impl SolvencySensitivePaymentInstructor for NullScanner {
     fn try_skipping_payment_adjustment(
         &self,
-        _msg: BlockchainAgentWithContextMessage,
+        _msg: PricedTemplatesMessage,
         _logger: &Logger,
     ) -> Result<Either<OutboundPaymentsInstructions, PreparedAdjustment>, String> {
         intentionally_blank!()
@@ -271,16 +271,16 @@ impl<StartMessage, EndMessage, ScanResult> ScannerMock<StartMessage, EndMessage,
 }
 
 impl MultistageDualPayableScanner
-    for ScannerMock<QualifiedPayablesMessage, SentPayables, PayableScanResult>
+    for ScannerMock<InitialTemplatesMessage, SentPayables, PayableScanResult>
 {
 }
 
 impl SolvencySensitivePaymentInstructor
-    for ScannerMock<QualifiedPayablesMessage, SentPayables, PayableScanResult>
+    for ScannerMock<InitialTemplatesMessage, SentPayables, PayableScanResult>
 {
     fn try_skipping_payment_adjustment(
         &self,
-        msg: BlockchainAgentWithContextMessage,
+        msg: PricedTemplatesMessage,
         _logger: &Logger,
     ) -> Result<Either<OutboundPaymentsInstructions, PreparedAdjustment>, String> {
         // Always passes...
@@ -362,7 +362,7 @@ pub enum ScannerReplacement {
     Payable(
         ReplacementType<
             PayableScanner,
-            ScannerMock<QualifiedPayablesMessage, SentPayables, PayableScanResult>,
+            ScannerMock<InitialTemplatesMessage, SentPayables, PayableScanResult>,
         >,
     ),
     PendingPayable(
