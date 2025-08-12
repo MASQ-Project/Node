@@ -1,14 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::join_with_separator;
 use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::NewTxTemplates;
 use crate::accountant::scanners::payable_scanner::tx_templates::initial::retry::RetryTxTemplates;
 use crate::accountant::scanners::payable_scanner::tx_templates::priced::new::PricedNewTxTemplates;
-use crate::accountant::scanners::payable_scanner::tx_templates::priced::retry::{
-    PricedRetryTxTemplate, PricedRetryTxTemplates,
-};
+use crate::accountant::scanners::payable_scanner::tx_templates::priced::retry::PricedRetryTxTemplates;
 use crate::blockchain::blockchain_agent::BlockchainAgent;
-use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
 use itertools::{Either, Itertools};
@@ -16,7 +12,6 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
 use masq_lib::utils::ExpectValue;
 use thousands::Separable;
-use web3::types::Address;
 
 #[derive(Debug, Clone)]
 pub struct BlockchainAgentWeb3 {
@@ -35,20 +30,24 @@ impl BlockchainAgent for BlockchainAgentWeb3 {
     ) -> Either<PricedNewTxTemplates, PricedRetryTxTemplates> {
         match unpriced_tx_templates {
             Either::Left(new_tx_templates) => {
-                let updated_new_tx_templates =
-                    self.update_gas_price_for_new_tx_templates(new_tx_templates);
+                let priced_new_templates = PricedNewTxTemplates::from_initial_with_logging(
+                    new_tx_templates,
+                    self.latest_gas_price_wei,
+                    self.chain.rec().gas_price_safe_ceiling_minor,
+                    &self.logger,
+                );
 
-                Either::Left(updated_new_tx_templates)
+                Either::Left(priced_new_templates)
             }
             Either::Right(retry_tx_templates) => {
-                let priced_templates = PricedRetryTxTemplates::from_initial_with_logging(
+                let priced_retry_templates = PricedRetryTxTemplates::from_initial_with_logging(
                     retry_tx_templates,
                     self.latest_gas_price_wei,
                     self.chain.rec().gas_price_safe_ceiling_minor,
                     &self.logger,
                 );
 
-                Either::Right(priced_templates)
+                Either::Right(priced_retry_templates)
             }
         }
     }
@@ -97,50 +96,6 @@ impl BlockchainAgentWeb3 {
             consuming_wallet_balances,
             chain,
         }
-    }
-
-    fn compute_gas_price(&self, prev_gas_price_wei_opt: Option<u128>) -> u128 {
-        let evaluated_gas_price_wei = match prev_gas_price_wei_opt {
-            Some(prev_gas_price_wei) => prev_gas_price_wei.max(self.latest_gas_price_wei),
-            None => self.latest_gas_price_wei,
-        };
-
-        increase_gas_price_by_margin(evaluated_gas_price_wei)
-    }
-
-    fn evaluate_gas_price_for_new_txs(&self, templates: &NewTxTemplates) -> u128 {
-        let all_receivers: Vec<Address> = templates
-            .iter()
-            .map(|tx_template| tx_template.base.receiver_address)
-            .collect();
-        let computed_gas_price_wei = self.compute_gas_price(None);
-        let ceil = self.chain.rec().gas_price_safe_ceiling_minor;
-
-        if computed_gas_price_wei > ceil {
-            warning!(
-                self.logger,
-                "The computed gas price {} wei is \
-                 above the ceil value of {} wei set by the Node.\n\
-                 Transaction(s) to following receivers are affected:\n\
-                 {}",
-                computed_gas_price_wei.separate_with_commas(),
-                ceil.separate_with_commas(),
-                join_with_separator(&all_receivers, |address| format!("{:?}", address), "\n")
-            );
-
-            ceil
-        } else {
-            computed_gas_price_wei
-        }
-    }
-
-    fn update_gas_price_for_new_tx_templates(
-        &self,
-        new_tx_templates: NewTxTemplates,
-    ) -> PricedNewTxTemplates {
-        let computed_gas_price_wei = self.evaluate_gas_price_for_new_txs(&new_tx_templates);
-
-        PricedNewTxTemplates::new(new_tx_templates, computed_gas_price_wei)
     }
 }
 

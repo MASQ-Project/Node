@@ -1,8 +1,13 @@
+use crate::accountant::join_with_separator;
 use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::{
     NewTxTemplate, NewTxTemplates,
 };
 use crate::accountant::scanners::payable_scanner::tx_templates::BaseTxTemplate;
+use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
+use masq_lib::logger::Logger;
 use std::ops::Deref;
+use thousands::Separable;
+use web3::types::Address;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PricedNewTxTemplate {
@@ -41,7 +46,6 @@ impl PricedNewTxTemplates {
         unpriced_new_tx_templates: NewTxTemplates,
         computed_gas_price_wei: u128,
     ) -> PricedNewTxTemplates {
-        // TODO: GH-605: Test me
         let updated_tx_templates = unpriced_new_tx_templates
             .into_iter()
             .map(|new_tx_template| {
@@ -50,6 +54,39 @@ impl PricedNewTxTemplates {
             .collect();
 
         PricedNewTxTemplates(updated_tx_templates)
+    }
+
+    pub fn from_initial_with_logging(
+        templates: NewTxTemplates,
+        latest_gas_price_wei: u128,
+        ceil: u128,
+        logger: &Logger,
+    ) -> Self {
+        let all_receivers: Vec<Address> = templates
+            .iter()
+            .map(|tx_template| tx_template.base.receiver_address)
+            .collect();
+        let latest_gas_price = latest_gas_price_wei;
+        let computed_gas_price_wei = increase_gas_price_by_margin(latest_gas_price);
+
+        let computed_gas_price_wei = if computed_gas_price_wei > ceil {
+            warning!(
+                logger,
+                "The computed gas price {} wei is \
+                 above the ceil value of {} wei set by the Node.\n\
+                 Transaction(s) to following receivers are affected:\n\
+                 {}",
+                computed_gas_price_wei.separate_with_commas(),
+                ceil.separate_with_commas(),
+                join_with_separator(&all_receivers, |address| format!("{:?}", address), "\n")
+            );
+
+            ceil
+        } else {
+            computed_gas_price_wei
+        };
+
+        Self::new(templates, computed_gas_price_wei)
     }
 
     pub fn total_gas_price(&self) -> u128 {
