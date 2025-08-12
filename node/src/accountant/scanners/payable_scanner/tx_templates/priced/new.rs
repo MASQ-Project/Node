@@ -57,28 +57,18 @@ impl PricedNewTxTemplates {
     }
 
     pub fn from_initial_with_logging(
-        templates: NewTxTemplates,
+        initial_templates: NewTxTemplates,
         latest_gas_price_wei: u128,
         ceil: u128,
         logger: &Logger,
     ) -> Self {
-        let all_receivers: Vec<Address> = templates
-            .iter()
-            .map(|tx_template| tx_template.base.receiver_address)
-            .collect();
-        let latest_gas_price = latest_gas_price_wei;
-        let computed_gas_price_wei = increase_gas_price_by_margin(latest_gas_price);
+        let computed_gas_price_wei = increase_gas_price_by_margin(latest_gas_price_wei);
 
-        let computed_gas_price_wei = if computed_gas_price_wei > ceil {
+        let safe_gas_price_wei = if computed_gas_price_wei > ceil {
             warning!(
                 logger,
-                "The computed gas price {} wei is \
-                 above the ceil value of {} wei set by the Node.\n\
-                 Transaction(s) to following receivers are affected:\n\
-                 {}",
-                computed_gas_price_wei.separate_with_commas(),
-                ceil.separate_with_commas(),
-                join_with_separator(&all_receivers, |address| format!("{:?}", address), "\n")
+                "{}",
+                Self::log_ceiling_crossed(&initial_templates, computed_gas_price_wei, ceil)
             );
 
             ceil
@@ -86,7 +76,26 @@ impl PricedNewTxTemplates {
             computed_gas_price_wei
         };
 
-        Self::new(templates, computed_gas_price_wei)
+        Self::new(initial_templates, safe_gas_price_wei)
+    }
+
+    fn log_ceiling_crossed(
+        templates: &NewTxTemplates,
+        computed_gas_price_wei: u128,
+        ceil: u128,
+    ) -> String {
+        format!(
+            "The computed gas price {} wei is above the ceil value of {} wei set by the Node.\n\
+             Transaction(s) to following receivers are affected:\n\
+             {}",
+            computed_gas_price_wei.separate_with_commas(),
+            ceil.separate_with_commas(),
+            join_with_separator(
+                templates.iter(),
+                |tx_template| format!("{:?}", tx_template.base.receiver_address),
+                "\n"
+            )
+        )
     }
 
     pub fn total_gas_price(&self) -> u128 {

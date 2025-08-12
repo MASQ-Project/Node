@@ -265,8 +265,6 @@ mod tests {
         let chain = TEST_DEFAULT_CHAIN;
         let ceiling_gas_price_wei = chain.rec().gas_price_safe_ceiling_minor;
 
-        eprintln!("ceiling: {}", ceiling_gas_price_wei);
-
         test_gas_price_must_not_break_through_ceiling_value_in_the_new_payable_mode(
             test_name,
             chain,

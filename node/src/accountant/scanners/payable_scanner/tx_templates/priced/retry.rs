@@ -32,17 +32,17 @@ impl PricedRetryTxTemplate {
         log_builder: &mut RetryLogBuilder,
     ) -> PricedRetryTxTemplate {
         let receiver = retry_tx_template.base.receiver_address;
-        let evaluated_gas_price_wei =
+        let computed_gas_price_wei =
             Self::compute_gas_price(retry_tx_template.prev_gas_price_wei, latest_gas_price_wei);
 
-        let computed_gas_price = if evaluated_gas_price_wei > ceil {
-            log_builder.push(receiver, evaluated_gas_price_wei);
+        let safe_gas_price_wei = if computed_gas_price_wei > ceil {
+            log_builder.push(receiver, computed_gas_price_wei);
             ceil
         } else {
-            evaluated_gas_price_wei
+            computed_gas_price_wei
         };
 
-        PricedRetryTxTemplate::new(retry_tx_template, computed_gas_price)
+        PricedRetryTxTemplate::new(retry_tx_template, safe_gas_price_wei)
     }
 
     fn compute_gas_price(latest_gas_price_wei: u128, prev_gas_price_wei: u128) -> u128 {
