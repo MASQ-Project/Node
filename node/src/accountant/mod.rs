@@ -1225,9 +1225,7 @@ pub fn wei_to_gwei<T: TryFrom<S>, S: Display + Copy + Div<Output = S> + From<u32
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::db_access_objects::failed_payable_dao::{
-        FailedTx, FailureRetrieveCondition, ValidationStatus,
-    };
+    use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
     use crate::accountant::db_access_objects::payable_dao::{
         PayableAccount, PayableDaoError, PayableDaoFactory,
     };

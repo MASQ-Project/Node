@@ -1,26 +1,21 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::db_access_objects::failed_payable_dao::{
-    FailedTx, FailureReason, FailureStatus, ValidationStatus,
+    FailedTx, FailureReason, FailureStatus,
 };
-use crate::accountant::db_access_objects::sent_payable_dao::{
-    Detection, RetrieveCondition, SentPayableDao, SentTx, TxStatus,
-};
-use crate::accountant::db_access_objects::utils::{from_unix_timestamp, TxHash};
+use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDao, SentTx, TxStatus};
+use crate::accountant::db_access_objects::utils::TxHash;
 use crate::blockchain::blockchain_interface::data_structures::{
     BlockchainTxFailure, TxBlock, TxReceiptError, TxReceiptResult,
 };
-use crate::blockchain::errors::AppRpcError;
+use crate::blockchain::errors::{AppRpcError, PreviousAttempts, ValidationStatus};
 use actix::Message;
-use ethereum_types::{H256, U64};
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeToUiMessage;
-use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::time::SystemTime;
 use thousands::Separable;
-use variant_count::VariantCount;
 
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
 pub struct ReceiptScanReport {
@@ -48,12 +43,16 @@ impl ReceiptScanReport {
         self.confirmations.reclaims.push(reclaim)
     }
 
-    pub(super) fn register_new_failure(&mut self, failed_tx: PresortedTxFailure) {
-        self.failures.tx_failures.push(failed_tx);
+    pub(super) fn register_new_failure(&mut self, failed_tx: FailedTx) {
+        self.failures
+            .tx_failures
+            .push(PresortedTxFailure::NewEntry(failed_tx));
     }
 
     pub(super) fn register_finalization_of_unproven_failure(&mut self, tx_hash: TxHash) {
-        todo!()
+        self.failures
+            .tx_failures
+            .push(PresortedTxFailure::RecheckCompleted(tx_hash));
     }
 
     pub(super) fn register_rpc_failure(&mut self, status_update: FailedValidationByTable) {
@@ -123,7 +122,9 @@ impl From<(TxReceiptError, TxStatus)> for FailedValidationByTable {
             )),
 
             TxHashByTable::FailedPayable(tx_hash) => {
-                todo!()
+                unreachable!(
+                    "Mismatch in the type of tx record (failed tx) and status type (TxStatus)"
+                )
             }
         }
     }
@@ -138,7 +139,9 @@ impl From<(TxReceiptError, FailureStatus)> for FailedValidationByTable {
                 current_status,
             )),
             TxHashByTable::SentPayable(tx_hash) => {
-                todo!()
+                unreachable!(
+                    "Mismatch in the type of tx record (sent tx) and status type (FailureStatus)"
+                )
             }
         }
     }
@@ -167,32 +170,49 @@ where
         }
     }
 
-    pub fn new_status(&self) -> Option<RecordStatus> {
+    pub fn new_status(&self, clock: &dyn ValidationFailureClock) -> Option<RecordStatus> {
         self.current_status
-            .update_after_failure(self.validation_failure.clone())
+            .update_after_failure(self.validation_failure.clone(), clock)
+    }
+}
+
+pub trait ValidationFailureClock {
+    fn now(&self) -> SystemTime;
+}
+
+#[derive(Default)]
+pub struct ValidationFailureClockReal {}
+
+impl ValidationFailureClock for ValidationFailureClockReal {
+    fn now(&self) -> SystemTime {
+        todo!()
     }
 }
 
 pub trait UpdatableValidationStatus {
-    fn update_after_failure(&self, error: AppRpcError) -> Option<Self>
+    fn update_after_failure(
+        &self,
+        error: AppRpcError,
+        clock: &dyn ValidationFailureClock,
+    ) -> Option<Self>
     where
         Self: Sized;
 }
 
 impl UpdatableValidationStatus for TxStatus {
-    fn update_after_failure(&self, error: AppRpcError) -> Option<Self> {
+    fn update_after_failure(
+        &self,
+        error: AppRpcError,
+        clock: &dyn ValidationFailureClock,
+    ) -> Option<Self> {
         match self {
-            TxStatus::Pending(ValidationStatus::Waiting) => {
-                Some(TxStatus::Pending(ValidationStatus::Reattempting {
-                    attempt: 1,
-                    error,
-                }))
-            }
-            TxStatus::Pending(ValidationStatus::Reattempting { attempt, .. }) => {
-                Some(TxStatus::Pending(ValidationStatus::Reattempting {
-                    attempt: attempt + 1,
-                    error,
-                }))
+            TxStatus::Pending(ValidationStatus::Waiting) => Some(TxStatus::Pending(
+                ValidationStatus::Reattempting(PreviousAttempts::new(error.into(), clock)),
+            )),
+            TxStatus::Pending(ValidationStatus::Reattempting(previous_attempts)) => {
+                Some(TxStatus::Pending(ValidationStatus::Reattempting(
+                    previous_attempts.clone().add_attempt(error.into(), clock),
+                )))
             }
             TxStatus::Confirmed { .. } => None,
         }
@@ -200,19 +220,24 @@ impl UpdatableValidationStatus for TxStatus {
 }
 
 impl UpdatableValidationStatus for FailureStatus {
-    fn update_after_failure(&self, error: AppRpcError) -> Option<Self> {
+    fn update_after_failure(
+        &self,
+        error: AppRpcError,
+        clock: &dyn ValidationFailureClock,
+    ) -> Option<Self> {
         match self {
             FailureStatus::RecheckRequired(ValidationStatus::Waiting) => {
                 Some(FailureStatus::RecheckRequired(
-                    ValidationStatus::Reattempting { attempt: 1, error },
+                    ValidationStatus::Reattempting(PreviousAttempts::new(error.into(), clock)),
                 ))
             }
-            FailureStatus::RecheckRequired(ValidationStatus::Reattempting { attempt, .. }) => Some(
-                FailureStatus::RecheckRequired(ValidationStatus::Reattempting {
-                    attempt: attempt + 1,
-                    error,
-                }),
-            ),
+            FailureStatus::RecheckRequired(ValidationStatus::Reattempting(previous_attempts)) => {
+                Some(FailureStatus::RecheckRequired(
+                    ValidationStatus::Reattempting(
+                        previous_attempts.clone().add_attempt(error.into(), clock),
+                    ),
+                ))
+            }
             FailureStatus::RetryRequired | FailureStatus::Concluded => None,
         }
     }
@@ -301,10 +326,6 @@ impl RecheckRequiringFailures {
     pub fn new() -> Self {
         Self::default()
     }
-
-    pub fn hashes(&self) -> &[TxHash] {
-        todo!()
-    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -354,21 +375,24 @@ impl From<BlockchainTxFailure> for FailureReason {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::db_access_objects::failed_payable_dao::{
-        FailureStatus, ValidationStatus,
-    };
+    use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus;
     use crate::accountant::db_access_objects::sent_payable_dao::{Detection, TxStatus};
+    use crate::accountant::scanners::pending_payable_scanner::test_utils::ValidationFailureClockMock;
     use crate::accountant::scanners::pending_payable_scanner::utils::{
         CurrentPendingPayables, DetectedConfirmations, DetectedFailures, FailedValidation,
         FailedValidationByTable, NormalTxConfirmation, PendingPayableCache, PresortedTxFailure,
         ReceiptScanReport, RecheckRequiringFailures, Retry, TxBlock, TxHashByTable, TxReceiptError,
-        TxReceiptResult, TxReclaim,
+        TxReceiptResult, TxReclaim, ValidationFailureClockReal,
     };
     use crate::accountant::test_utils::{make_failed_tx, make_sent_tx, make_transaction_block};
-    use crate::blockchain::errors::{AppRpcError, LocalError, RemoteError};
+    use crate::blockchain::errors::{
+        AppRpcError, AppRpcErrorKind, LocalError, PreviousAttempts, RemoteError, ValidationStatus,
+    };
     use crate::blockchain::test_utils::make_tx_hash;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
+    use std::ops::{Add, Sub};
+    use std::time::{Duration, SystemTime};
     use std::vec;
 
     #[test]
@@ -411,10 +435,12 @@ mod tests {
                 FailedValidation::new(
                     make_tx_hash(12121),
                     AppRpcError::Remote(RemoteError::InvalidResponse("blah".to_string())),
-                    FailureStatus::RecheckRequired(ValidationStatus::Reattempting {
-                        attempt: 1,
-                        error: AppRpcError::Local(LocalError::Internal),
-                    }),
+                    FailureStatus::RecheckRequired(ValidationStatus::Reattempting(
+                        PreviousAttempts::new(
+                            AppRpcErrorKind::Internal,
+                            &ValidationFailureClockReal::default(),
+                        ),
+                    )),
                 ),
             )],
         ];
@@ -493,18 +519,20 @@ mod tests {
                 FailedValidationByTable::SentPayable(FailedValidation::new(
                     make_tx_hash(2222),
                     AppRpcError::Local(LocalError::Internal),
-                    TxStatus::Pending(ValidationStatus::Reattempting {
-                        attempt: 1,
-                        error: AppRpcError::Local(LocalError::Internal),
-                    }),
+                    TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
+                        AppRpcErrorKind::Internal,
+                        &ValidationFailureClockReal::default(),
+                    ))),
                 )),
                 FailedValidationByTable::FailedPayable(FailedValidation::new(
                     make_tx_hash(1234),
                     AppRpcError::Remote(RemoteError::Unreachable),
-                    FailureStatus::RecheckRequired(ValidationStatus::Reattempting {
-                        attempt: 1,
-                        error: AppRpcError::Local(LocalError::Internal),
-                    }),
+                    FailureStatus::RecheckRequired(ValidationStatus::Reattempting(
+                        PreviousAttempts::new(
+                            AppRpcErrorKind::Internal,
+                            &ValidationFailureClockReal::default(),
+                        ),
+                    )),
                 )),
             ],
         ];
@@ -619,7 +647,7 @@ mod tests {
     }
 
     #[test]
-    fn pending_payables_cache_insert_and_get_methods_single_record() {
+    fn pending_payable_cache_insert_and_get_methods_single_record() {
         let mut subject = CurrentPendingPayables::new();
         let sent_tx = make_sent_tx(123);
         let tx_hash = sent_tx.hash;
@@ -641,7 +669,7 @@ mod tests {
     }
 
     #[test]
-    fn pending_payables_cache_insert_and_get_methods_multiple_records() {
+    fn pending_payable_cache_insert_and_get_methods_multiple_records() {
         let mut subject = CurrentPendingPayables::new();
         let sent_tx_1 = make_sent_tx(123);
         let tx_hash_1 = sent_tx_1.hash;
@@ -685,9 +713,9 @@ mod tests {
     }
 
     #[test]
-    fn pending_payables_cache_ensure_empty_happy_path() {
+    fn pending_payable_cache_ensure_empty_happy_path() {
         init_test_logging();
-        let test_name = "pending_payables_cache_ensure_empty_happy_path";
+        let test_name = "pending_payable_cache_ensure_empty_happy_path";
         let mut subject = CurrentPendingPayables::new();
         let sent_tx = make_sent_tx(567);
         let tx_hash = sent_tx.hash;
@@ -710,9 +738,9 @@ mod tests {
     }
 
     #[test]
-    fn pending_payables_cache_ensure_empty_sad_path() {
+    fn pending_payable_cache_ensure_empty_sad_path() {
         init_test_logging();
-        let test_name = "pending_payables_cache_ensure_empty_sad_path";
+        let test_name = "pending_payable_cache_ensure_empty_sad_path";
         let mut subject = CurrentPendingPayables::new();
         let sent_tx = make_sent_tx(567);
         let tx_hash = sent_tx.hash;
@@ -740,7 +768,7 @@ mod tests {
     }
 
     #[test]
-    fn pending_payables_cache_dump_works() {
+    fn pending_payable_cache_dump_works() {
         let mut subject = CurrentPendingPayables::new();
         let sent_tx_1 = make_sent_tx(567);
         let tx_hash_1 = sent_tx_1.hash;
@@ -955,7 +983,47 @@ mod tests {
     }
 
     #[test]
-    fn failed_validation_new_status_works_fine() {
+    #[should_panic(
+        expected = "Mismatch in the type of tx record (failed tx) and status type \
+    (TxStatus)"
+    )]
+    fn tx_status_mismatch_in_conversion_to_failed_validation_by_table() {
+        let tx_hash = make_tx_hash(123);
+        let api_error = AppRpcError::Local(LocalError::Internal);
+        let mismatched_receipt_error =
+            TxReceiptError::new(TxHashByTable::FailedPayable(tx_hash), api_error);
+
+        let _ = FailedValidationByTable::from((
+            mismatched_receipt_error,
+            TxStatus::Pending(ValidationStatus::Waiting),
+        ));
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Mismatch in the type of tx record (sent tx) and status type \
+    (FailureStatus)"
+    )]
+    fn tx_status_mismatch_in_conversion_to_failed_validation_by_table_2() {
+        let tx_hash = make_tx_hash(123);
+        let api_error = AppRpcError::Local(LocalError::Internal);
+        let mismatched_receipt_error =
+            TxReceiptError::new(TxHashByTable::SentPayable(tx_hash), api_error);
+
+        let _ = FailedValidationByTable::from((
+            mismatched_receipt_error,
+            FailureStatus::RecheckRequired(ValidationStatus::Waiting),
+        ));
+    }
+
+    #[test]
+    fn failed_validation_new_status_works_for_tx_statuses() {
+        let timestamp_a = SystemTime::now();
+        let timestamp_b = SystemTime::now().sub(Duration::from_secs(11));
+        let timestamp_c = SystemTime::now().sub(Duration::from_secs(22));
+        let validation_failure_clock = ValidationFailureClockMock::default()
+            .now_result(timestamp_a)
+            .now_result(timestamp_c);
         let mal_validated_tx_statuses = vec![
             (
                 FailedValidation::new(
@@ -963,26 +1031,63 @@ mod tests {
                     AppRpcError::Local(LocalError::Internal),
                     TxStatus::Pending(ValidationStatus::Waiting),
                 ),
-                Some(TxStatus::Pending(ValidationStatus::Reattempting {
-                    attempt: 1,
-                    error: AppRpcError::Local(LocalError::Internal),
-                })),
+                Some(TxStatus::Pending(ValidationStatus::Reattempting(
+                    PreviousAttempts::new(
+                        AppRpcErrorKind::Internal,
+                        &ValidationFailureClockMock::default().now_result(timestamp_a),
+                    ),
+                ))),
             ),
             (
                 FailedValidation::new(
                     make_tx_hash(123),
                     AppRpcError::Remote(RemoteError::Unreachable),
-                    TxStatus::Pending(ValidationStatus::Reattempting {
-                        attempt: 2,
-                        error: AppRpcError::Local(LocalError::Internal),
-                    }),
+                    TxStatus::Pending(ValidationStatus::Reattempting(
+                        PreviousAttempts::new(
+                            AppRpcErrorKind::Internal,
+                            &ValidationFailureClockMock::default().now_result(timestamp_b),
+                        )
+                        .add_attempt(
+                            AppRpcErrorKind::Internal,
+                            &ValidationFailureClockReal::default(),
+                        ),
+                    )),
                 ),
-                Some(TxStatus::Pending(ValidationStatus::Reattempting {
-                    attempt: 3,
-                    error: AppRpcError::Remote(RemoteError::Unreachable),
-                })),
+                Some(TxStatus::Pending(ValidationStatus::Reattempting(
+                    PreviousAttempts::new(
+                        AppRpcErrorKind::ServerUnreachable,
+                        &ValidationFailureClockMock::default().now_result(timestamp_c),
+                    )
+                    .add_attempt(
+                        AppRpcErrorKind::Internal,
+                        &ValidationFailureClockMock::default().now_result(timestamp_b),
+                    )
+                    .add_attempt(
+                        AppRpcErrorKind::Internal,
+                        &ValidationFailureClockReal::default(),
+                    ),
+                ))),
             ),
         ];
+
+        mal_validated_tx_statuses.into_iter().for_each(
+            |(failed_validation, expected_tx_status)| {
+                assert_eq!(
+                    failed_validation.new_status(&validation_failure_clock),
+                    expected_tx_status
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn failed_validation_new_status_works_for_failure_statuses() {
+        let timestamp_a = SystemTime::now().sub(Duration::from_secs(222));
+        let timestamp_b = SystemTime::now().sub(Duration::from_secs(3333));
+        let timestamp_c = SystemTime::now().sub(Duration::from_secs(44444));
+        let validation_failure_clock = ValidationFailureClockMock::default()
+            .now_result(timestamp_a)
+            .now_result(timestamp_b);
         let mal_validated_failure_statuses = vec![
             (
                 FailedValidation::new(
@@ -991,44 +1096,59 @@ mod tests {
                     FailureStatus::RecheckRequired(ValidationStatus::Waiting),
                 ),
                 Some(FailureStatus::RecheckRequired(
-                    ValidationStatus::Reattempting {
-                        attempt: 1,
-                        error: AppRpcError::Local(LocalError::Internal),
-                    },
+                    ValidationStatus::Reattempting(PreviousAttempts::new(
+                        AppRpcErrorKind::Internal,
+                        &ValidationFailureClockMock::default().now_result(timestamp_a),
+                    )),
                 )),
             ),
             (
                 FailedValidation::new(
                     make_tx_hash(456),
                     AppRpcError::Remote(RemoteError::Unreachable),
-                    FailureStatus::RecheckRequired(ValidationStatus::Reattempting {
-                        attempt: 2,
-                        error: AppRpcError::Remote(RemoteError::Unreachable),
-                    }),
+                    FailureStatus::RecheckRequired(ValidationStatus::Reattempting(
+                        PreviousAttempts::new(
+                            AppRpcErrorKind::ServerUnreachable,
+                            &ValidationFailureClockMock::default().now_result(timestamp_b),
+                        )
+                        .add_attempt(
+                            AppRpcErrorKind::InvalidResponse,
+                            &ValidationFailureClockMock::default().now_result(timestamp_c),
+                        ),
+                    )),
                 ),
                 Some(FailureStatus::RecheckRequired(
-                    ValidationStatus::Reattempting {
-                        attempt: 3,
-                        error: AppRpcError::Remote(RemoteError::Unreachable),
-                    },
+                    ValidationStatus::Reattempting(
+                        PreviousAttempts::new(
+                            AppRpcErrorKind::ServerUnreachable,
+                            &ValidationFailureClockMock::default().now_result(timestamp_b),
+                        )
+                        .add_attempt(
+                            AppRpcErrorKind::InvalidResponse,
+                            &ValidationFailureClockMock::default().now_result(timestamp_c),
+                        )
+                        .add_attempt(
+                            AppRpcErrorKind::ServerUnreachable,
+                            &ValidationFailureClockReal::default(),
+                        ),
+                    ),
                 )),
             ),
         ];
 
-        mal_validated_tx_statuses.into_iter().for_each(
-            |(failed_validation, expected_tx_status)| {
-                assert_eq!(failed_validation.new_status(), expected_tx_status);
-            },
-        );
         mal_validated_failure_statuses.into_iter().for_each(
             |(failed_validation, expected_failed_tx_status)| {
-                assert_eq!(failed_validation.new_status(), expected_failed_tx_status);
+                assert_eq!(
+                    failed_validation.new_status(&validation_failure_clock),
+                    expected_failed_tx_status
+                );
             },
         )
     }
 
     #[test]
-    fn failed_validation_new_status_has_no_effect_on_unexpected_current_status() {
+    fn failed_validation_new_status_has_no_effect_on_unexpected_tx_status() {
+        let validation_failure_clock = ValidationFailureClockMock::default();
         let mal_validated_tx_status = FailedValidation::new(
             make_tx_hash(123),
             AppRpcError::Local(LocalError::Internal),
@@ -1038,6 +1158,16 @@ mod tests {
                 detection: Detection::Normal,
             },
         );
+
+        assert_eq!(
+            mal_validated_tx_status.new_status(&validation_failure_clock),
+            None
+        );
+    }
+
+    #[test]
+    fn failed_validation_new_status_has_no_effect_on_unexpected_failure_status() {
+        let validation_failure_clock = ValidationFailureClockMock::default();
         let mal_validated_failure_statuses = vec![
             FailedValidation::new(
                 make_tx_hash(456),
@@ -1051,12 +1181,11 @@ mod tests {
             ),
         ];
 
-        assert_eq!(mal_validated_tx_status.new_status(), None);
         mal_validated_failure_statuses
             .into_iter()
             .enumerate()
             .for_each(|(idx, failed_validation)| {
-                let result = failed_validation.new_status();
+                let result = failed_validation.new_status(&validation_failure_clock);
                 assert_eq!(
                     result, None,
                     "Failed validation should evaluate to 'None' but was '{:?}' for idx: {}",

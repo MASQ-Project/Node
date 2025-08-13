@@ -532,7 +532,6 @@ impl SubsFactory<BlockchainBridge, BlockchainBridgeSubs> for BlockchainBridgeSub
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::db_access_objects::failed_payable_dao::ValidationStatus;
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::db_access_objects::sent_payable_dao::TxStatus;
     use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp};
@@ -553,7 +552,7 @@ mod tests {
         BlockchainTransaction, RetrievedBlockchainTransactions, RetrievedTxStatus, TxBlock,
         TxReceiptError,
     };
-    use crate::blockchain::errors::{AppRpcError, RemoteError};
+    use crate::blockchain::errors::{AppRpcError, RemoteError, ValidationStatus};
     use crate::blockchain::test_utils::{
         make_blockchain_interface_web3, make_tx_hash, ReceiptResponseBuilder,
     };

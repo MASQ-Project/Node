@@ -1,12 +1,13 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, ValidationStatus};
+use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
 use crate::accountant::db_access_objects::utils::{
     DaoFactoryReal, TxHash, TxIdentifiers, TxRecordWithHash,
 };
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::{checked_conversion, comma_joined_stringifiable};
 use crate::blockchain::blockchain_interface::data_structures::TxBlock;
+use crate::blockchain::errors::ValidationStatus;
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use ethereum_types::H256;
 use itertools::Itertools;
@@ -451,15 +452,6 @@ impl SentPayableDaoFactory for DaoFactoryReal {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::db_access_objects::failed_payable_dao::FailureReason::{
-        PendingTooLong, Reverted,
-    };
-    use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::{
-        Concluded, RecheckRequired, RetryRequired,
-    };
-    use crate::accountant::db_access_objects::failed_payable_dao::{
-        FailedPayableDaoError, FailedPayableDaoReal, ValidationStatus,
-    };
     use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::{
         ByHash, ByNonce, IsPending,
     };
@@ -471,12 +463,16 @@ mod tests {
         TxStatus,
     };
     use crate::accountant::db_access_objects::test_utils::{
-        make_read_only_db_connection, FailedTxBuilder, TxBuilder,
+        make_read_only_db_connection, TxBuilder,
     };
     use crate::accountant::db_access_objects::utils::TxRecordWithHash;
+    use crate::accountant::scanners::pending_payable_scanner::test_utils::ValidationFailureClockMock;
+    use crate::accountant::scanners::pending_payable_scanner::utils::ValidationFailureClockReal;
     use crate::accountant::test_utils::make_sent_tx;
     use crate::blockchain::blockchain_interface::data_structures::TxBlock;
-    use crate::blockchain::errors::{AppRpcError, LocalError, RemoteError};
+    use crate::blockchain::errors::{
+        AppRpcError, AppRpcErrorKind, LocalError, PreviousAttempts, RemoteError, ValidationStatus,
+    };
     use crate::blockchain::test_utils::{make_block_hash, make_tx_hash};
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal,
@@ -487,8 +483,10 @@ mod tests {
     use rusqlite::Connection;
     use std::collections::{HashMap, HashSet};
     use std::fmt::format;
+    use std::ops::{Add, Sub};
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     #[test]
     fn insert_new_records_works() {
@@ -497,13 +495,17 @@ mod tests {
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
+        let validation_failure_clock = ValidationFailureClockReal::default();
         let tx1 = TxBuilder::default().hash(make_tx_hash(1)).build();
         let tx2 = TxBuilder::default()
             .hash(make_tx_hash(2))
-            .status(TxStatus::Pending(ValidationStatus::Reattempting {
-                attempt: 2,
-                error: AppRpcError::Remote(RemoteError::Unreachable),
-            }))
+            .status(TxStatus::Pending(ValidationStatus::Reattempting(
+                PreviousAttempts::new(AppRpcErrorKind::Decoder, &validation_failure_clock)
+                    .add_attempt(
+                        AppRpcErrorKind::ServerUnreachable,
+                        &validation_failure_clock,
+                    ),
+            )))
             .build();
         let subject = SentPayableDaoReal::new(wrapped_conn);
         let txs = vec![tx1, tx2];
@@ -730,10 +732,12 @@ mod tests {
             .build();
         let tx2 = TxBuilder::default()
             .hash(make_tx_hash(2))
-            .status(TxStatus::Pending(ValidationStatus::Reattempting {
-                attempt: 1,
-                error: AppRpcError::Remote(RemoteError::Unreachable),
-            }))
+            .status(TxStatus::Pending(ValidationStatus::Reattempting(
+                PreviousAttempts::new(
+                    AppRpcErrorKind::ServerUnreachable,
+                    &ValidationFailureClockReal::default(),
+                ),
+            )))
             .build();
         let tx3 = TxBuilder::default()
             .hash(make_tx_hash(3))
@@ -1058,14 +1062,16 @@ mod tests {
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
+        let timestamp_a = SystemTime::now();
+        let timestamp_b = SystemTime::now().sub(Duration::from_millis(1234));
         let subject = SentPayableDaoReal::new(wrapped_conn);
         let mut tx1 = make_sent_tx(456);
         tx1.status = TxStatus::Pending(ValidationStatus::Waiting);
         let mut tx2 = make_sent_tx(789);
-        tx2.status = TxStatus::Pending(ValidationStatus::Reattempting {
-            attempt: 2,
-            error: AppRpcError::Remote(RemoteError::Unreachable),
-        });
+        tx2.status = TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
+            AppRpcErrorKind::ServerUnreachable,
+            &ValidationFailureClockMock::default().now_result(timestamp_a),
+        )));
         let mut tx3 = make_sent_tx(123);
         tx3.status = TxStatus::Pending(ValidationStatus::Waiting);
         subject
@@ -1074,17 +1080,23 @@ mod tests {
         let hashmap = HashMap::from([
             (
                 tx1.hash,
-                TxStatus::Pending(ValidationStatus::Reattempting {
-                    attempt: 1,
-                    error: AppRpcError::Local(LocalError::Internal),
-                }),
+                TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
+                    AppRpcErrorKind::Internal,
+                    &ValidationFailureClockMock::default().now_result(timestamp_b),
+                ))),
             ),
             (
                 tx2.hash,
-                TxStatus::Pending(ValidationStatus::Reattempting {
-                    attempt: 2,
-                    error: AppRpcError::Remote(RemoteError::Unreachable),
-                }),
+                TxStatus::Pending(ValidationStatus::Reattempting(
+                    PreviousAttempts::new(
+                        AppRpcErrorKind::ServerUnreachable,
+                        &ValidationFailureClockReal::default(),
+                    )
+                    .add_attempt(
+                        AppRpcErrorKind::ServerUnreachable,
+                        &ValidationFailureClockReal::default(),
+                    ),
+                )),
             ),
             (
                 tx3.hash,
@@ -1104,17 +1116,23 @@ mod tests {
         assert_eq!(result, Ok(()));
         assert_eq!(
             updated_txs[0].status,
-            TxStatus::Pending(ValidationStatus::Reattempting {
-                attempt: 1,
-                error: AppRpcError::Local(LocalError::Internal)
-            })
+            TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
+                AppRpcErrorKind::Internal,
+                &ValidationFailureClockMock::default().now_result(timestamp_b)
+            )))
         );
         assert_eq!(
             updated_txs[1].status,
-            TxStatus::Pending(ValidationStatus::Reattempting {
-                attempt: 2,
-                error: AppRpcError::Remote(RemoteError::Unreachable)
-            })
+            TxStatus::Pending(ValidationStatus::Reattempting(
+                PreviousAttempts::new(
+                    AppRpcErrorKind::ServerUnreachable,
+                    &ValidationFailureClockMock::default().now_result(timestamp_a)
+                )
+                .add_attempt(
+                    AppRpcErrorKind::ServerUnreachable,
+                    &ValidationFailureClockReal::default()
+                )
+            ))
         );
         assert_eq!(
             updated_txs[2].status,
@@ -1154,10 +1172,10 @@ mod tests {
 
         let result = subject.update_statuses(&HashMap::from([(
             make_tx_hash(1),
-            TxStatus::Pending(ValidationStatus::Reattempting {
-                attempt: 1,
-                error: AppRpcError::Remote(RemoteError::Unreachable),
-            }),
+            TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
+                AppRpcErrorKind::ServerUnreachable,
+                &ValidationFailureClockReal::default(),
+            ))),
         )]));
 
         assert_eq!(
@@ -1353,9 +1371,11 @@ mod tests {
             TxStatus::Pending(ValidationStatus::Waiting)
         );
 
+        let validation_failure_clock = ValidationFailureClockMock::default()
+            .now_result(UNIX_EPOCH.add(Duration::from_secs(12456)));
         assert_eq!(
-            TxStatus::from_str(r#"{"Pending":{"Reattempting":{"attempt":3,"error":{"Remote":{"InvalidResponse":"bluh"}}}}}"#).unwrap(),
-            TxStatus::Pending(ValidationStatus::Reattempting { attempt: 3, error: AppRpcError::Remote(RemoteError::InvalidResponse("bluh".to_string())) })
+            TxStatus::from_str(r#"{"Pending":{"Reattempting":{"InvalidResponse":{"secs_since_epoch":12456,"nanos_since_epoch":0},"attempts":1}}}"#).unwrap(),
+            TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(AppRpcErrorKind::InvalidResponse, &validation_failure_clock)))
         );
 
         assert_eq!(

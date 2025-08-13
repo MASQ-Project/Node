@@ -5,7 +5,7 @@
 use crate::accountant::db_access_objects::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::accountant::db_access_objects::failed_payable_dao::{
     FailedPayableDao, FailedPayableDaoError, FailedPayableDaoFactory, FailedTx, FailureReason,
-    FailureRetrieveCondition, FailureStatus, ValidationStatus,
+    FailureRetrieveCondition, FailureStatus,
 };
 use crate::accountant::db_access_objects::payable_dao::{
     MarkPendingPayableID, PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory,
@@ -28,7 +28,10 @@ use crate::accountant::scanners::payable_scanner_extension::msgs::{
     QualifiedPayablesBeforeGasPriceSelection, UnpricedQualifiedPayables,
 };
 use crate::accountant::scanners::payable_scanner_extension::PreparedAdjustment;
-use crate::accountant::scanners::pending_payable_scanner::utils::PendingPayableCache;
+use crate::accountant::scanners::pending_payable_scanner::test_utils::ValidationFailureClockMock;
+use crate::accountant::scanners::pending_payable_scanner::utils::{
+    PendingPayableCache, ValidationFailureClock, ValidationFailureClockReal,
+};
 use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
 use crate::accountant::scanners::receivable_scanner::ReceivableScanner;
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableThresholdsGauge;
@@ -36,6 +39,7 @@ use crate::accountant::scanners::test_utils::PendingPayableCacheMock;
 use crate::accountant::scanners::PayableScanner;
 use crate::accountant::{gwei_to_wei, Accountant, DEFAULT_PENDING_TOO_LONG_SEC};
 use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, TxBlock};
+use crate::blockchain::errors::ValidationStatus;
 use crate::blockchain::test_utils::{make_block_hash, make_tx_hash};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
@@ -1379,6 +1383,7 @@ pub struct PendingPayableScannerBuilder {
     financial_statistics: FinancialStatistics,
     current_sent_payables: Box<dyn PendingPayableCache<SentTx>>,
     yet_unproven_failed_payables: Box<dyn PendingPayableCache<FailedTx>>,
+    validation_failure_clock: Box<dyn ValidationFailureClock>,
 }
 
 impl PendingPayableScannerBuilder {
@@ -1391,6 +1396,7 @@ impl PendingPayableScannerBuilder {
             financial_statistics: FinancialStatistics::default(),
             current_sent_payables: Box::new(PendingPayableCacheMock::default()),
             yet_unproven_failed_payables: Box::new(PendingPayableCacheMock::default()),
+            validation_failure_clock: Box::new(ValidationFailureClockMock::default()),
         }
     }
 
@@ -1409,16 +1415,21 @@ impl PendingPayableScannerBuilder {
         self
     }
 
-    pub fn pending_payables_cache(mut self, cache: Box<dyn PendingPayableCache<SentTx>>) -> Self {
+    pub fn pending_payable_cache(mut self, cache: Box<dyn PendingPayableCache<SentTx>>) -> Self {
         self.current_sent_payables = cache;
         self
     }
 
-    pub fn failed_payables_cache(
+    pub fn failed_payable_cache(
         mut self,
         failures: Box<dyn PendingPayableCache<FailedTx>>,
     ) -> Self {
         self.yet_unproven_failed_payables = failures;
+        self
+    }
+
+    pub fn validation_failure_clock(mut self, clock: Box<dyn ValidationFailureClock>) -> Self {
+        self.validation_failure_clock = clock;
         self
     }
 
@@ -1430,11 +1441,9 @@ impl PendingPayableScannerBuilder {
             Rc::new(self.payment_thresholds),
             Rc::new(RefCell::new(self.financial_statistics)),
         );
-
         scanner.current_sent_payables = self.current_sent_payables;
-
         scanner.yet_unproven_failed_payables = self.yet_unproven_failed_payables;
-
+        scanner.validation_failure_clock = self.validation_failure_clock;
         scanner
     }
 }

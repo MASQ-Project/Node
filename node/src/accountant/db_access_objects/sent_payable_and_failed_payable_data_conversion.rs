@@ -42,13 +42,13 @@ impl From<(SentTx, FailureReason)> for FailedTx {
 #[cfg(test)]
 mod tests {
     use crate::accountant::db_access_objects::failed_payable_dao::{
-        FailedTx, FailureReason, FailureStatus, ValidationStatus,
+        FailedTx, FailureReason, FailureStatus,
     };
     use crate::accountant::db_access_objects::sent_payable_dao::{Detection, SentTx, TxStatus};
     use crate::accountant::db_access_objects::utils::to_unix_timestamp;
     use crate::accountant::gwei_to_wei;
     use crate::accountant::test_utils::make_transaction_block;
-    use crate::blockchain::errors::{AppRpcError, LocalError};
+    use crate::blockchain::errors::{AppRpcError, LocalError, ValidationStatus};
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::test_utils::make_wallet;
     use std::time::{Duration, SystemTime};

@@ -339,9 +339,9 @@ mod tests {
     use masq_lib::constants::WEIS_IN_GWEI;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use std::time::{Duration, SystemTime};
+    use std::time::{SystemTime};
     use itertools::Itertools;
-    use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureReason, FailureStatus, ValidationStatus};
+    use crate::accountant::db_access_objects::failed_payable_dao::{FailureReason};
     use crate::assert_on_testing_enum_with_all_its_variants;
     use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainError, PayableTransactionError};
     use crate::blockchain::blockchain_interface::data_structures::{BlockchainTxFailure, ProcessedPayableFallible, RpcPayableFailure};

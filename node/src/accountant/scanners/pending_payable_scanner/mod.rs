@@ -1,5 +1,6 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+pub mod test_utils;
 mod tx_receipt_interpreter;
 pub mod utils;
 
@@ -17,6 +18,7 @@ use crate::accountant::scanners::pending_payable_scanner::utils::{
     FailedValidationByTable, MismatchReport, NormalTxConfirmation, PendingPayableCache,
     PendingPayableScanResult, PresortedTxFailure, ReceiptScanReport, RecheckRequiringFailures,
     Retry, TxByTable, TxCaseToBeInterpreted, TxHashByTable, TxReclaim, UpdatableValidationStatus,
+    ValidationFailureClock, ValidationFailureClockReal,
 };
 use crate::accountant::scanners::{
     PrivateScanner, Scanner, ScannerCommon, StartScanError, StartableScanner,
@@ -50,6 +52,7 @@ pub struct PendingPayableScanner {
     pub financial_statistics: Rc<RefCell<FinancialStatistics>>,
     pub current_sent_payables: Box<dyn PendingPayableCache<SentTx>>,
     pub yet_unproven_failed_payables: Box<dyn PendingPayableCache<FailedTx>>,
+    pub validation_failure_clock: Box<dyn ValidationFailureClock>,
 }
 
 impl
@@ -144,6 +147,7 @@ impl PendingPayableScanner {
             financial_statistics,
             current_sent_payables: Box::new(CurrentPendingPayables::default()),
             yet_unproven_failed_payables: Box::new(RecheckRequiringFailures::default()),
+            validation_failure_clock: Box::new(ValidationFailureClockReal::default()),
         }
     }
 
@@ -670,7 +674,11 @@ impl PendingPayableScanner {
         logger: &Logger,
     ) {
         if !sent_payable_failures.is_empty() {
-            let updatable = Self::prepare_statuses_for_update(&sent_payable_failures, logger);
+            let updatable = Self::prepare_statuses_for_update(
+                &sent_payable_failures,
+                &*self.validation_failure_clock,
+                logger,
+            );
             if !updatable.is_empty() {
                 match self.sent_payable_dao.update_statuses(&updatable) {
                     Ok(_) => {
@@ -701,8 +709,11 @@ impl PendingPayableScanner {
         logger: &Logger,
     ) {
         if !failed_txs_validation_failures.is_empty() {
-            let updatable =
-                Self::prepare_statuses_for_update(&failed_txs_validation_failures, logger);
+            let updatable = Self::prepare_statuses_for_update(
+                &failed_txs_validation_failures,
+                &*self.validation_failure_clock,
+                logger,
+            );
             if !updatable.is_empty() {
                 match self.failed_payable_dao.update_statuses(&updatable) {
                     Ok(_) => {
@@ -730,13 +741,14 @@ impl PendingPayableScanner {
 
     fn prepare_statuses_for_update<Status: UpdatableValidationStatus + Display>(
         failures: &[FailedValidation<Status>],
+        clock: &dyn ValidationFailureClock,
         logger: &Logger,
     ) -> HashMap<TxHash, Status> {
         failures
             .iter()
             .flat_map(|failure| {
                 failure
-                    .new_status()
+                    .new_status(clock)
                     .map(|tx_status| (failure.tx_hash, tx_status))
                     .or_else(|| {
                         debug!(
@@ -770,7 +782,7 @@ impl PendingPayableScanner {
 
         debug!(
             logger,
-            "Found {} pending payables and {} unfinalized failures to be checked",
+            "Found {} pending payables and {} unfinalized failures to process",
             resolve_optional_vec(pending_tx_hashes_opt),
             resolve_optional_vec(failure_hashes_opt)
         );
@@ -780,17 +792,18 @@ impl PendingPayableScanner {
 #[cfg(test)]
 mod tests {
     use crate::accountant::db_access_objects::failed_payable_dao::{
-        FailedPayableDaoError, FailureStatus, ValidationStatus,
+        FailedPayableDaoError, FailureStatus,
     };
     use crate::accountant::db_access_objects::payable_dao::PayableDaoError;
     use crate::accountant::db_access_objects::sent_payable_dao::{
         Detection, SentPayableDaoError, TxStatus,
     };
+    use crate::accountant::scanners::pending_payable_scanner::test_utils::ValidationFailureClockMock;
     use crate::accountant::scanners::pending_payable_scanner::utils::{
         CurrentPendingPayables, DetectedConfirmations, DetectedFailures, FailedValidation,
         FailedValidationByTable, NormalTxConfirmation, PendingPayableCache,
         PendingPayableScanResult, PresortedTxFailure, RecheckRequiringFailures, Retry,
-        TxHashByTable, TxReclaim,
+        TxHashByTable, TxReclaim, ValidationFailureClockReal,
     };
     use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
     use crate::accountant::scanners::test_utils::PendingPayableCacheMock;
@@ -803,15 +816,20 @@ mod tests {
     use crate::blockchain::blockchain_interface::data_structures::{
         RetrievedTxStatus, StatusReadFromReceiptCheck, TxBlock, TxReceiptError, TxReceiptResult,
     };
-    use crate::blockchain::errors::{AppRpcError, LocalError, RemoteError};
+    use crate::blockchain::errors::{
+        AppRpcError, AppRpcErrorKind, LocalError, PreviousAttempts, RemoteError, ValidationStatus,
+    };
     use crate::blockchain::test_utils::{make_block_hash, make_tx_hash};
     use crate::test_utils::{make_paying_wallet, make_wallet};
+    use itertools::Itertools;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use regex::Regex;
+    use std::collections::HashMap;
+    use std::ops::{Add, Sub};
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Mutex};
-    use std::time::SystemTime;
+    use std::time::{Duration, SystemTime};
 
     #[test]
     fn start_scan_fills_in_caches_and_returns_msg() {
@@ -830,10 +848,10 @@ mod tests {
         let mut subject = PendingPayableScannerBuilder::new()
             .sent_payable_dao(sent_payable_dao)
             .failed_payable_dao(failed_payable_dao)
+            .pending_payable_cache(Box::new(CurrentPendingPayables::default()))
+            .failed_payable_cache(Box::new(RecheckRequiringFailures::default()))
             .build();
         let logger = Logger::new("start_scan_fills_in_caches_and_returns_msg");
-        subject.current_sent_payables = Box::new(CurrentPendingPayables::default());
-        subject.yet_unproven_failed_payables = Box::new(RecheckRequiringFailures::default());
         let pending_payable_cache_before = subject.current_sent_payables.dump_cache();
         let failed_payable_cache_before = subject.yet_unproven_failed_payables.dump_cache();
 
@@ -890,11 +908,11 @@ mod tests {
         let payable_dao = PayableDaoMock::new().transactions_confirmed_result(Ok(()));
         let sent_payable_dao = SentPayableDaoMock::new()
             .confirm_tx_result(Ok(()))
-            .replace_records_result(Ok(())) //TODO needed??
+            .replace_records_result(Ok(()))
             .delete_records_result(Ok(()));
         let failed_payable_dao = FailedPayableDaoMock::new()
             .insert_new_records_result(Ok(()))
-            .delete_records_result(Ok(())); //TODO Needed?
+            .delete_records_result(Ok(()));
         let pending_payable_cache = PendingPayableCacheMock::default()
             .get_record_by_hash_params(&get_record_by_hash_sent_payable_cache_params_arc)
             .get_record_by_hash_result(Some(sent_tx_1.clone()))
@@ -909,8 +927,8 @@ mod tests {
             .payable_dao(payable_dao)
             .sent_payable_dao(sent_payable_dao)
             .failed_payable_dao(failed_payable_dao)
-            .pending_payables_cache(Box::new(pending_payable_cache))
-            .failed_payables_cache(Box::new(failed_payable_cache))
+            .pending_payable_cache(Box::new(pending_payable_cache))
+            .failed_payable_cache(Box::new(failed_payable_cache))
             .build();
         let logger = Logger::new("test");
         let confirmed_tx_block_sent_tx = make_transaction_block(901);
@@ -1179,19 +1197,24 @@ mod tests {
         let hash_1 = make_tx_hash(0x321);
         let hash_2 = make_tx_hash(0x654);
         let hash_3 = make_tx_hash(0x987);
+        let timestamp_a = SystemTime::now();
+        let timestamp_b = SystemTime::now().sub(Duration::from_secs(1));
+        let timestamp_c = SystemTime::now().sub(Duration::from_secs(2));
+        let timestamp_d = SystemTime::now().sub(Duration::from_secs(3));
         let mut failed_tx_1 = make_failed_tx(123);
         failed_tx_1.hash = hash_1;
         failed_tx_1.status = FailureStatus::RecheckRequired(ValidationStatus::Waiting);
         let mut failed_tx_2 = make_failed_tx(456);
         failed_tx_2.hash = hash_2;
-        failed_tx_2.status = FailureStatus::RecheckRequired(ValidationStatus::Reattempting {
-            attempt: 1,
-            error: AppRpcError::Local(LocalError::Internal),
-        });
+        failed_tx_2.status =
+            FailureStatus::RecheckRequired(ValidationStatus::Reattempting(PreviousAttempts::new(
+                AppRpcErrorKind::Internal,
+                &ValidationFailureClockMock::default().now_result(timestamp_a),
+            )));
         let failed_payable_dao = FailedPayableDaoMock::default()
             .retrieve_txs_params(&retrieve_failed_txs_params_arc)
             .retrieve_txs_result(vec![failed_tx_1, failed_tx_2])
-            .update_statuses_params(&update_statuses_sent_tx_params_arc)
+            .update_statuses_params(&update_statuses_failed_tx_params_arc)
             .update_statuses_result(Ok(()));
         let mut sent_tx = make_sent_tx(789);
         sent_tx.hash = hash_3;
@@ -1199,11 +1222,16 @@ mod tests {
         let sent_payable_dao = SentPayableDaoMock::default()
             .retrieve_txs_params(&retrieve_sent_txs_params_arc)
             .retrieve_txs_result(vec![sent_tx.clone()])
-            .update_statuses_params(&update_statuses_failed_tx_params_arc)
+            .update_statuses_params(&update_statuses_sent_tx_params_arc)
             .update_statuses_result(Ok(()));
+        let validation_failure_clock = ValidationFailureClockMock::default()
+            .now_result(timestamp_a)
+            .now_result(timestamp_b)
+            .now_result(timestamp_c);
         let subject = PendingPayableScannerBuilder::new()
             .sent_payable_dao(sent_payable_dao)
             .failed_payable_dao(failed_payable_dao)
+            .validation_failure_clock(Box::new(validation_failure_clock))
             .build();
         let detected_failures = DetectedFailures {
             tx_failures: vec![],
@@ -1216,10 +1244,12 @@ mod tests {
                 FailedValidationByTable::FailedPayable(FailedValidation::new(
                     hash_2,
                     AppRpcError::Local(LocalError::Internal),
-                    FailureStatus::RecheckRequired(ValidationStatus::Reattempting {
-                        attempt: 1,
-                        error: AppRpcError::Local(LocalError::Internal),
-                    }),
+                    FailureStatus::RecheckRequired(ValidationStatus::Reattempting(
+                        PreviousAttempts::new(
+                            AppRpcErrorKind::Internal,
+                            &ValidationFailureClockMock::default().now_result(timestamp_d),
+                        ),
+                    )),
                 )),
                 FailedValidationByTable::SentPayable(FailedValidation::new(
                     hash_3,
@@ -1234,30 +1264,29 @@ mod tests {
         let update_statuses_sent_tx_params = update_statuses_sent_tx_params_arc.lock().unwrap();
         assert_eq!(
             *update_statuses_sent_tx_params,
-            vec![hashmap!(
+            vec![
+                hashmap![hash_3 => TxStatus::Pending(ValidationStatus::Reattempting (PreviousAttempts::new(AppRpcErrorKind::InvalidResponse, &ValidationFailureClockMock::default().now_result(timestamp_a))))]
+            ]
+        );
+        let mut update_statuses_failed_tx_params =
+            update_statuses_failed_tx_params_arc.lock().unwrap();
+        let actual_params = update_statuses_failed_tx_params
+            .remove(0)
+            .into_iter()
+            .sorted_by_key(|(key, _)| *key)
+            .collect::<HashMap<_, _>>();
+        let expected_params = hashmap!(
                 hash_1 => FailureStatus::RecheckRequired(
-                    ValidationStatus::Reattempting {
-                        attempt: 1,
-                        error: AppRpcError::Remote(RemoteError::Unreachable)
-                    }
+                    ValidationStatus::Reattempting(PreviousAttempts::new(AppRpcErrorKind::ServerUnreachable, &ValidationFailureClockMock::default().now_result(timestamp_b)))
                 ),
                 hash_2 => FailureStatus::RecheckRequired(
-                    ValidationStatus::Reattempting {
-                        attempt: 2,
-                        error: AppRpcError::Local(LocalError::Internal)
-                    }
-                )
-            )]
-        );
-        let update_statuses_failed_tx_params = update_statuses_failed_tx_params_arc.lock().unwrap();
-        assert_eq!(
-            *update_statuses_failed_tx_params,
-            vec![
-                hashmap![hash_3 => TxStatus::Pending(ValidationStatus::Reattempting {
-                    attempt: 1,
-                    error: AppRpcError::Remote(RemoteError::InvalidResponse("Booga".to_string())),
-                })]
-            ]
+                    ValidationStatus::Reattempting(PreviousAttempts::new(AppRpcErrorKind::Internal, &ValidationFailureClockMock::default().now_result(timestamp_d)).add_attempt(AppRpcErrorKind::Internal, &ValidationFailureClockReal::default())))
+            ).into_iter().sorted_by_key(|(key,_)|*key).collect::<HashMap<_, _>>();
+        assert_eq!(actual_params, expected_params);
+        assert!(
+            update_statuses_failed_tx_params.is_empty(),
+            "Should be empty but: {:?}",
+            update_statuses_sent_tx_params
         );
         let test_log_handler = TestLogHandler::new();
         test_log_handler.exists_log_containing(&format!(
@@ -1380,6 +1409,7 @@ mod tests {
         let update_status_params_arc = Arc::new(Mutex::new(vec![]));
         let tx_hash_1 = make_tx_hash(0x321);
         let tx_hash_2 = make_tx_hash(0x654);
+        let timestamp = SystemTime::now();
         let mut failed_tx_1 = make_failed_tx(123);
         failed_tx_1.hash = tx_hash_1;
         let mut failed_tx_2 = make_failed_tx(456);
@@ -1395,6 +1425,9 @@ mod tests {
         let subject = PendingPayableScannerBuilder::new()
             .sent_payable_dao(sent_payable_dao)
             .failed_payable_dao(failed_payable_dao)
+            .validation_failure_clock(Box::new(
+                ValidationFailureClockMock::default().now_result(timestamp),
+            ))
             .build();
         let detected_failures = DetectedFailures {
             tx_failures: vec![PresortedTxFailure::NewEntry(failed_tx_1.clone())],
@@ -1417,7 +1450,7 @@ mod tests {
         assert_eq!(
             *update_statuses_params,
             vec![
-                hashmap!(tx_hash_2 => TxStatus::Pending(ValidationStatus::Reattempting {attempt: 1,error: AppRpcError::Local(LocalError::Internal)}))
+                hashmap!(tx_hash_2 => TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(AppRpcErrorKind::Internal, &ValidationFailureClockMock::default().now_result(timestamp)))))
             ]
         );
     }

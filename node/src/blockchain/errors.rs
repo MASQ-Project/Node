@@ -1,5 +1,10 @@
+use crate::accountant::scanners::pending_payable_scanner::utils::ValidationFailureClock;
+use serde::ser::SerializeStruct;
 use serde_derive::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::time::SystemTime;
 use web3::error::Error as Web3Error;
+use websocket::url::quirks::hash;
 
 // Prefixed with App to clearly distinguish app-specific errors from library errors.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -22,6 +27,92 @@ pub enum RemoteError {
     InvalidResponse(String),
     Unreachable,
     Web3RpcError { code: i64, message: String },
+}
+
+#[derive(Debug, Hash, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AppRpcErrorKind {
+    // Local
+    Decoder,
+    Internal,
+    IO,
+    Signing,
+    Transport,
+
+    // Remote
+    InvalidResponse,
+    ServerUnreachable,
+    Web3RpcError(i64), // Keep only the stable error code
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ErrorStats {
+    #[serde(rename = "firstSeen")]
+    pub first_seen: SystemTime,
+    pub attempts: u16,
+}
+
+impl ErrorStats {
+    pub fn now(clock: &dyn ValidationFailureClock) -> Self {
+        Self {
+            first_seen: clock.now(),
+            attempts: 1,
+        }
+    }
+
+    pub fn increment(&mut self) {
+        self.attempts += 1;
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PreviousAttempts {
+    #[serde(flatten)]
+    inner: HashMap<AppRpcErrorKind, ErrorStats>,
+}
+
+impl PreviousAttempts {
+    pub fn new(error: AppRpcErrorKind, clock: &dyn ValidationFailureClock) -> Self {
+        Self {
+            inner: hashmap!(error => ErrorStats::now(clock)),
+        }
+    }
+
+    pub fn add_attempt(
+        mut self,
+        error: AppRpcErrorKind,
+        clock: &dyn ValidationFailureClock,
+    ) -> Self {
+        self.inner
+            .entry(error)
+            .and_modify(|stats| stats.increment())
+            .or_insert_with(|| ErrorStats::now(clock));
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ValidationStatus {
+    Waiting,
+    Reattempting(PreviousAttempts),
+}
+
+impl From<AppRpcError> for AppRpcErrorKind {
+    fn from(err: AppRpcError) -> Self {
+        match err {
+            AppRpcError::Local(local) => match local {
+                LocalError::Decoder(_) => Self::Decoder,
+                LocalError::Internal => Self::Internal,
+                LocalError::Io(_) => Self::IO,
+                LocalError::Signing(_) => Self::Signing,
+                LocalError::Transport(_) => Self::Transport,
+            },
+            AppRpcError::Remote(remote) => match remote {
+                RemoteError::InvalidResponse(_) => Self::InvalidResponse,
+                RemoteError::Unreachable => Self::ServerUnreachable,
+                RemoteError::Web3RpcError { code, .. } => Self::Web3RpcError(code),
+            },
+        }
+    }
 }
 
 // EVM based errors
@@ -51,8 +142,13 @@ impl From<Web3Error> for AppRpcError {
     }
 }
 
+#[cfg(test)]
 mod tests {
-    use crate::blockchain::errors::{AppRpcError, LocalError, RemoteError};
+    use crate::accountant::scanners::pending_payable_scanner::utils::ValidationFailureClockReal;
+    use crate::blockchain::errors::{
+        AppRpcError, AppRpcErrorKind, LocalError, PreviousAttempts, RemoteError,
+    };
+    use std::time::SystemTime;
     use web3::error::Error as Web3Error;
 
     #[test]
@@ -123,5 +219,100 @@ mod tests {
             let deserialized: AppRpcError = serde_json::from_str(&serialized).unwrap();
             assert_eq!(error, deserialized, "Error: {:?}", error);
         });
+    }
+
+    #[test]
+    fn previous_attempts_and_validation_failure_clock_work_together_fine() {
+        let validation_failure_clock = ValidationFailureClockReal::default();
+        // new()
+        let timestamp_a = SystemTime::now();
+        let subject = PreviousAttempts::new(AppRpcErrorKind::Decoder, &validation_failure_clock);
+        // add_attempt()
+        let timestamp_b = SystemTime::now();
+        let subject = subject.add_attempt(AppRpcErrorKind::Internal, &validation_failure_clock);
+        let timestamp_c = SystemTime::now();
+        let subject = subject.add_attempt(AppRpcErrorKind::IO, &validation_failure_clock);
+        let timestamp_d = SystemTime::now();
+        let subject = subject.add_attempt(AppRpcErrorKind::Decoder, &validation_failure_clock);
+        let subject = subject.add_attempt(AppRpcErrorKind::IO, &validation_failure_clock);
+
+        let decoder_error_stats = subject.inner.get(&AppRpcErrorKind::Decoder).unwrap();
+        assert!(
+            timestamp_a <= decoder_error_stats.first_seen
+                && decoder_error_stats.first_seen <= timestamp_b,
+            "Was expected from {:?} to {:?} but was {:?}",
+            timestamp_a,
+            timestamp_b,
+            decoder_error_stats.first_seen
+        );
+        assert_eq!(decoder_error_stats.attempts, 2);
+        let internal_error_stats = subject.inner.get(&AppRpcErrorKind::Internal).unwrap();
+        assert!(
+            timestamp_b <= internal_error_stats.first_seen
+                && internal_error_stats.first_seen <= timestamp_c,
+            "Was expected from {:?} to {:?} but was {:?}",
+            timestamp_b,
+            timestamp_c,
+            internal_error_stats.first_seen
+        );
+        assert_eq!(internal_error_stats.attempts, 1);
+        let io_error_stats = subject.inner.get(&AppRpcErrorKind::IO).unwrap();
+        assert!(
+            timestamp_c <= io_error_stats.first_seen && io_error_stats.first_seen <= timestamp_d,
+            "Was expected from {:?} to {:?} but was {:?}",
+            timestamp_c,
+            timestamp_d,
+            io_error_stats.first_seen
+        );
+        assert_eq!(io_error_stats.attempts, 2);
+        let other_error_stats = subject.inner.get(&AppRpcErrorKind::Signing);
+        assert_eq!(other_error_stats, None);
+    }
+
+    #[test]
+    fn conversion_between_app_rpc_error_and_app_rpc_error_kind_works() {
+        assert_eq!(
+            AppRpcErrorKind::from(AppRpcError::Local(LocalError::Decoder(
+                "Decoder error".to_string()
+            ))),
+            AppRpcErrorKind::Decoder
+        );
+        assert_eq!(
+            AppRpcErrorKind::from(AppRpcError::Local(LocalError::Internal)),
+            AppRpcErrorKind::Internal
+        );
+        assert_eq!(
+            AppRpcErrorKind::from(AppRpcError::Local(LocalError::Io("IO error".to_string()))),
+            AppRpcErrorKind::IO
+        );
+        assert_eq!(
+            AppRpcErrorKind::from(AppRpcError::Local(LocalError::Signing(
+                "Signing error".to_string()
+            ))),
+            AppRpcErrorKind::Signing
+        );
+        assert_eq!(
+            AppRpcErrorKind::from(AppRpcError::Local(LocalError::Transport(
+                "Transport error".to_string()
+            ))),
+            AppRpcErrorKind::Transport
+        );
+        assert_eq!(
+            AppRpcErrorKind::from(AppRpcError::Remote(RemoteError::InvalidResponse(
+                "Invalid response".to_string()
+            ))),
+            AppRpcErrorKind::InvalidResponse
+        );
+        assert_eq!(
+            AppRpcErrorKind::from(AppRpcError::Remote(RemoteError::Unreachable)),
+            AppRpcErrorKind::ServerUnreachable
+        );
+        assert_eq!(
+            AppRpcErrorKind::from(AppRpcError::Remote(RemoteError::Web3RpcError {
+                code: 55,
+                message: "Booga".to_string()
+            })),
+            AppRpcErrorKind::Web3RpcError(55)
+        );
     }
 }

@@ -1,6 +1,5 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::db_access_objects::failed_payable_dao::ValidationStatus;
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::db_access_objects::sent_payable_dao::{SentTx, TxStatus};
 use crate::accountant::db_access_objects::utils::{to_unix_timestamp, TxHash};
@@ -16,6 +15,7 @@ use crate::blockchain::blockchain_interface::data_structures::errors::PayableTra
 use crate::blockchain::blockchain_interface::data_structures::{
     ProcessedPayableFallible, RpcPayableFailure,
 };
+use crate::blockchain::errors::ValidationStatus;
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;

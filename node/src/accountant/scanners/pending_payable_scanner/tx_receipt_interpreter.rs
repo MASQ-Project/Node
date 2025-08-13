@@ -10,7 +10,6 @@ use crate::accountant::scanners::pending_payable_scanner::utils::{
     TxByTable, TxCaseToBeInterpreted, TxReclaim,
 };
 use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
-use crate::accountant::TxReceiptsMessage;
 use crate::blockchain::blockchain_interface::data_structures::{
     BlockchainTxFailure, StatusReadFromReceiptCheck, TxBlock, TxReceiptError, TxReceiptResult,
 };
@@ -80,7 +79,7 @@ impl TxReceiptInterpreter {
                         .separate_with_commas()
                 );
                 let failed_tx = FailedTx::from((sent_tx, FailureReason::PendingTooLong));
-                scan_report.register_new_failure(PresortedTxFailure::NewEntry(failed_tx));
+                scan_report.register_new_failure(failed_tx);
             }
             TxByTable::FailedPayable(failed_tx) => {
                 let replacement_tx = sent_payable_dao
@@ -121,7 +120,7 @@ impl TxReceiptInterpreter {
             TxByTable::SentPayable(sent_tx) => {
                 info!(
                     logger,
-                    "Pending tx {:?} was confirmed on the blockchain", sent_tx.hash,
+                    "Pending tx {:?} was confirmed on-chain", sent_tx.hash,
                 );
 
                 let completed_sent_tx = SentTx {
@@ -140,7 +139,7 @@ impl TxReceiptInterpreter {
             TxByTable::FailedPayable(failed_tx) => {
                 info!(
                     logger,
-                    "Failed tx {:?} was later confirmed on the blockchain and will be reclaimed",
+                    "Failed tx {:?} was later confirmed on-chain and will be reclaimed",
                     failed_tx.hash
                 );
 
@@ -166,25 +165,24 @@ impl TxReceiptInterpreter {
 
                 warning!(
                     logger,
-                    "Pending tx {:?} failed on the blockchain due to: {}",
+                    "Pending tx {:?} failed on-chain due to: {}",
                     failed_tx.hash,
                     blockchain_failure
                 );
 
-                scan_report.register_new_failure(PresortedTxFailure::NewEntry(failed_tx));
+                scan_report.register_new_failure(failed_tx);
             }
             TxByTable::FailedPayable(failed_tx) => {
                 debug!(
                     logger,
-                    "Failed tx {:?} on a recheck after {}. Status will be changed to \
-            \"Concluded\" due to blockchain failure: {}",
+                    "Failed tx {:?} on a recheck after {}. Status will be changed to \"Concluded\" \
+                    due to blockchain failure: {}",
                     failed_tx.hash,
                     failed_tx.reason,
                     blockchain_failure
                 );
 
-                scan_report
-                    .register_new_failure(PresortedTxFailure::RecheckCompleted(failed_tx.hash));
+                scan_report.register_finalization_of_unproven_failure(failed_tx.hash);
             }
         }
         scan_report
@@ -218,7 +216,7 @@ impl TxReceiptInterpreter {
 #[cfg(test)]
 mod tests {
     use crate::accountant::db_access_objects::failed_payable_dao::{
-        FailedTx, FailureReason, FailureStatus, ValidationStatus,
+        FailedTx, FailureReason, FailureStatus,
     };
     use crate::accountant::db_access_objects::sent_payable_dao::{
         Detection, RetrieveCondition, SentTx, TxStatus,
@@ -228,7 +226,7 @@ mod tests {
     use crate::accountant::scanners::pending_payable_scanner::utils::{
         DetectedConfirmations, DetectedFailures, FailedValidation, FailedValidationByTable,
         NormalTxConfirmation, PresortedTxFailure, ReceiptScanReport, RecheckRequiringFailures,
-        TxByTable, TxHashByTable, TxReclaim,
+        TxByTable, TxHashByTable, TxReclaim, ValidationFailureClockReal,
     };
     use crate::accountant::test_utils::{
         make_failed_tx, make_sent_tx, make_transaction_block, SentPayableDaoMock,
@@ -236,7 +234,9 @@ mod tests {
     use crate::blockchain::blockchain_interface::data_structures::{
         BlockchainTxFailure, TxReceiptError,
     };
-    use crate::blockchain::errors::{AppRpcError, LocalError, RemoteError};
+    use crate::blockchain::errors::{
+        AppRpcError, AppRpcErrorKind, LocalError, PreviousAttempts, RemoteError, ValidationStatus,
+    };
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::test_utils::unshared_test_utils::capture_numbers_with_separators_from_str;
     use masq_lib::logger::Logger;
@@ -282,7 +282,7 @@ mod tests {
         );
         TestLogHandler::new().exists_log_containing(&format!(
             "INFO: {test_name}: Pending tx 0x0000000000000000000000000000000000000000000000000000000\
-            00000cdef was confirmed on the blockchain",
+            00000cdef was confirmed on-chain",
         ));
     }
 
@@ -330,7 +330,7 @@ mod tests {
         );
         TestLogHandler::new().exists_log_containing(&format!(
             "INFO: {test_name}: Failed tx 0x0000000000000000000000000000000000000000000000000000000\
-            00000cdef was later confirmed on the blockchain and will be reclaimed",
+            00000cdef was later confirmed on-chain and will be reclaimed",
         ));
     }
 
@@ -366,7 +366,7 @@ mod tests {
         );
         TestLogHandler::new().exists_log_containing(&format!(
             "WARN: {test_name}: Pending tx 0x0000000000000000000000000000000000000000000000000000000\
-            000000abc failed on the blockchain due to: Unrecognized failure",
+            000000abc failed on-chain due to: Unrecognized failure",
         ));
     }
 
@@ -561,10 +561,10 @@ mod tests {
 
         test_failed_retrieval_of_receipt_for_pending_payable(
             test_name,
-            TxStatus::Pending(ValidationStatus::Reattempting {
-                attempt: 1,
-                error: AppRpcError::Local(LocalError::Internal),
-            }),
+            TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
+                AppRpcErrorKind::Internal,
+                &ValidationFailureClockReal::default(),
+            ))),
         );
     }
 
@@ -623,10 +623,10 @@ mod tests {
 
         test_failed_retrieval_of_receipt_for_failed_tx(
             test_name,
-            FailureStatus::RecheckRequired(ValidationStatus::Reattempting {
-                attempt: 1,
-                error: AppRpcError::Local(LocalError::Internal),
-            }),
+            FailureStatus::RecheckRequired(ValidationStatus::Reattempting(PreviousAttempts::new(
+                AppRpcErrorKind::Internal,
+                &ValidationFailureClockReal::default(),
+            ))),
         );
     }
 
