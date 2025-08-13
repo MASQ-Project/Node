@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::payable_scanner::tx_templates::initial::retry::RetryTxTemplate;
 use crate::accountant::scanners::payable_scanner::tx_templates::priced::new::{

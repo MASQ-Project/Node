@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use crate::accountant::scanners::payable_scanner::msgs::PricedTemplatesMessage;
 use crate::accountant::scanners::payable_scanner::{PayableScanner, PreparedAdjustment};
 use crate::accountant::test_utils::{
