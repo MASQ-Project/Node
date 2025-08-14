@@ -634,4 +634,63 @@ mod tests {
         assert!(panic_msg.contains("Failed to insert transactions into the FailedPayable table"));
         assert!(panic_msg.contains("Test error"));
     }
+
+    #[test]
+    fn mark_prev_txs_as_concluded_handles_empty_vector() {
+        let retrieve_txs_params = Arc::new(Mutex::new(vec![]));
+        let update_statuses_params = Arc::new(Mutex::new(vec![]));
+        let failed_payable_dao = FailedPayableDaoMock::default()
+            .retrieve_txs_params(&retrieve_txs_params)
+            .retrieve_txs_result(BTreeSet::new())
+            .update_statuses_params(&update_statuses_params);
+        let subject = PayableScannerBuilder::new()
+            .failed_payable_dao(failed_payable_dao)
+            .build();
+
+        subject.mark_prev_txs_as_concluded(&vec![]);
+
+        let retrieve_params = retrieve_txs_params.lock().unwrap();
+        assert_eq!(
+            retrieve_params.len(),
+            0,
+            "retrieve_txs should not be called with empty vector"
+        );
+        let update_params = update_statuses_params.lock().unwrap();
+        assert_eq!(
+            update_params.len(),
+            0,
+            "update_statuses should not be called with empty vector"
+        );
+    }
+
+    #[test]
+    fn mark_prev_txs_as_concluded_handles_empty_retrieved_txs() {
+        let retrieve_txs_params = Arc::new(Mutex::new(vec![]));
+        let update_statuses_params = Arc::new(Mutex::new(vec![]));
+        let failed_payable_dao = FailedPayableDaoMock::default()
+            .retrieve_txs_params(&retrieve_txs_params)
+            .retrieve_txs_result(BTreeSet::new()) // Return empty set
+            .update_statuses_params(&update_statuses_params)
+            .update_statuses_result(Ok(()));
+        let subject = PayableScannerBuilder::new()
+            .failed_payable_dao(failed_payable_dao)
+            .build();
+        // Create non-empty sent_txs to ensure we pass the first check
+        let tx = TxBuilder::default().hash(make_tx_hash(1)).build();
+
+        subject.mark_prev_txs_as_concluded(&vec![tx]);
+
+        let retrieve_params = retrieve_txs_params.lock().unwrap();
+        assert_eq!(
+            retrieve_params.len(),
+            1,
+            "retrieve_txs should be called once"
+        );
+        let update_params = update_statuses_params.lock().unwrap();
+        assert_eq!(
+            update_params.len(),
+            0,
+            "update_statuses should not be called with empty retrieved transactions"
+        );
+    }
 }
