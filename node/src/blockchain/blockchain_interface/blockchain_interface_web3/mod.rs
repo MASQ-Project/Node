@@ -4,7 +4,7 @@ pub mod lower_level_interface_web3;
 mod utils;
 
 use std::cmp::PartialEq;
-use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainError, PayableTransactionError};
+use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainInterfaceError, PayableTransactionError};
 use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, ProcessedPayableFallible};
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use crate::blockchain::blockchain_interface::RetrievedBlockchainTransactions;
@@ -104,7 +104,8 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         start_block_marker: BlockMarker,
         scan_range: BlockScanRange,
         recipient: Address,
-    ) -> Box<dyn Future<Item = RetrievedBlockchainTransactions, Error = BlockchainError>> {
+    ) -> Box<dyn Future<Item = RetrievedBlockchainTransactions, Error = BlockchainInterfaceError>>
+    {
         let lower_level_interface = self.lower_interface();
         let logger = self.logger.clone();
         let contract_address = lower_level_interface.get_contract_address();
@@ -213,7 +214,8 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
     fn process_transaction_receipts(
         &self,
         transaction_hashes: Vec<H256>,
-    ) -> Box<dyn Future<Item = Vec<TransactionReceiptResult>, Error = BlockchainError>> {
+    ) -> Box<dyn Future<Item = Vec<TransactionReceiptResult>, Error = BlockchainInterfaceError>>
+    {
         Box::new(
             self.lower_interface()
                 .get_transaction_receipt_in_batch(transaction_hashes.clone())
@@ -366,7 +368,7 @@ impl BlockchainInterfaceWeb3 {
     fn calculate_end_block_marker(
         start_block_marker: BlockMarker,
         scan_range: BlockScanRange,
-        rpc_block_number_result: Result<U64, BlockchainError>,
+        rpc_block_number_result: Result<U64, BlockchainInterfaceError>,
         logger: &Logger,
     ) -> BlockMarker {
         let locally_determined_end_block_marker = match (start_block_marker, scan_range) {
@@ -398,9 +400,9 @@ impl BlockchainInterfaceWeb3 {
     }
 
     fn handle_transaction_logs(
-        logs_result: Result<Vec<Log>, BlockchainError>,
+        logs_result: Result<Vec<Log>, BlockchainInterfaceError>,
         logger: &Logger,
-    ) -> Result<Vec<BlockchainTransaction>, BlockchainError> {
+    ) -> Result<Vec<BlockchainTransaction>, BlockchainInterfaceError> {
         let logs = logs_result?;
         let logs_len = logs.len();
         if logs
@@ -412,7 +414,7 @@ impl BlockchainInterfaceWeb3 {
                 "Invalid response from blockchain server: {:?}",
                 logs
             );
-            Err(BlockchainError::InvalidResponse)
+            Err(BlockchainInterfaceError::InvalidResponse)
         } else {
             let transactions: Vec<BlockchainTransaction> =
                 Self::extract_transactions_from_logs(logs);
@@ -438,10 +440,10 @@ mod tests {
         BlockchainInterfaceWeb3, CONTRACT_ABI, REQUESTS_IN_PARALLEL, TRANSACTION_LITERAL,
         TRANSFER_METHOD_ID,
     };
-    use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError::QueryFailed;
+    use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainInterfaceError::QueryFailed;
     use crate::blockchain::blockchain_interface::data_structures::BlockchainTransaction;
     use crate::blockchain::blockchain_interface::{
-        BlockchainAgentBuildError, BlockchainError, BlockchainInterface,
+        BlockchainAgentBuildError, BlockchainInterfaceError, BlockchainInterface,
         RetrievedBlockchainTransactions,
     };
     use crate::blockchain::test_utils::{all_chains, make_blockchain_interface_web3, ReceiptResponseBuilder};
@@ -733,7 +735,7 @@ mod tests {
 
         assert_eq!(
             result.expect_err("Expected an Err, got Ok"),
-            BlockchainError::InvalidResponse
+            BlockchainInterfaceError::InvalidResponse
         );
     }
 
@@ -757,7 +759,7 @@ mod tests {
             )
             .wait();
 
-        assert_eq!(result, Err(BlockchainError::InvalidResponse));
+        assert_eq!(result, Err(BlockchainInterfaceError::InvalidResponse));
     }
 
     #[test]
@@ -1007,7 +1009,7 @@ mod tests {
         let expected_err_factory = |wallet: &Wallet| {
             BlockchainAgentBuildError::TransactionFeeBalance(
                 wallet.address(),
-                BlockchainError::QueryFailed(
+                BlockchainInterfaceError::QueryFailed(
                     "Transport error: Error(IncompleteMessage)".to_string(),
                 ),
             )
@@ -1029,7 +1031,7 @@ mod tests {
         let expected_err_factory = |wallet: &Wallet| {
             BlockchainAgentBuildError::ServiceFeeBalance(
                 wallet.address(),
-                BlockchainError::QueryFailed(
+                BlockchainInterfaceError::QueryFailed(
                     "Api error: Transport error: Error(IncompleteMessage)".to_string(),
                 ),
             )
@@ -1207,7 +1209,7 @@ mod tests {
             Subject::calculate_end_block_marker(
                 BlockMarker::Uninitialized,
                 BlockScanRange::NoLimit,
-                Err(BlockchainError::InvalidResponse),
+                Err(BlockchainInterfaceError::InvalidResponse),
                 &logger
             ),
             BlockMarker::Uninitialized
@@ -1225,7 +1227,7 @@ mod tests {
             Subject::calculate_end_block_marker(
                 BlockMarker::Uninitialized,
                 BlockScanRange::Range(100),
-                Err(BlockchainError::InvalidResponse),
+                Err(BlockchainInterfaceError::InvalidResponse),
                 &logger
             ),
             BlockMarker::Uninitialized
@@ -1243,7 +1245,7 @@ mod tests {
             Subject::calculate_end_block_marker(
                 BlockMarker::Value(50),
                 BlockScanRange::NoLimit,
-                Err(BlockchainError::InvalidResponse),
+                Err(BlockchainInterfaceError::InvalidResponse),
                 &logger
             ),
             BlockMarker::Uninitialized
@@ -1261,7 +1263,7 @@ mod tests {
             Subject::calculate_end_block_marker(
                 BlockMarker::Value(50),
                 BlockScanRange::Range(100),
-                Err(BlockchainError::InvalidResponse),
+                Err(BlockchainInterfaceError::InvalidResponse),
                 &logger
             ),
             BlockMarker::Value(150)

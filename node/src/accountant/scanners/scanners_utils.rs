@@ -342,7 +342,7 @@ mod tests {
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::time::SystemTime;
     use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
-    use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainError, PayableTransactionError};
+    use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainInterfaceError, PayableTransactionError};
     use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RpcPayableFailure};
 
     #[test]
@@ -645,11 +645,11 @@ mod tests {
     #[test]
     fn count_total_errors_says_unknown_number_for_early_local_errors() {
         let early_local_errors = [
-            PayableTransactionError::TransactionID(BlockchainError::QueryFailed(
+            PayableTransactionError::TransactionID(BlockchainInterfaceError::QueryFailed(
                 "blah".to_string(),
             )),
             PayableTransactionError::MissingConsumingWallet,
-            PayableTransactionError::GasPriceQueryFailed(BlockchainError::QueryFailed(
+            PayableTransactionError::GasPriceQueryFailed(BlockchainInterfaceError::QueryFailed(
                 "ouch".to_string(),
             )),
             PayableTransactionError::UnusableWallet("fooo".to_string()),
