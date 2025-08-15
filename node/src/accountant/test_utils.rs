@@ -1415,7 +1415,7 @@ impl PendingPayableScannerBuilder {
         self
     }
 
-    pub fn pending_payable_cache(mut self, cache: Box<dyn PendingPayableCache<SentTx>>) -> Self {
+    pub fn sent_payable_cache(mut self, cache: Box<dyn PendingPayableCache<SentTx>>) -> Self {
         self.current_sent_payables = cache;
         self
     }

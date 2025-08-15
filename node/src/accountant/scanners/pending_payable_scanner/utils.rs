@@ -117,7 +117,7 @@ impl From<(TxReceiptError, TxStatus)> for FailedValidationByTable {
         match tx_receipt_error.tx_hash {
             TxHashByTable::SentPayable(tx_hash) => Self::SentPayable(FailedValidation::new(
                 tx_hash,
-                tx_receipt_error.err,
+                FailedValidationError::Known(tx_receipt_error.err),
                 current_status,
             )),
 
@@ -135,7 +135,7 @@ impl From<(TxReceiptError, FailureStatus)> for FailedValidationByTable {
         match tx_receipt_error.tx_hash {
             TxHashByTable::FailedPayable(tx_hash) => Self::FailedPayable(FailedValidation::new(
                 tx_hash,
-                tx_receipt_error.err,
+                FailedValidationError::Known(tx_receipt_error.err),
                 current_status,
             )),
             TxHashByTable::SentPayable(tx_hash) => {
@@ -150,8 +150,14 @@ impl From<(TxReceiptError, FailureStatus)> for FailedValidationByTable {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct FailedValidation<RecordStatus> {
     pub tx_hash: TxHash,
-    pub validation_failure: AppRpcError,
+    pub validation_failure: FailedValidationError,
     pub current_status: RecordStatus,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum FailedValidationError {
+    Known(AppRpcError),
+    TxResubmissionFailed,
 }
 
 impl<RecordStatus> FailedValidation<RecordStatus>
@@ -160,7 +166,7 @@ where
 {
     pub fn new(
         tx_hash: TxHash,
-        validation_failure: AppRpcError,
+        validation_failure: FailedValidationError,
         current_status: RecordStatus,
     ) -> Self {
         Self {
@@ -185,14 +191,14 @@ pub struct ValidationFailureClockReal {}
 
 impl ValidationFailureClock for ValidationFailureClockReal {
     fn now(&self) -> SystemTime {
-        todo!()
+        SystemTime::now()
     }
 }
 
 pub trait UpdatableValidationStatus {
     fn update_after_failure(
         &self,
-        error: AppRpcError,
+        error: FailedValidationError,
         clock: &dyn ValidationFailureClock,
     ) -> Option<Self>
     where
@@ -202,7 +208,7 @@ pub trait UpdatableValidationStatus {
 impl UpdatableValidationStatus for TxStatus {
     fn update_after_failure(
         &self,
-        error: AppRpcError,
+        error: FailedValidationError,
         clock: &dyn ValidationFailureClock,
     ) -> Option<Self> {
         match self {
@@ -222,7 +228,7 @@ impl UpdatableValidationStatus for TxStatus {
 impl UpdatableValidationStatus for FailureStatus {
     fn update_after_failure(
         &self,
-        error: AppRpcError,
+        error: FailedValidationError,
         clock: &dyn ValidationFailureClock,
     ) -> Option<Self> {
         match self {
@@ -380,9 +386,9 @@ mod tests {
     use crate::accountant::scanners::pending_payable_scanner::test_utils::ValidationFailureClockMock;
     use crate::accountant::scanners::pending_payable_scanner::utils::{
         CurrentPendingPayables, DetectedConfirmations, DetectedFailures, FailedValidation,
-        FailedValidationByTable, NormalTxConfirmation, PendingPayableCache, PresortedTxFailure,
-        ReceiptScanReport, RecheckRequiringFailures, Retry, TxBlock, TxHashByTable, TxReceiptError,
-        TxReceiptResult, TxReclaim, ValidationFailureClockReal,
+        FailedValidationByTable, FailedValidationError, NormalTxConfirmation, PendingPayableCache,
+        PresortedTxFailure, ReceiptScanReport, RecheckRequiringFailures, Retry, TxBlock,
+        TxHashByTable, TxReceiptError, TxReceiptResult, TxReclaim, ValidationFailureClockReal,
     };
     use crate::accountant::test_utils::{make_failed_tx, make_sent_tx, make_transaction_block};
     use crate::blockchain::errors::{
@@ -428,13 +434,15 @@ mod tests {
             vec![],
             vec![FailedValidationByTable::SentPayable(FailedValidation::new(
                 make_tx_hash(2222),
-                AppRpcError::Local(LocalError::Internal),
+                FailedValidationError::Known(AppRpcError::Local(LocalError::Internal)),
                 TxStatus::Pending(ValidationStatus::Waiting),
             ))],
             vec![FailedValidationByTable::FailedPayable(
                 FailedValidation::new(
                     make_tx_hash(12121),
-                    AppRpcError::Remote(RemoteError::InvalidResponse("blah".to_string())),
+                    FailedValidationError::Known(AppRpcError::Remote(
+                        RemoteError::InvalidResponse("blah".to_string()),
+                    )),
                     FailureStatus::RecheckRequired(ValidationStatus::Reattempting(
                         PreviousAttempts::new(
                             AppRpcErrorKind::Internal,
@@ -505,20 +513,20 @@ mod tests {
         let rpc_failure_feedings = vec![
             vec![FailedValidationByTable::SentPayable(FailedValidation::new(
                 make_tx_hash(2222),
-                AppRpcError::Local(LocalError::Internal),
+                FailedValidationError::Known(AppRpcError::Local(LocalError::Internal)),
                 TxStatus::Pending(ValidationStatus::Waiting),
             ))],
             vec![FailedValidationByTable::FailedPayable(
                 FailedValidation::new(
                     make_tx_hash(1234),
-                    AppRpcError::Remote(RemoteError::Unreachable),
+                    FailedValidationError::Known(AppRpcError::Remote(RemoteError::Unreachable)),
                     FailureStatus::RecheckRequired(ValidationStatus::Waiting),
                 ),
             )],
             vec![
                 FailedValidationByTable::SentPayable(FailedValidation::new(
                     make_tx_hash(2222),
-                    AppRpcError::Local(LocalError::Internal),
+                    FailedValidationError::Known(AppRpcError::Local(LocalError::Internal)),
                     TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
                         AppRpcErrorKind::Internal,
                         &ValidationFailureClockReal::default(),
@@ -526,7 +534,7 @@ mod tests {
                 )),
                 FailedValidationByTable::FailedPayable(FailedValidation::new(
                     make_tx_hash(1234),
-                    AppRpcError::Remote(RemoteError::Unreachable),
+                    FailedValidationError::Known(AppRpcError::Remote(RemoteError::Unreachable)),
                     FailureStatus::RecheckRequired(ValidationStatus::Reattempting(
                         PreviousAttempts::new(
                             AppRpcErrorKind::Internal,
@@ -968,7 +976,7 @@ mod tests {
             result_1,
             FailedValidationByTable::SentPayable(FailedValidation::new(
                 tx_hash_sent_tx,
-                api_error_sent_tx,
+                FailedValidationError::Known(api_error_sent_tx),
                 TxStatus::Pending(ValidationStatus::Waiting)
             ))
         );
@@ -976,7 +984,7 @@ mod tests {
             result_2,
             FailedValidationByTable::FailedPayable(FailedValidation::new(
                 tx_hash_failed_tx,
-                api_error_failed_tx,
+                FailedValidationError::Known(api_error_failed_tx),
                 FailureStatus::RecheckRequired(ValidationStatus::Waiting)
             ))
         );
@@ -1028,7 +1036,7 @@ mod tests {
             (
                 FailedValidation::new(
                     make_tx_hash(123),
-                    AppRpcError::Local(LocalError::Internal),
+                    FailedValidationError::Known(AppRpcError::Local(LocalError::Internal)),
                     TxStatus::Pending(ValidationStatus::Waiting),
                 ),
                 Some(TxStatus::Pending(ValidationStatus::Reattempting(
@@ -1041,7 +1049,7 @@ mod tests {
             (
                 FailedValidation::new(
                     make_tx_hash(123),
-                    AppRpcError::Remote(RemoteError::Unreachable),
+                    FailedValidationError::Known(AppRpcError::Remote(RemoteError::Unreachable)),
                     TxStatus::Pending(ValidationStatus::Reattempting(
                         PreviousAttempts::new(
                             AppRpcErrorKind::Internal,
@@ -1092,7 +1100,7 @@ mod tests {
             (
                 FailedValidation::new(
                     make_tx_hash(456),
-                    AppRpcError::Local(LocalError::Internal),
+                    FailedValidationError::Known(AppRpcError::Local(LocalError::Internal)),
                     FailureStatus::RecheckRequired(ValidationStatus::Waiting),
                 ),
                 Some(FailureStatus::RecheckRequired(
@@ -1105,7 +1113,7 @@ mod tests {
             (
                 FailedValidation::new(
                     make_tx_hash(456),
-                    AppRpcError::Remote(RemoteError::Unreachable),
+                    FailedValidationError::Known(AppRpcError::Remote(RemoteError::Unreachable)),
                     FailureStatus::RecheckRequired(ValidationStatus::Reattempting(
                         PreviousAttempts::new(
                             AppRpcErrorKind::ServerUnreachable,
@@ -1151,7 +1159,7 @@ mod tests {
         let validation_failure_clock = ValidationFailureClockMock::default();
         let mal_validated_tx_status = FailedValidation::new(
             make_tx_hash(123),
-            AppRpcError::Local(LocalError::Internal),
+            FailedValidationError::Known(AppRpcError::Local(LocalError::Internal)),
             TxStatus::Confirmed {
                 block_hash: "".to_string(),
                 block_number: 0,
@@ -1171,12 +1179,12 @@ mod tests {
         let mal_validated_failure_statuses = vec![
             FailedValidation::new(
                 make_tx_hash(456),
-                AppRpcError::Local(LocalError::Internal),
+                FailedValidationError::Known(AppRpcError::Local(LocalError::Internal)),
                 FailureStatus::RetryRequired,
             ),
             FailedValidation::new(
                 make_tx_hash(789),
-                AppRpcError::Remote(RemoteError::Unreachable),
+                FailedValidationError::Known(AppRpcError::Remote(RemoteError::Unreachable)),
                 FailureStatus::Concluded,
             ),
         ];

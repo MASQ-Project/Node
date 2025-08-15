@@ -6,8 +6,8 @@ use crate::accountant::db_access_objects::sent_payable_dao::{
 };
 use crate::accountant::db_access_objects::utils::from_unix_timestamp;
 use crate::accountant::scanners::pending_payable_scanner::utils::{
-    FailedValidationByTable, NormalTxConfirmation, PresortedTxFailure, ReceiptScanReport,
-    TxByTable, TxCaseToBeInterpreted, TxReclaim,
+    FailedValidation, FailedValidationByTable, FailedValidationError, NormalTxConfirmation,
+    PresortedTxFailure, ReceiptScanReport, TxByTable, TxCaseToBeInterpreted, TxReclaim,
 };
 use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
 use crate::blockchain::blockchain_interface::data_structures::{
@@ -97,7 +97,17 @@ impl TxReceiptInterpreter {
                         failed_tx.hash
                     ))
                     .hash
-            )
+            );
+                if failed_tx.reason != FailureReason::PendingTooLong {
+                    todo!("panic here")
+                }
+                scan_report.register_rpc_failure(FailedValidationByTable::FailedPayable(
+                    FailedValidation::new(
+                        failed_tx.hash,
+                        FailedValidationError::TxResubmissionFailed,
+                        failed_tx.status,
+                    ),
+                ))
             }
         }
         scan_report
@@ -225,8 +235,8 @@ mod tests {
     use crate::accountant::scanners::pending_payable_scanner::tx_receipt_interpreter::TxReceiptInterpreter;
     use crate::accountant::scanners::pending_payable_scanner::utils::{
         DetectedConfirmations, DetectedFailures, FailedValidation, FailedValidationByTable,
-        NormalTxConfirmation, PresortedTxFailure, ReceiptScanReport, RecheckRequiringFailures,
-        TxByTable, TxHashByTable, TxReclaim, ValidationFailureClockReal,
+        FailedValidationError, NormalTxConfirmation, PresortedTxFailure, ReceiptScanReport,
+        RecheckRequiringFailures, TxByTable, TxHashByTable, TxReclaim, ValidationFailureClockReal,
     };
     use crate::accountant::test_utils::{
         make_failed_tx, make_sent_tx, make_transaction_block, SentPayableDaoMock,
@@ -475,11 +485,6 @@ mod tests {
 
     #[test]
     fn interprets_tx_receipt_for_supposedly_failed_tx_if_the_tx_keeps_pending() {
-        // TODO I don't know yet what todo to with this...
-        // Maybe implement so that we go on like this but we'd compute cases like this and
-        // stop it if unwinding too long??? (Remember that it would require a new exception for
-        // the scan report left possibly empty...and still avoiding a panic somehow...)
-        todo!("this is a puzzle");
         init_test_logging();
         let retrieve_txs_params_arc = Arc::new(Mutex::new(vec![]));
         let test_name = "interprets_tx_receipt_for_supposedly_failed_tx_if_the_tx_keeps_pending";
@@ -487,9 +492,11 @@ mod tests {
         let sent_payable_dao = SentPayableDaoMock::new()
             .retrieve_txs_params(&retrieve_txs_params_arc)
             .retrieve_txs_result(vec![newer_sent_tx_for_older_failed_tx]);
-        let hash = make_tx_hash(0x913);
-        let failed_tx = make_failed_tx(789);
+        let tx_hash = make_tx_hash(0x913);
+        let mut failed_tx = make_failed_tx(789);
         let failed_tx_nonce = failed_tx.nonce;
+        failed_tx.hash = tx_hash;
+        failed_tx.status = FailureStatus::RecheckRequired(ValidationStatus::Waiting);
         let scan_report = ReceiptScanReport::default();
         let before = SystemTime::now();
 
@@ -504,10 +511,15 @@ mod tests {
         assert_eq!(
             result,
             ReceiptScanReport {
-                // TODO we cannot leave all these collections empty, that equals a panic
                 failures: DetectedFailures {
                     tx_failures: vec![],
-                    tx_receipt_rpc_failures: vec![]
+                    tx_receipt_rpc_failures: vec![FailedValidationByTable::FailedPayable(
+                        FailedValidation::new(
+                            tx_hash,
+                            FailedValidationError::TxResubmissionFailed,
+                            FailureStatus::RecheckRequired(ValidationStatus::Waiting)
+                        )
+                    )]
                 },
                 confirmations: DetectedConfirmations::default()
             }
@@ -595,7 +607,11 @@ mod tests {
                 failures: DetectedFailures {
                     tx_failures: vec![],
                     tx_receipt_rpc_failures: vec![FailedValidationByTable::SentPayable(
-                        FailedValidation::new(tx_hash, rpc_error, current_tx_status)
+                        FailedValidation::new(
+                            tx_hash,
+                            FailedValidationError::Known(rpc_error),
+                            current_tx_status
+                        )
                     ),]
                 },
                 confirmations: DetectedConfirmations::default()
@@ -657,7 +673,11 @@ mod tests {
                 failures: DetectedFailures {
                     tx_failures: vec![],
                     tx_receipt_rpc_failures: vec![FailedValidationByTable::FailedPayable(
-                        FailedValidation::new(tx_hash, rpc_error, current_failure_status)
+                        FailedValidation::new(
+                            tx_hash,
+                            FailedValidationError::Known(rpc_error),
+                            current_failure_status
+                        )
                     )]
                 },
                 confirmations: DetectedConfirmations::default()

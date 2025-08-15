@@ -2396,7 +2396,7 @@ mod tests {
         let pending_payable_scanner = PendingPayableScannerBuilder::new()
             .sent_payable_dao(sent_payable_dao)
             .failed_payable_dao(failed_payable_dao)
-            .pending_payable_cache(Box::new(CurrentPendingPayables::default()))
+            .sent_payable_cache(Box::new(CurrentPendingPayables::default()))
             .failed_payable_cache(Box::new(RecheckRequiringFailures::default()))
             .build();
         // Important
@@ -2443,7 +2443,7 @@ mod tests {
         let pending_payable_scanner = PendingPayableScannerBuilder::new()
             .sent_payable_dao(sent_payable_dao)
             .failed_payable_dao(failed_payable_dao)
-            .pending_payable_cache(Box::new(CurrentPendingPayables::default()))
+            .sent_payable_cache(Box::new(CurrentPendingPayables::default()))
             .failed_payable_cache(Box::new(RecheckRequiringFailures::default()))
             .build();
         // Important
@@ -2703,7 +2703,7 @@ mod tests {
             .payable_dao(payable_dao)
             .sent_payable_dao(sent_payable_dao)
             .failed_payable_dao(failed_payable_dao)
-            .pending_payable_cache(Box::new(pending_payable_cache))
+            .sent_payable_cache(Box::new(pending_payable_cache))
             .failed_payable_cache(Box::new(failed_payable_cache))
             .validation_failure_clock(Box::new(validation_failure_clock))
             .build();

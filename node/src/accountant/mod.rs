@@ -1247,8 +1247,8 @@ mod tests {
         OperationOutcome, PayableScanResult,
     };
     use crate::accountant::scanners::test_utils::{
-        MarkScanner, NewPayableScanDynIntervalComputerMock, ReplacementType,
-        RescheduleScanOnErrorResolverMock, ScannerMock, ScannerReplacement,
+        MarkScanner, NewPayableScanDynIntervalComputerMock, PendingPayableCacheMock,
+        ReplacementType, RescheduleScanOnErrorResolverMock, ScannerMock, ScannerReplacement,
     };
     use crate::accountant::scanners::StartScanError;
     use crate::accountant::test_utils::DaoWithDestination::{
@@ -1272,6 +1272,7 @@ mod tests {
         BlockchainTxFailure, RetrievedTxStatus, StatusReadFromReceiptCheck, TxBlock,
         TxReceiptResult,
     };
+    use crate::blockchain::errors::ValidationStatus;
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
     use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMockBuilder;
@@ -1937,10 +1938,21 @@ mod tests {
             .transactions_confirmed_params(&transaction_confirmed_params_arc)
             .transactions_confirmed_result(Ok(()));
         let sent_payable_dao = SentPayableDaoMock::default().confirm_tx_result(Ok(()));
-        let mut subject = AccountantBuilder::default()
-            .payable_daos(vec![ForPendingPayableScanner(payable_dao)])
-            .sent_payable_daos(vec![ForPendingPayableScanner(sent_payable_dao)])
+        let mut subject = AccountantBuilder::default().build();
+        let mut sent_tx = make_sent_tx(123);
+        sent_tx.status = TxStatus::Pending(ValidationStatus::Waiting);
+        let sent_payable_cache =
+            PendingPayableCacheMock::default().get_record_by_hash_result(Some(sent_tx.clone()));
+        let pending_payable_scanner = PendingPayableScannerBuilder::new()
+            .payable_dao(payable_dao)
+            .sent_payable_dao(sent_payable_dao)
+            .sent_payable_cache(Box::new(sent_payable_cache))
             .build();
+        subject
+            .scanners
+            .replace_scanner(ScannerReplacement::PendingPayable(ReplacementType::Real(
+                pending_payable_scanner,
+            )));
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let ui_gateway =
             ui_gateway.system_stop_conditions(match_lazily_every_type_id!(NodeToUiMessage));
@@ -1956,7 +1968,6 @@ mod tests {
             Box::new(NotifyHandleMock::default().panic_on_schedule_attempt());
         subject.ui_message_sub_opt = Some(ui_gateway_addr.recipient());
         let subject_addr = subject.start();
-        let mut sent_tx = make_sent_tx(123);
         let tx_block = TxBlock {
             block_hash: make_tx_hash(456),
             block_number: 78901234.into(),

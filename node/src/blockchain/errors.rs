@@ -1,4 +1,6 @@
-use crate::accountant::scanners::pending_payable_scanner::utils::ValidationFailureClock;
+use crate::accountant::scanners::pending_payable_scanner::utils::{
+    FailedValidationError, ValidationFailureClock,
+};
 use serde::ser::SerializeStruct;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -96,21 +98,31 @@ pub enum ValidationStatus {
     Reattempting(PreviousAttempts),
 }
 
-impl From<AppRpcError> for AppRpcErrorKind {
-    fn from(err: AppRpcError) -> Self {
+enum ErrorKinds {
+    AppRcpError(AppRpcErrorKind),
+    Uninterpretable(UninterpretabilityReason),
+}
+
+enum UninterpretabilityReason {
+    FailedTxLeftPending,
+}
+
+impl From<FailedValidationError> for AppRpcErrorKind {
+    fn from(err: FailedValidationError) -> Self {
         match err {
-            AppRpcError::Local(local) => match local {
+            FailedValidationError::Known(AppRpcError::Local(local)) => match local {
                 LocalError::Decoder(_) => Self::Decoder,
                 LocalError::Internal => Self::Internal,
                 LocalError::Io(_) => Self::IO,
                 LocalError::Signing(_) => Self::Signing,
                 LocalError::Transport(_) => Self::Transport,
             },
-            AppRpcError::Remote(remote) => match remote {
+            FailedValidationError::Known(AppRpcError::Remote(remote)) => match remote {
                 RemoteError::InvalidResponse(_) => Self::InvalidResponse,
                 RemoteError::Unreachable => Self::ServerUnreachable,
                 RemoteError::Web3RpcError { code, .. } => Self::Web3RpcError(code),
             },
+            FailedValidationError::TxResubmissionFailed => Self::Unknown,
         }
     }
 }
@@ -144,7 +156,9 @@ impl From<Web3Error> for AppRpcError {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::scanners::pending_payable_scanner::utils::ValidationFailureClockReal;
+    use crate::accountant::scanners::pending_payable_scanner::utils::{
+        FailedValidationError, ValidationFailureClockReal,
+    };
     use crate::blockchain::errors::{
         AppRpcError, AppRpcErrorKind, LocalError, PreviousAttempts, RemoteError,
     };
@@ -272,47 +286,59 @@ mod tests {
     #[test]
     fn conversion_between_app_rpc_error_and_app_rpc_error_kind_works() {
         assert_eq!(
-            AppRpcErrorKind::from(AppRpcError::Local(LocalError::Decoder(
-                "Decoder error".to_string()
+            AppRpcErrorKind::from(FailedValidationError::Known(AppRpcError::Local(
+                LocalError::Decoder("Decoder error".to_string())
             ))),
             AppRpcErrorKind::Decoder
         );
         assert_eq!(
-            AppRpcErrorKind::from(AppRpcError::Local(LocalError::Internal)),
+            AppRpcErrorKind::from(FailedValidationError::Known(AppRpcError::Local(
+                LocalError::Internal
+            ))),
             AppRpcErrorKind::Internal
         );
         assert_eq!(
-            AppRpcErrorKind::from(AppRpcError::Local(LocalError::Io("IO error".to_string()))),
+            AppRpcErrorKind::from(FailedValidationError::Known(AppRpcError::Local(
+                LocalError::Io("IO error".to_string())
+            ))),
             AppRpcErrorKind::IO
         );
         assert_eq!(
-            AppRpcErrorKind::from(AppRpcError::Local(LocalError::Signing(
-                "Signing error".to_string()
+            AppRpcErrorKind::from(FailedValidationError::Known(AppRpcError::Local(
+                LocalError::Signing("Signing error".to_string())
             ))),
             AppRpcErrorKind::Signing
         );
         assert_eq!(
-            AppRpcErrorKind::from(AppRpcError::Local(LocalError::Transport(
-                "Transport error".to_string()
+            AppRpcErrorKind::from(FailedValidationError::Known(AppRpcError::Local(
+                LocalError::Transport("Transport error".to_string())
             ))),
             AppRpcErrorKind::Transport
         );
         assert_eq!(
-            AppRpcErrorKind::from(AppRpcError::Remote(RemoteError::InvalidResponse(
-                "Invalid response".to_string()
+            AppRpcErrorKind::from(FailedValidationError::Known(AppRpcError::Remote(
+                RemoteError::InvalidResponse("Invalid response".to_string())
             ))),
             AppRpcErrorKind::InvalidResponse
         );
         assert_eq!(
-            AppRpcErrorKind::from(AppRpcError::Remote(RemoteError::Unreachable)),
+            AppRpcErrorKind::from(FailedValidationError::Known(AppRpcError::Remote(
+                RemoteError::Unreachable
+            ))),
             AppRpcErrorKind::ServerUnreachable
         );
         assert_eq!(
-            AppRpcErrorKind::from(AppRpcError::Remote(RemoteError::Web3RpcError {
-                code: 55,
-                message: "Booga".to_string()
-            })),
+            AppRpcErrorKind::from(FailedValidationError::Known(AppRpcError::Remote(
+                RemoteError::Web3RpcError {
+                    code: 55,
+                    message: "Booga".to_string()
+                }
+            ))),
             AppRpcErrorKind::Web3RpcError(55)
+        );
+        assert_eq!(
+            AppRpcErrorKind::from(FailedValidationError::TxResubmissionFailed),
+            AppRpcErrorKind::Unknown
         );
     }
 }

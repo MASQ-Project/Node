@@ -801,7 +801,7 @@ mod tests {
     use crate::accountant::scanners::pending_payable_scanner::test_utils::ValidationFailureClockMock;
     use crate::accountant::scanners::pending_payable_scanner::utils::{
         CurrentPendingPayables, DetectedConfirmations, DetectedFailures, FailedValidation,
-        FailedValidationByTable, NormalTxConfirmation, PendingPayableCache,
+        FailedValidationByTable, FailedValidationError, NormalTxConfirmation, PendingPayableCache,
         PendingPayableScanResult, PresortedTxFailure, RecheckRequiringFailures, Retry,
         TxHashByTable, TxReclaim, ValidationFailureClockReal,
     };
@@ -820,6 +820,7 @@ mod tests {
         AppRpcError, AppRpcErrorKind, LocalError, PreviousAttempts, RemoteError, ValidationStatus,
     };
     use crate::blockchain::test_utils::{make_block_hash, make_tx_hash};
+    use crate::neighborhood::overall_connection_status::ConnectionStage::Failed;
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use itertools::Itertools;
     use masq_lib::logger::Logger;
@@ -848,7 +849,7 @@ mod tests {
         let mut subject = PendingPayableScannerBuilder::new()
             .sent_payable_dao(sent_payable_dao)
             .failed_payable_dao(failed_payable_dao)
-            .pending_payable_cache(Box::new(CurrentPendingPayables::default()))
+            .sent_payable_cache(Box::new(CurrentPendingPayables::default()))
             .failed_payable_cache(Box::new(RecheckRequiringFailures::default()))
             .build();
         let logger = Logger::new("start_scan_fills_in_caches_and_returns_msg");
@@ -927,7 +928,7 @@ mod tests {
             .payable_dao(payable_dao)
             .sent_payable_dao(sent_payable_dao)
             .failed_payable_dao(failed_payable_dao)
-            .pending_payable_cache(Box::new(pending_payable_cache))
+            .sent_payable_cache(Box::new(pending_payable_cache))
             .failed_payable_cache(Box::new(failed_payable_cache))
             .build();
         let logger = Logger::new("test");
@@ -1238,12 +1239,12 @@ mod tests {
             tx_receipt_rpc_failures: vec![
                 FailedValidationByTable::FailedPayable(FailedValidation::new(
                     hash_1,
-                    AppRpcError::Remote(RemoteError::Unreachable),
+                    FailedValidationError::Known(AppRpcError::Remote(RemoteError::Unreachable)),
                     FailureStatus::RecheckRequired(ValidationStatus::Waiting),
                 )),
                 FailedValidationByTable::FailedPayable(FailedValidation::new(
                     hash_2,
-                    AppRpcError::Local(LocalError::Internal),
+                    FailedValidationError::Known(AppRpcError::Local(LocalError::Internal)),
                     FailureStatus::RecheckRequired(ValidationStatus::Reattempting(
                         PreviousAttempts::new(
                             AppRpcErrorKind::Internal,
@@ -1253,7 +1254,9 @@ mod tests {
                 )),
                 FailedValidationByTable::SentPayable(FailedValidation::new(
                     hash_3,
-                    AppRpcError::Remote(RemoteError::InvalidResponse("Booga".to_string())),
+                    FailedValidationError::Known(AppRpcError::Remote(
+                        RemoteError::InvalidResponse("Booga".to_string()),
+                    )),
                     TxStatus::Pending(ValidationStatus::Waiting),
                 )),
             ],
@@ -1325,12 +1328,14 @@ mod tests {
             vec![
                 FailedValidationByTable::FailedPayable(FailedValidation::new(
                     hash_1,
-                    AppRpcError::Remote(RemoteError::Unreachable),
+                    FailedValidationError::Known(AppRpcError::Remote(RemoteError::Unreachable)),
                     FailureStatus::RetryRequired,
                 )),
                 FailedValidationByTable::SentPayable(FailedValidation::new(
                     hash_2,
-                    AppRpcError::Remote(RemoteError::InvalidResponse("Booga".to_string())),
+                    FailedValidationError::Known(AppRpcError::Remote(
+                        RemoteError::InvalidResponse("Booga".to_string()),
+                    )),
                     TxStatus::Confirmed {
                         block_hash: "abc".to_string(),
                         block_number: 0,
@@ -1366,13 +1371,14 @@ mod tests {
     fn update_validation_status_for_sent_txs_panics_on_update_statuses() {
         let failed_validation = FailedValidation::new(
             make_tx_hash(456),
-            AppRpcError::Local(LocalError::Internal),
+            FailedValidationError::Known(AppRpcError::Local(LocalError::Internal)),
             TxStatus::Pending(ValidationStatus::Waiting),
         );
         let sent_payable_dao = SentPayableDaoMock::default()
             .update_statuses_result(Err(SentPayableDaoError::InvalidInput("bluh".to_string())));
         let subject = PendingPayableScannerBuilder::new()
             .sent_payable_dao(sent_payable_dao)
+            .validation_failure_clock(Box::new(ValidationFailureClockReal::default()))
             .build();
 
         let _ = subject
@@ -1389,13 +1395,14 @@ mod tests {
     fn update_validation_status_for_failed_txs_panics_on_update_statuses() {
         let failed_validation = FailedValidation::new(
             make_tx_hash(456),
-            AppRpcError::Local(LocalError::Internal),
+            FailedValidationError::Known(AppRpcError::Local(LocalError::Internal)),
             FailureStatus::RecheckRequired(ValidationStatus::Waiting),
         );
         let failed_payable_dao = FailedPayableDaoMock::default()
             .update_statuses_result(Err(FailedPayableDaoError::InvalidInput("bluh".to_string())));
         let subject = PendingPayableScannerBuilder::new()
             .failed_payable_dao(failed_payable_dao)
+            .validation_failure_clock(Box::new(ValidationFailureClockReal::default()))
             .build();
 
         let _ = subject
@@ -1434,7 +1441,7 @@ mod tests {
             tx_receipt_rpc_failures: vec![FailedValidationByTable::SentPayable(
                 FailedValidation::new(
                     tx_hash_2,
-                    AppRpcError::Local(LocalError::Internal),
+                    FailedValidationError::Known(AppRpcError::Local(LocalError::Internal)),
                     TxStatus::Pending(ValidationStatus::Waiting),
                 ),
             )],

@@ -851,6 +851,7 @@ mod tests {
             updated_txs[3].status,
             RecheckRequired(ValidationStatus::Waiting)
         );
+        assert_eq!(updated_txs.len(), 4);
     }
 
     #[test]

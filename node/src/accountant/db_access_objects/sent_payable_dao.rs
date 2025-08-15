@@ -1,6 +1,6 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
+use crate::accountant::db_access_objects::failed_payable_dao::{FailedPayableDaoError, FailedTx};
 use crate::accountant::db_access_objects::utils::{
     DaoFactoryReal, TxHash, TxIdentifiers, TxRecordWithHash,
 };
@@ -405,9 +405,43 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
 
     fn update_statuses(
         &self,
-        hash_map: &HashMap<TxHash, TxStatus>,
+        status_updates: &HashMap<TxHash, TxStatus>,
     ) -> Result<(), SentPayableDaoError> {
-        todo!()
+        if status_updates.is_empty() {
+            return Err(SentPayableDaoError::EmptyInput);
+        }
+
+        let case_statements = status_updates
+            .iter()
+            .map(|(hash, status)| format!("WHEN tx_hash = '{:?}' THEN '{}'", hash, status))
+            .join(" ");
+        let tx_hashes = comma_joined_stringifiable(&status_updates.keys().collect_vec(), |hash| {
+            format!("'{:?}'", hash)
+        });
+
+        let sql = format!(
+            "UPDATE sent_payable \
+                SET \
+                    status = CASE \
+                    {case_statements} \
+                END \
+            WHERE tx_hash IN ({tx_hashes})"
+        );
+
+        match self.conn.prepare(&sql).expect("Internal error").execute([]) {
+            Ok(rows_changed) => {
+                if rows_changed == status_updates.len() {
+                    Ok(())
+                } else {
+                    Err(SentPayableDaoError::PartialExecution(format!(
+                        "Only {} of {} records had their status updated.",
+                        rows_changed,
+                        status_updates.len(),
+                    )))
+                }
+            }
+            Err(e) => Err(SentPayableDaoError::SqlExecutionFailed(e.to_string())),
+        }
     }
 
     fn delete_records(&self, hashes: &HashSet<TxHash>) -> Result<(), SentPayableDaoError> {
@@ -1062,7 +1096,7 @@ mod tests {
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let timestamp_a = SystemTime::now();
+        let timestamp_a = SystemTime::now().sub(Duration::from_millis(11));
         let timestamp_b = SystemTime::now().sub(Duration::from_millis(1234));
         let subject = SentPayableDaoReal::new(wrapped_conn);
         let mut tx1 = make_sent_tx(456);
@@ -1070,7 +1104,7 @@ mod tests {
         let mut tx2 = make_sent_tx(789);
         tx2.status = TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
             AppRpcErrorKind::ServerUnreachable,
-            &ValidationFailureClockMock::default().now_result(timestamp_a),
+            &ValidationFailureClockMock::default().now_result(timestamp_b),
         )));
         let mut tx3 = make_sent_tx(123);
         tx3.status = TxStatus::Pending(ValidationStatus::Waiting);
@@ -1082,7 +1116,7 @@ mod tests {
                 tx1.hash,
                 TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
                     AppRpcErrorKind::Internal,
-                    &ValidationFailureClockMock::default().now_result(timestamp_b),
+                    &ValidationFailureClockMock::default().now_result(timestamp_a),
                 ))),
             ),
             (
@@ -1090,7 +1124,7 @@ mod tests {
                 TxStatus::Pending(ValidationStatus::Reattempting(
                     PreviousAttempts::new(
                         AppRpcErrorKind::ServerUnreachable,
-                        &ValidationFailureClockReal::default(),
+                        &ValidationFailureClockMock::default().now_result(timestamp_b),
                     )
                     .add_attempt(
                         AppRpcErrorKind::ServerUnreachable,
@@ -1118,7 +1152,7 @@ mod tests {
             updated_txs[0].status,
             TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
                 AppRpcErrorKind::Internal,
-                &ValidationFailureClockMock::default().now_result(timestamp_b)
+                &ValidationFailureClockMock::default().now_result(timestamp_a)
             )))
         );
         assert_eq!(
@@ -1126,7 +1160,7 @@ mod tests {
             TxStatus::Pending(ValidationStatus::Reattempting(
                 PreviousAttempts::new(
                     AppRpcErrorKind::ServerUnreachable,
-                    &ValidationFailureClockMock::default().now_result(timestamp_a)
+                    &ValidationFailureClockMock::default().now_result(timestamp_b)
                 )
                 .add_attempt(
                     AppRpcErrorKind::ServerUnreachable,
@@ -1143,6 +1177,7 @@ mod tests {
                 detection: Detection::Normal,
             }
         );
+        assert_eq!(updated_txs.len(), 3)
     }
 
     #[test]
@@ -1374,7 +1409,7 @@ mod tests {
         let validation_failure_clock = ValidationFailureClockMock::default()
             .now_result(UNIX_EPOCH.add(Duration::from_secs(12456)));
         assert_eq!(
-            TxStatus::from_str(r#"{"Pending":{"Reattempting":{"InvalidResponse":{"secs_since_epoch":12456,"nanos_since_epoch":0},"attempts":1}}}"#).unwrap(),
+            TxStatus::from_str(r#"{"Pending":{"Reattempting":{"InvalidResponse":{"firstSeen":{"secs_since_epoch":12456,"nanos_since_epoch":0},"attempts":1}}}}"#).unwrap(),
             TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(AppRpcErrorKind::InvalidResponse, &validation_failure_clock)))
         );
 
