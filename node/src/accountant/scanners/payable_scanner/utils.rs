@@ -1,19 +1,22 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::comma_joined_stringifiable;
+use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureStatus};
 use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDaoError};
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
-use crate::accountant::db_access_objects::utils::ThresholdUtils;
+use crate::accountant::db_access_objects::sent_payable_dao::Tx;
+use crate::accountant::db_access_objects::utils::{ThresholdUtils, TxHash};
 use crate::sub_lib::accountant::PaymentThresholds;
 use crate::sub_lib::wallet::Wallet;
 use itertools::Itertools;
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeToUiMessage;
 use std::cmp::Ordering;
+use std::collections::{BTreeSet, HashMap};
 use std::ops::Not;
 use std::time::SystemTime;
 use thousands::Separable;
-use web3::types::H256;
+use web3::types::{Address, H256};
 
 #[derive(Debug, PartialEq)]
 pub struct PayableScanResult {
@@ -26,6 +29,22 @@ pub enum OperationOutcome {
     PendingPayableScan,
     NewPayableScan,
     RetryPayableScan,
+}
+
+pub fn filter_receiver_addresses_from_sent_txs(sent_txs: &Vec<Tx>) -> BTreeSet<Address> {
+    sent_txs
+        .iter()
+        .map(|sent_tx| sent_tx.receiver_address)
+        .collect()
+}
+
+pub fn generate_concluded_status_updates(
+    failed_txs: &BTreeSet<FailedTx>,
+) -> HashMap<TxHash, FailureStatus> {
+    failed_txs
+        .iter()
+        .map(|tx| (tx.hash, FailureStatus::Concluded))
+        .collect()
 }
 
 //debugging purposes only

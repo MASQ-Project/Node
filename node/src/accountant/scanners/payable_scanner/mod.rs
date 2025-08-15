@@ -22,6 +22,7 @@ use crate::accountant::scanners::payable_scanner::tx_templates::initial::retry::
     RetryTxTemplate, RetryTxTemplates,
 };
 use crate::accountant::scanners::payable_scanner::utils::{
+    filter_receiver_addresses_from_sent_txs, generate_concluded_status_updates,
     payables_debug_summary, OperationOutcome, PayableScanResult, PayableThresholdsGauge,
     PayableThresholdsGaugeReal,
 };
@@ -215,34 +216,8 @@ impl PayableScanner {
     fn process_message(&self, msg: SentPayables, logger: &Logger) {
         match msg.payment_procedure_result {
             Ok(batch_results) => match msg.payable_scan_type {
-                PayableScanType::New => {
-                    let sent = batch_results.sent_txs.len();
-                    let failed = batch_results.failed_txs.len();
-                    debug!(
-                        logger,
-                        "Processed payables while sending to RPC: \
-                         Total: {total}, Sent to RPC: {sent}, Failed to send: {failed}. \
-                         Updating database...",
-                        total = sent + failed,
-                    );
-                    self.insert_records_in_sent_payables(&batch_results.sent_txs);
-                    self.insert_records_in_failed_payables(&batch_results.failed_txs);
-                }
-                PayableScanType::Retry => {
-                    // We can do better here, possibly by creating a relationship between failed and sent txs
-                    let sent = batch_results.sent_txs.len();
-                    let failed = batch_results.failed_txs.len();
-                    debug!(
-                        logger,
-                        "Processed retried txs while sending to RPC: \
-                         Total: {total}, Sent to RPC: {sent}, Failed to send: {failed}. \
-                         Updating database...",
-                        total = sent + failed,
-                    );
-                    // TODO: GH-605: Would it be a good ides to update Retry attempt of previous tx?
-                    Self::log_failed_txs(&batch_results.failed_txs, logger);
-                    self.handle_successful_retries(&batch_results.sent_txs); // Here it only means Sent to RPC
-                }
+                PayableScanType::New => self.handle_new(batch_results, logger),
+                PayableScanType::Retry => self.handle_retry(batch_results, logger),
             },
             Err(local_error) => debug!(
                 logger,
@@ -251,41 +226,71 @@ impl PayableScanner {
         }
     }
 
-    fn handle_successful_retries(&self, sent_txs: &Vec<Tx>) {
-        self.insert_records_in_sent_payables(sent_txs);
-        self.mark_prev_txs_as_concluded(sent_txs);
+    fn handle_new(&self, batch_results: BatchResults, logger: &Logger) {
+        let sent = batch_results.sent_txs.len();
+        let failed = batch_results.failed_txs.len();
+        debug!(
+            logger,
+            "Processed payables while sending to RPC: \
+             Total: {total}, Sent to RPC: {sent}, Failed to send: {failed}. \
+             Updating database...",
+            total = sent + failed,
+        );
+        if sent > 0 {
+            self.insert_records_in_sent_payables(&batch_results.sent_txs);
+        }
+        if failed > 0 {
+            self.insert_records_in_failed_payables(&batch_results.failed_txs);
+        }
+    }
+
+    fn handle_retry(&self, batch_results: BatchResults, logger: &Logger) {
+        // We can do better here, possibly by creating a relationship between failed and sent txs
+        let sent = batch_results.sent_txs.len();
+        let failed = batch_results.failed_txs.len();
+        debug!(
+            logger,
+            "Processed retried txs while sending to RPC: \
+             Total: {total}, Sent to RPC: {sent}, Failed to send: {failed}. \
+             Updating database...",
+            total = sent + failed,
+        );
+
+        if sent > 0 {
+            self.insert_records_in_sent_payables(&batch_results.sent_txs);
+            self.mark_prev_txs_as_concluded(&batch_results.sent_txs);
+        }
+        if failed > 0 {
+            // TODO: Would it be a good ides to update Retry attempt of previous tx?
+            Self::log_failed_txs(&batch_results.failed_txs, logger);
+        }
     }
 
     fn mark_prev_txs_as_concluded(&self, sent_txs: &Vec<Tx>) {
-        if sent_txs.is_empty() {
-            return; //TODO: GH-605: Test Me
-        }
+        let retrieved_txs = self.retrieve_failed_txs_by_receiver_addresses(&sent_txs);
+        self.update_failed_txs_as_conclued(&retrieved_txs);
+    }
 
-        let receiver_addresses = sent_txs
-            .iter()
-            .map(|sent_tx| sent_tx.receiver_address)
-            .collect();
-        let retrieved_txs = self.failed_payable_dao.retrieve_txs(Some(
-            FailureRetrieveCondition::ByReceiverAddresses(receiver_addresses),
-        ));
-
-        if retrieved_txs.is_empty() {
-            return;
-        }
-
-        let status_updates = retrieved_txs
-            .iter()
-            .map(|tx| (tx.hash, FailureStatus::Concluded))
-            .collect();
+    fn retrieve_failed_txs_by_receiver_addresses(&self, sent_txs: &Vec<Tx>) -> BTreeSet<FailedTx> {
+        let receiver_addresses = filter_receiver_addresses_from_sent_txs(sent_txs);
         self.failed_payable_dao
-            .update_statuses(status_updates)
-            .unwrap_or_else(|e| panic!("Failed to update statuses in FailedPayable Table"));
+            .retrieve_txs(Some(FailureRetrieveCondition::ByReceiverAddresses(
+                receiver_addresses,
+            )))
+    }
+
+    fn update_failed_txs_as_conclued(&self, failed_txs: &BTreeSet<FailedTx>) {
+        let concluded_updates = generate_concluded_status_updates(failed_txs);
+        self.failed_payable_dao
+            .update_statuses(concluded_updates)
+            .unwrap_or_else(|e| panic!("Failed to conclude txs in database: {:?}", e));
     }
 
     fn log_failed_txs(failed_txs: &[FailedTx], logger: &Logger) {
         debug!(
             logger,
-            "While retrying, 2 transactions with hashes: {} have failed.",
+            "While retrying, {} transactions with hashes: {} have failed.",
+            failed_txs.len(),
             join_with_separator(failed_txs, |failed_tx| format!("{:?}", failed_tx.hash), ",")
         )
     }
@@ -386,6 +391,7 @@ mod tests {
     use crate::accountant::scanners::payable_scanner::test_utils::PayableScannerBuilder;
     use crate::accountant::test_utils::{FailedPayableDaoMock, SentPayableDaoMock};
     use crate::blockchain::test_utils::make_tx_hash;
+    use masq_lib::test_utils::logging::init_test_logging;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Mutex};
 
@@ -637,6 +643,8 @@ mod tests {
 
     #[test]
     fn mark_prev_txs_as_concluded_handles_empty_vector() {
+        init_test_logging();
+
         let retrieve_txs_params = Arc::new(Mutex::new(vec![]));
         let update_statuses_params = Arc::new(Mutex::new(vec![]));
         let failed_payable_dao = FailedPayableDaoMock::default()
@@ -646,8 +654,16 @@ mod tests {
         let subject = PayableScannerBuilder::new()
             .failed_payable_dao(failed_payable_dao)
             .build();
+        let sent_payables = SentPayables {
+            payment_procedure_result: Ok(BatchResults {
+                sent_txs: vec![],
+                failed_txs: vec![],
+            }),
+            payable_scan_type: PayableScanType::New,
+            response_skeleton_opt: None,
+        };
 
-        subject.mark_prev_txs_as_concluded(&vec![]);
+        subject.process_message(sent_payables, &Logger::new("test"));
 
         let retrieve_params = retrieve_txs_params.lock().unwrap();
         assert_eq!(
@@ -660,37 +676,6 @@ mod tests {
             update_params.len(),
             0,
             "update_statuses should not be called with empty vector"
-        );
-    }
-
-    #[test]
-    fn mark_prev_txs_as_concluded_handles_empty_retrieved_txs() {
-        let retrieve_txs_params = Arc::new(Mutex::new(vec![]));
-        let update_statuses_params = Arc::new(Mutex::new(vec![]));
-        let failed_payable_dao = FailedPayableDaoMock::default()
-            .retrieve_txs_params(&retrieve_txs_params)
-            .retrieve_txs_result(BTreeSet::new()) // Return empty set
-            .update_statuses_params(&update_statuses_params)
-            .update_statuses_result(Ok(()));
-        let subject = PayableScannerBuilder::new()
-            .failed_payable_dao(failed_payable_dao)
-            .build();
-        // Create non-empty sent_txs to ensure we pass the first check
-        let tx = TxBuilder::default().hash(make_tx_hash(1)).build();
-
-        subject.mark_prev_txs_as_concluded(&vec![tx]);
-
-        let retrieve_params = retrieve_txs_params.lock().unwrap();
-        assert_eq!(
-            retrieve_params.len(),
-            1,
-            "retrieve_txs should be called once"
-        );
-        let update_params = update_statuses_params.lock().unwrap();
-        assert_eq!(
-            update_params.len(),
-            0,
-            "update_statuses should not be called with empty retrieved transactions"
         );
     }
 }
