@@ -1512,6 +1512,7 @@ mod tests {
     fn constants_have_correct_values() {
         assert_eq!(CRASH_KEY, "PROXYSERVER");
         assert_eq!(RETURN_ROUTE_TTL_FIRST_CHANCE, Duration::from_secs(120));
+        assert_eq!(RETURN_ROUTE_TTL_STRAGGLERS, Duration::from_secs(5));
         assert_eq!(STREAM_KEY_PURGE_DELAY, Duration::from_secs(30));
     }
 
