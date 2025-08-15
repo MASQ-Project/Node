@@ -2,6 +2,7 @@ use crate::accountant::db_access_objects::failed_payable_dao::FailureRetrieveCon
 use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::RetryRequired;
 use crate::accountant::scanners::payable_scanner::msgs::InitialTemplatesMessage;
 use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::NewTxTemplates;
+use crate::accountant::scanners::payable_scanner::tx_templates::initial::retry::RetryTxTemplates;
 use crate::accountant::scanners::payable_scanner::utils::investigate_debt_extremes;
 use crate::accountant::scanners::payable_scanner::PayableScanner;
 use crate::accountant::scanners::{Scanner, StartScanError, StartableScanner};
@@ -64,10 +65,9 @@ impl StartableScanner<ScanForRetryPayables, InitialTemplatesMessage> for Payable
     ) -> Result<InitialTemplatesMessage, StartScanError> {
         self.mark_as_started(timestamp);
         info!(logger, "Scanning for retry payables");
-        let txs_to_retry = self.get_txs_to_retry();
-        let payables_from_db = self.find_corresponding_payables_in_db(&txs_to_retry);
-        let retry_tx_templates =
-            Self::generate_retry_tx_templates(&payables_from_db, &txs_to_retry);
+        let failed_txs = self.get_txs_to_retry();
+        let amount_from_payables = self.find_amount_from_payables(&failed_txs);
+        let retry_tx_templates = RetryTxTemplates::new(&failed_txs, &amount_from_payables);
         info!(
             logger,
             "Generated {} tx template(s) for retry",

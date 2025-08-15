@@ -1,12 +1,23 @@
 use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
 use crate::accountant::scanners::payable_scanner::tx_templates::BaseTxTemplate;
+use std::collections::{BTreeSet, HashMap};
 use std::ops::{Deref, DerefMut};
+use web3::types::Address;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RetryTxTemplate {
     pub base: BaseTxTemplate,
     pub prev_gas_price_wei: u128,
     pub prev_nonce: u64,
+}
+
+impl RetryTxTemplate {
+    pub fn new(failed_tx: &FailedTx, payable_scan_amount: u128) -> Self {
+        let mut retry_template = RetryTxTemplate::from(failed_tx);
+        retry_template.base.amount_in_wei = retry_template.base.amount_in_wei + payable_scan_amount;
+
+        retry_template
+    }
 }
 
 impl From<&FailedTx> for RetryTxTemplate {
@@ -24,6 +35,26 @@ impl From<&FailedTx> for RetryTxTemplate {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct RetryTxTemplates(pub Vec<RetryTxTemplate>);
+
+impl RetryTxTemplates {
+    pub fn new(
+        txs_to_retry: &BTreeSet<FailedTx>,
+        amounts_from_payables: &HashMap<Address, u128>,
+    ) -> Self {
+        Self(
+            txs_to_retry
+                .iter()
+                .map(|tx_to_retry| {
+                    let payable_scan_amount = amounts_from_payables
+                        .get(&tx_to_retry.receiver_address)
+                        .copied()
+                        .unwrap_or(0);
+                    RetryTxTemplate::new(tx_to_retry, payable_scan_amount)
+                })
+                .collect(),
+        )
+    }
+}
 
 impl From<Vec<RetryTxTemplate>> for RetryTxTemplates {
     fn from(retry_tx_templates: Vec<RetryTxTemplate>) -> Self {

@@ -22,9 +22,9 @@ use crate::accountant::scanners::payable_scanner::tx_templates::initial::retry::
     RetryTxTemplate, RetryTxTemplates,
 };
 use crate::accountant::scanners::payable_scanner::utils::{
-    filter_receiver_addresses_from_sent_txs, generate_concluded_status_updates,
-    payables_debug_summary, OperationOutcome, PayableScanResult, PayableThresholdsGauge,
-    PayableThresholdsGaugeReal,
+    batch_stats, calculate_lengths, filter_receiver_addresses_from_sent_txs,
+    generate_concluded_status_updates, payables_debug_summary, OperationOutcome, PayableScanResult,
+    PayableThresholdsGauge, PayableThresholdsGaugeReal,
 };
 use crate::accountant::scanners::{Scanner, ScannerCommon, StartableScanner};
 use crate::accountant::{
@@ -219,22 +219,16 @@ impl PayableScanner {
                 PayableScanType::New => self.handle_new(batch_results, logger),
                 PayableScanType::Retry => self.handle_retry(batch_results, logger),
             },
-            Err(local_error) => debug!(
-                logger,
-                "Local error occurred before transaction signing. Error: {}", local_error
-            ),
+            Err(local_error) => Self::log_local_error(local_error, logger),
         }
     }
 
     fn handle_new(&self, batch_results: BatchResults, logger: &Logger) {
-        let sent = batch_results.sent_txs.len();
-        let failed = batch_results.failed_txs.len();
+        let (sent, failed) = calculate_lengths(&batch_results);
         debug!(
             logger,
-            "Processed payables while sending to RPC: \
-             Total: {total}, Sent to RPC: {sent}, Failed to send: {failed}. \
-             Updating database...",
-            total = sent + failed,
+            "Processed new txs while sending to RPC: {}",
+            batch_stats(sent, failed),
         );
         if sent > 0 {
             self.insert_records_in_sent_payables(&batch_results.sent_txs);
@@ -245,15 +239,11 @@ impl PayableScanner {
     }
 
     fn handle_retry(&self, batch_results: BatchResults, logger: &Logger) {
-        // We can do better here, possibly by creating a relationship between failed and sent txs
-        let sent = batch_results.sent_txs.len();
-        let failed = batch_results.failed_txs.len();
+        let (sent, failed) = calculate_lengths(&batch_results);
         debug!(
             logger,
-            "Processed retried txs while sending to RPC: \
-             Total: {total}, Sent to RPC: {sent}, Failed to send: {failed}. \
-             Updating database...",
-            total = sent + failed,
+            "Processed retried txs while sending to RPC: {}",
+            batch_stats(sent, failed),
         );
 
         if sent > 0 {
@@ -262,11 +252,12 @@ impl PayableScanner {
         }
         if failed > 0 {
             // TODO: Would it be a good ides to update Retry attempt of previous tx?
-            Self::log_failed_txs(&batch_results.failed_txs, logger);
+            Self::log_failed_txs_during_retry(&batch_results.failed_txs, logger);
         }
     }
 
     fn mark_prev_txs_as_concluded(&self, sent_txs: &Vec<Tx>) {
+        // TODO: We can do better here, possibly by creating a relationship between failed and sent txs
         let retrieved_txs = self.retrieve_failed_txs_by_receiver_addresses(&sent_txs);
         self.update_failed_txs_as_conclued(&retrieved_txs);
     }
@@ -286,12 +277,19 @@ impl PayableScanner {
             .unwrap_or_else(|e| panic!("Failed to conclude txs in database: {:?}", e));
     }
 
-    fn log_failed_txs(failed_txs: &[FailedTx], logger: &Logger) {
+    fn log_failed_txs_during_retry(failed_txs: &[FailedTx], logger: &Logger) {
         debug!(
             logger,
             "While retrying, {} transactions with hashes: {} have failed.",
             failed_txs.len(),
             join_with_separator(failed_txs, |failed_tx| format!("{:?}", failed_tx.hash), ",")
+        )
+    }
+
+    fn log_local_error(local_error: String, logger: &Logger) {
+        debug!(
+            logger,
+            "Local error occurred before transaction signing. Error: {}", local_error
         )
     }
 
@@ -335,15 +333,15 @@ impl PayableScanner {
             .retrieve_txs(Some(ByStatus(RetryRequired)))
     }
 
-    fn find_corresponding_payables_in_db(
+    fn find_amount_from_payables(
         &self,
         txs_to_retry: &BTreeSet<FailedTx>,
-    ) -> HashMap<Address, PayableAccount> {
+    ) -> HashMap<Address, u128> {
         let addresses = Self::filter_receiver_addresses(&txs_to_retry);
         self.payable_dao
             .non_pending_payables(Some(ByAddresses(addresses)))
             .into_iter()
-            .map(|payable| (payable.wallet.address(), payable))
+            .map(|payable| (payable.wallet.address(), payable.balance_wei))
             .collect()
     }
 
@@ -352,31 +350,6 @@ impl PayableScanner {
             .iter()
             .map(|tx_to_retry| tx_to_retry.receiver_address)
             .collect()
-    }
-
-    // We can also return UnpricedQualifiedPayable here
-    fn generate_retry_tx_templates(
-        payables_from_db: &HashMap<Address, PayableAccount>,
-        txs_to_retry: &BTreeSet<FailedTx>,
-    ) -> RetryTxTemplates {
-        RetryTxTemplates(
-            txs_to_retry
-                .iter()
-                .map(|tx_to_retry| Self::generate_retry_tx_template(payables_from_db, tx_to_retry))
-                .collect(),
-        )
-    }
-
-    fn generate_retry_tx_template(
-        payables_from_db: &HashMap<Address, PayableAccount>,
-        tx_to_retry: &FailedTx,
-    ) -> RetryTxTemplate {
-        let mut tx_template = RetryTxTemplate::from(tx_to_retry);
-        if let Some(payable) = payables_from_db.get(&tx_to_retry.receiver_address) {
-            tx_template.base.amount_in_wei = tx_template.base.amount_in_wei + payable.balance_wei;
-        };
-
-        tx_template
     }
 }
 
@@ -677,5 +650,71 @@ mod tests {
             0,
             "update_statuses should not be called with empty vector"
         );
+    }
+
+    #[test]
+    fn handle_new_does_not_perform_any_operation_when_sent_txs_is_empty() {
+        let insert_new_records_params_sent = Arc::new(Mutex::new(vec![]));
+        let sent_payable_dao = SentPayableDaoMock::default()
+            .insert_new_records_params(&insert_new_records_params_sent);
+        let failed_payable_dao = FailedPayableDaoMock::default().insert_new_records_result(Ok(()));
+        let subject = PayableScannerBuilder::new()
+            .sent_payable_dao(sent_payable_dao)
+            .failed_payable_dao(failed_payable_dao)
+            .build();
+        let batch_results = BatchResults {
+            sent_txs: vec![],
+            failed_txs: vec![make_failed_tx(1)],
+        };
+
+        subject.handle_new(batch_results, &Logger::new("test"));
+
+        assert!(insert_new_records_params_sent.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn handle_new_does_not_perform_any_operation_when_failed_txs_is_empty() {
+        let insert_new_records_params_failed = Arc::new(Mutex::new(vec![]));
+        let sent_payable_dao = SentPayableDaoMock::default().insert_new_records_result(Ok(()));
+        let failed_payable_dao = FailedPayableDaoMock::default()
+            .insert_new_records_params(&insert_new_records_params_failed);
+        let subject = PayableScannerBuilder::new()
+            .sent_payable_dao(sent_payable_dao)
+            .failed_payable_dao(failed_payable_dao)
+            .build();
+        let batch_results = BatchResults {
+            sent_txs: vec![make_sent_tx(1)],
+            failed_txs: vec![],
+        };
+
+        subject.handle_new(batch_results, &Logger::new("test"));
+
+        assert!(insert_new_records_params_failed.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn handle_retry_does_not_perform_any_operation_when_sent_txs_is_empty() {
+        let insert_new_records_params_sent = Arc::new(Mutex::new(vec![]));
+        let retrieve_txs_params = Arc::new(Mutex::new(vec![]));
+        let update_statuses_params = Arc::new(Mutex::new(vec![]));
+        let sent_payable_dao = SentPayableDaoMock::default()
+            .insert_new_records_params(&insert_new_records_params_sent);
+        let failed_payable_dao = FailedPayableDaoMock::default()
+            .retrieve_txs_params(&retrieve_txs_params)
+            .update_statuses_params(&update_statuses_params);
+        let subject = PayableScannerBuilder::new()
+            .sent_payable_dao(sent_payable_dao)
+            .failed_payable_dao(failed_payable_dao)
+            .build();
+        let batch_results = BatchResults {
+            sent_txs: vec![],
+            failed_txs: vec![make_failed_tx(1)],
+        };
+
+        subject.handle_retry(batch_results, &Logger::new("test"));
+
+        assert!(insert_new_records_params_sent.lock().unwrap().is_empty());
+        assert!(retrieve_txs_params.lock().unwrap().is_empty());
+        assert!(update_statuses_params.lock().unwrap().is_empty());
     }
 }

@@ -6,6 +6,7 @@ use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableD
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
 use crate::accountant::db_access_objects::sent_payable_dao::Tx;
 use crate::accountant::db_access_objects::utils::{ThresholdUtils, TxHash};
+use crate::blockchain::blockchain_interface::data_structures::BatchResults;
 use crate::sub_lib::accountant::PaymentThresholds;
 use crate::sub_lib::wallet::Wallet;
 use itertools::Itertools;
@@ -45,6 +46,17 @@ pub fn generate_concluded_status_updates(
         .iter()
         .map(|tx| (tx.hash, FailureStatus::Concluded))
         .collect()
+}
+
+pub fn calculate_lengths(batch_results: &BatchResults) -> (usize, usize) {
+    (batch_results.sent_txs.len(), batch_results.failed_txs.len())
+}
+
+pub fn batch_stats(sent_txs_len: usize, failed_txs_len: usize) -> String {
+    format!(
+        "Total: {total}, Sent to RPC: {sent_txs_len}, Failed to send: {failed_txs_len}.",
+        total = sent_txs_len + failed_txs_len
+    )
 }
 
 //debugging purposes only
