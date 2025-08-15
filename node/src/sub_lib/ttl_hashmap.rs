@@ -57,12 +57,7 @@ where
     pub fn remove(&self, key: &K) -> Option<Rc<V>> {
         self.remove_expired_entries();
 
-        match self.data.borrow_mut().remove(key) {
-            Some((result, _)) => {
-                Some(result)
-            }
-            None => None,
-        }
+        self.data.borrow_mut().remove(key).map(|(result, _)| result)
     }
 
     fn remove_expired_entries(&self) {

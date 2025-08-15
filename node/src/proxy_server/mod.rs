@@ -171,8 +171,12 @@ impl Handler<AddRouteResultMessage> for ProxyServer {
         let dns_failure = match self.dns_failure_retries.get(&msg.stream_key) {
             Some(retry) => retry,
             None => {
-                error!(self.logger, "AddRouteResultMessage stream key {} not found within dns_failure_retries", msg.stream_key);
-                return
+                error!(
+                    self.logger,
+                    "AddRouteResultMessage stream key {} not found within dns_failure_retries",
+                    msg.stream_key
+                );
+                return;
             }
         };
 
@@ -514,16 +518,15 @@ impl ProxyServer {
             "Relaying ClientResponsePayload (stream key {}, sequence {}, length {}) from Hopper to Dispatcher for client",
             response.stream_key, response.sequenced_packet.sequence_number, response.sequenced_packet.data.len()
         );
-        let return_route_id =
-            match self.rri_from_remaining_route(&msg.remaining_route) {
-                Some(rri) => rri,
-                None => return,
-            };
-        let return_route_info =
-            match self.get_return_route_info(return_route_id, "client response") {
-                Some(rri) => rri,
-                None => return,
-            };
+        let return_route_id = match self.rri_from_remaining_route(&msg.remaining_route) {
+            Some(rri) => rri,
+            None => return,
+        };
+        let return_route_info = match self.get_return_route_info(return_route_id, "client response")
+        {
+            Some(rri) => rri,
+            None => return,
+        };
         self.report_response_services_consumed(
             &return_route_info,
             response.sequenced_packet.data.len(),
@@ -939,10 +942,7 @@ impl ProxyServer {
         }
     }
 
-    fn rri_from_remaining_route(
-        &self,
-        remaining_route: &Route,
-    ) -> Option<u32> {
+    fn rri_from_remaining_route(&self, remaining_route: &Route) -> Option<u32> {
         let mut mut_remaining_route = remaining_route.clone();
         mut_remaining_route
             .shift(self.main_cryptde)
@@ -961,18 +961,25 @@ impl ProxyServer {
         return_route_id: u32,
         source: &str,
     ) -> Option<Rc<AddReturnRouteMessage>> {
-        match self.route_ids_to_return_routes_first_chance.remove(&return_route_id) {
+        match self
+            .route_ids_to_return_routes_first_chance
+            .remove(&return_route_id)
+        {
             Some(rri) => {
-                self.route_ids_to_return_routes_stragglers.insert(return_route_id, (*rri).clone());
+                self.route_ids_to_return_routes_stragglers
+                    .insert(return_route_id, (*rri).clone());
                 Some(rri)
-            },
-            None => match self.route_ids_to_return_routes_stragglers.get(&return_route_id) {
+            }
+            None => match self
+                .route_ids_to_return_routes_stragglers
+                .get(&return_route_id)
+            {
                 Some(rri) => Some(rri),
                 None => {
                     error!(self.logger, "Can't report services consumed: received response with bogus return-route ID {} for {}. Ignoring", return_route_id, source);
                     None
                 }
-            }
+            },
         }
     }
 
@@ -1660,11 +1667,16 @@ mod tests {
 
         let result = subject.get_return_route_info(1234, "test");
 
-        assert!(result.is_none(), "Expected no return route info, but got: {:?}", result);
+        assert!(
+            result.is_none(),
+            "Expected no return route info, but got: {:?}",
+            result
+        );
     }
 
     #[test]
-    fn get_return_route_info_produces_rri_from_first_chance_if_it_exists_and_moves_into_stragglers() {
+    fn get_return_route_info_produces_rri_from_first_chance_if_it_exists_and_moves_into_stragglers()
+    {
         let mut subject = ProxyServer::new(
             main_cryptde(),
             alias_cryptde(),
@@ -1679,13 +1691,21 @@ mod tests {
             protocol: ProxyProtocol::TLS,
             hostname_opt: None,
         };
-        subject.route_ids_to_return_routes_first_chance.insert(1234, return_route_message.clone());
+        subject
+            .route_ids_to_return_routes_first_chance
+            .insert(1234, return_route_message.clone());
 
         let result = subject.get_return_route_info(1234, "test").unwrap();
 
         assert_eq!(*result, return_route_message);
-        assert_eq!(subject.route_ids_to_return_routes_first_chance.get(&1234), None);
-        assert_eq!(subject.route_ids_to_return_routes_stragglers.get(&1234), Some(Rc::new(return_route_message)));
+        assert_eq!(
+            subject.route_ids_to_return_routes_first_chance.get(&1234),
+            None
+        );
+        assert_eq!(
+            subject.route_ids_to_return_routes_stragglers.get(&1234),
+            Some(Rc::new(return_route_message))
+        );
     }
 
     #[test]
@@ -1704,7 +1724,9 @@ mod tests {
             protocol: ProxyProtocol::TLS,
             hostname_opt: None,
         };
-        subject.route_ids_to_return_routes_stragglers.insert(1234, return_route_message.clone());
+        subject
+            .route_ids_to_return_routes_stragglers
+            .insert(1234, return_route_message.clone());
 
         let result = subject.get_return_route_info(1234, "test").unwrap();
 
@@ -3980,9 +4002,15 @@ mod tests {
         assert!(subject.keys_and_addrs.is_empty());
         assert!(subject.stream_key_routes.is_empty());
         assert!(subject.tunneled_hosts.is_empty());
-        assert!(subject.route_ids_to_return_routes_first_chance.get(&1234).is_none());
+        assert!(subject
+            .route_ids_to_return_routes_first_chance
+            .get(&1234)
+            .is_none());
         // TODO: This assert should be much stronger
-        assert!(subject.route_ids_to_return_routes_stragglers.get(&1234).is_some());
+        assert!(subject
+            .route_ids_to_return_routes_stragglers
+            .get(&1234)
+            .is_some());
     }
 
     #[test]
@@ -5798,9 +5826,8 @@ mod tests {
                 false,
                 false,
             );
-            subject.route_ids_to_return_routes_first_chance = TtlHashMap::new(
-                Duration::from_millis(250),
-            );
+            subject.route_ids_to_return_routes_first_chance =
+                TtlHashMap::new(Duration::from_millis(250));
             subject
                 .keys_and_addrs
                 .insert(stream_key, SocketAddr::from_str("1.2.3.4:5678").unwrap());
