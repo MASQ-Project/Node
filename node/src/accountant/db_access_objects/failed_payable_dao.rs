@@ -3,6 +3,7 @@ use crate::accountant::db_access_objects::sent_payable_dao::Tx;
 use crate::accountant::db_access_objects::utils::{
     DaoFactoryReal, TxHash, TxIdentifiers, VigilantRusqliteFlatten,
 };
+use crate::accountant::db_access_objects::Transaction;
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::{checked_conversion, join_with_separator};
 use crate::blockchain::errors::AppRpcError;
@@ -90,6 +91,36 @@ pub struct FailedTx {
     pub nonce: u64,
     pub reason: FailureReason,
     pub status: FailureStatus,
+}
+
+impl Transaction for FailedTx {
+    fn hash(&self) -> TxHash {
+        todo!()
+    }
+
+    fn receiver_address(&self) -> Address {
+        self.receiver_address
+    }
+
+    fn amount(&self) -> u128 {
+        todo!()
+    }
+
+    fn timestamp(&self) -> i64 {
+        todo!()
+    }
+
+    fn gas_price_wei(&self) -> u128 {
+        todo!()
+    }
+
+    fn nonce(&self) -> u64 {
+        todo!()
+    }
+
+    fn is_failed(&self) -> bool {
+        todo!()
+    }
 }
 
 // PartialOrd and Ord are used to create BTreeSet

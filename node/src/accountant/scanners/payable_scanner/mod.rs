@@ -22,7 +22,7 @@ use crate::accountant::scanners::payable_scanner::tx_templates::initial::retry::
     RetryTxTemplate, RetryTxTemplates,
 };
 use crate::accountant::scanners::payable_scanner::utils::{
-    batch_stats, calculate_lengths, filter_receiver_addresses_from_sent_txs,
+    batch_stats, calculate_lengths, filter_receiver_addresses_from_txs,
     generate_concluded_status_updates, payables_debug_summary, OperationOutcome, PayableScanResult,
     PayableThresholdsGauge, PayableThresholdsGaugeReal,
 };
@@ -263,7 +263,7 @@ impl PayableScanner {
     }
 
     fn retrieve_failed_txs_by_receiver_addresses(&self, sent_txs: &Vec<Tx>) -> BTreeSet<FailedTx> {
-        let receiver_addresses = filter_receiver_addresses_from_sent_txs(sent_txs);
+        let receiver_addresses = filter_receiver_addresses_from_txs(sent_txs.iter());
         self.failed_payable_dao
             .retrieve_txs(Some(FailureRetrieveCondition::ByReceiverAddresses(
                 receiver_addresses,
@@ -337,18 +337,11 @@ impl PayableScanner {
         &self,
         txs_to_retry: &BTreeSet<FailedTx>,
     ) -> HashMap<Address, u128> {
-        let addresses = Self::filter_receiver_addresses(&txs_to_retry);
+        let addresses = filter_receiver_addresses_from_txs(txs_to_retry.iter());
         self.payable_dao
             .non_pending_payables(Some(ByAddresses(addresses)))
             .into_iter()
             .map(|payable| (payable.wallet.address(), payable.balance_wei))
-            .collect()
-    }
-
-    fn filter_receiver_addresses(txs_to_retry: &BTreeSet<FailedTx>) -> BTreeSet<Address> {
-        txs_to_retry
-            .iter()
-            .map(|tx_to_retry| tx_to_retry.receiver_address)
             .collect()
     }
 }

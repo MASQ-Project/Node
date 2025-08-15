@@ -15,6 +15,7 @@ use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use serde_derive::{Deserialize, Serialize};
 use crate::accountant::db_access_objects::failed_payable_dao::{ValidationStatus};
 use crate::accountant::db_access_objects::failed_payable_dao::{FailedPayableDao};
+use crate::accountant::db_access_objects::Transaction;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SentPayableDaoError {
@@ -34,6 +35,36 @@ pub struct Tx {
     pub gas_price_wei: u128,
     pub nonce: u64,
     pub status: TxStatus,
+}
+
+impl Transaction for Tx {
+    fn hash(&self) -> TxHash {
+        todo!()
+    }
+
+    fn receiver_address(&self) -> Address {
+        todo!()
+    }
+
+    fn amount(&self) -> u128 {
+        todo!()
+    }
+
+    fn timestamp(&self) -> i64 {
+        todo!()
+    }
+
+    fn gas_price_wei(&self) -> u128 {
+        todo!()
+    }
+
+    fn nonce(&self) -> u64 {
+        todo!()
+    }
+
+    fn is_failed(&self) -> bool {
+        todo!()
+    }
 }
 
 impl PartialOrd for Tx {

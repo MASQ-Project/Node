@@ -6,9 +6,11 @@ use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableD
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
 use crate::accountant::db_access_objects::sent_payable_dao::Tx;
 use crate::accountant::db_access_objects::utils::{ThresholdUtils, TxHash};
+use crate::accountant::db_access_objects::Transaction;
 use crate::blockchain::blockchain_interface::data_structures::BatchResults;
 use crate::sub_lib::accountant::PaymentThresholds;
 use crate::sub_lib::wallet::Wallet;
+use bytes::Buf;
 use itertools::Itertools;
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeToUiMessage;
@@ -32,11 +34,12 @@ pub enum OperationOutcome {
     RetryPayableScan,
 }
 
-pub fn filter_receiver_addresses_from_sent_txs(sent_txs: &Vec<Tx>) -> BTreeSet<Address> {
-    sent_txs
-        .iter()
-        .map(|sent_tx| sent_tx.receiver_address)
-        .collect()
+pub fn filter_receiver_addresses_from_txs<'a, T, I>(transactions: I) -> BTreeSet<Address>
+where
+    T: 'a + Transaction,
+    I: Iterator<Item = &'a T>,
+{
+    transactions.map(|tx| tx.receiver_address()).collect()
 }
 
 pub fn generate_concluded_status_updates(
