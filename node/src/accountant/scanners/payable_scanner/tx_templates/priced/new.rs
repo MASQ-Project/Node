@@ -7,7 +7,6 @@ use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
 use masq_lib::logger::Logger;
 use std::ops::Deref;
 use thousands::Separable;
-use web3::types::Address;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PricedNewTxTemplate {

@@ -259,6 +259,7 @@ impl PayableScanner {
 
     fn mark_prev_txs_as_concluded(&self, sent_txs: &Vec<Tx>) {
         // TODO: We can do better here, possibly by creating a relationship between failed and sent txs
+        // Also, consider the fact that some txs will be with PendingTooLong status, what should we do with them?
         let retrieved_txs = self.retrieve_failed_txs_by_receiver_addresses(&sent_txs);
         self.update_failed_txs_as_conclued(&retrieved_txs);
     }
@@ -296,27 +297,25 @@ impl PayableScanner {
     }
 
     fn insert_records_in_sent_payables(&self, sent_txs: &Vec<Tx>) {
-        if let Err(e) = self
-            .sent_payable_dao
+        self.sent_payable_dao
             .insert_new_records(&sent_txs.iter().cloned().collect())
-        {
-            panic!(
-                "Failed to insert transactions into the SentPayable table. Error: {:?}",
-                e
-            );
-        }
+            .unwrap_or_else(|e| {
+                panic!(
+                    "Failed to insert transactions into the SentPayable table. Error: {:?}",
+                    e
+                )
+            });
     }
 
     fn insert_records_in_failed_payables(&self, failed_txs: &Vec<FailedTx>) {
-        if let Err(e) = self
-            .failed_payable_dao
+        self.failed_payable_dao
             .insert_new_records(&failed_txs.iter().cloned().collect())
-        {
-            panic!(
-                "Failed to insert transactions into the FailedPayable table. Error: {:?}",
-                e
-            );
-        }
+            .unwrap_or_else(|e| {
+                panic!(
+                    "Failed to insert transactions into the FailedPayable table. Error: {:?}",
+                    e
+                )
+            });
     }
 
     fn generate_ui_response(
@@ -664,5 +663,27 @@ mod tests {
 
         let tlh = TestLogHandler::new();
         tlh.exists_no_log_containing(&format!("WARN: {test_name}"));
+    }
+
+    #[test]
+    fn update_failed_txs_as_concluded_panics_on_error() {
+        let failed_payable_dao = FailedPayableDaoMock::default().update_statuses_result(Err(
+            FailedPayableDaoError::SqlExecutionFailed("I slept too much".to_string()),
+        ));
+        let subject = PayableScannerBuilder::new()
+            .failed_payable_dao(failed_payable_dao)
+            .build();
+        let failed_tx = FailedTxBuilder::default().hash(make_tx_hash(1)).build();
+        let failed_txs = BTreeSet::from([failed_tx]);
+
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            subject.update_failed_txs_as_conclued(&failed_txs);
+        }))
+        .unwrap_err();
+
+        let panic_msg = result.downcast_ref::<String>().unwrap();
+        assert!(panic_msg.contains(
+            "Failed to conclude txs in database: SqlExecutionFailed(\"I slept too much\")"
+        ));
     }
 }
