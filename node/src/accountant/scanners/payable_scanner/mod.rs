@@ -4,6 +4,7 @@ mod start_scan;
 pub mod test_utils;
 pub mod tx_templates;
 
+pub mod payment_adjuster_integration;
 pub mod utils;
 
 use crate::accountant::db_access_objects::failed_payable_dao::FailureRetrieveCondition::ByStatus;
@@ -14,10 +15,9 @@ use crate::accountant::db_access_objects::failed_payable_dao::{
 use crate::accountant::db_access_objects::payable_dao::PayableRetrieveCondition::ByAddresses;
 use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDao};
 use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDao, Tx};
-use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjuster};
-use crate::accountant::scanners::payable_scanner::msgs::{
-    InitialTemplatesMessage, PricedTemplatesMessage,
-};
+use crate::accountant::payment_adjuster::PaymentAdjuster;
+use crate::accountant::scanners::payable_scanner::msgs::InitialTemplatesMessage;
+use crate::accountant::scanners::payable_scanner::payment_adjuster_integration::SolvencySensitivePaymentInstructor;
 use crate::accountant::scanners::payable_scanner::utils::{
     batch_stats, calculate_lengths, filter_receiver_addresses_from_txs,
     generate_concluded_status_updates, payables_debug_summary, OperationOutcome, PayableScanResult,
@@ -30,8 +30,7 @@ use crate::accountant::{
 };
 use crate::blockchain::blockchain_interface::data_structures::BatchResults;
 use crate::sub_lib::accountant::PaymentThresholds;
-use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
-use itertools::{Either, Itertools};
+use itertools::Itertools;
 use masq_lib::logger::Logger;
 use masq_lib::messages::{ToMessageBody, UiScanResponse};
 use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
@@ -49,11 +48,6 @@ pub struct PayableScanner {
     pub payment_adjuster: Box<dyn PaymentAdjuster>,
 }
 
-pub struct PreparedAdjustment {
-    pub original_setup_msg: PricedTemplatesMessage,
-    pub adjustment: Adjustment,
-}
-
 pub(in crate::accountant::scanners) trait MultistageDualPayableScanner:
     StartableScanner<ScanForNewPayables, InitialTemplatesMessage>
     + StartableScanner<ScanForRetryPayables, InitialTemplatesMessage>
@@ -63,53 +57,6 @@ pub(in crate::accountant::scanners) trait MultistageDualPayableScanner:
 }
 
 impl MultistageDualPayableScanner for PayableScanner {}
-
-pub(in crate::accountant::scanners) trait SolvencySensitivePaymentInstructor {
-    fn try_skipping_payment_adjustment(
-        &self,
-        msg: PricedTemplatesMessage,
-        logger: &Logger,
-    ) -> Result<Either<OutboundPaymentsInstructions, PreparedAdjustment>, String>;
-
-    fn perform_payment_adjustment(
-        &self,
-        setup: PreparedAdjustment,
-        logger: &Logger,
-    ) -> OutboundPaymentsInstructions;
-}
-
-impl SolvencySensitivePaymentInstructor for PayableScanner {
-    fn try_skipping_payment_adjustment(
-        &self,
-        msg: PricedTemplatesMessage,
-        logger: &Logger,
-    ) -> Result<Either<OutboundPaymentsInstructions, PreparedAdjustment>, String> {
-        match self
-            .payment_adjuster
-            .search_for_indispensable_adjustment(&msg, logger)
-        {
-            Ok(None) => Ok(Either::Left(OutboundPaymentsInstructions::new(
-                msg.priced_templates,
-                msg.agent,
-                msg.response_skeleton_opt,
-            ))),
-            Ok(Some(adjustment)) => Ok(Either::Right(PreparedAdjustment {
-                original_setup_msg: msg,
-                adjustment,
-            })),
-            Err(_e) => todo!("be implemented with GH-711"),
-        }
-    }
-
-    fn perform_payment_adjustment(
-        &self,
-        setup: PreparedAdjustment,
-        logger: &Logger,
-    ) -> OutboundPaymentsInstructions {
-        let now = SystemTime::now();
-        self.payment_adjuster.adjust_payments(setup, now, logger)
-    }
-}
 
 impl PayableScanner {
     pub fn new(

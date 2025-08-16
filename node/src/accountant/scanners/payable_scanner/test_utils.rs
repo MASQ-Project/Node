@@ -1,7 +1,8 @@
 #![cfg(test)]
 
 use crate::accountant::scanners::payable_scanner::msgs::PricedTemplatesMessage;
-use crate::accountant::scanners::payable_scanner::{PayableScanner, PreparedAdjustment};
+use crate::accountant::scanners::payable_scanner::payment_adjuster_integration::PreparedAdjustment;
+use crate::accountant::scanners::payable_scanner::PayableScanner;
 use crate::accountant::test_utils::{
     FailedPayableDaoMock, PayableDaoMock, PaymentAdjusterMock, SentPayableDaoMock,
 };

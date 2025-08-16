@@ -5,11 +5,11 @@
 use crate::accountant::scanners::payable_scanner::msgs::{
     InitialTemplatesMessage, PricedTemplatesMessage,
 };
-use crate::accountant::scanners::payable_scanner::utils::PayableScanResult;
-use crate::accountant::scanners::payable_scanner::{
-    MultistageDualPayableScanner, PayableScanner, PreparedAdjustment,
-    SolvencySensitivePaymentInstructor,
+use crate::accountant::scanners::payable_scanner::payment_adjuster_integration::{
+    PreparedAdjustment, SolvencySensitivePaymentInstructor,
 };
+use crate::accountant::scanners::payable_scanner::utils::PayableScanResult;
+use crate::accountant::scanners::payable_scanner::{MultistageDualPayableScanner, PayableScanner};
 use crate::accountant::scanners::pending_payable_scanner::utils::PendingPayableScanResult;
 use crate::accountant::scanners::scan_schedulers::{
     NewPayableScanDynIntervalComputer, PayableSequenceScanner, RescheduleScanOnErrorResolver,

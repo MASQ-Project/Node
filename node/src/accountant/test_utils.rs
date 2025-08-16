@@ -48,7 +48,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use crate::accountant::scanners::payable_scanner::msgs::PricedTemplatesMessage;
-use crate::accountant::scanners::payable_scanner::PreparedAdjustment;
+use crate::accountant::scanners::payable_scanner::payment_adjuster_integration::PreparedAdjustment;
 use crate::accountant::scanners::payable_scanner::utils::PayableThresholdsGauge;
 use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
 use crate::accountant::scanners::receivable_scanner::ReceivableScanner;

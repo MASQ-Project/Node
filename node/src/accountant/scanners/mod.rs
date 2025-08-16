@@ -41,8 +41,9 @@ use crate::accountant::db_access_objects::failed_payable_dao::FailureReason::Sub
 use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::ByHash;
 use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDao, Tx};
 use crate::accountant::db_access_objects::utils::{RowId, TxHash, TxIdentifiers};
-use crate::accountant::scanners::payable_scanner::{MultistageDualPayableScanner, PayableScanner, PreparedAdjustment};
+use crate::accountant::scanners::payable_scanner::{MultistageDualPayableScanner, PayableScanner};
 use crate::accountant::scanners::payable_scanner::msgs::{PricedTemplatesMessage, InitialTemplatesMessage};
+use crate::accountant::scanners::payable_scanner::payment_adjuster_integration::PreparedAdjustment;
 use crate::accountant::scanners::payable_scanner::utils::{OperationOutcome, PayableScanResult};
 use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
 use crate::accountant::scanners::pending_payable_scanner::utils::PendingPayableScanResult;
