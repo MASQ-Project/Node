@@ -1548,7 +1548,7 @@ mod tests {
             pending_payable_opt: None,
         };
         let payable_dao =
-            PayableDaoMock::new().non_pending_payables_result(vec![payable_account.clone()]);
+            PayableDaoMock::new().retrieve_payables_result(vec![payable_account.clone()]);
         let mut subject = AccountantBuilder::default()
             .consuming_wallet(make_paying_wallet(b"consuming"))
             .bootstrapper_config(config)
@@ -2006,8 +2006,7 @@ mod tests {
         let mut payable_account = make_payable_account(123);
         payable_account.balance_wei = gwei_to_wei(payment_thresholds.debt_threshold_gwei);
         payable_account.last_paid_timestamp = from_unix_timestamp(past_timestamp_unix);
-        let payable_dao =
-            PayableDaoMock::default().non_pending_payables_result(vec![payable_account]);
+        let payable_dao = PayableDaoMock::default().retrieve_payables_result(vec![payable_account]);
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .consuming_wallet(make_paying_wallet(b"consuming"))
@@ -2237,10 +2236,9 @@ mod tests {
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let now = SystemTime::now();
         let payment_thresholds = PaymentThresholds::default();
-        let (qualified_payables, _, all_non_pending_payables) =
+        let (qualified_payables, _, all_retrieved_payables) =
             make_qualified_and_unqualified_payables(now, &payment_thresholds);
-        let payable_dao =
-            PayableDaoMock::new().non_pending_payables_result(all_non_pending_payables);
+        let payable_dao = PayableDaoMock::new().retrieve_payables_result(all_retrieved_payables);
         let system =
             System::new("accountant_sends_qualified_payable_msg_when_qualified_payable_found");
         let consuming_wallet = make_paying_wallet(b"consuming");
@@ -3867,8 +3865,8 @@ mod tests {
             },
         ];
         let payable_dao = PayableDaoMock::new()
-            .non_pending_payables_result(accounts.clone())
-            .non_pending_payables_result(vec![]);
+            .retrieve_payables_result(accounts.clone())
+            .retrieve_payables_result(vec![]);
         let (blockchain_bridge, _, blockchain_bridge_recordings_arc) = make_recorder();
         let system = System::new(
             "scan_for_new_payables_does_not_trigger_payment_for_balances_below_the_curve",
@@ -3948,7 +3946,7 @@ mod tests {
             },
         ];
         let payable_dao =
-            PayableDaoMock::default().non_pending_payables_result(qualified_payables.clone());
+            PayableDaoMock::default().retrieve_payables_result(qualified_payables.clone());
         let (blockchain_bridge, _, blockchain_bridge_recordings_arc) = make_recorder();
         let blockchain_bridge_addr = blockchain_bridge.start();
         let system =
@@ -4028,8 +4026,8 @@ mod tests {
         let payable_1 = qualified_payables.remove(0);
         let payable_2 = qualified_payables.remove(0);
         let payable_dao = PayableDaoMock::new()
-            .non_pending_payables_result(vec![payable_1.clone()])
-            .non_pending_payables_result(vec![payable_2.clone()]);
+            .retrieve_payables_result(vec![payable_1.clone()])
+            .retrieve_payables_result(vec![payable_2.clone()]);
         let mut config = bc_from_earning_wallet(make_wallet("mine"));
         config.payment_thresholds_opt = Some(payment_thresholds);
         let system = System::new(test_name);
@@ -4237,7 +4235,7 @@ mod tests {
         let now = SystemTime::now();
         let bootstrapper_config = bc_from_earning_wallet(make_wallet("hi"));
         let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
-        let payable_dao_mock = PayableDaoMock::new().non_pending_payables_result(vec![]);
+        let payable_dao_mock = PayableDaoMock::new().retrieve_payables_result(vec![]);
         let receivable_dao_mock = ReceivableDaoMock::new()
             .more_money_receivable_parameters(&more_money_receivable_parameters_arc)
             .more_money_receivable_result(Ok(()));
@@ -4284,7 +4282,7 @@ mod tests {
         let consuming_wallet = make_wallet("our consuming wallet");
         let config = bc_from_wallets(consuming_wallet.clone(), make_wallet("our earning wallet"));
         let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
-        let payable_dao_mock = PayableDaoMock::new().non_pending_payables_result(vec![]);
+        let payable_dao_mock = PayableDaoMock::new().retrieve_payables_result(vec![]);
         let receivable_dao_mock = ReceivableDaoMock::new()
             .more_money_receivable_parameters(&more_money_receivable_parameters_arc);
         let subject = AccountantBuilder::default()
@@ -4329,7 +4327,7 @@ mod tests {
         let earning_wallet = make_wallet("our earning wallet");
         let config = bc_from_earning_wallet(earning_wallet.clone());
         let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
-        let payable_dao_mock = PayableDaoMock::new().non_pending_payables_result(vec![]);
+        let payable_dao_mock = PayableDaoMock::new().retrieve_payables_result(vec![]);
         let receivable_dao_mock = ReceivableDaoMock::new()
             .more_money_receivable_parameters(&more_money_receivable_parameters_arc);
         let subject = AccountantBuilder::default()
@@ -4374,7 +4372,7 @@ mod tests {
         let now = SystemTime::now();
         let config = bc_from_earning_wallet(make_wallet("hi"));
         let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
-        let payable_dao_mock = PayableDaoMock::new().non_pending_payables_result(vec![]);
+        let payable_dao_mock = PayableDaoMock::new().retrieve_payables_result(vec![]);
         let receivable_dao_mock = ReceivableDaoMock::new()
             .more_money_receivable_parameters(&more_money_receivable_parameters_arc)
             .more_money_receivable_result(Ok(()));
@@ -4421,7 +4419,7 @@ mod tests {
         let consuming_wallet = make_wallet("my consuming wallet");
         let config = bc_from_wallets(consuming_wallet.clone(), make_wallet("my earning wallet"));
         let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
-        let payable_dao_mock = PayableDaoMock::new().non_pending_payables_result(vec![]);
+        let payable_dao_mock = PayableDaoMock::new().retrieve_payables_result(vec![]);
         let receivable_dao_mock = ReceivableDaoMock::new()
             .more_money_receivable_parameters(&more_money_receivable_parameters_arc);
         let subject = AccountantBuilder::default()
@@ -4466,7 +4464,7 @@ mod tests {
         let earning_wallet = make_wallet("my earning wallet");
         let config = bc_from_earning_wallet(earning_wallet.clone());
         let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
-        let payable_dao_mock = PayableDaoMock::new().non_pending_payables_result(vec![]);
+        let payable_dao_mock = PayableDaoMock::new().retrieve_payables_result(vec![]);
         let receivable_dao_mock = ReceivableDaoMock::new()
             .more_money_receivable_parameters(&more_money_receivable_parameters_arc);
         let subject = AccountantBuilder::default()
@@ -4601,7 +4599,7 @@ mod tests {
     ) -> Arc<Mutex<Vec<(SystemTime, Wallet, u128)>>> {
         let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao_mock = PayableDaoMock::new()
-            .non_pending_payables_result(vec![])
+            .retrieve_payables_result(vec![])
             .more_money_payable_result(Ok(()))
             .more_money_payable_params(more_money_payable_parameters_arc.clone());
         let subject = AccountantBuilder::default()

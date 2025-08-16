@@ -65,7 +65,7 @@ pub fn batch_stats(sent_txs_len: usize, failed_txs_len: usize) -> String {
 //debugging purposes only
 pub fn investigate_debt_extremes(
     timestamp: SystemTime,
-    all_non_pending_payables: &[PayableAccount],
+    all_retrieved_payables: &[PayableAccount],
 ) -> String {
     #[derive(Clone, Copy, Default)]
     struct PayableInfo {
@@ -99,10 +99,10 @@ pub fn investigate_debt_extremes(
         }
     }
 
-    if all_non_pending_payables.is_empty() {
+    if all_retrieved_payables.is_empty() {
         return "Payable scan found no debts".to_string();
     }
-    let (biggest, oldest) = all_non_pending_payables
+    let (biggest, oldest) = all_retrieved_payables
         .iter()
         .map(|payable| PayableInfo {
             balance_wei: payable.balance_wei,
@@ -121,7 +121,7 @@ pub fn investigate_debt_extremes(
             },
         );
     format!("Payable scan found {} debts; the biggest is {} owed for {}sec, the oldest is {} owed for {}sec",
-                all_non_pending_payables.len(), biggest.balance_wei, biggest.age,
+                all_retrieved_payables.len(), biggest.balance_wei, biggest.age,
                 oldest.balance_wei, oldest.age)
 }
 

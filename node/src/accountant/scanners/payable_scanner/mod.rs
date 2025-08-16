@@ -9,7 +9,7 @@ pub mod utils;
 use crate::accountant::db_access_objects::failed_payable_dao::FailureRetrieveCondition::ByStatus;
 use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::RetryRequired;
 use crate::accountant::db_access_objects::failed_payable_dao::{
-    FailedPayableDao, FailedTx, FailureRetrieveCondition, FailureStatus,
+    FailedPayableDao, FailedTx, FailureRetrieveCondition,
 };
 use crate::accountant::db_access_objects::payable_dao::PayableRetrieveCondition::ByAddresses;
 use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDao};
@@ -17,9 +17,6 @@ use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDao, Tx}
 use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjuster};
 use crate::accountant::scanners::payable_scanner::msgs::{
     InitialTemplatesMessage, PricedTemplatesMessage,
-};
-use crate::accountant::scanners::payable_scanner::tx_templates::initial::retry::{
-    RetryTxTemplate, RetryTxTemplates,
 };
 use crate::accountant::scanners::payable_scanner::utils::{
     batch_stats, calculate_lengths, filter_receiver_addresses_from_txs,
@@ -35,7 +32,6 @@ use crate::blockchain::blockchain_interface::data_structures::BatchResults;
 use crate::sub_lib::accountant::PaymentThresholds;
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use itertools::{Either, Itertools};
-use log::warn;
 use masq_lib::logger::Logger;
 use masq_lib::messages::{ToMessageBody, UiScanResponse};
 use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
@@ -135,7 +131,7 @@ impl PayableScanner {
 
     pub fn sniff_out_alarming_payables_and_maybe_log_them(
         &self,
-        non_pending_payables: Vec<PayableAccount>,
+        retrieve_payables: Vec<PayableAccount>,
         logger: &Logger,
     ) -> Vec<PayableAccount> {
         fn pass_payables_and_drop_points(
@@ -146,7 +142,7 @@ impl PayableScanner {
         }
 
         let qualified_payables_and_points_uncollected =
-            non_pending_payables.into_iter().flat_map(|account| {
+            retrieve_payables.into_iter().flat_map(|account| {
                 self.payable_exceeded_threshold(&account, SystemTime::now())
                     .map(|threshold_point| (account, threshold_point))
             });
@@ -338,7 +334,7 @@ impl PayableScanner {
     ) -> HashMap<Address, u128> {
         let addresses = filter_receiver_addresses_from_txs(txs_to_retry.iter());
         self.payable_dao
-            .non_pending_payables(Some(ByAddresses(addresses)))
+            .retrieve_payables(Some(ByAddresses(addresses)))
             .into_iter()
             .map(|payable| (payable.wallet.address(), payable.balance_wei))
             .collect()

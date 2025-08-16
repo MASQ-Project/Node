@@ -564,8 +564,8 @@ impl ConfigDaoFactoryMock {
 pub struct PayableDaoMock {
     more_money_payable_parameters: Arc<Mutex<Vec<(SystemTime, Wallet, u128)>>>,
     more_money_payable_results: RefCell<Vec<Result<(), PayableDaoError>>>,
-    non_pending_payables_params: Arc<Mutex<Vec<Option<PayableRetrieveCondition>>>>,
-    non_pending_payables_results: RefCell<Vec<Vec<PayableAccount>>>,
+    retrieve_payables_params: Arc<Mutex<Vec<Option<PayableRetrieveCondition>>>>,
+    retrieve_payables_results: RefCell<Vec<Vec<PayableAccount>>>,
     mark_pending_payables_rowids_params: Arc<Mutex<Vec<Vec<(Wallet, u64)>>>>,
     mark_pending_payables_rowids_results: RefCell<Vec<Result<(), PayableDaoError>>>,
     transactions_confirmed_params: Arc<Mutex<Vec<Vec<PendingPayableFingerprint>>>>,
@@ -618,15 +618,15 @@ impl PayableDao for PayableDaoMock {
         self.transactions_confirmed_results.borrow_mut().remove(0)
     }
 
-    fn non_pending_payables(
+    fn retrieve_payables(
         &self,
         condition_opt: Option<PayableRetrieveCondition>,
     ) -> Vec<PayableAccount> {
-        self.non_pending_payables_params
+        self.retrieve_payables_params
             .lock()
             .unwrap()
             .push(condition_opt);
-        self.non_pending_payables_results.borrow_mut().remove(0)
+        self.retrieve_payables_results.borrow_mut().remove(0)
     }
 
     fn custom_query(&self, custom_query: CustomQuery<u64>) -> Option<Vec<PayableAccount>> {
@@ -662,16 +662,16 @@ impl PayableDaoMock {
         self
     }
 
-    pub fn non_pending_payables_params(
+    pub fn retrieve_payables_params(
         mut self,
         params: &Arc<Mutex<Vec<Option<PayableRetrieveCondition>>>>,
     ) -> Self {
-        self.non_pending_payables_params = params.clone();
+        self.retrieve_payables_params = params.clone();
         self
     }
 
-    pub fn non_pending_payables_result(self, result: Vec<PayableAccount>) -> Self {
-        self.non_pending_payables_results.borrow_mut().push(result);
+    pub fn retrieve_payables_result(self, result: Vec<PayableAccount>) -> Self {
+        self.retrieve_payables_results.borrow_mut().push(result);
         self
     }
 
@@ -1613,14 +1613,14 @@ pub fn make_qualified_and_unqualified_payables(
         },
     ];
 
-    let mut all_non_pending_payables = Vec::new();
-    all_non_pending_payables.extend(qualified_payable_accounts.clone());
-    all_non_pending_payables.extend(unqualified_payable_accounts.clone());
+    let mut all_retrieved_payables = Vec::new();
+    all_retrieved_payables.extend(qualified_payable_accounts.clone());
+    all_retrieved_payables.extend(unqualified_payable_accounts.clone());
 
     (
         qualified_payable_accounts,
         unqualified_payable_accounts,
-        all_non_pending_payables,
+        all_retrieved_payables,
     )
 }
 

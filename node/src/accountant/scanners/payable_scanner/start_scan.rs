@@ -22,16 +22,16 @@ impl StartableScanner<ScanForNewPayables, InitialTemplatesMessage> for PayableSc
     ) -> Result<InitialTemplatesMessage, StartScanError> {
         self.mark_as_started(timestamp);
         info!(logger, "Scanning for new payables");
-        let all_non_pending_payables = self.payable_dao.non_pending_payables(None);
+        let all_retrieved_payables = self.payable_dao.retrieve_payables(None);
 
         debug!(
             logger,
             "{}",
-            investigate_debt_extremes(timestamp, &all_non_pending_payables)
+            investigate_debt_extremes(timestamp, &all_retrieved_payables)
         );
 
         let qualified_payables =
-            self.sniff_out_alarming_payables_and_maybe_log_them(all_non_pending_payables, logger);
+            self.sniff_out_alarming_payables_and_maybe_log_them(all_retrieved_payables, logger);
 
         match qualified_payables.is_empty() {
             true => {
@@ -111,7 +111,7 @@ mod tests {
         let test_name = "start_scan_for_retry_works";
         let logger = Logger::new(test_name);
         let retrieve_txs_params_arc = Arc::new(Mutex::new(vec![]));
-        let non_pending_payables_params_arc = Arc::new(Mutex::new(vec![]));
+        let retrieve_payables_params_arc = Arc::new(Mutex::new(vec![]));
         let timestamp = SystemTime::now();
         let consuming_wallet = make_paying_wallet(b"consuming");
         let response_skeleton = ResponseSkeleton {
@@ -141,8 +141,8 @@ mod tests {
             .retrieve_txs_params(&retrieve_txs_params_arc)
             .retrieve_txs_result(BTreeSet::from([failed_tx_1.clone(), failed_tx_2.clone()]));
         let payable_dao = PayableDaoMock::new()
-            .non_pending_payables_params(&non_pending_payables_params_arc)
-            .non_pending_payables_result(vec![payable_account_1.clone()]); // the second record is absent
+            .retrieve_payables_params(&retrieve_payables_params_arc)
+            .retrieve_payables_result(vec![payable_account_1.clone()]); // the second record is absent
         let mut subject = PayableScannerBuilder::new()
             .failed_payable_dao(failed_payable_dao)
             .payable_dao(payable_dao)
@@ -158,7 +158,7 @@ mod tests {
 
         let scan_started_at = subject.scan_started_at();
         let failed_payables_retrieve_txs_params = retrieve_txs_params_arc.lock().unwrap();
-        let non_pending_payables_params = non_pending_payables_params_arc.lock().unwrap();
+        let retrieve_payables_params = retrieve_payables_params_arc.lock().unwrap();
         let expected_tx_templates = {
             let mut tx_template_1 = RetryTxTemplate::from(&failed_tx_1);
             tx_template_1.base.amount_in_wei =
@@ -183,10 +183,10 @@ mod tests {
         );
         assert_eq!(failed_payables_retrieve_txs_params.len(), 1);
         assert_eq!(
-            non_pending_payables_params[0],
+            retrieve_payables_params[0],
             Some(PayableRetrieveCondition::ByAddresses(expected_addresses))
         );
-        assert_eq!(non_pending_payables_params.len(), 1);
+        assert_eq!(retrieve_payables_params.len(), 1);
         TestLogHandler::new()
             .exists_log_containing(&format!("INFO: {test_name}: Scanning for retry payables"));
     }

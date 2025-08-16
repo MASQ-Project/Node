@@ -88,7 +88,7 @@ pub trait PayableDao: Debug + Send {
         confirmed_payables: &[PendingPayableFingerprint],
     ) -> Result<(), PayableDaoError>;
 
-    fn non_pending_payables(
+    fn retrieve_payables(
         &self,
         condition_opt: Option<PayableRetrieveCondition>,
     ) -> Vec<PayableAccount>;
@@ -204,7 +204,7 @@ impl PayableDao for PayableDaoReal {
         })
     }
 
-    fn non_pending_payables(
+    fn retrieve_payables(
         &self,
         condition_opt: Option<PayableRetrieveCondition>,
     ) -> Vec<PayableAccount> {
@@ -1192,10 +1192,10 @@ mod tests {
     }
 
     #[test]
-    fn non_pending_payables_should_return_an_empty_vec_when_the_database_is_empty() {
+    fn retrieve_payables_should_return_an_empty_vec_when_the_database_is_empty() {
         let home_dir = ensure_node_home_directory_exists(
             "payable_dao",
-            "non_pending_payables_should_return_an_empty_vec_when_the_database_is_empty",
+            "retrieve_payables_should_return_an_empty_vec_when_the_database_is_empty",
         );
         let subject = PayableDaoReal::new(
             DbInitializerReal::default()
@@ -1203,16 +1203,16 @@ mod tests {
                 .unwrap(),
         );
 
-        let result = subject.non_pending_payables(None);
+        let result = subject.retrieve_payables(None);
 
         assert_eq!(result, vec![]);
     }
 
     #[test]
-    fn non_pending_payables_should_return_payables_with_no_pending_transaction() {
+    fn retrieve_payables_should_return_payables_with_no_pending_transaction() {
         let home_dir = ensure_node_home_directory_exists(
             "payable_dao",
-            "non_pending_payables_should_return_payables_with_no_pending_transaction",
+            "retrieve_payables_should_return_payables_with_no_pending_transaction",
         );
         let subject = PayableDaoReal::new(
             DbInitializerReal::default()
@@ -1237,7 +1237,7 @@ mod tests {
         insert("0x0000000000000000000000000000000000626172", Some(16));
         insert(&make_wallet("barfoo").to_string(), None);
 
-        let result = subject.non_pending_payables(None);
+        let result = subject.retrieve_payables(None);
 
         assert_eq!(
             result,
@@ -1259,10 +1259,10 @@ mod tests {
     }
 
     #[test]
-    fn non_pending_payables_should_return_payables_with_no_pending_transaction_by_addresses() {
+    fn retrieve_payables_should_return_payables_with_no_pending_transaction_by_addresses() {
         let home_dir = ensure_node_home_directory_exists(
             "payable_dao",
-            "non_pending_payables_should_return_payables_with_no_pending_transaction_by_addresses",
+            "retrieve_payables_should_return_payables_with_no_pending_transaction_by_addresses",
         );
         let subject = PayableDaoReal::new(
             DbInitializerReal::default()
@@ -1290,7 +1290,7 @@ mod tests {
         insert(&wallet2.to_string(), None);
         let set = BTreeSet::from([wallet1.address(), wallet2.address()]);
 
-        let result = subject.non_pending_payables(Some(ByAddresses(set)));
+        let result = subject.retrieve_payables(Some(ByAddresses(set)));
 
         assert_eq!(
             result,

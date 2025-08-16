@@ -225,7 +225,7 @@ fn verify_bill_payment() {
     }
 
     let now = Instant::now();
-    while !consuming_payable_dao.non_pending_payables().is_empty()
+    while !consuming_payable_dao.retrieve_payables().is_empty()
         && now.elapsed() < Duration::from_secs(10)
     {
         thread::sleep(Duration::from_millis(400));
@@ -400,7 +400,7 @@ fn verify_pending_payables() {
     );
 
     let now = Instant::now();
-    while !consuming_payable_dao.non_pending_payables().is_empty()
+    while !consuming_payable_dao.retrieve_payables().is_empty()
         && now.elapsed() < Duration::from_secs(10)
     {
         thread::sleep(Duration::from_millis(400));
@@ -437,7 +437,7 @@ fn verify_pending_payables() {
         .tmb(0),
     );
 
-    assert!(consuming_payable_dao.non_pending_payables().is_empty());
+    assert!(consuming_payable_dao.retrieve_payables().is_empty());
     MASQNodeUtils::assert_node_wrote_log_containing(
         real_consuming_node.name(),
         "Found 3 pending payables to process",

@@ -836,10 +836,9 @@ mod tests {
         let test_name = "new_payable_scanner_can_initiate_a_scan";
         let consuming_wallet = make_paying_wallet(b"consuming wallet");
         let now = SystemTime::now();
-        let (qualified_payable_accounts, _, all_non_pending_payables) =
+        let (qualified_payable_accounts, _, all_retrieved_payables) =
             make_qualified_and_unqualified_payables(now, &PaymentThresholds::default());
-        let payable_dao =
-            PayableDaoMock::new().non_pending_payables_result(all_non_pending_payables);
+        let payable_dao = PayableDaoMock::new().retrieve_payables_result(all_retrieved_payables);
         let mut subject = make_dull_subject();
         let payable_scanner = PayableScannerBuilder::new()
             .payable_dao(payable_dao)
@@ -878,12 +877,11 @@ mod tests {
     #[test]
     fn new_payable_scanner_cannot_be_initiated_if_it_is_already_running() {
         let consuming_wallet = make_paying_wallet(b"consuming wallet");
-        let (_, _, all_non_pending_payables) = make_qualified_and_unqualified_payables(
+        let (_, _, all_retrieved_payables) = make_qualified_and_unqualified_payables(
             SystemTime::now(),
             &PaymentThresholds::default(),
         );
-        let payable_dao =
-            PayableDaoMock::new().non_pending_payables_result(all_non_pending_payables);
+        let payable_dao = PayableDaoMock::new().retrieve_payables_result(all_retrieved_payables);
         let mut subject = make_dull_subject();
         let payable_scanner = PayableScannerBuilder::new()
             .payable_dao(payable_dao)
@@ -924,7 +922,7 @@ mod tests {
         let (_, unqualified_payable_accounts, _) =
             make_qualified_and_unqualified_payables(now, &PaymentThresholds::default());
         let payable_dao =
-            PayableDaoMock::new().non_pending_payables_result(unqualified_payable_accounts);
+            PayableDaoMock::new().retrieve_payables_result(unqualified_payable_accounts);
         let mut subject = make_dull_subject();
         subject.payable = Box::new(
             PayableScannerBuilder::new()
@@ -955,11 +953,10 @@ mod tests {
             client_id: 24,
             context_id: 42,
         };
-        let (_, _, all_non_pending_payables) =
+        let (_, _, all_retrieved_payables) =
             make_qualified_and_unqualified_payables(now, &PaymentThresholds::default());
         let failed_tx = make_failed_tx(1);
-        let payable_dao =
-            PayableDaoMock::new().non_pending_payables_result(all_non_pending_payables);
+        let payable_dao = PayableDaoMock::new().retrieve_payables_result(all_retrieved_payables);
         let failed_payable_dao =
             FailedPayableDaoMock::new().retrieve_txs_result(BTreeSet::from([failed_tx.clone()]));
         let mut subject = make_dull_subject();
@@ -997,12 +994,11 @@ mod tests {
     #[test]
     fn retry_payable_scanner_panics_in_case_scan_is_already_running() {
         let consuming_wallet = make_paying_wallet(b"consuming wallet");
-        let (_, _, all_non_pending_payables) = make_qualified_and_unqualified_payables(
+        let (_, _, all_retrieved_payables) = make_qualified_and_unqualified_payables(
             SystemTime::now(),
             &PaymentThresholds::default(),
         );
-        let payable_dao =
-            PayableDaoMock::new().non_pending_payables_result(all_non_pending_payables);
+        let payable_dao = PayableDaoMock::new().retrieve_payables_result(all_retrieved_payables);
         let failed_payable_dao =
             FailedPayableDaoMock::default().retrieve_txs_result(BTreeSet::new());
         let mut subject = make_dull_subject();
@@ -1374,9 +1370,9 @@ mod tests {
     }
 
     #[test]
-    fn non_pending_payables_turn_into_an_empty_vector_if_all_unqualified() {
+    fn retrieve_payables_turn_into_an_empty_vector_if_all_unqualified() {
         init_test_logging();
-        let test_name = "non_pending_payables_turn_into_an_empty_vector_if_all_unqualified";
+        let test_name = "retrieve_payables_turn_into_an_empty_vector_if_all_unqualified";
         let now = SystemTime::now();
         let payment_thresholds = PaymentThresholds::default();
         let unqualified_payable_account = vec![PayableAccount {
