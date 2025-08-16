@@ -43,6 +43,7 @@ use masq_lib::messages::ScanType;
 use crate::accountant::scanners::payable_scanner::msgs::{PricedTemplatesMessage, InitialTemplatesMessage};
 use crate::accountant::scanners::payable_scanner::tx_templates::priced::new::PricedNewTxTemplates;
 use crate::accountant::scanners::payable_scanner::tx_templates::priced::retry::PricedRetryTxTemplates;
+use crate::accountant::scanners::payable_scanner::utils::initial_templates_msg_stats;
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionReceiptResult, TxStatus};
 
@@ -146,7 +147,7 @@ impl Handler<InitialTemplatesMessage> for BlockchainBridge {
     type Result = ();
 
     fn handle(&mut self, msg: InitialTemplatesMessage, _ctx: &mut Self::Context) {
-        self.handle_scan_future(Self::handle_qualified_payable_msg, ScanType::Payables, msg);
+        self.handle_scan_future(Self::handle_initial_templates_msg, ScanType::Payables, msg);
     }
 }
 
@@ -252,10 +253,15 @@ impl BlockchainBridge {
         }
     }
 
-    fn handle_qualified_payable_msg(
+    fn handle_initial_templates_msg(
         &mut self,
         incoming_message: InitialTemplatesMessage,
     ) -> Box<dyn Future<Item = (), Error = String>> {
+        debug!(
+            &self.logger,
+            "{}",
+            initial_templates_msg_stats(&incoming_message)
+        );
         // TODO rewrite this into a batch call as soon as GH-629 gets into master
         let accountant_recipient = self.payable_payments_setup_subs_opt.clone();
         Box::new(
@@ -708,9 +714,10 @@ mod tests {
     }
 
     #[test]
-    fn handles_qualified_payables_msg_in_new_payables_mode_and_sends_response_back_to_accountant() {
-        let system = System::new(
-            "handles_qualified_payables_msg_in_new_payables_mode_and_sends_response_back_to_accountant");
+    fn handles_initial_templates_msg_in_new_payables_mode_and_sends_response_back_to_accountant() {
+        init_test_logging();
+        let test_name = "handles_initial_templates_msg_in_new_payables_mode_and_sends_response_back_to_accountant";
+        let system = System::new(test_name);
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             // Fetching a recommended gas price
@@ -751,6 +758,7 @@ mod tests {
             Arc::new(Mutex::new(persistent_configuration)),
             false,
         );
+        subject.logger = Logger::new(test_name);
         subject.payable_payments_setup_subs_opt = Some(accountant_recipient);
         let tx_templates = NewTxTemplates::from(&qualified_payables);
         let qualified_payables_msg = InitialTemplatesMessage {
@@ -763,7 +771,7 @@ mod tests {
         };
 
         subject
-            .handle_qualified_payable_msg(qualified_payables_msg)
+            .handle_initial_templates_msg(qualified_payables_msg)
             .wait()
             .unwrap();
 
@@ -805,6 +813,8 @@ mod tests {
             })
         );
         assert_eq!(accountant_received_payment.len(), 1);
+        TestLogHandler::new()
+            .exists_log_containing(&format!("DEBUG: {test_name}: Found 2 new txs to process"));
     }
 
     #[test]
@@ -839,7 +849,7 @@ mod tests {
         };
 
         let error_msg = subject
-            .handle_qualified_payable_msg(qualified_payables_msg)
+            .handle_initial_templates_msg(qualified_payables_msg)
             .wait()
             .unwrap_err();
 

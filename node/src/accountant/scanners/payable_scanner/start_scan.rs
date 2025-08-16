@@ -68,11 +68,6 @@ impl StartableScanner<ScanForRetryPayables, InitialTemplatesMessage> for Payable
         let failed_txs = self.get_txs_to_retry();
         let amount_from_payables = self.find_amount_from_payables(&failed_txs);
         let retry_tx_templates = RetryTxTemplates::new(&failed_txs, &amount_from_payables);
-        info!(
-            logger,
-            "Generated {} tx template(s) for retry",
-            retry_tx_templates.len()
-        );
 
         Ok(InitialTemplatesMessage {
             initial_templates: Either::Right(retry_tx_templates),

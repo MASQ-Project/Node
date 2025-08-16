@@ -7,11 +7,14 @@ use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
 use crate::accountant::db_access_objects::sent_payable_dao::Tx;
 use crate::accountant::db_access_objects::utils::{ThresholdUtils, TxHash};
 use crate::accountant::db_access_objects::Transaction;
+use crate::accountant::scanners::payable_scanner::msgs::InitialTemplatesMessage;
+use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::NewTxTemplates;
+use crate::accountant::scanners::payable_scanner::tx_templates::initial::retry::RetryTxTemplates;
 use crate::blockchain::blockchain_interface::data_structures::BatchResults;
 use crate::sub_lib::accountant::PaymentThresholds;
 use crate::sub_lib::wallet::Wallet;
 use bytes::Buf;
-use itertools::Itertools;
+use itertools::{Either, Itertools};
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeToUiMessage;
 use std::cmp::Ordering;
@@ -60,6 +63,15 @@ pub fn batch_stats(sent_txs_len: usize, failed_txs_len: usize) -> String {
         "Total: {total}, Sent to RPC: {sent_txs_len}, Failed to send: {failed_txs_len}.",
         total = sent_txs_len + failed_txs_len
     )
+}
+
+pub fn initial_templates_msg_stats(msg: &InitialTemplatesMessage) -> String {
+    let (len, scan_type) = match &msg.initial_templates {
+        Either::Left(new_templates) => (new_templates.len(), "new"),
+        Either::Right(retry_templates) => (retry_templates.len(), "retry"),
+    };
+
+    format!("Found {} {} txs to process", len, scan_type)
 }
 
 //debugging purposes only
