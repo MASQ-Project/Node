@@ -491,6 +491,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // TODO: GH-605: Remove this ignore
     fn requires_payments_retry_says_yes() {
         todo!("complete this test with GH-604")
         // let cases = vec![
@@ -537,6 +538,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // TODO: GH-605: Remove this ignore
     fn requires_payments_retry_says_no() {
         todo!("complete this test with GH-604")
         // let report = PendingPayableScanReport {

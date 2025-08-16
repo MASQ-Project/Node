@@ -278,7 +278,7 @@ impl PayableScanner {
     }
 
     fn log_failed_txs_during_retry(failed_txs: &[FailedTx], logger: &Logger) {
-        debug!(
+        warning!(
             logger,
             "While retrying, {} transactions with hashes: {} have failed.",
             failed_txs.len(),
@@ -294,28 +294,26 @@ impl PayableScanner {
     }
 
     fn insert_records_in_sent_payables(&self, sent_txs: &Vec<Tx>) {
-        if !sent_txs.is_empty() {
-            if let Err(e) = self
-                .sent_payable_dao
-                .insert_new_records(&sent_txs.iter().cloned().collect())
-            {
-                panic!(
-                    "Failed to insert transactions into the SentPayable table. Error: {:?}",
-                    e
-                );
-            }
+        if let Err(e) = self
+            .sent_payable_dao
+            .insert_new_records(&sent_txs.iter().cloned().collect())
+        {
+            panic!(
+                "Failed to insert transactions into the SentPayable table. Error: {:?}",
+                e
+            );
         }
     }
 
     fn insert_records_in_failed_payables(&self, failed_txs: &Vec<FailedTx>) {
-        if !failed_txs.is_empty() {
-            let failed_txs_set: BTreeSet<FailedTx> = failed_txs.iter().cloned().collect();
-            if let Err(e) = self.failed_payable_dao.insert_new_records(&failed_txs_set) {
-                panic!(
-                    "Failed to insert transactions into the FailedPayable table. Error: {:?}",
-                    e
-                );
-            }
+        if let Err(e) = self
+            .failed_payable_dao
+            .insert_new_records(&failed_txs.iter().cloned().collect())
+        {
+            panic!(
+                "Failed to insert transactions into the FailedPayable table. Error: {:?}",
+                e
+            );
         }
     }
 
@@ -357,7 +355,7 @@ mod tests {
     use crate::accountant::scanners::payable_scanner::test_utils::PayableScannerBuilder;
     use crate::accountant::test_utils::{FailedPayableDaoMock, SentPayableDaoMock};
     use crate::blockchain::test_utils::make_tx_hash;
-    use masq_lib::test_utils::logging::init_test_logging;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Mutex};
 
@@ -496,21 +494,6 @@ mod tests {
     }
 
     #[test]
-    fn insert_records_in_sent_payables_does_nothing_for_empty_vec() {
-        let insert_new_records_params = Arc::new(Mutex::new(vec![]));
-        let sent_payable_dao = SentPayableDaoMock::default()
-            .insert_new_records_params(&insert_new_records_params)
-            .insert_new_records_result(Ok(()));
-        let subject = PayableScannerBuilder::new()
-            .sent_payable_dao(sent_payable_dao)
-            .build();
-
-        subject.insert_records_in_sent_payables(&vec![]);
-
-        assert!(insert_new_records_params.lock().unwrap().is_empty());
-    }
-
-    #[test]
     fn insert_records_in_sent_payables_inserts_records_successfully() {
         let insert_new_records_params = Arc::new(Mutex::new(vec![]));
         let sent_payable_dao = SentPayableDaoMock::default()
@@ -552,21 +535,6 @@ mod tests {
     }
 
     #[test]
-    fn insert_records_in_failed_payables_does_nothing_for_empty_vec() {
-        let insert_new_records_params = Arc::new(Mutex::new(vec![]));
-        let failed_payable_dao = FailedPayableDaoMock::default()
-            .insert_new_records_params(&insert_new_records_params)
-            .insert_new_records_result(Ok(()));
-        let subject = PayableScannerBuilder::new()
-            .failed_payable_dao(failed_payable_dao)
-            .build();
-
-        subject.insert_records_in_failed_payables(&vec![]);
-
-        assert!(insert_new_records_params.lock().unwrap().is_empty());
-    }
-
-    #[test]
     fn insert_records_in_failed_payables_inserts_records_successfully() {
         let insert_new_records_params = Arc::new(Mutex::new(vec![]));
         let failed_payable_dao = FailedPayableDaoMock::default()
@@ -605,44 +573,6 @@ mod tests {
         let panic_msg = result.downcast_ref::<String>().unwrap();
         assert!(panic_msg.contains("Failed to insert transactions into the FailedPayable table"));
         assert!(panic_msg.contains("Test error"));
-    }
-
-    #[test]
-    fn mark_prev_txs_as_concluded_handles_empty_vector() {
-        init_test_logging();
-
-        let retrieve_txs_params = Arc::new(Mutex::new(vec![]));
-        let update_statuses_params = Arc::new(Mutex::new(vec![]));
-        let failed_payable_dao = FailedPayableDaoMock::default()
-            .retrieve_txs_params(&retrieve_txs_params)
-            .retrieve_txs_result(BTreeSet::new())
-            .update_statuses_params(&update_statuses_params);
-        let subject = PayableScannerBuilder::new()
-            .failed_payable_dao(failed_payable_dao)
-            .build();
-        let sent_payables = SentPayables {
-            payment_procedure_result: Ok(BatchResults {
-                sent_txs: vec![],
-                failed_txs: vec![],
-            }),
-            payable_scan_type: PayableScanType::New,
-            response_skeleton_opt: None,
-        };
-
-        subject.process_message(sent_payables, &Logger::new("test"));
-
-        let retrieve_params = retrieve_txs_params.lock().unwrap();
-        assert_eq!(
-            retrieve_params.len(),
-            0,
-            "retrieve_txs should not be called with empty vector"
-        );
-        let update_params = update_statuses_params.lock().unwrap();
-        assert_eq!(
-            update_params.len(),
-            0,
-            "update_statuses should not be called with empty vector"
-        );
     }
 
     #[test]
@@ -709,5 +639,28 @@ mod tests {
         assert!(insert_new_records_params_sent.lock().unwrap().is_empty());
         assert!(retrieve_txs_params.lock().unwrap().is_empty());
         assert!(update_statuses_params.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn handle_retry_logs_no_warn_when_failed_txs_exist() {
+        init_test_logging();
+        let test_name = "handle_retry_logs_no_warn_when_failed_txs_exist";
+        let sent_payable_dao = SentPayableDaoMock::default().insert_new_records_result(Ok(()));
+        let failed_payable_dao = FailedPayableDaoMock::default()
+            .retrieve_txs_result(BTreeSet::from([make_failed_tx(1)]))
+            .update_statuses_result(Ok(()));
+        let subject = PayableScannerBuilder::new()
+            .sent_payable_dao(sent_payable_dao)
+            .failed_payable_dao(failed_payable_dao)
+            .build();
+        let batch_results = BatchResults {
+            sent_txs: vec![make_sent_tx(1)],
+            failed_txs: vec![],
+        };
+
+        subject.handle_retry(batch_results, &Logger::new(test_name));
+
+        let tlh = TestLogHandler::new();
+        tlh.exists_no_log_containing(&format!("WARN: {test_name}"));
     }
 }

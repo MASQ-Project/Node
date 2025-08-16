@@ -196,7 +196,7 @@ mod tests {
         );
         let tlh = TestLogHandler::new();
         tlh.exists_log_matching(&format!(
-            "DEBUG: {test_name}: While retrying, 2 transactions with hashes: {} have failed.",
+            "WARN: {test_name}: While retrying, 2 transactions with hashes: {} have failed.",
             join_with_separator(failed_txs, |failed_tx| format!("{:?}", failed_tx.hash), ",")
         ));
         tlh.exists_log_matching(&format!(

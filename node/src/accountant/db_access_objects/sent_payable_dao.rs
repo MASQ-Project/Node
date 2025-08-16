@@ -43,7 +43,7 @@ impl Transaction for Tx {
     }
 
     fn receiver_address(&self) -> Address {
-        todo!()
+        self.receiver_address
     }
 
     fn amount(&self) -> u128 {
