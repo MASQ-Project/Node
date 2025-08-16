@@ -240,7 +240,7 @@ mod tests {
         );
         let tlh = TestLogHandler::new();
         tlh.exists_log_matching(&format!(
-            "DEBUG: {test_name}: Local error occurred before transaction signing. Error: Any error"
+            "WARN: {test_name}: Local error occurred before transaction signing. Error: Any error"
         ));
         tlh.exists_log_matching(&format!(
             "INFO: {test_name}: The Payables scan ended in \\d+ms."

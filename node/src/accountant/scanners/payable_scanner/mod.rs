@@ -35,6 +35,7 @@ use crate::blockchain::blockchain_interface::data_structures::BatchResults;
 use crate::sub_lib::accountant::PaymentThresholds;
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use itertools::{Either, Itertools};
+use log::warn;
 use masq_lib::logger::Logger;
 use masq_lib::messages::{ToMessageBody, UiScanResponse};
 use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
@@ -287,9 +288,10 @@ impl PayableScanner {
     }
 
     fn log_local_error(local_error: String, logger: &Logger) {
-        debug!(
+        warning!(
             logger,
-            "Local error occurred before transaction signing. Error: {}", local_error
+            "Local error occurred before transaction signing. Error: {}",
+            local_error
         )
     }
 
