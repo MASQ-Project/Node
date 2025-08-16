@@ -9,7 +9,7 @@ use std::time::SystemTime;
 
 impl Scanner<SentPayables, PayableScanResult> for PayableScanner {
     fn finish_scan(&mut self, msg: SentPayables, logger: &Logger) -> PayableScanResult {
-        self.process_message(msg.clone(), logger);
+        self.process_message(&msg, logger);
 
         self.mark_as_ended(logger);
 

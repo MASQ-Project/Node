@@ -210,8 +210,8 @@ impl PayableScanner {
         }
     }
 
-    fn process_message(&self, msg: SentPayables, logger: &Logger) {
-        match msg.payment_procedure_result {
+    fn process_message(&self, msg: &SentPayables, logger: &Logger) {
+        match &msg.payment_procedure_result {
             Ok(batch_results) => match msg.payable_scan_type {
                 PayableScanType::New => self.handle_new(batch_results, logger),
                 PayableScanType::Retry => self.handle_retry(batch_results, logger),
@@ -220,7 +220,7 @@ impl PayableScanner {
         }
     }
 
-    fn handle_new(&self, batch_results: BatchResults, logger: &Logger) {
+    fn handle_new(&self, batch_results: &BatchResults, logger: &Logger) {
         let (sent, failed) = calculate_lengths(&batch_results);
         debug!(
             logger,
@@ -235,7 +235,7 @@ impl PayableScanner {
         }
     }
 
-    fn handle_retry(&self, batch_results: BatchResults, logger: &Logger) {
+    fn handle_retry(&self, batch_results: &BatchResults, logger: &Logger) {
         let (sent, failed) = calculate_lengths(&batch_results);
         debug!(
             logger,
@@ -284,7 +284,7 @@ impl PayableScanner {
         )
     }
 
-    fn log_local_error(local_error: String, logger: &Logger) {
+    fn log_local_error(local_error: &str, logger: &Logger) {
         warning!(
             logger,
             "Local error occurred before transaction signing. Error: {}",
@@ -587,7 +587,7 @@ mod tests {
             failed_txs: vec![make_failed_tx(1)],
         };
 
-        subject.handle_new(batch_results, &Logger::new("test"));
+        subject.handle_new(&batch_results, &Logger::new("test"));
 
         assert!(insert_new_records_params_sent.lock().unwrap().is_empty());
     }
@@ -607,7 +607,7 @@ mod tests {
             failed_txs: vec![],
         };
 
-        subject.handle_new(batch_results, &Logger::new("test"));
+        subject.handle_new(&batch_results, &Logger::new("test"));
 
         assert!(insert_new_records_params_failed.lock().unwrap().is_empty());
     }
@@ -631,7 +631,7 @@ mod tests {
             failed_txs: vec![make_failed_tx(1)],
         };
 
-        subject.handle_retry(batch_results, &Logger::new("test"));
+        subject.handle_retry(&batch_results, &Logger::new("test"));
 
         assert!(insert_new_records_params_sent.lock().unwrap().is_empty());
         assert!(retrieve_txs_params.lock().unwrap().is_empty());
@@ -655,7 +655,7 @@ mod tests {
             failed_txs: vec![],
         };
 
-        subject.handle_retry(batch_results, &Logger::new(test_name));
+        subject.handle_retry(&batch_results, &Logger::new(test_name));
 
         let tlh = TestLogHandler::new();
         tlh.exists_no_log_containing(&format!("WARN: {test_name}"));
