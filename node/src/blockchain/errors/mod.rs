@@ -2,5 +2,6 @@
 
 pub mod blockchain_db_error;
 pub mod blockchain_error;
+mod custom_common_methods;
 mod test_utils;
 pub mod validation_status;

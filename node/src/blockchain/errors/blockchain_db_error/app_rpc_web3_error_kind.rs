@@ -1,37 +1,53 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::blockchain::errors::blockchain_db_error::BlockchainDbError;
+use crate::blockchain::errors::blockchain_db_error::{BlockchainDbError, CustomHash, CustomSeDe};
 use crate::blockchain::errors::blockchain_error::app_rpc_web3_error::{
     AppRpcWeb3Error, LocalError, RemoteError,
 };
-use libc::pathconf;
-use serde::Serialize as SerializeTrait;
+use crate::blockchain::errors::custom_common_methods::CustomCommonMethods;
 use serde_derive::{Deserialize, Serialize};
-use std::fmt::{Debug, Formatter};
+use serde_json::Value;
+use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 
 impl BlockchainDbError for AppRpcWeb3ErrorKind {
-    fn serialize_fn(&self) -> Result<String, serde_json::Error> {
-        serde_json::to_string(self) //TODO tested??
+    fn as_common_methods(&self) -> &dyn CustomCommonMethods<Box<dyn BlockchainDbError>> {
+        todo!()
+    }
+}
+
+impl CustomSeDe for AppRpcWeb3ErrorKind {
+    fn costume_serialize(&self) -> Result<Value, serde_json::Error> {
+        serde_json::to_value(self)
     }
 
-    fn deserialize_fn(str: &str) -> Result<Box<dyn BlockchainDbError>, serde_json::Error>
+    fn costume_deserialize(str: &str) -> Result<Box<dyn BlockchainDbError>, serde_json::Error>
     where
         Self: Sized,
     {
-        eprintln!("{:?}", str);
         let res: Result<AppRpcWeb3ErrorKind, serde_json::Error> = serde_json::from_str(str);
         res.map(|kind| Box::new(kind) as Box<dyn BlockchainDbError>)
     }
+}
 
+impl CustomCommonMethods<Box<dyn BlockchainDbError>> for AppRpcWeb3ErrorKind {
     fn partial_eq(&self, other: &Box<dyn BlockchainDbError>) -> bool {
         other
+            .as_common_methods()
             .as_any()
             .downcast_ref::<AppRpcWeb3ErrorKind>()
             .map_or(false, |other| self == other)
     }
 
-    fn costume_hash_fn(&self, hasher: &mut dyn Hasher) {
+    fn dup(&self) -> Box<dyn BlockchainDbError> {
+        Box::new(self.clone())
+    }
+
+    as_any_ref_in_trait_impl!();
+}
+
+impl CustomHash for AppRpcWeb3ErrorKind {
+    fn costume_hash(&self, hasher: &mut dyn Hasher) {
         match self {
             AppRpcWeb3ErrorKind::Decoder => hasher.write_u8(0),
             AppRpcWeb3ErrorKind::Internal => hasher.write_u8(1),
@@ -46,12 +62,6 @@ impl BlockchainDbError for AppRpcWeb3ErrorKind {
             }
         }
     }
-
-    fn dup(&self) -> Box<dyn BlockchainDbError> {
-        Box::new(self.clone())
-    }
-
-    as_any_ref_in_trait_impl!();
 }
 
 #[derive(Debug, Hash, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -88,16 +98,15 @@ impl From<AppRpcWeb3Error> for AppRpcWeb3ErrorKind {
     }
 }
 
+#[cfg(test)]
 mod tests {
     use crate::blockchain::errors::blockchain_db_error::app_rpc_web3_error_kind::AppRpcWeb3ErrorKind;
-    use crate::blockchain::errors::blockchain_db_error::masq_error::MASQError;
     use crate::blockchain::errors::blockchain_db_error::BlockchainDbError;
     use crate::blockchain::errors::blockchain_error::app_rpc_web3_error::{
         AppRpcWeb3Error, LocalError, RemoteError,
     };
-    use crate::blockchain::errors::test_utils::test_clone_for_blockchain_db_error;
+    use crate::blockchain::errors::test_utils::test_clone_impl_for_blockchain_db_error;
     use std::collections::hash_map::DefaultHasher;
-    use std::fmt::Debug;
     use std::hash::{Hash, Hasher};
 
     #[test]
@@ -153,7 +162,7 @@ mod tests {
     fn clone_works_for_blockchain_db_error_wrapping_app_rpc_error_kind() {
         let subject: Box<dyn BlockchainDbError> = Box::new(AppRpcWeb3ErrorKind::Web3RpcError(123));
 
-        test_clone_for_blockchain_db_error::<AppRpcWeb3ErrorKind>(subject);
+        test_clone_impl_for_blockchain_db_error::<AppRpcWeb3ErrorKind>(subject);
     }
 
     #[test]

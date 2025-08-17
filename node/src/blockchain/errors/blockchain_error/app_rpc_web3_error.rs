@@ -1,6 +1,9 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use serde_derive::{Deserialize, Serialize};
+use crate::blockchain::errors::blockchain_db_error::BlockchainDbError;
+use crate::blockchain::errors::blockchain_error::BlockchainError;
+use crate::blockchain::errors::custom_common_methods::CustomCommonMethods;
+use std::fmt::{Display, Formatter};
 use web3::error::Error as Web3Error;
 
 // Prefixed with App to clearly distinguish app-specific app_rpc_web3_error_kind from library app_rpc_web3_error_kind.
@@ -8,6 +11,34 @@ use web3::error::Error as Web3Error;
 pub enum AppRpcWeb3Error {
     Local(LocalError),
     Remote(RemoteError),
+}
+
+impl BlockchainError for AppRpcWeb3Error {
+    fn as_common_methods(&self) -> &dyn CustomCommonMethods<Box<dyn BlockchainError>> {
+        self
+    }
+
+    fn downgrade(&self) -> Box<dyn BlockchainDbError> {
+        todo!()
+    }
+}
+
+impl CustomCommonMethods<Box<dyn BlockchainError>> for AppRpcWeb3Error {
+    fn partial_eq(&self, other: &Box<dyn BlockchainError>) -> bool {
+        todo!()
+    }
+
+    fn dup(&self) -> Box<dyn BlockchainError> {
+        Box::new(self.clone())
+    }
+
+    as_any_ref_in_trait_impl!();
+}
+
+impl Display for AppRpcWeb3Error {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,6 +87,8 @@ impl From<Web3Error> for AppRpcWeb3Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::errors::test_utils::test_clone_impl_for_blockchain_error;
+    use std::vec;
 
     #[test]
     fn web3_error_to_failure_reason_conversion_works() {
@@ -100,5 +133,30 @@ mod tests {
             AppRpcWeb3Error::from(Web3Error::Unreachable),
             AppRpcWeb3Error::Remote(RemoteError::Unreachable)
         );
+    }
+
+    #[test]
+    fn clone_works_for_blockchain_error_wrapping_app_rpc_web3_error() {
+        let subject: Box<dyn BlockchainError> =
+            Box::new(AppRpcWeb3Error::Local(LocalError::Internal));
+
+        test_clone_impl_for_blockchain_error::<AppRpcWeb3Error>(subject);
+    }
+
+    #[test]
+    fn display_for_blockchain_error_object_works() {
+        vec![
+            AppRpcWeb3Error::Local(LocalError::Decoder("Serious decoder error".to_string())),
+            AppRpcWeb3Error::Remote(RemoteError::InvalidResponse(
+                "The most invalid response of all invalid responses".to_string(),
+            )),
+            AppRpcWeb3Error::Local(LocalError::Internal),
+            AppRpcWeb3Error::Remote(RemoteError::Unreachable),
+        ]
+        .into_iter()
+        .for_each(|error| {
+            let wrapped_as_trait_object: Box<dyn BlockchainError> = Box::new(error.clone());
+            assert_eq!(wrapped_as_trait_object.to_string(), format!("{:?}", error));
+        })
     }
 }

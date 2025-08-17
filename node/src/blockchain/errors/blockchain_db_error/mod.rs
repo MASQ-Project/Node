@@ -1,27 +1,39 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 pub mod app_rpc_web3_error_kind;
-pub mod masq_error;
+pub mod masq_error_kind;
 
 use crate::blockchain::errors::blockchain_db_error::app_rpc_web3_error_kind::AppRpcWeb3ErrorKind;
-use crate::blockchain::errors::blockchain_db_error::masq_error::MASQError;
-use serde::de::{Error, MapAccess};
+use crate::blockchain::errors::blockchain_db_error::masq_error_kind::MASQErrorKind;
+use crate::blockchain::errors::custom_common_methods::CustomCommonMethods;
 use serde::{Deserialize as DeserializeTrait, Serialize as SerializeTrait};
-use std::fmt::{Debug, Formatter};
+use serde_json::Value;
+use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
+
+pub trait BlockchainDbError: CustomSeDe + CustomHash + Debug {
+    fn as_common_methods(&self) -> &dyn CustomCommonMethods<Box<dyn BlockchainDbError>>;
+}
+
+pub trait CustomSeDe {
+    fn costume_serialize(&self) -> Result<Value, serde_json::Error>;
+    fn costume_deserialize(str: &str) -> Result<Box<dyn BlockchainDbError>, serde_json::Error>
+    where
+        Self: Sized;
+}
+
+pub trait CustomHash {
+    fn costume_hash(&self, hasher: &mut dyn Hasher);
+}
 
 impl SerializeTrait for Box<dyn BlockchainDbError> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        let json_value: serde_json::Value = serde_json::from_str(
-            &self
-                .serialize_fn()
-                .map_err(|e| serde::ser::Error::custom(e))?,
-        ) // TODO tested?
-        .map_err(|e| serde::ser::Error::custom(e))?; // TODO tested?
-        json_value.serialize(serializer)
+        self.costume_serialize()
+            .map_err(|e| serde::ser::Error::custom(e))?
+            .serialize(serializer)
     }
 }
 
@@ -30,15 +42,15 @@ impl<'de> DeserializeTrait<'de> for Box<dyn BlockchainDbError> {
     where
         D: serde::Deserializer<'de>,
     {
-        let json_value: serde_json::Value = serde_json::Value::deserialize(deserializer)?; //TODO tested?
+        let json_value: serde_json::Value = serde_json::Value::deserialize(deserializer)?;
         let json_str =
-            serde_json::to_string(&json_value).map_err(|e| serde::de::Error::custom(e))?; //  TODO tested?
+            serde_json::to_string(&json_value).map_err(|e| serde::de::Error::custom(e))?; // Untested error
 
-        if let Ok(error) = AppRpcWeb3ErrorKind::deserialize_fn(&json_str) {
+        if let Ok(error) = AppRpcWeb3ErrorKind::costume_deserialize(&json_str) {
             return Ok(error);
         }
 
-        if let Ok(error) = MASQError::deserialize_fn(&json_str) {
+        if let Ok(error) = MASQErrorKind::costume_deserialize(&json_str) {
             return Ok(error);
         }
 
@@ -51,38 +63,28 @@ impl<'de> DeserializeTrait<'de> for Box<dyn BlockchainDbError> {
 
 impl Clone for Box<dyn BlockchainDbError> {
     fn clone(&self) -> Self {
-        self.dup()
+        self.as_common_methods().dup()
     }
 }
 
 impl PartialEq for Box<dyn BlockchainDbError> {
     fn eq(&self, other: &Self) -> bool {
-        self.partial_eq(other)
+        self.as_common_methods().partial_eq(other)
     }
 }
 
 impl Hash for Box<dyn BlockchainDbError> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.costume_hash_fn(state)
+        self.costume_hash(state)
     }
 }
 
 impl Eq for Box<dyn BlockchainDbError> {}
 
-pub trait BlockchainDbError: Debug {
-    fn serialize_fn(&self) -> Result<String, serde_json::Error>;
-    fn deserialize_fn(str: &str) -> Result<Box<dyn BlockchainDbError>, serde_json::Error>
-    where
-        Self: Sized;
-    fn partial_eq(&self, other: &Box<dyn BlockchainDbError>) -> bool;
-    fn costume_hash_fn(&self, hasher: &mut dyn Hasher);
-    fn dup(&self) -> Box<dyn BlockchainDbError>;
-    as_any_ref_in_trait!();
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::errors::test_utils::BlockchainDbErrorMock;
 
     #[test]
     fn deserialization_fails() {
@@ -94,5 +96,27 @@ mod tests {
             err.to_string(),
             "Unable to deserialize BlockchainDbError from: \"bluh\""
         )
+    }
+
+    #[test]
+    fn pre_serialization_costume_error_is_well_arranged() {
+        let mock = BlockchainDbErrorMock::default();
+        let subject: Box<dyn BlockchainDbError> = Box::new(mock);
+
+        let res = serde_json::to_string(&subject).unwrap_err();
+
+        assert_eq!(
+            res.to_string(),
+            "invalid type: character `a`, expected null"
+        );
+    }
+
+    #[test]
+    fn deserialization_other_error() {
+        let result =
+            serde_json::from_str::<Box<dyn BlockchainDbError>>(r#"{"key":invalid_json_value}"#)
+                .unwrap_err();
+
+        assert_eq!(result.to_string(), "expected value at line 1 column 8");
     }
 }
