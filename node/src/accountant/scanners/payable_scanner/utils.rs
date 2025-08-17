@@ -45,12 +45,13 @@ where
     transactions.map(|tx| tx.receiver_address()).collect()
 }
 
-pub fn generate_concluded_status_updates(
+pub fn generate_status_updates(
     failed_txs: &BTreeSet<FailedTx>,
+    status: FailureStatus,
 ) -> HashMap<TxHash, FailureStatus> {
     failed_txs
         .iter()
-        .map(|tx| (tx.hash, FailureStatus::Concluded))
+        .map(|tx| (tx.hash, status.clone()))
         .collect()
 }
 

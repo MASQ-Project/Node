@@ -10,7 +10,8 @@ pub mod utils;
 use crate::accountant::db_access_objects::failed_payable_dao::FailureRetrieveCondition::ByStatus;
 use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::RetryRequired;
 use crate::accountant::db_access_objects::failed_payable_dao::{
-    FailedPayableDao, FailedTx, FailureRetrieveCondition,
+    FailedPayableDao, FailedTx, FailureReason, FailureRetrieveCondition, FailureStatus,
+    ValidationStatus,
 };
 use crate::accountant::db_access_objects::payable_dao::PayableRetrieveCondition::ByAddresses;
 use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDao};
@@ -19,9 +20,9 @@ use crate::accountant::payment_adjuster::PaymentAdjuster;
 use crate::accountant::scanners::payable_scanner::msgs::InitialTemplatesMessage;
 use crate::accountant::scanners::payable_scanner::payment_adjuster_integration::SolvencySensitivePaymentInstructor;
 use crate::accountant::scanners::payable_scanner::utils::{
-    batch_stats, calculate_lengths, filter_receiver_addresses_from_txs,
-    generate_concluded_status_updates, payables_debug_summary, OperationOutcome, PayableScanResult,
-    PayableThresholdsGauge, PayableThresholdsGaugeReal,
+    batch_stats, calculate_lengths, filter_receiver_addresses_from_txs, generate_status_updates,
+    payables_debug_summary, OperationOutcome, PayableScanResult, PayableThresholdsGauge,
+    PayableThresholdsGaugeReal,
 };
 use crate::accountant::scanners::{Scanner, ScannerCommon, StartableScanner};
 use crate::accountant::{
@@ -204,7 +205,14 @@ impl PayableScanner {
         // TODO: We can do better here, possibly by creating a relationship between failed and sent txs
         // Also, consider the fact that some txs will be with PendingTooLong status, what should we do with them?
         let retrieved_txs = self.retrieve_failed_txs_by_receiver_addresses(&sent_txs);
-        self.update_failed_txs_as_conclued(&retrieved_txs);
+        let (pending_too_long, other_reasons): (BTreeSet<_>, BTreeSet<_>) = retrieved_txs
+            .into_iter()
+            .partition(|tx| matches!(tx.reason, FailureReason::PendingTooLong));
+        self.update_failed_txs(
+            &pending_too_long,
+            FailureStatus::RecheckRequired(ValidationStatus::Waiting),
+        );
+        self.update_failed_txs(&other_reasons, FailureStatus::Concluded);
     }
 
     fn retrieve_failed_txs_by_receiver_addresses(&self, sent_txs: &Vec<Tx>) -> BTreeSet<FailedTx> {
@@ -215,10 +223,10 @@ impl PayableScanner {
             )))
     }
 
-    fn update_failed_txs_as_conclued(&self, failed_txs: &BTreeSet<FailedTx>) {
-        let concluded_updates = generate_concluded_status_updates(failed_txs);
+    fn update_failed_txs(&self, failed_txs: &BTreeSet<FailedTx>, status: FailureStatus) {
+        let status_updates = generate_status_updates(failed_txs, status);
         self.failed_payable_dao
-            .update_statuses(concluded_updates)
+            .update_statuses(status_updates)
             .unwrap_or_else(|e| panic!("Failed to conclude txs in database: {:?}", e));
     }
 
@@ -438,6 +446,63 @@ mod tests {
     }
 
     #[test]
+    fn mark_prev_txs_as_concluded_updates_statuses_correctly() {
+        let retrieve_txs_params = Arc::new(Mutex::new(vec![]));
+        let update_statuses_params = Arc::new(Mutex::new(vec![]));
+        let failed_payable_dao = FailedPayableDaoMock::default()
+            .retrieve_txs_params(&retrieve_txs_params)
+            .retrieve_txs_result(BTreeSet::from([
+                FailedTxBuilder::default()
+                    .hash(make_tx_hash(1))
+                    .reason(FailureReason::PendingTooLong)
+                    .build(),
+                FailedTxBuilder::default()
+                    .hash(make_tx_hash(2))
+                    .reason(FailureReason::Reverted)
+                    .build(),
+            ]))
+            .update_statuses_params(&update_statuses_params)
+            .update_statuses_result(Ok(()))
+            .update_statuses_result(Ok(()));
+        let subject = PayableScannerBuilder::new()
+            .failed_payable_dao(failed_payable_dao)
+            .build();
+        let sent_txs = vec![make_sent_tx(1), make_sent_tx(2)];
+
+        subject.mark_prev_txs_as_concluded(&sent_txs);
+
+        // let retrieve_params = retrieve_txs_params.lock().unwrap();
+        // assert_eq!(retrieve_params.len(), 1);
+        // assert_eq!(
+        //     retrieve_params[0],
+        //     filter_receiver_addresses_from_txs(sent_txs.iter())
+        // );
+
+        let update_params = update_statuses_params.lock().unwrap();
+        assert_eq!(update_params.len(), 2);
+        assert_eq!(
+            update_params[0],
+            generate_status_updates(
+                &BTreeSet::from([FailedTxBuilder::default()
+                    .hash(make_tx_hash(1))
+                    .reason(FailureReason::PendingTooLong)
+                    .build()]),
+                FailureStatus::RecheckRequired(ValidationStatus::Waiting)
+            )
+        );
+        assert_eq!(
+            update_params[1],
+            generate_status_updates(
+                &BTreeSet::from([FailedTxBuilder::default()
+                    .hash(make_tx_hash(2))
+                    .reason(FailureReason::Reverted)
+                    .build()]),
+                FailureStatus::Concluded
+            )
+        );
+    }
+
+    #[test]
     fn insert_records_in_sent_payables_inserts_records_successfully() {
         let insert_new_records_params = Arc::new(Mutex::new(vec![]));
         let sent_payable_dao = SentPayableDaoMock::default()
@@ -592,6 +657,7 @@ mod tests {
         let sent_payable_dao = SentPayableDaoMock::default().insert_new_records_result(Ok(()));
         let failed_payable_dao = FailedPayableDaoMock::default()
             .retrieve_txs_result(BTreeSet::from([make_failed_tx(1)]))
+            .update_statuses_result(Ok(()))
             .update_statuses_result(Ok(()));
         let subject = PayableScannerBuilder::new()
             .sent_payable_dao(sent_payable_dao)
@@ -609,7 +675,7 @@ mod tests {
     }
 
     #[test]
-    fn update_failed_txs_as_concluded_panics_on_error() {
+    fn update_failed_txs_panics_on_error() {
         let failed_payable_dao = FailedPayableDaoMock::default().update_statuses_result(Err(
             FailedPayableDaoError::SqlExecutionFailed("I slept too much".to_string()),
         ));
@@ -620,7 +686,7 @@ mod tests {
         let failed_txs = BTreeSet::from([failed_tx]);
 
         let result = catch_unwind(AssertUnwindSafe(|| {
-            subject.update_failed_txs_as_conclued(&failed_txs);
+            subject.update_failed_txs(&failed_txs, FailureStatus::Concluded);
         }))
         .unwrap_err();
 
