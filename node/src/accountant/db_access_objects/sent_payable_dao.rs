@@ -441,7 +441,8 @@ mod tests {
     use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDaoError::{EmptyInput, PartialExecution};
     use crate::accountant::db_access_objects::test_utils::{make_read_only_db_connection, TxBuilder};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock};
-    use crate::blockchain::errors::{AppRpcError, AppRpcErrorKind, PreviousAttempts, RemoteError, ValidationFailureClockReal};
+    use crate::blockchain::errors::blockchain_db_error::app_rpc_web3_error_kind::AppRpcWeb3ErrorKind;
+    use crate::blockchain::errors::validation_status::{PreviousAttempts, ValidationFailureClockReal};
     use crate::blockchain::test_utils::{make_block_hash, make_tx_hash, ValidationFailureClockMock};
 
     #[test]
@@ -456,11 +457,11 @@ mod tests {
             .hash(make_tx_hash(2))
             .status(TxStatus::Pending(ValidationStatus::Reattempting(
                 PreviousAttempts::new(
-                    Box::new(AppRpcErrorKind::ServerUnreachable),
+                    Box::new(AppRpcWeb3ErrorKind::ServerUnreachable),
                     &ValidationFailureClockReal::default(),
                 )
                 .add_attempt(
-                    Box::new(AppRpcErrorKind::ServerUnreachable),
+                    Box::new(AppRpcWeb3ErrorKind::ServerUnreachable),
                     &ValidationFailureClockReal::default(),
                 ),
             )))
@@ -692,7 +693,7 @@ mod tests {
             .hash(make_tx_hash(2))
             .status(TxStatus::Pending(ValidationStatus::Reattempting(
                 PreviousAttempts::new(
-                    Box::new(AppRpcErrorKind::ServerUnreachable),
+                    Box::new(AppRpcWeb3ErrorKind::ServerUnreachable),
                     &ValidationFailureClockReal::default(),
                 ),
             )))
@@ -1188,7 +1189,7 @@ mod tests {
 
         assert_eq!(
             TxStatus::from_str(r#"{"Pending":{"Reattempting":{"InvalidResponse":{"firstSeen":{"secs_since_epoch":12456,"nanos_since_epoch":0},"attempts":1}}}}"#).unwrap(),
-            TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(Box::new(AppRpcErrorKind::InvalidResponse), &validation_failure_clock)))
+            TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(Box::new(AppRpcWeb3ErrorKind::InvalidResponse), &validation_failure_clock)))
         );
 
         assert_eq!(

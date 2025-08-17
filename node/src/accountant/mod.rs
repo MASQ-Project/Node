@@ -2387,7 +2387,7 @@ mod tests {
                 payable_scanner_mock,
             )));
         subject.ui_message_sub_opt = Some(ui_gateway_addr.recipient());
-        // It must be populated because no errors are tolerated at the RetryPayableScanner
+        // It must be populated because no app_rpc_web3_error_kind are tolerated at the RetryPayableScanner
         // if automatic scans are on
         let response_skeleton_opt = Some(ResponseSkeleton {
             client_id: 789,
@@ -4020,7 +4020,7 @@ mod tests {
         // the first message. Now we reset the state by ending the first scan by a failure and see
         // that the third scan request is going to be accepted willingly again.
         addr.try_send(SentPayables {
-            payment_procedure_result: Err(PayableTransactionError::Signing("bluh".to_string())),
+            payment_procedure_result: Err(PayableTransactionError::Signing("blah".to_string())),
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 1122,
                 context_id: 7788,

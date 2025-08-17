@@ -25,7 +25,7 @@ impl Display for BlockchainInterfaceError {
             Self::InvalidUrl => Either::Left("Invalid url"),
             Self::InvalidAddress => Either::Left("Invalid address"),
             Self::InvalidResponse => Either::Left("Invalid response"),
-            Self::QueryFailed(msg) => Either::Right(format!("Query failed: {}", msg)), //TODO this should also incorporate AppRpcError
+            Self::QueryFailed(msg) => Either::Right(format!("Query failed: {}", msg)), //TODO this should also incorporate AppRpcWeb3Error
             Self::UninitializedBlockchainInterface => {
                 Either::Left(BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED)
             }

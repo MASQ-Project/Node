@@ -3099,7 +3099,7 @@ mod tests {
             ScanError {
                 scan_type,
                 response_skeleton_opt: None,
-                msg: "bluh".to_string(),
+                msg: "blah".to_string(),
             }
         }
 

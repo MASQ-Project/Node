@@ -68,7 +68,7 @@ impl Future for StreamReader {
                         self.shutdown();
                         return Err(());
                     } else {
-                        // TODO this could be exploitable and inefficient: if we keep getting non-dead-stream errors, we go into a tight loop and do not return
+                        // TODO this could be exploitable and inefficient: if we keep getting non-dead-stream app_rpc_web3_error_kind, we go into a tight loop and do not return
                         warning!(
                             self.logger,
                             "Continuing after read error on stream from {}: {}",

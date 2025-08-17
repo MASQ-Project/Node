@@ -5,7 +5,7 @@
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
     BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
 };
-use crate::blockchain::errors::ValidationFailureClock;
+use crate::blockchain::errors::validation_status::ValidationFailureClock;
 use bip39::{Language, Mnemonic, Seed};
 use ethabi::Hash;
 use ethereum_types::{BigEndianHash, H160, H256, U64};
