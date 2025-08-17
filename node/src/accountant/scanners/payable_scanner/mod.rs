@@ -193,7 +193,7 @@ impl PayableScanner {
 
         if sent > 0 {
             self.insert_records_in_sent_payables(&batch_results.sent_txs);
-            self.mark_prev_txs_as_concluded(&batch_results.sent_txs);
+            self.update_statuses_of_prev_txs(&batch_results.sent_txs);
         }
         if failed > 0 {
             // TODO: Would it be a good ides to update Retry attempt of previous tx?
@@ -201,18 +201,22 @@ impl PayableScanner {
         }
     }
 
-    fn mark_prev_txs_as_concluded(&self, sent_txs: &Vec<Tx>) {
+    fn update_statuses_of_prev_txs(&self, sent_txs: &Vec<Tx>) {
         // TODO: We can do better here, possibly by creating a relationship between failed and sent txs
         // Also, consider the fact that some txs will be with PendingTooLong status, what should we do with them?
         let retrieved_txs = self.retrieve_failed_txs_by_receiver_addresses(&sent_txs);
         let (pending_too_long, other_reasons): (BTreeSet<_>, BTreeSet<_>) = retrieved_txs
             .into_iter()
             .partition(|tx| matches!(tx.reason, FailureReason::PendingTooLong));
-        self.update_failed_txs(
-            &pending_too_long,
-            FailureStatus::RecheckRequired(ValidationStatus::Waiting),
-        );
-        self.update_failed_txs(&other_reasons, FailureStatus::Concluded);
+        if !pending_too_long.is_empty() {
+            self.update_failed_txs(
+                &pending_too_long,
+                FailureStatus::RecheckRequired(ValidationStatus::Waiting),
+            );
+        }
+        if !other_reasons.is_empty() {
+            self.update_failed_txs(&other_reasons, FailureStatus::Concluded);
+        }
     }
 
     fn retrieve_failed_txs_by_receiver_addresses(&self, sent_txs: &Vec<Tx>) -> BTreeSet<FailedTx> {
@@ -446,18 +450,20 @@ mod tests {
     }
 
     #[test]
-    fn mark_prev_txs_as_concluded_updates_statuses_correctly() {
+    fn update_statuses_of_prev_txs_updates_statuses_correctly() {
         let retrieve_txs_params = Arc::new(Mutex::new(vec![]));
         let update_statuses_params = Arc::new(Mutex::new(vec![]));
+        let tx_hash_1 = make_tx_hash(1);
+        let tx_hash_2 = make_tx_hash(2);
         let failed_payable_dao = FailedPayableDaoMock::default()
             .retrieve_txs_params(&retrieve_txs_params)
             .retrieve_txs_result(BTreeSet::from([
                 FailedTxBuilder::default()
-                    .hash(make_tx_hash(1))
+                    .hash(tx_hash_1)
                     .reason(FailureReason::PendingTooLong)
                     .build(),
                 FailedTxBuilder::default()
-                    .hash(make_tx_hash(2))
+                    .hash(tx_hash_2)
                     .reason(FailureReason::Reverted)
                     .build(),
             ]))
@@ -469,36 +475,17 @@ mod tests {
             .build();
         let sent_txs = vec![make_sent_tx(1), make_sent_tx(2)];
 
-        subject.mark_prev_txs_as_concluded(&sent_txs);
-
-        // let retrieve_params = retrieve_txs_params.lock().unwrap();
-        // assert_eq!(retrieve_params.len(), 1);
-        // assert_eq!(
-        //     retrieve_params[0],
-        //     filter_receiver_addresses_from_txs(sent_txs.iter())
-        // );
+        subject.update_statuses_of_prev_txs(&sent_txs);
 
         let update_params = update_statuses_params.lock().unwrap();
         assert_eq!(update_params.len(), 2);
         assert_eq!(
             update_params[0],
-            generate_status_updates(
-                &BTreeSet::from([FailedTxBuilder::default()
-                    .hash(make_tx_hash(1))
-                    .reason(FailureReason::PendingTooLong)
-                    .build()]),
-                FailureStatus::RecheckRequired(ValidationStatus::Waiting)
-            )
+            hashmap!(tx_hash_1 => FailureStatus::RecheckRequired(ValidationStatus::Waiting))
         );
         assert_eq!(
             update_params[1],
-            generate_status_updates(
-                &BTreeSet::from([FailedTxBuilder::default()
-                    .hash(make_tx_hash(2))
-                    .reason(FailureReason::Reverted)
-                    .build()]),
-                FailureStatus::Concluded
-            )
+            hashmap!(tx_hash_2 => FailureStatus::Concluded)
         );
     }
 

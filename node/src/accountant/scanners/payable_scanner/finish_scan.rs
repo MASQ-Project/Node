@@ -26,6 +26,7 @@ impl Scanner<SentPayables, PayableScanResult> for PayableScanner {
 
 #[cfg(test)]
 mod tests {
+    use crate::accountant::db_access_objects::failed_payable_dao::ValidationStatus::Waiting;
     use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureStatus};
     use crate::accountant::db_access_objects::test_utils::{
         make_failed_tx, make_sent_tx, FailedTxBuilder,
@@ -178,11 +179,11 @@ mod tests {
         assert_eq!(updated_statuses.len(), 2);
         assert_eq!(
             updated_statuses.get(&make_tx_hash(10)).unwrap(),
-            &FailureStatus::Concluded
+            &FailureStatus::RecheckRequired(Waiting)
         );
         assert_eq!(
             updated_statuses.get(&make_tx_hash(20)).unwrap(),
-            &FailureStatus::Concluded
+            &FailureStatus::RecheckRequired(Waiting)
         );
         assert_eq!(
             result,
