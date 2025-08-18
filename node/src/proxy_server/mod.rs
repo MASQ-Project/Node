@@ -6504,7 +6504,10 @@ mod tests {
 
     #[test]
     fn hostname_works() {
-        assert_on_hostname("https://www.example.com/folder/file.html", "www.example.com");
+        assert_on_hostname(
+            "https://www.example.com/folder/file.html",
+            "www.example.com",
+        );
         assert_on_hostname("www.example.com/index.php?arg=test", "www.example.com");
         assert_on_hostname("sub.example.com/index.php?arg=test", "sub.example.com");
         assert_on_hostname("1.1.1.1", "1.1.1.1");
