@@ -2,7 +2,7 @@
 
 use crate::blockchain::errors::blockchain_db_error::{BlockchainDbError, CustomHash, CustomSeDe};
 use crate::blockchain::errors::blockchain_loggable_error::BlockchainLoggableError;
-use crate::blockchain::errors::custom_common_methods::CustomCommonMethods;
+use crate::blockchain::errors::common_methods::CommonMethods;
 use serde::de::{Error, Unexpected};
 use serde_json::Value;
 use std::fmt::Debug;
@@ -32,13 +32,16 @@ macro_rules! test_clone_impl {
 }
 
 test_clone_impl!(test_clone_impl_for_blockchain_db_error, BlockchainDbError);
-test_clone_impl!(test_clone_impl_for_blockchain_error, BlockchainLoggableError);
+test_clone_impl!(
+    test_clone_impl_for_blockchain_error,
+    BlockchainLoggableError
+);
 
 #[derive(Debug, Default)]
 pub struct BlockchainDbErrorMock {}
 
 impl BlockchainDbError for BlockchainDbErrorMock {
-    fn as_common_methods(&self) -> &dyn CustomCommonMethods<Box<dyn BlockchainDbError>> {
+    fn as_common_methods(&self) -> &dyn CommonMethods<Box<dyn BlockchainDbError>> {
         unimplemented!("not needed for testing")
     }
 }
@@ -67,7 +70,7 @@ impl CustomHash for BlockchainDbErrorMock {
     }
 }
 
-impl CustomCommonMethods<Box<dyn BlockchainDbError>> for BlockchainDbErrorMock {
+impl CommonMethods<Box<dyn BlockchainDbError>> for BlockchainDbErrorMock {
     fn partial_eq(&self, _other: &Box<dyn BlockchainDbError>) -> bool {
         unimplemented!("not needed for testing")
     }

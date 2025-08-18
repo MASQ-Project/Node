@@ -1,8 +1,9 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::blockchain::errors::blockchain_db_error::app_rpc_web3_error_kind::AppRpcWeb3ErrorKind;
 use crate::blockchain::errors::blockchain_db_error::BlockchainDbError;
 use crate::blockchain::errors::blockchain_loggable_error::BlockchainLoggableError;
-use crate::blockchain::errors::custom_common_methods::CustomCommonMethods;
+use crate::blockchain::errors::common_methods::CommonMethods;
 use std::fmt::{Display, Formatter};
 use web3::error::Error as Web3Error;
 
@@ -14,18 +15,22 @@ pub enum AppRpcWeb3Error {
 }
 
 impl BlockchainLoggableError for AppRpcWeb3Error {
-    fn as_common_methods(&self) -> &dyn CustomCommonMethods<Box<dyn BlockchainLoggableError>> {
+    fn as_common_methods(&self) -> &dyn CommonMethods<Box<dyn BlockchainLoggableError>> {
         self
     }
 
     fn downgrade(&self) -> Box<dyn BlockchainDbError> {
-        todo!()
+        Box::new(AppRpcWeb3ErrorKind::from(self))
     }
 }
 
-impl CustomCommonMethods<Box<dyn BlockchainLoggableError>> for AppRpcWeb3Error {
+impl CommonMethods<Box<dyn BlockchainLoggableError>> for AppRpcWeb3Error {
     fn partial_eq(&self, other: &Box<dyn BlockchainLoggableError>) -> bool {
-        todo!()
+        other
+            .as_common_methods()
+            .as_any()
+            .downcast_ref::<AppRpcWeb3Error>()
+            .map_or(false, |other| self == other)
     }
 
     fn dup(&self) -> Box<dyn BlockchainLoggableError> {
@@ -87,6 +92,7 @@ impl From<Web3Error> for AppRpcWeb3Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::errors::blockchain_db_error::app_rpc_web3_error_kind::AppRpcWeb3ErrorKind;
     use crate::blockchain::errors::test_utils::test_clone_impl_for_blockchain_error;
     use std::vec;
 
@@ -144,6 +150,40 @@ mod tests {
     }
 
     #[test]
+    fn partial_eq_for_app_rpc_error_works() {
+        let subject: Box<dyn BlockchainLoggableError> =
+            Box::new(AppRpcWeb3Error::Remote(RemoteError::Web3RpcError {
+                code: 222,
+                message: "Some message".to_string(),
+            }));
+        let other_1: Box<dyn BlockchainLoggableError> =
+            Box::new(AppRpcWeb3Error::Remote(RemoteError::Unreachable));
+        let other_2: Box<dyn BlockchainLoggableError> =
+            Box::new(AppRpcWeb3Error::Remote(RemoteError::Web3RpcError {
+                code: 123,
+                message: "Some message".to_string(),
+            }));
+        let other_3: Box<dyn BlockchainLoggableError> =
+            Box::new(AppRpcWeb3Error::Remote(RemoteError::Web3RpcError {
+                code: 222,
+                message: "Some other message".to_string(),
+            }));
+        let other_4: Box<dyn BlockchainLoggableError> =
+            Box::new(AppRpcWeb3Error::Local(LocalError::Internal));
+        let other_5: Box<dyn BlockchainLoggableError> =
+            Box::new(AppRpcWeb3Error::Remote(RemoteError::Web3RpcError {
+                code: 222,
+                message: "Some message".to_string(),
+            }));
+
+        assert_ne!(&subject, &other_1);
+        assert_ne!(&subject, &other_2);
+        assert_ne!(&subject, &other_3);
+        assert_ne!(&subject, &other_4);
+        assert_eq!(&subject, &other_5);
+    }
+
+    #[test]
     fn display_for_blockchain_error_object_works() {
         vec![
             AppRpcWeb3Error::Local(LocalError::Decoder("Serious decoder error".to_string())),
@@ -158,5 +198,26 @@ mod tests {
             let wrapped_as_trait_object: Box<dyn BlockchainLoggableError> = Box::new(error.clone());
             assert_eq!(wrapped_as_trait_object.to_string(), format!("{:?}", error));
         })
+    }
+
+    #[test]
+    fn blockchain_loggable_error_can_be_converted_to_blockchain_db_error_for_app_rpc_web3_errors() {
+        let error_1: Box<dyn BlockchainLoggableError> = Box::new(AppRpcWeb3Error::Local(
+            LocalError::Decoder("This is a decoder error".to_string()),
+        ));
+        let error_2: Box<dyn BlockchainLoggableError> =
+            Box::new(AppRpcWeb3Error::Remote(RemoteError::Unreachable));
+
+        let result_1 = <Box<dyn BlockchainDbError>>::from(error_1);
+        let result_2 = <Box<dyn BlockchainDbError>>::from(error_2);
+
+        assert_eq!(
+            &result_1,
+            &(Box::new(AppRpcWeb3ErrorKind::Decoder) as Box<dyn BlockchainDbError>)
+        );
+        assert_eq!(
+            &result_2,
+            &(Box::new(AppRpcWeb3ErrorKind::ServerUnreachable) as Box<dyn BlockchainDbError>)
+        );
     }
 }

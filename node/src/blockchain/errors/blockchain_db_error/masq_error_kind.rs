@@ -1,7 +1,8 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::blockchain::errors::blockchain_db_error::{BlockchainDbError, CustomHash, CustomSeDe};
-use crate::blockchain::errors::custom_common_methods::CustomCommonMethods;
+use crate::blockchain::errors::blockchain_loggable_error::masq_error::MASQError;
+use crate::blockchain::errors::common_methods::CommonMethods;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
 use std::hash::Hasher;
@@ -13,8 +14,8 @@ pub enum MASQErrorKind {
 }
 
 impl BlockchainDbError for MASQErrorKind {
-    fn as_common_methods(&self) -> &dyn CustomCommonMethods<Box<dyn BlockchainDbError>> {
-        todo!()
+    fn as_common_methods(&self) -> &dyn CommonMethods<Box<dyn BlockchainDbError>> {
+        self
     }
 }
 
@@ -32,7 +33,7 @@ impl CustomSeDe for MASQErrorKind {
     }
 }
 
-impl CustomCommonMethods<Box<dyn BlockchainDbError>> for MASQErrorKind {
+impl CommonMethods<Box<dyn BlockchainDbError>> for MASQErrorKind {
     fn partial_eq(&self, other: &Box<dyn BlockchainDbError>) -> bool {
         other
             .as_common_methods()
@@ -56,12 +57,30 @@ impl CustomHash for MASQErrorKind {
     }
 }
 
+impl From<&MASQError> for MASQErrorKind {
+    fn from(masq_error: &MASQError) -> Self {
+        match masq_error {
+            MASQError::PendingTooLongNotReplaced => MASQErrorKind::PendingTooLongNotReplaced,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::errors::blockchain_loggable_error::masq_error::MASQError;
+    use crate::blockchain::errors::blockchain_loggable_error::BlockchainLoggableError;
     use crate::blockchain::errors::test_utils::test_clone_impl_for_blockchain_db_error;
     use std::collections::hash_map::DefaultHasher;
     use std::hash::Hash;
+
+    #[test]
+    fn conversion_between_masq_error_and_masq_error_kind_works() {
+        assert_eq!(
+            MASQErrorKind::from(&MASQError::PendingTooLongNotReplaced),
+            MASQErrorKind::PendingTooLongNotReplaced
+        );
+    }
 
     #[test]
     fn clone_works_for_blockchain_db_error_wrapping_masq_error_kind() {
@@ -91,7 +110,9 @@ mod tests {
             hashes.iter().for_each(|other_hash| {
                 assert_ne!(picked_hash, other_hash);
             });
-        })
+        });
+        // Expand this test as there are more variants of MASQErrorKind.
+        assert_eq!(MASQErrorKind::VARIANT_COUNT, 1);
     }
 
     #[test]
@@ -118,6 +139,23 @@ mod tests {
             let trait_object_result =
                 serde_json::from_str::<Box<dyn BlockchainDbError>>(&json_result).unwrap();
             assert_eq!(&trait_object_result, &blockchain_error);
-        })
+        });
+        // Expand this test as there are more variants of MASQErrorKind.
+        assert_eq!(MASQErrorKind::VARIANT_COUNT, 1);
+    }
+
+    #[test]
+    fn blockchain_loggable_error_can_be_converted_to_blockchain_db_error_for_masq_errors() {
+        let error: Box<dyn BlockchainLoggableError> =
+            Box::new(MASQError::PendingTooLongNotReplaced);
+
+        let result = <Box<dyn BlockchainDbError>>::from(error);
+
+        assert_eq!(
+            &result,
+            &(Box::new(MASQErrorKind::PendingTooLongNotReplaced) as Box<dyn BlockchainDbError>)
+        );
+        // Expand this test as there are more variants of MASQErrorKind.
+        assert_eq!(MASQErrorKind::VARIANT_COUNT, 1);
     }
 }

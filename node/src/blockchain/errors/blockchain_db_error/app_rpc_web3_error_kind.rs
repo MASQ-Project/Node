@@ -4,15 +4,15 @@ use crate::blockchain::errors::blockchain_db_error::{BlockchainDbError, CustomHa
 use crate::blockchain::errors::blockchain_loggable_error::app_rpc_web3_error::{
     AppRpcWeb3Error, LocalError, RemoteError,
 };
-use crate::blockchain::errors::custom_common_methods::CustomCommonMethods;
+use crate::blockchain::errors::common_methods::CommonMethods;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 
 impl BlockchainDbError for AppRpcWeb3ErrorKind {
-    fn as_common_methods(&self) -> &dyn CustomCommonMethods<Box<dyn BlockchainDbError>> {
-        todo!()
+    fn as_common_methods(&self) -> &dyn CommonMethods<Box<dyn BlockchainDbError>> {
+        self
     }
 }
 
@@ -30,7 +30,7 @@ impl CustomSeDe for AppRpcWeb3ErrorKind {
     }
 }
 
-impl CustomCommonMethods<Box<dyn BlockchainDbError>> for AppRpcWeb3ErrorKind {
+impl CommonMethods<Box<dyn BlockchainDbError>> for AppRpcWeb3ErrorKind {
     fn partial_eq(&self, other: &Box<dyn BlockchainDbError>) -> bool {
         other
             .as_common_methods()
@@ -79,8 +79,8 @@ pub enum AppRpcWeb3ErrorKind {
     Web3RpcError(i64), // Keep only the stable error code
 }
 
-impl From<AppRpcWeb3Error> for AppRpcWeb3ErrorKind {
-    fn from(err: AppRpcWeb3Error) -> Self {
+impl From<&AppRpcWeb3Error> for AppRpcWeb3ErrorKind {
+    fn from(err: &AppRpcWeb3Error) -> Self {
         match err {
             AppRpcWeb3Error::Local(local) => match local {
                 LocalError::Decoder(_) => Self::Decoder,
@@ -92,7 +92,7 @@ impl From<AppRpcWeb3Error> for AppRpcWeb3ErrorKind {
             AppRpcWeb3Error::Remote(remote) => match remote {
                 RemoteError::InvalidResponse(_) => Self::InvalidResponse,
                 RemoteError::Unreachable => Self::ServerUnreachable,
-                RemoteError::Web3RpcError { code, .. } => Self::Web3RpcError(code),
+                RemoteError::Web3RpcError { code, .. } => Self::Web3RpcError(*code),
             },
         }
     }
@@ -112,45 +112,45 @@ mod tests {
     #[test]
     fn conversion_between_app_rpc_error_and_app_rpc_error_kind_works() {
         assert_eq!(
-            AppRpcWeb3ErrorKind::from(AppRpcWeb3Error::Local(LocalError::Decoder(
+            AppRpcWeb3ErrorKind::from(&AppRpcWeb3Error::Local(LocalError::Decoder(
                 "Decoder error".to_string()
             ))),
             AppRpcWeb3ErrorKind::Decoder
         );
         assert_eq!(
-            AppRpcWeb3ErrorKind::from(AppRpcWeb3Error::Local(LocalError::Internal)),
+            AppRpcWeb3ErrorKind::from(&AppRpcWeb3Error::Local(LocalError::Internal)),
             AppRpcWeb3ErrorKind::Internal
         );
         assert_eq!(
-            AppRpcWeb3ErrorKind::from(AppRpcWeb3Error::Local(LocalError::Io(
+            AppRpcWeb3ErrorKind::from(&AppRpcWeb3Error::Local(LocalError::Io(
                 "IO error".to_string()
             ))),
             AppRpcWeb3ErrorKind::IO
         );
         assert_eq!(
-            AppRpcWeb3ErrorKind::from(AppRpcWeb3Error::Local(LocalError::Signing(
+            AppRpcWeb3ErrorKind::from(&AppRpcWeb3Error::Local(LocalError::Signing(
                 "Signing error".to_string()
             ))),
             AppRpcWeb3ErrorKind::Signing
         );
         assert_eq!(
-            AppRpcWeb3ErrorKind::from(AppRpcWeb3Error::Local(LocalError::Transport(
+            AppRpcWeb3ErrorKind::from(&AppRpcWeb3Error::Local(LocalError::Transport(
                 "Transport error".to_string()
             ))),
             AppRpcWeb3ErrorKind::Transport
         );
         assert_eq!(
-            AppRpcWeb3ErrorKind::from(AppRpcWeb3Error::Remote(RemoteError::InvalidResponse(
+            AppRpcWeb3ErrorKind::from(&AppRpcWeb3Error::Remote(RemoteError::InvalidResponse(
                 "Invalid response".to_string()
             ))),
             AppRpcWeb3ErrorKind::InvalidResponse
         );
         assert_eq!(
-            AppRpcWeb3ErrorKind::from(AppRpcWeb3Error::Remote(RemoteError::Unreachable)),
+            AppRpcWeb3ErrorKind::from(&AppRpcWeb3Error::Remote(RemoteError::Unreachable)),
             AppRpcWeb3ErrorKind::ServerUnreachable
         );
         assert_eq!(
-            AppRpcWeb3ErrorKind::from(AppRpcWeb3Error::Remote(RemoteError::Web3RpcError {
+            AppRpcWeb3ErrorKind::from(&AppRpcWeb3Error::Remote(RemoteError::Web3RpcError {
                 code: 55,
                 message: "Booga".to_string()
             })),

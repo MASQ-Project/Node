@@ -5,14 +5,14 @@ pub mod masq_error_kind;
 
 use crate::blockchain::errors::blockchain_db_error::app_rpc_web3_error_kind::AppRpcWeb3ErrorKind;
 use crate::blockchain::errors::blockchain_db_error::masq_error_kind::MASQErrorKind;
-use crate::blockchain::errors::custom_common_methods::CustomCommonMethods;
+use crate::blockchain::errors::common_methods::CommonMethods;
 use serde::{Deserialize as DeserializeTrait, Serialize as SerializeTrait};
 use serde_json::Value;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 
 pub trait BlockchainDbError: CustomSeDe + CustomHash + Debug {
-    fn as_common_methods(&self) -> &dyn CustomCommonMethods<Box<dyn BlockchainDbError>>;
+    fn as_common_methods(&self) -> &dyn CommonMethods<Box<dyn BlockchainDbError>>;
 }
 
 pub trait CustomSeDe {
