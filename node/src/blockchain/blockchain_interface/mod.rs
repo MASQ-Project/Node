@@ -11,7 +11,7 @@ use crate::blockchain::blockchain_bridge::{
     BlockMarker, BlockScanRange, RegisterNewPendingPayables,
 };
 use crate::blockchain::blockchain_interface::data_structures::errors::{
-    BlockchainAgentBuildError, BlockchainError, PayableTransactionError,
+    BlockchainAgentBuildError, BlockchainInterfaceError, PayableTransactionError,
 };
 use crate::blockchain::blockchain_interface::data_structures::{
     ProcessedPayableFallible, RetrievedBlockchainTransactions, TxReceiptResult,
@@ -36,7 +36,7 @@ pub trait BlockchainInterface {
         start_block: BlockMarker,
         scan_range: BlockScanRange,
         recipient: Address,
-    ) -> Box<dyn Future<Item = RetrievedBlockchainTransactions, Error = BlockchainError>>;
+    ) -> Box<dyn Future<Item = RetrievedBlockchainTransactions, Error = BlockchainInterfaceError>>;
 
     fn introduce_blockchain_agent(
         &self,
@@ -46,7 +46,7 @@ pub trait BlockchainInterface {
     fn process_transaction_receipts(
         &self,
         tx_hashes: Vec<TxHashByTable>,
-    ) -> Box<dyn Future<Item = Vec<TxReceiptResult>, Error = BlockchainError>>;
+    ) -> Box<dyn Future<Item = Vec<TxReceiptResult>, Error = BlockchainInterfaceError>>;
 
     fn submit_payables_in_batch(
         &self,

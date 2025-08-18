@@ -353,7 +353,7 @@ impl ProxyServer {
             .try_send(TransmitDataMsg {
                 endpoint: Endpoint::Socket(client_addr),
                 last_data: true,
-                sequence_number: Some(0), // DNS resolution errors always happen on the first request
+                sequence_number: Some(0), // DNS resolution app_rpc_web3_error_kind always happen on the first request
                 data: from_protocol(proxy_protocol)
                     .server_impersonator()
                     .dns_resolution_failure_response(hostname_opt),

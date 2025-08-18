@@ -6,8 +6,8 @@ use crate::accountant::db_access_objects::sent_payable_dao::{
 };
 use crate::accountant::db_access_objects::utils::from_unix_timestamp;
 use crate::accountant::scanners::pending_payable_scanner::utils::{
-    FailedValidation, FailedValidationByTable, FailedValidationError, NormalTxConfirmation,
-    PresortedTxFailure, ReceiptScanReport, TxByTable, TxCaseToBeInterpreted, TxReclaim,
+    FailedValidation, FailedValidationByTable, NormalTxConfirmation,
+    ReceiptScanReport, TxByTable, TxCaseToBeInterpreted, TxReclaim,
 };
 use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
 use crate::blockchain::blockchain_interface::data_structures::{
@@ -16,6 +16,7 @@ use crate::blockchain::blockchain_interface::data_structures::{
 use masq_lib::logger::Logger;
 use std::time::SystemTime;
 use thousands::Separable;
+use crate::blockchain::errors::blockchain_loggable_error::masq_error::MASQError;
 
 #[derive(Default)]
 pub struct TxReceiptInterpreter {}
@@ -84,27 +85,27 @@ impl TxReceiptInterpreter {
             TxByTable::FailedPayable(failed_tx) => {
                 let replacement_tx = sent_payable_dao
                     .retrieve_txs(Some(RetrieveCondition::ByNonce(vec![failed_tx.nonce])));
-                error!(
-                logger,
-                "Failed tx on a recheck was found pending by its receipt. Unexpected behavior. \
-                Tx {:?} was supposed to be replaced by the newer {:?}",
-                failed_tx.hash,
-                replacement_tx
+                let replacement_tx_hash =  replacement_tx
                     .get(0)
                     .unwrap_or_else(|| panic!(
                         "Attempted to display a replacement tx for {:?} but couldn't find \
                         one in the database",
                         failed_tx.hash
                     ))
-                    .hash
-            );
+                    .hash;
+                warning!(
+                    logger,
+                    "Failed tx {:?} on a recheck was found pending on its receipt unexpectedly. \
+                    It was supposed to be replaced by {:?}",
+                    failed_tx.hash, replacement_tx_hash
+                );
                 if failed_tx.reason != FailureReason::PendingTooLong {
                     todo!("panic here")
                 }
                 scan_report.register_rpc_failure(FailedValidationByTable::FailedPayable(
                     FailedValidation::new(
                         failed_tx.hash,
-                        FailedValidationError::TxResubmissionFailed,
+                        Box::new(MASQError::PendingTooLongNotReplaced),
                         failed_tx.status,
                     ),
                 ))
@@ -235,8 +236,8 @@ mod tests {
     use crate::accountant::scanners::pending_payable_scanner::tx_receipt_interpreter::TxReceiptInterpreter;
     use crate::accountant::scanners::pending_payable_scanner::utils::{
         DetectedConfirmations, DetectedFailures, FailedValidation, FailedValidationByTable,
-        FailedValidationError, NormalTxConfirmation, PresortedTxFailure, ReceiptScanReport,
-        RecheckRequiringFailures, TxByTable, TxHashByTable, TxReclaim, ValidationFailureClockReal,
+        NormalTxConfirmation, PresortedTxFailure, ReceiptScanReport,
+        TxByTable, TxHashByTable, TxReclaim,
     };
     use crate::accountant::test_utils::{
         make_failed_tx, make_sent_tx, make_transaction_block, SentPayableDaoMock,
@@ -244,15 +245,16 @@ mod tests {
     use crate::blockchain::blockchain_interface::data_structures::{
         BlockchainTxFailure, TxReceiptError,
     };
-    use crate::blockchain::errors::{
-        AppRpcError, AppRpcErrorKind, LocalError, PreviousAttempts, RemoteError, ValidationStatus,
-    };
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::test_utils::unshared_test_utils::capture_numbers_with_separators_from_str;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
+    use crate::blockchain::errors::blockchain_db_error::app_rpc_web3_error_kind::AppRpcWeb3ErrorKind;
+    use crate::blockchain::errors::blockchain_loggable_error::app_rpc_web3_error::{AppRpcWeb3Error, LocalError, RemoteError};
+    use crate::blockchain::errors::blockchain_loggable_error::masq_error::MASQError;
+    use crate::blockchain::errors::validation_status::{PreviousAttempts, ValidationFailureClockReal, ValidationStatus};
 
     #[test]
     fn interprets_receipt_for_pending_tx_if_it_is_a_success() {
@@ -488,7 +490,8 @@ mod tests {
         init_test_logging();
         let retrieve_txs_params_arc = Arc::new(Mutex::new(vec![]));
         let test_name = "interprets_tx_receipt_for_supposedly_failed_tx_if_the_tx_keeps_pending";
-        let newer_sent_tx_for_older_failed_tx = make_sent_tx(2244);
+        let mut newer_sent_tx_for_older_failed_tx = make_sent_tx(2244);
+        newer_sent_tx_for_older_failed_tx.hash = make_tx_hash(0x7c6);
         let sent_payable_dao = SentPayableDaoMock::new()
             .retrieve_txs_params(&retrieve_txs_params_arc)
             .retrieve_txs_result(vec![newer_sent_tx_for_older_failed_tx]);
@@ -516,7 +519,7 @@ mod tests {
                     tx_receipt_rpc_failures: vec![FailedValidationByTable::FailedPayable(
                         FailedValidation::new(
                             tx_hash,
-                            FailedValidationError::TxResubmissionFailed,
+                            Box::new(MASQError::PendingTooLongNotReplaced),
                             FailureStatus::RecheckRequired(ValidationStatus::Waiting)
                         )
                     )]
@@ -530,10 +533,9 @@ mod tests {
             vec![Some(RetrieveCondition::ByNonce(vec![failed_tx_nonce]))]
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "ERROR: {test_name}: Failed tx on a recheck was found pending by its receipt. Unexpected \
-            behavior. Tx 0x0000000000000000000000000000000000000000000000000000000000000315 was \
-            supposed to be replaced by the newer \
-            0x00000000000000000000000000000000000000000000000000000000000008c4"
+            "WARN: {test_name}: Failed tx 0x0000000000000000000000000000000000000000000000000000000\
+            000000913 on a recheck was found pending on its receipt unexpectedly. It was supposed \
+            to be replaced by 0x00000000000000000000000000000000000000000000000000000000000007c6"
         ));
     }
 
@@ -574,7 +576,7 @@ mod tests {
         test_failed_retrieval_of_receipt_for_pending_payable(
             test_name,
             TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
-                AppRpcErrorKind::Internal,
+                Box::new(AppRpcWeb3ErrorKind::Internal),
                 &ValidationFailureClockReal::default(),
             ))),
         );
@@ -589,7 +591,7 @@ mod tests {
         let mut sent_tx = make_sent_tx(456);
         sent_tx.hash = tx_hash;
         sent_tx.status = current_tx_status.clone();
-        let rpc_error = AppRpcError::Remote(RemoteError::InvalidResponse("bluh".to_string()));
+        let rpc_error = AppRpcWeb3Error::Remote(RemoteError::InvalidResponse("bluh".to_string()));
         let tx_receipt_error =
             TxReceiptError::new(TxHashByTable::SentPayable(tx_hash), rpc_error.clone());
         let scan_report = ReceiptScanReport::default();
@@ -609,7 +611,7 @@ mod tests {
                     tx_receipt_rpc_failures: vec![FailedValidationByTable::SentPayable(
                         FailedValidation::new(
                             tx_hash,
-                            FailedValidationError::Known(rpc_error),
+                            Box::new(rpc_error),
                             current_tx_status
                         )
                     ),]
@@ -640,7 +642,7 @@ mod tests {
         test_failed_retrieval_of_receipt_for_failed_tx(
             test_name,
             FailureStatus::RecheckRequired(ValidationStatus::Reattempting(PreviousAttempts::new(
-                AppRpcErrorKind::Internal,
+                Box::new(AppRpcWeb3ErrorKind::Internal),
                 &ValidationFailureClockReal::default(),
             ))),
         );
@@ -655,7 +657,7 @@ mod tests {
         let mut failed_tx = make_failed_tx(456);
         failed_tx.hash = tx_hash;
         failed_tx.status = current_failure_status.clone();
-        let rpc_error = AppRpcError::Local(LocalError::Internal);
+        let rpc_error = AppRpcWeb3Error::Local(LocalError::Internal);
         let tx_receipt_error =
             TxReceiptError::new(TxHashByTable::FailedPayable(tx_hash), rpc_error.clone());
         let scan_report = ReceiptScanReport::default();
@@ -675,7 +677,7 @@ mod tests {
                     tx_receipt_rpc_failures: vec![FailedValidationByTable::FailedPayable(
                         FailedValidation::new(
                             tx_hash,
-                            FailedValidationError::Known(rpc_error),
+                            Box::new(rpc_error),
                             current_failure_status
                         )
                     )]

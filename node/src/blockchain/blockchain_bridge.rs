@@ -13,7 +13,7 @@ use crate::actor_system_factory::SubsFactory;
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::HashAndAmount;
 use crate::blockchain::blockchain_interface::data_structures::errors::{
-    BlockchainError, PayableTransactionError,
+    BlockchainInterfaceError, PayableTransactionError,
 };
 use crate::blockchain::blockchain_interface::data_structures::{
     ProcessedPayableFallible, StatusReadFromReceiptCheck, TxReceiptResult,
@@ -487,12 +487,13 @@ impl BlockchainBridge {
             .expect("Accountant unbound")
     }
 
-    pub fn extract_max_block_count(error: BlockchainError) -> Option<u64> {
+    pub fn extract_max_block_count(error: BlockchainInterfaceError) -> Option<u64> {
         let regex_result =
             Regex::new(r".* (max: |allowed for your plan: |is limited to |block range limit \(|exceeds max block range )(?P<max_block_count>\d+).*")
                 .expect("Invalid regex");
         let max_block_count = match error {
-            BlockchainError::QueryFailed(msg) => match regex_result.captures(msg.as_str()) {
+            BlockchainInterfaceError::QueryFailed(msg) => match regex_result.captures(msg.as_str())
+            {
                 Some(captures) => match captures.name("max_block_count") {
                     Some(m) => match m.as_str().parse::<u64>() {
                         Ok(value) => Some(value),
@@ -552,7 +553,6 @@ mod tests {
         BlockchainTransaction, RetrievedBlockchainTransactions, RetrievedTxStatus, TxBlock,
         TxReceiptError,
     };
-    use crate::blockchain::errors::{AppRpcError, RemoteError, ValidationStatus};
     use crate::blockchain::test_utils::{
         make_blockchain_interface_web3, make_tx_hash, ReceiptResponseBuilder,
     };
@@ -587,6 +587,8 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
     use web3::types::{TransactionReceipt, H160};
+    use crate::blockchain::errors::blockchain_loggable_error::app_rpc_web3_error::{AppRpcWeb3Error, RemoteError};
+    use crate::blockchain::errors::validation_status::ValidationStatus;
 
     impl Handler<AssertionsMessage<Self>> for BlockchainBridge {
         type Result = ();
@@ -809,7 +811,7 @@ mod tests {
         assert_eq!(accountant_recording.len(), 0);
         let service_fee_balance_error = BlockchainAgentBuildError::ServiceFeeBalance(
             consuming_wallet.address(),
-            BlockchainError::QueryFailed(
+            BlockchainInterfaceError::QueryFailed(
                 "Api error: Transport error: Error(IncompleteMessage)".to_string(),
             ),
         );
@@ -1136,7 +1138,7 @@ mod tests {
         let error_result = result.unwrap_err();
         assert_eq!(
             error_result,
-            TransactionID(BlockchainError::QueryFailed(
+            TransactionID(BlockchainInterfaceError::QueryFailed(
                 "Decoder error: Error(\"0x prefix is missing\", line: 0, column: 0) for wallet 0x2581…7849".to_string()
             ))
         );
@@ -1358,7 +1360,7 @@ mod tests {
                     TxReceiptResult(Err(
                         TxReceiptError::new(
                             TxHashByTable::SentPayable(tx_hash_3),
-                        AppRpcError:: Remote(RemoteError::Web3RpcError { code: 429, message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string()})))),
+                        AppRpcWeb3Error:: Remote(RemoteError::Web3RpcError { code: 429, message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string()})))),
                     TxReceiptResult(Ok(RetrievedTxStatus::new(TxHashByTable::SentPayable(tx_hash_1), StatusReadFromReceiptCheck::Pending))),
                 ],
                 response_skeleton_opt: Some(ResponseSkeleton {
@@ -2082,7 +2084,7 @@ mod tests {
 
     #[test]
     fn extract_max_block_range_from_error_response() {
-        let result = BlockchainError::QueryFailed("RPC error: Error { code: ServerError(-32005), message: \"eth_getLogs block range too large, range: 33636, max: 3500\", data: None }".to_string());
+        let result = BlockchainInterfaceError::QueryFailed("RPC error: Error { code: ServerError(-32005), message: \"eth_getLogs block range too large, range: 33636, max: 3500\", data: None }".to_string());
 
         let max_block_count = BlockchainBridge::extract_max_block_count(result);
 
@@ -2091,7 +2093,7 @@ mod tests {
 
     #[test]
     fn extract_max_block_range_from_pokt_error_response() {
-        let result = BlockchainError::QueryFailed("Rpc(Error { code: ServerError(-32001), message: \"Relay request failed validation: invalid relay request: eth_getLogs block range limit (100000 blocks) exceeded\", data: None })".to_string());
+        let result = BlockchainInterfaceError::QueryFailed("Rpc(Error { code: ServerError(-32001), message: \"Relay request failed validation: invalid relay request: eth_getLogs block range limit (100000 blocks) exceeded\", data: None })".to_string());
 
         let max_block_count = BlockchainBridge::extract_max_block_count(result);
 
@@ -2107,7 +2109,7 @@ mod tests {
     */
     #[test]
     fn extract_max_block_range_for_ankr_error_response() {
-        let result = BlockchainError::QueryFailed("RPC error: Error { code: ServerError(-32600), message: \"block range is too wide\", data: None }".to_string());
+        let result = BlockchainInterfaceError::QueryFailed("RPC error: Error { code: ServerError(-32600), message: \"block range is too wide\", data: None }".to_string());
 
         let max_block_count = BlockchainBridge::extract_max_block_count(result);
 
@@ -2120,7 +2122,7 @@ mod tests {
     */
     #[test]
     fn extract_max_block_range_for_matic_vigil_error_response() {
-        let result = BlockchainError::QueryFailed("RPC error: Error { code: ServerError(-32005), message: \"Blockheight too far in the past. Check params passed to eth_getLogs or eth_call requests.Range of blocks allowed for your plan: 1000\", data: None }".to_string());
+        let result = BlockchainInterfaceError::QueryFailed("RPC error: Error { code: ServerError(-32005), message: \"Blockheight too far in the past. Check params passed to eth_getLogs or eth_call requests.Range of blocks allowed for your plan: 1000\", data: None }".to_string());
 
         let max_block_count = BlockchainBridge::extract_max_block_count(result);
 
@@ -2133,7 +2135,7 @@ mod tests {
     */
     #[test]
     fn extract_max_block_range_for_blockpi_error_response() {
-        let result = BlockchainError::QueryFailed("RPC error: Error { code: ServerError(-32005), message: \"eth_getLogs is limited to 1024 block range. Please check the parameter requirements at  https://docs.blockpi.io/documentations/api-reference\", data: None }".to_string());
+        let result = BlockchainInterfaceError::QueryFailed("RPC error: Error { code: ServerError(-32005), message: \"eth_getLogs is limited to 1024 block range. Please check the parameter requirements at  https://docs.blockpi.io/documentations/api-reference\", data: None }".to_string());
 
         let max_block_count = BlockchainBridge::extract_max_block_count(result);
 
@@ -2142,13 +2144,13 @@ mod tests {
 
     /*
     blastapi - completely rejected call on Public endpoint as won't handle eth_getLogs method on public API
-    [{"jsonrpc":"2.0","id":2,"error":{"code":-32601,"message":"Method not found","data":{"method":""}}},{"jsonrpc":"2.0","id":1,"error":{"code":-32600,"message":"Invalid Request","data":{"message":"Cancelled due to validation errors in batch request"}}}] (edited)
+    [{"jsonrpc":"2.0","id":2,"error":{"code":-32601,"message":"Method not found","data":{"method":""}}},{"jsonrpc":"2.0","id":1,"error":{"code":-32600,"message":"Invalid Request","data":{"message":"Cancelled due to validation app_rpc_web3_error_kind in batch request"}}}] (edited)
     [8:50 AM]
     */
 
     #[test]
     fn extract_max_block_range_for_blastapi_error_response() {
-        let result = BlockchainError::QueryFailed("RPC error: Error { code: ServerError(-32601), message: \"Method not found\", data: \"'eth_getLogs' is not available on our public API. Head over to https://docs.blastapi.io/blast-documentation/tutorials-and-guides/using-blast-to-get-a-blockchain-endpoint for more information\" }".to_string());
+        let result = BlockchainInterfaceError::QueryFailed("RPC error: Error { code: ServerError(-32601), message: \"Method not found\", data: \"'eth_getLogs' is not available on our public API. Head over to https://docs.blastapi.io/blast-documentation/tutorials-and-guides/using-blast-to-get-a-blockchain-endpoint for more information\" }".to_string());
 
         let max_block_count = BlockchainBridge::extract_max_block_count(result);
 
@@ -2157,7 +2159,7 @@ mod tests {
 
     #[test]
     fn extract_max_block_range_for_nodies_error_response() {
-        let result = BlockchainError::QueryFailed("RPC error: Error { code: InvalidParams, message: \"query exceeds max block range 100000\", data: None }".to_string());
+        let result = BlockchainInterfaceError::QueryFailed("RPC error: Error { code: InvalidParams, message: \"query exceeds max block range 100000\", data: None }".to_string());
 
         let max_block_count = BlockchainBridge::extract_max_block_count(result);
 
@@ -2166,7 +2168,7 @@ mod tests {
 
     #[test]
     fn extract_max_block_range_for_expected_batch_got_single_error_response() {
-        let result = BlockchainError::QueryFailed(
+        let result = BlockchainInterfaceError::QueryFailed(
             "Got invalid response: Expected batch, got single.".to_string(),
         );
 

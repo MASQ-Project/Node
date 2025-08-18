@@ -6,7 +6,6 @@ use crate::accountant::db_access_objects::utils::TxHash;
 use crate::accountant::scanners::pending_payable_scanner::utils::TxHashByTable;
 use crate::accountant::PendingPayable;
 use crate::blockchain::blockchain_bridge::BlockMarker;
-use crate::blockchain::errors::AppRpcError;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use ethereum_types::U64;
@@ -16,6 +15,7 @@ use std::fmt::{Display, Formatter};
 use variant_count::VariantCount;
 use web3::types::H256;
 use web3::Error;
+use crate::blockchain::errors::blockchain_loggable_error::app_rpc_web3_error::AppRpcWeb3Error;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BlockchainTransaction {
@@ -118,11 +118,11 @@ impl Display for StatusReadFromReceiptCheck {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct TxReceiptError {
     pub tx_hash: TxHashByTable,
-    pub err: AppRpcError,
+    pub err: AppRpcWeb3Error,
 }
 
 impl TxReceiptError {
-    pub fn new(tx_hash: TxHashByTable, err: AppRpcError) -> Self {
+    pub fn new(tx_hash: TxHashByTable, err: AppRpcWeb3Error) -> Self {
         Self { tx_hash, err }
     }
 }
@@ -142,10 +142,10 @@ mod tests {
         BlockchainTxFailure, RetrievedTxStatus, StatusReadFromReceiptCheck, TxBlock,
         TxReceiptError, TxReceiptResult,
     };
-    use crate::blockchain::errors::{AppRpcError, LocalError, RemoteError};
     use crate::blockchain::test_utils::make_tx_hash;
     use ethereum_types::{H256, U64};
     use itertools::Itertools;
+    use crate::blockchain::errors::blockchain_loggable_error::app_rpc_web3_error::{AppRpcWeb3Error, LocalError, RemoteError};
 
     #[test]
     fn tx_status_display_works() {
@@ -203,7 +203,7 @@ mod tests {
         )));
         let negative_with_sent_payable = TxReceiptResult(Err(TxReceiptError::new(
             hash_2,
-            AppRpcError::Local(LocalError::Internal),
+            AppRpcWeb3Error::Local(LocalError::Internal),
         )));
         let positive_with_failed_payable = TxReceiptResult(Ok(RetrievedTxStatus::new(
             hash_3,
@@ -211,7 +211,7 @@ mod tests {
         )));
         let negative_with_failed_payable = TxReceiptResult(Err(TxReceiptError::new(
             hash_4,
-            AppRpcError::Remote(RemoteError::Unreachable),
+            AppRpcWeb3Error::Remote(RemoteError::Unreachable),
         )));
 
         let result_1 = positive_with_sent_payable.hash();

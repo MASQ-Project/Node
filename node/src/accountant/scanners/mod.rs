@@ -8,7 +8,6 @@ pub mod scanners_utils;
 pub mod test_utils;
 
 use crate::accountant::db_access_objects::payable_dao::{MarkPendingPayableID, PayableAccount, PayableDao, PayableDaoError};
-use crate::accountant::db_access_objects::receivable_dao::ReceivableDao;
 use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
     LocallyCausedError, RemotelyCausedErrors,
@@ -1055,9 +1054,6 @@ mod tests {
         BlockchainTransaction, BlockchainTxFailure, ProcessedPayableFallible, RetrievedTxStatus,
         RpcPayableFailure, StatusReadFromReceiptCheck, TxBlock, TxReceiptError, TxReceiptResult,
     };
-    use crate::blockchain::errors::{
-        AppRpcError, AppRpcErrorKind, PreviousAttempts, RemoteError, ValidationStatus,
-    };
     use crate::blockchain::test_utils::{make_block_hash, make_tx_hash};
     use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
     use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMockBuilder;
@@ -1090,8 +1086,11 @@ mod tests {
     use std::rc::Rc;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
-    use web3::types::{TransactionReceipt, H256};
+    use web3::types::{H256};
     use web3::Error;
+    use crate::blockchain::errors::blockchain_db_error::app_rpc_web3_error_kind::AppRpcWeb3ErrorKind;
+    use crate::blockchain::errors::blockchain_loggable_error::app_rpc_web3_error::{AppRpcWeb3Error, RemoteError};
+    use crate::blockchain::errors::validation_status::{PreviousAttempts, ValidationStatus};
 
     impl Scanners {
         pub fn replace_scanner(&mut self, replacement: ScannerReplacement) {
@@ -2667,19 +2666,19 @@ mod tests {
         sent_tx_4.status = TxStatus::Pending(ValidationStatus::Waiting);
         let tx_receipt_rpc_error_4 = TxReceiptError::new(
             TxHashByTable::SentPayable(sent_tx_4.hash),
-            AppRpcError::Remote(RemoteError::Unreachable),
+            AppRpcWeb3Error::Remote(RemoteError::Unreachable),
         );
         let tx_hash_5 = make_tx_hash(7890);
         let mut failed_tx_5 = make_failed_tx(888);
         failed_tx_5.hash = tx_hash_5;
         failed_tx_5.status =
             FailureStatus::RecheckRequired(ValidationStatus::Reattempting(PreviousAttempts::new(
-                AppRpcErrorKind::ServerUnreachable,
+                Box::new(AppRpcWeb3ErrorKind::ServerUnreachable),
                 &ValidationFailureClockMock::default().now_result(timestamp_c),
             )));
         let tx_receipt_rpc_error_5 = TxReceiptError::new(
             TxHashByTable::FailedPayable(failed_tx_5.hash),
-            AppRpcError::Remote(RemoteError::InvalidResponse("game over".to_string())),
+            AppRpcWeb3Error::Remote(RemoteError::InvalidResponse("game over".to_string())),
         );
         let tx_hash_6 = make_tx_hash(2345);
         let sent_tx_6 = make_sent_tx(789);
@@ -2752,7 +2751,7 @@ mod tests {
         assert_eq!(
             *update_statuses_pending_payable_params,
             vec![
-                hashmap!(tx_hash_4 => TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(AppRpcErrorKind::ServerUnreachable, &ValidationFailureClockMock::default().now_result(timestamp_a)))))
+                hashmap!(tx_hash_4 => TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(Box::new(AppRpcWeb3ErrorKind::ServerUnreachable), &ValidationFailureClockMock::default().now_result(timestamp_a)))))
             ]
         );
         let update_statuses_failed_payable_params =
@@ -2760,7 +2759,7 @@ mod tests {
         assert_eq!(
             *update_statuses_failed_payable_params,
             vec![
-                hashmap!(tx_hash_5 => FailureStatus::RecheckRequired(ValidationStatus::Reattempting(PreviousAttempts::new(AppRpcErrorKind::ServerUnreachable, &ValidationFailureClockMock::default().now_result(timestamp_c)).add_attempt(AppRpcErrorKind::InvalidResponse, &ValidationFailureClockMock::default().now_result(timestamp_b)))))
+                hashmap!(tx_hash_5 => FailureStatus::RecheckRequired(ValidationStatus::Reattempting(PreviousAttempts::new(Box::new(AppRpcWeb3ErrorKind::ServerUnreachable), &ValidationFailureClockMock::default().now_result(timestamp_c)).add_attempt(Box::new(AppRpcWeb3ErrorKind::InvalidResponse), &ValidationFailureClockMock::default().now_result(timestamp_b)))))
             ]
         );
         assert_eq!(subject.scan_started_at(ScanType::PendingPayables), None);
@@ -3349,7 +3348,7 @@ mod tests {
             ScanError {
                 scan_type,
                 response_skeleton_opt: None,
-                msg: "bluh".to_string(),
+                msg: "blah".to_string(),
             }
         }
 

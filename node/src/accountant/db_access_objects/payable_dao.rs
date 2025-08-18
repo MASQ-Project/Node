@@ -423,7 +423,7 @@ impl TableNameDAO for PayableDaoReal {
 //             },
 //             Err(errs) => {
 //                 let err_msg = format!(
-//                     "Multi-row update to mark pending payable hit these errors: {:?}",
+//                     "Multi-row update to mark pending payable hit these app_rpc_web3_error_kind: {:?}",
 //                     errs
 //                 );
 //                 Err(PayableDaoError::RusqliteError(err_msg))
@@ -891,7 +891,7 @@ mod tests {
         // assert_eq!(
         //     result,
         //     Err(PayableDaoError::RusqliteError(
-        //         "Multi-row update to mark pending payable hit these errors: [SqliteFailure(\
+        //         "Multi-row update to mark pending payable hit these app_rpc_web3_error_kind: [SqliteFailure(\
         //         Error { code: ReadOnly, extended_code: 8 }, Some(\"attempt to write a readonly \
         //         database\"))]"
         //             .to_string()

@@ -6,7 +6,6 @@ use crate::accountant::db_access_objects::failed_payable_dao::{
 };
 use crate::accountant::db_access_objects::sent_payable_dao::{SentTx, TxStatus};
 use crate::accountant::db_access_objects::utils::{current_unix_timestamp, TxHash};
-use crate::blockchain::errors::ValidationStatus;
 use crate::database::db_initializer::{
     DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
 };
@@ -14,6 +13,7 @@ use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
 use rusqlite::{Connection, OpenFlags};
 use std::path::PathBuf;
 use web3::types::Address;
+use crate::blockchain::errors::validation_status::ValidationStatus;
 
 #[derive(Default)]
 pub struct TxBuilder {

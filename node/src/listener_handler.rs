@@ -96,7 +96,7 @@ impl Future for ListenerHandlerReal {
                 }
                 Err(e) => {
                     // TODO FIXME we should kill the entire Node if there is a fatal error in a listener_handler
-                    // TODO this could be exploitable and inefficient: if we keep getting errors, we go into a tight loop and do not return
+                    // TODO this could be exploitable and inefficient: if we keep getting app_rpc_web3_error_kind, we go into a tight loop and do not return
                     error!(self.logger, "Could not accept connection: {}", e);
                 }
                 Ok(Async::NotReady) => return Ok(Async::NotReady),

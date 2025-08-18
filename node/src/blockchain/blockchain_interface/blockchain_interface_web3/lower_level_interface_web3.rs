@@ -2,13 +2,12 @@
 
 use crate::accountant::db_access_objects::failed_payable_dao::FailureReason;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::CONTRACT_ABI;
-use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError;
-use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError::QueryFailed;
+use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainInterfaceError;
+use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainInterfaceError::QueryFailed;
 use crate::blockchain::blockchain_interface::data_structures::{
     BlockchainTxFailure, StatusReadFromReceiptCheck, TxBlock,
 };
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
-use crate::blockchain::errors::AppRpcError;
 use actix::Message;
 use ethereum_types::{H256, U256, U64};
 use futures::Future;
@@ -49,7 +48,7 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
     fn get_transaction_fee_balance(
         &self,
         address: Address,
-    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
+    ) -> Box<dyn Future<Item = U256, Error = BlockchainInterfaceError>> {
         Box::new(
             self.web3
                 .eth()
@@ -61,7 +60,7 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
     fn get_service_fee_balance(
         &self,
         address: Address,
-    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
+    ) -> Box<dyn Future<Item = U256, Error = BlockchainInterfaceError>> {
         Box::new(
             self.contract
                 .query("balanceOf", address, None, Options::default(), None)
@@ -69,7 +68,7 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
         )
     }
 
-    fn get_gas_price(&self) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
+    fn get_gas_price(&self) -> Box<dyn Future<Item = U256, Error = BlockchainInterfaceError>> {
         Box::new(
             self.web3
                 .eth()
@@ -78,7 +77,7 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
         )
     }
 
-    fn get_block_number(&self) -> Box<dyn Future<Item = U64, Error = BlockchainError>> {
+    fn get_block_number(&self) -> Box<dyn Future<Item = U64, Error = BlockchainInterfaceError>> {
         Box::new(
             self.web3
                 .eth()
@@ -90,7 +89,7 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
     fn get_transaction_id(
         &self,
         address: Address,
-    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
+    ) -> Box<dyn Future<Item = U256, Error = BlockchainInterfaceError>> {
         Box::new(
             self.web3
                 .eth()
@@ -102,7 +101,7 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
     fn get_transaction_receipt_in_batch(
         &self,
         hash_vec: Vec<H256>,
-    ) -> Box<dyn Future<Item = Vec<Result<Value, Error>>, Error = BlockchainError>> {
+    ) -> Box<dyn Future<Item = Vec<Result<Value, Error>>, Error = BlockchainInterfaceError>> {
         hash_vec.into_iter().for_each(|hash| {
             self.web3_batch.eth().transaction_receipt(hash);
         });
@@ -122,7 +121,7 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
     fn get_transaction_logs(
         &self,
         filter: Filter,
-    ) -> Box<dyn Future<Item = Vec<Log>, Error = BlockchainError>> {
+    ) -> Box<dyn Future<Item = Vec<Log>, Error = BlockchainInterfaceError>> {
         Box::new(
             self.web3
                 .eth()
@@ -154,8 +153,8 @@ impl LowBlockchainIntWeb3 {
 #[cfg(test)]
 mod tests {
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::TRANSACTION_LITERAL;
-    use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError::QueryFailed;
-    use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainInterface};
+    use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainInterfaceError::QueryFailed;
+    use crate::blockchain::blockchain_interface::{BlockchainInterfaceError, BlockchainInterface};
     use crate::blockchain::test_utils::{make_blockchain_interface_web3};
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
@@ -204,7 +203,9 @@ mod tests {
             .wait();
 
         match result {
-            Err(BlockchainError::QueryFailed(msg)) if msg.contains("invalid hex character: Q") => {
+            Err(BlockchainInterfaceError::QueryFailed(msg))
+                if msg.contains("invalid hex character: Q") =>
+            {
                 ()
             }
             x => panic!("Expected complaint about hex character, but got {:?}", x),
@@ -312,7 +313,9 @@ mod tests {
             .wait();
 
         match result {
-            Err(BlockchainError::QueryFailed(msg)) if msg.contains("invalid hex character: Q") => {
+            Err(BlockchainInterfaceError::QueryFailed(msg))
+                if msg.contains("invalid hex character: Q") =>
+            {
                 ()
             }
             x => panic!("Expected complaint about hex character, but got {:?}", x),
@@ -365,8 +368,11 @@ mod tests {
             .wait();
 
         let err_msg = match result {
-            Err(BlockchainError::QueryFailed(msg)) => msg,
-            x => panic!("Expected BlockchainError::QueryFailed, but got {:?}", x),
+            Err(BlockchainInterfaceError::QueryFailed(msg)) => msg,
+            x => panic!(
+                "Expected BlockchainInterfaceError::QueryFailed, but got {:?}",
+                x
+            ),
         };
         assert!(
             err_msg.contains(expected_err_msg),

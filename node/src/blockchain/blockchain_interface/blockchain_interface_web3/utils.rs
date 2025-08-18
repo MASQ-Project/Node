@@ -15,7 +15,6 @@ use crate::blockchain::blockchain_interface::data_structures::errors::PayableTra
 use crate::blockchain::blockchain_interface::data_structures::{
     ProcessedPayableFallible, RpcPayableFailure,
 };
-use crate::blockchain::errors::ValidationStatus;
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
@@ -33,6 +32,7 @@ use web3::transports::{Batch, Http};
 use web3::types::{Bytes, SignedTransaction, TransactionParameters, U256};
 use web3::Error as Web3Error;
 use web3::Web3;
+use crate::blockchain::errors::validation_status::ValidationStatus;
 
 #[derive(Debug)]
 pub struct BlockchainAgentFutureResult {

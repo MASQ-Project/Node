@@ -18,7 +18,6 @@ use crate::accountant::scanners::pending_payable_scanner::utils::{
     FailedValidationByTable, MismatchReport, NormalTxConfirmation, PendingPayableCache,
     PendingPayableScanResult, PresortedTxFailure, ReceiptScanReport, RecheckRequiringFailures,
     Retry, TxByTable, TxCaseToBeInterpreted, TxHashByTable, TxReclaim, UpdatableValidationStatus,
-    ValidationFailureClock, ValidationFailureClockReal,
 };
 use crate::accountant::scanners::{
     PrivateScanner, Scanner, ScannerCommon, StartScanError, StartableScanner,
@@ -43,6 +42,7 @@ use std::str::FromStr;
 use std::time::SystemTime;
 use thousands::Separable;
 use web3::types::H256;
+use crate::blockchain::errors::validation_status::{ValidationFailureClock, ValidationFailureClockReal};
 
 pub struct PendingPayableScanner {
     pub common: ScannerCommon,
@@ -801,9 +801,9 @@ mod tests {
     use crate::accountant::scanners::pending_payable_scanner::test_utils::ValidationFailureClockMock;
     use crate::accountant::scanners::pending_payable_scanner::utils::{
         CurrentPendingPayables, DetectedConfirmations, DetectedFailures, FailedValidation,
-        FailedValidationByTable, FailedValidationError, NormalTxConfirmation, PendingPayableCache,
+        FailedValidationByTable, NormalTxConfirmation, PendingPayableCache,
         PendingPayableScanResult, PresortedTxFailure, RecheckRequiringFailures, Retry,
-        TxHashByTable, TxReclaim, ValidationFailureClockReal,
+        TxHashByTable, TxReclaim,
     };
     use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
     use crate::accountant::scanners::test_utils::PendingPayableCacheMock;
@@ -816,11 +816,7 @@ mod tests {
     use crate::blockchain::blockchain_interface::data_structures::{
         RetrievedTxStatus, StatusReadFromReceiptCheck, TxBlock, TxReceiptError, TxReceiptResult,
     };
-    use crate::blockchain::errors::{
-        AppRpcError, AppRpcErrorKind, LocalError, PreviousAttempts, RemoteError, ValidationStatus,
-    };
     use crate::blockchain::test_utils::{make_block_hash, make_tx_hash};
-    use crate::neighborhood::overall_connection_status::ConnectionStage::Failed;
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use itertools::Itertools;
     use masq_lib::logger::Logger;
@@ -831,6 +827,9 @@ mod tests {
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
+    use crate::blockchain::errors::blockchain_db_error::app_rpc_web3_error_kind::AppRpcWeb3ErrorKind;
+    use crate::blockchain::errors::blockchain_loggable_error::app_rpc_web3_error::{AppRpcWeb3Error, LocalError, RemoteError};
+    use crate::blockchain::errors::validation_status::{PreviousAttempts, ValidationFailureClockReal, ValidationStatus};
 
     #[test]
     fn start_scan_fills_in_caches_and_returns_msg() {
@@ -946,7 +945,7 @@ mod tests {
                 ))),
                 TxReceiptResult(Err(TxReceiptError::new(
                     TxHashByTable::FailedPayable(failed_tx_hash_1),
-                    AppRpcError::Local(LocalError::Internal),
+                    AppRpcWeb3Error::Local(LocalError::Internal),
                 ))),
                 TxReceiptResult(Ok(RetrievedTxStatus::new(
                     TxHashByTable::FailedPayable(failed_tx_hash_2),
@@ -1015,7 +1014,7 @@ mod tests {
                 ))),
                 TxReceiptResult(Err(TxReceiptError::new(
                     TxHashByTable::FailedPayable(failed_tx_hash_1),
-                    AppRpcError::Local(LocalError::Internal),
+                    AppRpcWeb3Error::Local(LocalError::Internal),
                 ))),
                 TxReceiptResult(Ok(RetrievedTxStatus::new(
                     TxHashByTable::FailedPayable(failed_tx_hash_2),
@@ -1082,7 +1081,7 @@ mod tests {
                 ))),
                 TxReceiptResult(Err(TxReceiptError::new(
                     TxHashByTable::FailedPayable(failed_tx_hash_1),
-                    AppRpcError::Local(LocalError::Internal),
+                    AppRpcWeb3Error::Local(LocalError::Internal),
                 ))),
                 TxReceiptResult(Ok(RetrievedTxStatus::new(
                     TxHashByTable::FailedPayable(failed_tx_hash_2),
@@ -1209,7 +1208,7 @@ mod tests {
         failed_tx_2.hash = hash_2;
         failed_tx_2.status =
             FailureStatus::RecheckRequired(ValidationStatus::Reattempting(PreviousAttempts::new(
-                AppRpcErrorKind::Internal,
+                Box::new(AppRpcWeb3ErrorKind::Internal),
                 &ValidationFailureClockMock::default().now_result(timestamp_a),
             )));
         let failed_payable_dao = FailedPayableDaoMock::default()
@@ -1239,22 +1238,22 @@ mod tests {
             tx_receipt_rpc_failures: vec![
                 FailedValidationByTable::FailedPayable(FailedValidation::new(
                     hash_1,
-                    FailedValidationError::Known(AppRpcError::Remote(RemoteError::Unreachable)),
+                    Box::new(AppRpcWeb3Error::Remote(RemoteError::Unreachable)),
                     FailureStatus::RecheckRequired(ValidationStatus::Waiting),
                 )),
                 FailedValidationByTable::FailedPayable(FailedValidation::new(
                     hash_2,
-                    FailedValidationError::Known(AppRpcError::Local(LocalError::Internal)),
+                    Box::new(AppRpcWeb3Error::Local(LocalError::Internal)),
                     FailureStatus::RecheckRequired(ValidationStatus::Reattempting(
                         PreviousAttempts::new(
-                            AppRpcErrorKind::Internal,
+                            Box::new(AppRpcWeb3ErrorKind::Internal),
                             &ValidationFailureClockMock::default().now_result(timestamp_d),
                         ),
                     )),
                 )),
                 FailedValidationByTable::SentPayable(FailedValidation::new(
                     hash_3,
-                    FailedValidationError::Known(AppRpcError::Remote(
+                    Box::new(AppRpcWeb3Error::Remote(
                         RemoteError::InvalidResponse("Booga".to_string()),
                     )),
                     TxStatus::Pending(ValidationStatus::Waiting),
@@ -1268,7 +1267,7 @@ mod tests {
         assert_eq!(
             *update_statuses_sent_tx_params,
             vec![
-                hashmap![hash_3 => TxStatus::Pending(ValidationStatus::Reattempting (PreviousAttempts::new(AppRpcErrorKind::InvalidResponse, &ValidationFailureClockMock::default().now_result(timestamp_a))))]
+                hashmap![hash_3 => TxStatus::Pending(ValidationStatus::Reattempting (PreviousAttempts::new(Box::new(AppRpcWeb3ErrorKind::InvalidResponse), &ValidationFailureClockMock::default().now_result(timestamp_a))))]
             ]
         );
         let mut update_statuses_failed_tx_params =
@@ -1280,10 +1279,10 @@ mod tests {
             .collect::<HashMap<_, _>>();
         let expected_params = hashmap!(
                 hash_1 => FailureStatus::RecheckRequired(
-                    ValidationStatus::Reattempting(PreviousAttempts::new(AppRpcErrorKind::ServerUnreachable, &ValidationFailureClockMock::default().now_result(timestamp_b)))
+                    ValidationStatus::Reattempting(PreviousAttempts::new(Box::new(AppRpcWeb3ErrorKind::ServerUnreachable), &ValidationFailureClockMock::default().now_result(timestamp_b)))
                 ),
                 hash_2 => FailureStatus::RecheckRequired(
-                    ValidationStatus::Reattempting(PreviousAttempts::new(AppRpcErrorKind::Internal, &ValidationFailureClockMock::default().now_result(timestamp_d)).add_attempt(AppRpcErrorKind::Internal, &ValidationFailureClockReal::default())))
+                    ValidationStatus::Reattempting(PreviousAttempts::new(Box::new(AppRpcWeb3ErrorKind::Internal), &ValidationFailureClockMock::default().now_result(timestamp_d)).add_attempt(Box::new(AppRpcWeb3ErrorKind::Internal), &ValidationFailureClockReal::default())))
             ).into_iter().sorted_by_key(|(key,_)|*key).collect::<HashMap<_, _>>();
         assert_eq!(actual_params, expected_params);
         assert!(
@@ -1328,12 +1327,12 @@ mod tests {
             vec![
                 FailedValidationByTable::FailedPayable(FailedValidation::new(
                     hash_1,
-                    FailedValidationError::Known(AppRpcError::Remote(RemoteError::Unreachable)),
+                    Box::new(AppRpcWeb3Error::Remote(RemoteError::Unreachable)),
                     FailureStatus::RetryRequired,
                 )),
                 FailedValidationByTable::SentPayable(FailedValidation::new(
                     hash_2,
-                    FailedValidationError::Known(AppRpcError::Remote(
+                    Box::new(AppRpcWeb3Error::Remote(
                         RemoteError::InvalidResponse("Booga".to_string()),
                     )),
                     TxStatus::Confirmed {
@@ -1371,7 +1370,7 @@ mod tests {
     fn update_validation_status_for_sent_txs_panics_on_update_statuses() {
         let failed_validation = FailedValidation::new(
             make_tx_hash(456),
-            FailedValidationError::Known(AppRpcError::Local(LocalError::Internal)),
+            Box::new(AppRpcWeb3Error::Local(LocalError::Internal)),
             TxStatus::Pending(ValidationStatus::Waiting),
         );
         let sent_payable_dao = SentPayableDaoMock::default()
@@ -1395,7 +1394,7 @@ mod tests {
     fn update_validation_status_for_failed_txs_panics_on_update_statuses() {
         let failed_validation = FailedValidation::new(
             make_tx_hash(456),
-            FailedValidationError::Known(AppRpcError::Local(LocalError::Internal)),
+            Box::new(AppRpcWeb3Error::Local(LocalError::Internal)),
             FailureStatus::RecheckRequired(ValidationStatus::Waiting),
         );
         let failed_payable_dao = FailedPayableDaoMock::default()
@@ -1441,7 +1440,7 @@ mod tests {
             tx_receipt_rpc_failures: vec![FailedValidationByTable::SentPayable(
                 FailedValidation::new(
                     tx_hash_2,
-                    FailedValidationError::Known(AppRpcError::Local(LocalError::Internal)),
+                    Box::new(AppRpcWeb3Error::Local(LocalError::Internal)),
                     TxStatus::Pending(ValidationStatus::Waiting),
                 ),
             )],
@@ -1457,7 +1456,7 @@ mod tests {
         assert_eq!(
             *update_statuses_params,
             vec![
-                hashmap!(tx_hash_2 => TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(AppRpcErrorKind::Internal, &ValidationFailureClockMock::default().now_result(timestamp)))))
+                hashmap!(tx_hash_2 => TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(Box::new(AppRpcWeb3ErrorKind::Internal), &ValidationFailureClockMock::default().now_result(timestamp)))))
             ]
         );
     }

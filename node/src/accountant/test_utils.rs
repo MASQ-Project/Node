@@ -30,7 +30,7 @@ use crate::accountant::scanners::payable_scanner_extension::msgs::{
 use crate::accountant::scanners::payable_scanner_extension::PreparedAdjustment;
 use crate::accountant::scanners::pending_payable_scanner::test_utils::ValidationFailureClockMock;
 use crate::accountant::scanners::pending_payable_scanner::utils::{
-    PendingPayableCache, ValidationFailureClock, ValidationFailureClockReal,
+    PendingPayableCache,
 };
 use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
 use crate::accountant::scanners::receivable_scanner::ReceivableScanner;
@@ -39,7 +39,6 @@ use crate::accountant::scanners::test_utils::PendingPayableCacheMock;
 use crate::accountant::scanners::PayableScanner;
 use crate::accountant::{gwei_to_wei, Accountant, DEFAULT_PENDING_TOO_LONG_SEC};
 use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, TxBlock};
-use crate::blockchain::errors::ValidationStatus;
 use crate::blockchain::test_utils::{make_block_hash, make_tx_hash};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
@@ -64,6 +63,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use web3::types::Address;
+use crate::blockchain::errors::validation_status::{ValidationFailureClock, ValidationStatus};
 
 pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableAccount {
     let now = to_unix_timestamp(SystemTime::now());

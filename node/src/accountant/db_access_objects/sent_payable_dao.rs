@@ -7,7 +7,6 @@ use crate::accountant::db_access_objects::utils::{
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::{checked_conversion, comma_joined_stringifiable};
 use crate::blockchain::blockchain_interface::data_structures::TxBlock;
-use crate::blockchain::errors::ValidationStatus;
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use ethereum_types::H256;
 use itertools::Itertools;
@@ -18,6 +17,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use web3::types::Address;
+use crate::blockchain::errors::validation_status::ValidationStatus;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SentPayableDaoError {
@@ -501,12 +501,8 @@ mod tests {
     };
     use crate::accountant::db_access_objects::utils::TxRecordWithHash;
     use crate::accountant::scanners::pending_payable_scanner::test_utils::ValidationFailureClockMock;
-    use crate::accountant::scanners::pending_payable_scanner::utils::ValidationFailureClockReal;
     use crate::accountant::test_utils::make_sent_tx;
     use crate::blockchain::blockchain_interface::data_structures::TxBlock;
-    use crate::blockchain::errors::{
-        AppRpcError, AppRpcErrorKind, LocalError, PreviousAttempts, RemoteError, ValidationStatus,
-    };
     use crate::blockchain::test_utils::{make_block_hash, make_tx_hash};
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal,
@@ -514,7 +510,9 @@ mod tests {
     use crate::database::test_utils::ConnectionWrapperMock;
     use ethereum_types::{H256, U64};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use rusqlite::Connection;
+    use rusqlite::{Connection};
+    use crate::blockchain::errors::blockchain_db_error::app_rpc_web3_error_kind::AppRpcWeb3ErrorKind;
+    use crate::blockchain::errors::validation_status::{PreviousAttempts, ValidationFailureClockReal, ValidationStatus};
     use std::collections::{HashMap, HashSet};
     use std::fmt::format;
     use std::ops::{Add, Sub};
@@ -534,11 +532,14 @@ mod tests {
         let tx2 = TxBuilder::default()
             .hash(make_tx_hash(2))
             .status(TxStatus::Pending(ValidationStatus::Reattempting(
-                PreviousAttempts::new(AppRpcErrorKind::Decoder, &validation_failure_clock)
-                    .add_attempt(
-                        AppRpcErrorKind::ServerUnreachable,
-                        &validation_failure_clock,
-                    ),
+                PreviousAttempts::new(
+                    Box::new(AppRpcWeb3ErrorKind::ServerUnreachable),
+                    &ValidationFailureClockReal::default(),
+                )
+                .add_attempt(
+                    Box::new(AppRpcWeb3ErrorKind::ServerUnreachable),
+                    &ValidationFailureClockReal::default(),
+                ),
             )))
             .build();
         let subject = SentPayableDaoReal::new(wrapped_conn);
@@ -768,7 +769,7 @@ mod tests {
             .hash(make_tx_hash(2))
             .status(TxStatus::Pending(ValidationStatus::Reattempting(
                 PreviousAttempts::new(
-                    AppRpcErrorKind::ServerUnreachable,
+                    Box::new(AppRpcWeb3ErrorKind::ServerUnreachable),
                     &ValidationFailureClockReal::default(),
                 ),
             )))
@@ -1103,7 +1104,7 @@ mod tests {
         tx1.status = TxStatus::Pending(ValidationStatus::Waiting);
         let mut tx2 = make_sent_tx(789);
         tx2.status = TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
-            AppRpcErrorKind::ServerUnreachable,
+            Box::new(AppRpcWeb3ErrorKind::ServerUnreachable),
             &ValidationFailureClockMock::default().now_result(timestamp_b),
         )));
         let mut tx3 = make_sent_tx(123);
@@ -1115,7 +1116,7 @@ mod tests {
             (
                 tx1.hash,
                 TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
-                    AppRpcErrorKind::Internal,
+                    Box::new(AppRpcWeb3ErrorKind::Internal),
                     &ValidationFailureClockMock::default().now_result(timestamp_a),
                 ))),
             ),
@@ -1123,11 +1124,11 @@ mod tests {
                 tx2.hash,
                 TxStatus::Pending(ValidationStatus::Reattempting(
                     PreviousAttempts::new(
-                        AppRpcErrorKind::ServerUnreachable,
+                        Box::new(AppRpcWeb3ErrorKind::ServerUnreachable),
                         &ValidationFailureClockMock::default().now_result(timestamp_b),
                     )
                     .add_attempt(
-                        AppRpcErrorKind::ServerUnreachable,
+                        Box::new(AppRpcWeb3ErrorKind::ServerUnreachable),
                         &ValidationFailureClockReal::default(),
                     ),
                 )),
@@ -1151,7 +1152,7 @@ mod tests {
         assert_eq!(
             updated_txs[0].status,
             TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
-                AppRpcErrorKind::Internal,
+                Box::new(AppRpcWeb3ErrorKind::Internal),
                 &ValidationFailureClockMock::default().now_result(timestamp_a)
             )))
         );
@@ -1159,11 +1160,11 @@ mod tests {
             updated_txs[1].status,
             TxStatus::Pending(ValidationStatus::Reattempting(
                 PreviousAttempts::new(
-                    AppRpcErrorKind::ServerUnreachable,
+                    Box::new(AppRpcWeb3ErrorKind::ServerUnreachable),
                     &ValidationFailureClockMock::default().now_result(timestamp_b)
                 )
                 .add_attempt(
-                    AppRpcErrorKind::ServerUnreachable,
+                    Box::new(AppRpcWeb3ErrorKind::ServerUnreachable),
                     &ValidationFailureClockReal::default()
                 )
             ))
@@ -1208,7 +1209,7 @@ mod tests {
         let result = subject.update_statuses(&HashMap::from([(
             make_tx_hash(1),
             TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
-                AppRpcErrorKind::ServerUnreachable,
+                Box::new(AppRpcWeb3ErrorKind::ServerUnreachable),
                 &ValidationFailureClockReal::default(),
             ))),
         )]));
@@ -1401,6 +1402,8 @@ mod tests {
 
     #[test]
     fn tx_status_from_str_works() {
+        let validation_failure_clock = ValidationFailureClockMock::default()
+            .now_result(UNIX_EPOCH.add(Duration::from_secs(12456)));
         assert_eq!(
             TxStatus::from_str(r#"{"Pending":"Waiting"}"#).unwrap(),
             TxStatus::Pending(ValidationStatus::Waiting)
@@ -1410,7 +1413,7 @@ mod tests {
             .now_result(UNIX_EPOCH.add(Duration::from_secs(12456)));
         assert_eq!(
             TxStatus::from_str(r#"{"Pending":{"Reattempting":{"InvalidResponse":{"firstSeen":{"secs_since_epoch":12456,"nanos_since_epoch":0},"attempts":1}}}}"#).unwrap(),
-            TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(AppRpcErrorKind::InvalidResponse, &validation_failure_clock)))
+            TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(Box::new(AppRpcWeb3ErrorKind::InvalidResponse), &validation_failure_clock)))
         );
 
         assert_eq!(

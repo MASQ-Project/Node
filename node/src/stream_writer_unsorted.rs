@@ -50,7 +50,7 @@ impl Future for StreamWriterUnsorted {
                                 return Err(());
                             } else {
                                 self.buf = Some(packet);
-                                // TODO this could be... inefficient, if we keep getting non-dead-stream errors. (we do not return)
+                                // TODO this could be... inefficient, if we keep getting non-dead-stream app_rpc_web3_error_kind. (we do not return)
                                 warning!(self.logger, "Continuing after write error: {}", e);
                             }
                         }
