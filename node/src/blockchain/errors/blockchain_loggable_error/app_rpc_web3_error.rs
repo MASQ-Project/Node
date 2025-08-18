@@ -1,7 +1,7 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::blockchain::errors::blockchain_db_error::BlockchainDbError;
-use crate::blockchain::errors::blockchain_error::BlockchainLoggableError;
+use crate::blockchain::errors::blockchain_loggable_error::BlockchainLoggableError;
 use crate::blockchain::errors::custom_common_methods::CustomCommonMethods;
 use std::fmt::{Display, Formatter};
 use web3::error::Error as Web3Error;

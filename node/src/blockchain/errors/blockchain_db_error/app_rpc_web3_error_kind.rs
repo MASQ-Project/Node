@@ -1,7 +1,7 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::blockchain::errors::blockchain_db_error::{BlockchainDbError, CustomHash, CustomSeDe};
-use crate::blockchain::errors::blockchain_error::app_rpc_web3_error::{
+use crate::blockchain::errors::blockchain_loggable_error::app_rpc_web3_error::{
     AppRpcWeb3Error, LocalError, RemoteError,
 };
 use crate::blockchain::errors::custom_common_methods::CustomCommonMethods;
@@ -102,7 +102,7 @@ impl From<AppRpcWeb3Error> for AppRpcWeb3ErrorKind {
 mod tests {
     use crate::blockchain::errors::blockchain_db_error::app_rpc_web3_error_kind::AppRpcWeb3ErrorKind;
     use crate::blockchain::errors::blockchain_db_error::BlockchainDbError;
-    use crate::blockchain::errors::blockchain_error::app_rpc_web3_error::{
+    use crate::blockchain::errors::blockchain_loggable_error::app_rpc_web3_error::{
         AppRpcWeb3Error, LocalError, RemoteError,
     };
     use crate::blockchain::errors::test_utils::test_clone_impl_for_blockchain_db_error;

@@ -1,7 +1,7 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::blockchain::errors::blockchain_db_error::{BlockchainDbError, CustomHash, CustomSeDe};
-use crate::blockchain::errors::blockchain_error::BlockchainLoggableError;
+use crate::blockchain::errors::blockchain_loggable_error::BlockchainLoggableError;
 use crate::blockchain::errors::custom_common_methods::CustomCommonMethods;
 use serde::de::{Error, Unexpected};
 use serde_json::Value;
