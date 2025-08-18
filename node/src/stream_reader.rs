@@ -538,7 +538,7 @@ mod tests {
             Box::new(TlsDiscriminatorFactory::new()),
             Box::new(HttpRequestDiscriminatorFactory::new()),
         ];
-        let http_connect_request = Vec::from("CONNECT example.com:443 HTTP/1.1\r\n\r\n".as_bytes());
+        let http_connect_request = Vec::from("CONNECT www.example.com:443 HTTP/1.1\r\n\r\n".as_bytes());
         // Magic TLS Sauce stolen from Configuration
         let tls_request = Vec::from(&[0x16, 0x03, 0x01, 0x00, 0x03, 0x01, 0x02, 0x03][..]);
         let reader = ReadHalfWrapperMock {
@@ -594,7 +594,7 @@ mod tests {
         let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
             vec![Box::new(HttpRequestDiscriminatorFactory::new())];
         let request1 = Vec::from("GET http://here.com HTTP/1.1\r\n\r\n".as_bytes());
-        let request2 = Vec::from("GET http://example.com HTTP/1.1\r\n\r\n".as_bytes());
+        let request2 = Vec::from("GET http://www.example.com HTTP/1.1\r\n\r\n".as_bytes());
         let reader = ReadHalfWrapperMock {
             poll_read_results: vec![
                 (request1.clone(), Ok(Async::Ready(request1.len()))),
@@ -651,7 +651,7 @@ mod tests {
                 last_data: false,
                 is_clandestine: false,
                 sequence_number: Some(1),
-                data: Vec::from("GET http://example.com HTTP/1.1\r\n\r\n".as_bytes()),
+                data: Vec::from("GET http://www.example.com HTTP/1.1\r\n\r\n".as_bytes()),
             }
         );
     }
