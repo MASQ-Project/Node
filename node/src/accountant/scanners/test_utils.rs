@@ -523,7 +523,7 @@ impl<Record> PendingPayableCache<Record> for PendingPayableCacheMock<Record> {
         self.get_record_by_hash_results.borrow_mut().remove(0)
     }
 
-    fn ensure_empty_cache(&mut self, logger: &Logger) {
+    fn ensure_empty_cache(&mut self, _logger: &Logger) {
         self.ensure_empty_cache_params.lock().unwrap().push(());
     }
 

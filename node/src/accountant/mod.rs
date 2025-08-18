@@ -36,7 +36,6 @@ use crate::accountant::scanners::{Scanners, StartScanError};
 use crate::blockchain::blockchain_bridge::{
     BlockMarker, RegisterNewPendingPayables, RetrieveTransactions,
 };
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::HashAndAmount;
 use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
 use crate::blockchain::blockchain_interface::data_structures::{
     BlockchainTransaction, ProcessedPayableFallible, TxReceiptResult,
@@ -1177,14 +1176,6 @@ impl PendingPayableId {
     pub fn new(rowid: u64, hash: TxHash) -> Self {
         Self { rowid, hash }
     }
-
-    fn rowids(ids: &[Self]) -> Vec<u64> {
-        ids.iter().map(|id| id.rowid).collect()
-    }
-
-    fn serialize_hashes_to_string(ids: &[Self]) -> String {
-        comma_joined_stringifiable(ids, |id| format!("{:?}", id.hash))
-    }
 }
 
 pub fn comma_joined_stringifiable<T, F>(collection: &[T], stringify: F) -> String
@@ -1231,7 +1222,7 @@ mod tests {
     };
     use crate::accountant::db_access_objects::receivable_dao::ReceivableAccount;
     use crate::accountant::db_access_objects::sent_payable_dao::{
-        Detection, RetrieveCondition, SentPayableDaoError, SentTx, TxStatus,
+        Detection, SentPayableDaoError, TxStatus,
     };
     use crate::accountant::db_access_objects::utils::{
         from_unix_timestamp, to_unix_timestamp, CustomQuery,
@@ -1267,11 +1258,11 @@ mod tests {
     };
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
     use crate::accountant::Accountant;
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::HashAndAmount;
     use crate::blockchain::blockchain_interface::data_structures::{
         BlockchainTxFailure, RetrievedTxStatus, StatusReadFromReceiptCheck, TxBlock,
         TxReceiptResult,
     };
+    use crate::blockchain::errors::validation_status::ValidationStatus;
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
     use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMockBuilder;
@@ -1324,7 +1315,6 @@ mod tests {
     use std::sync::Mutex;
     use std::time::{Duration, UNIX_EPOCH};
     use std::vec;
-    use crate::blockchain::errors::validation_status::ValidationStatus;
 
     impl Handler<AssertionsMessage<Accountant>> for Accountant {
         type Result = ();
@@ -3564,7 +3554,6 @@ mod tests {
                 block_number: 4444444444u64.into(),
             }),
         );
-        let requested_tx = make_tx_hash(234);
         let counter_msg_3 = TxReceiptsMessage {
             results: vec![TxReceiptResult(Ok(tx_with_status))],
             response_skeleton_opt: None,
@@ -5078,7 +5067,7 @@ mod tests {
         subject.scan_schedulers.payable.new_payable_notify =
             Box::new(NotifyHandleMock::default().notify_params(&new_payable_notify_arc));
         let subject_addr = subject.start();
-        let (msg, two_sent_txs) = make_tx_receipts_msg(vec![
+        let (msg, _) = make_tx_receipts_msg(vec![
             SeedsToMakeUpPayableWithStatus {
                 tx_hash: TxHashByTable::SentPayable(make_tx_hash(123)),
                 status: StatusReadFromReceiptCheck::Succeeded(TxBlock {
@@ -5174,7 +5163,7 @@ mod tests {
         let tx_block_1 = make_transaction_block(4567);
         let tx_block_2 = make_transaction_block(1234);
         let subject_addr = subject.start();
-        let (msg, two_sent_txs) = make_tx_receipts_msg(vec![
+        let (msg, _) = make_tx_receipts_msg(vec![
             SeedsToMakeUpPayableWithStatus {
                 tx_hash: TxHashByTable::SentPayable(make_tx_hash(123)),
                 status: StatusReadFromReceiptCheck::Succeeded(tx_block_1),

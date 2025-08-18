@@ -6,9 +6,7 @@ use crate::accountant::db_access_objects::utils::{
     sum_i128_values_from_table, to_unix_timestamp, AssemblerFeeder, CustomQuery, DaoFactoryReal,
     RangeStmConfig, RowId, TopStmConfig, TxHash, VigilantRusqliteFlatten,
 };
-use crate::accountant::db_big_integer::big_int_db_processor::KeyVariants::{
-    PendingPayableRowid, WalletAddress,
-};
+use crate::accountant::db_big_integer::big_int_db_processor::KeyVariants::WalletAddress;
 use crate::accountant::db_big_integer::big_int_db_processor::{
     BigIntDbProcessor, BigIntDbProcessorReal, BigIntSqlConfig, DisplayableRusqliteParamPair,
     ParamByUse, SQLParamsBuilder, TableNameDAO, WeiChange, WeiChangeDirection,
@@ -82,12 +80,6 @@ impl PayableDaoFactory for DaoFactoryReal {
 pub struct MarkPendingPayableID {
     pub wallet: Address,
     pub rowid: RowId,
-}
-
-impl MarkPendingPayableID {
-    pub fn new(wallet: Address, rowid: RowId) -> Self {
-        todo!()
-    }
 }
 
 #[derive(Debug)]
@@ -921,7 +913,6 @@ mod tests {
 
     struct TestInputs {
         hash: TxHash,
-        rowid: u64,
         previous_timestamp: SystemTime,
         new_payable_timestamp: SystemTime,
         wallet: Address,
@@ -938,7 +929,6 @@ mod tests {
         let (account_1, account_2) = [
             TestInputs {
                 hash: make_tx_hash(12345),
-                rowid: 789,
                 previous_timestamp: now.checked_sub(Duration::from_secs(45_000)).unwrap(),
                 new_payable_timestamp: now.checked_sub(Duration::from_secs(2)).unwrap(),
                 wallet: make_wallet("bobbles").address(),
@@ -947,7 +937,6 @@ mod tests {
             },
             TestInputs {
                 hash: make_tx_hash(54321),
-                rowid: 792,
                 previous_timestamp: now.checked_sub(Duration::from_secs(22_000)).unwrap(),
                 new_payable_timestamp: now.checked_sub(Duration::from_secs(2)).unwrap(),
                 wallet: make_wallet("yet more bobbles").address(),

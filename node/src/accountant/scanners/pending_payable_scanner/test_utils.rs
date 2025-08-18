@@ -1,8 +1,8 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::blockchain::errors::validation_status::ValidationFailureClock;
 use std::cell::RefCell;
 use std::time::SystemTime;
-use crate::blockchain::errors::validation_status::ValidationFailureClock;
 
 #[derive(Default)]
 pub struct ValidationFailureClockMock {

@@ -6,17 +6,17 @@ use crate::accountant::db_access_objects::sent_payable_dao::{
 };
 use crate::accountant::db_access_objects::utils::from_unix_timestamp;
 use crate::accountant::scanners::pending_payable_scanner::utils::{
-    FailedValidation, FailedValidationByTable, NormalTxConfirmation,
-    ReceiptScanReport, TxByTable, TxCaseToBeInterpreted, TxReclaim,
+    FailedValidation, FailedValidationByTable, NormalTxConfirmation, ReceiptScanReport, TxByTable,
+    TxCaseToBeInterpreted, TxReclaim,
 };
 use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
 use crate::blockchain::blockchain_interface::data_structures::{
     BlockchainTxFailure, StatusReadFromReceiptCheck, TxBlock, TxReceiptError, TxReceiptResult,
 };
+use crate::blockchain::errors::blockchain_loggable_error::masq_error::MASQError;
 use masq_lib::logger::Logger;
 use std::time::SystemTime;
 use thousands::Separable;
-use crate::blockchain::errors::blockchain_loggable_error::masq_error::MASQError;
 
 #[derive(Default)]
 pub struct TxReceiptInterpreter {}
@@ -85,19 +85,22 @@ impl TxReceiptInterpreter {
             TxByTable::FailedPayable(failed_tx) => {
                 let replacement_tx = sent_payable_dao
                     .retrieve_txs(Some(RetrieveCondition::ByNonce(vec![failed_tx.nonce])));
-                let replacement_tx_hash =  replacement_tx
+                let replacement_tx_hash = replacement_tx
                     .get(0)
-                    .unwrap_or_else(|| panic!(
-                        "Attempted to display a replacement tx for {:?} but couldn't find \
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "Attempted to display a replacement tx for {:?} but couldn't find \
                         one in the database",
-                        failed_tx.hash
-                    ))
+                            failed_tx.hash
+                        )
+                    })
                     .hash;
                 warning!(
                     logger,
                     "Failed tx {:?} on a recheck was found pending on its receipt unexpectedly. \
                     It was supposed to be replaced by {:?}",
-                    failed_tx.hash, replacement_tx_hash
+                    failed_tx.hash,
+                    replacement_tx_hash
                 );
                 if failed_tx.reason != FailureReason::PendingTooLong {
                     todo!("panic here")
@@ -236,8 +239,8 @@ mod tests {
     use crate::accountant::scanners::pending_payable_scanner::tx_receipt_interpreter::TxReceiptInterpreter;
     use crate::accountant::scanners::pending_payable_scanner::utils::{
         DetectedConfirmations, DetectedFailures, FailedValidation, FailedValidationByTable,
-        NormalTxConfirmation, PresortedTxFailure, ReceiptScanReport,
-        TxByTable, TxHashByTable, TxReclaim,
+        NormalTxConfirmation, PresortedTxFailure, ReceiptScanReport, TxByTable, TxHashByTable,
+        TxReclaim,
     };
     use crate::accountant::test_utils::{
         make_failed_tx, make_sent_tx, make_transaction_block, SentPayableDaoMock,
@@ -245,16 +248,20 @@ mod tests {
     use crate::blockchain::blockchain_interface::data_structures::{
         BlockchainTxFailure, TxReceiptError,
     };
+    use crate::blockchain::errors::blockchain_db_error::app_rpc_web3_error_kind::AppRpcWeb3ErrorKind;
+    use crate::blockchain::errors::blockchain_loggable_error::app_rpc_web3_error::{
+        AppRpcWeb3Error, LocalError, RemoteError,
+    };
+    use crate::blockchain::errors::blockchain_loggable_error::masq_error::MASQError;
+    use crate::blockchain::errors::validation_status::{
+        PreviousAttempts, ValidationFailureClockReal, ValidationStatus,
+    };
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::test_utils::unshared_test_utils::capture_numbers_with_separators_from_str;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
-    use crate::blockchain::errors::blockchain_db_error::app_rpc_web3_error_kind::AppRpcWeb3ErrorKind;
-    use crate::blockchain::errors::blockchain_loggable_error::app_rpc_web3_error::{AppRpcWeb3Error, LocalError, RemoteError};
-    use crate::blockchain::errors::blockchain_loggable_error::masq_error::MASQError;
-    use crate::blockchain::errors::validation_status::{PreviousAttempts, ValidationFailureClockReal, ValidationStatus};
 
     #[test]
     fn interprets_receipt_for_pending_tx_if_it_is_a_success() {
@@ -501,7 +508,6 @@ mod tests {
         failed_tx.hash = tx_hash;
         failed_tx.status = FailureStatus::RecheckRequired(ValidationStatus::Waiting);
         let scan_report = ReceiptScanReport::default();
-        let before = SystemTime::now();
 
         let result = TxReceiptInterpreter::handle_still_pending_tx(
             scan_report,
@@ -510,7 +516,6 @@ mod tests {
             &Logger::new(test_name),
         );
 
-        let after = SystemTime::now();
         assert_eq!(
             result,
             ReceiptScanReport {
@@ -609,11 +614,7 @@ mod tests {
                 failures: DetectedFailures {
                     tx_failures: vec![],
                     tx_receipt_rpc_failures: vec![FailedValidationByTable::SentPayable(
-                        FailedValidation::new(
-                            tx_hash,
-                            Box::new(rpc_error),
-                            current_tx_status
-                        )
+                        FailedValidation::new(tx_hash, Box::new(rpc_error), current_tx_status)
                     ),]
                 },
                 confirmations: DetectedConfirmations::default()
@@ -675,11 +676,7 @@ mod tests {
                 failures: DetectedFailures {
                     tx_failures: vec![],
                     tx_receipt_rpc_failures: vec![FailedValidationByTable::FailedPayable(
-                        FailedValidation::new(
-                            tx_hash,
-                            Box::new(rpc_error),
-                            current_failure_status
-                        )
+                        FailedValidation::new(tx_hash, Box::new(rpc_error), current_failure_status)
                     )]
                 },
                 confirmations: DetectedConfirmations::default()

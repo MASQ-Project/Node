@@ -563,7 +563,6 @@ pub mod unshared_test_utils {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use std::vec;
-    use variant_count::VariantCount;
 
     #[derive(Message)]
     pub struct AssertionsMessage<A: Actor> {

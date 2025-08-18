@@ -216,15 +216,12 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
     fn process_transaction_receipts(
         &self,
         tx_hashes: Vec<TxHashByTable>,
-    ) -> Box<dyn Future<Item = Vec<TxReceiptResult>, Error = BlockchainInterfaceError>>
-    {
+    ) -> Box<dyn Future<Item = Vec<TxReceiptResult>, Error = BlockchainInterfaceError>> {
         Box::new(
             self.lower_interface()
-                .get_transaction_receipt_in_batch(Self::drain_hashes(&tx_hashes))
+                .get_transaction_receipt_in_batch(Self::collect_plain_hashes(&tx_hashes))
                 .map_err(move |e| e)
                 .and_then(move |batch_response| {
-                    todo!("check that all the retrieved data are in order with the hashes ");
-
                     Ok(batch_response
                         .into_iter()
                         .zip(tx_hashes.into_iter())
@@ -244,9 +241,9 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                                         } else {
                                             TxReceiptResult(Err(TxReceiptError::new(
                                                 tx_hash,
-                                                AppRpcWeb3Error::Remote(RemoteError::InvalidResponse(
-                                                    e.to_string(),
-                                                )),
+                                                AppRpcWeb3Error::Remote(
+                                                    RemoteError::InvalidResponse(e.to_string()),
+                                                ),
                                             )))
                                         }
                                     }
@@ -442,12 +439,12 @@ impl BlockchainInterfaceWeb3 {
         }
     }
 
-    fn drain_hashes(hashes_by_table: &[TxHashByTable]) -> Vec<TxHash> {
+    fn collect_plain_hashes(hashes_by_table: &[TxHashByTable]) -> Vec<TxHash> {
         hashes_by_table
             .iter()
             .map(|hash_by_table| match hash_by_table {
-                TxHashByTable::SentPayable(hash) => todo!(),
-                TxHashByTable::FailedPayable(hash) => todo!(),
+                TxHashByTable::SentPayable(hash) => *hash,
+                TxHashByTable::FailedPayable(hash) => *hash,
             })
             .collect()
     }
@@ -462,7 +459,6 @@ mod tests {
     };
     use crate::accountant::scanners::pending_payable_scanner::utils::TxHashByTable;
     use crate::accountant::test_utils::make_payable_account;
-    use crate::accountant::test_utils::make_sent_tx;
     use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
         BlockchainInterfaceWeb3, CONTRACT_ABI, REQUESTS_IN_PARALLEL, TRANSACTION_LITERAL,
@@ -1379,6 +1375,35 @@ mod tests {
                 &logger
             ),
             BlockMarker::Uninitialized
+        );
+    }
+
+    #[test]
+    fn collect_plain_hashes_works() {
+        let hash_sent_tx_1 = make_tx_hash(456);
+        let hash_sent_tx_2 = make_tx_hash(789);
+        let hash_sent_tx_3 = make_tx_hash(234);
+        let hash_failed_tx_1 = make_tx_hash(123);
+        let hash_failed_tx_2 = make_tx_hash(345);
+        let inputs = vec![
+            TxHashByTable::SentPayable(hash_sent_tx_1),
+            TxHashByTable::FailedPayable(hash_failed_tx_1),
+            TxHashByTable::SentPayable(hash_sent_tx_2),
+            TxHashByTable::SentPayable(hash_sent_tx_3),
+            TxHashByTable::FailedPayable(hash_failed_tx_2),
+        ];
+
+        let result = BlockchainInterfaceWeb3::collect_plain_hashes(&inputs);
+
+        assert_eq!(
+            result,
+            vec![
+                hash_sent_tx_1,
+                hash_failed_tx_1,
+                hash_sent_tx_2,
+                hash_sent_tx_3,
+                hash_failed_tx_2
+            ]
         );
     }
 }

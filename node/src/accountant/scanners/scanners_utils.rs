@@ -2,13 +2,12 @@
 
 pub mod payable_scanner_utils {
     use crate::accountant::db_access_objects::utils::{ThresholdUtils, TxHash};
-    use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDaoError};
+    use crate::accountant::db_access_objects::payable_dao::{PayableAccount};
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
         LocallyCausedError, RemotelyCausedErrors,
     };
-    use crate::accountant::{comma_joined_stringifiable, PendingPayable, SentPayables};
+    use crate::accountant::{PendingPayable, SentPayables};
     use crate::sub_lib::accountant::PaymentThresholds;
-    use crate::sub_lib::wallet::Wallet;
     use itertools::Itertools;
     use masq_lib::logger::Logger;
     use std::cmp::Ordering;

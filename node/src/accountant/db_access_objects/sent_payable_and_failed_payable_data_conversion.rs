@@ -48,12 +48,11 @@ mod tests {
     use crate::accountant::db_access_objects::utils::to_unix_timestamp;
     use crate::accountant::gwei_to_wei;
     use crate::accountant::test_utils::make_transaction_block;
+    use crate::blockchain::errors::blockchain_db_error::app_rpc_web3_error_kind::AppRpcWeb3ErrorKind;
+    use crate::blockchain::errors::validation_status::{PreviousAttempts, ValidationStatus};
     use crate::blockchain::test_utils::{make_tx_hash, ValidationFailureClockMock};
     use crate::test_utils::make_wallet;
     use std::time::{Duration, SystemTime};
-    use crate::blockchain::errors::blockchain_db_error::app_rpc_web3_error_kind::AppRpcWeb3ErrorKind;
-    use crate::blockchain::errors::blockchain_loggable_error::app_rpc_web3_error::{AppRpcWeb3Error, LocalError};
-    use crate::blockchain::errors::validation_status::{PreviousAttempts, ValidationFailureClockReal, ValidationStatus};
 
     #[test]
     fn sent_tx_record_can_be_converted_from_failed_tx_record() {
@@ -111,14 +110,20 @@ mod tests {
         let result_1 = FailedTx::from((sent_tx.clone(), FailureReason::Reverted));
         let result_2 = FailedTx::from((
             sent_tx.clone(),
-            FailureReason::Submission(PreviousAttempts::new(Box::new(AppRpcWeb3ErrorKind::Internal), &ValidationFailureClockMock::default().now_result(timestamp))),
+            FailureReason::Submission(PreviousAttempts::new(
+                Box::new(AppRpcWeb3ErrorKind::Internal),
+                &ValidationFailureClockMock::default().now_result(timestamp),
+            )),
         ));
 
         assert_conversion_into_failed_tx(result_1, sent_tx.clone(), FailureReason::Reverted);
         assert_conversion_into_failed_tx(
             result_2,
             sent_tx,
-            FailureReason::Submission(PreviousAttempts::new(Box::new(AppRpcWeb3ErrorKind::Internal), &ValidationFailureClockMock::default().now_result(timestamp))),
+            FailureReason::Submission(PreviousAttempts::new(
+                Box::new(AppRpcWeb3ErrorKind::Internal),
+                &ValidationFailureClockMock::default().now_result(timestamp),
+            )),
         );
     }
 

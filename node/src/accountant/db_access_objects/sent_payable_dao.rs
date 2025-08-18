@@ -1,23 +1,21 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::db_access_objects::failed_payable_dao::{FailedPayableDaoError, FailedTx};
 use crate::accountant::db_access_objects::utils::{
     DaoFactoryReal, TxHash, TxIdentifiers, TxRecordWithHash,
 };
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::{checked_conversion, comma_joined_stringifiable};
 use crate::blockchain::blockchain_interface::data_structures::TxBlock;
+use crate::blockchain::errors::validation_status::ValidationStatus;
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use ethereum_types::H256;
 use itertools::Itertools;
 use masq_lib::utils::ExpectValue;
 use serde_derive::{Deserialize, Serialize};
-use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use web3::types::Address;
-use crate::blockchain::errors::validation_status::ValidationStatus;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SentPayableDaoError {
@@ -503,6 +501,10 @@ mod tests {
     use crate::accountant::scanners::pending_payable_scanner::test_utils::ValidationFailureClockMock;
     use crate::accountant::test_utils::make_sent_tx;
     use crate::blockchain::blockchain_interface::data_structures::TxBlock;
+    use crate::blockchain::errors::blockchain_db_error::app_rpc_web3_error_kind::AppRpcWeb3ErrorKind;
+    use crate::blockchain::errors::validation_status::{
+        PreviousAttempts, ValidationFailureClockReal, ValidationStatus,
+    };
     use crate::blockchain::test_utils::{make_block_hash, make_tx_hash};
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal,
@@ -510,11 +512,8 @@ mod tests {
     use crate::database::test_utils::ConnectionWrapperMock;
     use ethereum_types::{H256, U64};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use rusqlite::{Connection};
-    use crate::blockchain::errors::blockchain_db_error::app_rpc_web3_error_kind::AppRpcWeb3ErrorKind;
-    use crate::blockchain::errors::validation_status::{PreviousAttempts, ValidationFailureClockReal, ValidationStatus};
+    use rusqlite::Connection;
     use std::collections::{HashMap, HashSet};
-    use std::fmt::format;
     use std::ops::{Add, Sub};
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
@@ -527,7 +526,6 @@ mod tests {
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let validation_failure_clock = ValidationFailureClockReal::default();
         let tx1 = TxBuilder::default().hash(make_tx_hash(1)).build();
         let tx2 = TxBuilder::default()
             .hash(make_tx_hash(2))
@@ -1404,13 +1402,12 @@ mod tests {
     fn tx_status_from_str_works() {
         let validation_failure_clock = ValidationFailureClockMock::default()
             .now_result(UNIX_EPOCH.add(Duration::from_secs(12456)));
+
         assert_eq!(
             TxStatus::from_str(r#"{"Pending":"Waiting"}"#).unwrap(),
             TxStatus::Pending(ValidationStatus::Waiting)
         );
 
-        let validation_failure_clock = ValidationFailureClockMock::default()
-            .now_result(UNIX_EPOCH.add(Duration::from_secs(12456)));
         assert_eq!(
             TxStatus::from_str(r#"{"Pending":{"Reattempting":{"InvalidResponse":{"firstSeen":{"secs_since_epoch":12456,"nanos_since_epoch":0},"attempts":1}}}}"#).unwrap(),
             TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(Box::new(AppRpcWeb3ErrorKind::InvalidResponse), &validation_failure_clock)))

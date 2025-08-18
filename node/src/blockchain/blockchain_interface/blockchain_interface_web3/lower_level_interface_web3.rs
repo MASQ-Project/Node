@@ -1,6 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::db_access_objects::failed_payable_dao::FailureReason;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::CONTRACT_ABI;
 use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainInterfaceError;
 use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainInterfaceError::QueryFailed;
@@ -8,13 +7,9 @@ use crate::blockchain::blockchain_interface::data_structures::{
     BlockchainTxFailure, StatusReadFromReceiptCheck, TxBlock,
 };
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
-use actix::Message;
 use ethereum_types::{H256, U256, U64};
 use futures::Future;
-use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
-use std::fmt::Display;
-use variant_count::VariantCount;
 use web3::contract::{Contract, Options};
 use web3::transports::{Batch, Http};
 use web3::types::{Address, BlockNumber, Filter, Log, TransactionReceipt};
@@ -163,7 +158,6 @@ mod tests {
     use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
     use masq_lib::utils::find_free_port;
     use std::str::FromStr;
-    use itertools::Itertools;
     use web3::types::{BlockNumber, Bytes, FilterBuilder, Log, TransactionReceipt, U256};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{BlockchainTxFailure, StatusReadFromReceiptCheck};
 

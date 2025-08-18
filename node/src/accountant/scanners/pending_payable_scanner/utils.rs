@@ -3,19 +3,18 @@
 use crate::accountant::db_access_objects::failed_payable_dao::{
     FailedTx, FailureReason, FailureStatus,
 };
-use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDao, SentTx, TxStatus};
+use crate::accountant::db_access_objects::sent_payable_dao::{SentTx, TxStatus};
 use crate::accountant::db_access_objects::utils::TxHash;
 use crate::blockchain::blockchain_interface::data_structures::{
-    BlockchainTxFailure, TxBlock, TxReceiptError, TxReceiptResult,
+    BlockchainTxFailure, TxReceiptError, TxReceiptResult,
 };
-use actix::Message;
+use crate::blockchain::errors::blockchain_loggable_error::BlockchainLoggableError;
+use crate::blockchain::errors::validation_status::{
+    PreviousAttempts, ValidationFailureClock, ValidationStatus,
+};
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeToUiMessage;
 use std::collections::HashMap;
-use std::fmt::Display;
-use thousands::Separable;
-use crate::blockchain::errors::blockchain_loggable_error::BlockchainLoggableError;
-use crate::blockchain::errors::validation_status::{PreviousAttempts, ValidationFailureClock, ValidationStatus};
 
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
 pub struct ReceiptScanReport {
@@ -123,7 +122,7 @@ impl From<(TxReceiptError, TxStatus)> for FailedValidationByTable {
 
             TxHashByTable::FailedPayable(tx_hash) => {
                 unreachable!(
-                    "Mismatch in the type of tx record (failed tx) and status type (TxStatus)"
+                    "Mismatch in the type of tx record (failed tx) and status type (TxStatus) for {:?}", tx_hash
                 )
             }
         }
@@ -140,7 +139,7 @@ impl From<(TxReceiptError, FailureStatus)> for FailedValidationByTable {
             )),
             TxHashByTable::SentPayable(tx_hash) => {
                 unreachable!(
-                    "Mismatch in the type of tx record (sent tx) and status type (FailureStatus)"
+                    "Mismatch in the type of tx record (sent tx) and status type (FailureStatus) for {:?}",tx_hash
                 )
             }
         }
@@ -155,9 +154,11 @@ pub struct FailedValidation<RecordStatus> {
 }
 
 // I was forced to implement this manually
-impl <RecordStatus: PartialEq> PartialEq for FailedValidation<RecordStatus> {
+impl<RecordStatus: PartialEq> PartialEq for FailedValidation<RecordStatus> {
     fn eq(&self, other: &Self) -> bool {
-        self.tx_hash == other.tx_hash && &self.validation_failure == &other.validation_failure && self.current_status == other.current_status
+        self.tx_hash == other.tx_hash
+            && &self.validation_failure == &other.validation_failure
+            && self.current_status == other.current_status
     }
 }
 
@@ -369,28 +370,30 @@ impl From<BlockchainTxFailure> for FailureReason {
 
 #[cfg(test)]
 mod tests {
-    use std::any::{Any, TypeId};
     use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus;
     use crate::accountant::db_access_objects::sent_payable_dao::{Detection, TxStatus};
     use crate::accountant::scanners::pending_payable_scanner::test_utils::ValidationFailureClockMock;
     use crate::accountant::scanners::pending_payable_scanner::utils::{
         CurrentPendingPayables, DetectedConfirmations, DetectedFailures, FailedValidation,
-        FailedValidationByTable, NormalTxConfirmation, PendingPayableCache,
-        PresortedTxFailure, ReceiptScanReport, RecheckRequiringFailures, Retry, TxBlock,
-        TxHashByTable, TxReceiptError, TxReceiptResult, TxReclaim,
+        FailedValidationByTable, NormalTxConfirmation, PendingPayableCache, PresortedTxFailure,
+        ReceiptScanReport, RecheckRequiringFailures, Retry, TxHashByTable, TxReceiptError,
+        TxReclaim,
     };
-    use crate::accountant::test_utils::{make_failed_tx, make_sent_tx, make_transaction_block};
+    use crate::accountant::test_utils::{make_failed_tx, make_sent_tx};
+    use crate::blockchain::errors::blockchain_db_error::app_rpc_web3_error_kind::AppRpcWeb3ErrorKind;
+    use crate::blockchain::errors::blockchain_loggable_error::app_rpc_web3_error::{
+        AppRpcWeb3Error, LocalError, RemoteError,
+    };
+    use crate::blockchain::errors::validation_status::{
+        PreviousAttempts, ValidationFailureClockReal, ValidationStatus,
+    };
     use crate::blockchain::test_utils::make_tx_hash;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use std::ops::{Add, Sub};
+    use std::any::Any;
+    use std::ops::Sub;
     use std::time::{Duration, SystemTime};
     use std::vec;
-    use crate::accountant::db_access_objects::utils::TxHash;
-    use crate::blockchain::errors::blockchain_db_error::app_rpc_web3_error_kind::AppRpcWeb3ErrorKind;
-    use crate::blockchain::errors::blockchain_loggable_error::app_rpc_web3_error::{AppRpcWeb3Error, LocalError, RemoteError};
-    use crate::blockchain::errors::blockchain_loggable_error::BlockchainLoggableError;
-    use crate::blockchain::errors::validation_status::{PreviousAttempts, ValidationFailureClockReal, ValidationStatus};
 
     #[test]
     fn detected_confirmations_is_empty_works() {
@@ -431,9 +434,9 @@ mod tests {
             vec![FailedValidationByTable::FailedPayable(
                 FailedValidation::new(
                     make_tx_hash(12121),
-                    Box::new(AppRpcWeb3Error::Remote(
-                        RemoteError::InvalidResponse("blah".to_string()),
-                    )),
+                    Box::new(AppRpcWeb3Error::Remote(RemoteError::InvalidResponse(
+                        "blah".to_string(),
+                    ))),
                     FailureStatus::RecheckRequired(ValidationStatus::Reattempting(
                         PreviousAttempts::new(
                             Box::new(AppRpcWeb3ErrorKind::Internal),
@@ -742,7 +745,6 @@ mod tests {
         let test_name = "pending_payable_cache_ensure_empty_sad_path";
         let mut subject = CurrentPendingPayables::new();
         let sent_tx = make_sent_tx(567);
-        let tx_hash = sent_tx.hash;
         let tx_timestamp = sent_tx.timestamp;
         let records = vec![sent_tx.clone()];
         let logger = Logger::new(test_name);
@@ -887,7 +889,6 @@ mod tests {
         let test_name = "failure_cache_ensure_empty_sad_path";
         let mut subject = RecheckRequiringFailures::new();
         let failed_tx = make_failed_tx(567);
-        let tx_hash = failed_tx.hash;
         let tx_timestamp = failed_tx.timestamp;
         let records = vec![failed_tx.clone()];
         let logger = Logger::new(test_name);
@@ -983,8 +984,8 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Mismatch in the type of tx record (failed tx) and status type \
-    (TxStatus)"
+        expected = "Mismatch in the type of tx record (failed tx) and status type (TxStatus) for \
+        0x000000000000000000000000000000000000000000000000000000000000007b"
     )]
     fn tx_status_mismatch_in_conversion_to_failed_validation_by_table() {
         let tx_hash = make_tx_hash(123);
@@ -1000,8 +1001,8 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Mismatch in the type of tx record (sent tx) and status type \
-    (FailureStatus)"
+        expected = "Mismatch in the type of tx record (sent tx) and status type (FailureStatus) for \
+        0x000000000000000000000000000000000000000000000000000000000000007b"
     )]
     fn tx_status_mismatch_in_conversion_to_failed_validation_by_table_2() {
         let tx_hash = make_tx_hash(123);
@@ -1208,16 +1209,37 @@ mod tests {
     // }
 
     #[test]
-    fn partial_eq_is_implemented_for_failed_validation(){
+    fn partial_eq_is_implemented_for_failed_validation() {
         let correct_hash = make_tx_hash(123);
         let correct_error = Box::new(AppRpcWeb3Error::Local(LocalError::Internal));
         let correct_tx_status = TxStatus::Pending(ValidationStatus::Waiting);
-        let failed_validation_1 = FailedValidation::new(correct_hash, correct_error.clone(), correct_tx_status.clone());
-        let failed_validation_2 = FailedValidation::new(make_tx_hash(345), correct_error.clone(), correct_tx_status.clone());
-        let failed_validation_3 = FailedValidation::new(correct_hash, Box::new(AppRpcWeb3Error::Remote(RemoteError::Unreachable)), correct_tx_status.clone());
-        let failed_validation_4 = FailedValidation::new(correct_hash, correct_error.clone(), FailureStatus::RecheckRequired(ValidationStatus::Waiting));
-        let failed_validation_5 = FailedValidation::new(correct_hash, correct_error.clone(), correct_tx_status);
-        let failed_validation_6 = FailedValidation::new(correct_hash, correct_error, FailureStatus::RecheckRequired(ValidationStatus::Waiting));
+        let failed_validation_1 = FailedValidation::new(
+            correct_hash,
+            correct_error.clone(),
+            correct_tx_status.clone(),
+        );
+        let failed_validation_2 = FailedValidation::new(
+            make_tx_hash(345),
+            correct_error.clone(),
+            correct_tx_status.clone(),
+        );
+        let failed_validation_3 = FailedValidation::new(
+            correct_hash,
+            Box::new(AppRpcWeb3Error::Remote(RemoteError::Unreachable)),
+            correct_tx_status.clone(),
+        );
+        let failed_validation_4 = FailedValidation::new(
+            correct_hash,
+            correct_error.clone(),
+            FailureStatus::RecheckRequired(ValidationStatus::Waiting),
+        );
+        let failed_validation_5 =
+            FailedValidation::new(correct_hash, correct_error.clone(), correct_tx_status);
+        let failed_validation_6 = FailedValidation::new(
+            correct_hash,
+            correct_error,
+            FailureStatus::RecheckRequired(ValidationStatus::Waiting),
+        );
 
         assert_ne!(failed_validation_1, failed_validation_2);
         assert_ne!(failed_validation_1, failed_validation_3);

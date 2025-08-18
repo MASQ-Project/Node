@@ -1,6 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
 use crate::accountant::scanners::payable_scanner_extension::msgs::{
     BlockchainAgentWithContextMessage, PricedQualifiedPayables, QualifiedPayablesMessage,
@@ -11,7 +10,6 @@ use crate::accountant::{
 use crate::accountant::{RequestTransactionReceipts, TxReceiptsMessage};
 use crate::actor_system_factory::SubsFactory;
 use crate::blockchain::blockchain_agent::BlockchainAgent;
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::HashAndAmount;
 use crate::blockchain::blockchain_interface::data_structures::errors::{
     BlockchainInterfaceError, PayableTransactionError,
 };
@@ -34,9 +32,7 @@ use actix::Context;
 use actix::Handler;
 use actix::Message;
 use actix::{Addr, Recipient};
-use ethabi::Hash;
 use futures::Future;
-use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::DEFAULT_GAS_PRICE_MARGIN;
 use masq_lib::logger::Logger;
@@ -541,8 +537,8 @@ mod tests {
     };
     use crate::accountant::scanners::payable_scanner_extension::test_utils::BlockchainAgentMock;
     use crate::accountant::scanners::pending_payable_scanner::utils::TxHashByTable;
+    use crate::accountant::test_utils::make_payable_account;
     use crate::accountant::test_utils::make_priced_qualified_payables;
-    use crate::accountant::test_utils::{make_payable_account, make_sent_tx};
     use crate::accountant::PendingPayable;
     use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError::TransactionID;
     use crate::blockchain::blockchain_interface::data_structures::errors::{
@@ -553,6 +549,10 @@ mod tests {
         BlockchainTransaction, RetrievedBlockchainTransactions, RetrievedTxStatus, TxBlock,
         TxReceiptError,
     };
+    use crate::blockchain::errors::blockchain_loggable_error::app_rpc_web3_error::{
+        AppRpcWeb3Error, RemoteError,
+    };
+    use crate::blockchain::errors::validation_status::ValidationStatus;
     use crate::blockchain::test_utils::{
         make_blockchain_interface_web3, make_tx_hash, ReceiptResponseBuilder,
     };
@@ -587,8 +587,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
     use web3::types::{TransactionReceipt, H160};
-    use crate::blockchain::errors::blockchain_loggable_error::app_rpc_web3_error::{AppRpcWeb3Error, RemoteError};
-    use crate::blockchain::errors::validation_status::ValidationStatus;
 
     impl Handler<AssertionsMessage<Self>> for BlockchainBridge {
         type Result = ();
@@ -1361,7 +1359,7 @@ mod tests {
                         TxReceiptError::new(
                             TxHashByTable::SentPayable(tx_hash_3),
                         AppRpcWeb3Error:: Remote(RemoteError::Web3RpcError { code: 429, message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string()})))),
-                    TxReceiptResult(Ok(RetrievedTxStatus::new(TxHashByTable::SentPayable(tx_hash_1), StatusReadFromReceiptCheck::Pending))),
+                    TxReceiptResult(Ok(RetrievedTxStatus::new(TxHashByTable::SentPayable(tx_hash_4), StatusReadFromReceiptCheck::Pending))),
                 ],
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,

@@ -7,19 +7,19 @@ pub mod scan_schedulers;
 pub mod scanners_utils;
 pub mod test_utils;
 
-use crate::accountant::db_access_objects::payable_dao::{MarkPendingPayableID, PayableAccount, PayableDao, PayableDaoError};
+use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDao};
 use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
     LocallyCausedError, RemotelyCausedErrors,
 };
-use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{debugging_summary_after_error_separation, err_msg_for_failure_with_expected_but_missing_sent_tx_record, investigate_debt_extremes, payables_debug_summary, separate_errors, separate_rowids_and_hashes, OperationOutcome, PayableScanResult, PayableThresholdsGauge, PayableThresholdsGaugeReal, PayableTransactingErrorEnum, PendingPayableMissingInDb};
-use crate::accountant::{PendingPayable, PendingPayableId, ScanError, ScanForPendingPayables, ScanForRetryPayables};
+use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{debugging_summary_after_error_separation, err_msg_for_failure_with_expected_but_missing_sent_tx_record, investigate_debt_extremes, payables_debug_summary, separate_errors, OperationOutcome, PayableScanResult, PayableThresholdsGauge, PayableThresholdsGaugeReal, PayableTransactingErrorEnum, PendingPayableMissingInDb};
+use crate::accountant::{PendingPayable, ScanError, ScanForPendingPayables, ScanForRetryPayables};
 use crate::accountant::{
     comma_joined_stringifiable, gwei_to_wei, ReceivedPayments,
     TxReceiptsMessage, RequestTransactionReceipts, ResponseSkeleton, ScanForNewPayables,
     ScanForReceivables, SentPayables,
 };
-use crate::blockchain::blockchain_bridge::{BlockMarker, RetrieveTransactions};
+use crate::blockchain::blockchain_bridge::{RetrieveTransactions};
 use crate::sub_lib::accountant::{
     DaoFactories, FinancialStatistics, PaymentThresholds,
 };
@@ -37,15 +37,11 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::rc::Rc;
 use std::time::{SystemTime};
-use bytes::Buf;
-use thousands::Separable;
 use time::format_description::parse;
 use time::OffsetDateTime;
 use variant_count::VariantCount;
-use web3::types::H256;
-use crate::accountant::db_access_objects::failed_payable_dao::{FailedPayableDao, FailedTx, FailureRetrieveCondition, FailureStatus};
-use crate::accountant::db_access_objects::sent_payable_dao::{RetrieveCondition, SentPayableDao, SentPayableDaoError, SentTx, TxStatus};
-use crate::accountant::db_access_objects::utils::{TxHash, TxIdentifiers};
+use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDao};
+use crate::accountant::db_access_objects::utils::{TxHash};
 use crate::accountant::scanners::payable_scanner_extension::{MultistageDualPayableScanner, PreparedAdjustment, SolvencySensitivePaymentInstructor};
 use crate::accountant::scanners::payable_scanner_extension::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage, UnpricedQualifiedPayables};
 use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
@@ -747,7 +743,7 @@ impl PayableScanner {
 
     // TODO this has become dead (GH-662)
     #[allow(dead_code)]
-    fn mark_pending_payable(&self, sent_payments: &[&PendingPayable], logger: &Logger) {
+    fn mark_pending_payable(&self, _sent_payments: &[&PendingPayable], _logger: &Logger) {
         todo!("remove me when the time comes")
         // fn missing_fingerprints_msg(nonexistent: &[PendingPayableMissingInDb]) -> String {
         //     format!(
@@ -1007,23 +1003,21 @@ impl_real_scanner_marker!(PayableScanner, PendingPayableScanner, ReceivableScann
 #[cfg(test)]
 mod tests {
     use crate::accountant::db_access_objects::failed_payable_dao::{
-        FailedTx, FailureReason, FailureRetrieveCondition, FailureStatus,
+        FailedTx, FailureReason, FailureStatus,
     };
     use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDaoError};
     use crate::accountant::db_access_objects::sent_payable_dao::{
         Detection, SentPayableDaoError, SentTx, TxStatus,
     };
-    use crate::accountant::db_access_objects::utils::{
-        from_unix_timestamp, to_unix_timestamp, TxHash,
-    };
+    use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp};
     use crate::accountant::scanners::payable_scanner_extension::msgs::{
         QualifiedPayablesBeforeGasPriceSelection, QualifiedPayablesMessage,
         UnpricedQualifiedPayables,
     };
     use crate::accountant::scanners::pending_payable_scanner::test_utils::ValidationFailureClockMock;
     use crate::accountant::scanners::pending_payable_scanner::utils::{
-        CurrentPendingPayables, PendingPayableCache, PendingPayableScanResult,
-        RecheckRequiringFailures, Retry, TxHashByTable,
+        CurrentPendingPayables, PendingPayableScanResult, RecheckRequiringFailures, Retry,
+        TxHashByTable,
     };
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{
         OperationOutcome, PayableScanResult,
@@ -1046,7 +1040,7 @@ mod tests {
     };
     use crate::accountant::{
         gwei_to_wei, PendingPayable, ReceivedPayments, RequestTransactionReceipts, ScanError,
-        ScanForRetryPayables, SentPayables, TxReceiptsMessage, DEFAULT_PENDING_TOO_LONG_SEC,
+        ScanForRetryPayables, SentPayables, TxReceiptsMessage,
     };
     use crate::blockchain::blockchain_bridge::{BlockMarker, RetrieveTransactions};
     use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
@@ -1054,43 +1048,37 @@ mod tests {
         BlockchainTransaction, BlockchainTxFailure, ProcessedPayableFallible, RetrievedTxStatus,
         RpcPayableFailure, StatusReadFromReceiptCheck, TxBlock, TxReceiptError, TxReceiptResult,
     };
+    use crate::blockchain::errors::blockchain_db_error::app_rpc_web3_error_kind::AppRpcWeb3ErrorKind;
+    use crate::blockchain::errors::blockchain_loggable_error::app_rpc_web3_error::{
+        AppRpcWeb3Error, RemoteError,
+    };
+    use crate::blockchain::errors::validation_status::{PreviousAttempts, ValidationStatus};
     use crate::blockchain::test_utils::{make_block_hash, make_tx_hash};
     use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
     use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMockBuilder;
     use crate::db_config::mocks::ConfigDaoMock;
     use crate::db_config::persistent_configuration::PersistentConfigError;
-    use crate::match_lazily_every_type_id;
     use crate::sub_lib::accountant::{
         DaoFactories, FinancialStatistics, PaymentThresholds, DEFAULT_PAYMENT_THRESHOLDS,
     };
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
-    use crate::test_utils::unshared_test_utils::capture_numbers_with_separators_from_str;
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use actix::{Message, System};
     use ethereum_types::U64;
-    use itertools::Itertools;
     use masq_lib::logger::Logger;
     use masq_lib::messages::ScanType;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::ui_gateway::NodeToUiMessage;
     use regex::Regex;
     use rusqlite::{ffi, ErrorCode};
-    use secp256k1secrets::ecdh::SharedSecret;
     use std::cell::RefCell;
-    use std::collections::{HashMap, HashSet};
-    use std::fmt::format;
-    use std::ops::{Add, Sub};
+    use std::ops::Sub;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::rc::Rc;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
-    use web3::types::{H256};
     use web3::Error;
-    use crate::blockchain::errors::blockchain_db_error::app_rpc_web3_error_kind::AppRpcWeb3ErrorKind;
-    use crate::blockchain::errors::blockchain_loggable_error::app_rpc_web3_error::{AppRpcWeb3Error, RemoteError};
-    use crate::blockchain::errors::validation_status::{PreviousAttempts, ValidationStatus};
 
     impl Scanners {
         pub fn replace_scanner(&mut self, replacement: ScannerReplacement) {
@@ -1213,7 +1201,7 @@ mod tests {
             .as_any()
             .downcast_ref::<PayableScanner>()
             .unwrap();
-        let mut pending_payable_scanner = scanners
+        let pending_payable_scanner = scanners
             .pending_payable
             .as_any_mut()
             .downcast_mut::<PendingPayableScanner>()
@@ -2387,7 +2375,6 @@ mod tests {
         let sent_tx = make_sent_tx(456);
         let sent_tx_hash = sent_tx.hash;
         let failed_tx = make_failed_tx(789);
-        let failed_tx_hash = failed_tx.hash;
         let sent_payable_dao = SentPayableDaoMock::new().retrieve_txs_result(vec![sent_tx.clone()]);
         let failed_payable_dao =
             FailedPayableDaoMock::new().retrieve_txs_result(vec![failed_tx.clone()]);
@@ -2681,8 +2668,8 @@ mod tests {
             AppRpcWeb3Error::Remote(RemoteError::InvalidResponse("game over".to_string())),
         );
         let tx_hash_6 = make_tx_hash(2345);
-        let sent_tx_6 = make_sent_tx(789);
-        let tx_hash_6 = sent_tx_6.hash;
+        let mut sent_tx_6 = make_sent_tx(789);
+        sent_tx_6.hash = tx_hash_6;
         let transaction_with_status_6 = RetrievedTxStatus::new(
             TxHashByTable::SentPayable(sent_tx_6.hash),
             StatusReadFromReceiptCheck::Failed(BlockchainTxFailure::Unrecognized),

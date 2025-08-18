@@ -6,6 +6,7 @@ use crate::accountant::db_access_objects::utils::TxHash;
 use crate::accountant::scanners::pending_payable_scanner::utils::TxHashByTable;
 use crate::accountant::PendingPayable;
 use crate::blockchain::blockchain_bridge::BlockMarker;
+use crate::blockchain::errors::blockchain_loggable_error::app_rpc_web3_error::AppRpcWeb3Error;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use ethereum_types::U64;
@@ -15,7 +16,6 @@ use std::fmt::{Display, Formatter};
 use variant_count::VariantCount;
 use web3::types::H256;
 use web3::Error;
-use crate::blockchain::errors::blockchain_loggable_error::app_rpc_web3_error::AppRpcWeb3Error;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BlockchainTransaction {
@@ -142,10 +142,12 @@ mod tests {
         BlockchainTxFailure, RetrievedTxStatus, StatusReadFromReceiptCheck, TxBlock,
         TxReceiptError, TxReceiptResult,
     };
+    use crate::blockchain::errors::blockchain_loggable_error::app_rpc_web3_error::{
+        AppRpcWeb3Error, LocalError, RemoteError,
+    };
     use crate::blockchain::test_utils::make_tx_hash;
     use ethereum_types::{H256, U64};
     use itertools::Itertools;
-    use crate::blockchain::errors::blockchain_loggable_error::app_rpc_web3_error::{AppRpcWeb3Error, LocalError, RemoteError};
 
     #[test]
     fn tx_status_display_works() {
@@ -177,7 +179,7 @@ mod tests {
             vec![(BlockchainTxFailure::Unrecognized, "Unrecognized failure")];
         let inputs_len = input_and_expected_results.len();
 
-        let mut check_nums = input_and_expected_results
+        let check_nums = input_and_expected_results
             .into_iter()
             .map(|(input, failure_reason)| match input {
                 BlockchainTxFailure::Unrecognized => {

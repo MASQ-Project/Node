@@ -9,12 +9,13 @@ use crate::blockchain::blockchain_agent::agent_web3::BlockchainAgentWeb3;
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::RegisterNewPendingPayables;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
-    BlockchainInterfaceWeb3, HashAndAmount, TRANSFER_METHOD_ID,
+    BlockchainInterfaceWeb3, TRANSFER_METHOD_ID,
 };
 use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
 use crate::blockchain::blockchain_interface::data_structures::{
     ProcessedPayableFallible, RpcPayableFailure,
 };
+use crate::blockchain::errors::validation_status::ValidationStatus;
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
@@ -30,9 +31,7 @@ use std::time::SystemTime;
 use thousands::Separable;
 use web3::transports::{Batch, Http};
 use web3::types::{Bytes, SignedTransaction, TransactionParameters, U256};
-use web3::Error as Web3Error;
 use web3::Web3;
-use crate::blockchain::errors::validation_status::ValidationStatus;
 
 #[derive(Debug)]
 pub struct BlockchainAgentFutureResult {
@@ -465,7 +464,6 @@ mod tests {
             (account_1.clone(), 111_234_111),
             (account_2.clone(), 222_432_222),
         ]);
-        let before = SystemTime::now();
 
         let mut result = sign_and_append_multiple_payments(
             now,
@@ -477,14 +475,13 @@ mod tests {
             &accounts,
         );
 
-        let after = SystemTime::now();
         let first_actual_sent_tx = result.remove(0);
         let second_actual_sent_tx = result.remove(0);
         assert_prepared_sent_tx_record(
             first_actual_sent_tx,
             now,
             account_1,
-            "0x374b7d023f4ac7d99e612d82beda494b0747116e9b9dc975b33b865f331ee934",
+            "0x6b85347ff8edf8b126dffb85e7517ac7af1b23eace4ed5ad099d783fd039b1ee",
             1,
             111_234_111,
         );
@@ -492,7 +489,7 @@ mod tests {
             second_actual_sent_tx,
             now,
             account_2,
-            "0x5708afd876bc2573f9db984ec6d0e7f8ef222dd9f115643c9b9056d8bef8bbd9",
+            "0x3dac025697b994920c9cd72ab0d2df82a7caaa24d44e78b7c04e223299819d54",
             2,
             222_432_222,
         );
@@ -512,8 +509,8 @@ mod tests {
             H256::from_str(&expected_tx_hash_including_prefix[2..]).unwrap()
         );
         assert_eq!(actual_sent_tx.amount_minor, account_1.balance_wei);
-        assert_eq!(actual_sent_tx.gas_price_minor, 111_111_111);
-        assert_eq!(actual_sent_tx.nonce, 1);
+        assert_eq!(actual_sent_tx.gas_price_minor, expected_gas_price_minor);
+        assert_eq!(actual_sent_tx.nonce, expected_nonce);
         assert_eq!(
             actual_sent_tx.status,
             TxStatus::Pending(ValidationStatus::Waiting)

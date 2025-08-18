@@ -1,5 +1,4 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::RecheckRequired;
 use crate::accountant::db_access_objects::utils::{
     DaoFactoryReal, TxHash, TxIdentifiers, TxRecordWithHash, VigilantRusqliteFlatten,
 };
@@ -398,9 +397,12 @@ mod tests {
     };
     use crate::accountant::db_access_objects::utils::{current_unix_timestamp, TxRecordWithHash};
     use crate::accountant::scanners::pending_payable_scanner::test_utils::ValidationFailureClockMock;
-    use crate::accountant::test_utils::{make_failed_tx, make_sent_tx};
+    use crate::accountant::test_utils::make_failed_tx;
+    use crate::blockchain::errors::blockchain_db_error::app_rpc_web3_error_kind::AppRpcWeb3ErrorKind;
+    use crate::blockchain::errors::validation_status::{
+        PreviousAttempts, ValidationFailureClockReal, ValidationStatus,
+    };
     use crate::blockchain::test_utils::make_tx_hash;
-    use crate::blockchain::errors::validation_status::{PreviousAttempts, ValidationFailureClockReal, ValidationStatus};
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal,
     };
@@ -411,7 +413,6 @@ mod tests {
     use std::ops::Add;
     use std::str::FromStr;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
-    use crate::blockchain::errors::blockchain_db_error::app_rpc_web3_error_kind::AppRpcWeb3ErrorKind;
 
     #[test]
     fn insert_new_records_works() {

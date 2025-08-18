@@ -27,6 +27,9 @@ use crate::accountant::{
     ScanForPendingPayables, TxReceiptsMessage,
 };
 use crate::blockchain::blockchain_interface::data_structures::{TxBlock, TxReceiptResult};
+use crate::blockchain::errors::validation_status::{
+    ValidationFailureClock, ValidationFailureClockReal,
+};
 use crate::sub_lib::accountant::{FinancialStatistics, PaymentThresholds};
 use crate::sub_lib::wallet::Wallet;
 use crate::time_marking_methods;
@@ -42,7 +45,6 @@ use std::str::FromStr;
 use std::time::SystemTime;
 use thousands::Separable;
 use web3::types::H256;
-use crate::blockchain::errors::validation_status::{ValidationFailureClock, ValidationFailureClockReal};
 
 pub struct PendingPayableScanner {
     pub common: ScannerCommon,
@@ -816,6 +818,13 @@ mod tests {
     use crate::blockchain::blockchain_interface::data_structures::{
         RetrievedTxStatus, StatusReadFromReceiptCheck, TxBlock, TxReceiptError, TxReceiptResult,
     };
+    use crate::blockchain::errors::blockchain_db_error::app_rpc_web3_error_kind::AppRpcWeb3ErrorKind;
+    use crate::blockchain::errors::blockchain_loggable_error::app_rpc_web3_error::{
+        AppRpcWeb3Error, LocalError, RemoteError,
+    };
+    use crate::blockchain::errors::validation_status::{
+        PreviousAttempts, ValidationFailureClockReal, ValidationStatus,
+    };
     use crate::blockchain::test_utils::{make_block_hash, make_tx_hash};
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use itertools::Itertools;
@@ -823,13 +832,10 @@ mod tests {
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use regex::Regex;
     use std::collections::HashMap;
-    use std::ops::{Add, Sub};
+    use std::ops::Sub;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
-    use crate::blockchain::errors::blockchain_db_error::app_rpc_web3_error_kind::AppRpcWeb3ErrorKind;
-    use crate::blockchain::errors::blockchain_loggable_error::app_rpc_web3_error::{AppRpcWeb3Error, LocalError, RemoteError};
-    use crate::blockchain::errors::validation_status::{PreviousAttempts, ValidationFailureClockReal, ValidationStatus};
 
     #[test]
     fn start_scan_fills_in_caches_and_returns_msg() {
@@ -1253,9 +1259,9 @@ mod tests {
                 )),
                 FailedValidationByTable::SentPayable(FailedValidation::new(
                     hash_3,
-                    Box::new(AppRpcWeb3Error::Remote(
-                        RemoteError::InvalidResponse("Booga".to_string()),
-                    )),
+                    Box::new(AppRpcWeb3Error::Remote(RemoteError::InvalidResponse(
+                        "Booga".to_string(),
+                    ))),
                     TxStatus::Pending(ValidationStatus::Waiting),
                 )),
             ],
@@ -1332,9 +1338,9 @@ mod tests {
                 )),
                 FailedValidationByTable::SentPayable(FailedValidation::new(
                     hash_2,
-                    Box::new(AppRpcWeb3Error::Remote(
-                        RemoteError::InvalidResponse("Booga".to_string()),
-                    )),
+                    Box::new(AppRpcWeb3Error::Remote(RemoteError::InvalidResponse(
+                        "Booga".to_string(),
+                    ))),
                     TxStatus::Confirmed {
                         block_hash: "abc".to_string(),
                         block_number: 0,
@@ -2001,7 +2007,6 @@ mod tests {
     )]
     fn handle_confirmed_transactions_panics_on_unchecking_payable_table() {
         let hash = make_tx_hash(0x315);
-        let rowid = 3;
         let payable_dao = PayableDaoMock::new().transactions_confirmed_result(Err(
             PayableDaoError::RusqliteError("record change not successful".to_string()),
         ));

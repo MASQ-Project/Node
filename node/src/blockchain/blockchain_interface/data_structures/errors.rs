@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use variant_count::VariantCount;
-use web3::types::{Address, H256};
+use web3::types::Address;
 
 const BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED: &str = "Uninitialized blockchain interface. To avoid \
 being delinquency-banned, you should restart the Node with a value for blockchain-service-url";
