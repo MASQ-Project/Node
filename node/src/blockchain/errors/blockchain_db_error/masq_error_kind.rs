@@ -59,7 +59,7 @@ impl CustomHash for MASQErrorKind {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::errors::blockchain_error::BlockchainError;
+    use crate::blockchain::errors::blockchain_error::BlockchainLoggableError;
     use crate::blockchain::errors::test_utils::test_clone_impl_for_blockchain_db_error;
     use std::collections::hash_map::DefaultHasher;
     use std::hash::Hash;

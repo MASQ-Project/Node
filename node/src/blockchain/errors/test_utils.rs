@@ -1,7 +1,7 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::blockchain::errors::blockchain_db_error::{BlockchainDbError, CustomHash, CustomSeDe};
-use crate::blockchain::errors::blockchain_error::BlockchainError;
+use crate::blockchain::errors::blockchain_error::BlockchainLoggableError;
 use crate::blockchain::errors::custom_common_methods::CustomCommonMethods;
 use serde::de::{Error, Unexpected};
 use serde_json::Value;
@@ -32,7 +32,7 @@ macro_rules! test_clone_impl {
 }
 
 test_clone_impl!(test_clone_impl_for_blockchain_db_error, BlockchainDbError);
-test_clone_impl!(test_clone_impl_for_blockchain_error, BlockchainError);
+test_clone_impl!(test_clone_impl_for_blockchain_error, BlockchainLoggableError);
 
 #[derive(Debug, Default)]
 pub struct BlockchainDbErrorMock {}

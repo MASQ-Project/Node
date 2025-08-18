@@ -8,21 +8,21 @@ pub mod app_rpc_web3_error;
 pub mod masq_error;
 
 // The Display impl is meant to be used for logging purposes.
-pub trait BlockchainError: Display + Debug {
-    fn as_common_methods(&self) -> &dyn CustomCommonMethods<Box<dyn BlockchainError>>;
+pub trait BlockchainLoggableError: Display + Debug {
+    fn as_common_methods(&self) -> &dyn CustomCommonMethods<Box<dyn BlockchainLoggableError>>;
     fn downgrade(&self) -> Box<dyn BlockchainDbError>;
 }
 
-impl Clone for Box<dyn BlockchainError> {
+impl Clone for Box<dyn BlockchainLoggableError> {
     fn clone(&self) -> Self {
         self.as_common_methods().dup()
     }
 }
 
-impl PartialEq for Box<dyn BlockchainError> {
+impl PartialEq for Box<dyn BlockchainLoggableError> {
     fn eq(&self, other: &Self) -> bool {
         todo!()
     }
 }
 
-impl Eq for Box<dyn BlockchainError> {}
+impl Eq for Box<dyn BlockchainLoggableError> {}

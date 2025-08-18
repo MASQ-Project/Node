@@ -1,7 +1,7 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::blockchain::errors::blockchain_db_error::BlockchainDbError;
-use crate::blockchain::errors::blockchain_error::BlockchainError;
+use crate::blockchain::errors::blockchain_error::BlockchainLoggableError;
 use crate::blockchain::errors::custom_common_methods::CustomCommonMethods;
 use std::fmt::{Display, Formatter};
 use web3::error::Error as Web3Error;
@@ -13,8 +13,8 @@ pub enum AppRpcWeb3Error {
     Remote(RemoteError),
 }
 
-impl BlockchainError for AppRpcWeb3Error {
-    fn as_common_methods(&self) -> &dyn CustomCommonMethods<Box<dyn BlockchainError>> {
+impl BlockchainLoggableError for AppRpcWeb3Error {
+    fn as_common_methods(&self) -> &dyn CustomCommonMethods<Box<dyn BlockchainLoggableError>> {
         self
     }
 
@@ -23,12 +23,12 @@ impl BlockchainError for AppRpcWeb3Error {
     }
 }
 
-impl CustomCommonMethods<Box<dyn BlockchainError>> for AppRpcWeb3Error {
-    fn partial_eq(&self, other: &Box<dyn BlockchainError>) -> bool {
+impl CustomCommonMethods<Box<dyn BlockchainLoggableError>> for AppRpcWeb3Error {
+    fn partial_eq(&self, other: &Box<dyn BlockchainLoggableError>) -> bool {
         todo!()
     }
 
-    fn dup(&self) -> Box<dyn BlockchainError> {
+    fn dup(&self) -> Box<dyn BlockchainLoggableError> {
         Box::new(self.clone())
     }
 
@@ -137,7 +137,7 @@ mod tests {
 
     #[test]
     fn clone_works_for_blockchain_error_wrapping_app_rpc_web3_error() {
-        let subject: Box<dyn BlockchainError> =
+        let subject: Box<dyn BlockchainLoggableError> =
             Box::new(AppRpcWeb3Error::Local(LocalError::Internal));
 
         test_clone_impl_for_blockchain_error::<AppRpcWeb3Error>(subject);
@@ -155,7 +155,7 @@ mod tests {
         ]
         .into_iter()
         .for_each(|error| {
-            let wrapped_as_trait_object: Box<dyn BlockchainError> = Box::new(error.clone());
+            let wrapped_as_trait_object: Box<dyn BlockchainLoggableError> = Box::new(error.clone());
             assert_eq!(wrapped_as_trait_object.to_string(), format!("{:?}", error));
         })
     }
