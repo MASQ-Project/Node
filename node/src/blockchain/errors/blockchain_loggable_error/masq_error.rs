@@ -31,7 +31,7 @@ impl CommonMethods<Box<dyn BlockchainLoggableError>> for MASQError {
             .map_or(false, |other| self == other)
     }
 
-    fn dup(&self) -> Box<dyn BlockchainLoggableError> {
+    fn clone_boxed(&self) -> Box<dyn BlockchainLoggableError> {
         Box::new(self.clone())
     }
 

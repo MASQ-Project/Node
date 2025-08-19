@@ -20,11 +20,11 @@ impl BlockchainDbError for MASQErrorKind {
 }
 
 impl CustomSeDe for MASQErrorKind {
-    fn costume_serialize(&self) -> Result<Value, serde_json::Error> {
+    fn custom_serialize(&self) -> Result<Value, serde_json::Error> {
         serde_json::to_value(self)
     }
 
-    fn costume_deserialize(str: &str) -> Result<Box<dyn BlockchainDbError>, serde_json::Error>
+    fn custom_deserialize(str: &str) -> Result<Box<dyn BlockchainDbError>, serde_json::Error>
     where
         Self: Sized,
     {
@@ -42,7 +42,7 @@ impl CommonMethods<Box<dyn BlockchainDbError>> for MASQErrorKind {
             .map_or(false, |other| self == other)
     }
 
-    fn dup(&self) -> Box<dyn BlockchainDbError> {
+    fn clone_boxed(&self) -> Box<dyn BlockchainDbError> {
         Box::new(self.clone())
     }
 
@@ -50,7 +50,7 @@ impl CommonMethods<Box<dyn BlockchainDbError>> for MASQErrorKind {
 }
 
 impl CustomHash for MASQErrorKind {
-    fn costume_hash(&self, hasher: &mut dyn Hasher) {
+    fn custom_hash(&self, hasher: &mut dyn Hasher) {
         match self {
             MASQErrorKind::PendingTooLongNotReplaced => hasher.write_u8(0),
         }

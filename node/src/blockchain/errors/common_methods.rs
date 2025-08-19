@@ -2,6 +2,6 @@
 
 pub trait CommonMethods<Other> {
     fn partial_eq(&self, other: &Other) -> bool;
-    fn dup(&self) -> Other;
+    fn clone_boxed(&self) -> Other;
     as_any_ref_in_trait!();
 }
