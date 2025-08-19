@@ -46,6 +46,7 @@ use masq_lib::constants::DEFAULT_GAS_PRICE_MARGIN;
 use masq_lib::messages::ScanType;
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionReceiptResult, TxStatus};
+use crate::sub_lib::accountant::DetailedScanType;
 
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
 pub const DEFAULT_BLOCKCHAIN_SERVICE_URL: &str = "https://0.0.0.0";
@@ -125,7 +126,7 @@ impl Handler<RetrieveTransactions> for BlockchainBridge {
     ) -> <Self as Handler<RetrieveTransactions>>::Result {
         self.handle_scan_future(
             Self::handle_retrieve_transactions,
-            ScanType::Receivables,
+            DetailedScanType::Receivables,
             msg,
         )
     }
@@ -137,7 +138,7 @@ impl Handler<RequestTransactionReceipts> for BlockchainBridge {
     fn handle(&mut self, msg: RequestTransactionReceipts, _ctx: &mut Self::Context) {
         self.handle_scan_future(
             Self::handle_request_transaction_receipts,
-            ScanType::PendingPayables,
+            DetailedScanType::PendingPayables,
             msg,
         )
     }
@@ -147,7 +148,13 @@ impl Handler<QualifiedPayablesMessage> for BlockchainBridge {
     type Result = ();
 
     fn handle(&mut self, msg: QualifiedPayablesMessage, _ctx: &mut Self::Context) {
-        self.handle_scan_future(Self::handle_qualified_payable_msg, ScanType::Payables, msg);
+        self.handle_scan_future(
+            Self::handle_qualified_payable_msg,
+            todo!(
+                "This needs to be decided on GH-605. Look what mode you run and set it accordingly"
+            ),
+            msg,
+        );
     }
 }
 
@@ -157,7 +164,9 @@ impl Handler<OutboundPaymentsInstructions> for BlockchainBridge {
     fn handle(&mut self, msg: OutboundPaymentsInstructions, _ctx: &mut Self::Context) {
         self.handle_scan_future(
             Self::handle_outbound_payments_instructions,
-            ScanType::Payables,
+            todo!(
+                "This needs to be decided on GH-605. Look what mode you run and set it accordingly"
+            ),
             msg,
         )
     }
@@ -458,7 +467,7 @@ impl BlockchainBridge {
         )
     }
 
-    fn handle_scan_future<M, F>(&mut self, handler: F, scan_type: ScanType, msg: M)
+    fn handle_scan_future<M, F>(&mut self, handler: F, scan_type: DetailedScanType, msg: M)
     where
         F: FnOnce(&mut BlockchainBridge, M) -> Box<dyn Future<Item = (), Error = String>>,
         M: SkeletonOptHolder,
@@ -1009,7 +1018,7 @@ mod tests {
         assert_eq!(
             *scan_error_msg,
             ScanError {
-                scan_type: ScanType::Payables,
+                scan_type: DetailedScanType::NewPayables,
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321
@@ -1273,7 +1282,7 @@ mod tests {
         assert_eq!(
             scan_error,
             &ScanError {
-                scan_type: ScanType::Receivables,
+                scan_type: DetailedScanType::Receivables,
                 response_skeleton_opt: None,
                 msg: "Error while retrieving transactions: QueryFailed(\"Transport error: Error(IncompleteMessage)\")".to_string()
             }
@@ -1455,7 +1464,7 @@ mod tests {
 
         let _ = subject.handle_scan_future(
             BlockchainBridge::handle_request_transaction_receipts,
-            ScanType::PendingPayables,
+            DetailedScanType::PendingPayables,
             msg,
         );
 
@@ -1464,7 +1473,7 @@ mod tests {
         assert_eq!(
             recording.get_record::<ScanError>(0),
             &ScanError {
-                scan_type: ScanType::PendingPayables,
+                scan_type: DetailedScanType::PendingPayables,
                 response_skeleton_opt: None,
                 msg: "Blockchain error: Query failed: Transport error: Error(IncompleteMessage)"
                     .to_string()
@@ -1833,7 +1842,7 @@ mod tests {
         assert_eq!(
             scan_error_msg,
             &ScanError {
-                scan_type: ScanType::Receivables,
+                scan_type: DetailedScanType::Receivables,
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321
@@ -1893,7 +1902,7 @@ mod tests {
         assert_eq!(
             scan_error_msg,
             &ScanError {
-                scan_type: ScanType::Receivables,
+                scan_type: DetailedScanType::Receivables,
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321
@@ -2038,7 +2047,7 @@ mod tests {
         subject.scan_error_subs_opt = Some(accountant_addr.recipient());
         subject.handle_scan_future(
             BlockchainBridge::handle_retrieve_transactions,
-            ScanType::Receivables,
+            DetailedScanType::Receivables,
             retrieve_transactions,
         );
 
@@ -2090,7 +2099,7 @@ mod tests {
 
         subject.handle_scan_future(
             BlockchainBridge::handle_retrieve_transactions,
-            ScanType::Receivables,
+            DetailedScanType::Receivables,
             msg.clone(),
         );
 
@@ -2100,7 +2109,7 @@ mod tests {
         assert_eq!(
             message,
             &ScanError {
-                scan_type: ScanType::Receivables,
+                scan_type: DetailedScanType::Receivables,
                 response_skeleton_opt: msg.response_skeleton_opt,
                 msg: "Error while retrieving transactions: QueryFailed(\"RPC error: Error { code: ServerError(-32005), message: \\\"My tummy hurts\\\", data: None }\")"
                     .to_string()

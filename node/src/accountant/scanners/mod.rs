@@ -22,9 +22,7 @@ use crate::accountant::{
     ScanForReceivables, SentPayables,
 };
 use crate::blockchain::blockchain_bridge::{BlockMarker, PendingPayableFingerprint, RetrieveTransactions};
-use crate::sub_lib::accountant::{
-    DaoFactories, FinancialStatistics, PaymentThresholds,
-};
+use crate::sub_lib::accountant::{DaoFactories, DetailedScanType, FinancialStatistics, PaymentThresholds};
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use crate::sub_lib::wallet::Wallet;
 use actix::{Message};
@@ -273,13 +271,13 @@ impl Scanners {
 
     pub fn acknowledge_scan_error(&mut self, error: &ScanError, logger: &Logger) {
         match error.scan_type {
-            ScanType::Payables => {
-                self.payable.mark_as_ended(logger);
+            DetailedScanType::NewPayables | DetailedScanType::RetryPayables => {
+                self.payable.mark_as_ended(logger)
             }
-            ScanType::PendingPayables => {
+            DetailedScanType::PendingPayables => {
                 self.pending_payable.mark_as_ended(logger);
             }
-            ScanType::Receivables => {
+            DetailedScanType::Receivables => {
                 self.receivable.mark_as_ended(logger);
             }
         };
@@ -990,10 +988,7 @@ mod tests {
     use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMockBuilder;
     use crate::db_config::mocks::ConfigDaoMock;
     use crate::db_config::persistent_configuration::PersistentConfigError;
-    use crate::sub_lib::accountant::{
-        DaoFactories, FinancialStatistics, PaymentThresholds,
-        DEFAULT_PAYMENT_THRESHOLDS,
-    };
+    use crate::sub_lib::accountant::{DaoFactories, DetailedScanType, FinancialStatistics, PaymentThresholds, DEFAULT_PAYMENT_THRESHOLDS};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use crate::test_utils::{make_paying_wallet, make_wallet};
@@ -3095,7 +3090,7 @@ mod tests {
 
     #[test]
     fn acknowledge_scan_error_works() {
-        fn scan_error(scan_type: ScanType) -> ScanError {
+        fn scan_error(scan_type: DetailedScanType) -> ScanError {
             ScanError {
                 scan_type,
                 response_skeleton_opt: None,
@@ -3106,22 +3101,27 @@ mod tests {
         init_test_logging();
         let test_name = "acknowledge_scan_error_works";
         let inputs: Vec<(
-            ScanType,
+            DetailedScanType,
             Box<dyn Fn(&mut Scanners)>,
             Box<dyn Fn(&Scanners) -> Option<SystemTime>>,
         )> = vec![
             (
-                ScanType::Payables,
+                DetailedScanType::NewPayables,
                 Box::new(|subject| subject.payable.mark_as_started(SystemTime::now())),
                 Box::new(|subject| subject.payable.scan_started_at()),
             ),
             (
-                ScanType::PendingPayables,
+                DetailedScanType::RetryPayables,
+                Box::new(|subject| subject.payable.mark_as_started(SystemTime::now())),
+                Box::new(|subject| subject.payable.scan_started_at()),
+            ),
+            (
+                DetailedScanType::PendingPayables,
                 Box::new(|subject| subject.pending_payable.mark_as_started(SystemTime::now())),
                 Box::new(|subject| subject.pending_payable.scan_started_at()),
             ),
             (
-                ScanType::Receivables,
+                DetailedScanType::Receivables,
                 Box::new(|subject| subject.receivable.mark_as_started(SystemTime::now())),
                 Box::new(|subject| subject.receivable.scan_started_at()),
             ),
@@ -3154,7 +3154,7 @@ mod tests {
                 );
                 test_log_handler.exists_log_containing(&format!(
                     "INFO: {test_name}: The {:?} scan ended in",
-                    scan_type
+                    ScanType::from(scan_type)
                 ));
             })
     }

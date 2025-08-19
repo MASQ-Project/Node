@@ -34,7 +34,7 @@ use crate::blockchain::blockchain_interface::data_structures::{
 };
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::DbInitializationConfig;
-use crate::sub_lib::accountant::AccountantSubs;
+use crate::sub_lib::accountant::{AccountantSubs, DetailedScanType};
 use crate::sub_lib::accountant::DaoFactories;
 use crate::sub_lib::accountant::FinancialStatistics;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
@@ -170,7 +170,7 @@ pub struct ScanForReceivables {
 
 #[derive(Debug, Clone, Message, PartialEq, Eq)]
 pub struct ScanError {
-    pub scan_type: ScanType,
+    pub scan_type: DetailedScanType,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
     pub msg: String,
 }
@@ -398,10 +398,29 @@ impl Handler<ReceivedPayments> for Accountant {
 impl Handler<ScanError> for Accountant {
     type Result = ();
 
-    fn handle(&mut self, scan_error: ScanError, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, scan_error: ScanError, ctx: &mut Self::Context) -> Self::Result {
         error!(self.logger, "Received ScanError: {:?}", scan_error);
         self.scanners
             .acknowledge_scan_error(&scan_error, &self.logger);
+
+        match scan_error.scan_type {
+            DetailedScanType::NewPayables => self
+                .scan_schedulers
+                .payable
+                .schedule_new_payable_scan(ctx, &self.logger),
+            DetailedScanType::RetryPayables => self
+                .scan_schedulers
+                .payable
+                .schedule_retry_payable_scan(ctx, None, &self.logger),
+            DetailedScanType::PendingPayables => self
+                .scan_schedulers
+                .pending_payable
+                .schedule(ctx, &self.logger),
+            DetailedScanType::Receivables => {
+                self.scan_schedulers.receivable.schedule(ctx, &self.logger)
+            }
+        }
+
         if let Some(response_skeleton) = scan_error.response_skeleton_opt {
             let error_msg = NodeToUiMessage {
                 target: ClientId(response_skeleton.client_id),
@@ -5279,7 +5298,8 @@ mod tests {
         );
         TestLogHandler::new().exists_log_containing(
             "DEBUG: Accountant: Saved new pending payable fingerprints for: \
-             0x000000000000000000000000000000000000000000000000000000000006c81c, 0x000000000000000000000000000000000000000000000000000000000001b207",
+             0x000000000000000000000000000000000000000000000000000000000006c81c, \
+             0x000000000000000000000000000000000000000000000000000000000001b207",
         );
     }
 
@@ -5317,7 +5337,8 @@ mod tests {
         );
         TestLogHandler::new().exists_log_containing("ERROR: Accountant: Failed to process \
          new pending payable fingerprints due to 'InsertionFailed(\"Crashed\")', disabling the automated \
-          confirmation for all these transactions: 0x00000000000000000000000000000000000000000000000000000000000001c8");
+          confirmation for all these transactions: \
+          0x00000000000000000000000000000000000000000000000000000000000001c8");
     }
 
     const EXAMPLE_RESPONSE_SKELETON: ResponseSkeleton = ResponseSkeleton {
@@ -5327,16 +5348,125 @@ mod tests {
 
     const EXAMPLE_ERROR_MSG: &str = "My tummy hurts";
 
+    fn setup_and_prepare_assertions_for_new_payables(
+    ) -> Box<dyn FnOnce(&mut ScanSchedulers) -> RunSchedulersAssertions> {
+        Box::new(|scan_schedulers: &mut ScanSchedulers| {
+            // Setup
+            let notify_later_params_arc = Arc::new(Mutex::new(vec![]));
+            scan_schedulers
+                .payable
+                .inner
+                .lock()
+                .unwrap()
+                .last_new_payable_scan_timestamp = SystemTime::now();
+            scan_schedulers.payable.dyn_interval_computer = Box::new(
+                NewPayableScanDynIntervalComputerMock::default()
+                    .compute_interval_result(Some(Duration::from_secs(152))),
+            );
+            scan_schedulers.payable.new_payable_notify_later = Box::new(
+                NotifyLaterHandleMock::default().notify_later_params(&notify_later_params_arc),
+            );
+
+            // Assertions
+            Box::new(move || {
+                let notify_later_params = notify_later_params_arc.lock().unwrap();
+                assert_eq!(
+                    *notify_later_params,
+                    vec![(ScanForNewPayables::default(), Duration::from_secs(152))]
+                );
+            })
+        })
+    }
+
+    fn setup_and_prepare_assertions_for_retry_payables(
+    ) -> Box<dyn FnOnce(&mut ScanSchedulers) -> RunSchedulersAssertions> {
+        Box::new(|scan_schedulers: &mut ScanSchedulers| {
+            // Setup
+            let retry_payable_notify_params_arc = Arc::new(Mutex::new(vec![]));
+            scan_schedulers.payable.retry_payable_notify = Box::new(
+                NotifyHandleMock::default().notify_params(&retry_payable_notify_params_arc),
+            );
+
+            // Assertions
+            Box::new(move || {
+                let retry_payable_notify_params = retry_payable_notify_params_arc.lock().unwrap();
+                // Response skeleton must be None
+                assert_eq!(
+                    *retry_payable_notify_params,
+                    vec![ScanForRetryPayables {
+                        response_skeleton_opt: None
+                    }]
+                );
+            })
+        })
+    }
+
+    fn setup_and_prepare_assertions_for_pending_payables(
+    ) -> Box<dyn FnOnce(&mut ScanSchedulers) -> RunSchedulersAssertions> {
+        Box::new(|scan_schedulers: &mut ScanSchedulers| {
+            // Setup
+            let notify_later_params_arc = Arc::new(Mutex::new(vec![]));
+            scan_schedulers.pending_payable.interval = Duration::from_secs(600);
+            scan_schedulers.pending_payable.handle = Box::new(
+                NotifyLaterHandleMock::default().notify_later_params(&notify_later_params_arc),
+            );
+
+            // Assertions
+            Box::new(move || {
+                let notify_later_params = notify_later_params_arc.lock().unwrap();
+                assert_eq!(
+                    *notify_later_params,
+                    vec![(ScanForPendingPayables::default(), Duration::from_secs(600))]
+                );
+            })
+        })
+    }
+
+    fn setup_and_prepare_assertions_for_receivables(
+    ) -> Box<dyn FnOnce(&mut ScanSchedulers) -> RunSchedulersAssertions> {
+        Box::new(|scan_schedulers: &mut ScanSchedulers| {
+            // Setup
+            let notify_later_params_arc = Arc::new(Mutex::new(vec![]));
+            scan_schedulers.receivable.interval = Duration::from_secs(600);
+            scan_schedulers.receivable.handle = Box::new(
+                NotifyLaterHandleMock::default().notify_later_params(&notify_later_params_arc),
+            );
+
+            // Assertions
+            Box::new(move || {
+                let notify_later_params = notify_later_params_arc.lock().unwrap();
+                assert_eq!(
+                    *notify_later_params,
+                    vec![(ScanForReceivables::default(), Duration::from_secs(600))]
+                );
+            })
+        })
+    }
+
     #[test]
-    fn handling_scan_error_for_externally_triggered_payables() {
+    fn handling_scan_error_for_externally_triggered_new_payables() {
         assert_scan_error_is_handled_properly(
-            "handling_scan_error_for_externally_triggered_payables",
+            "handling_scan_error_for_externally_triggered_new_payables",
             ScanError {
-                scan_type: ScanType::Payables,
+                scan_type: DetailedScanType::NewPayables,
                 response_skeleton_opt: Some(EXAMPLE_RESPONSE_SKELETON),
                 msg: EXAMPLE_ERROR_MSG.to_string(),
             },
+            setup_and_prepare_assertions_for_new_payables(),
         );
+    }
+
+    #[test]
+    fn handling_scan_error_for_externally_triggered_retry_payables() {
+        assert_scan_error_is_handled_properly(
+            "handling_scan_error_for_externally_triggered_retry_payables",
+            ScanError {
+                scan_type: DetailedScanType::RetryPayables,
+                response_skeleton_opt: Some(EXAMPLE_RESPONSE_SKELETON),
+                msg: EXAMPLE_ERROR_MSG.to_string(),
+            },
+            setup_and_prepare_assertions_for_retry_payables(),
+        )
     }
 
     #[test]
@@ -5344,10 +5474,11 @@ mod tests {
         assert_scan_error_is_handled_properly(
             "handling_scan_error_for_externally_triggered_pending_payables",
             ScanError {
-                scan_type: ScanType::PendingPayables,
+                scan_type: DetailedScanType::PendingPayables,
                 response_skeleton_opt: Some(EXAMPLE_RESPONSE_SKELETON),
                 msg: EXAMPLE_ERROR_MSG.to_string(),
             },
+            setup_and_prepare_assertions_for_pending_payables(),
         );
     }
 
@@ -5356,22 +5487,37 @@ mod tests {
         assert_scan_error_is_handled_properly(
             "handling_scan_error_for_externally_triggered_receivables",
             ScanError {
-                scan_type: ScanType::Receivables,
+                scan_type: DetailedScanType::Receivables,
                 response_skeleton_opt: Some(EXAMPLE_RESPONSE_SKELETON),
                 msg: EXAMPLE_ERROR_MSG.to_string(),
             },
+            setup_and_prepare_assertions_for_receivables(),
         );
     }
 
     #[test]
-    fn handling_scan_error_for_internally_triggered_payables() {
+    fn handling_scan_error_for_internally_triggered_new_payables() {
         assert_scan_error_is_handled_properly(
-            "handling_scan_error_for_internally_triggered_payables",
+            "handling_scan_error_for_internally_triggered_new_payables",
             ScanError {
-                scan_type: ScanType::Payables,
+                scan_type: DetailedScanType::NewPayables,
                 response_skeleton_opt: None,
                 msg: EXAMPLE_ERROR_MSG.to_string(),
             },
+            setup_and_prepare_assertions_for_new_payables(),
+        );
+    }
+
+    #[test]
+    fn handling_scan_error_for_internally_triggered_retry_payables() {
+        assert_scan_error_is_handled_properly(
+            "handling_scan_error_for_internally_triggered_retry_payables",
+            ScanError {
+                scan_type: DetailedScanType::RetryPayables,
+                response_skeleton_opt: None,
+                msg: EXAMPLE_ERROR_MSG.to_string(),
+            },
+            setup_and_prepare_assertions_for_retry_payables(),
         );
     }
 
@@ -5380,10 +5526,11 @@ mod tests {
         assert_scan_error_is_handled_properly(
             "handling_scan_error_for_internally_triggered_pending_payables",
             ScanError {
-                scan_type: ScanType::PendingPayables,
+                scan_type: DetailedScanType::PendingPayables,
                 response_skeleton_opt: None,
                 msg: EXAMPLE_ERROR_MSG.to_string(),
             },
+            setup_and_prepare_assertions_for_pending_payables(),
         );
     }
 
@@ -5392,10 +5539,11 @@ mod tests {
         assert_scan_error_is_handled_properly(
             "handling_scan_error_for_internally_triggered_receivables",
             ScanError {
-                scan_type: ScanType::Receivables,
+                scan_type: DetailedScanType::Receivables,
                 response_skeleton_opt: None,
                 msg: EXAMPLE_ERROR_MSG.to_string(),
             },
+            setup_and_prepare_assertions_for_receivables(),
         );
     }
 
@@ -6144,15 +6292,27 @@ mod tests {
         let _: u64 = wei_to_gwei(u128::MAX);
     }
 
-    fn assert_scan_error_is_handled_properly(test_name: &str, message: ScanError) {
+    type RunSchedulersAssertions = Box<dyn Fn()>;
+
+    fn assert_scan_error_is_handled_properly(
+        test_name: &str,
+        message: ScanError,
+        set_up_schedulers_and_prepare_assertions: Box<
+            dyn FnOnce(&mut ScanSchedulers) -> RunSchedulersAssertions,
+        >,
+    ) {
         init_test_logging();
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let mut subject = AccountantBuilder::default()
+            .consuming_wallet(make_wallet("blah"))
             .logger(Logger::new(test_name))
             .build();
-        subject
-            .scanners
-            .reset_scan_started(message.scan_type, MarkScanner::Started(SystemTime::now()));
+        subject.scanners.reset_scan_started(
+            message.scan_type.into(),
+            MarkScanner::Started(SystemTime::now()),
+        );
+        let run_schedulers_assertions =
+            set_up_schedulers_and_prepare_assertions(&mut subject.scan_schedulers);
         let subject_addr = subject.start();
         let system = System::new("test");
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
@@ -6163,13 +6323,15 @@ mod tests {
         subject_addr
             .try_send(AssertionsMessage {
                 assertions: Box::new(move |actor: &mut Accountant| {
-                    let scan_started_at_opt = actor.scanners.scan_started_at(message.scan_type);
+                    let scan_started_at_opt =
+                        actor.scanners.scan_started_at(message.scan_type.into());
                     assert_eq!(scan_started_at_opt, None);
                 }),
             })
             .unwrap();
         System::current().stop();
         assert_eq!(system.run(), 0);
+        run_schedulers_assertions();
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         match message.response_skeleton_opt {
             Some(response_skeleton) => {
