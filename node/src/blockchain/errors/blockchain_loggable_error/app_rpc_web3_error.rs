@@ -7,7 +7,7 @@ use crate::blockchain::errors::common_methods::CommonMethods;
 use std::fmt::{Display, Formatter};
 use web3::error::Error as Web3Error;
 
-// Prefixed with App to clearly distinguish app-specific app_rpc_web3_error_kind from library app_rpc_web3_error_kind.
+// Prefixed with App to clearly distinguish app-specific errors from library errors.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AppRpcWeb3Error {
     Local(LocalError),
@@ -33,7 +33,7 @@ impl CommonMethods<Box<dyn BlockchainLoggableError>> for AppRpcWeb3Error {
             .map_or(false, |other| self == other)
     }
 
-    fn dup(&self) -> Box<dyn BlockchainLoggableError> {
+    fn clone_boxed(&self) -> Box<dyn BlockchainLoggableError> {
         Box::new(self.clone())
     }
 
@@ -62,7 +62,7 @@ pub enum RemoteError {
     Web3RpcError { code: i64, message: String },
 }
 
-// EVM based app_rpc_web3_error_kind
+// EVM based errors
 impl From<Web3Error> for AppRpcWeb3Error {
     fn from(error: Web3Error) -> Self {
         match error {

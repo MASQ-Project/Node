@@ -16,14 +16,14 @@ pub trait BlockchainDbError: CustomSeDe + CustomHash + Debug {
 }
 
 pub trait CustomSeDe {
-    fn costume_serialize(&self) -> Result<Value, serde_json::Error>;
-    fn costume_deserialize(str: &str) -> Result<Box<dyn BlockchainDbError>, serde_json::Error>
+    fn custom_serialize(&self) -> Result<Value, serde_json::Error>;
+    fn custom_deserialize(str: &str) -> Result<Box<dyn BlockchainDbError>, serde_json::Error>
     where
         Self: Sized;
 }
 
 pub trait CustomHash {
-    fn costume_hash(&self, hasher: &mut dyn Hasher);
+    fn custom_hash(&self, hasher: &mut dyn Hasher);
 }
 
 impl SerializeTrait for Box<dyn BlockchainDbError> {
@@ -31,7 +31,7 @@ impl SerializeTrait for Box<dyn BlockchainDbError> {
     where
         S: serde::Serializer,
     {
-        self.costume_serialize()
+        self.custom_serialize()
             .map_err(|e| serde::ser::Error::custom(e))?
             .serialize(serializer)
     }
@@ -46,11 +46,11 @@ impl<'de> DeserializeTrait<'de> for Box<dyn BlockchainDbError> {
         let json_str =
             serde_json::to_string(&json_value).map_err(|e| serde::de::Error::custom(e))?; // Untested error
 
-        if let Ok(error) = AppRpcWeb3ErrorKind::costume_deserialize(&json_str) {
+        if let Ok(error) = AppRpcWeb3ErrorKind::custom_deserialize(&json_str) {
             return Ok(error);
         }
 
-        if let Ok(error) = MASQErrorKind::costume_deserialize(&json_str) {
+        if let Ok(error) = MASQErrorKind::custom_deserialize(&json_str) {
             return Ok(error);
         }
 
@@ -63,7 +63,7 @@ impl<'de> DeserializeTrait<'de> for Box<dyn BlockchainDbError> {
 
 impl Clone for Box<dyn BlockchainDbError> {
     fn clone(&self) -> Self {
-        self.as_common_methods().dup()
+        self.as_common_methods().clone_boxed()
     }
 }
 
@@ -75,7 +75,7 @@ impl PartialEq for Box<dyn BlockchainDbError> {
 
 impl Hash for Box<dyn BlockchainDbError> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.costume_hash(state)
+        self.custom_hash(state)
     }
 }
 
@@ -99,7 +99,7 @@ mod tests {
     }
 
     #[test]
-    fn pre_serialization_costume_error_is_well_arranged() {
+    fn pre_serialization_custom_error_is_well_arranged() {
         let mock = BlockchainDbErrorMock::default();
         let subject: Box<dyn BlockchainDbError> = Box::new(mock);
 

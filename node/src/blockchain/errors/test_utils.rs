@@ -47,14 +47,14 @@ impl BlockchainDbError for BlockchainDbErrorMock {
 }
 
 impl CustomSeDe for BlockchainDbErrorMock {
-    fn costume_serialize(&self) -> Result<Value, serde_json::error::Error> {
+    fn custom_serialize(&self) -> Result<Value, serde_json::error::Error> {
         Err(serde_json::Error::invalid_type(
             Unexpected::Char('a'),
             &"null",
         ))
     }
 
-    fn costume_deserialize(
+    fn custom_deserialize(
         _str: &str,
     ) -> Result<Box<dyn BlockchainDbError>, serde_json::error::Error>
     where
@@ -65,7 +65,7 @@ impl CustomSeDe for BlockchainDbErrorMock {
 }
 
 impl CustomHash for BlockchainDbErrorMock {
-    fn costume_hash(&self, _hasher: &mut dyn Hasher) {
+    fn custom_hash(&self, _hasher: &mut dyn Hasher) {
         unimplemented!("not needed for testing")
     }
 }
@@ -75,7 +75,7 @@ impl CommonMethods<Box<dyn BlockchainDbError>> for BlockchainDbErrorMock {
         unimplemented!("not needed for testing")
     }
 
-    fn dup(&self) -> Box<dyn BlockchainDbError> {
+    fn clone_boxed(&self) -> Box<dyn BlockchainDbError> {
         unimplemented!("not needed for testing")
     }
 }

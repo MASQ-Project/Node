@@ -21,7 +21,7 @@ impl From<Box<dyn BlockchainLoggableError>> for Box<dyn BlockchainDbError> {
 
 impl Clone for Box<dyn BlockchainLoggableError> {
     fn clone(&self) -> Self {
-        self.as_common_methods().dup()
+        self.as_common_methods().clone_boxed()
     }
 }
 

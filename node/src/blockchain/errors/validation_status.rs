@@ -53,7 +53,7 @@ impl ErrorStats {
     }
 
     pub fn increment(&mut self) {
-        self.attempts += 1;
+        self.attempts = self.attempts.saturating_add(1);
     }
 }
 
@@ -62,7 +62,7 @@ pub trait ValidationFailureClock {
 }
 
 #[derive(Default)]
-pub struct ValidationFailureClockReal {}
+pub struct ValidationFailureClockReal;
 
 impl ValidationFailureClock for ValidationFailureClockReal {
     fn now(&self) -> SystemTime {
@@ -104,7 +104,7 @@ mod tests {
         let decoder_error_stats = subject
             .inner
             .get(&(Box::new(AppRpcWeb3ErrorKind::Decoder) as Box<dyn BlockchainDbError>))
-            .unwrap();
+            .expect("Failed to get decoder error stats");
         assert!(
             timestamp_a <= decoder_error_stats.first_seen
                 && decoder_error_stats.first_seen <= timestamp_b,
@@ -117,7 +117,7 @@ mod tests {
         let internal_error_stats = subject
             .inner
             .get(&(Box::new(AppRpcWeb3ErrorKind::Internal) as Box<dyn BlockchainDbError>))
-            .unwrap();
+            .expect("Failed to get internal error stats");
         assert!(
             timestamp_b <= internal_error_stats.first_seen
                 && internal_error_stats.first_seen <= timestamp_c,
@@ -130,7 +130,7 @@ mod tests {
         let io_error_stats = subject
             .inner
             .get(&(Box::new(AppRpcWeb3ErrorKind::IO) as Box<dyn BlockchainDbError>))
-            .unwrap();
+            .expect("Failed to get IO error stats");
         assert!(
             timestamp_c <= io_error_stats.first_seen && io_error_stats.first_seen <= timestamp_d,
             "Was expected from {:?} to {:?} but was {:?}",

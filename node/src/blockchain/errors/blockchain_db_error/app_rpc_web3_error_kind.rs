@@ -17,11 +17,11 @@ impl BlockchainDbError for AppRpcWeb3ErrorKind {
 }
 
 impl CustomSeDe for AppRpcWeb3ErrorKind {
-    fn costume_serialize(&self) -> Result<Value, serde_json::Error> {
+    fn custom_serialize(&self) -> Result<Value, serde_json::Error> {
         serde_json::to_value(self)
     }
 
-    fn costume_deserialize(str: &str) -> Result<Box<dyn BlockchainDbError>, serde_json::Error>
+    fn custom_deserialize(str: &str) -> Result<Box<dyn BlockchainDbError>, serde_json::Error>
     where
         Self: Sized,
     {
@@ -39,25 +39,35 @@ impl CommonMethods<Box<dyn BlockchainDbError>> for AppRpcWeb3ErrorKind {
             .map_or(false, |other| self == other)
     }
 
-    fn dup(&self) -> Box<dyn BlockchainDbError> {
+    fn clone_boxed(&self) -> Box<dyn BlockchainDbError> {
         Box::new(self.clone())
     }
 
     as_any_ref_in_trait_impl!();
 }
 
+// Hash discriminants for each error variant
+const HASH_DECODER: u8 = 0;
+const HASH_INTERNAL: u8 = 1;
+const HASH_IO: u8 = 2;
+const HASH_SIGNING: u8 = 3;
+const HASH_TRANSPORT: u8 = 4;
+const HASH_INVALID_RESPONSE: u8 = 5;
+const HASH_SERVER_UNREACHABLE: u8 = 6;
+const HASH_WEB3_RPC_ERROR: u8 = 7;
+
 impl CustomHash for AppRpcWeb3ErrorKind {
-    fn costume_hash(&self, hasher: &mut dyn Hasher) {
+    fn custom_hash(&self, hasher: &mut dyn Hasher) {
         match self {
-            AppRpcWeb3ErrorKind::Decoder => hasher.write_u8(0),
-            AppRpcWeb3ErrorKind::Internal => hasher.write_u8(1),
-            AppRpcWeb3ErrorKind::IO => hasher.write_u8(2),
-            AppRpcWeb3ErrorKind::Signing => hasher.write_u8(3),
-            AppRpcWeb3ErrorKind::Transport => hasher.write_u8(4),
-            AppRpcWeb3ErrorKind::InvalidResponse => hasher.write_u8(5),
-            AppRpcWeb3ErrorKind::ServerUnreachable => hasher.write_u8(6),
+            AppRpcWeb3ErrorKind::Decoder => hasher.write_u8(HASH_DECODER),
+            AppRpcWeb3ErrorKind::Internal => hasher.write_u8(HASH_INTERNAL),
+            AppRpcWeb3ErrorKind::IO => hasher.write_u8(HASH_IO),
+            AppRpcWeb3ErrorKind::Signing => hasher.write_u8(HASH_SIGNING),
+            AppRpcWeb3ErrorKind::Transport => hasher.write_u8(HASH_TRANSPORT),
+            AppRpcWeb3ErrorKind::InvalidResponse => hasher.write_u8(HASH_INVALID_RESPONSE),
+            AppRpcWeb3ErrorKind::ServerUnreachable => hasher.write_u8(HASH_SERVER_UNREACHABLE),
             AppRpcWeb3ErrorKind::Web3RpcError(code) => {
-                hasher.write_u8(7);
+                hasher.write_u8(HASH_WEB3_RPC_ERROR);
                 hasher.write_i64(*code);
             }
         }
@@ -166,9 +176,10 @@ mod tests {
     }
 
     #[test]
-    fn hashing_for_app_arp_error_kind_works() {
-        let mut hasher = DefaultHasher::default();
-        let mut hashes = vec![
+    fn hashing_for_app_rpc_error_kind_works() {
+        use std::collections::HashSet;
+        
+        let errors = vec![
             Box::new(AppRpcWeb3ErrorKind::Decoder) as Box<dyn BlockchainDbError>,
             Box::new(AppRpcWeb3ErrorKind::Internal),
             Box::new(AppRpcWeb3ErrorKind::IO),
@@ -179,21 +190,19 @@ mod tests {
             Box::new(AppRpcWeb3ErrorKind::Web3RpcError(123)),
             Box::new(AppRpcWeb3ErrorKind::Web3RpcError(124)),
             Box::new(AppRpcWeb3ErrorKind::Web3RpcError(555555)),
-        ]
-        .into_iter()
-        .map(|blockchain_error| {
-            blockchain_error.hash(&mut hasher);
+        ];
+        
+        let hashes: HashSet<u64> = errors
+            .into_iter()
+            .map(|blockchain_error| {
+                let mut hasher = DefaultHasher::default();
+                blockchain_error.hash(&mut hasher);
+                hasher.finish()
+            })
+            .collect();
 
-            hasher.finish()
-        })
-        .collect::<Vec<u64>>();
-
-        hashes.clone().iter().for_each(|picked_hash| {
-            hashes.remove(0);
-            hashes.iter().for_each(|other_hash| {
-                assert_ne!(picked_hash, other_hash);
-            });
-        })
+        // If all hashes are unique, the set size should equal the number of errors
+        assert_eq!(hashes.len(), 10, "Some error kinds produced duplicate hashes");
     }
 
     #[test]
