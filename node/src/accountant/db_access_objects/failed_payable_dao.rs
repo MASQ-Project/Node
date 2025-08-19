@@ -122,6 +122,7 @@ pub trait FailedPayableDao {
     //TODO potentially atomically
     fn insert_new_records(&self, txs: &[FailedTx]) -> Result<(), FailedPayableDaoError>;
     fn retrieve_txs(&self, condition: Option<FailureRetrieveCondition>) -> Vec<FailedTx>;
+    fn retrieve_txs_with_limit(&self, condition: Option<FailureRetrieveCondition>, limit: usize) -> Vec<FailedTx>;
     fn update_statuses(
         &self,
         status_updates: &HashMap<TxHash, FailureStatus>,

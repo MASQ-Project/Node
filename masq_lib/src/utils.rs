@@ -482,6 +482,13 @@ macro_rules! hashmap {
     };
 }
 
+/// Creates a HashSet with the given elements.
+/// 
+/// # Examples
+/// ```
+/// let set = hashset![1, 2, 3];
+/// let empty = hashset![];
+/// ```
 #[macro_export(local_inner_macros)]
 macro_rules! hashset {
     () => {
@@ -492,10 +499,11 @@ macro_rules! hashset {
     };
     ($($value:expr),+) => {
         {
-            let mut _hs = ::std::collections::HashSet::new();
-            $(
-                let _ = _hs.insert($value);
-            )*
+            let values = [$($value),+];
+            let mut _hs = ::std::collections::HashSet::with_capacity(values.len());
+            for val in values {
+                _hs.insert(val);
+            }
             _hs
         }
     };

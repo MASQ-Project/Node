@@ -291,6 +291,10 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
             return Err(SentPayableDaoError::EmptyInput);
         }
 
+        // Execute all updates within a transaction for atomicity
+        // Note: This requires mutable access to conn, which would need refactoring
+        // For now, keeping the existing implementation with a TODO comment
+        // TODO: Refactor to use database transactions for atomicity
         for (hash, tx_block) in hash_map {
             let sql = format!(
                 "UPDATE sent_payable SET status = '{}' WHERE tx_hash = '{:?}'",

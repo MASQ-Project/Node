@@ -103,7 +103,10 @@ impl TxReceiptInterpreter {
                     replacement_tx_hash
                 );
                 if failed_tx.reason != FailureReason::PendingTooLong {
-                    todo!("panic here")
+                    panic!(
+                        "Unexpected pending status for failed transaction with reason {:?}: tx_hash={:?}",
+                        failed_tx.reason, failed_tx.hash
+                    );
                 }
                 scan_report.register_rpc_failure(FailedValidationByTable::FailedPayable(
                     FailedValidation::new(

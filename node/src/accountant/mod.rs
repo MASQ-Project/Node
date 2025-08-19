@@ -338,7 +338,17 @@ impl Handler<TxReceiptsMessage> for Accountant {
                     response_skeleton_opt,
                     &self.logger,
                 ),
-                Retry::RetryTxStatusCheckOnly => todo!(),
+                Retry::RetryTxStatusCheckOnly => {
+                    warning!(
+                        self.logger,
+                        "RetryTxStatusCheckOnly not yet implemented - scheduling regular pending payable scan"
+                    );
+                    self.scan_schedulers.payable.schedule_pending_payable_scan(
+                        ctx,
+                        response_skeleton_opt,
+                        &self.logger,
+                    )
+                },
             },
         };
     }

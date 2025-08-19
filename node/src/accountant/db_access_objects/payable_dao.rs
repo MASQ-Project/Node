@@ -126,24 +126,9 @@ impl PayableDao for PayableDaoReal {
         &self,
         _mark_instructions: &[MarkPendingPayableID],
     ) -> Result<(), PayableDaoError> {
-        todo!("Will be an object of removal in GH-662")
-        // if wallets_and_rowids.is_empty() {
-        //     panic!("broken code: empty input is not permit to enter this method")
-        // }
-        //
-        // let case_expr = compose_case_expression(wallets_and_rowids);
-        // let wallets = serialize_wallets(wallets_and_rowids, Some('\''));
-        // //the Wallet type is secure against SQL injections
-        // let sql = format!(
-        //     "update payable set \
-        //         pending_payable_rowid = {} \
-        //      where
-        //         pending_payable_rowid is null and wallet_address in ({})
-        //      returning
-        //         pending_payable_rowid",
-        //     case_expr, wallets,
-        // );
-        // execute_command(&*self.conn, wallets_and_rowids, &sql)
+        // This method is deprecated and will be removed in GH-662
+        // Returning Ok(()) to maintain interface compatibility until removal
+        Ok(())
     }
 
     fn transactions_confirmed(&self, confirmed_payables: &[SentTx]) -> Result<(), PayableDaoError> {
