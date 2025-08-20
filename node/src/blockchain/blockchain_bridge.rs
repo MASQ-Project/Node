@@ -2188,7 +2188,7 @@ mod tests {
 
     /*
     blastapi - completely rejected call on Public endpoint as won't handle eth_getLogs method on public API
-    [{"jsonrpc":"2.0","id":2,"error":{"code":-32601,"message":"Method not found","data":{"method":""}}},{"jsonrpc":"2.0","id":1,"error":{"code":-32600,"message":"Invalid Request","data":{"message":"Cancelled due to validation app_rpc_web3_error_kind in batch request"}}}] (edited)
+    [{"jsonrpc":"2.0","id":2,"error":{"code":-32601,"message":"Method not found","data":{"method":""}}},{"jsonrpc":"2.0","id":1,"error":{"code":-32600,"message":"Invalid Request","data":{"message":"Cancelled due to validation errors in batch request"}}}] (edited)
     [8:50 AM]
     */
 
