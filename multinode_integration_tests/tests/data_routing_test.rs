@@ -175,7 +175,7 @@ fn tls_end_to_end_routing_test() {
             .expect("Could not set read timeout to 1000ms");
         let connector = TlsConnector::new().expect("Could not build TlsConnector");
         match connector.connect(
-            "example.com",
+            "www.example.com",
             stream.try_clone().expect("Couldn't clone TcpStream"),
         ) {
             Ok(s) => {
@@ -199,7 +199,7 @@ fn tls_end_to_end_routing_test() {
 
         tls_stream.expect("Couldn't handshake")
     };
-    let request = "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n".as_bytes();
+    let request = "GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n".as_bytes();
     tls_stream
         .write(request.clone())
         .expect("Could not write request to TLS stream");
