@@ -4,6 +4,7 @@ use crate::accountant::db_access_objects::utils::{
 };
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::{checked_conversion, comma_joined_stringifiable};
+use crate::blockchain::errors::rpc_errors::AppRpcErrorKind;
 use crate::blockchain::errors::validation_status::PreviousAttempts;
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use itertools::Itertools;
@@ -25,7 +26,7 @@ pub enum FailedPayableDaoError {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FailureReason {
-    Submission(PreviousAttempts),
+    Submission(AppRpcErrorKind),
     Reverted,
     PendingTooLong,
 }
@@ -381,7 +382,7 @@ mod tests {
         make_read_only_db_connection, FailedTxBuilder,
     };
     use crate::accountant::db_access_objects::utils::current_unix_timestamp;
-    use crate::blockchain::errors::rpc_errors::RpcErrorKind;
+    use crate::blockchain::errors::rpc_errors::AppRpcErrorKind;
     use crate::blockchain::errors::validation_status::{
         PreviousAttempts, ValidationFailureClockReal,
     };
@@ -591,10 +592,7 @@ mod tests {
         // Submission error
         assert_eq!(
             FailureReason::from_str(r#"{"Submission":{"Local":{"Decoder"}}}"#).unwrap(),
-            FailureReason::Submission(PreviousAttempts::new(
-                RpcErrorKind::Decoder,
-                &validation_failure_clock
-            ))
+            FailureReason::Submission(AppRpcErrorKind::Decoder)
         );
 
         // Reverted
@@ -643,7 +641,7 @@ mod tests {
 
         assert_eq!(
             FailureStatus::from_str(r#"{"RecheckRequired":{"Reattempting":{"ServerUnreachable":{"firstSeen":{"secs_since_epoch":1755080031,"nanos_since_epoch":612180914},"attempts":1}}}}"#).unwrap(),
-            FailureStatus::RecheckRequired(ValidationStatus::Reattempting( PreviousAttempts::new(RpcErrorKind::ServerUnreachable, &validation_failure_clock)))
+            FailureStatus::RecheckRequired(ValidationStatus::Reattempting( PreviousAttempts::new(AppRpcErrorKind::ServerUnreachable, &validation_failure_clock)))
         );
 
         assert_eq!(
@@ -726,7 +724,7 @@ mod tests {
             .reason(PendingTooLong)
             .status(RecheckRequired(ValidationStatus::Reattempting(
                 PreviousAttempts::new(
-                    RpcErrorKind::ServerUnreachable,
+                    AppRpcErrorKind::ServerUnreachable,
                     &ValidationFailureClockReal::default(),
                 ),
             )))
@@ -782,7 +780,7 @@ mod tests {
             (
                 tx2.hash,
                 RecheckRequired(ValidationStatus::Reattempting(PreviousAttempts::new(
-                    RpcErrorKind::ServerUnreachable,
+                    AppRpcErrorKind::ServerUnreachable,
                     &ValidationFailureClockReal::default(),
                 ))),
             ),
@@ -799,7 +797,7 @@ mod tests {
         assert_eq!(
             updated_txs[1].status,
             RecheckRequired(ValidationStatus::Reattempting(PreviousAttempts::new(
-                RpcErrorKind::ServerUnreachable,
+                AppRpcErrorKind::ServerUnreachable,
                 &ValidationFailureClockReal::default()
             )))
         );
