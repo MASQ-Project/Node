@@ -386,6 +386,7 @@ mod tests {
     use crate::blockchain::errors::validation_status::{
         PreviousAttempts, ValidationFailureClockReal,
     };
+    use crate::blockchain::errors::BlockchainErrorKind;
     use crate::blockchain::test_utils::{make_tx_hash, ValidationFailureClockMock};
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal,
@@ -588,7 +589,6 @@ mod tests {
 
     #[test]
     fn failure_reason_from_str_works() {
-        let validation_failure_clock = ValidationFailureClockMock::default();
         // Submission error
         assert_eq!(
             FailureReason::from_str(r#"{"Submission":{"Local":{"Decoder"}}}"#).unwrap(),
@@ -641,7 +641,7 @@ mod tests {
 
         assert_eq!(
             FailureStatus::from_str(r#"{"RecheckRequired":{"Reattempting":{"ServerUnreachable":{"firstSeen":{"secs_since_epoch":1755080031,"nanos_since_epoch":612180914},"attempts":1}}}}"#).unwrap(),
-            FailureStatus::RecheckRequired(ValidationStatus::Reattempting( PreviousAttempts::new(AppRpcErrorKind::ServerUnreachable, &validation_failure_clock)))
+            FailureStatus::RecheckRequired(ValidationStatus::Reattempting( PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable), &validation_failure_clock)))
         );
 
         assert_eq!(
@@ -724,7 +724,7 @@ mod tests {
             .reason(PendingTooLong)
             .status(RecheckRequired(ValidationStatus::Reattempting(
                 PreviousAttempts::new(
-                    AppRpcErrorKind::ServerUnreachable,
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
                     &ValidationFailureClockReal::default(),
                 ),
             )))
@@ -780,7 +780,7 @@ mod tests {
             (
                 tx2.hash,
                 RecheckRequired(ValidationStatus::Reattempting(PreviousAttempts::new(
-                    AppRpcErrorKind::ServerUnreachable,
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
                     &ValidationFailureClockReal::default(),
                 ))),
             ),
@@ -797,7 +797,7 @@ mod tests {
         assert_eq!(
             updated_txs[1].status,
             RecheckRequired(ValidationStatus::Reattempting(PreviousAttempts::new(
-                AppRpcErrorKind::ServerUnreachable,
+                BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
                 &ValidationFailureClockReal::default()
             )))
         );

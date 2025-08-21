@@ -2,12 +2,12 @@
 
 use serde_derive::{Deserialize, Serialize};
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Eq)]
 pub enum InternalError {
     PendingTooLongNotReplaced,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum InternalErrorKind {
     PendingTooLongNotReplaced,
 }
