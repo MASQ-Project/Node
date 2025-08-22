@@ -501,10 +501,11 @@ mod tests {
     use crate::accountant::scanners::pending_payable_scanner::test_utils::ValidationFailureClockMock;
     use crate::accountant::test_utils::make_sent_tx;
     use crate::blockchain::blockchain_interface::data_structures::TxBlock;
-    use crate::blockchain::errors::blockchain_db_error::app_rpc_web3_error_kind::AppRpcWeb3ErrorKind;
+    use crate::blockchain::errors::rpc_errors::AppRpcErrorKind;
     use crate::blockchain::errors::validation_status::{
         PreviousAttempts, ValidationFailureClockReal, ValidationStatus,
     };
+    use crate::blockchain::errors::BlockchainErrorKind;
     use crate::blockchain::test_utils::{make_block_hash, make_tx_hash};
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal,
@@ -531,11 +532,11 @@ mod tests {
             .hash(make_tx_hash(2))
             .status(TxStatus::Pending(ValidationStatus::Reattempting(
                 PreviousAttempts::new(
-                    Box::new(AppRpcWeb3ErrorKind::ServerUnreachable),
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
                     &ValidationFailureClockReal::default(),
                 )
                 .add_attempt(
-                    Box::new(AppRpcWeb3ErrorKind::ServerUnreachable),
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
                     &ValidationFailureClockReal::default(),
                 ),
             )))
@@ -767,7 +768,7 @@ mod tests {
             .hash(make_tx_hash(2))
             .status(TxStatus::Pending(ValidationStatus::Reattempting(
                 PreviousAttempts::new(
-                    Box::new(AppRpcWeb3ErrorKind::ServerUnreachable),
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
                     &ValidationFailureClockReal::default(),
                 ),
             )))
@@ -1102,7 +1103,7 @@ mod tests {
         tx1.status = TxStatus::Pending(ValidationStatus::Waiting);
         let mut tx2 = make_sent_tx(789);
         tx2.status = TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
-            Box::new(AppRpcWeb3ErrorKind::ServerUnreachable),
+            BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
             &ValidationFailureClockMock::default().now_result(timestamp_b),
         )));
         let mut tx3 = make_sent_tx(123);
@@ -1114,7 +1115,7 @@ mod tests {
             (
                 tx1.hash,
                 TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
-                    Box::new(AppRpcWeb3ErrorKind::Internal),
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::Internal),
                     &ValidationFailureClockMock::default().now_result(timestamp_a),
                 ))),
             ),
@@ -1122,11 +1123,11 @@ mod tests {
                 tx2.hash,
                 TxStatus::Pending(ValidationStatus::Reattempting(
                     PreviousAttempts::new(
-                        Box::new(AppRpcWeb3ErrorKind::ServerUnreachable),
+                        BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
                         &ValidationFailureClockMock::default().now_result(timestamp_b),
                     )
                     .add_attempt(
-                        Box::new(AppRpcWeb3ErrorKind::ServerUnreachable),
+                        BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
                         &ValidationFailureClockReal::default(),
                     ),
                 )),
@@ -1150,7 +1151,7 @@ mod tests {
         assert_eq!(
             updated_txs[0].status,
             TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
-                Box::new(AppRpcWeb3ErrorKind::Internal),
+                BlockchainErrorKind::AppRpc(AppRpcErrorKind::Internal),
                 &ValidationFailureClockMock::default().now_result(timestamp_a)
             )))
         );
@@ -1158,11 +1159,11 @@ mod tests {
             updated_txs[1].status,
             TxStatus::Pending(ValidationStatus::Reattempting(
                 PreviousAttempts::new(
-                    Box::new(AppRpcWeb3ErrorKind::ServerUnreachable),
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
                     &ValidationFailureClockMock::default().now_result(timestamp_b)
                 )
                 .add_attempt(
-                    Box::new(AppRpcWeb3ErrorKind::ServerUnreachable),
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
                     &ValidationFailureClockReal::default()
                 )
             ))
@@ -1207,7 +1208,7 @@ mod tests {
         let result = subject.update_statuses(&HashMap::from([(
             make_tx_hash(1),
             TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
-                Box::new(AppRpcWeb3ErrorKind::ServerUnreachable),
+                BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
                 &ValidationFailureClockReal::default(),
             ))),
         )]));
@@ -1410,7 +1411,7 @@ mod tests {
 
         assert_eq!(
             TxStatus::from_str(r#"{"Pending":{"Reattempting":{"InvalidResponse":{"firstSeen":{"secs_since_epoch":12456,"nanos_since_epoch":0},"attempts":1}}}}"#).unwrap(),
-            TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(Box::new(AppRpcWeb3ErrorKind::InvalidResponse), &validation_failure_clock)))
+            TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::InvalidResponse), &validation_failure_clock)))
         );
 
         assert_eq!(

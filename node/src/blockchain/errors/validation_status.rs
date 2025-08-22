@@ -1,6 +1,7 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::blockchain::errors::blockchain_db_error::BlockchainDbError;
+use crate::blockchain::errors::rpc_errors::AppRpcErrorKind;
+use crate::blockchain::errors::BlockchainErrorKind;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::SystemTime;
@@ -14,11 +15,11 @@ pub enum ValidationStatus {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PreviousAttempts {
     #[serde(flatten)]
-    inner: HashMap<Box<dyn BlockchainDbError>, ErrorStats>,
+    inner: HashMap<BlockchainErrorKind, ErrorStats>,
 }
 
 impl PreviousAttempts {
-    pub fn new(error: Box<dyn BlockchainDbError>, clock: &dyn ValidationFailureClock) -> Self {
+    pub fn new(error: BlockchainErrorKind, clock: &dyn ValidationFailureClock) -> Self {
         Self {
             inner: hashmap!(error => ErrorStats::now(clock)),
         }
@@ -26,7 +27,7 @@ impl PreviousAttempts {
 
     pub fn add_attempt(
         mut self,
-        error: Box<dyn BlockchainDbError>,
+        error: BlockchainErrorKind,
         clock: &dyn ValidationFailureClock,
     ) -> Self {
         self.inner
@@ -73,7 +74,7 @@ impl ValidationFailureClock for ValidationFailureClockReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::errors::blockchain_db_error::app_rpc_web3_error_kind::AppRpcWeb3ErrorKind;
+    use crate::blockchain::errors::internal_errors::InternalErrorKind;
 
     #[test]
     fn previous_attempts_and_validation_failure_clock_work_together_fine() {
@@ -81,29 +82,33 @@ mod tests {
         // new()
         let timestamp_a = SystemTime::now();
         let subject = PreviousAttempts::new(
-            Box::new(AppRpcWeb3ErrorKind::Decoder),
+            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Decoder),
             &validation_failure_clock,
         );
         // add_attempt()
         let timestamp_b = SystemTime::now();
         let subject = subject.add_attempt(
-            Box::new(AppRpcWeb3ErrorKind::Internal),
+            BlockchainErrorKind::Internal(InternalErrorKind::PendingTooLongNotReplaced),
             &validation_failure_clock,
         );
         let timestamp_c = SystemTime::now();
-        let subject =
-            subject.add_attempt(Box::new(AppRpcWeb3ErrorKind::IO), &validation_failure_clock);
-        let timestamp_d = SystemTime::now();
         let subject = subject.add_attempt(
-            Box::new(AppRpcWeb3ErrorKind::Decoder),
+            BlockchainErrorKind::AppRpc(AppRpcErrorKind::IO),
             &validation_failure_clock,
         );
-        let subject =
-            subject.add_attempt(Box::new(AppRpcWeb3ErrorKind::IO), &validation_failure_clock);
+        let timestamp_d = SystemTime::now();
+        let subject = subject.add_attempt(
+            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Decoder),
+            &validation_failure_clock,
+        );
+        let subject = subject.add_attempt(
+            BlockchainErrorKind::AppRpc(AppRpcErrorKind::IO),
+            &validation_failure_clock,
+        );
 
         let decoder_error_stats = subject
             .inner
-            .get(&(Box::new(AppRpcWeb3ErrorKind::Decoder) as Box<dyn BlockchainDbError>))
+            .get(&BlockchainErrorKind::AppRpc(AppRpcErrorKind::Decoder))
             .unwrap();
         assert!(
             timestamp_a <= decoder_error_stats.first_seen
@@ -116,7 +121,9 @@ mod tests {
         assert_eq!(decoder_error_stats.attempts, 2);
         let internal_error_stats = subject
             .inner
-            .get(&(Box::new(AppRpcWeb3ErrorKind::Internal) as Box<dyn BlockchainDbError>))
+            .get(&BlockchainErrorKind::Internal(
+                InternalErrorKind::PendingTooLongNotReplaced,
+            ))
             .unwrap();
         assert!(
             timestamp_b <= internal_error_stats.first_seen
@@ -129,7 +136,7 @@ mod tests {
         assert_eq!(internal_error_stats.attempts, 1);
         let io_error_stats = subject
             .inner
-            .get(&(Box::new(AppRpcWeb3ErrorKind::IO) as Box<dyn BlockchainDbError>))
+            .get(&BlockchainErrorKind::AppRpc(AppRpcErrorKind::IO))
             .unwrap();
         assert!(
             timestamp_c <= io_error_stats.first_seen && io_error_stats.first_seen <= timestamp_d,
@@ -141,7 +148,7 @@ mod tests {
         assert_eq!(io_error_stats.attempts, 2);
         let other_error_stats = subject
             .inner
-            .get(&(Box::new(AppRpcWeb3ErrorKind::Signing) as Box<dyn BlockchainDbError>));
+            .get(&BlockchainErrorKind::AppRpc(AppRpcErrorKind::Signing));
         assert_eq!(other_error_stats, None);
     }
 }

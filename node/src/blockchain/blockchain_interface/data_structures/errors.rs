@@ -18,7 +18,7 @@ pub enum BlockchainInterfaceError {
     InvalidAddress,
     InvalidResponse,
     QueryFailed(String),
-    UninitializedBlockchainInterface,
+    UninitializedInterface,
 }
 
 impl Display for BlockchainInterfaceError {
@@ -27,10 +27,8 @@ impl Display for BlockchainInterfaceError {
             Self::InvalidUrl => Either::Left("Invalid url"),
             Self::InvalidAddress => Either::Left("Invalid address"),
             Self::InvalidResponse => Either::Left("Invalid response"),
-            Self::QueryFailed(msg) => Either::Right(format!("Query failed: {}", msg)), //TODO this should also incorporate AppRpcWeb3Error
-            Self::UninitializedBlockchainInterface => {
-                Either::Left(BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED)
-            }
+            Self::QueryFailed(msg) => Either::Right(format!("Query failed: {}", msg)),
+            Self::UninitializedInterface => Either::Left(BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED),
         };
         write!(f, "Blockchain error: {}", err_spec)
     }
@@ -47,7 +45,7 @@ pub enum PayableTransactionError {
         msg: String,
         hashes: HashSet<TxHash>,
     },
-    UninitializedBlockchainInterface,
+    UninitializedInterface,
 }
 
 impl Display for PayableTransactionError {
@@ -77,7 +75,7 @@ impl Display for PayableTransactionError {
                     comma_joined_stringifiable(&hashes, |hash| format!("{:?}", hash))
                 )
             }
-            Self::UninitializedBlockchainInterface => {
+            Self::UninitializedInterface => {
                 write!(f, "{}", BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED)
             }
         }
@@ -89,7 +87,7 @@ pub enum BlockchainAgentBuildError {
     GasPrice(BlockchainInterfaceError),
     TransactionFeeBalance(Address, BlockchainInterfaceError),
     ServiceFeeBalance(Address, BlockchainInterfaceError),
-    UninitializedBlockchainInterface,
+    UninitializedInterface,
 }
 
 impl Display for BlockchainAgentBuildError {
@@ -106,7 +104,7 @@ impl Display for BlockchainAgentBuildError {
                 "masq balance for our earning wallet {:#x} due to {}",
                 address, blockchain_e
             )),
-            Self::UninitializedBlockchainInterface => {
+            Self::UninitializedInterface => {
                 Either::Right(BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED.to_string())
             }
         };
@@ -152,7 +150,7 @@ mod tests {
             BlockchainInterfaceError::QueryFailed(
                 "Don't query so often, it gives me a headache".to_string(),
             ),
-            BlockchainInterfaceError::UninitializedBlockchainInterface,
+            BlockchainInterfaceError::UninitializedInterface,
         ];
 
         let actual_error_msgs = original_errors.iter().map(to_string).collect::<Vec<_>>();
@@ -192,7 +190,7 @@ mod tests {
                 msg: "Sending to cosmos belongs elsewhere".to_string(),
                 hashes: hashset![make_tx_hash(0x6f), make_tx_hash(0xde)],
             },
-            PayableTransactionError::UninitializedBlockchainInterface,
+            PayableTransactionError::UninitializedInterface,
         ];
 
         let actual_error_msgs = original_errors.iter().map(to_string).collect::<Vec<_>>();
@@ -232,7 +230,7 @@ mod tests {
                 wallet.address(),
                 BlockchainInterfaceError::InvalidAddress,
             ),
-            BlockchainAgentBuildError::UninitializedBlockchainInterface,
+            BlockchainAgentBuildError::UninitializedInterface,
         ];
 
         let actual_error_msgs = original_errors.iter().map(to_string).collect::<Vec<_>>();

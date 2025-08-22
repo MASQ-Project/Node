@@ -1048,11 +1048,9 @@ mod tests {
         BlockchainTransaction, BlockchainTxFailure, ProcessedPayableFallible, RetrievedTxStatus,
         RpcPayableFailure, StatusReadFromReceiptCheck, TxBlock, TxReceiptError, TxReceiptResult,
     };
-    use crate::blockchain::errors::blockchain_db_error::app_rpc_web3_error_kind::AppRpcWeb3ErrorKind;
-    use crate::blockchain::errors::blockchain_loggable_error::app_rpc_web3_error::{
-        AppRpcWeb3Error, RemoteError,
-    };
+    use crate::blockchain::errors::rpc_errors::{AppRpcError, AppRpcErrorKind, RemoteError};
     use crate::blockchain::errors::validation_status::{PreviousAttempts, ValidationStatus};
+    use crate::blockchain::errors::BlockchainErrorKind;
     use crate::blockchain::test_utils::{make_block_hash, make_tx_hash};
     use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
     use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMockBuilder;
@@ -2653,19 +2651,19 @@ mod tests {
         sent_tx_4.status = TxStatus::Pending(ValidationStatus::Waiting);
         let tx_receipt_rpc_error_4 = TxReceiptError::new(
             TxHashByTable::SentPayable(sent_tx_4.hash),
-            AppRpcWeb3Error::Remote(RemoteError::Unreachable),
+            AppRpcError::Remote(RemoteError::Unreachable),
         );
         let tx_hash_5 = make_tx_hash(7890);
         let mut failed_tx_5 = make_failed_tx(888);
         failed_tx_5.hash = tx_hash_5;
         failed_tx_5.status =
             FailureStatus::RecheckRequired(ValidationStatus::Reattempting(PreviousAttempts::new(
-                Box::new(AppRpcWeb3ErrorKind::ServerUnreachable),
+                BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
                 &ValidationFailureClockMock::default().now_result(timestamp_c),
             )));
         let tx_receipt_rpc_error_5 = TxReceiptError::new(
             TxHashByTable::FailedPayable(failed_tx_5.hash),
-            AppRpcWeb3Error::Remote(RemoteError::InvalidResponse("game over".to_string())),
+            AppRpcError::Remote(RemoteError::InvalidResponse("game over".to_string())),
         );
         let tx_hash_6 = make_tx_hash(2345);
         let mut sent_tx_6 = make_sent_tx(789);
@@ -2738,7 +2736,7 @@ mod tests {
         assert_eq!(
             *update_statuses_pending_payable_params,
             vec![
-                hashmap!(tx_hash_4 => TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(Box::new(AppRpcWeb3ErrorKind::ServerUnreachable), &ValidationFailureClockMock::default().now_result(timestamp_a)))))
+                hashmap!(tx_hash_4 => TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable), &ValidationFailureClockMock::default().now_result(timestamp_a)))))
             ]
         );
         let update_statuses_failed_payable_params =
@@ -2746,7 +2744,7 @@ mod tests {
         assert_eq!(
             *update_statuses_failed_payable_params,
             vec![
-                hashmap!(tx_hash_5 => FailureStatus::RecheckRequired(ValidationStatus::Reattempting(PreviousAttempts::new(Box::new(AppRpcWeb3ErrorKind::ServerUnreachable), &ValidationFailureClockMock::default().now_result(timestamp_c)).add_attempt(Box::new(AppRpcWeb3ErrorKind::InvalidResponse), &ValidationFailureClockMock::default().now_result(timestamp_b)))))
+                hashmap!(tx_hash_5 => FailureStatus::RecheckRequired(ValidationStatus::Reattempting(PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable), &ValidationFailureClockMock::default().now_result(timestamp_c)).add_attempt(BlockchainErrorKind::AppRpc(AppRpcErrorKind::InvalidResponse), &ValidationFailureClockMock::default().now_result(timestamp_b)))))
             ]
         );
         assert_eq!(subject.scan_started_at(ScanType::PendingPayables), None);

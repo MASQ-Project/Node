@@ -818,13 +818,11 @@ mod tests {
     use crate::blockchain::blockchain_interface::data_structures::{
         RetrievedTxStatus, StatusReadFromReceiptCheck, TxBlock, TxReceiptError, TxReceiptResult,
     };
-    use crate::blockchain::errors::blockchain_db_error::app_rpc_web3_error_kind::AppRpcWeb3ErrorKind;
-    use crate::blockchain::errors::blockchain_loggable_error::app_rpc_web3_error::{
-        AppRpcWeb3Error, LocalError, RemoteError,
-    };
+    use crate::blockchain::errors::rpc_errors::{AppRpcError, AppRpcErrorKind, LocalError};
     use crate::blockchain::errors::validation_status::{
         PreviousAttempts, ValidationFailureClockReal, ValidationStatus,
     };
+    use crate::blockchain::errors::BlockchainErrorKind;
     use crate::blockchain::test_utils::{make_block_hash, make_tx_hash};
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use itertools::Itertools;
@@ -951,7 +949,7 @@ mod tests {
                 ))),
                 TxReceiptResult(Err(TxReceiptError::new(
                     TxHashByTable::FailedPayable(failed_tx_hash_1),
-                    AppRpcWeb3Error::Local(LocalError::Internal),
+                    AppRpcError::Local(LocalError::Internal),
                 ))),
                 TxReceiptResult(Ok(RetrievedTxStatus::new(
                     TxHashByTable::FailedPayable(failed_tx_hash_2),
@@ -1020,7 +1018,7 @@ mod tests {
                 ))),
                 TxReceiptResult(Err(TxReceiptError::new(
                     TxHashByTable::FailedPayable(failed_tx_hash_1),
-                    AppRpcWeb3Error::Local(LocalError::Internal),
+                    AppRpcError::Local(LocalError::Internal),
                 ))),
                 TxReceiptResult(Ok(RetrievedTxStatus::new(
                     TxHashByTable::FailedPayable(failed_tx_hash_2),
@@ -1087,7 +1085,7 @@ mod tests {
                 ))),
                 TxReceiptResult(Err(TxReceiptError::new(
                     TxHashByTable::FailedPayable(failed_tx_hash_1),
-                    AppRpcWeb3Error::Local(LocalError::Internal),
+                    AppRpcError::Local(LocalError::Internal),
                 ))),
                 TxReceiptResult(Ok(RetrievedTxStatus::new(
                     TxHashByTable::FailedPayable(failed_tx_hash_2),
@@ -1214,7 +1212,7 @@ mod tests {
         failed_tx_2.hash = hash_2;
         failed_tx_2.status =
             FailureStatus::RecheckRequired(ValidationStatus::Reattempting(PreviousAttempts::new(
-                Box::new(AppRpcWeb3ErrorKind::Internal),
+                BlockchainErrorKind::AppRpc(AppRpcErrorKind::Internal),
                 &ValidationFailureClockMock::default().now_result(timestamp_a),
             )));
         let failed_payable_dao = FailedPayableDaoMock::default()
@@ -1244,24 +1242,22 @@ mod tests {
             tx_receipt_rpc_failures: vec![
                 FailedValidationByTable::FailedPayable(FailedValidation::new(
                     hash_1,
-                    Box::new(AppRpcWeb3Error::Remote(RemoteError::Unreachable)),
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
                     FailureStatus::RecheckRequired(ValidationStatus::Waiting),
                 )),
                 FailedValidationByTable::FailedPayable(FailedValidation::new(
                     hash_2,
-                    Box::new(AppRpcWeb3Error::Local(LocalError::Internal)),
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::Internal),
                     FailureStatus::RecheckRequired(ValidationStatus::Reattempting(
                         PreviousAttempts::new(
-                            Box::new(AppRpcWeb3ErrorKind::Internal),
+                            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Internal),
                             &ValidationFailureClockMock::default().now_result(timestamp_d),
                         ),
                     )),
                 )),
                 FailedValidationByTable::SentPayable(FailedValidation::new(
                     hash_3,
-                    Box::new(AppRpcWeb3Error::Remote(RemoteError::InvalidResponse(
-                        "Booga".to_string(),
-                    ))),
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::InvalidResponse),
                     TxStatus::Pending(ValidationStatus::Waiting),
                 )),
             ],
@@ -1273,7 +1269,7 @@ mod tests {
         assert_eq!(
             *update_statuses_sent_tx_params,
             vec![
-                hashmap![hash_3 => TxStatus::Pending(ValidationStatus::Reattempting (PreviousAttempts::new(Box::new(AppRpcWeb3ErrorKind::InvalidResponse), &ValidationFailureClockMock::default().now_result(timestamp_a))))]
+                hashmap![hash_3 => TxStatus::Pending(ValidationStatus::Reattempting (PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::InvalidResponse), &ValidationFailureClockMock::default().now_result(timestamp_a))))]
             ]
         );
         let mut update_statuses_failed_tx_params =
@@ -1285,10 +1281,10 @@ mod tests {
             .collect::<HashMap<_, _>>();
         let expected_params = hashmap!(
                 hash_1 => FailureStatus::RecheckRequired(
-                    ValidationStatus::Reattempting(PreviousAttempts::new(Box::new(AppRpcWeb3ErrorKind::ServerUnreachable), &ValidationFailureClockMock::default().now_result(timestamp_b)))
+                    ValidationStatus::Reattempting(PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable), &ValidationFailureClockMock::default().now_result(timestamp_b)))
                 ),
                 hash_2 => FailureStatus::RecheckRequired(
-                    ValidationStatus::Reattempting(PreviousAttempts::new(Box::new(AppRpcWeb3ErrorKind::Internal), &ValidationFailureClockMock::default().now_result(timestamp_d)).add_attempt(Box::new(AppRpcWeb3ErrorKind::Internal), &ValidationFailureClockReal::default())))
+                    ValidationStatus::Reattempting(PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::Internal), &ValidationFailureClockMock::default().now_result(timestamp_d)).add_attempt(BlockchainErrorKind::AppRpc(AppRpcErrorKind::Internal), &ValidationFailureClockReal::default())))
             ).into_iter().sorted_by_key(|(key,_)|*key).collect::<HashMap<_, _>>();
         assert_eq!(actual_params, expected_params);
         assert!(
@@ -1333,14 +1329,12 @@ mod tests {
             vec![
                 FailedValidationByTable::FailedPayable(FailedValidation::new(
                     hash_1,
-                    Box::new(AppRpcWeb3Error::Remote(RemoteError::Unreachable)),
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
                     FailureStatus::RetryRequired,
                 )),
                 FailedValidationByTable::SentPayable(FailedValidation::new(
                     hash_2,
-                    Box::new(AppRpcWeb3Error::Remote(RemoteError::InvalidResponse(
-                        "Booga".to_string(),
-                    ))),
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::InvalidResponse),
                     TxStatus::Confirmed {
                         block_hash: "abc".to_string(),
                         block_number: 0,
@@ -1376,7 +1370,7 @@ mod tests {
     fn update_validation_status_for_sent_txs_panics_on_update_statuses() {
         let failed_validation = FailedValidation::new(
             make_tx_hash(456),
-            Box::new(AppRpcWeb3Error::Local(LocalError::Internal)),
+            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Internal),
             TxStatus::Pending(ValidationStatus::Waiting),
         );
         let sent_payable_dao = SentPayableDaoMock::default()
@@ -1400,7 +1394,7 @@ mod tests {
     fn update_validation_status_for_failed_txs_panics_on_update_statuses() {
         let failed_validation = FailedValidation::new(
             make_tx_hash(456),
-            Box::new(AppRpcWeb3Error::Local(LocalError::Internal)),
+            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Internal),
             FailureStatus::RecheckRequired(ValidationStatus::Waiting),
         );
         let failed_payable_dao = FailedPayableDaoMock::default()
@@ -1446,7 +1440,7 @@ mod tests {
             tx_receipt_rpc_failures: vec![FailedValidationByTable::SentPayable(
                 FailedValidation::new(
                     tx_hash_2,
-                    Box::new(AppRpcWeb3Error::Local(LocalError::Internal)),
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::Internal),
                     TxStatus::Pending(ValidationStatus::Waiting),
                 ),
             )],
@@ -1462,7 +1456,7 @@ mod tests {
         assert_eq!(
             *update_statuses_params,
             vec![
-                hashmap!(tx_hash_2 => TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(Box::new(AppRpcWeb3ErrorKind::Internal), &ValidationFailureClockMock::default().now_result(timestamp)))))
+                hashmap!(tx_hash_2 => TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::Internal), &ValidationFailureClockMock::default().now_result(timestamp)))))
             ]
         );
     }

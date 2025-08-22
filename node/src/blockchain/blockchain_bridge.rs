@@ -549,9 +549,7 @@ mod tests {
         BlockchainTransaction, RetrievedBlockchainTransactions, RetrievedTxStatus, TxBlock,
         TxReceiptError,
     };
-    use crate::blockchain::errors::blockchain_loggable_error::app_rpc_web3_error::{
-        AppRpcWeb3Error, RemoteError,
-    };
+    use crate::blockchain::errors::rpc_errors::{AppRpcError, RemoteError};
     use crate::blockchain::errors::validation_status::ValidationStatus;
     use crate::blockchain::test_utils::{
         make_blockchain_interface_web3, make_tx_hash, ReceiptResponseBuilder,
@@ -1358,7 +1356,7 @@ mod tests {
                     TxReceiptResult(Err(
                         TxReceiptError::new(
                             TxHashByTable::SentPayable(tx_hash_3),
-                        AppRpcWeb3Error:: Remote(RemoteError::Web3RpcError { code: 429, message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string()})))),
+                        AppRpcError:: Remote(RemoteError::Web3RpcError { code: 429, message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string()})))),
                     TxReceiptResult(Ok(RetrievedTxStatus::new(TxHashByTable::SentPayable(tx_hash_4), StatusReadFromReceiptCheck::Pending))),
                 ],
                 response_skeleton_opt: Some(ResponseSkeleton {
@@ -2142,7 +2140,7 @@ mod tests {
 
     /*
     blastapi - completely rejected call on Public endpoint as won't handle eth_getLogs method on public API
-    [{"jsonrpc":"2.0","id":2,"error":{"code":-32601,"message":"Method not found","data":{"method":""}}},{"jsonrpc":"2.0","id":1,"error":{"code":-32600,"message":"Invalid Request","data":{"message":"Cancelled due to validation app_rpc_web3_error_kind in batch request"}}}] (edited)
+    [{"jsonrpc":"2.0","id":2,"error":{"code":-32601,"message":"Method not found","data":{"method":""}}},{"jsonrpc":"2.0","id":1,"error":{"code":-32600,"message":"Invalid Request","data":{"message":"Cancelled due to validation errors in batch request"}}}] (edited)
     [8:50 AM]
     */
 

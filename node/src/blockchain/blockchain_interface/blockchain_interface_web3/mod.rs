@@ -27,7 +27,7 @@ use crate::accountant::scanners::pending_payable_scanner::utils::TxHashByTable;
 use crate::blockchain::blockchain_bridge::{BlockMarker, BlockScanRange, RegisterNewPendingPayables};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::LowBlockchainIntWeb3;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::utils::{create_blockchain_agent_web3, send_payables_within_batch, BlockchainAgentFutureResult};
-use crate::blockchain::errors::blockchain_loggable_error::app_rpc_web3_error::{AppRpcWeb3Error, RemoteError};
+use crate::blockchain::errors::rpc_errors::{AppRpcError, RemoteError};
 // TODO We should probably begin to attach these constants to the interfaces more tightly, so that
 // we aren't baffled by which interface they belong with. I suggest to declare them inside
 // their inherent impl blocks. They will then need to be preceded by the class name
@@ -241,9 +241,9 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                                         } else {
                                             TxReceiptResult(Err(TxReceiptError::new(
                                                 tx_hash,
-                                                AppRpcWeb3Error::Remote(
-                                                    RemoteError::InvalidResponse(e.to_string()),
-                                                ),
+                                                AppRpcError::Remote(RemoteError::InvalidResponse(
+                                                    e.to_string(),
+                                                )),
                                             )))
                                         }
                                     }
@@ -490,7 +490,7 @@ mod tests {
     use std::str::FromStr;
     use web3::transports::Http;
     use web3::types::{H256, U256};
-    use crate::blockchain::errors::blockchain_loggable_error::app_rpc_web3_error::{AppRpcWeb3Error, RemoteError};
+    use crate::blockchain::errors::rpc_errors::{AppRpcError, RemoteError};
 
     #[test]
     fn constants_are_correct() {
@@ -1133,7 +1133,7 @@ mod tests {
         assert_eq!(result[0], TxReceiptResult(Err(
             TxReceiptError::new(
                 tx_hbt_1,
-                AppRpcWeb3Error::Remote(
+                AppRpcError::Remote(
                 RemoteError::Web3RpcError {
                     code: 429,
                     message:
@@ -1153,7 +1153,7 @@ mod tests {
             result[2],
             TxReceiptResult(Err(TxReceiptError::new(
                 tx_hbt_3,
-                AppRpcWeb3Error::Remote(RemoteError::InvalidResponse(
+                AppRpcError::Remote(RemoteError::InvalidResponse(
                     "invalid type: string \"trash\", expected struct Receipt".to_string()
                 ))
             )))
