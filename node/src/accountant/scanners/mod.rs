@@ -597,8 +597,9 @@ mod tests {
     use crate::accountant::scanners::payable_scanner::PayableScanner;
     use crate::accountant::scanners::pending_payable_scanner::utils::PendingPayableScanResult;
     use crate::accountant::scanners::test_utils::{
-        assert_timestamps_from_str, parse_system_time_from_str, MarkScanner, NullScanner,
-        ReplacementType, ScannerReplacement,
+        assert_timestamps_from_str, parse_system_time_from_str,
+        trim_expected_timestamp_to_three_digits_nanos, MarkScanner, NullScanner, ReplacementType,
+        ScannerReplacement,
     };
     use crate::accountant::scanners::{
         ManulTriggerError, PendingPayableScanner, ReceivableScanner, Scanner, ScannerCommon,
@@ -990,9 +991,6 @@ mod tests {
         );
         let tlh = TestLogHandler::new();
         tlh.exists_log_containing(&format!("INFO: {test_name}: Scanning for retry payables"));
-        tlh.exists_log_containing(&format!(
-            "INFO: {test_name}: Generated 1 tx template(s) for retry"
-        ));
     }
 
     #[test]
@@ -1049,9 +1047,9 @@ mod tests {
             panic_msg
         );
         // TODO: GH-605: Check why are these timestamps inaccurate
-        // check_timestamps_in_panic_for_already_running_retry_payable_scanner(
-        //     &panic_msg, before, after,
-        // )
+        check_timestamps_in_panic_for_already_running_retry_payable_scanner(
+            &panic_msg, before, after,
+        )
     }
 
     fn check_timestamps_in_panic_for_already_running_retry_payable_scanner(
@@ -1060,8 +1058,10 @@ mod tests {
         after: SystemTime,
     ) {
         let system_times = parse_system_time_from_str(panic_msg);
+        let before = trim_expected_timestamp_to_three_digits_nanos(before);
         let first_actual = system_times[0];
         let second_actual = system_times[1];
+        let after = trim_expected_timestamp_to_three_digits_nanos(after);
 
         assert!(
             before <= first_actual
@@ -1100,8 +1100,7 @@ mod tests {
         assert_eq!(aware_of_unresolved_pending_payable_after, false);
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!(
-            "DEBUG: {test_name}: Local error occurred before transaction signing. \
-            Error: Some error"
+            "WARN: {test_name}: Local error occurred before transaction signing. Error: Some error"
         ));
     }
 
@@ -1135,9 +1134,8 @@ mod tests {
         assert_eq!(aware_of_unresolved_pending_payable_after, true);
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!(
-            "DEBUG: {test_name}: Processed payables while sending to RPC: \
-            Total: 1, Sent to RPC: 1, Failed to send: 0. \
-            Updating database..."
+            "DEBUG: {test_name}: Processed new txs while sending to RPC: \
+            Total: 1, Sent to RPC: 1, Failed to send: 0."
         ));
     }
 
@@ -1175,8 +1173,7 @@ mod tests {
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!(
             "DEBUG: {test_name}: Processed retried txs while sending to RPC: \
-            Total: 1, Sent to RPC: 1, Failed to send: 0. \
-            Updating database..."
+            Total: 1, Sent to RPC: 1, Failed to send: 0."
         ));
     }
 

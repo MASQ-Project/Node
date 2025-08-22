@@ -405,7 +405,7 @@ pub fn parse_system_time_from_str(examined_str: &str) -> Vec<SystemTime> {
         .collect()
 }
 
-fn trim_expected_timestamp_to_three_digits_nanos(value: SystemTime) -> SystemTime {
+pub fn trim_expected_timestamp_to_three_digits_nanos(value: SystemTime) -> SystemTime {
     let duration = value.duration_since(UNIX_EPOCH).unwrap();
     let full_nanos = duration.subsec_nanos();
     let diffuser = 10_u32.pow(6);
