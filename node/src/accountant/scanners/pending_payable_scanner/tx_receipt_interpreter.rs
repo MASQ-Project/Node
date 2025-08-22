@@ -84,6 +84,13 @@ impl TxReceiptInterpreter {
                 scan_report.register_new_failure(failed_tx);
             }
             TxByTable::FailedPayable(failed_tx) => {
+                if failed_tx.reason != FailureReason::PendingTooLong {
+                    unreachable!(
+                        "Transaction is both pending and failed (failure reason: '{:?}'). Should be \
+                        possible only with the reason 'PendingTooLong'",
+                        failed_tx.reason
+                    )
+                }
                 let replacement_tx = sent_payable_dao
                     .retrieve_txs(Some(RetrieveCondition::ByNonce(vec![failed_tx.nonce])));
                 let replacement_tx_hash = replacement_tx
@@ -103,9 +110,6 @@ impl TxReceiptInterpreter {
                     failed_tx.hash,
                     replacement_tx_hash
                 );
-                if failed_tx.reason != FailureReason::PendingTooLong {
-                    todo!("panic here")
-                }
                 scan_report.register_rpc_failure(FailedValidationByTable::FailedPayable(
                     FailedValidation::new(
                         failed_tx.hash,
@@ -508,6 +512,7 @@ mod tests {
         let failed_tx_nonce = failed_tx.nonce;
         failed_tx.hash = tx_hash;
         failed_tx.status = FailureStatus::RecheckRequired(ValidationStatus::Waiting);
+        failed_tx.reason = FailureReason::PendingTooLong;
         let scan_report = ReceiptScanReport::default();
 
         let result = TxReceiptInterpreter::handle_still_pending_tx(
@@ -545,6 +550,31 @@ mod tests {
             000000913 on a recheck was found pending on its receipt unexpectedly. It was supposed \
             to be replaced by 0x00000000000000000000000000000000000000000000000000000000000007c6"
         ));
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "internal error: entered unreachable code: Transaction is both pending \
+    and failed (failure reason: 'Reverted'). Should be possible only with the reason 'PendingTooLong'"
+    )]
+    fn interprets_failed_tx_recheck_as_still_pending_while_the_failure_reason_wasnt_pending_too_long(
+    ) {
+        let mut newer_sent_tx_for_older_failed_tx = make_sent_tx(2244);
+        newer_sent_tx_for_older_failed_tx.hash = make_tx_hash(0x7c6);
+        let sent_payable_dao = SentPayableDaoMock::new();
+        let tx_hash = make_tx_hash(0x913);
+        let mut failed_tx = make_failed_tx(789);
+        failed_tx.hash = tx_hash;
+        failed_tx.status = FailureStatus::RecheckRequired(ValidationStatus::Waiting);
+        failed_tx.reason = FailureReason::Reverted;
+        let scan_report = ReceiptScanReport::default();
+
+        let _ = TxReceiptInterpreter::handle_still_pending_tx(
+            scan_report,
+            TxByTable::FailedPayable(failed_tx),
+            &sent_payable_dao,
+            &Logger::new("test"),
+        );
     }
 
     #[test]
