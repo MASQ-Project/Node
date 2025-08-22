@@ -47,7 +47,6 @@ impl IntoIterator for NewTxTemplates {
     }
 }
 
-// TODO: GH-605: Indirectly tested
 impl FromIterator<NewTxTemplate> for NewTxTemplates {
     fn from_iter<I: IntoIterator<Item = NewTxTemplate>>(iter: I) -> Self {
         NewTxTemplates(iter.into_iter().collect())
@@ -196,5 +195,28 @@ mod tests {
         assert_eq!(new_tx_templates[0].base.amount_in_wei, 1000);
         assert_eq!(new_tx_templates[1].base.receiver_address, wallet2.address());
         assert_eq!(new_tx_templates[1].base.amount_in_wei, 2000);
+    }
+
+    #[test]
+    fn new_tx_templates_can_be_created_from_iterator() {
+        let template1 = NewTxTemplate {
+            base: BaseTxTemplate {
+                receiver_address: make_address(1),
+                amount_in_wei: 1000,
+            },
+        };
+        let template2 = NewTxTemplate {
+            base: BaseTxTemplate {
+                receiver_address: make_address(2),
+                amount_in_wei: 2000,
+            },
+        };
+
+        let templates_vec = vec![template1.clone(), template2.clone()];
+        let templates = NewTxTemplates::from_iter(templates_vec.into_iter());
+
+        assert_eq!(templates.len(), 2);
+        assert_eq!(templates[0], template1);
+        assert_eq!(templates[1], template2);
     }
 }
