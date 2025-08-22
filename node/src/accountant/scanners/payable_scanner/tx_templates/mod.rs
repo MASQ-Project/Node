@@ -1,3 +1,4 @@
+// Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use web3::types::Address;
 

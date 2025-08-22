@@ -1,3 +1,4 @@
+// Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 #![cfg(test)]
 
 use crate::accountant::scanners::payable_scanner::msgs::PricedTemplatesMessage;

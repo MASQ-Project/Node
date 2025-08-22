@@ -1,3 +1,4 @@
+// Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 mod finish_scan;
 pub mod msgs;
 mod start_scan;

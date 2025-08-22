@@ -1,3 +1,4 @@
+// Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::join_with_separator;
 use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::{
     NewTxTemplate, NewTxTemplates,

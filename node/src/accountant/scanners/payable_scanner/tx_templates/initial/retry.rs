@@ -1,3 +1,4 @@
+// Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
 use crate::accountant::scanners::payable_scanner::tx_templates::BaseTxTemplate;
 use std::collections::{BTreeSet, HashMap};
