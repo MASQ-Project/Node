@@ -22,7 +22,7 @@ use crate::accountant::scanners::payable_scanner::msgs::InitialTemplatesMessage;
 use crate::accountant::scanners::payable_scanner::payment_adjuster_integration::SolvencySensitivePaymentInstructor;
 use crate::accountant::scanners::payable_scanner::utils::{
     batch_stats, calculate_lengths, filter_receiver_addresses_from_txs, generate_status_updates,
-    payables_debug_summary, OperationOutcome, PayableScanResult, PayableThresholdsGauge,
+    payables_debug_summary, NextScanToRun, PayableScanResult, PayableThresholdsGauge,
     PayableThresholdsGaugeReal,
 };
 use crate::accountant::scanners::{Scanner, ScannerCommon, StartableScanner};
@@ -140,21 +140,21 @@ impl PayableScanner {
         }
     }
 
-    fn detect_outcome(msg: &SentPayables) -> OperationOutcome {
+    fn detect_outcome(msg: &SentPayables) -> NextScanToRun {
         if let Ok(batch_results) = msg.clone().payment_procedure_result {
             if batch_results.sent_txs.is_empty() {
                 if batch_results.failed_txs.is_empty() {
-                    return OperationOutcome::NewPayableScan;
+                    return NextScanToRun::NewPayableScan;
                 } else {
-                    return OperationOutcome::RetryPayableScan;
+                    return NextScanToRun::RetryPayableScan;
                 }
             }
 
-            OperationOutcome::PendingPayableScan
+            NextScanToRun::PendingPayableScan
         } else {
             match msg.payable_scan_type {
-                PayableScanType::New => OperationOutcome::NewPayableScan,
-                PayableScanType::Retry => OperationOutcome::RetryPayableScan,
+                PayableScanType::New => NextScanToRun::NewPayableScan,
+                PayableScanType::Retry => NextScanToRun::RetryPayableScan,
             }
         }
     }
@@ -342,7 +342,7 @@ mod tests {
                 payable_scan_type: PayableScanType::New,
                 response_skeleton_opt: None,
             }),
-            OperationOutcome::NewPayableScan
+            NextScanToRun::NewPayableScan
         );
         assert_eq!(
             PayableScanner::detect_outcome(&SentPayables {
@@ -350,7 +350,7 @@ mod tests {
                 payable_scan_type: PayableScanType::Retry,
                 response_skeleton_opt: None,
             }),
-            OperationOutcome::RetryPayableScan
+            NextScanToRun::RetryPayableScan
         );
 
         // BatchResults is empty
@@ -363,7 +363,7 @@ mod tests {
                 payable_scan_type: PayableScanType::New,
                 response_skeleton_opt: None,
             }),
-            OperationOutcome::NewPayableScan
+            NextScanToRun::NewPayableScan
         );
         assert_eq!(
             PayableScanner::detect_outcome(&SentPayables {
@@ -374,7 +374,7 @@ mod tests {
                 payable_scan_type: PayableScanType::Retry,
                 response_skeleton_opt: None,
             }),
-            OperationOutcome::NewPayableScan
+            NextScanToRun::NewPayableScan
         );
 
         // Only FailedTxs
@@ -387,7 +387,7 @@ mod tests {
                 payable_scan_type: PayableScanType::New,
                 response_skeleton_opt: None,
             }),
-            OperationOutcome::RetryPayableScan
+            NextScanToRun::RetryPayableScan
         );
         assert_eq!(
             PayableScanner::detect_outcome(&SentPayables {
@@ -398,7 +398,7 @@ mod tests {
                 payable_scan_type: PayableScanType::Retry,
                 response_skeleton_opt: None,
             }),
-            OperationOutcome::RetryPayableScan
+            NextScanToRun::RetryPayableScan
         );
 
         // Only SentTxs
@@ -411,7 +411,7 @@ mod tests {
                 payable_scan_type: PayableScanType::New,
                 response_skeleton_opt: None,
             }),
-            OperationOutcome::PendingPayableScan
+            NextScanToRun::PendingPayableScan
         );
         assert_eq!(
             PayableScanner::detect_outcome(&SentPayables {
@@ -422,7 +422,7 @@ mod tests {
                 payable_scan_type: PayableScanType::Retry,
                 response_skeleton_opt: None,
             }),
-            OperationOutcome::PendingPayableScan
+            NextScanToRun::PendingPayableScan
         );
 
         // Both SentTxs and FailedTxs are present
@@ -435,7 +435,7 @@ mod tests {
                 payable_scan_type: PayableScanType::New,
                 response_skeleton_opt: None,
             }),
-            OperationOutcome::PendingPayableScan
+            NextScanToRun::PendingPayableScan
         );
         assert_eq!(
             PayableScanner::detect_outcome(&SentPayables {
@@ -446,7 +446,7 @@ mod tests {
                 payable_scan_type: PayableScanType::Retry,
                 response_skeleton_opt: None,
             }),
-            OperationOutcome::PendingPayableScan
+            NextScanToRun::PendingPayableScan
         );
     }
 

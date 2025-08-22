@@ -27,11 +27,11 @@ use web3::types::{Address, H256};
 #[derive(Debug, PartialEq)]
 pub struct PayableScanResult {
     pub ui_response_opt: Option<NodeToUiMessage>,
-    pub result: OperationOutcome,
+    pub result: NextScanToRun,
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum OperationOutcome {
+pub enum NextScanToRun {
     PendingPayableScan,
     NewPayableScan,
     RetryPayableScan,

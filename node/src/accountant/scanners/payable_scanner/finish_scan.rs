@@ -33,9 +33,7 @@ mod tests {
         make_failed_tx, make_sent_tx, FailedTxBuilder,
     };
     use crate::accountant::scanners::payable_scanner::test_utils::PayableScannerBuilder;
-    use crate::accountant::scanners::payable_scanner::utils::{
-        OperationOutcome, PayableScanResult,
-    };
+    use crate::accountant::scanners::payable_scanner::utils::{NextScanToRun, PayableScanResult};
     use crate::accountant::scanners::Scanner;
     use crate::accountant::test_utils::{FailedPayableDaoMock, SentPayableDaoMock};
     use crate::accountant::{join_with_separator, PayableScanType, ResponseSkeleton, SentPayables};
@@ -106,7 +104,7 @@ mod tests {
                     target: MessageTarget::ClientId(response_skeleton.client_id),
                     body: UiScanResponse {}.tmb(response_skeleton.context_id),
                 }),
-                result: OperationOutcome::PendingPayableScan,
+                result: NextScanToRun::PendingPayableScan,
             }
         );
         TestLogHandler::new().exists_log_matching(&format!(
@@ -193,7 +191,7 @@ mod tests {
                     target: MessageTarget::ClientId(response_skeleton.client_id),
                     body: UiScanResponse {}.tmb(response_skeleton.context_id),
                 }),
-                result: OperationOutcome::PendingPayableScan,
+                result: NextScanToRun::PendingPayableScan,
             }
         );
         let tlh = TestLogHandler::new();
@@ -237,7 +235,7 @@ mod tests {
                     target: MessageTarget::ClientId(response_skeleton.client_id),
                     body: UiScanResponse {}.tmb(response_skeleton.context_id),
                 }),
-                result: OperationOutcome::NewPayableScan,
+                result: NextScanToRun::NewPayableScan,
             }
         );
         let tlh = TestLogHandler::new();

@@ -73,7 +73,7 @@ use std::rc::Rc;
 use std::time::SystemTime;
 use web3::types::H256;
 use crate::accountant::scanners::payable_scanner::msgs::{PricedTemplatesMessage, InitialTemplatesMessage};
-use crate::accountant::scanners::payable_scanner::utils::OperationOutcome;
+use crate::accountant::scanners::payable_scanner::utils::NextScanToRun;
 use crate::accountant::scanners::pending_payable_scanner::utils::PendingPayableScanResult;
 use crate::accountant::scanners::scan_schedulers::{PayableSequenceScanner, ScanRescheduleAfterEarlyStop, ScanSchedulers};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionReceiptResult;
@@ -357,15 +357,15 @@ impl Handler<SentPayables> for Accountant {
 
         match scan_result.ui_response_opt {
             None => match scan_result.result {
-                OperationOutcome::PendingPayableScan => self
+                NextScanToRun::PendingPayableScan => self
                     .scan_schedulers
                     .pending_payable
                     .schedule(ctx, &self.logger),
-                OperationOutcome::NewPayableScan => self
+                NextScanToRun::NewPayableScan => self
                     .scan_schedulers
                     .payable
                     .schedule_new_payable_scan(ctx, &self.logger), // I think we should be scheduling retry scan here
-                OperationOutcome::RetryPayableScan => todo!(), // TODO: Outcome
+                NextScanToRun::RetryPayableScan => todo!(), // TODO: GH-605: Outcome
             },
             Some(node_to_ui_msg) => {
                 self.ui_message_sub_opt
@@ -2772,7 +2772,7 @@ mod tests {
             // Important
             .finish_scan_result(PayableScanResult {
                 ui_response_opt: None,
-                result: OperationOutcome::PendingPayableScan,
+                result: NextScanToRun::PendingPayableScan,
             });
         let pending_payable_scanner = ScannerMock::new()
             .scan_started_at_result(None)
@@ -3696,7 +3696,7 @@ mod tests {
             .start_scan_result(Ok(qualified_payables_msg.clone()))
             .finish_scan_result(PayableScanResult {
                 ui_response_opt: None,
-                result: OperationOutcome::PendingPayableScan, // TODO: Outcome
+                result: NextScanToRun::PendingPayableScan, // TODO: Outcome
             });
         let mut config = bc_from_earning_wallet(make_wallet("hi"));
         config.scan_intervals_opt = Some(ScanIntervals {
@@ -4992,7 +4992,7 @@ mod tests {
                     .finish_scan_params(&finish_scan_params_arc)
                     .finish_scan_result(PayableScanResult {
                         ui_response_opt: None,
-                        result: OperationOutcome::NewPayableScan,
+                        result: NextScanToRun::NewPayableScan,
                     }),
             )));
         // Important. Otherwise, the scan would've been handled through a different endpoint and

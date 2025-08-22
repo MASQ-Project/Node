@@ -22,7 +22,7 @@ use crate::accountant::scanners::payable_scanner::msgs::{
     InitialTemplatesMessage, PricedTemplatesMessage,
 };
 use crate::accountant::scanners::payable_scanner::payment_adjuster_integration::PreparedAdjustment;
-use crate::accountant::scanners::payable_scanner::utils::{OperationOutcome, PayableScanResult};
+use crate::accountant::scanners::payable_scanner::utils::{NextScanToRun, PayableScanResult};
 use crate::accountant::scanners::payable_scanner::{MultistageDualPayableScanner, PayableScanner};
 use crate::accountant::scanners::pending_payable_scanner::utils::PendingPayableScanResult;
 use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
@@ -255,7 +255,7 @@ impl Scanners {
     pub fn finish_payable_scan(&mut self, msg: SentPayables, logger: &Logger) -> PayableScanResult {
         let scan_result = self.payable.finish_scan(msg, logger);
         match scan_result.result {
-            OperationOutcome::PendingPayableScan => self.aware_of_unresolved_pending_payable = true,
+            NextScanToRun::PendingPayableScan => self.aware_of_unresolved_pending_payable = true,
             _ => (),
         };
         scan_result
