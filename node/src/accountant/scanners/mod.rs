@@ -1046,7 +1046,6 @@ mod tests {
             expected_needle_2,
             panic_msg
         );
-        // TODO: GH-605: Check why are these timestamps inaccurate
         check_timestamps_in_panic_for_already_running_retry_payable_scanner(
             &panic_msg, before, after,
         )
