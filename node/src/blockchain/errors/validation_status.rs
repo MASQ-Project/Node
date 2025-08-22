@@ -122,7 +122,7 @@ mod tests {
         );
         let timestamp_c = SystemTime::now();
         let subject = subject.add_attempt(
-            BlockchainErrorKind::AppRpc(AppRpcErrorKind::IO),
+            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Io),
             &validation_failure_clock,
         );
         let timestamp_d = SystemTime::now();
@@ -131,7 +131,7 @@ mod tests {
             &validation_failure_clock,
         );
         let subject = subject.add_attempt(
-            BlockchainErrorKind::AppRpc(AppRpcErrorKind::IO),
+            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Io),
             &validation_failure_clock,
         );
 
@@ -165,7 +165,7 @@ mod tests {
         assert_eq!(internal_error_stats.attempts, 1);
         let io_error_stats = subject
             .inner
-            .get(&BlockchainErrorKind::AppRpc(AppRpcErrorKind::IO))
+            .get(&BlockchainErrorKind::AppRpc(AppRpcErrorKind::Io))
             .unwrap();
         assert!(
             timestamp_c <= io_error_stats.first_seen && io_error_stats.first_seen <= timestamp_d,
@@ -197,7 +197,7 @@ mod tests {
             &clock,
         );
         let attempts3 =
-            PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::IO), &clock);
+            PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::Io), &clock);
         let hash1 = {
             let mut hasher = DefaultHasher::new();
             attempts1.hash(&mut hasher);
@@ -231,7 +231,7 @@ mod tests {
             &clock,
         );
         let mut attempts2 =
-            PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::IO), &clock);
+            PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::Io), &clock);
         attempts1 = attempts1.add_attempt(
             BlockchainErrorKind::Internal(InternalErrorKind::PendingTooLongNotReplaced),
             &clock,

@@ -521,11 +521,11 @@ mod tests {
             .hash(make_tx_hash(2))
             .status(TxStatus::Pending(ValidationStatus::Reattempting(
                 PreviousAttempts::new(
-                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::Unreachable),
                     &ValidationFailureClockReal::default(),
                 )
                 .add_attempt(
-                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::Unreachable),
                     &ValidationFailureClockReal::default(),
                 ),
             )))
@@ -762,7 +762,7 @@ mod tests {
             .hash(make_tx_hash(2))
             .status(TxStatus::Pending(ValidationStatus::Reattempting(
                 PreviousAttempts::new(
-                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::Unreachable),
                     &ValidationFailureClockReal::default(),
                 ),
             )))

@@ -677,7 +677,8 @@ mod tests {
     fn failure_reason_from_str_works() {
         // Submission error
         assert_eq!(
-            FailureReason::from_str(r#"{"Submission":{"Local":{"Decoder"}}}"#).unwrap(),
+            FailureReason::from_str(r#"{"Submission":{"Local":{"Decoder":"am i alive?"}}}"#)
+                .unwrap(),
             FailureReason::Submission(AppRpcError::Local(Decoder("am i alive?".to_string())))
         );
 
@@ -709,6 +710,23 @@ mod tests {
     }
 
     #[test]
+    fn show_str() {
+        let validation_failure_clock = ValidationFailureClockMock::default().now_result(
+            SystemTime::UNIX_EPOCH
+                .add(Duration::from_secs(1755080031))
+                .add(Duration::from_nanos(612180914)),
+        );
+        let a =
+            FailureStatus::RecheckRequired(ValidationStatus::Reattempting(PreviousAttempts::new(
+                BlockchainErrorKind::AppRpc(AppRpcErrorKind::Unreachable),
+                &validation_failure_clock,
+            )))
+            .to_string();
+
+        eprintln!("a: {}", a);
+    }
+
+    #[test]
     fn failure_status_from_str_works() {
         let validation_failure_clock = ValidationFailureClockMock::default().now_result(
             SystemTime::UNIX_EPOCH
@@ -726,8 +744,8 @@ mod tests {
         );
 
         assert_eq!(
-            FailureStatus::from_str(r#"{"RecheckRequired":{"Reattempting":{"ServerUnreachable":{"firstSeen":{"secs_since_epoch":1755080031,"nanos_since_epoch":612180914},"attempts":1}}}}"#).unwrap(),
-            FailureStatus::RecheckRequired(ValidationStatus::Reattempting( PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable), &validation_failure_clock)))
+            FailureStatus::from_str(r#"{"RecheckRequired":{"Reattempting":{"AppRpc":{"Unreachable":{"firstSeen":{"secs_since_epoch":1755080031,"nanos_since_epoch":612180914},"attempts":1}}}}}"#).unwrap(),
+            FailureStatus::RecheckRequired(ValidationStatus::Reattempting( PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::Unreachable), &validation_failure_clock)))
         );
 
         assert_eq!(
@@ -838,7 +856,7 @@ mod tests {
             .reason(PendingTooLong)
             .status(RecheckRequired(ValidationStatus::Reattempting(
                 PreviousAttempts::new(
-                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::Unreachable),
                     &ValidationFailureClockReal::default(),
                 ),
             )))
@@ -962,7 +980,7 @@ mod tests {
             (
                 tx2.hash,
                 RecheckRequired(ValidationStatus::Reattempting(PreviousAttempts::new(
-                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::Unreachable),
                     &ValidationFailureClockReal::default(),
                 ))),
             ),
@@ -983,7 +1001,7 @@ mod tests {
         assert_eq!(
             updated_tx2.status,
             RecheckRequired(ValidationStatus::Reattempting(PreviousAttempts::new(
-                BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
+                BlockchainErrorKind::AppRpc(AppRpcErrorKind::Unreachable),
                 &ValidationFailureClockReal::default()
             )))
         );

@@ -58,13 +58,13 @@ pub enum AppRpcErrorKind {
     // Local
     Decoder,
     Internal,
-    IO,
+    Io,
     Signing,
     Transport,
 
     // Remote
     InvalidResponse,
-    ServerUnreachable,
+    Unreachable,
     Web3RpcError(i64), // Keep only the stable error code
 }
 
@@ -74,13 +74,13 @@ impl From<&AppRpcError> for AppRpcErrorKind {
             AppRpcError::Local(local) => match local {
                 LocalError::Decoder(_) => Self::Decoder,
                 LocalError::Internal => Self::Internal,
-                LocalError::Io(_) => Self::IO,
+                LocalError::Io(_) => Self::Io,
                 LocalError::Signing(_) => Self::Signing,
                 LocalError::Transport(_) => Self::Transport,
             },
             AppRpcError::Remote(remote) => match remote {
                 RemoteError::InvalidResponse(_) => Self::InvalidResponse,
-                RemoteError::Unreachable => Self::ServerUnreachable,
+                RemoteError::Unreachable => Self::Unreachable,
                 RemoteError::Web3RpcError { code, .. } => Self::Web3RpcError(*code),
             },
         }
@@ -153,7 +153,7 @@ mod tests {
         );
         assert_eq!(
             AppRpcErrorKind::from(&AppRpcError::Local(LocalError::Io("IO error".to_string()))),
-            AppRpcErrorKind::IO
+            AppRpcErrorKind::Io
         );
         assert_eq!(
             AppRpcErrorKind::from(&AppRpcError::Local(LocalError::Signing(
@@ -175,7 +175,7 @@ mod tests {
         );
         assert_eq!(
             AppRpcErrorKind::from(&AppRpcError::Remote(RemoteError::Unreachable)),
-            AppRpcErrorKind::ServerUnreachable
+            AppRpcErrorKind::Unreachable
         );
         assert_eq!(
             AppRpcErrorKind::from(&AppRpcError::Remote(RemoteError::Web3RpcError {
@@ -192,12 +192,12 @@ mod tests {
             // Local Errors
             AppRpcErrorKind::Decoder,
             AppRpcErrorKind::Internal,
-            AppRpcErrorKind::IO,
+            AppRpcErrorKind::Io,
             AppRpcErrorKind::Signing,
             AppRpcErrorKind::Transport,
             // Remote Errors
             AppRpcErrorKind::InvalidResponse,
-            AppRpcErrorKind::ServerUnreachable,
+            AppRpcErrorKind::Unreachable,
             AppRpcErrorKind::Web3RpcError(42),
         ];
 
