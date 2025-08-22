@@ -6,7 +6,7 @@ pub mod lower_level_interface;
 
 use actix::Recipient;
 use ethereum_types::H256;
-use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainAgentBuildError, BlockchainError, PayableTransactionError};
+use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainAgentBuildError, BlockchainInterfaceError, PayableTransactionError};
 use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RetrievedBlockchainTransactions};
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use crate::sub_lib::wallet::Wallet;
@@ -31,7 +31,7 @@ pub trait BlockchainInterface {
         start_block: BlockMarker,
         scan_range: BlockScanRange,
         recipient: Address,
-    ) -> Box<dyn Future<Item = RetrievedBlockchainTransactions, Error = BlockchainError>>;
+    ) -> Box<dyn Future<Item = RetrievedBlockchainTransactions, Error = BlockchainInterfaceError>>;
 
     fn introduce_blockchain_agent(
         &self,
@@ -41,7 +41,7 @@ pub trait BlockchainInterface {
     fn process_transaction_receipts(
         &self,
         transaction_hashes: Vec<H256>,
-    ) -> Box<dyn Future<Item = Vec<TransactionReceiptResult>, Error = BlockchainError>>;
+    ) -> Box<dyn Future<Item = Vec<TransactionReceiptResult>, Error = BlockchainInterfaceError>>;
 
     fn submit_payables_in_batch(
         &self,
