@@ -12,24 +12,22 @@ const BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED: &str = "Uninitialized blockchain int
 being delinquency-banned, you should restart the Node with a value for blockchain-service-url";
 
 #[derive(Clone, Debug, PartialEq, Eq, VariantCount)]
-pub enum BlockchainError {
+pub enum BlockchainInterfaceError {
     InvalidUrl,
     InvalidAddress,
     InvalidResponse,
     QueryFailed(String),
-    UninitializedBlockchainInterface,
+    UninitializedInterface,
 }
 
-impl Display for BlockchainError {
+impl Display for BlockchainInterfaceError {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let err_spec = match self {
             Self::InvalidUrl => Either::Left("Invalid url"),
             Self::InvalidAddress => Either::Left("Invalid address"),
             Self::InvalidResponse => Either::Left("Invalid response"),
             Self::QueryFailed(msg) => Either::Right(format!("Query failed: {}", msg)),
-            Self::UninitializedBlockchainInterface => {
-                Either::Left(BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED)
-            }
+            Self::UninitializedInterface => Either::Left(BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED),
         };
         write!(f, "Blockchain error: {}", err_spec)
     }
@@ -38,12 +36,12 @@ impl Display for BlockchainError {
 #[derive(Clone, Debug, PartialEq, Eq, VariantCount)]
 pub enum LocalPayableError {
     MissingConsumingWallet,
-    GasPriceQueryFailed(BlockchainError),
-    TransactionID(BlockchainError),
+    GasPriceQueryFailed(BlockchainInterfaceError),
+    TransactionID(BlockchainInterfaceError),
     UnusableWallet(String),
     Signing(String),
     Sending(Vec<FailedTx>),
-    UninitializedBlockchainInterface,
+    UninitializedInterface,
 }
 
 impl Display for LocalPayableError {
@@ -69,7 +67,7 @@ impl Display for LocalPayableError {
                 "Sending error. Signed and hashed transactions:\n{}",
                 join_with_separator(failed_txs, |failed_tx| format!("{:?}", failed_tx), "\n")
             ),
-            Self::UninitializedBlockchainInterface => {
+            Self::UninitializedInterface => {
                 write!(f, "{}", BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED)
             }
         }
@@ -78,10 +76,10 @@ impl Display for LocalPayableError {
 
 #[derive(Clone, Debug, PartialEq, Eq, VariantCount)]
 pub enum BlockchainAgentBuildError {
-    GasPrice(BlockchainError),
-    TransactionFeeBalance(Address, BlockchainError),
-    ServiceFeeBalance(Address, BlockchainError),
-    UninitializedBlockchainInterface,
+    GasPrice(BlockchainInterfaceError),
+    TransactionFeeBalance(Address, BlockchainInterfaceError),
+    ServiceFeeBalance(Address, BlockchainInterfaceError),
+    UninitializedInterface,
 }
 
 impl Display for BlockchainAgentBuildError {
@@ -98,7 +96,7 @@ impl Display for BlockchainAgentBuildError {
                 "masq balance for our earning wallet {:#x} due to {}",
                 address, blockchain_e
             )),
-            Self::UninitializedBlockchainInterface => {
+            Self::UninitializedInterface => {
                 Either::Right(BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED.to_string())
             }
         };
@@ -119,7 +117,9 @@ mod tests {
     use crate::blockchain::blockchain_interface::data_structures::errors::{
         LocalPayableError, BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED,
     };
-    use crate::blockchain::blockchain_interface::{BlockchainAgentBuildError, BlockchainError};
+    use crate::blockchain::blockchain_interface::{
+        BlockchainAgentBuildError, BlockchainInterfaceError,
+    };
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::test_utils::make_wallet;
     use masq_lib::utils::{slice_of_strs_to_vec_of_strings, to_string};
@@ -136,20 +136,20 @@ mod tests {
     #[test]
     fn blockchain_error_implements_display() {
         let original_errors = [
-            BlockchainError::InvalidUrl,
-            BlockchainError::InvalidAddress,
-            BlockchainError::InvalidResponse,
-            BlockchainError::QueryFailed(
+            BlockchainInterfaceError::InvalidUrl,
+            BlockchainInterfaceError::InvalidAddress,
+            BlockchainInterfaceError::InvalidResponse,
+            BlockchainInterfaceError::QueryFailed(
                 "Don't query so often, it gives me a headache".to_string(),
             ),
-            BlockchainError::UninitializedBlockchainInterface,
+            BlockchainInterfaceError::UninitializedInterface,
         ];
 
         let actual_error_msgs = original_errors.iter().map(to_string).collect::<Vec<_>>();
 
         assert_eq!(
             original_errors.len(),
-            BlockchainError::VARIANT_COUNT,
+            BlockchainInterfaceError::VARIANT_COUNT,
             "you forgot to add all variants in this test"
         );
         assert_eq!(
@@ -168,10 +168,10 @@ mod tests {
     fn payable_payment_error_implements_display() {
         let original_errors = [
             LocalPayableError::MissingConsumingWallet,
-            LocalPayableError::GasPriceQueryFailed(BlockchainError::QueryFailed(
+            LocalPayableError::GasPriceQueryFailed(BlockchainInterfaceError::QueryFailed(
                 "Gas halves shut, no drop left".to_string(),
             )),
-            LocalPayableError::TransactionID(BlockchainError::InvalidResponse),
+            LocalPayableError::TransactionID(BlockchainInterfaceError::InvalidResponse),
             LocalPayableError::UnusableWallet(
                 "This is a LEATHER wallet, not LEDGER wallet, stupid.".to_string(),
             ),
@@ -179,7 +179,7 @@ mod tests {
                 "You cannot sign with just three crosses here, clever boy".to_string(),
             ),
             LocalPayableError::Sending(vec![]),
-            LocalPayableError::UninitializedBlockchainInterface,
+            LocalPayableError::UninitializedInterface,
         ];
 
         let actual_error_msgs = original_errors.iter().map(to_string).collect::<Vec<_>>();
@@ -210,16 +210,16 @@ mod tests {
     fn blockchain_agent_build_error_implements_display() {
         let wallet = make_wallet("abc");
         let original_errors = [
-            BlockchainAgentBuildError::GasPrice(BlockchainError::InvalidResponse),
+            BlockchainAgentBuildError::GasPrice(BlockchainInterfaceError::InvalidResponse),
             BlockchainAgentBuildError::TransactionFeeBalance(
                 wallet.address(),
-                BlockchainError::InvalidResponse,
+                BlockchainInterfaceError::InvalidResponse,
             ),
             BlockchainAgentBuildError::ServiceFeeBalance(
                 wallet.address(),
-                BlockchainError::InvalidAddress,
+                BlockchainInterfaceError::InvalidAddress,
             ),
-            BlockchainAgentBuildError::UninitializedBlockchainInterface,
+            BlockchainAgentBuildError::UninitializedInterface,
         ];
 
         let actual_error_msgs = original_errors.iter().map(to_string).collect::<Vec<_>>();

@@ -6,7 +6,8 @@ use crate::accountant::db_access_objects::utils::{
 use crate::accountant::db_access_objects::Transaction;
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::{checked_conversion, join_with_separator};
-use crate::blockchain::errors::AppRpcError;
+use crate::blockchain::errors::rpc_errors::{AppRpcError, AppRpcErrorKind};
+use crate::blockchain::errors::validation_status::PreviousAttempts;
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use masq_lib::utils::ExpectValue;
 use serde_derive::{Deserialize, Serialize};
@@ -78,7 +79,7 @@ impl FromStr for FailureStatus {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub enum ValidationStatus {
     Waiting,
-    Reattempting { attempt: usize, error: AppRpcError },
+    Reattempting(PreviousAttempts),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -458,8 +459,13 @@ mod tests {
         make_read_only_db_connection, FailedTxBuilder,
     };
     use crate::accountant::db_access_objects::utils::current_unix_timestamp;
-    use crate::blockchain::errors::{AppRpcError, LocalError, RemoteError};
-    use crate::blockchain::test_utils::{make_address, make_tx_hash};
+    use crate::blockchain::errors::rpc_errors::LocalError::Decoder;
+    use crate::blockchain::errors::rpc_errors::{AppRpcError, AppRpcErrorKind};
+    use crate::blockchain::errors::validation_status::{
+        PreviousAttempts, ValidationFailureClockReal,
+    };
+    use crate::blockchain::errors::BlockchainErrorKind;
+    use crate::blockchain::test_utils::{make_address, make_tx_hash, ValidationFailureClockMock};
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal,
     };
@@ -467,7 +473,9 @@ mod tests {
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::Connection;
     use std::collections::{BTreeSet, HashMap};
+    use std::ops::Add;
     use std::str::FromStr;
+    use std::time::{Duration, SystemTime};
 
     #[test]
     fn insert_new_records_works() {
@@ -669,11 +677,8 @@ mod tests {
     fn failure_reason_from_str_works() {
         // Submission error
         assert_eq!(
-            FailureReason::from_str(r#"{"Submission":{"Local":{"Decoder":"Test decoder error"}}}"#)
-                .unwrap(),
-            FailureReason::Submission(AppRpcError::Local(LocalError::Decoder(
-                "Test decoder error".to_string()
-            )))
+            FailureReason::from_str(r#"{"Submission":{"Local":{"Decoder"}}}"#).unwrap(),
+            FailureReason::Submission(AppRpcError::Local(Decoder("am i alive?".to_string())))
         );
 
         // Reverted
@@ -705,6 +710,11 @@ mod tests {
 
     #[test]
     fn failure_status_from_str_works() {
+        let validation_failure_clock = ValidationFailureClockMock::default().now_result(
+            SystemTime::UNIX_EPOCH
+                .add(Duration::from_secs(1755080031))
+                .add(Duration::from_nanos(612180914)),
+        );
         assert_eq!(
             FailureStatus::from_str("\"RetryRequired\"").unwrap(),
             FailureStatus::RetryRequired
@@ -716,8 +726,8 @@ mod tests {
         );
 
         assert_eq!(
-            FailureStatus::from_str(r#"{"RecheckRequired":{"Reattempting":{"attempt":2,"error":{"Remote":"Unreachable"}}}}"#).unwrap(),
-            FailureStatus::RecheckRequired(ValidationStatus::Reattempting { attempt: 2, error: AppRpcError::Remote(RemoteError::Unreachable) })
+            FailureStatus::from_str(r#"{"RecheckRequired":{"Reattempting":{"ServerUnreachable":{"firstSeen":{"secs_since_epoch":1755080031,"nanos_since_epoch":612180914},"attempts":1}}}}"#).unwrap(),
+            FailureStatus::RecheckRequired(ValidationStatus::Reattempting( PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable), &validation_failure_clock)))
         );
 
         assert_eq!(
@@ -826,10 +836,12 @@ mod tests {
             .nonce(3)
             .timestamp(now - 3000)
             .reason(PendingTooLong)
-            .status(RecheckRequired(ValidationStatus::Reattempting {
-                attempt: 1,
-                error: AppRpcError::Remote(RemoteError::Unreachable),
-            }))
+            .status(RecheckRequired(ValidationStatus::Reattempting(
+                PreviousAttempts::new(
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
+                    &ValidationFailureClockReal::default(),
+                ),
+            )))
             .build();
         let tx4 = FailedTxBuilder::default()
             .hash(make_tx_hash(4))
@@ -949,10 +961,10 @@ mod tests {
             (tx1.hash, Concluded),
             (
                 tx2.hash,
-                RecheckRequired(ValidationStatus::Reattempting {
-                    attempt: 1,
-                    error: AppRpcError::Remote(RemoteError::Unreachable),
-                }),
+                RecheckRequired(ValidationStatus::Reattempting(PreviousAttempts::new(
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
+                    &ValidationFailureClockReal::default(),
+                ))),
             ),
             (tx3.hash, Concluded),
         ]);
@@ -970,10 +982,10 @@ mod tests {
         assert_eq!(tx2.status, RecheckRequired(ValidationStatus::Waiting));
         assert_eq!(
             updated_tx2.status,
-            RecheckRequired(ValidationStatus::Reattempting {
-                attempt: 1,
-                error: AppRpcError::Remote(RemoteError::Unreachable)
-            })
+            RecheckRequired(ValidationStatus::Reattempting(PreviousAttempts::new(
+                BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
+                &ValidationFailureClockReal::default()
+            )))
         );
         assert_eq!(tx3.status, RetryRequired);
         assert_eq!(updated_tx3.status, Concluded);

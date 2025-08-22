@@ -6,21 +6,41 @@ pub mod receivable_scanner;
 pub mod scan_schedulers;
 pub mod test_utils;
 
-use crate::accountant::db_access_objects::pending_payable_dao::{PendingPayable, PendingPayableDao};
-use crate::accountant::payment_adjuster::{PaymentAdjusterReal};
-use crate::accountant::{ScanError, ScanForPendingPayables, ScanForRetryPayables};
+use crate::accountant::db_access_objects::failed_payable_dao::FailureReason::Submission;
+use crate::accountant::db_access_objects::failed_payable_dao::{
+    FailedPayableDao, FailedPayableDaoError, FailedTx, FailureReason, FailureStatus,
+};
+use crate::accountant::db_access_objects::pending_payable_dao::{
+    PendingPayable, PendingPayableDao,
+};
+use crate::accountant::db_access_objects::receivable_dao::ReceivableDao;
+use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::ByHash;
+use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDao, Tx};
+use crate::accountant::db_access_objects::utils::{RowId, TxHash, TxIdentifiers};
+use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
+use crate::accountant::scanners::payable_scanner::msgs::{
+    InitialTemplatesMessage, PricedTemplatesMessage,
+};
+use crate::accountant::scanners::payable_scanner::payment_adjuster_integration::PreparedAdjustment;
+use crate::accountant::scanners::payable_scanner::utils::{OperationOutcome, PayableScanResult};
+use crate::accountant::scanners::payable_scanner::{MultistageDualPayableScanner, PayableScanner};
+use crate::accountant::scanners::pending_payable_scanner::utils::PendingPayableScanResult;
+use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
+use crate::accountant::scanners::receivable_scanner::ReceivableScanner;
 use crate::accountant::{
-    ReceivedPayments,
-    ReportTransactionReceipts, RequestTransactionReceipts, ResponseSkeleton, ScanForNewPayables,
-    ScanForReceivables, SentPayables,
+    PendingPayableId, ScanError, ScanForPendingPayables, ScanForRetryPayables,
 };
-use crate::blockchain::blockchain_bridge::{RetrieveTransactions};
-use crate::sub_lib::accountant::{
-    DaoFactories, FinancialStatistics, PaymentThresholds,
+use crate::accountant::{
+    ReceivedPayments, ReportTransactionReceipts, RequestTransactionReceipts, ResponseSkeleton,
+    ScanForNewPayables, ScanForReceivables, SentPayables,
 };
+use crate::blockchain::blockchain_bridge::RetrieveTransactions;
+use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
+use crate::db_config::persistent_configuration::PersistentConfigurationReal;
+use crate::sub_lib::accountant::{DaoFactories, FinancialStatistics, PaymentThresholds};
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use crate::sub_lib::wallet::Wallet;
-use actix::{Message};
+use actix::Message;
 use itertools::{Either, Itertools};
 use masq_lib::logger::Logger;
 use masq_lib::logger::TIME_FORMATTING_STRING;
@@ -31,28 +51,11 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::rc::Rc;
-use std::time::{SystemTime};
+use std::time::SystemTime;
 use time::format_description::parse;
 use time::OffsetDateTime;
 use variant_count::VariantCount;
 use web3::types::H256;
-use crate::accountant::db_access_objects::failed_payable_dao::{FailedPayableDao, FailedPayableDaoError, FailedTx, FailureReason, FailureStatus};
-use crate::accountant::db_access_objects::failed_payable_dao::FailureReason::Submission;
-use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::ByHash;
-use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDao, Tx};
-use crate::accountant::db_access_objects::utils::{RowId, TxHash, TxIdentifiers};
-use crate::accountant::scanners::payable_scanner::{MultistageDualPayableScanner, PayableScanner};
-use crate::accountant::scanners::payable_scanner::msgs::{PricedTemplatesMessage, InitialTemplatesMessage};
-use crate::accountant::scanners::payable_scanner::payment_adjuster_integration::PreparedAdjustment;
-use crate::accountant::scanners::payable_scanner::utils::{OperationOutcome, PayableScanResult};
-use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
-use crate::accountant::scanners::pending_payable_scanner::utils::PendingPayableScanResult;
-use crate::accountant::scanners::receivable_scanner::ReceivableScanner;
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TxStatus};
-use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
-use crate::blockchain::errors::AppRpcError::Local;
-use crate::blockchain::errors::LocalError::Internal;
-use crate::db_config::persistent_configuration::{PersistentConfigurationReal};
 
 // Leave the individual scanner objects private!
 pub struct Scanners {
@@ -2306,7 +2309,7 @@ mod tests {
             ScanError {
                 scan_type,
                 response_skeleton_opt: None,
-                msg: "bluh".to_string(),
+                msg: "blah".to_string(),
             }
         }
 

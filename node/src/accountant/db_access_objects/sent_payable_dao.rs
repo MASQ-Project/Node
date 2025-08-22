@@ -487,8 +487,10 @@ impl SentPayableDaoFactory for DaoFactoryReal {
 #[cfg(test)]
 mod tests {
     use std::collections::{BTreeSet, HashMap};
+    use std::ops::Add;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
+    use std::time::{Duration, UNIX_EPOCH};
     use crate::accountant::db_access_objects::sent_payable_dao::{Detection, RetrieveCondition, SentPayableDao, SentPayableDaoError, SentPayableDaoReal, Tx, TxConfirmation, TxStatus};
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal,
@@ -502,8 +504,10 @@ mod tests {
     use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDaoError::{EmptyInput, PartialExecution};
     use crate::accountant::db_access_objects::test_utils::{make_read_only_db_connection, TxBuilder};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock};
-    use crate::blockchain::errors::{AppRpcError, RemoteError};
-    use crate::blockchain::test_utils::{make_address, make_block_hash, make_tx_hash};
+    use crate::blockchain::errors::BlockchainErrorKind;
+    use crate::blockchain::errors::rpc_errors::AppRpcErrorKind;
+    use crate::blockchain::errors::validation_status::{PreviousAttempts, ValidationFailureClockReal};
+    use crate::blockchain::test_utils::{make_address, make_block_hash, make_tx_hash, ValidationFailureClockMock};
 
     #[test]
     fn insert_new_records_works() {
@@ -515,10 +519,16 @@ mod tests {
         let tx1 = TxBuilder::default().hash(make_tx_hash(1)).build();
         let tx2 = TxBuilder::default()
             .hash(make_tx_hash(2))
-            .status(TxStatus::Pending(ValidationStatus::Reattempting {
-                attempt: 2,
-                error: AppRpcError::Remote(RemoteError::Unreachable),
-            }))
+            .status(TxStatus::Pending(ValidationStatus::Reattempting(
+                PreviousAttempts::new(
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
+                    &ValidationFailureClockReal::default(),
+                )
+                .add_attempt(
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
+                    &ValidationFailureClockReal::default(),
+                ),
+            )))
             .build();
         let subject = SentPayableDaoReal::new(wrapped_conn);
         let txs = BTreeSet::from([tx1, tx2]);
@@ -750,10 +760,12 @@ mod tests {
             .build();
         let tx2 = TxBuilder::default()
             .hash(make_tx_hash(2))
-            .status(TxStatus::Pending(ValidationStatus::Reattempting {
-                attempt: 1,
-                error: AppRpcError::Remote(RemoteError::Unreachable),
-            }))
+            .status(TxStatus::Pending(ValidationStatus::Reattempting(
+                PreviousAttempts::new(
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
+                    &ValidationFailureClockReal::default(),
+                ),
+            )))
             .build();
         let tx3 = TxBuilder::default()
             .hash(make_tx_hash(3))
@@ -1287,14 +1299,16 @@ mod tests {
 
     #[test]
     fn tx_status_from_str_works() {
+        let validation_failure_clock = ValidationFailureClockMock::default()
+            .now_result(UNIX_EPOCH.add(Duration::from_secs(12456)));
         assert_eq!(
             TxStatus::from_str(r#"{"Pending":"Waiting"}"#).unwrap(),
             TxStatus::Pending(ValidationStatus::Waiting)
         );
 
         assert_eq!(
-            TxStatus::from_str(r#"{"Pending":{"Reattempting":{"attempt":3,"error":{"Remote":{"InvalidResponse":"bluh"}}}}}"#).unwrap(),
-            TxStatus::Pending(ValidationStatus::Reattempting { attempt: 3, error: AppRpcError::Remote(RemoteError::InvalidResponse("bluh".to_string())) })
+            TxStatus::from_str(r#"{"Pending":{"Reattempting":{"InvalidResponse":{"firstSeen":{"secs_since_epoch":12456,"nanos_since_epoch":0},"attempts":1}}}}"#).unwrap(),
+            TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::InvalidResponse), &validation_failure_clock)))
         );
 
         assert_eq!(

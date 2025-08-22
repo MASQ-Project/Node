@@ -4068,7 +4068,7 @@ mod tests {
         // the first message. Now we reset the state by ending the first scan by a failure and see
         // that the third scan request is going to be accepted willingly again.
         addr.try_send(SentPayables {
-            payment_procedure_result: Err("bluh".to_string()),
+            payment_procedure_result: Err("blah".to_string()),
             payable_scan_type: PayableScanType::New,
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 1122,

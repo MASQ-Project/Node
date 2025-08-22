@@ -346,9 +346,9 @@ mod tests {
         BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
     };
     use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError::Sending;
-    use crate::blockchain::errors::AppRpcError;
-    use crate::blockchain::errors::LocalError::Transport;
-    use crate::blockchain::errors::RemoteError::Web3RpcError;
+    use crate::blockchain::errors::rpc_errors::AppRpcError;
+    use crate::blockchain::errors::rpc_errors::LocalError::Transport;
+    use crate::blockchain::errors::rpc_errors::RemoteError::Web3RpcError;
     use crate::blockchain::test_utils::{
         make_address, make_blockchain_interface_web3, make_tx_hash, transport_error_code,
         transport_error_message,

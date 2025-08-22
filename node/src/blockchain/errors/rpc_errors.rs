@@ -1,3 +1,5 @@
+// Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+
 use serde_derive::{Deserialize, Serialize};
 use web3::error::Error as Web3Error;
 
@@ -51,8 +53,45 @@ impl From<Web3Error> for AppRpcError {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+pub enum AppRpcErrorKind {
+    // Local
+    Decoder,
+    Internal,
+    IO,
+    Signing,
+    Transport,
+
+    // Remote
+    InvalidResponse,
+    ServerUnreachable,
+    Web3RpcError(i64), // Keep only the stable error code
+}
+
+impl From<&AppRpcError> for AppRpcErrorKind {
+    fn from(err: &AppRpcError) -> Self {
+        match err {
+            AppRpcError::Local(local) => match local {
+                LocalError::Decoder(_) => Self::Decoder,
+                LocalError::Internal => Self::Internal,
+                LocalError::Io(_) => Self::IO,
+                LocalError::Signing(_) => Self::Signing,
+                LocalError::Transport(_) => Self::Transport,
+            },
+            AppRpcError::Remote(remote) => match remote {
+                RemoteError::InvalidResponse(_) => Self::InvalidResponse,
+                RemoteError::Unreachable => Self::ServerUnreachable,
+                RemoteError::Web3RpcError { code, .. } => Self::Web3RpcError(*code),
+            },
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
-    use crate::blockchain::errors::{AppRpcError, LocalError, RemoteError};
+    use crate::blockchain::errors::rpc_errors::{
+        AppRpcError, AppRpcErrorKind, LocalError, RemoteError,
+    };
     use web3::error::Error as Web3Error;
 
     #[test]
@@ -101,27 +140,76 @@ mod tests {
     }
 
     #[test]
-    fn app_rpc_error_serialization_deserialization() {
+    fn conversion_between_app_rpc_error_and_app_rpc_error_kind_works() {
+        assert_eq!(
+            AppRpcErrorKind::from(&AppRpcError::Local(LocalError::Decoder(
+                "Decoder error".to_string()
+            ))),
+            AppRpcErrorKind::Decoder
+        );
+        assert_eq!(
+            AppRpcErrorKind::from(&AppRpcError::Local(LocalError::Internal)),
+            AppRpcErrorKind::Internal
+        );
+        assert_eq!(
+            AppRpcErrorKind::from(&AppRpcError::Local(LocalError::Io("IO error".to_string()))),
+            AppRpcErrorKind::IO
+        );
+        assert_eq!(
+            AppRpcErrorKind::from(&AppRpcError::Local(LocalError::Signing(
+                "Signing error".to_string()
+            ))),
+            AppRpcErrorKind::Signing
+        );
+        assert_eq!(
+            AppRpcErrorKind::from(&AppRpcError::Local(LocalError::Transport(
+                "Transport error".to_string()
+            ))),
+            AppRpcErrorKind::Transport
+        );
+        assert_eq!(
+            AppRpcErrorKind::from(&AppRpcError::Remote(RemoteError::InvalidResponse(
+                "Invalid response".to_string()
+            ))),
+            AppRpcErrorKind::InvalidResponse
+        );
+        assert_eq!(
+            AppRpcErrorKind::from(&AppRpcError::Remote(RemoteError::Unreachable)),
+            AppRpcErrorKind::ServerUnreachable
+        );
+        assert_eq!(
+            AppRpcErrorKind::from(&AppRpcError::Remote(RemoteError::Web3RpcError {
+                code: 55,
+                message: "Booga".to_string()
+            })),
+            AppRpcErrorKind::Web3RpcError(55)
+        );
+    }
+
+    #[test]
+    fn app_rpc_error_kind_serialization_deserialization() {
         let errors = vec![
             // Local Errors
-            AppRpcError::Local(LocalError::Decoder("Decoder error".to_string())),
-            AppRpcError::Local(LocalError::Internal),
-            AppRpcError::Local(LocalError::Io("IO error".to_string())),
-            AppRpcError::Local(LocalError::Signing("Signing error".to_string())),
-            AppRpcError::Local(LocalError::Transport("Transport error".to_string())),
+            AppRpcErrorKind::Decoder,
+            AppRpcErrorKind::Internal,
+            AppRpcErrorKind::IO,
+            AppRpcErrorKind::Signing,
+            AppRpcErrorKind::Transport,
             // Remote Errors
-            AppRpcError::Remote(RemoteError::InvalidResponse("Invalid response".to_string())),
-            AppRpcError::Remote(RemoteError::Unreachable),
-            AppRpcError::Remote(RemoteError::Web3RpcError {
-                code: 42,
-                message: "RPC error".to_string(),
-            }),
+            AppRpcErrorKind::InvalidResponse,
+            AppRpcErrorKind::ServerUnreachable,
+            AppRpcErrorKind::Web3RpcError(42),
         ];
 
         errors.into_iter().for_each(|error| {
             let serialized = serde_json::to_string(&error).unwrap();
-            let deserialized: AppRpcError = serde_json::from_str(&serialized).unwrap();
-            assert_eq!(error, deserialized, "Error: {:?}", error);
+            let deserialized: AppRpcErrorKind = serde_json::from_str(&serialized).unwrap();
+            assert_eq!(
+                error, deserialized,
+                "Failed serde attempt for {:?} that should look \
+            like {:?}",
+                deserialized, error
+            );
         });
     }
 }
