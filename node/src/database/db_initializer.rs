@@ -137,7 +137,6 @@ impl DbInitializerReal {
         Self::create_payable_table(conn);
         Self::create_sent_payable_table(conn);
         Self::create_failed_payable_table(conn);
-        Self::create_pending_payable_table(conn);
         Self::create_receivable_table(conn);
         Self::create_banned_table(conn);
     }
@@ -309,27 +308,6 @@ impl DbInitializerReal {
             [],
         )
         .expect("Can't create transaction hash index in failed payments");
-    }
-
-    pub fn create_pending_payable_table(conn: &Connection) {
-        conn.execute(
-            "create table if not exists pending_payable (
-                    rowid integer primary key,
-                    transaction_hash text not null,
-                    amount_high_b integer not null,
-                    amount_low_b integer not null,
-                    payable_timestamp integer not null,
-                    attempt integer not null,
-                    process_error text null
-            )",
-            [],
-        )
-        .expect("Can't create pending_payable table");
-        conn.execute(
-            "CREATE UNIQUE INDEX pending_payable_hash_idx ON pending_payable (transaction_hash)",
-            [],
-        )
-        .expect("Can't create transaction hash index in pending payments");
     }
 
     pub fn create_payable_table(conn: &Connection) {
@@ -734,50 +712,6 @@ mod tests {
         ];
         assert_create_table_stm_contains_all_parts(conn.as_ref(), "config", expected_key_words);
         assert_no_index_exists_for_table(conn.as_ref(), "config")
-    }
-
-    #[test]
-    fn db_initialize_creates_pending_payable_table() {
-        let home_dir = ensure_node_home_directory_does_not_exist(
-            "db_initializer",
-            "db_initialize_creates_pending_payable_table",
-        );
-        let subject = DbInitializerReal::default();
-
-        let conn = subject
-            .initialize(&home_dir, DbInitializationConfig::test_default())
-            .unwrap();
-
-        let mut stmt = conn
-            .prepare(
-                "SELECT rowid,
-                        transaction_hash,
-                        amount_high_b,
-                        amount_low_b,
-                        payable_timestamp,
-                        attempt,
-                        process_error
-                 FROM pending_payable",
-            )
-            .unwrap();
-        let result = stmt.execute([]).unwrap();
-        assert_eq!(result, 1);
-        let expected_key_words: &[&[&str]] = &[
-            &["rowid", "integer", "primary", "key"],
-            &["transaction_hash", "text", "not", "null"],
-            &["amount_high_b", "integer", "not", "null"],
-            &["amount_low_b", "integer", "not", "null"],
-            &["payable_timestamp", "integer", "not", "null"],
-            &["attempt", "integer", "not", "null"],
-            &["process_error", "text", "null"],
-        ];
-        assert_create_table_stm_contains_all_parts(&*conn, "pending_payable", expected_key_words);
-        let expected_key_words: &[&[&str]] = &[&["transaction_hash"]];
-        assert_index_stm_is_coupled_with_right_parameter(
-            conn.as_ref(),
-            "pending_payable_hash_idx",
-            expected_key_words,
-        )
     }
 
     #[test]

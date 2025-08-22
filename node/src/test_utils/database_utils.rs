@@ -109,9 +109,10 @@ pub fn assert_table_exists(conn: &dyn ConnectionWrapper, table_name: &str) {
 }
 
 pub fn assert_table_does_not_exist(conn: &dyn ConnectionWrapper, table_name: &str) {
-    let error_stm = conn
-        .prepare(&format!("select * from {}", table_name))
-        .unwrap_err();
+    let error_stm = match conn.prepare(&format!("select * from {}", table_name)) {
+        Ok(_) => panic!("Table {} should not exist, but it does", table_name),
+        Err(e) => e,
+    };
     let error_msg = match error_stm {
         Error::SqliteFailure(_, Some(msg)) => msg,
         x => panic!("we expected SqliteFailure but we got: {:?}", x),
