@@ -547,6 +547,7 @@ pub mod unshared_test_utils {
     use crossbeam_channel::{unbounded, Receiver, Sender};
     use itertools::Either;
     use lazy_static::lazy_static;
+    use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::HTTP_PORT;
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
     use masq_lib::multi_config::MultiConfig;
@@ -629,6 +630,14 @@ pub mod unshared_test_utils {
         MultiConfig::new_test_only(arg_matches)
     }
 
+    lazy_static! {
+        pub static ref TEST_SCAN_INTERVALS: ScanIntervals = ScanIntervals {
+            payable_scan_interval: Duration::from_secs(600),
+            pending_payable_scan_interval: Duration::from_secs(360),
+            receivable_scan_interval: Duration::from_secs(600),
+        };
+    }
+
     pub const ZERO: u32 = 0b0;
     pub const MAPPING_PROTOCOL: u32 = 0b000010;
     pub const ACCOUNTANT_CONFIG_PARAMS: u32 = 0b000100;
@@ -673,16 +682,16 @@ pub mod unshared_test_utils {
     ) -> PersistentConfigurationMock {
         persistent_config_mock
             .payment_thresholds_result(Ok(PaymentThresholds::default()))
-            .scan_intervals_result(Ok(ScanIntervals::default()))
+            .scan_intervals_result(Ok(*TEST_SCAN_INTERVALS))
     }
 
     pub fn make_persistent_config_real_with_config_dao_null() -> PersistentConfigurationReal {
         PersistentConfigurationReal::new(Box::new(ConfigDaoNull::default()))
     }
 
-    pub fn make_bc_with_defaults() -> BootstrapperConfig {
+    pub fn make_bc_with_defaults(chain: Chain) -> BootstrapperConfig {
         let mut config = BootstrapperConfig::new();
-        config.scan_intervals_opt = Some(ScanIntervals::default());
+        config.scan_intervals_opt = Some(ScanIntervals::compute_default(chain));
         config.automatic_scans_enabled = true;
         config.when_pending_too_long_sec = DEFAULT_PENDING_TOO_LONG_SEC;
         config.payment_thresholds_opt = Some(PaymentThresholds::default());

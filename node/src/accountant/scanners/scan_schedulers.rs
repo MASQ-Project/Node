@@ -385,6 +385,8 @@ mod tests {
     };
     use crate::accountant::scanners::{ManulTriggerError, StartScanError};
     use crate::sub_lib::accountant::ScanIntervals;
+    use crate::test_utils::unshared_test_utils::TEST_SCAN_INTERVALS;
+    use http::header::TE;
     use itertools::Itertools;
     use lazy_static::lazy_static;
     use masq_lib::logger::Logger;
@@ -596,7 +598,7 @@ mod tests {
 
     #[test]
     fn resolve_rescheduling_on_error_works_for_pending_payables_if_externally_triggered() {
-        let subject = ScanSchedulers::new(ScanIntervals::default(), true);
+        let subject = ScanSchedulers::new(*TEST_SCAN_INTERVALS, true);
         let test_name =
             "resolve_rescheduling_on_error_works_for_pending_payables_if_externally_triggered";
 
@@ -652,7 +654,7 @@ mod tests {
     fn resolve_error_for_pending_payables_if_nothing_to_process_and_initial_pending_payable_scan_true(
     ) {
         init_test_logging();
-        let subject = ScanSchedulers::new(ScanIntervals::default(), true);
+        let subject = ScanSchedulers::new(*TEST_SCAN_INTERVALS, true);
         let test_name = "resolve_error_for_pending_payables_if_nothing_to_process_and_initial_pending_payable_scan_true";
         let logger = Logger::new(test_name);
 
@@ -687,7 +689,7 @@ mod tests {
     )]
     fn resolve_error_for_pending_payables_if_nothing_to_process_and_initial_pending_payable_scan_false(
     ) {
-        let subject = ScanSchedulers::new(ScanIntervals::default(), true);
+        let subject = ScanSchedulers::new(*TEST_SCAN_INTERVALS, true);
 
         let _ = subject
             .reschedule_on_error_resolver
@@ -706,7 +708,7 @@ mod tests {
         init_test_logging();
         let test_name = "resolve_error_for_pending_p_if_no_consuming_wallet_found_in_initial_pending_payable_scan";
         let logger = Logger::new(test_name);
-        let subject = ScanSchedulers::new(ScanIntervals::default(), true);
+        let subject = ScanSchedulers::new(*TEST_SCAN_INTERVALS, true);
         let scanner = PayableSequenceScanner::PendingPayables {
             initial_pending_payable_scan: true,
         };
@@ -740,7 +742,7 @@ mod tests {
         possible"
     )]
     fn pending_p_scan_attempt_if_no_consuming_wallet_found_mustnt_happen_if_not_initial_scan() {
-        let subject = ScanSchedulers::new(ScanIntervals::default(), true);
+        let subject = ScanSchedulers::new(*TEST_SCAN_INTERVALS, true);
         let scanner = PayableSequenceScanner::PendingPayables {
             initial_pending_payable_scan: false,
         };
@@ -795,7 +797,7 @@ mod tests {
             StartScanError::NothingToProcess,
             StartScanError::NoConsumingWalletFound,
         ]);
-        let subject = ScanSchedulers::new(ScanIntervals::default(), true);
+        let subject = ScanSchedulers::new(*TEST_SCAN_INTERVALS, true);
 
         test_forbidden_states(&subject, &inputs, false);
         test_forbidden_states(&subject, &inputs, true);
@@ -805,7 +807,7 @@ mod tests {
     fn resolve_rescheduling_on_error_works_for_retry_payables_if_externally_triggered() {
         let test_name =
             "resolve_rescheduling_on_error_works_for_retry_payables_if_externally_triggered";
-        let subject = ScanSchedulers::new(ScanIntervals::default(), false);
+        let subject = ScanSchedulers::new(*TEST_SCAN_INTERVALS, false);
 
         test_what_if_externally_triggered(
             test_name,
@@ -816,7 +818,7 @@ mod tests {
 
     #[test]
     fn any_automatic_scan_with_start_scan_error_is_fatal_for_retry_payables() {
-        let subject = ScanSchedulers::new(ScanIntervals::default(), true);
+        let subject = ScanSchedulers::new(*TEST_SCAN_INTERVALS, true);
 
         ALL_START_SCAN_ERRORS.iter().for_each(|error| {
             let panic = catch_unwind(AssertUnwindSafe(|| {
@@ -849,7 +851,7 @@ mod tests {
     fn resolve_rescheduling_on_error_works_for_new_payables_if_externally_triggered() {
         let test_name =
             "resolve_rescheduling_on_error_works_for_new_payables_if_externally_triggered";
-        let subject = ScanSchedulers::new(ScanIntervals::default(), true);
+        let subject = ScanSchedulers::new(*TEST_SCAN_INTERVALS, true);
 
         test_what_if_externally_triggered(
             test_name,
@@ -864,7 +866,7 @@ mod tests {
         should never interfere with itself ScanAlreadyRunning { cross_scan_cause_opt: None, started_at:"
     )]
     fn resolve_hint_for_new_payables_if_scan_is_already_running_error_and_is_automatic_scan() {
-        let subject = ScanSchedulers::new(ScanIntervals::default(), true);
+        let subject = ScanSchedulers::new(*TEST_SCAN_INTERVALS, true);
 
         let _ = subject
             .reschedule_on_error_resolver
@@ -890,7 +892,7 @@ mod tests {
         ]);
         let logger = Logger::new(test_name);
         let test_log_handler = TestLogHandler::new();
-        let subject = ScanSchedulers::new(ScanIntervals::default(), true);
+        let subject = ScanSchedulers::new(*TEST_SCAN_INTERVALS, true);
 
         inputs.errors.iter().for_each(|error| {
             let result = subject

@@ -1,4 +1,4 @@
-// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+//Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::db_access_objects::utils::{
     from_unix_timestamp, to_unix_timestamp, DaoFactoryReal, VigilantRusqliteFlatten,
@@ -49,7 +49,6 @@ pub trait PendingPayableDao {
 
 impl PendingPayableDao for PendingPayableDaoReal<'_> {
     fn fingerprints_rowids(&self, hashes: &[H256]) -> TransactionHashes {
-        //Vec<(Option<u64>, H256)> {
         fn hash_and_rowid_in_single_row(row: &Row) -> rusqlite::Result<(u64, H256)> {
             let hash_str: String = row.get(0).expectv("hash");
             let hash = H256::from_str(&hash_str[2..]).expect("hash inserted right turned wrong");

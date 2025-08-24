@@ -1266,10 +1266,7 @@ mod tests {
     use ethereum_types::U64;
     use ethsign_crypto::Keccak256;
     use log::{Level};
-    use masq_lib::constants::{
-        REQUEST_WITH_MUTUALLY_EXCLUSIVE_PARAMS, REQUEST_WITH_NO_VALUES, SCAN_ERROR,
-        VALUE_EXCEEDS_ALLOWED_LIMIT,
-    };
+    use masq_lib::constants::{DEFAULT_CHAIN, REQUEST_WITH_MUTUALLY_EXCLUSIVE_PARAMS, REQUEST_WITH_NO_VALUES, SCAN_ERROR, VALUE_EXCEEDS_ALLOWED_LIMIT};
     use masq_lib::messages::TopRecordsOrdering::{Age, Balance};
     use masq_lib::messages::{
         CustomQueries, RangeQuery, TopRecordsConfig, UiFinancialStatistics,
@@ -1277,7 +1274,7 @@ mod tests {
     };
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
-    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_gateway::{MessageBody, MessagePath, NodeFromUiMessage, NodeToUiMessage};
     use std::any::{TypeId};
@@ -1312,7 +1309,7 @@ mod tests {
 
     #[test]
     fn new_calls_factories_properly() {
-        let config = make_bc_with_defaults();
+        let config = make_bc_with_defaults(DEFAULT_CHAIN);
         let payable_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
         let pending_payable_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
         let receivable_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1368,7 +1365,8 @@ mod tests {
 
     #[test]
     fn accountant_have_proper_defaulted_values() {
-        let bootstrapper_config = make_bc_with_defaults();
+        let chain = TEST_DEFAULT_CHAIN;
+        let bootstrapper_config = make_bc_with_defaults(chain);
         let payable_dao_factory = Box::new(
             PayableDaoFactoryMock::new()
                 .make_result(PayableDaoMock::new()) // For Accountant
@@ -1403,7 +1401,7 @@ mod tests {
         );
 
         let financial_statistics = result.financial_statistics().clone();
-        let default_scan_intervals = ScanIntervals::default();
+        let default_scan_intervals = ScanIntervals::compute_default(chain);
         assert_eq!(
             result.scan_schedulers.payable.new_payable_interval,
             default_scan_intervals.payable_scan_interval
@@ -1486,7 +1484,7 @@ mod tests {
     {
         init_test_logging();
         let mut subject = AccountantBuilder::default()
-            .bootstrapper_config(make_bc_with_defaults())
+            .bootstrapper_config(make_bc_with_defaults(TEST_DEFAULT_CHAIN))
             .build();
         subject.logger = Logger::new("ConfigChange");
 
@@ -4457,7 +4455,7 @@ mod tests {
     #[test]
     fn report_services_consumed_message_is_received() {
         init_test_logging();
-        let config = make_bc_with_defaults();
+        let config = make_bc_with_defaults(TEST_DEFAULT_CHAIN);
         let more_money_payable_params_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao_mock = PayableDaoMock::new()
             .more_money_payable_params(more_money_payable_params_arc.clone())
@@ -4799,7 +4797,7 @@ mod tests {
         expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
     )]
     fn accountant_can_be_crashed_properly_but_not_improperly() {
-        let mut config = make_bc_with_defaults();
+        let mut config = make_bc_with_defaults(TEST_DEFAULT_CHAIN);
         config.crash_point = CrashPoint::Message;
         let accountant = AccountantBuilder::default()
             .bootstrapper_config(config)
@@ -5485,7 +5483,7 @@ mod tests {
         let receivable_dao = ReceivableDaoMock::new().total_result(987_654_328_996);
         let system = System::new("test");
         let subject = AccountantBuilder::default()
-            .bootstrapper_config(make_bc_with_defaults())
+            .bootstrapper_config(make_bc_with_defaults(DEFAULT_CHAIN))
             .payable_daos(vec![ForAccountantBody(payable_dao)])
             .receivable_daos(vec![ForAccountantBody(receivable_dao)])
             .build();

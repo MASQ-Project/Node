@@ -307,6 +307,7 @@ mod tests {
     use super::*;
     use crate::sub_lib::combined_parameters::CombinedParamsDataTypes::U128;
     use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
+    use crate::test_utils::unshared_test_utils::TEST_SCAN_INTERVALS;
     use std::panic::catch_unwind;
 
     #[test]
@@ -455,7 +456,7 @@ mod tests {
 
         let panic_3 = catch_unwind(|| {
             let _: &[(&str, CombinedParamsDataTypes)] =
-                (&CombinedParams::ScanIntervals(Initialized(ScanIntervals::default()))).into();
+                (&CombinedParams::ScanIntervals(Initialized(*TEST_SCAN_INTERVALS))).into();
         })
         .unwrap_err();
         let panic_3_msg = panic_3.downcast_ref::<String>().unwrap();
@@ -464,7 +465,7 @@ mod tests {
             panic_3_msg,
             &format!(
                 "should be called only on uninitialized object, not: ScanIntervals(Initialized({:?}))",
-                ScanIntervals::default()
+                *TEST_SCAN_INTERVALS
             )
         );
     }
@@ -502,7 +503,7 @@ mod tests {
         );
 
         let panic_3 = catch_unwind(|| {
-            (&CombinedParams::ScanIntervals(Initialized(ScanIntervals::default())))
+            (&CombinedParams::ScanIntervals(Initialized(*TEST_SCAN_INTERVALS)))
                 .initialize_objects(HashMap::new());
         })
         .unwrap_err();
@@ -512,7 +513,7 @@ mod tests {
             panic_3_msg,
             &format!(
                 "should be called only on uninitialized object, not: ScanIntervals(Initialized({:?}))",
-                ScanIntervals::default()
+                *TEST_SCAN_INTERVALS
             )
         );
     }

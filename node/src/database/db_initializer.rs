@@ -4,7 +4,8 @@ use crate::database::rusqlite_wrappers::{ConnectionWrapper, ConnectionWrapperRea
 use crate::database::db_migrations::db_migrator::{DbMigrator, DbMigratorReal};
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
 use crate::neighborhood::DEFAULT_MIN_HOPS;
-use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
+use crate::sub_lib::accountant;
+use crate::sub_lib::accountant::DEFAULT_PAYMENT_THRESHOLDS;
 use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 use crate::sub_lib::utils::db_connection_launch_panic;
 use masq_lib::blockchains::chains::Chain;
@@ -252,7 +253,7 @@ impl DbInitializerReal {
         Self::set_config_value(
             conn,
             "scan_intervals",
-            Some(&DEFAULT_SCAN_INTERVALS.to_string()),
+            Some(&accountant::ScanIntervals::compute_default(external_params.chain).to_string()),
             false,
             "scan intervals",
         );
@@ -1051,7 +1052,7 @@ mod tests {
         verify(
             &mut config_vec,
             "scan_intervals",
-            Some(&DEFAULT_SCAN_INTERVALS.to_string()),
+            Some(&accountant::ScanIntervals::compute_default(TEST_DEFAULT_CHAIN).to_string()),
             false,
         );
         verify(

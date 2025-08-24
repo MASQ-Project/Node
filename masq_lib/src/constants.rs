@@ -18,24 +18,16 @@ pub const MASQ_URL_PREFIX: &str = "masq://";
 pub const CURRENT_LOGFILE_NAME: &str = "MASQNode_rCURRENT.log";
 pub const MASQ_PROMPT: &str = "masq> ";
 
-pub const DEFAULT_GAS_PRICE: u64 = 1; //TODO ?? Really
-pub const DEFAULT_GAS_PRICE_MARGIN: u64 = 30;
-
 pub const WALLET_ADDRESS_LENGTH: usize = 42;
-pub const MASQ_TOTAL_SUPPLY: u64 = 37_500_000;
 pub const WEIS_IN_GWEI: i128 = 1_000_000_000;
 
-pub const DEFAULT_MAX_BLOCK_COUNT: u64 = 100_000;
+pub const COMBINED_PARAMETERS_DELIMITER: char = '|';
 
 pub const PAYLOAD_ZERO_SIZE: usize = 0usize;
 
-pub const ETH_MAINNET_CONTRACT_CREATION_BLOCK: u64 = 11_170_708;
-pub const ETH_ROPSTEN_CONTRACT_CREATION_BLOCK: u64 = 8_688_171;
-pub const POLYGON_MAINNET_CONTRACT_CREATION_BLOCK: u64 = 14_863_650;
-pub const POLYGON_AMOY_CONTRACT_CREATION_BLOCK: u64 = 5_323_366;
-pub const BASE_MAINNET_CONTRACT_CREATION_BLOCK: u64 = 19_711_235;
-pub const BASE_SEPOLIA_CONTRACT_CREATION_BLOCK: u64 = 14_732_730;
-pub const MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 0;
+//descriptor
+pub const CENTRAL_DELIMITER: char = '@';
+pub const CHAIN_IDENTIFIER_DELIMITER: char = ':';
 
 //Migration versions
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -88,11 +80,11 @@ pub const VALUE_EXCEEDS_ALLOWED_LIMIT: u64 = ACCOUNTANT_PREFIX | 3;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-pub const COMBINED_PARAMETERS_DELIMITER: char = '|';
+pub const MASQ_TOTAL_SUPPLY: u64 = 37_500_000;
 
-//descriptor
-pub const CENTRAL_DELIMITER: char = '@';
-pub const CHAIN_IDENTIFIER_DELIMITER: char = ':';
+pub const DEFAULT_GAS_PRICE: u64 = 1; //TODO ?? Really
+pub const DEFAULT_GAS_PRICE_MARGIN: u64 = 30;
+pub const DEFAULT_MAX_BLOCK_COUNT: u64 = 100_000;
 
 //chains
 pub const POLYGON_MAINNET_CHAIN_ID: u64 = 137;
@@ -114,10 +106,24 @@ pub const ETH_ROPSTEN_FULL_IDENTIFIER: &str = concatcp!(ETH_FAMILY, LINK, "ropst
 pub const BASE_MAINNET_FULL_IDENTIFIER: &str = concatcp!(BASE_FAMILY, LINK, MAINNET);
 pub const BASE_SEPOLIA_FULL_IDENTIFIER: &str = concatcp!(BASE_FAMILY, LINK, "sepolia");
 pub const DEV_CHAIN_FULL_IDENTIFIER: &str = "dev";
+
+pub const ETH_MAINNET_CONTRACT_CREATION_BLOCK: u64 = 11_170_708;
+pub const ETH_ROPSTEN_CONTRACT_CREATION_BLOCK: u64 = 8_688_171;
+pub const POLYGON_MAINNET_CONTRACT_CREATION_BLOCK: u64 = 14_863_650;
+pub const POLYGON_AMOY_CONTRACT_CREATION_BLOCK: u64 = 5_323_366;
+pub const BASE_MAINNET_CONTRACT_CREATION_BLOCK: u64 = 19_711_235;
+pub const BASE_SEPOLIA_CONTRACT_CREATION_BLOCK: u64 = 14_732_730;
+pub const MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 0;
+
 pub const POLYGON_GAS_PRICE_CEILING_WEI: u128 = 200_000_000_000;
 pub const ETH_GAS_PRICE_CEILING_WEI: u128 = 100_000_000_000;
 pub const BASE_GAS_PRICE_CEILING_WEI: u128 = 50_000_000_000;
 pub const DEV_GAS_PRICE_CEILING_WEI: u128 = 200_000_000_000;
+
+pub const DEFAULT_PENDING_PAYABLE_INTERVAL_ETH_SEC: u64 = 600;
+pub const DEFAULT_PENDING_PAYABLE_INTERVAL_BASE_SEC: u64 = 120;
+pub const DEFAULT_PENDING_PAYABLE_INTERVAL_POLYGON_SEC: u64 = 180;
+pub const DEFAULT_PENDING_PAYABLE_INTERVAL_DEV_SEC: u64 = 120;
 
 #[cfg(test)]
 mod tests {
@@ -204,6 +210,10 @@ mod tests {
         assert_eq!(ETH_GAS_PRICE_CEILING_WEI, 100_000_000_000);
         assert_eq!(BASE_GAS_PRICE_CEILING_WEI, 50_000_000_000);
         assert_eq!(DEV_GAS_PRICE_CEILING_WEI, 200_000_000_000);
+        assert_eq!(DEFAULT_PENDING_PAYABLE_INTERVAL_ETH_SEC, 600);
+        assert_eq!(DEFAULT_PENDING_PAYABLE_INTERVAL_BASE_SEC, 120);
+        assert_eq!(DEFAULT_PENDING_PAYABLE_INTERVAL_POLYGON_SEC, 180);
+        assert_eq!(DEFAULT_PENDING_PAYABLE_INTERVAL_DEV_SEC, 120);
         assert_eq!(
             CLIENT_REQUEST_PAYLOAD_CURRENT_VERSION,
             DataVersion { major: 0, minor: 1 }

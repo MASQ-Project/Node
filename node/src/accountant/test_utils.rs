@@ -44,10 +44,11 @@ use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
 use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-use crate::test_utils::unshared_test_utils::make_bc_with_defaults;
+use crate::test_utils::unshared_test_utils::{make_bc_with_defaults, TEST_SCAN_INTERVALS};
 use actix::System;
 use ethereum_types::H256;
 use masq_lib::logger::Logger;
+use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use rusqlite::{Connection, OpenFlags, Row};
 use std::any::type_name;
 use std::cell::RefCell;
@@ -340,7 +341,9 @@ impl AccountantBuilder {
     }
 
     pub fn build(self) -> Accountant {
-        let config = self.config_opt.unwrap_or(make_bc_with_defaults());
+        let config = self
+            .config_opt
+            .unwrap_or(make_bc_with_defaults(TEST_DEFAULT_CHAIN));
         let payable_dao_factory = self.payable_dao_factory_opt.unwrap_or(
             PayableDaoFactoryMock::new()
                 .make_result(PayableDaoMock::new())
@@ -873,13 +876,13 @@ impl BannedDaoMock {
 }
 
 pub fn bc_from_earning_wallet(earning_wallet: Wallet) -> BootstrapperConfig {
-    let mut bc = make_bc_with_defaults();
+    let mut bc = make_bc_with_defaults(TEST_DEFAULT_CHAIN);
     bc.earning_wallet = earning_wallet;
     bc
 }
 
 pub fn bc_from_wallets(consuming_wallet: Wallet, earning_wallet: Wallet) -> BootstrapperConfig {
-    let mut bc = make_bc_with_defaults();
+    let mut bc = make_bc_with_defaults(TEST_DEFAULT_CHAIN);
     bc.consuming_wallet_opt = Some(consuming_wallet);
     bc.earning_wallet = earning_wallet;
     bc
