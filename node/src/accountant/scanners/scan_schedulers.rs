@@ -135,17 +135,12 @@ impl PayableScanScheduler {
     // This message ships into the Accountant's mailbox with no delay.
     // Can also be triggered by command, following up after the PendingPayableScanner
     // that requests it. That's why the response skeleton is possible to be used.
-    pub fn schedule_retry_payable_scan(
-        &self,
-        ctx: &mut Context<Accountant>,
-        response_skeleton_opt: Option<ResponseSkeleton>,
-        logger: &Logger,
-    ) {
+    pub fn schedule_retry_payable_scan(&self, ctx: &mut Context<Accountant>, logger: &Logger) {
         debug!(logger, "Scheduling a retry-payable scan asap");
 
         self.retry_payable_notify.notify(
             ScanForRetryPayables {
-                response_skeleton_opt,
+                response_skeleton_opt: None,
             },
             ctx,
         )

@@ -336,7 +336,7 @@ impl Handler<ReportTransactionReceipts> for Accountant {
             PendingPayableScanResult::PaymentRetryRequired => self
                 .scan_schedulers
                 .payable
-                .schedule_retry_payable_scan(ctx, response_skeleton_opt, &self.logger),
+                .schedule_retry_payable_scan(ctx, &self.logger),
         };
     }
 }
@@ -356,17 +356,7 @@ impl Handler<SentPayables> for Accountant {
         let scan_result = self.scanners.finish_payable_scan(msg, &self.logger);
 
         match scan_result.ui_response_opt {
-            None => match scan_result.result {
-                NextScanToRun::PendingPayableScan => self
-                    .scan_schedulers
-                    .pending_payable
-                    .schedule(ctx, &self.logger),
-                NextScanToRun::NewPayableScan => self
-                    .scan_schedulers
-                    .payable
-                    .schedule_new_payable_scan(ctx, &self.logger), // I think we should be scheduling retry scan here
-                NextScanToRun::RetryPayableScan => todo!(), // TODO: GH-605: Outcome
-            },
+            None => self.schedule_next_scan(scan_result.result, ctx),
             Some(node_to_ui_msg) => {
                 self.ui_message_sub_opt
                     .as_ref()
@@ -1120,6 +1110,23 @@ impl Accountant {
         }
     }
 
+    fn schedule_next_scan(&self, next_scan_to_run: NextScanToRun, ctx: &mut Context<Accountant>) {
+        match next_scan_to_run {
+            NextScanToRun::PendingPayableScan => self
+                .scan_schedulers
+                .pending_payable
+                .schedule(ctx, &self.logger),
+            NextScanToRun::NewPayableScan => self
+                .scan_schedulers
+                .payable
+                .schedule_new_payable_scan(ctx, &self.logger),
+            NextScanToRun::RetryPayableScan => self
+                .scan_schedulers
+                .payable
+                .schedule_retry_payable_scan(ctx, &self.logger),
+        }
+    }
+
     fn handle_new_pending_payable_fingerprints(&self, msg: PendingPayableFingerprintSeeds) {
         fn serialize_hashes(fingerprints_data: &[HashAndAmount]) -> String {
             comma_joined_stringifiable(fingerprints_data, |hash_and_amount| {
@@ -1300,7 +1307,7 @@ mod tests {
     use std::sync::Mutex;
     use std::time::{Duration, UNIX_EPOCH};
     use std::vec;
-    use crate::accountant::db_access_objects::test_utils::{make_sent_tx, TxBuilder};
+    use crate::accountant::db_access_objects::test_utils::{make_failed_tx, make_sent_tx, TxBuilder};
     use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::NewTxTemplates;
     use crate::accountant::scanners::payable_scanner::tx_templates::initial::retry::RetryTxTemplates;
     use crate::accountant::scanners::payable_scanner::tx_templates::test_utils::{make_priced_new_tx_templates, make_retry_tx_template};
@@ -5032,6 +5039,65 @@ mod tests {
             payable_notify_later_params.is_empty(),
             "Should be empty but {:?}",
             payable_notify_later_params
+        );
+    }
+
+    #[test]
+    fn failed_txs_were_there_so_payable_scan_is_rescheduled_as_retry_payable_scan_was_omitted() {
+        init_test_logging();
+        let test_name = "failed_txs_were_there_so_payable_scan_is_rescheduled_as_retry_payable_scan_was_omitted";
+        let finish_scan_params_arc = Arc::new(Mutex::new(vec![]));
+        let retry_payable_notify_params_arc = Arc::new(Mutex::new(vec![]));
+        let system = System::new(test_name);
+        let consuming_wallet = make_paying_wallet(b"paying wallet");
+        let mut subject = AccountantBuilder::default()
+            .consuming_wallet(consuming_wallet.clone())
+            .logger(Logger::new(test_name))
+            .build();
+        subject
+            .scanners
+            .replace_scanner(ScannerReplacement::Payable(ReplacementType::Mock(
+                ScannerMock::default()
+                    .finish_scan_params(&finish_scan_params_arc)
+                    .finish_scan_result(PayableScanResult {
+                        ui_response_opt: None,
+                        result: NextScanToRun::RetryPayableScan,
+                    }),
+            )));
+        subject.scan_schedulers.payable.retry_payable_notify =
+            Box::new(NotifyHandleMock::default().notify_params(&retry_payable_notify_params_arc));
+        subject.scan_schedulers.payable.new_payable_notify =
+            Box::new(NotifyHandleMock::default().panic_on_schedule_attempt());
+        subject.scan_schedulers.payable.new_payable_notify_later =
+            Box::new(NotifyLaterHandleMock::default().panic_on_schedule_attempt());
+        subject.scan_schedulers.pending_payable.handle =
+            Box::new(NotifyLaterHandleMock::default().panic_on_schedule_attempt());
+        let sent_payable = SentPayables {
+            payment_procedure_result: Ok(BatchResults {
+                sent_txs: vec![],
+                failed_txs: vec![make_failed_tx(1), make_failed_tx(2)],
+            }),
+            payable_scan_type: PayableScanType::New,
+            response_skeleton_opt: None,
+        };
+        let addr = subject.start();
+
+        addr.try_send(sent_payable.clone())
+            .expect("unexpected actix error");
+
+        System::current().stop();
+        assert_eq!(system.run(), 0);
+        let mut finish_scan_params = finish_scan_params_arc.lock().unwrap();
+        let (actual_sent_payable, logger) = finish_scan_params.remove(0);
+        assert_eq!(actual_sent_payable, sent_payable,);
+        assert_using_the_same_logger(&logger, test_name, None);
+        let mut payable_notify_params = retry_payable_notify_params_arc.lock().unwrap();
+        let scheduled_msg = payable_notify_params.remove(0);
+        assert_eq!(scheduled_msg, ScanForRetryPayables::default());
+        assert!(
+            payable_notify_params.is_empty(),
+            "Should be empty but {:?}",
+            payable_notify_params
         );
     }
 
