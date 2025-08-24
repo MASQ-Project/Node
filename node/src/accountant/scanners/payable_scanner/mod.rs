@@ -141,21 +141,22 @@ impl PayableScanner {
     }
 
     fn detect_outcome(msg: &SentPayables) -> NextScanToRun {
-        if let Ok(batch_results) = msg.clone().payment_procedure_result {
-            if batch_results.sent_txs.is_empty() {
-                if batch_results.failed_txs.is_empty() {
-                    return NextScanToRun::NewPayableScan;
-                } else {
-                    return NextScanToRun::RetryPayableScan;
+        match &msg.payment_procedure_result {
+            Ok(batch_results) => {
+                if batch_results.sent_txs.is_empty() {
+                    if batch_results.failed_txs.is_empty() {
+                        return NextScanToRun::NewPayableScan;
+                    } else {
+                        return NextScanToRun::RetryPayableScan;
+                    }
                 }
-            }
 
-            NextScanToRun::PendingPayableScan
-        } else {
-            match msg.payable_scan_type {
+                NextScanToRun::PendingPayableScan
+            }
+            Err(_e) => match msg.payable_scan_type {
                 PayableScanType::New => NextScanToRun::NewPayableScan,
                 PayableScanType::Retry => NextScanToRun::RetryPayableScan,
-            }
+            },
         }
     }
 
