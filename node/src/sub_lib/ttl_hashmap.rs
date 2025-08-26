@@ -15,6 +15,7 @@ where
     last_check: RefCell<Instant>,
     data: RefCell<HashMap<K, (Rc<V>, Instant)>>,
     ttl: Duration,
+    retire_closure: Box<dyn Fn(&K, &V) -> bool>
 }
 
 impl<K, V> TtlHashMap<K, V>
@@ -27,6 +28,19 @@ where
             last_check: RefCell::new(Instant::now()),
             data: RefCell::new(HashMap::new()),
             ttl,
+            retire_closure: Box::new(|_, _| true),
+        }
+    }
+
+    pub fn new_with_retire<F>(ttl: Duration, retire_closure: F) -> TtlHashMap<K, V>
+    where
+        F: 'static + Fn(&K, &V) -> bool,
+    {
+        TtlHashMap {
+            last_check: RefCell::new(Instant::now()),
+            data: RefCell::new(HashMap::new()),
+            ttl,
+            retire_closure: Box::new(retire_closure),
         }
     }
 
@@ -80,13 +94,22 @@ where
         };
 
         expired.iter().for_each(|key| {
-            self.data.borrow_mut().remove(key);
+            let mut data = self.data.borrow_mut();
+            match data.remove(key) {
+                Some((value, _)) => {
+                    if !(self.retire_closure)(key, value.as_ref()) {
+                        data.insert(key.clone(), (value, now));
+                    }
+                }
+                None => ()// already removed
+            }
         });
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Mutex};
     use super::*;
     use std::thread;
 
@@ -145,7 +168,12 @@ mod tests {
 
     #[test]
     fn ttl_hashmap_does_not_remove_entry_before_it_is_expired() {
-        let mut subject = TtlHashMap::new(Duration::from_millis(10));
+        let retire_closure_has_run = Arc::new(Mutex::new(false));
+        let retire_closure_has_run_inner = retire_closure_has_run.clone();
+        let mut subject = TtlHashMap::new_with_retire(
+            Duration::from_millis(10),
+            move |_, _| { *(retire_closure_has_run_inner.lock().unwrap()) = true; true }
+        );
 
         subject.insert(42u32, "Hello");
         subject.insert(24u32, "World");
@@ -153,22 +181,51 @@ mod tests {
         assert_eq!(subject.get(&42u32).unwrap().as_ref(), &"Hello");
         assert_eq!(subject.get(&24u32).unwrap().as_ref(), &"World");
         assert_eq!(subject.ttl(), Duration::from_millis(10));
+        assert_eq!(*retire_closure_has_run.lock().unwrap(), false);
     }
 
     #[test]
     fn ttl_hashmap_get_removes_expired_entry() {
-        let mut subject = TtlHashMap::new(Duration::from_millis(10));
+        let retire_closure_has_run = Arc::new(Mutex::new(false));
+        let retire_closure_has_run_inner = retire_closure_has_run.clone();
+        let mut subject = TtlHashMap::new_with_retire(
+            Duration::from_millis(10),
+            move |_, _| { *(retire_closure_has_run_inner.lock().unwrap()) = true; true }
+        );
         subject.insert(42u32, "Hello");
         thread::sleep(Duration::from_millis(20));
 
         let result = subject.get(&42u32);
 
         assert_eq!(result, None);
+        assert_eq!(*retire_closure_has_run.lock().unwrap(), true);
+    }
+
+    #[test]
+    fn ttl_hashmap_get_does_not_remove_expired_entry_if_closure_returns_false() {
+        let retire_closure_has_run = Arc::new(Mutex::new(false));
+        let retire_closure_has_run_inner = retire_closure_has_run.clone();
+        let mut subject = TtlHashMap::new_with_retire(
+            Duration::from_millis(10),
+            move |_, _| { *(retire_closure_has_run_inner.lock().unwrap()) = true; false }
+        );
+        subject.insert(42u32, "Hello");
+        thread::sleep(Duration::from_millis(20));
+
+        let result = subject.get(&42u32);
+
+        assert_eq!(result, Some(Rc::new("Hello")));
+        assert_eq!(*retire_closure_has_run.lock().unwrap(), true);
     }
 
     #[test]
     fn ttl_hashmap_insert_removes_expired_entry() {
-        let mut subject = TtlHashMap::new(Duration::from_millis(10));
+        let retire_closure_has_run = Arc::new(Mutex::new(false));
+        let retire_closure_has_run_inner = retire_closure_has_run.clone();
+        let mut subject = TtlHashMap::new_with_retire(
+            Duration::from_millis(10),
+            move |_, _| { *(retire_closure_has_run_inner.lock().unwrap()) = true; true }
+        );
         subject.insert(42u32, "Hello");
         thread::sleep(Duration::from_millis(20));
 
@@ -179,6 +236,7 @@ mod tests {
             subject.data.borrow().get(&24u32).unwrap().0.as_ref(),
             &"World"
         );
+        assert_eq!(*retire_closure_has_run.lock().unwrap(), true);
     }
 
     #[test]

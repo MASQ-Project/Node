@@ -267,6 +267,8 @@ impl ProxyServer {
         crashable: bool,
         is_running_in_integration_test: bool,
     ) -> ProxyServer {
+        let ps_logger = Logger::new("ProxyServer");
+        let hm_logger = ps_logger.clone();
         ProxyServer {
             subs: None,
             client_request_payload_factory: Box::new(ClientRequestPayloadFactoryReal::new()),
@@ -281,9 +283,15 @@ impl ProxyServer {
             main_cryptde,
             alias_cryptde,
             crashable,
-            logger: Logger::new("ProxyServer"),
+            logger: ps_logger,
             route_ids_to_return_routes_first_chance: TtlHashMap::new(RETURN_ROUTE_TTL_FIRST_CHANCE),
-            route_ids_to_return_routes_stragglers: TtlHashMap::new(RETURN_ROUTE_TTL_STRAGGLERS),
+            route_ids_to_return_routes_stragglers: TtlHashMap::new_with_retire(
+                RETURN_ROUTE_TTL_STRAGGLERS,
+                move |k, _| {
+                    debug!(hm_logger,"Return route info {} expired from straggler cache", *k);
+                    true
+                },
+            ),
             browser_proxy_sequence_offset: false,
             inbound_client_data_helper_opt: Some(Box::new(IBCDHelperReal::new())),
             stream_key_purge_delay: STREAM_KEY_PURGE_DELAY,
@@ -968,13 +976,17 @@ impl ProxyServer {
             Some(rri) => {
                 self.route_ids_to_return_routes_stragglers
                     .insert(return_route_id, (*rri).clone());
+                debug!(self.logger, "Return route info {} found in first-chance cache; graduated to straggler cache", return_route_id);
                 Some(rri)
             }
             None => match self
                 .route_ids_to_return_routes_stragglers
                 .get(&return_route_id)
             {
-                Some(rri) => Some(rri),
+                Some(rri) => {
+                    debug!(self.logger, "Return route info {} found in straggler cache", return_route_id);
+                    Some(rri)
+                },
                 None => {
                     error!(self.logger, "Can't report services consumed: received response with bogus return-route ID {} for {}. Ignoring", return_route_id, source);
                     None
