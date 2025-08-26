@@ -15,7 +15,7 @@ where
     last_check: RefCell<Instant>,
     data: RefCell<HashMap<K, (Rc<V>, Instant)>>,
     ttl: Duration,
-    retire_closure: Box<dyn Fn(&K, &V) -> bool>
+    retire_closure: Box<dyn Fn(&K, &V) -> bool>,
 }
 
 impl<K, V> TtlHashMap<K, V>
@@ -101,7 +101,7 @@ where
                         data.insert(key.clone(), (value, now));
                     }
                 }
-                None => ()// already removed
+                None => (), // already removed
             }
         });
     }
@@ -109,8 +109,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
     use super::*;
+    use std::sync::{Arc, Mutex};
     use std::thread;
 
     #[test]
@@ -170,10 +170,10 @@ mod tests {
     fn ttl_hashmap_does_not_remove_entry_before_it_is_expired() {
         let retire_closure_has_run = Arc::new(Mutex::new(false));
         let retire_closure_has_run_inner = retire_closure_has_run.clone();
-        let mut subject = TtlHashMap::new_with_retire(
-            Duration::from_millis(10),
-            move |_, _| { *(retire_closure_has_run_inner.lock().unwrap()) = true; true }
-        );
+        let mut subject = TtlHashMap::new_with_retire(Duration::from_millis(10), move |_, _| {
+            *(retire_closure_has_run_inner.lock().unwrap()) = true;
+            true
+        });
 
         subject.insert(42u32, "Hello");
         subject.insert(24u32, "World");
@@ -188,10 +188,10 @@ mod tests {
     fn ttl_hashmap_get_removes_expired_entry() {
         let retire_closure_has_run = Arc::new(Mutex::new(false));
         let retire_closure_has_run_inner = retire_closure_has_run.clone();
-        let mut subject = TtlHashMap::new_with_retire(
-            Duration::from_millis(10),
-            move |_, _| { *(retire_closure_has_run_inner.lock().unwrap()) = true; true }
-        );
+        let mut subject = TtlHashMap::new_with_retire(Duration::from_millis(10), move |_, _| {
+            *(retire_closure_has_run_inner.lock().unwrap()) = true;
+            true
+        });
         subject.insert(42u32, "Hello");
         thread::sleep(Duration::from_millis(20));
 
@@ -205,10 +205,10 @@ mod tests {
     fn ttl_hashmap_get_does_not_remove_expired_entry_if_closure_returns_false() {
         let retire_closure_has_run = Arc::new(Mutex::new(false));
         let retire_closure_has_run_inner = retire_closure_has_run.clone();
-        let mut subject = TtlHashMap::new_with_retire(
-            Duration::from_millis(10),
-            move |_, _| { *(retire_closure_has_run_inner.lock().unwrap()) = true; false }
-        );
+        let mut subject = TtlHashMap::new_with_retire(Duration::from_millis(10), move |_, _| {
+            *(retire_closure_has_run_inner.lock().unwrap()) = true;
+            false
+        });
         subject.insert(42u32, "Hello");
         thread::sleep(Duration::from_millis(20));
 
@@ -222,10 +222,10 @@ mod tests {
     fn ttl_hashmap_insert_removes_expired_entry() {
         let retire_closure_has_run = Arc::new(Mutex::new(false));
         let retire_closure_has_run_inner = retire_closure_has_run.clone();
-        let mut subject = TtlHashMap::new_with_retire(
-            Duration::from_millis(10),
-            move |_, _| { *(retire_closure_has_run_inner.lock().unwrap()) = true; true }
-        );
+        let mut subject = TtlHashMap::new_with_retire(Duration::from_millis(10), move |_, _| {
+            *(retire_closure_has_run_inner.lock().unwrap()) = true;
+            true
+        });
         subject.insert(42u32, "Hello");
         thread::sleep(Duration::from_millis(20));
 

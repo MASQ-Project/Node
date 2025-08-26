@@ -288,7 +288,10 @@ impl ProxyServer {
             route_ids_to_return_routes_stragglers: TtlHashMap::new_with_retire(
                 RETURN_ROUTE_TTL_STRAGGLERS,
                 move |k, _| {
-                    debug!(hm_logger,"Return route info {} expired from straggler cache", *k);
+                    debug!(
+                        hm_logger,
+                        "Return route info {} expired from straggler cache", *k
+                    );
                     true
                 },
             ),
@@ -984,9 +987,12 @@ impl ProxyServer {
                 .get(&return_route_id)
             {
                 Some(rri) => {
-                    debug!(self.logger, "Return route info {} found in straggler cache", return_route_id);
+                    debug!(
+                        self.logger,
+                        "Return route info {} found in straggler cache", return_route_id
+                    );
                     Some(rri)
-                },
+                }
                 None => {
                     error!(self.logger, "Can't report services consumed: received response with bogus return-route ID {} for {}. Ignoring", return_route_id, source);
                     None
