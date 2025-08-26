@@ -8,6 +8,7 @@ use std::rc::Rc;
 use std::time::Duration;
 use std::time::Instant;
 
+#[allow(clippy::type_complexity)]
 pub struct TtlHashMap<K, V>
 where
     K: Hash + Clone,
