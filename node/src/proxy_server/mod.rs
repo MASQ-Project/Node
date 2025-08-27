@@ -59,7 +59,7 @@ use tokio::prelude::Future;
 
 pub const CRASH_KEY: &str = "PROXYSERVER";
 pub const RETURN_ROUTE_TTL_FIRST_CHANCE: Duration = Duration::from_secs(120);
-pub const RETURN_ROUTE_TTL_STRAGGLERS: Duration = Duration::from_secs(5);
+pub const RETURN_ROUTE_TTL_STRAGGLERS: Duration = Duration::from_secs(30);
 
 pub const STREAM_KEY_PURGE_DELAY: Duration = Duration::from_secs(30);
 
@@ -290,7 +290,7 @@ impl ProxyServer {
                 move |k, _| {
                     debug!(
                         hm_logger,
-                        "Return route info {} expired from straggler cache", *k
+                        "Return route info RRI{} expired from straggler cache", *k
                     );
                     true
                 },
@@ -763,7 +763,7 @@ impl ProxyServer {
                 };
                 debug!(
                     args.logger,
-                    "Adding expectant return route info: {:?}", return_route_info
+                    "Adding expectant return route info: RRI{:?}", return_route_info
                 );
                 add_return_route_sub
                     .try_send(return_route_info)
@@ -979,7 +979,7 @@ impl ProxyServer {
             Some(rri) => {
                 self.route_ids_to_return_routes_stragglers
                     .insert(return_route_id, (*rri).clone());
-                debug!(self.logger, "Return route info {} found in first-chance cache; graduated to straggler cache", return_route_id);
+                debug!(self.logger, "Return route info RRI{} found in first-chance cache; graduated to straggler cache", return_route_id);
                 Some(rri)
             }
             None => match self
@@ -989,12 +989,12 @@ impl ProxyServer {
                 Some(rri) => {
                     debug!(
                         self.logger,
-                        "Return route info {} found in straggler cache", return_route_id
+                        "Return route info RRI{} found in straggler cache", return_route_id
                     );
                     Some(rri)
                 }
                 None => {
-                    error!(self.logger, "Can't report services consumed: received response with bogus return-route ID {} for {}. Ignoring", return_route_id, source);
+                    error!(self.logger, "Can't report services consumed: received response with bogus return-route ID RRI{} for {}. Ignoring", return_route_id, source);
                     None
                 }
             },
@@ -1687,7 +1687,7 @@ mod tests {
 
         assert!(
             result.is_none(),
-            "Expected no return route info, but got: {:?}",
+            "Expected no return route info, but got: RRI{:?}",
             result
         );
     }
