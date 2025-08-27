@@ -55,7 +55,7 @@ impl ClientRequestPayload_0v1 {
     }
 }
 
-#[derive(Message, Debug, PartialEq, Eq)]
+#[derive(Message, Debug, PartialEq, Eq, Clone)]
 pub struct AddReturnRouteMessage {
     pub return_route_id: u32,
     pub expected_services: Vec<ExpectedService>,
