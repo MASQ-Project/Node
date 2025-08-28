@@ -146,6 +146,7 @@ impl Handler<AddReturnRouteMessage> for ProxyServer {
     fn handle(&mut self, msg: AddReturnRouteMessage, _ctx: &mut Self::Context) -> Self::Result {
         self.route_ids_to_return_routes_first_chance
             .insert(msg.return_route_id, msg);
+        debug!(self.logger,"Added return route info RRI{} to first-chance cache",msg.return_route_id);
     }
 }
 
@@ -1210,7 +1211,7 @@ impl IBCDHelper for IBCDHelperReal {
         }
         let args =
             TransmitToHopperArgs::new(proxy, payload, client_addr, timestamp, retire_stream_key);
-        let add_return_route_sub = proxy.out_subs("ProxysServer").add_return_route.clone();
+        let add_return_route_sub = proxy.out_subs("ProxyServer").add_return_route.clone();
         let pld = &args.payload;
         if let Some(route_query_response) = proxy.stream_key_routes.get(&pld.stream_key) {
             debug!(
