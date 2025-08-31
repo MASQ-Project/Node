@@ -112,6 +112,7 @@ pub fn start_real_node(cluster: &mut MASQNodeCluster, neighbor: NodeReference) -
     let index = cluster.next_index();
     cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
+            .db_password(None)
             .neighbor(neighbor)
             .earning_wallet_info(make_earning_wallet_info(&index.to_string()))
             .chain(cluster.chain)

@@ -69,7 +69,12 @@ impl GossipProducer for GossipProducerReal {
                     && (
                         node_record_ref.public_key() == database.root().public_key()
                             || target_node_ref.has_half_neighbor(node_record_ref.public_key())
-                        // TODO SC-894/GH-132: Do we really want to reveal this?
+                        // TODO The OR clause here is so that we don't tell the target Node the IP
+                        // address of any Node it doesn't already know the IP address of. However,
+                        // if the target Node does already know this Node's IP address, why should
+                        // we not tell it? What if the target Node is evil, and it claimed to know
+                        // that the IP address of every Node in its Gossip was 1.2.3.4? Then this
+                        // code would helpfully correct it.
                     );
                 so_far.node(node_record_ref.public_key(), reveal_node_addr)
             });

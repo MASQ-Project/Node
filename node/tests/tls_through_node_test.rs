@@ -2,9 +2,8 @@
 
 pub mod utils;
 
-use native_tls::HandshakeError;
 use native_tls::TlsConnector;
-use native_tls::TlsStream;
+use native_tls::{HandshakeError, MidHandshakeTlsStream, TlsStream};
 use node_lib::test_utils::*;
 use std::io::Write;
 use std::net::SocketAddr;
@@ -25,7 +24,6 @@ fn tls_through_node_integration() {
     );
 
     let mut tls_stream = {
-        let mut tls_stream: Option<TlsStream<TcpStream>> = None;
         let stream = TcpStream::connect(SocketAddr::from_str("127.0.0.1:443").unwrap())
             .expect("Could not connect to 127.0.0.1:443");
         stream
@@ -36,27 +34,23 @@ fn tls_through_node_integration() {
             "www.example.com",
             stream.try_clone().expect("Couldn't clone TcpStream"),
         ) {
-            Ok(s) => {
-                tls_stream = Some(s);
-            }
+            Ok(s) => s,
             Err(HandshakeError::WouldBlock(interrupted_stream)) => {
-                thread::sleep(Duration::from_millis(100));
-                match interrupted_stream.handshake() {
-                    Ok(stream) => tls_stream = Some(stream),
+                match handle_wouldblock(interrupted_stream) {
+                    Ok(stream) => stream,
                     Err(e) => {
-                        println!("connection error after interruption retry: {:?}", e);
                         handle_connection_error(stream);
+                        panic!("connection error after WouldBlock: {:?}", e);
                     }
                 }
             }
             Err(e) => {
-                println!("connection error: {:?}", e);
                 handle_connection_error(stream);
+                panic!("connection error: {:?}", e);
             }
         }
-
-        tls_stream.expect("Couldn't handshake")
     };
+
     let request = "GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n".as_bytes();
     tls_stream
         .write(request.clone())
@@ -65,6 +59,7 @@ fn tls_through_node_integration() {
     let _ = tls_stream.shutdown(); // Can't do anything about an error here
 
     let response = String::from_utf8(Vec::from(&buf[..])).expect("Response is not UTF-8");
+
     assert_eq!(&response[9..15], &"200 OK"[..]);
     assert_eq!(
         response.contains("<h1>Example Domain</h1>"),
@@ -72,4 +67,29 @@ fn tls_through_node_integration() {
         "{}",
         response
     );
+}
+
+fn handle_wouldblock(
+    interrupted_stream: MidHandshakeTlsStream<TcpStream>,
+) -> Result<TlsStream<TcpStream>, HandshakeError<TcpStream>> {
+    let mut retries_left = 10;
+    let mut retry_stream = interrupted_stream;
+    while retries_left > 0 {
+        retries_left -= 1;
+        eprintln!(
+            "Handshake interrupted, retrying... ({} retries left)",
+            retries_left
+        );
+        thread::sleep(Duration::from_millis(100));
+        match retry_stream.handshake() {
+            Ok(stream) => return Ok(stream),
+            Err(HandshakeError::WouldBlock(interrupted_stream)) => {
+                retry_stream = interrupted_stream;
+            }
+            Err(e) => {
+                return Err(e);
+            }
+        }
+    }
+    panic!("Handshake never completed after retries");
 }

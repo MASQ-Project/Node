@@ -159,6 +159,7 @@ fn distill_args(
 mod tests {
     use super::*;
     use crate::blockchain::bip39::Bip39;
+    use crate::bootstrapper::CryptDEPair;
     use crate::database::db_initializer::ExternalData;
     use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::db_config::config_dao::ConfigDao;
@@ -172,7 +173,8 @@ mod tests {
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::neighborhood::{NodeDescriptor, DEFAULT_RATE_PACK};
     use crate::test_utils::database_utils::bring_db_0_back_to_life_and_return_connection;
-    use crate::test_utils::{main_cryptde, ArgsBuilder};
+    use crate::test_utils::ArgsBuilder;
+    use lazy_static::lazy_static;
     use masq_lib::constants::CURRENT_SCHEMA_VERSION;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
@@ -183,6 +185,10 @@ mod tests {
     use std::fs::{create_dir_all, File};
     use std::io::ErrorKind;
     use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    lazy_static! {
+        static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
+    }
 
     #[test]
     fn database_must_be_created_by_node_before_dump_config_is_used() {
@@ -282,12 +288,12 @@ mod tests {
                 .set_past_neighbors(
                     Some(vec![
                         NodeDescriptor::try_from((
-                            main_cryptde(),
+                            CRYPTDE_PAIR.main.as_ref(),
                             "masq://eth-ropsten:QUJDREVGRw@1.2.3.4:1234",
                         ))
                         .unwrap(),
                         NodeDescriptor::try_from((
-                            main_cryptde(),
+                            CRYPTDE_PAIR.main.as_ref(),
                             "masq://eth-ropsten:QkNERUZHSA@2.3.4.5:2345",
                         ))
                         .unwrap(),
@@ -311,9 +317,7 @@ mod tests {
             data_dir_result: Some(PathBuf::from("/home/booga/.local/share".to_string())),
             home_dir_result: Some(PathBuf::from("/home/booga".to_string())),
         }));
-        let subject = DumpConfigRunnerReal {
-            dirs_wrapper: dirs_wrapper,
-        };
+        let subject = DumpConfigRunnerReal { dirs_wrapper };
 
         let result = subject.go(&mut holder.streams(), args_vec.as_slice());
 
@@ -442,12 +446,12 @@ mod tests {
                 .set_past_neighbors(
                     Some(vec![
                         NodeDescriptor::try_from((
-                            main_cryptde(),
+                            CRYPTDE_PAIR.main.as_ref(),
                             "masq://polygon-mainnet:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234",
                         ))
                         .unwrap(),
                         NodeDescriptor::try_from((
-                            main_cryptde(),
+                            CRYPTDE_PAIR.main.as_ref(),
                             "masq://polygon-mainnet:QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345",
                         ))
                         .unwrap(),
@@ -546,12 +550,12 @@ mod tests {
                 .set_past_neighbors(
                     Some(vec![
                         NodeDescriptor::try_from((
-                            main_cryptde(),
+                            CRYPTDE_PAIR.main.as_ref(),
                             "masq://polygon-mainnet:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234",
                         ))
                         .unwrap(),
                         NodeDescriptor::try_from((
-                            main_cryptde(),
+                            CRYPTDE_PAIR.main.as_ref(),
                             "masq://polygon-mainnet:QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345",
                         ))
                         .unwrap(),
@@ -632,7 +636,7 @@ mod tests {
         expected = "Database is corrupt: pastNeighbors byte string 'PlainData { data: [192, 193] }' cannot be interpreted as UTF-8"
     )]
     fn decode_bytes_handles_decode_error_for_past_neighbors() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let data = PlainData::new(&[192, 193]);
 
         let _ = translate_bytes("pastNeighbors", data, cryptde);
@@ -641,7 +645,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Database is corrupt: past_neighbors cannot be decoded")]
     fn decode_bytes_handles_utf8_error_for_past_neighbors() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let data = PlainData::new(b"invalid hex");
 
         let _ = translate_bytes("pastNeighbors", data, cryptde);
@@ -650,7 +654,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Database is corrupt: past_neighbors contains bad CBOR")]
     fn decode_bytes_handles_bad_cbor_for_past_neighbors() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let data = PlainData::new(b"AABBCC");
 
         let _ = translate_bytes("pastNeighbors", data, cryptde);

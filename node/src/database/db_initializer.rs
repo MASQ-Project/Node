@@ -151,6 +151,7 @@ impl DbInitializerReal {
         )
         .expect("Can't create config table");
     }
+
     fn initialize_config(conn: &Connection, external_params: ExternalData) {
         Self::set_config_value(conn, EXAMPLE_ENCRYPTED, None, true, "example_encrypted");
         Self::set_config_value(
@@ -218,6 +219,13 @@ impl DbInitializerReal {
             Some(&DEFAULT_GAS_PRICE.to_string()),
             false,
             "gas price",
+        );
+        Self::set_config_value(
+            conn,
+            "last_cryptde",
+            None,
+            true,
+            "CryptDE that gave us the public key we used last time",
         );
         Self::set_config_value(conn, "past_neighbors", None, true, "past neighbors");
         Self::set_config_value(
@@ -641,6 +649,7 @@ mod tests {
     use rusqlite::Error::InvalidColumnType;
     use rusqlite::{Error, OpenFlags};
     use std::collections::HashMap;
+    use std::collections::HashSet;
     use std::fs::File;
     use std::io::{Read, Write};
     use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
@@ -652,7 +661,7 @@ mod tests {
     #[test]
     fn constants_have_correct_values() {
         assert_eq!(DATABASE_FILE, "node-data.db");
-        assert_eq!(CURRENT_SCHEMA_VERSION, 10);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 11);
     }
 
     #[test]
@@ -926,6 +935,7 @@ mod tests {
             Some(&DEFAULT_GAS_PRICE.to_string()),
             false,
         );
+        verify(&mut config_vec, "last_cryptde", None, true);
         verify(&mut config_vec, "mapping_protocol", None, false);
         verify(&mut config_vec, "max_block_count", None, false);
         verify(&mut config_vec, "min_hops", Some("3"), false);
@@ -943,6 +953,118 @@ mod tests {
             false,
         );
         verify(&mut config_vec, "preexisting", Some("yes"), false); // making sure we opened the preexisting database
+        verify(
+            &mut config_vec,
+            "rate_pack",
+            Some(&DEFAULT_RATE_PACK.to_string()),
+            false,
+        );
+        verify(
+            &mut config_vec,
+            "scan_intervals",
+            Some(&DEFAULT_SCAN_INTERVALS.to_string()),
+            false,
+        );
+        verify(
+            &mut config_vec,
+            "schema_version",
+            Some(&CURRENT_SCHEMA_VERSION.to_string()),
+            false,
+        );
+        verify(&mut config_vec, "start_block", None, false);
+        assert_eq!(config_vec, vec![]);
+    }
+
+    #[test]
+    fn new_database_is_initialized_correctly() {
+        let home_dir = ensure_node_home_directory_exists(
+            "db_initializer",
+            "new_database_is_initialized_correctly",
+        );
+        let subject = DbInitializerReal::default();
+
+        subject
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
+
+        let mut flags = OpenFlags::empty();
+        flags.insert(OpenFlags::SQLITE_OPEN_READ_ONLY);
+        let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
+        let mut stmt = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+            .unwrap();
+        let table_names = stmt
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect::<HashSet<String>>();
+        assert_eq!(
+            table_names,
+            HashSet::from([
+                "config".to_string(),
+                "payable".to_string(),
+                "pending_payable".to_string(),
+                "receivable".to_string(),
+                "banned".to_string(),
+            ]),
+        );
+        let config_map = extract_configurations(&conn);
+        let mut config_vec: Vec<(String, (Option<String>, bool))> =
+            config_map.into_iter().collect();
+        config_vec.sort_by_key(|(name, _)| name.clone());
+        let verify = |cv: &mut Vec<(String, (Option<String>, bool))>,
+                      name: &str,
+                      value: Option<&str>,
+                      encrypted: bool| {
+            let actual = cv.remove(0);
+            let expected = (name.to_string(), (value.map(|v| v.to_string()), encrypted));
+            assert_eq!(actual, expected)
+        };
+        let verify_but_value = |cv: &mut Vec<(String, (Option<String>, bool))>,
+                                expected_name: &str,
+                                expected_encrypted: bool| {
+            let (actual_name, (value, actual_encrypted)) = cv.remove(0);
+            assert_eq!(actual_name, expected_name);
+            assert_eq!(actual_encrypted, expected_encrypted);
+            value
+        };
+        verify(&mut config_vec, "blockchain_service_url", None, false);
+        verify(
+            &mut config_vec,
+            "chain_name",
+            Some(TEST_DEFAULT_CHAIN.rec().literal_identifier),
+            false,
+        );
+        let clandestine_port_str_opt = verify_but_value(&mut config_vec, "clandestine_port", false);
+        let clandestine_port: u16 = clandestine_port_str_opt.unwrap().parse().unwrap();
+        assert!(clandestine_port >= 1025);
+        assert!(clandestine_port < 10000);
+        verify(&mut config_vec, "consuming_wallet_private_key", None, true);
+        verify(&mut config_vec, "earning_wallet_address", None, false);
+        verify(&mut config_vec, EXAMPLE_ENCRYPTED, None, true);
+        verify(
+            &mut config_vec,
+            "gas_price",
+            Some(&DEFAULT_GAS_PRICE.to_string()),
+            false,
+        );
+        verify(&mut config_vec, "last_cryptde", None, true);
+        verify(&mut config_vec, "mapping_protocol", None, false);
+        verify(&mut config_vec, "max_block_count", None, false);
+        verify(&mut config_vec, "min_hops", Some("3"), false);
+        verify(
+            &mut config_vec,
+            "neighborhood_mode",
+            Some("standard"),
+            false,
+        );
+        verify(&mut config_vec, "past_neighbors", None, true);
+        verify(
+            &mut config_vec,
+            "payment_thresholds",
+            Some(&DEFAULT_PAYMENT_THRESHOLDS.to_string()),
+            false,
+        );
         verify(
             &mut config_vec,
             "rate_pack",

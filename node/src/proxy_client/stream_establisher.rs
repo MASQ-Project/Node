@@ -22,7 +22,7 @@ use std::net::IpAddr;
 use std::net::SocketAddr;
 
 pub struct StreamEstablisher {
-    pub cryptde: &'static dyn CryptDE,
+    pub cryptde: Box<dyn CryptDE>,
     pub stream_adder_tx: Sender<(StreamKey, StreamSenders)>,
     pub stream_killer_tx: Sender<(StreamKey, u64)>,
     pub stream_connector: Box<dyn StreamConnector>,
@@ -34,7 +34,7 @@ pub struct StreamEstablisher {
 impl Clone for StreamEstablisher {
     fn clone(&self) -> Self {
         StreamEstablisher {
-            cryptde: self.cryptde,
+            cryptde: self.cryptde.dup(),
             stream_adder_tx: self.stream_adder_tx.clone(),
             stream_killer_tx: self.stream_killer_tx.clone(),
             stream_connector: Box::new(StreamConnectorReal {}),
@@ -50,11 +50,11 @@ impl StreamEstablisher {
         &mut self,
         payload: &ClientRequestPayload_0v1,
         ip_addrs: Vec<IpAddr>,
-        target_hostname: String,
+        target_hostname: &str,
     ) -> io::Result<Box<dyn SenderWrapper<SequencedPacket>>> {
         let connection_info = self.stream_connector.connect_one(
             ip_addrs,
-            &target_hostname,
+            target_hostname,
             payload.target_port,
             &self.logger,
         )?;
@@ -112,7 +112,7 @@ pub trait StreamEstablisherFactory: Send {
 }
 
 pub struct StreamEstablisherFactoryReal {
-    pub cryptde: &'static dyn CryptDE,
+    pub cryptde: Box<dyn CryptDE>,
     pub stream_adder_tx: Sender<(StreamKey, StreamSenders)>,
     pub stream_killer_tx: Sender<(StreamKey, u64)>,
     pub proxy_client_subs: ProxyClientSubs,
@@ -122,7 +122,7 @@ pub struct StreamEstablisherFactoryReal {
 impl StreamEstablisherFactory for StreamEstablisherFactoryReal {
     fn make(&self) -> StreamEstablisher {
         StreamEstablisher {
-            cryptde: self.cryptde,
+            cryptde: self.cryptde.dup(),
             stream_adder_tx: self.stream_adder_tx.clone(),
             stream_killer_tx: self.stream_killer_tx.clone(),
             stream_connector: Box::new(StreamConnectorReal {}),
@@ -136,8 +136,8 @@ impl StreamEstablisherFactory for StreamEstablisherFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bootstrapper::CryptDEPair;
     use crate::sub_lib::proxy_server::ProxyProtocol;
-    use crate::test_utils::main_cryptde;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::stream_connector_mock::StreamConnectorMock;
@@ -145,11 +145,16 @@ mod tests {
     use actix::System;
     use crossbeam_channel::unbounded;
     use futures::future::lazy;
+    use lazy_static::lazy_static;
     use std::io::ErrorKind;
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::thread;
     use tokio::prelude::Async;
+
+    lazy_static! {
+        static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
+    }
 
     #[test]
     fn spawn_stream_reader_handles_data() {
@@ -178,7 +183,7 @@ mod tests {
             ];
 
             let subject = StreamEstablisher {
-                cryptde: main_cryptde(),
+                cryptde: CRYPTDE_PAIR.main.dup(),
                 stream_adder_tx,
                 stream_killer_tx,
                 stream_connector: Box::new(StreamConnectorMock::new()), // only used in "establish_stream"

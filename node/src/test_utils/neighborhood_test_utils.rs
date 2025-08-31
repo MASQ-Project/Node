@@ -87,9 +87,20 @@ pub fn make_node_record_f(
     result
 }
 
-pub fn make_global_cryptde_node_record(n: u16, has_ip: bool) -> NodeRecord {
+pub fn make_global_cryptde_node_record(
+    n: u16,
+    has_ip: bool,
+    cryptde_pair: &CryptDEPair,
+) -> NodeRecord {
     let mut node_record = make_node_record(n, has_ip);
-    node_record.inner.public_key = main_cryptde().public_key().clone();
+    node_record.inner.public_key = cryptde_pair.main.public_key().clone();
+    node_record.resign();
+    node_record
+}
+
+pub fn make_cryptde_node_record(n: u16, has_ip: bool, cryptde_pair: &CryptDEPair) -> NodeRecord {
+    let mut node_record = make_node_record(n, has_ip);
+    node_record.inner.public_key = cryptde_pair.main.public_key().clone();
     node_record.resign();
     node_record
 }
@@ -101,7 +112,6 @@ pub fn make_meaningless_db() -> NeighborhoodDatabase {
 
 pub fn db_from_node(node: &NodeRecord) -> NeighborhoodDatabase {
     let mut db = NeighborhoodDatabase::new(
-        node.public_key(),
         node.into(),
         node.earning_wallet(),
         &CryptDENull::from(node.public_key(), TEST_DEFAULT_CHAIN),
@@ -116,8 +126,9 @@ pub fn db_from_node(node: &NodeRecord) -> NeighborhoodDatabase {
 pub fn neighborhood_from_nodes(
     root: &NodeRecord,
     neighbor_opt: Option<&NodeRecord>,
+    cryptde_pair: &CryptDEPair,
 ) -> Neighborhood {
-    let cryptde: &dyn CryptDE = main_cryptde();
+    let cryptde: &dyn CryptDE = cryptde_pair.main.as_ref();
     if root.public_key() != cryptde.public_key() {
         panic!("Neighborhood must be built on root node with public key from cryptde()");
     }
@@ -139,7 +150,7 @@ pub fn neighborhood_from_nodes(
     config.earning_wallet = root.earning_wallet();
     config.consuming_wallet_opt = Some(make_paying_wallet(b"consuming"));
     config.db_password_opt = Some("password".to_string());
-    Neighborhood::new(cryptde, &config)
+    Neighborhood::new(cryptde_pair.clone(), &config)
 }
 
 impl From<&NodeRecord> for NeighborhoodMode {

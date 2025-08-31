@@ -75,7 +75,7 @@ pub enum NeighborhoodMode {
 }
 
 impl Display for NeighborhoodMode {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             NeighborhoodMode::Standard(_, _, _) => write!(f, "Standard"),
             NeighborhoodMode::ZeroHop => write!(f, "ZeroHop"),
@@ -340,7 +340,7 @@ enum DescriptorParsingError<'a> {
 }
 
 impl Display for DescriptorParsingError<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         fn only_user_intended() -> String {
             CHAINS
                 .iter()
@@ -395,7 +395,7 @@ impl FromStr for Hops {
 }
 
 impl Display for Hops {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}", *self as usize)
     }
 }
@@ -428,7 +428,7 @@ pub struct NeighborhoodSubs {
 }
 
 impl Debug for NeighborhoodSubs {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         write!(f, "NeighborhoodSubs")
     }
 }
@@ -619,15 +619,19 @@ impl Default for NeighborhoodTools {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bootstrapper::CryptDEPair;
     use crate::sub_lib::cryptde_real::CryptDEReal;
     use crate::sub_lib::utils::NotifyLaterHandleReal;
-    use crate::test_utils::main_cryptde;
     use crate::test_utils::recorder::Recorder;
     use actix::Actor;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::{localhost, NeighborhoodModeLight};
     use std::str::FromStr;
+
+    lazy_static! {
+        static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
+    }
 
     #[test]
     fn constants_have_correct_values() {
@@ -858,7 +862,7 @@ mod tests {
     #[test]
     fn from_str_complains_about_bad_base_64() {
         let result = NodeDescriptor::try_from((
-            main_cryptde(),
+            CRYPTDE_PAIR.main.as_ref(),
             "masq://eth-mainnet:bad_key@1.2.3.4:1234;2345",
         ));
 
@@ -900,7 +904,8 @@ mod tests {
 
     #[test]
     fn from_str_complains_about_blank_public_key() {
-        let result = NodeDescriptor::try_from((main_cryptde(), "masq://dev:@1.2.3.4:1234/2345"));
+        let result =
+            NodeDescriptor::try_from((CRYPTDE_PAIR.main.as_ref(), "masq://dev:@1.2.3.4:1234/2345"));
 
         assert_eq!(result, Err(String::from("Public key cannot be empty")));
     }
@@ -908,7 +913,7 @@ mod tests {
     #[test]
     fn from_str_complains_about_bad_node_addr() {
         let result = NodeDescriptor::try_from((
-            main_cryptde(),
+            CRYPTDE_PAIR.main.as_ref(),
             "masq://eth-mainnet:R29vZEtleQ==@BadNodeAddr",
         ));
 
@@ -918,7 +923,7 @@ mod tests {
     #[test]
     fn from_str_handles_the_happy_path_with_node_addr() {
         let result = NodeDescriptor::try_from((
-            main_cryptde(),
+            CRYPTDE_PAIR.main.as_ref(),
             "masq://eth-ropsten:R29vZEtleQ@1.2.3.4:1234/2345/3456",
         ));
 
@@ -937,7 +942,10 @@ mod tests {
 
     #[test]
     fn from_str_handles_the_happy_path_without_node_addr() {
-        let result = NodeDescriptor::try_from((main_cryptde(), "masq://eth-mainnet:R29vZEtleQ@:"));
+        let result = NodeDescriptor::try_from((
+            CRYPTDE_PAIR.main.as_ref(),
+            "masq://eth-mainnet:R29vZEtleQ@:",
+        ));
 
         assert_eq!(
             result.unwrap(),
@@ -979,7 +987,7 @@ mod tests {
 
     #[test]
     fn node_descriptor_from_key_node_addr_and_mainnet_flag_works() {
-        let cryptde: &dyn CryptDE = main_cryptde();
+        let cryptde: &dyn CryptDE = CRYPTDE_PAIR.main.as_ref();
         let public_key = PublicKey::new(&[1, 2, 3, 4, 5, 6, 7, 8]);
         let node_addr = NodeAddr::new(&IpAddr::from_str("123.45.67.89").unwrap(), &[2345, 3456]);
 
@@ -997,7 +1005,7 @@ mod tests {
 
     #[test]
     fn node_descriptor_to_string_works_for_mainnet() {
-        let cryptde: &dyn CryptDE = main_cryptde();
+        let cryptde: &dyn CryptDE = CRYPTDE_PAIR.main.as_ref();
         let public_key = PublicKey::new(&[1, 2, 3, 4, 5, 6, 7, 8]);
         let node_addr = NodeAddr::new(&IpAddr::from_str("123.45.67.89").unwrap(), &[2345, 3456]);
         let subject = NodeDescriptor::from((&public_key, &node_addr, Chain::EthMainnet, cryptde));
@@ -1012,7 +1020,7 @@ mod tests {
 
     #[test]
     fn node_descriptor_to_string_works_for_not_mainnet() {
-        let cryptde: &dyn CryptDE = main_cryptde();
+        let cryptde: &dyn CryptDE = CRYPTDE_PAIR.main.as_ref();
         let public_key = PublicKey::new(&[1, 2, 3, 4, 5, 6, 7, 8]);
         let node_addr = NodeAddr::new(&IpAddr::from_str("123.45.67.89").unwrap(), &[2345, 3456]);
         let subject = NodeDescriptor::from((&public_key, &node_addr, Chain::EthRopsten, cryptde));
@@ -1027,7 +1035,7 @@ mod tests {
 
     #[test]
     fn first_part_of_node_descriptor_must_not_be_longer_than_required() {
-        let cryptde: &dyn CryptDE = main_cryptde();
+        let cryptde: &dyn CryptDE = CRYPTDE_PAIR.main.as_ref();
         let public_key = PublicKey::new(&[
             1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 1, 2, 3, 4, 5, 6, 7, 8,
             9, 10, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
@@ -1068,12 +1076,16 @@ mod tests {
 
     #[test]
     fn standard_mode_results() {
-        let one_neighbor =
-            NodeDescriptor::try_from((main_cryptde(), "masq://eth-mainnet:AQIDBA@1.2.3.4:1234"))
-                .unwrap();
-        let another_neighbor =
-            NodeDescriptor::try_from((main_cryptde(), "masq://eth-mainnet:AgMEBQ@2.3.4.5:2345"))
-                .unwrap();
+        let one_neighbor = NodeDescriptor::try_from((
+            CRYPTDE_PAIR.main.as_ref(),
+            "masq://eth-mainnet:AQIDBA@1.2.3.4:1234",
+        ))
+        .unwrap();
+        let another_neighbor = NodeDescriptor::try_from((
+            CRYPTDE_PAIR.main.as_ref(),
+            "masq://eth-mainnet:AgMEBQ@2.3.4.5:2345",
+        ))
+        .unwrap();
         let subject = NeighborhoodMode::Standard(
             NodeAddr::new(&localhost(), &[1234, 2345]),
             vec![one_neighbor.clone(), another_neighbor.clone()],
@@ -1099,12 +1111,16 @@ mod tests {
 
     #[test]
     fn originate_only_mode_results() {
-        let one_neighbor =
-            NodeDescriptor::try_from((main_cryptde(), "masq://eth-ropsten:AQIDBA@1.2.3.4:1234"))
-                .unwrap();
-        let another_neighbor =
-            NodeDescriptor::try_from((main_cryptde(), "masq://eth-ropsten:AgMEBQ@2.3.4.5:2345"))
-                .unwrap();
+        let one_neighbor = NodeDescriptor::try_from((
+            CRYPTDE_PAIR.main.as_ref(),
+            "masq://eth-ropsten:AQIDBA@1.2.3.4:1234",
+        ))
+        .unwrap();
+        let another_neighbor = NodeDescriptor::try_from((
+            CRYPTDE_PAIR.main.as_ref(),
+            "masq://eth-ropsten:AgMEBQ@2.3.4.5:2345",
+        ))
+        .unwrap();
         let subject = NeighborhoodMode::OriginateOnly(
             vec![one_neighbor.clone(), another_neighbor.clone()],
             rate_pack(100),
@@ -1126,12 +1142,16 @@ mod tests {
 
     #[test]
     fn consume_only_mode_results() {
-        let one_neighbor =
-            NodeDescriptor::try_from((main_cryptde(), "masq://eth-mainnet:AQIDBA@1.2.3.4:1234"))
-                .unwrap();
-        let another_neighbor =
-            NodeDescriptor::try_from((main_cryptde(), "masq://eth-mainnet:AgMEBQ@2.3.4.5:2345"))
-                .unwrap();
+        let one_neighbor = NodeDescriptor::try_from((
+            CRYPTDE_PAIR.main.as_ref(),
+            "masq://eth-mainnet:AQIDBA@1.2.3.4:1234",
+        ))
+        .unwrap();
+        let another_neighbor = NodeDescriptor::try_from((
+            CRYPTDE_PAIR.main.as_ref(),
+            "masq://eth-mainnet:AgMEBQ@2.3.4.5:2345",
+        ))
+        .unwrap();
         let subject =
             NeighborhoodMode::ConsumeOnly(vec![one_neighbor.clone(), another_neighbor.clone()]);
 
