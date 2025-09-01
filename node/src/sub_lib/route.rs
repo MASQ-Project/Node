@@ -32,7 +32,6 @@ impl Route {
             cryptde,
             None,
             None,
-            None,
         )
     }
 
@@ -47,7 +46,6 @@ impl Route {
             None,
             cryptde,
             consuming_wallet,
-            None,
             contract_address,
         )
     }
@@ -57,7 +55,6 @@ impl Route {
         route_segment_back: RouteSegment,
         cryptde: &dyn CryptDE, // Must be the CryptDE of the originating Node: used to encrypt return_route_id.
         consuming_wallet: Option<Wallet>,
-        return_route_id: u32,
         contract_address: Option<Address>,
     ) -> Result<Route, CodexError> {
         Self::construct(
@@ -65,12 +62,11 @@ impl Route {
             Some(route_segment_back),
             cryptde,
             consuming_wallet,
-            Some(return_route_id),
             contract_address,
         )
     }
 
-    pub fn id(&self, cryptde: &dyn CryptDE) -> Result<u32, String> {
+    pub fn return_route_id(&self, cryptde: &dyn CryptDE) -> Result<u32, String> {
         if let Some(first) = self.hops.first() {
             match decodex(cryptde, first) {
                 Ok(n) => Ok(n),
@@ -79,6 +75,12 @@ impl Route {
         } else {
             Err("Response route did not contain a return route ID".to_string())
         }
+    }
+
+    pub fn set_return_route_id(mut self, cryptde: &dyn CryptDE, return_route_id: u32) -> Self {
+        let return_route_id_enc = Self::encrypt_return_route_id(return_route_id, cryptde);
+        self.hops.push(return_route_id_enc);
+        self
     }
 
     // This cryptde must be the CryptDE of the next hop to come off the Route.
@@ -148,7 +150,6 @@ impl Route {
         back: Option<RouteSegment>,
         cryptde: &dyn CryptDE,
         consuming_wallet: Option<Wallet>,
-        return_route_id_opt: Option<u32>,
         contract_address: Option<Address>,
     ) -> Result<Route, CodexError> {
         if let Some(error) = Route::validate_route_segments(&over, &back) {
@@ -176,7 +177,6 @@ impl Route {
         Route::hops_to_route(
             hops[0..].to_vec(),
             &over.keys[0],
-            return_route_id_opt,
             cryptde,
         )
     }
@@ -295,7 +295,6 @@ impl Route {
     fn hops_to_route(
         hops: Vec<LiveHop>,
         top_hop_key: &PublicKey,
-        return_route_id_opt: Option<u32>,
         cryptde: &dyn CryptDE,
     ) -> Result<Route, CodexError> {
         let mut hops_enc: Vec<CryptData> = Vec::new();
@@ -306,10 +305,6 @@ impl Route {
                 Err(e) => return Err(e),
             });
             hop_key = &data_hop.public_key;
-        }
-        if let Some(return_route_id) = return_route_id_opt {
-            let return_route_id_enc = Self::encrypt_return_route_id(return_route_id, cryptde);
-            hops_enc.push(return_route_id_enc);
         }
         Ok(Route { hops: hops_enc })
     }
@@ -353,38 +348,38 @@ mod tests {
     use serde_cbor;
 
     #[test]
-    fn id_decodes_return_route_id() {
+    fn return_route_id_works() {
         let cryptde = main_cryptde();
 
         let subject = Route {
             hops: vec![Route::encrypt_return_route_id(42, cryptde)],
         };
 
-        assert_eq!(subject.id(cryptde), Ok(42));
+        assert_eq!(subject.return_route_id(cryptde), Ok(42));
     }
 
     #[test]
-    fn id_returns_empty_route_error_when_the_route_is_empty() {
+    fn return_route_id_returns_empty_route_error_when_the_route_is_empty() {
         let cryptde = main_cryptde();
 
         let subject = Route { hops: vec![] };
 
         assert_eq!(
-            subject.id(cryptde),
+            subject.return_route_id(cryptde),
             Err("Response route did not contain a return route ID".to_string())
         );
     }
 
     #[test]
     #[should_panic(expected = "Could not decrypt with ebe5f9a0e2 data beginning with ebe5f9a0e1")]
-    fn id_returns_error_when_the_id_fails_to_decrypt() {
+    fn return_route_id_returns_error_when_the_id_fails_to_decrypt() {
         let cryptde1 = CryptDENull::from(&PublicKey::new(b"key a"), TEST_DEFAULT_CHAIN);
         let cryptde2 = CryptDENull::from(&PublicKey::new(b"key b"), TEST_DEFAULT_CHAIN);
         let subject = Route {
             hops: vec![Route::encrypt_return_route_id(42, &cryptde1)],
         };
 
-        let _ = subject.id(&cryptde2);
+        let _ = subject.return_route_id(&cryptde2);
     }
 
     #[test]
@@ -420,7 +415,6 @@ mod tests {
             RouteSegment::new(vec![&c_key, &d_key], Component::ProxyServer),
             cryptde,
             Some(paying_wallet.clone()),
-            0,
             Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .err()
@@ -472,10 +466,10 @@ mod tests {
             RouteSegment::new(vec![&d_key, &e_key, &f_key, &a_key], Component::ProxyServer),
             cryptde,
             Some(paying_wallet.clone()),
-            return_route_id,
             Some(contract_address.clone()),
         )
         .unwrap();
+        let subject = subject.set_return_route_id(cryptde, return_route_id);
 
         assert_eq!(
             subject.hops[0],
@@ -745,10 +739,10 @@ mod tests {
             RouteSegment::new(vec![&key2, &key1], Component::ProxyServer),
             cryptde,
             Some(paying_wallet),
-            1234,
             Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
+        let original = original.set_return_route_id(cryptde, 1234);
 
         let serialized = serde_cbor::ser::to_vec(&original).unwrap();
 
@@ -794,16 +788,17 @@ Encrypted with 0x03040506: LiveHop { public_key: 0x, payer: Some(Payer { wallet:
         let key1 = PublicKey::new(&[1, 2, 3, 4]);
         let key2 = PublicKey::new(&[2, 3, 4, 5]);
         let key3 = PublicKey::new(&[3, 4, 5, 6]);
+        let cryptde = CryptDENull::from(&key1, TEST_DEFAULT_CHAIN);
         let paying_wallet = make_paying_wallet(b"wallet");
         let subject = Route::round_trip(
             RouteSegment::new(vec![&key1, &key2, &key3], Component::ProxyClient),
             RouteSegment::new(vec![&key3, &key2, &key1], Component::ProxyServer),
-            &CryptDENull::from(&key1, TEST_DEFAULT_CHAIN),
+            &cryptde,
             Some(paying_wallet),
-            1234,
             Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
+        let subject = subject.set_return_route_id(&cryptde, 1234);
 
         let result = subject.to_string(vec![
             &CryptDENull::from(&key1, TEST_DEFAULT_CHAIN),

@@ -980,7 +980,6 @@ impl Neighborhood {
     }
 
     fn zero_hop_route_response(&mut self) -> RouteQueryResponse {
-        let return_route_id = self.advance_return_route_id();
         let route = Route::round_trip(
             RouteSegment::new(
                 vec![self.cryptde.public_key(), self.cryptde.public_key()],
@@ -992,7 +991,6 @@ impl Neighborhood {
             ),
             self.cryptde,
             None,
-            return_route_id,
             None,
         )
         .expect("Couldn't create route");
@@ -1001,7 +999,6 @@ impl Neighborhood {
             expected_services: ExpectedServices::RoundTrip(
                 vec![ExpectedService::Nothing, ExpectedService::Nothing],
                 vec![ExpectedService::Nothing, ExpectedService::Nothing],
-                return_route_id,
             ),
         }
     }
@@ -1067,21 +1064,18 @@ impl Neighborhood {
             Err(e) => return Err(e),
         };
 
-        let return_route_id = self.advance_return_route_id();
         Ok(RouteQueryResponse {
             route: Route::round_trip(
                 over,
                 back,
                 self.cryptde,
                 self.consuming_wallet_opt.clone(),
-                return_route_id,
                 Some(self.chain.rec().contract),
             )
             .expect("Internal error: bad route"),
             expected_services: ExpectedServices::RoundTrip(
                 expected_request_services,
                 expected_response_services,
-                return_route_id,
             ),
         })
     }
@@ -1324,6 +1318,7 @@ impl Neighborhood {
     }
 
     fn advance_return_route_id(&mut self) -> u32 {
+        todo!("Move this logic into the ProxyServer");
         let return_route_id = self.next_return_route_id;
         self.next_return_route_id = return_route_id.wrapping_add(1);
         return_route_id
@@ -3382,10 +3377,10 @@ mod tests {
                 ),
                 cryptde,
                 None,
-                0,
                 None,
             )
-            .unwrap(),
+            .unwrap()
+            .set_return_route_id(cryptde, 0),
             expected_services: ExpectedServices::RoundTrip(
                 vec![
                     ExpectedService::Nothing,
@@ -3403,7 +3398,6 @@ mod tests {
                     ),
                     ExpectedService::Nothing,
                 ],
-                0,
             ),
         };
         assert_eq!(expected_response, result);
@@ -3455,37 +3449,16 @@ mod tests {
                 ),
                 cryptde,
                 None,
-                0,
                 None,
             )
-            .unwrap(),
+            .unwrap()
+            .set_return_route_id(cryptde, 0),
             expected_services: ExpectedServices::RoundTrip(
                 vec![ExpectedService::Nothing, ExpectedService::Nothing],
                 vec![ExpectedService::Nothing, ExpectedService::Nothing],
-                0,
             ),
         };
         assert_eq!(result, expected_response);
-    }
-
-    #[test]
-    fn zero_hop_routing_handles_return_route_id_properly() {
-        let mut subject = make_standard_subject();
-        let result0 = subject.zero_hop_route_response();
-        let result1 = subject.zero_hop_route_response();
-
-        let return_route_id_0 = match result0.expected_services {
-            ExpectedServices::RoundTrip(_, _, id) => id,
-            _ => panic!("expected RoundTrip got OneWay"),
-        };
-
-        let return_route_id_1 = match result1.expected_services {
-            ExpectedServices::RoundTrip(_, _, id) => id,
-            _ => panic!("expected RoundTrip got OneWay"),
-        };
-
-        assert_eq!(return_route_id_0, 0);
-        assert_eq!(return_route_id_1, 1);
     }
 
     /*
@@ -3546,10 +3519,10 @@ mod tests {
                 segment(&[r, q, p], &Component::ProxyServer),
                 cryptde,
                 consuming_wallet_opt,
-                0,
                 Some(contract_address),
             )
-            .unwrap(),
+            .unwrap()
+            .set_return_route_id(cryptde, 0),
             expected_services: ExpectedServices::RoundTrip(
                 vec![
                     ExpectedService::Nothing,
@@ -3577,7 +3550,6 @@ mod tests {
                     ),
                     ExpectedService::Nothing,
                 ],
-                0,
             ),
         };
         assert_eq!(expected_response, result);
@@ -3618,37 +3590,6 @@ mod tests {
 
             Tests will be written from the viewpoint of O.
     */
-
-    #[test]
-    fn return_route_ids_increase() {
-        let cryptde = main_cryptde();
-        let system = System::new("return_route_ids_increase");
-        let (_, _, _, mut subject) = make_o_r_e_subject();
-        subject.min_hops = Hops::TwoHops;
-        let addr: Addr<Neighborhood> = subject.start();
-        let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
-
-        let data_route_0 = sub.send(RouteQueryMessage::data_indefinite_route_request(None, 2000));
-        let data_route_1 = sub.send(RouteQueryMessage::data_indefinite_route_request(None, 3000));
-
-        System::current().stop_with_code(0);
-        system.run();
-        let result_0 = data_route_0.wait().unwrap().unwrap();
-        let result_1 = data_route_1.wait().unwrap().unwrap();
-        let juicy_parts = |result: RouteQueryResponse| {
-            let last_element = result.route.hops.last().unwrap();
-            let last_element_dec = cryptde.decode(last_element).unwrap();
-            let network_return_route_id: u32 =
-                serde_cbor::de::from_slice(last_element_dec.as_slice()).unwrap();
-            let metadata_return_route_id = match result.expected_services {
-                ExpectedServices::RoundTrip(_, _, id) => id,
-                _ => panic!("expected RoundTrip got OneWay"),
-            };
-            (network_return_route_id, metadata_return_route_id)
-        };
-        assert_eq!(juicy_parts(result_0), (0, 0));
-        assert_eq!(juicy_parts(result_1), (1, 1));
-    }
 
     #[test]
     fn handle_neighborhood_graph_message_works() {
@@ -7169,7 +7110,7 @@ mod tests {
 
         let (over, back) = match response.expected_services {
             ExpectedServices::OneWay(_) => panic!("Expecting RoundTrip"),
-            ExpectedServices::RoundTrip(o, b, _) => (o[1].clone(), b[1].clone()),
+            ExpectedServices::RoundTrip(o, b) => (o[1].clone(), b[1].clone()),
         };
         let extract_key = |es: ExpectedService| match es {
             ExpectedService::Routing(pk, _, _) => pk,

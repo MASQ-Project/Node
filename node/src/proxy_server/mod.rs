@@ -7,6 +7,7 @@ pub mod server_impersonator_http;
 pub mod server_impersonator_tls;
 pub mod tls_protocol_pack;
 
+use std::cell::Cell;
 use crate::proxy_server::client_request_payload_factory::{
     ClientRequestPayloadFactory, ClientRequestPayloadFactoryReal,
 };
@@ -59,7 +60,7 @@ use tokio::prelude::Future;
 
 pub const CRASH_KEY: &str = "PROXYSERVER";
 pub const RETURN_ROUTE_TTL_FIRST_CHANCE: Duration = Duration::from_secs(120);
-pub const RETURN_ROUTE_TTL_STRAGGLERS: Duration = Duration::from_secs(30);
+pub const RETURN_ROUTE_TTL_STRAGGLERS: Duration = Duration::from_secs(5);
 
 pub const STREAM_KEY_PURGE_DELAY: Duration = Duration::from_secs(30);
 
@@ -98,6 +99,7 @@ pub struct ProxyServer {
     browser_proxy_sequence_offset: bool,
     inbound_client_data_helper_opt: Option<Box<dyn IBCDHelper>>,
     stream_key_purge_delay: Duration,
+    next_return_route_id: Cell<u32>,
     is_running_in_integration_test: bool,
 }
 
@@ -144,9 +146,10 @@ impl Handler<AddReturnRouteMessage> for ProxyServer {
     type Result = ();
 
     fn handle(&mut self, msg: AddReturnRouteMessage, _ctx: &mut Self::Context) -> Self::Result {
+        let return_route_id = msg.return_route_id;
         self.route_ids_to_return_routes_first_chance
             .insert(msg.return_route_id, msg);
-        debug!(self.logger,"Added return route info RRI{} to first-chance cache",msg.return_route_id);
+        debug!(self.logger,"Added return route info RRI{} to first-chance cache", return_route_id);
     }
 }
 
@@ -299,6 +302,7 @@ impl ProxyServer {
             browser_proxy_sequence_offset: false,
             inbound_client_data_helper_opt: Some(Box::new(IBCDHelperReal::new())),
             stream_key_purge_delay: STREAM_KEY_PURGE_DELAY,
+            next_return_route_id: Cell::new(1),
             is_running_in_integration_test,
         }
     }
@@ -749,13 +753,21 @@ impl ProxyServer {
         }
     }
 
+    fn get_next_return_route_id(&self) -> u32 {
+        let return_route_id = self.next_return_route_id.get();
+        *(self.next_return_route_id.get_mut()) = return_route_id.wrapping_add(1);
+        return_route_id
+    }
+
     fn try_transmit_to_hopper(
+        &self,
         args: TransmitToHopperArgs,
         add_return_route_sub: Recipient<AddReturnRouteMessage>,
         route_query_response: RouteQueryResponse,
     ) -> Result<(), String> {
         match route_query_response.expected_services {
-            ExpectedServices::RoundTrip(over, back, return_route_id) => {
+            ExpectedServices::RoundTrip(over, back) => {
+                let return_route_id = self.get_next_return_route_id();
                 let return_route_info = AddReturnRouteMessage {
                     return_route_id,
                     expected_services: back,
@@ -959,7 +971,7 @@ impl ProxyServer {
         mut_remaining_route
             .shift(self.main_cryptde)
             .expect("Internal error: remaining route in ProxyServer with no hops");
-        match mut_remaining_route.id(self.main_cryptde) {
+        match mut_remaining_route.return_route_id(self.main_cryptde) {
             Ok(rri) => Some(rri),
             Err(e) => {
                 error!(self.logger, "Can't report services consumed: {}", e);
@@ -1109,7 +1121,7 @@ impl RouteQueryResponseResolver for RouteQueryResponseResolverReal {
         let stream_key = args.payload.stream_key;
         let result = match route_result_opt {
             Ok(Some(route_query_response)) => {
-                match ProxyServer::try_transmit_to_hopper(
+                match self.try_transmit_to_hopper(
                     args,
                     add_return_route_sub,
                     route_query_response.clone(),
@@ -1768,7 +1780,6 @@ mod tests {
             expected_services: ExpectedServices::RoundTrip(
                 vec![make_exit_service_from_key(destination_key.clone())],
                 vec![],
-                1234,
             ),
         }));
         let (proxy_server_mock, _, proxy_server_recording_arc) = make_recorder();
@@ -1872,7 +1883,6 @@ mod tests {
             expected_services: ExpectedServices::RoundTrip(
                 vec![make_exit_service_from_key(destination_key.clone())],
                 vec![],
-                1234,
             ),
         }));
         let route = Route { hops: vec![] };
@@ -2494,7 +2504,6 @@ mod tests {
             expected_services: ExpectedServices::RoundTrip(
                 vec![make_exit_service_from_key(destination_key.clone())],
                 vec![],
-                1234,
             ),
         }));
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -2594,10 +2603,10 @@ mod tests {
             ),
             main_cryptde,
             Some(consuming_wallet),
-            1234,
             Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
-        .unwrap();
+        .unwrap()
+        .set_return_route_id(main_cryptde, 1234);
         let (neighborhood_mock, _, neighborhood_recording_arc) = make_recorder();
         let neighborhood_mock = neighborhood_mock.route_query_response(Some(RouteQueryResponse {
             route: route.clone(),
@@ -2614,7 +2623,6 @@ mod tests {
                     ExpectedService::Nothing,
                     ExpectedService::Exit(PublicKey::new(&[3]), earning_wallet, rate_pack(102)),
                 ],
-                1234,
             ),
         }));
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -2700,7 +2708,6 @@ mod tests {
             expected_services: ExpectedServices::RoundTrip(
                 vec![expected_service.clone()],
                 vec![expected_service],
-                123,
             ),
         });
         let (neighborhood_mock, _, _) = make_recorder();
@@ -2869,7 +2876,6 @@ mod tests {
             expected_services: ExpectedServices::RoundTrip(
                 vec![make_exit_service_from_key(destination_key.clone())],
                 vec![],
-                1234,
             ),
         };
         let (hopper_mock, hopper_awaiter, hopper_recording_arc) = make_recorder();
@@ -2988,7 +2994,6 @@ mod tests {
                     ),
                     ExpectedService::Nothing,
                 ],
-                0,
             ),
         };
         let source_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -3079,7 +3084,6 @@ mod tests {
             expected_services: ExpectedServices::RoundTrip(
                 vec![ExpectedService::Nothing],
                 vec![ExpectedService::Nothing],
-                0,
             ),
         };
         let source_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -3161,7 +3165,6 @@ mod tests {
                 rate_pack(3),
             )],
             vec![],
-            0,
         );
         let neighborhood_mock =
             neighborhood_mock.route_query_response(Some(route_query_response.clone()));
@@ -3458,11 +3461,11 @@ mod tests {
                 RouteSegment::new(vec![public_key, public_key], Component::ProxyServer),
                 cryptde,
                 None,
-                1234,
                 None,
             )
-            .unwrap(),
-            expected_services: ExpectedServices::RoundTrip(vec![], vec![], 1234),
+            .unwrap()
+            .set_return_route_id(cryptde, 1234),
+            expected_services: ExpectedServices::RoundTrip(vec![], vec![]),
         };
         let neighborhood_mock = neighborhood_mock.route_query_response(Some(route_query_response));
         let dispatcher = Recorder::new();
@@ -3560,7 +3563,6 @@ mod tests {
             expected_services: ExpectedServices::RoundTrip(
                 vec![make_exit_service_from_key(destination_key.clone())],
                 vec![],
-                1234,
             ),
         }));
         let stream_key = StreamKey::make_meaningless_stream_key();
@@ -3646,7 +3648,6 @@ mod tests {
             expected_services: ExpectedServices::RoundTrip(
                 vec![make_exit_service_from_key(destination_key.clone())],
                 vec![],
-                1234,
             ),
         }));
         let stream_key = StreamKey::make_meaningless_stream_key();
@@ -3731,7 +3732,6 @@ mod tests {
             expected_services: ExpectedServices::RoundTrip(
                 vec![make_exit_service_from_key(destination_key.clone())],
                 vec![],
-                1234,
             ),
         }));
         let client_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -3985,7 +3985,7 @@ mod tests {
             stream_key.clone(),
             RouteQueryResponse {
                 route: Route { hops: vec![] },
-                expected_services: ExpectedServices::RoundTrip(vec![], vec![], 1234),
+                expected_services: ExpectedServices::RoundTrip(vec![], vec![]),
             },
         );
         subject
@@ -4103,7 +4103,7 @@ mod tests {
             stream_key.clone(),
             RouteQueryResponse {
                 route: Route { hops: vec![] },
-                expected_services: ExpectedServices::RoundTrip(vec![], vec![], 1234),
+                expected_services: ExpectedServices::RoundTrip(vec![], vec![]),
             },
         );
         subject
@@ -4206,7 +4206,7 @@ mod tests {
             stream_key.clone(),
             RouteQueryResponse {
                 route: Route { hops: vec![] },
-                expected_services: ExpectedServices::RoundTrip(vec![], vec![], 1234),
+                expected_services: ExpectedServices::RoundTrip(vec![], vec![]),
             },
         );
         subject
@@ -5370,7 +5370,6 @@ mod tests {
             expected_services: ExpectedServices::RoundTrip(
                 expected_services.clone(),
                 expected_services.clone(),
-                1234,
             ),
         };
         let neighborhood_mock = neighborhood_mock
@@ -5540,7 +5539,6 @@ mod tests {
             expected_services: ExpectedServices::RoundTrip(
                 expected_services.clone(),
                 expected_services.clone(),
-                1234,
             ),
         };
         let neighborhood_mock = neighborhood_mock
@@ -5904,7 +5902,7 @@ mod tests {
             unaffected_stream_key,
             RouteQueryResponse {
                 route: Route { hops: vec![] },
-                expected_services: ExpectedServices::RoundTrip(vec![], vec![], 1234),
+                expected_services: ExpectedServices::RoundTrip(vec![], vec![]),
             },
         );
         subject
@@ -5957,7 +5955,7 @@ mod tests {
             unaffected_stream_key,
             RouteQueryResponse {
                 route: Route { hops: vec![] },
-                expected_services: ExpectedServices::RoundTrip(vec![], vec![], 1234),
+                expected_services: ExpectedServices::RoundTrip(vec![], vec![]),
             },
         );
         let affected_route = Route::round_trip(
@@ -5971,10 +5969,10 @@ mod tests {
             ),
             main_cryptde(),
             Some(make_paying_wallet(b"consuming")),
-            1234,
             Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
-        .unwrap();
+        .unwrap()
+        .set_return_route_id(main_cryptde(), 1234);
         let affected_expected_services = vec![ExpectedService::Exit(
             affected_cryptde.public_key().clone(),
             make_paying_wallet(b"1234"),
@@ -5987,7 +5985,6 @@ mod tests {
                 expected_services: ExpectedServices::RoundTrip(
                     affected_expected_services,
                     vec![],
-                    1234,
                 ),
             },
         );
@@ -6082,7 +6079,7 @@ mod tests {
             unaffected_stream_key,
             RouteQueryResponse {
                 route: Route { hops: vec![] },
-                expected_services: ExpectedServices::RoundTrip(vec![], vec![], 1234),
+                expected_services: ExpectedServices::RoundTrip(vec![], vec![]),
             },
         );
         let affected_route = Route::round_trip(
@@ -6096,10 +6093,10 @@ mod tests {
             ),
             main_cryptde(),
             Some(make_paying_wallet(b"consuming")),
-            1234,
             Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
-        .unwrap();
+        .unwrap()
+        .set_return_route_id(main_cryptde(), 1234);
         let affected_expected_services = vec![ExpectedService::Exit(
             affected_cryptde.public_key().clone(),
             make_paying_wallet(b"1234"),
@@ -6112,7 +6109,6 @@ mod tests {
                 expected_services: ExpectedServices::RoundTrip(
                     affected_expected_services,
                     vec![],
-                    1234,
                 ),
             },
         );
@@ -6221,7 +6217,7 @@ mod tests {
             stream_key,
             RouteQueryResponse {
                 route: Route { hops: vec![] },
-                expected_services: ExpectedServices::RoundTrip(vec![], vec![], 0),
+                expected_services: ExpectedServices::RoundTrip(vec![], vec![]),
             },
         );
         subject
@@ -6395,7 +6391,6 @@ mod tests {
             expected_services: ExpectedServices::RoundTrip(
                 vec![make_exit_service_from_key(destination_key.clone())],
                 vec![],
-                1234,
             ),
         }));
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -6464,7 +6459,6 @@ mod tests {
             expected_services: ExpectedServices::RoundTrip(
                 vec![make_exit_service_from_key(destination_key.clone())],
                 vec![],
-                1234,
             ),
         }));
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();

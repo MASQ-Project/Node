@@ -240,14 +240,13 @@ pub fn zero_hop_route_response(
             RouteSegment::new(vec![public_key, public_key], Component::ProxyServer),
             cryptde,
             None,
-            0,
             None,
         )
-        .unwrap(),
+        .unwrap()
+        .set_return_route_id(cryptde, 0),
         expected_services: ExpectedServices::RoundTrip(
             vec![ExpectedService::Nothing, ExpectedService::Nothing],
             vec![ExpectedService::Nothing, ExpectedService::Nothing],
-            0,
         ),
     }
 }
@@ -1268,7 +1267,6 @@ mod tests {
             ExpectedServices::RoundTrip(
                 vec![ExpectedService::Nothing, ExpectedService::Nothing,],
                 vec![ExpectedService::Nothing, ExpectedService::Nothing,],
-                0
             )
         );
     }

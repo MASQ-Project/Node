@@ -505,7 +505,7 @@ pub enum ExpectedService {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExpectedServices {
     OneWay(Vec<ExpectedService>),
-    RoundTrip(Vec<ExpectedService>, Vec<ExpectedService>, u32),
+    RoundTrip(Vec<ExpectedService>, Vec<ExpectedService>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

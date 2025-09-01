@@ -310,10 +310,10 @@ mod tests {
             ),
             cryptde,
             Some(paying_wallet.clone()),
-            1234,
             Some(contract_address),
         )
         .unwrap();
+        let mut route = route.set_return_route_id(cryptde, 1234);
         route.shift(&relay_cryptde).unwrap();
         let subject = LiveCoresPackage::new(route.clone(), encrypted_payload.clone());
 
