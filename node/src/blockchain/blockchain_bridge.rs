@@ -43,7 +43,6 @@ use std::time::SystemTime;
 use ethabi::Hash;
 use web3::types::H256;
 use masq_lib::constants::DEFAULT_GAS_PRICE_MARGIN;
-use masq_lib::messages::ScanType;
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionReceiptResult, TxStatus};
 use crate::sub_lib::accountant::DetailedScanType;

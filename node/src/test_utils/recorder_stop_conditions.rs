@@ -187,7 +187,6 @@ mod tests {
     use crate::sub_lib::accountant::DetailedScanType;
     use crate::sub_lib::peer_actors::{NewPublicIp, StartMessage};
     use crate::test_utils::recorder_stop_conditions::{MsgIdentification, StopConditions};
-    use masq_lib::messages::ScanType;
     use std::any::TypeId;
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
     use std::vec;

@@ -17,7 +17,6 @@ use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
 use actix::{Addr, Message};
 use lazy_static::lazy_static;
-use masq_lib::messages::ScanType;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
