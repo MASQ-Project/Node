@@ -11,7 +11,7 @@ use crate::accountant::scanners::pending_payable_scanner::utils::{
 };
 use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
 use crate::blockchain::blockchain_interface::data_structures::{
-    BlockchainTxFailure, StatusReadFromReceiptCheck, TxBlock, TxReceiptError, TxReceiptResult,
+    StatusReadFromReceiptCheck, TxBlock, TxReceiptError, TxReceiptResult,
 };
 use crate::blockchain::errors::internal_errors::InternalErrorKind;
 use crate::blockchain::errors::BlockchainErrorKind;

@@ -354,7 +354,7 @@ pub enum TxHashByTable {
 impl From<BlockchainTxFailure> for FailureReason {
     fn from(failure: BlockchainTxFailure) -> Self {
         match failure {
-            BlockchainTxFailure::Unrecognized => FailureReason::Reverted,
+            BlockchainTxFailure::Unrecognized => FailureReason::Unrecognized,
         }
     }
 }

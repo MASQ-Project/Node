@@ -28,6 +28,7 @@ pub enum FailedPayableDaoError {
 pub enum FailureReason {
     Submission(AppRpcErrorKind),
     Reverted,
+    Unrecognized,
     PendingTooLong,
 }
 
@@ -203,10 +204,10 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
              ) VALUES {}",
             comma_joined_stringifiable(txs, |tx| {
                 let amount_checked = checked_conversion::<u128, i128>(tx.amount_minor);
-                let gas_price_wei_checked = checked_conversion::<u128, i128>(tx.gas_price_minor);
+                let gas_price_minor_checked = checked_conversion::<u128, i128>(tx.gas_price_minor);
                 let (amount_high_b, amount_low_b) = BigIntDivider::deconstruct(amount_checked);
                 let (gas_price_wei_high_b, gas_price_wei_low_b) =
-                    BigIntDivider::deconstruct(gas_price_wei_checked);
+                    BigIntDivider::deconstruct(gas_price_minor_checked);
                 format!(
                     "('{:?}', '{:?}', {}, {}, {}, {}, {}, {}, '{}', '{}')",
                     tx.hash,

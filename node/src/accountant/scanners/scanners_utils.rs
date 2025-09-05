@@ -252,25 +252,6 @@ pub mod payable_scanner_utils {
         }
     }
 
-    // pub fn mark_pending_payable_fatal_error(
-    //     sent_payments: &[&PendingPayable],
-    //     nonexistent: &[PendingPayableMissingInDb],
-    //     error: PayableDaoError,
-    //     missing_fingerprints_msg_maker: fn(&[PendingPayableMissingInDb]) -> String,
-    //     logger: &Logger,
-    // ) {
-    //     if !nonexistent.is_empty() {
-    //         error!(logger, "{}", missing_fingerprints_msg_maker(nonexistent))
-    //     };
-    //     panic!(
-    //         "Unable to create a mark in the payable table for wallets {} due to {:?}",
-    //         comma_joined_stringifiable(sent_payments, |pending_p| pending_p
-    //             .recipient_wallet
-    //             .to_string()),
-    //         error
-    //     )
-    // }
-
     pub fn err_msg_for_failure_with_expected_but_missing_sent_tx_record(
         nonexistent: Vec<H256>,
         serialize_hashes: fn(&[H256]) -> String,
@@ -343,7 +324,7 @@ mod tests {
     use crate::accountant::db_access_objects::failed_payable_dao::{FailureReason};
     use crate::assert_on_testing_enum_with_all_its_variants;
     use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainInterfaceError, PayableTransactionError};
-    use crate::blockchain::blockchain_interface::data_structures::{BlockchainTxFailure, ProcessedPayableFallible, RpcPayableFailure};
+    use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RpcPayableFailure};
 
     #[test]
     fn investigate_debt_extremes_picks_the_most_relevant_records() {
@@ -648,7 +629,7 @@ mod tests {
     #[test]
     fn conversion_between_blockchain_tx_failure_and_failure_reason_works() {
         let input_and_expected_results =
-            vec![(BlockchainTxFailure::Unrecognized, FailureReason::Reverted)];
+            vec![(BlockchainTxFailure::Unrecognized, FailureReason::Unrecognized)];
         let inputs_len = input_and_expected_results.len();
 
         let check_nums = input_and_expected_results

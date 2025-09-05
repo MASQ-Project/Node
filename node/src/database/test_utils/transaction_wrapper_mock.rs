@@ -195,7 +195,7 @@ impl SetupForProdCodeAndAlteredStmts {
             None =>
             // In the prod code, all the db operations would've happened on a single wrapped txn,
             // that's why we strive to manipulate a txn also here, not the conn directly. Most
-            // importantly, sometimes multiple later operations take each the previous one as
+            // importantly, sometimes multiple subsequent operations take each the previous one as
             // necessary base. If the continuity is broken the later statement might not work. If
             // we record some changes on the transaction, other changes tried to be done from
             // a different connection might meet a different state of the database and thwart the
