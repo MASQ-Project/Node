@@ -43,14 +43,11 @@ impl TxReceiptInterpreter {
                                 logger,
                             )
                         }
-                        StatusReadFromReceiptCheck::Failed(reason) => {
-                            Self::handle_status_with_failure(
-                                scan_report_so_far,
-                                tx_case.tx_by_table,
-                                reason,
-                                logger,
-                            )
-                        }
+                        StatusReadFromReceiptCheck::Reverted => Self::handle_reverted_tx(
+                            scan_report_so_far,
+                            tx_case.tx_by_table,
+                            logger,
+                        ),
                         StatusReadFromReceiptCheck::Pending => Self::handle_still_pending_tx(
                             scan_report_so_far,
                             tx_case.tx_by_table,
@@ -171,34 +168,26 @@ impl TxReceiptInterpreter {
     }
 
     //TODO: failures handling might need enhancement suggested by GH-693
-    fn handle_status_with_failure(
+    fn handle_reverted_tx(
         mut scan_report: ReceiptScanReport,
         tx: TxByTable,
-        blockchain_failure: BlockchainTxFailure,
         logger: &Logger,
     ) -> ReceiptScanReport {
         match tx {
             TxByTable::SentPayable(sent_tx) => {
-                let failure_reason = FailureReason::from(blockchain_failure);
+                let failure_reason = FailureReason::Reverted;
                 let failed_tx = FailedTx::from((sent_tx, failure_reason));
 
-                warning!(
-                    logger,
-                    "Pending tx {:?} failed on-chain due to: {}",
-                    failed_tx.hash,
-                    blockchain_failure
-                );
+                warning!(logger, "Pending tx {:?} was reverted", failed_tx.hash,);
 
                 scan_report.register_new_failure(failed_tx);
             }
             TxByTable::FailedPayable(failed_tx) => {
                 debug!(
                     logger,
-                    "Failed tx {:?} on a recheck after {}. Status will be changed to \"Concluded\" \
-                    due to blockchain failure: {}",
+                    "Reverted tx {:?} on a recheck after {}. Status will be changed to \"Concluded\"",
                     failed_tx.hash,
                     failed_tx.reason,
-                    blockchain_failure
                 );
 
                 scan_report.register_finalization_of_unproven_failure(failed_tx.hash);
@@ -250,9 +239,7 @@ mod tests {
     use crate::accountant::test_utils::{
         make_failed_tx, make_sent_tx, make_transaction_block, SentPayableDaoMock,
     };
-    use crate::blockchain::blockchain_interface::data_structures::{
-        BlockchainTxFailure, TxReceiptError,
-    };
+    use crate::blockchain::blockchain_interface::data_structures::TxReceiptError;
     use crate::blockchain::errors::internal_errors::InternalErrorKind;
     use crate::blockchain::errors::rpc_errors::{
         AppRpcError, AppRpcErrorKind, LocalError, RemoteError,
@@ -359,25 +346,22 @@ mod tests {
     }
 
     #[test]
-    fn interprets_tx_receipt_for_pending_tx_when_tx_status_reveals_failure() {
+    fn interprets_tx_receipt_for_pending_tx_when_tx_status_says_reverted() {
         init_test_logging();
-        let test_name = "interprets_tx_receipt_for_pending_tx_when_transaction_status_says_failure";
+        let test_name = "interprets_tx_receipt_for_pending_tx_when_tx_status_says_reverted";
         let hash = make_tx_hash(0xabc);
         let mut sent_tx = make_sent_tx(2244);
         sent_tx.hash = hash;
-        let blockchain_failure = BlockchainTxFailure::Unrecognized;
         let logger = Logger::new(test_name);
         let scan_report = ReceiptScanReport::default();
 
-        let result = TxReceiptInterpreter::handle_status_with_failure(
+        let result = TxReceiptInterpreter::handle_reverted_tx(
             scan_report,
             TxByTable::SentPayable(sent_tx.clone()),
-            blockchain_failure,
             &logger,
         );
 
-        let failure_reason = blockchain_failure.into();
-        let failed_tx = FailedTx::from((sent_tx, failure_reason));
+        let failed_tx = FailedTx::from((sent_tx, FailureReason::Reverted));
         assert_eq!(
             result,
             ReceiptScanReport {
@@ -390,12 +374,12 @@ mod tests {
         );
         TestLogHandler::new().exists_log_containing(&format!(
             "WARN: {test_name}: Pending tx 0x0000000000000000000000000000000000000000000000000000000\
-            000000abc failed on-chain due to: Unrecognized failure",
+            000000abc was reverted",
         ));
     }
 
     #[test]
-    fn interprets_tx_receipt_for_failed_tx_when_tx_status_reveals_failure() {
+    fn interprets_tx_receipt_for_failed_tx_when_newly_fetched_tx_status_says_reverted() {
         init_test_logging();
         let test_name = "interprets_tx_receipt_for_failed_tx_when_tx_status_reveals_failure";
         let tx_hash = make_tx_hash(0xabc);
@@ -403,14 +387,12 @@ mod tests {
         failed_tx.hash = tx_hash;
         failed_tx.status = FailureStatus::RecheckRequired(ValidationStatus::Waiting);
         failed_tx.reason = FailureReason::PendingTooLong;
-        let blockchain_failure = BlockchainTxFailure::Unrecognized;
         let logger = Logger::new(test_name);
         let scan_report = ReceiptScanReport::default();
 
-        let result = TxReceiptInterpreter::handle_status_with_failure(
+        let result = TxReceiptInterpreter::handle_reverted_tx(
             scan_report,
             TxByTable::FailedPayable(failed_tx.clone()),
-            blockchain_failure,
             &logger,
         );
 
@@ -425,9 +407,8 @@ mod tests {
             }
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "DEBUG: {test_name}: Failed tx 0x000000000000000000000000000000000000000000000000000000\
-            0000000abc on a recheck after \"PendingTooLong\". Status will be changed to \"Concluded\" \
-            due to blockchain failure: Unrecognized failure",
+            "DEBUG: {test_name}: Reverted tx 0x000000000000000000000000000000000000000000000000000000\
+            0000000abc on a recheck after \"PendingTooLong\". Status will be changed to \"Concluded\"",
         ));
     }
 

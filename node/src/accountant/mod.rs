@@ -1216,7 +1216,7 @@ pub fn wei_to_gwei<T: TryFrom<S>, S: Display + Copy + Div<Output = S> + From<u32
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
+    use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureReason};
     use crate::accountant::db_access_objects::payable_dao::{
         PayableAccount, PayableDaoError, PayableDaoFactory,
     };
@@ -1259,8 +1259,7 @@ mod tests {
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
     use crate::accountant::Accountant;
     use crate::blockchain::blockchain_interface::data_structures::{
-        BlockchainTxFailure, RetrievedTxStatus, StatusReadFromReceiptCheck, TxBlock,
-        TxReceiptResult,
+        RetrievedTxStatus, StatusReadFromReceiptCheck, TxBlock, TxReceiptResult,
     };
     use crate::blockchain::errors::validation_status::ValidationStatus;
     use crate::blockchain::test_utils::make_tx_hash;
@@ -2191,7 +2190,7 @@ mod tests {
             TxReceiptsMessage {
                 results: vec![TxReceiptResult(Ok(RetrievedTxStatus::new(
                     TxHashByTable::SentPayable(sent_tx.hash),
-                    StatusReadFromReceiptCheck::Failed(BlockchainTxFailure::Unrecognized)
+                    StatusReadFromReceiptCheck::Reverted
                 ))),],
                 response_skeleton_opt
             },
@@ -2226,8 +2225,7 @@ mod tests {
 
         system.run();
         let insert_new_records_params = insert_new_records_params_arc.lock().unwrap();
-        let expected_failed_tx =
-            FailedTx::from((sent_tx, BlockchainTxFailure::Unrecognized.into()));
+        let expected_failed_tx = FailedTx::from((sent_tx, FailureReason::Reverted));
         assert_eq!(*insert_new_records_params, vec![vec![expected_failed_tx]]);
         let delete_records_params = delete_records_params_arc.lock().unwrap();
         assert_eq!(*delete_records_params, vec![hashset![tx_hash]]);
@@ -2819,7 +2817,7 @@ mod tests {
         let expected_tx_receipts_msg = TxReceiptsMessage {
             results: vec![TxReceiptResult(Ok(RetrievedTxStatus::new(
                 TxHashByTable::SentPayable(tx_hash),
-                StatusReadFromReceiptCheck::Failed(BlockchainTxFailure::Unrecognized),
+                StatusReadFromReceiptCheck::Reverted,
             )))],
             response_skeleton_opt: None,
         };
@@ -4996,7 +4994,7 @@ mod tests {
             },
             SeedsToMakeUpPayableWithStatus {
                 tx_hash: TxHashByTable::FailedPayable(make_tx_hash(456)),
-                status: StatusReadFromReceiptCheck::Failed(BlockchainTxFailure::Unrecognized),
+                status: StatusReadFromReceiptCheck::Reverted,
             },
         ]);
         let response_skeleton_opt = Some(ResponseSkeleton {

@@ -1045,8 +1045,8 @@ mod tests {
     use crate::blockchain::blockchain_bridge::{BlockMarker, RetrieveTransactions};
     use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
     use crate::blockchain::blockchain_interface::data_structures::{
-        BlockchainTransaction, BlockchainTxFailure, ProcessedPayableFallible, RetrievedTxStatus,
-        RpcPayableFailure, StatusReadFromReceiptCheck, TxBlock, TxReceiptError, TxReceiptResult,
+        BlockchainTransaction, ProcessedPayableFallible, RetrievedTxStatus, RpcPayableFailure,
+        StatusReadFromReceiptCheck, TxBlock, TxReceiptError, TxReceiptResult,
     };
     use crate::blockchain::errors::rpc_errors::{AppRpcError, AppRpcErrorKind, RemoteError};
     use crate::blockchain::errors::validation_status::{PreviousAttempts, ValidationStatus};
@@ -2670,7 +2670,7 @@ mod tests {
         sent_tx_6.hash = tx_hash_6;
         let transaction_with_status_6 = RetrievedTxStatus::new(
             TxHashByTable::SentPayable(sent_tx_6.hash),
-            StatusReadFromReceiptCheck::Failed(BlockchainTxFailure::Unrecognized),
+            StatusReadFromReceiptCheck::Reverted,
         );
         let pending_payable_cache = PendingPayableCacheMock::default()
             .get_record_by_hash_result(Some(sent_tx_1.clone()))

@@ -13,7 +13,6 @@ use ethereum_types::U64;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::{Display, Formatter};
-use variant_count::VariantCount;
 use web3::types::H256;
 use web3::Error;
 
@@ -79,29 +78,16 @@ impl RetrievedTxStatus {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum StatusReadFromReceiptCheck {
-    Failed(BlockchainTxFailure),
+    Reverted,
     Succeeded(TxBlock),
     Pending,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, VariantCount)]
-pub enum BlockchainTxFailure {
-    Unrecognized,
-}
-
-impl Display for BlockchainTxFailure {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            BlockchainTxFailure::Unrecognized => write!(f, "Unrecognized failure"),
-        }
-    }
 }
 
 impl Display for StatusReadFromReceiptCheck {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            StatusReadFromReceiptCheck::Failed(reason) => {
-                write!(f, "Failed(Reason: {})", reason)
+            StatusReadFromReceiptCheck::Reverted => {
+                write!(f, "Reverted")
             }
             StatusReadFromReceiptCheck::Succeeded(block) => {
                 write!(
@@ -137,23 +123,17 @@ pub struct TxBlock {
 mod tests {
     use crate::accountant::scanners::pending_payable_scanner::utils::TxHashByTable;
     use crate::accountant::test_utils::make_transaction_block;
-    use crate::assert_on_testing_enum_with_all_its_variants;
     use crate::blockchain::blockchain_interface::data_structures::{
-        BlockchainTxFailure, RetrievedTxStatus, StatusReadFromReceiptCheck, TxBlock,
-        TxReceiptError, TxReceiptResult,
+        RetrievedTxStatus, StatusReadFromReceiptCheck, TxBlock, TxReceiptError, TxReceiptResult,
     };
     use crate::blockchain::errors::rpc_errors::{AppRpcError, LocalError, RemoteError};
     use crate::blockchain::test_utils::make_tx_hash;
     use ethereum_types::{H256, U64};
-    use itertools::Itertools;
 
     #[test]
     fn tx_status_display_works() {
         // Test Failed
-        assert_eq!(
-            StatusReadFromReceiptCheck::Failed(BlockchainTxFailure::Unrecognized).to_string(),
-            "Failed(Reason: Unrecognized failure)"
-        );
+        assert_eq!(StatusReadFromReceiptCheck::Reverted.to_string(), "Reverted");
 
         // Test Pending
         assert_eq!(StatusReadFromReceiptCheck::Pending.to_string(), "Pending");
@@ -169,26 +149,6 @@ mod tests {
             succeeded.to_string(),
             format!("Succeeded({},0x{:x})", block_number, block_hash)
         );
-    }
-
-    #[test]
-    fn display_for_blockchain_tx_failure_works() {
-        let input_and_expected_results =
-            vec![(BlockchainTxFailure::Unrecognized, "Unrecognized failure")];
-        let inputs_len = input_and_expected_results.len();
-
-        let check_nums = input_and_expected_results
-            .into_iter()
-            .map(|(input, failure_reason)| match input {
-                BlockchainTxFailure::Unrecognized => {
-                    let result = input.to_string();
-                    assert_eq!(result, failure_reason);
-                    1
-                }
-            })
-            .collect_vec();
-
-        assert_on_testing_enum_with_all_its_variants!(BlockchainTxFailure, check_nums, inputs_len)
     }
 
     #[test]

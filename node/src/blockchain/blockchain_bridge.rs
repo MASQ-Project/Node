@@ -392,7 +392,7 @@ impl BlockchainBridge {
                     (0, 0, 0),
                     |(success, fail, pending), transaction_receipt| match transaction_receipt {
                         TxReceiptResult(Ok(tx_receipt)) => match tx_receipt.status {
-                            StatusReadFromReceiptCheck::Failed(_) => (success, fail + 1, pending),
+                            StatusReadFromReceiptCheck::Reverted => (success, fail + 1, pending),
                             StatusReadFromReceiptCheck::Succeeded(_) => {
                                 (success + 1, fail, pending)
                             }

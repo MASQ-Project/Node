@@ -1,13 +1,9 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::db_access_objects::failed_payable_dao::{
-    FailedTx, FailureReason, FailureStatus,
-};
+use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureStatus};
 use crate::accountant::db_access_objects::sent_payable_dao::{SentTx, TxStatus};
 use crate::accountant::db_access_objects::utils::TxHash;
-use crate::blockchain::blockchain_interface::data_structures::{
-    BlockchainTxFailure, TxReceiptError, TxReceiptResult,
-};
+use crate::blockchain::blockchain_interface::data_structures::{TxReceiptError, TxReceiptResult};
 use crate::blockchain::errors::validation_status::{
     PreviousAttempts, ValidationFailureClock, ValidationStatus,
 };
@@ -349,14 +345,6 @@ pub enum TxByTable {
 pub enum TxHashByTable {
     SentPayable(TxHash),
     FailedPayable(TxHash),
-}
-
-impl From<BlockchainTxFailure> for FailureReason {
-    fn from(failure: BlockchainTxFailure) -> Self {
-        match failure {
-            BlockchainTxFailure::Unrecognized => FailureReason::Unrecognized,
-        }
-    }
 }
 
 #[cfg(test)]

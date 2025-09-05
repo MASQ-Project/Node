@@ -320,9 +320,6 @@ mod tests {
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::time::{SystemTime};
-    use itertools::Itertools;
-    use crate::accountant::db_access_objects::failed_payable_dao::{FailureReason};
-    use crate::assert_on_testing_enum_with_all_its_variants;
     use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainInterfaceError, PayableTransactionError};
     use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RpcPayableFailure};
 
@@ -624,26 +621,6 @@ mod tests {
             PayableThresholdsGaugeReal::default().is_innocent_balance(payable_balance, 1000);
 
         assert_eq!(result, false)
-    }
-
-    #[test]
-    fn conversion_between_blockchain_tx_failure_and_failure_reason_works() {
-        let input_and_expected_results =
-            vec![(BlockchainTxFailure::Unrecognized, FailureReason::Unrecognized)];
-        let inputs_len = input_and_expected_results.len();
-
-        let check_nums = input_and_expected_results
-            .into_iter()
-            .map(|(input, failure_reason)| match input {
-                BlockchainTxFailure::Unrecognized => {
-                    let result = FailureReason::from(input);
-                    assert_eq!(result, failure_reason);
-                    1
-                }
-            })
-            .collect_vec();
-
-        assert_on_testing_enum_with_all_its_variants!(BlockchainTxFailure, check_nums, inputs_len)
     }
 
     #[test]

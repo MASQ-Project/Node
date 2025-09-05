@@ -4,7 +4,7 @@ use crate::blockchain::blockchain_interface::blockchain_interface_web3::CONTRACT
 use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainInterfaceError;
 use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainInterfaceError::QueryFailed;
 use crate::blockchain::blockchain_interface::data_structures::{
-    BlockchainTxFailure, StatusReadFromReceiptCheck, TxBlock,
+    StatusReadFromReceiptCheck, TxBlock,
 };
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use ethereum_types::{H256, U256, U64};
@@ -24,9 +24,7 @@ impl From<TransactionReceipt> for StatusReadFromReceiptCheck {
                     block_number,
                 })
             }
-            (Some(status), _, _) if status == U64::from(0) => {
-                StatusReadFromReceiptCheck::Failed(BlockchainTxFailure::Unrecognized)
-            }
+            (Some(status), _, _) if status == U64::from(0) => StatusReadFromReceiptCheck::Reverted,
             _ => StatusReadFromReceiptCheck::Pending,
         }
     }
@@ -159,7 +157,7 @@ mod tests {
     use masq_lib::utils::find_free_port;
     use std::str::FromStr;
     use web3::types::{BlockNumber, Bytes, FilterBuilder, Log, TransactionReceipt, U256};
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{BlockchainTxFailure, StatusReadFromReceiptCheck};
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{StatusReadFromReceiptCheck};
 
     #[test]
     fn get_transaction_fee_balance_works() {
@@ -554,10 +552,7 @@ mod tests {
             H256::from_low_u64_be(0x5678),
         );
 
-        assert_eq!(
-            tx_status,
-            StatusReadFromReceiptCheck::Failed(BlockchainTxFailure::Unrecognized)
-        );
+        assert_eq!(tx_status, StatusReadFromReceiptCheck::Reverted);
     }
 
     #[test]
