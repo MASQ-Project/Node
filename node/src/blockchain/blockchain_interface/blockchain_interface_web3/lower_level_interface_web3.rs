@@ -148,7 +148,7 @@ mod tests {
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::TRANSACTION_LITERAL;
     use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainInterfaceError::QueryFailed;
     use crate::blockchain::blockchain_interface::{BlockchainInterfaceError, BlockchainInterface};
-    use crate::blockchain::test_utils::{make_blockchain_interface_web3};
+    use crate::blockchain::test_utils::{make_block_hash, make_blockchain_interface_web3, make_tx_hash, TransactionReceiptBuilder};
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
     use ethereum_types::{H256, U64};
@@ -156,7 +156,7 @@ mod tests {
     use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
     use masq_lib::utils::find_free_port;
     use std::str::FromStr;
-    use web3::types::{BlockNumber, Bytes, FilterBuilder, Log, TransactionReceipt, U256};
+    use web3::types::{BlockNumber, Bytes, FilterBuilder, Log, U256};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{StatusReadFromReceiptCheck};
 
     #[test]
@@ -527,16 +527,17 @@ mod tests {
 
     #[test]
     fn transaction_receipt_can_be_converted_to_successful_transaction() {
-        let tx_status = test_deriving_tx_status_from_tx_receipt_and_adding_to_sent_tx(
-            Some(U64::from(1)),
-            Some(H256::from_low_u64_be(0x1234)),
-            Some(U64::from(10)),
-            H256::from_low_u64_be(0x5678),
-        );
+        let tx_status: StatusReadFromReceiptCheck =
+            TransactionReceiptBuilder::new(make_tx_hash(0x5678))
+                .status(U64::from(1))
+                .block_hash(make_block_hash(0x1234))
+                .block_number(10.into())
+                .build()
+                .into();
 
         match tx_status {
             StatusReadFromReceiptCheck::Succeeded(ref block) => {
-                assert_eq!(block.block_hash, H256::from_low_u64_be(0x1234));
+                assert_eq!(block.block_hash, make_block_hash(0x1234));
                 assert_eq!(block.block_number, U64::from(10));
             }
             _ => panic!("Expected status to be Succeeded"),
@@ -545,72 +546,43 @@ mod tests {
 
     #[test]
     fn transaction_receipt_can_be_converted_to_failed_transaction() {
-        let tx_status = test_deriving_tx_status_from_tx_receipt_and_adding_to_sent_tx(
-            Some(U64::from(0)),
-            None,
-            None,
-            H256::from_low_u64_be(0x5678),
-        );
+        let tx_status: StatusReadFromReceiptCheck =
+            TransactionReceiptBuilder::new(make_tx_hash(0x5678))
+                .status(U64::from(0))
+                .build()
+                .into();
 
         assert_eq!(tx_status, StatusReadFromReceiptCheck::Reverted);
     }
 
     #[test]
     fn transaction_receipt_can_be_converted_to_pending_transaction_no_status() {
-        let tx_status = test_deriving_tx_status_from_tx_receipt_and_adding_to_sent_tx(
-            None,
-            None,
-            None,
-            H256::from_low_u64_be(0x5678),
-        );
+        let tx_status: StatusReadFromReceiptCheck =
+            TransactionReceiptBuilder::new(make_tx_hash(0x5678))
+                .build()
+                .into();
 
         assert_eq!(tx_status, StatusReadFromReceiptCheck::Pending);
     }
 
     #[test]
     fn transaction_receipt_can_be_converted_to_pending_transaction_no_block_info() {
-        let tx_status = test_deriving_tx_status_from_tx_receipt_and_adding_to_sent_tx(
-            Some(U64::from(1)),
-            None,
-            None,
-            H256::from_low_u64_be(0x5678),
-        );
+        let tx_status: StatusReadFromReceiptCheck =
+            TransactionReceiptBuilder::new(make_tx_hash(0x5678))
+                .status(U64::from(1))
+                .build()
+                .into();
 
         assert_eq!(tx_status, StatusReadFromReceiptCheck::Pending);
     }
 
     #[test]
     fn transaction_receipt_can_be_converted_to_pending_transaction_no_status_and_block_info() {
-        let tx_status = test_deriving_tx_status_from_tx_receipt_and_adding_to_sent_tx(
-            Some(U64::from(1)),
-            Some(H256::from_low_u64_be(0x1234)),
-            None,
-            H256::from_low_u64_be(0x5678),
-        );
+        let tx_status: StatusReadFromReceiptCheck =
+            TransactionReceiptBuilder::new(make_tx_hash(0x5678))
+                .build()
+                .into();
 
         assert_eq!(tx_status, StatusReadFromReceiptCheck::Pending);
-    }
-
-    fn test_deriving_tx_status_from_tx_receipt_and_adding_to_sent_tx(
-        num_status_opt: Option<U64>,
-        block_hash_opt: Option<H256>,
-        block_number_opt: Option<U64>,
-        transaction_hash: H256,
-    ) -> StatusReadFromReceiptCheck {
-        let receipt = TransactionReceipt {
-            status: num_status_opt,
-            root: None,
-            block_hash: block_hash_opt,
-            block_number: block_number_opt,
-            cumulative_gas_used: Default::default(),
-            gas_used: None,
-            contract_address: None,
-            transaction_hash,
-            transaction_index: Default::default(),
-            logs: vec![],
-            logs_bloom: Default::default(),
-        };
-
-        receipt.into()
     }
 }

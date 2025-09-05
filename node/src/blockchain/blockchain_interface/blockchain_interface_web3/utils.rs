@@ -717,10 +717,10 @@ mod tests {
         let timestamp_after = SystemTime::now();
         assert_eq!(result, expected_result);
         let accountant_recording_result = accountant_recording.lock().unwrap();
-        let rnpst_message = accountant_recording_result.get_record::<RegisterNewPendingPayables>(0);
+        let rnpp_message = accountant_recording_result.get_record::<RegisterNewPendingPayables>(0);
         assert_eq!(accountant_recording_result.len(), 1);
         let nonces = 3_64..(accounts.payables.len() as u64 + 3);
-        rnpst_message
+        rnpp_message
             .new_sent_txs
             .iter()
             .zip(accounts.payables.iter())

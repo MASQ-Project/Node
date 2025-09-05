@@ -249,7 +249,7 @@ mod tests {
     };
     use crate::blockchain::errors::BlockchainErrorKind;
     use crate::blockchain::test_utils::make_tx_hash;
-    use crate::test_utils::unshared_test_utils::capture_numbers_with_separators_from_str;
+    use crate::test_utils::unshared_test_utils::capture_digits_with_separators_from_str;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::sync::{Arc, Mutex};
@@ -459,7 +459,7 @@ mod tests {
             \\d{{1,3}}(,\\d{{3}})* ms. Will resubmit with higher gas price"
         ));
         let log_msg = log_handler.get_log_at(log_idx);
-        let str_elapsed_ms = capture_numbers_with_separators_from_str(&log_msg, 3, ',');
+        let str_elapsed_ms = capture_digits_with_separators_from_str(&log_msg, 3, ',');
         let elapsed_ms = str_elapsed_ms[0].replace(",", "").parse::<u128>().unwrap();
         let elapsed_ms_when_before = before
             .duration_since(from_unix_timestamp(sent_tx_timestamp))

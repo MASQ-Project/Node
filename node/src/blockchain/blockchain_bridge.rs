@@ -882,7 +882,7 @@ mod tests {
         system.run();
         let time_after = SystemTime::now();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
-        let register_new_pending_sent_tx_msg =
+        let register_new_pending_payables_msg =
             accountant_recording.get_record::<RegisterNewPendingPayables>(0);
         let sent_payables_msg = accountant_recording.get_record::<SentPayables>(1);
         let expected_hash =
@@ -901,7 +901,7 @@ mod tests {
                 })
             }
         );
-        let first_actual_sent_tx = &register_new_pending_sent_tx_msg.new_sent_txs[0];
+        let first_actual_sent_tx = &register_new_pending_payables_msg.new_sent_txs[0];
         assert_eq!(
             first_actual_sent_tx.receiver_address,
             account.wallet.address()

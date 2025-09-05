@@ -1074,7 +1074,6 @@ mod tests {
         let tx_hash_1 = make_tx_hash(3300);
         let tx_hash_2 = make_tx_hash(3401);
         let tx_hash_3 = make_tx_hash(3502);
-        //
         let tx_hash_4 = make_tx_hash(3603);
         let tx_hash_5 = make_tx_hash(3704);
         let tx_hash_6 = make_tx_hash(3805);
