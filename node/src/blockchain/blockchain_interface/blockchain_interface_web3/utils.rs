@@ -47,7 +47,7 @@ fn return_sending_error(sent_txs: &Vec<Tx>, error: &Web3Error) -> LocalPayableEr
     LocalPayableError::Sending(
         sent_txs
             .iter()
-            .map(|sent_tx| FailedTx::from_sent_tx_and_web3_err(sent_tx, error))
+            .map(|sent_tx| FailedTx::from((sent_tx, error)))
             .collect(),
     )
 }
@@ -63,7 +63,7 @@ pub fn return_batch_results(
                 Ok(_) => batch_results.sent_txs.push(sent_tx), // TODO: Validate the JSON output
                 Err(rpc_error) => batch_results
                     .failed_txs
-                    .push(FailedTx::from_sent_tx_and_web3_err(&sent_tx, &rpc_error)),
+                    .push(FailedTx::from((&sent_tx, &rpc_error))),
             }
             batch_results
         },

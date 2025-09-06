@@ -39,7 +39,7 @@ pub struct Tx {
 
 impl Transaction for Tx {
     fn hash(&self) -> TxHash {
-        todo!()
+        self.hash
     }
 
     fn receiver_address(&self) -> Address {
@@ -47,23 +47,23 @@ impl Transaction for Tx {
     }
 
     fn amount(&self) -> u128 {
-        todo!()
+        self.amount
     }
 
     fn timestamp(&self) -> i64 {
-        todo!()
+        self.timestamp
     }
 
     fn gas_price_wei(&self) -> u128 {
-        todo!()
+        self.gas_price_wei
     }
 
     fn nonce(&self) -> u64 {
-        todo!()
+        self.nonce
     }
 
     fn is_failed(&self) -> bool {
-        todo!()
+        false
     }
 }
 
@@ -503,6 +503,7 @@ mod tests {
     use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::{ByHash, IsPending};
     use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDaoError::{EmptyInput, PartialExecution};
     use crate::accountant::db_access_objects::test_utils::{make_read_only_db_connection, TxBuilder};
+    use crate::accountant::db_access_objects::Transaction;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock};
     use crate::blockchain::errors::BlockchainErrorKind;
     use crate::blockchain::errors::rpc_errors::AppRpcErrorKind;
@@ -1400,5 +1401,34 @@ mod tests {
 
         let expected_order = vec![tx3, tx2, tx1];
         assert_eq!(set.into_iter().collect::<Vec<_>>(), expected_order);
+    }
+
+    #[test]
+    fn transaction_trait_methods_for_tx() {
+        let hash = make_tx_hash(1);
+        let receiver_address = make_address(1);
+        let amount = 1000;
+        let timestamp = 1625247600;
+        let gas_price_wei = 2000;
+        let nonce = 42;
+        let status = TxStatus::Pending(ValidationStatus::Waiting);
+
+        let tx = Tx {
+            hash,
+            receiver_address,
+            amount,
+            timestamp,
+            gas_price_wei,
+            nonce,
+            status,
+        };
+
+        assert_eq!(tx.receiver_address(), receiver_address);
+        assert_eq!(tx.hash(), hash);
+        assert_eq!(tx.amount(), amount);
+        assert_eq!(tx.timestamp(), timestamp);
+        assert_eq!(tx.gas_price_wei(), gas_price_wei);
+        assert_eq!(tx.nonce(), nonce);
+        assert_eq!(tx.is_failed(), false);
     }
 }

@@ -13,9 +13,13 @@ pub struct RetryTxTemplate {
 }
 
 impl RetryTxTemplate {
-    pub fn new(failed_tx: &FailedTx, payable_scan_amount: u128) -> Self {
+    pub fn new(failed_tx: &FailedTx, payable_scan_amount_opt: Option<u128>) -> Self {
         let mut retry_template = RetryTxTemplate::from(failed_tx);
-        retry_template.base.amount_in_wei = retry_template.base.amount_in_wei + payable_scan_amount;
+
+        if let Some(payable_scan_amount) = payable_scan_amount_opt {
+            retry_template.base.amount_in_wei =
+                retry_template.base.amount_in_wei + payable_scan_amount;
+        }
 
         retry_template
     }
@@ -46,11 +50,10 @@ impl RetryTxTemplates {
             txs_to_retry
                 .iter()
                 .map(|tx_to_retry| {
-                    let payable_scan_amount = amounts_from_payables
+                    let payable_scan_amount_opt = amounts_from_payables
                         .get(&tx_to_retry.receiver_address)
-                        .copied()
-                        .unwrap_or(0);
-                    RetryTxTemplate::new(tx_to_retry, payable_scan_amount)
+                        .copied();
+                    RetryTxTemplate::new(tx_to_retry, payable_scan_amount_opt)
                 })
                 .collect(),
         )

@@ -96,7 +96,7 @@ pub struct FailedTx {
 
 impl Transaction for FailedTx {
     fn hash(&self) -> TxHash {
-        todo!()
+        self.hash
     }
 
     fn receiver_address(&self) -> Address {
@@ -104,23 +104,23 @@ impl Transaction for FailedTx {
     }
 
     fn amount(&self) -> u128 {
-        todo!()
+        self.amount
     }
 
     fn timestamp(&self) -> i64 {
-        todo!()
+        self.timestamp
     }
 
     fn gas_price_wei(&self) -> u128 {
-        todo!()
+        self.gas_price_wei
     }
 
     fn nonce(&self) -> u64 {
-        todo!()
+        self.nonce
     }
 
     fn is_failed(&self) -> bool {
-        todo!()
+        true
     }
 }
 
@@ -142,9 +142,9 @@ impl Ord for FailedTx {
     }
 }
 
-impl FailedTx {
-    pub fn from_sent_tx_and_web3_err(sent_tx: &Tx, error: &Web3Error) -> Self {
-        FailedTx {
+impl From<(&Tx, &Web3Error)> for FailedTx {
+    fn from((sent_tx, error): (&Tx, &Web3Error)) -> Self {
+        Self {
             hash: sent_tx.hash,
             receiver_address: sent_tx.receiver_address,
             amount: sent_tx.amount,
@@ -452,13 +452,14 @@ mod tests {
         Concluded, RecheckRequired, RetryRequired,
     };
     use crate::accountant::db_access_objects::failed_payable_dao::{
-        FailedPayableDao, FailedPayableDaoError, FailedPayableDaoReal, FailureReason,
+        FailedPayableDao, FailedPayableDaoError, FailedPayableDaoReal, FailedTx, FailureReason,
         FailureRetrieveCondition, FailureStatus, ValidationStatus,
     };
     use crate::accountant::db_access_objects::test_utils::{
         make_read_only_db_connection, FailedTxBuilder,
     };
     use crate::accountant::db_access_objects::utils::current_unix_timestamp;
+    use crate::accountant::db_access_objects::Transaction;
     use crate::blockchain::errors::rpc_errors::LocalError::Decoder;
     use crate::blockchain::errors::rpc_errors::{AppRpcError, AppRpcErrorKind};
     use crate::blockchain::errors::validation_status::{
@@ -1205,5 +1206,36 @@ mod tests {
 
         let expected_order = vec![tx4, tx3, tx2, tx1];
         assert_eq!(set.into_iter().collect::<Vec<_>>(), expected_order);
+    }
+
+    #[test]
+    fn transaction_trait_methods_for_failed_tx() {
+        let hash = make_tx_hash(1);
+        let receiver_address = make_address(1);
+        let amount = 1000;
+        let timestamp = 1625247600;
+        let gas_price_wei = 2000;
+        let nonce = 42;
+        let reason = FailureReason::Reverted;
+        let status = FailureStatus::RetryRequired;
+
+        let failed_tx = FailedTx {
+            hash,
+            receiver_address,
+            amount,
+            timestamp,
+            gas_price_wei,
+            nonce,
+            reason,
+            status,
+        };
+
+        assert_eq!(failed_tx.receiver_address(), receiver_address);
+        assert_eq!(failed_tx.hash(), hash);
+        assert_eq!(failed_tx.amount(), amount);
+        assert_eq!(failed_tx.timestamp(), timestamp);
+        assert_eq!(failed_tx.gas_price_wei(), gas_price_wei);
+        assert_eq!(failed_tx.nonce(), nonce);
+        assert_eq!(failed_tx.is_failed(), true);
     }
 }

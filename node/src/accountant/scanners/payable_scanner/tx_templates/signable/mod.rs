@@ -80,7 +80,7 @@ impl SignableTxTemplates {
         self.iter()
             .map(|signable_tx_template| signable_tx_template.amount_in_wei)
             .max()
-            .unwrap_or(0)
+            .expect("there aren't any templates")
     }
 }
 
@@ -163,15 +163,21 @@ mod tests {
 
     #[test]
     fn test_largest_amount() {
-        let empty_templates = SignableTxTemplates(vec![]);
         let templates = SignableTxTemplates(vec![
             make_signable_tx_template(1),
             make_signable_tx_template(2),
             make_signable_tx_template(3),
         ]);
 
-        assert_eq!(empty_templates.largest_amount(), 0);
         assert_eq!(templates.largest_amount(), 3000);
+    }
+
+    #[test]
+    #[should_panic(expected = "there aren't any templates")]
+    fn largest_amount_panics_for_empty_templates() {
+        let empty_templates = SignableTxTemplates(vec![]);
+
+        let _ = empty_templates.largest_amount();
     }
 
     #[test]
