@@ -6,9 +6,7 @@ use crate::accountant::db_access_objects::utils::TxHash;
 use crate::accountant::scanners::pending_payable_scanner::utils::TxHashByTable;
 use crate::accountant::PendingPayable;
 use crate::blockchain::blockchain_bridge::BlockMarker;
-use crate::blockchain::errors::rpc_errors::AppRpcError;
 use crate::sub_lib::wallet::Wallet;
-use actix::Message;
 use ethereum_types::U64;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
@@ -52,18 +50,6 @@ pub enum ProcessedPayableFallible {
     Failed(RpcPayableFailure),
 }
 
-#[derive(Debug, PartialEq, Eq, Message, Clone)]
-pub struct TxReceiptResult(pub Result<RetrievedTxStatus, TxReceiptError>);
-
-impl TxReceiptResult {
-    pub fn hash(&self) -> TxHashByTable {
-        match &self.0 {
-            Ok(retrieved_tx_status) => retrieved_tx_status.tx_hash,
-            Err(tx_receipt_error) => tx_receipt_error.tx_hash,
-        }
-    }
-}
-
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct RetrievedTxStatus {
     pub tx_hash: TxHashByTable,
@@ -101,18 +87,6 @@ impl Display for StatusReadFromReceiptCheck {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct TxReceiptError {
-    pub tx_hash: TxHashByTable,
-    pub err: AppRpcError,
-}
-
-impl TxReceiptError {
-    pub fn new(tx_hash: TxHashByTable, err: AppRpcError) -> Self {
-        Self { tx_hash, err }
-    }
-}
-
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy, Ord, PartialOrd, Serialize, Deserialize)]
 pub struct TxBlock {
     pub block_hash: H256,
@@ -121,13 +95,9 @@ pub struct TxBlock {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::scanners::pending_payable_scanner::utils::TxHashByTable;
-    use crate::accountant::test_utils::make_transaction_block;
     use crate::blockchain::blockchain_interface::data_structures::{
-        RetrievedTxStatus, StatusReadFromReceiptCheck, TxBlock, TxReceiptError, TxReceiptResult,
+        StatusReadFromReceiptCheck, TxBlock,
     };
-    use crate::blockchain::errors::rpc_errors::{AppRpcError, LocalError, RemoteError};
-    use crate::blockchain::test_utils::make_tx_hash;
     use ethereum_types::{H256, U64};
 
     #[test]
@@ -149,39 +119,5 @@ mod tests {
             succeeded.to_string(),
             format!("Succeeded({},0x{:x})", block_number, block_hash)
         );
-    }
-
-    #[test]
-    fn hash_can_be_fetched_from_tx_receipt_result() {
-        let hash_1 = TxHashByTable::SentPayable(make_tx_hash(123));
-        let hash_2 = TxHashByTable::SentPayable(make_tx_hash(111));
-        let hash_3 = TxHashByTable::FailedPayable(make_tx_hash(222));
-        let hash_4 = TxHashByTable::FailedPayable(make_tx_hash(321));
-        let positive_with_sent_payable = TxReceiptResult(Ok(RetrievedTxStatus::new(
-            hash_1,
-            StatusReadFromReceiptCheck::Pending,
-        )));
-        let negative_with_sent_payable = TxReceiptResult(Err(TxReceiptError::new(
-            hash_2,
-            AppRpcError::Local(LocalError::Internal),
-        )));
-        let positive_with_failed_payable = TxReceiptResult(Ok(RetrievedTxStatus::new(
-            hash_3,
-            StatusReadFromReceiptCheck::Succeeded(make_transaction_block(789)),
-        )));
-        let negative_with_failed_payable = TxReceiptResult(Err(TxReceiptError::new(
-            hash_4,
-            AppRpcError::Remote(RemoteError::Unreachable),
-        )));
-
-        let result_1 = positive_with_sent_payable.hash();
-        let result_2 = negative_with_sent_payable.hash();
-        let result_3 = positive_with_failed_payable.hash();
-        let result_4 = negative_with_failed_payable.hash();
-
-        assert_eq!(result_1, hash_1);
-        assert_eq!(result_2, hash_2);
-        assert_eq!(result_3, hash_3);
-        assert_eq!(result_4, hash_4);
     }
 }

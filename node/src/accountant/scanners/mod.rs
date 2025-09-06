@@ -1045,8 +1045,8 @@ mod tests {
     use crate::blockchain::blockchain_bridge::{BlockMarker, RetrieveTransactions};
     use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
     use crate::blockchain::blockchain_interface::data_structures::{
-        BlockchainTransaction, ProcessedPayableFallible, RetrievedTxStatus, RpcPayableFailure,
-        StatusReadFromReceiptCheck, TxBlock, TxReceiptError, TxReceiptResult,
+        BlockchainTransaction, ProcessedPayableFallible, RpcPayableFailure,
+        StatusReadFromReceiptCheck, TxBlock,
     };
     use crate::blockchain::errors::rpc_errors::{AppRpcError, AppRpcErrorKind, RemoteError};
     use crate::blockchain::errors::validation_status::{PreviousAttempts, ValidationStatus};
@@ -2624,10 +2624,8 @@ mod tests {
             block_hash: make_block_hash(333),
             block_number: U64::from(1234),
         };
-        let transaction_with_status_1 = RetrievedTxStatus::new(
-            TxHashByTable::SentPayable(sent_tx_1.hash),
-            StatusReadFromReceiptCheck::Succeeded(tx_block_1),
-        );
+        let tx_status_1 =
+            StatusReadFromReceiptCheck::Succeeded(tx_block_1);
         let tx_hash_2 = make_tx_hash(1234);
         let mut failed_tx_2 = make_failed_tx(789);
         failed_tx_2.hash = tx_hash_2;
@@ -2635,24 +2633,18 @@ mod tests {
             block_hash: make_block_hash(222),
             block_number: U64::from(2345),
         };
-        let transaction_with_status_2 = RetrievedTxStatus::new(
-            TxHashByTable::FailedPayable(failed_tx_2.hash),
-            StatusReadFromReceiptCheck::Succeeded(tx_block_2),
-        );
+        let tx_status_2 =
+            StatusReadFromReceiptCheck::Succeeded(tx_block_2);
         let tx_hash_3 = make_tx_hash(2345);
         let mut sent_tx_3 = make_sent_tx(456);
         sent_tx_3.hash = tx_hash_3;
-        let transaction_with_status_3 = RetrievedTxStatus::new(
-            TxHashByTable::SentPayable(tx_hash_3),
-            StatusReadFromReceiptCheck::Pending,
-        );
+        let tx_status_3 =
+            StatusReadFromReceiptCheck::Pending;
         let mut sent_tx_4 = make_sent_tx(4567);
         let tx_hash_4 = sent_tx_4.hash;
         sent_tx_4.status = TxStatus::Pending(ValidationStatus::Waiting);
-        let tx_receipt_rpc_error_4 = TxReceiptError::new(
-            TxHashByTable::SentPayable(sent_tx_4.hash),
-            AppRpcError::Remote(RemoteError::Unreachable),
-        );
+        let tx_receipt_rpc_error_4 =
+            AppRpcError::Remote(RemoteError::Unreachable);
         let tx_hash_5 = make_tx_hash(7890);
         let mut failed_tx_5 = make_failed_tx(888);
         failed_tx_5.hash = tx_hash_5;
@@ -2661,17 +2653,11 @@ mod tests {
                 BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
                 &ValidationFailureClockMock::default().now_result(timestamp_c),
             )));
-        let tx_receipt_rpc_error_5 = TxReceiptError::new(
-            TxHashByTable::FailedPayable(failed_tx_5.hash),
-            AppRpcError::Remote(RemoteError::InvalidResponse("game over".to_string())),
-        );
+        let tx_receipt_rpc_error_5 = AppRpcError::Remote(RemoteError::InvalidResponse("game over".to_string()));
         let tx_hash_6 = make_tx_hash(2345);
         let mut sent_tx_6 = make_sent_tx(789);
         sent_tx_6.hash = tx_hash_6;
-        let transaction_with_status_6 = RetrievedTxStatus::new(
-            TxHashByTable::SentPayable(sent_tx_6.hash),
-            StatusReadFromReceiptCheck::Reverted,
-        );
+        let tx_status_6 = StatusReadFromReceiptCheck::Reverted;
         let pending_payable_cache = PendingPayableCacheMock::default()
             .get_record_by_hash_result(Some(sent_tx_1.clone()))
             .get_record_by_hash_result(Some(sent_tx_3.clone()))
@@ -2692,13 +2678,13 @@ mod tests {
             .validation_failure_clock(Box::new(validation_failure_clock))
             .build();
         let msg = TxReceiptsMessage {
-            results: vec![
-                TxReceiptResult(Ok(transaction_with_status_1)),
-                TxReceiptResult(Ok(transaction_with_status_2)),
-                TxReceiptResult(Ok(transaction_with_status_3)),
-                TxReceiptResult(Err(tx_receipt_rpc_error_4)),
-                TxReceiptResult(Err(tx_receipt_rpc_error_5)),
-                TxReceiptResult(Ok(transaction_with_status_6)),
+            results: hashmap![
+                TxHashByTable::SentPayable(tx_hash_1) => Ok(tx_status_1),
+                TxHashByTable::FailedPayable(tx_hash_2) => Ok(tx_status_2),
+                TxHashByTable::SentPayable(tx_hash_3) => Ok(tx_status_3),
+                TxHashByTable::SentPayable(tx_hash_4) => Err(tx_receipt_rpc_error_4),
+                TxHashByTable::FailedPayable(tx_hash_5) => Err(tx_receipt_rpc_error_5),
+                TxHashByTable::SentPayable(tx_hash_6) => Ok(tx_status_6),
             ],
             response_skeleton_opt: None,
         };
@@ -2769,7 +2755,7 @@ mod tests {
     fn pending_payable_scanner_handles_empty_report_transaction_receipts_message() {
         let mut pending_payable_scanner = PendingPayableScannerBuilder::new().build();
         let msg = TxReceiptsMessage {
-            results: vec![],
+            results: hashmap![],
             response_skeleton_opt: None,
         };
         pending_payable_scanner.mark_as_started(SystemTime::now());

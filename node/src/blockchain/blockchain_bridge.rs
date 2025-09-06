@@ -4,9 +4,7 @@ use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
 use crate::accountant::scanners::payable_scanner_extension::msgs::{
     BlockchainAgentWithContextMessage, PricedQualifiedPayables, QualifiedPayablesMessage,
 };
-use crate::accountant::{
-    ReceivedPayments, ResponseSkeleton, ScanError, SentPayables, SkeletonOptHolder,
-};
+use crate::accountant::{ReceivedPayments, ResponseSkeleton, ScanError, SentPayables, SkeletonOptHolder, TxReceiptResult};
 use crate::accountant::{RequestTransactionReceipts, TxReceiptsMessage};
 use crate::actor_system_factory::SubsFactory;
 use crate::blockchain::blockchain_agent::BlockchainAgent;
@@ -14,7 +12,7 @@ use crate::blockchain::blockchain_interface::data_structures::errors::{
     BlockchainInterfaceError, PayableTransactionError,
 };
 use crate::blockchain::blockchain_interface::data_structures::{
-    ProcessedPayableFallible, StatusReadFromReceiptCheck, TxReceiptResult,
+    ProcessedPayableFallible, StatusReadFromReceiptCheck,
 };
 use crate::blockchain::blockchain_interface::BlockchainInterface;
 use crate::blockchain::blockchain_interface_initializer::BlockchainInterfaceInitializer;
@@ -43,6 +41,7 @@ use std::path::Path;
 use std::string::ToString;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
+use itertools::Itertools;
 use web3::types::H256;
 
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
@@ -384,21 +383,21 @@ impl BlockchainBridge {
 
     fn log_status_of_tx_receipts(
         logger: &Logger,
-        transaction_receipts_results: &[TxReceiptResult],
+        transaction_receipts_results: &[&TxReceiptResult],
     ) {
         logger.debug(|| {
             let (successful_count, failed_count, pending_count) =
                 transaction_receipts_results.iter().fold(
                     (0, 0, 0),
                     |(success, fail, pending), transaction_receipt| match transaction_receipt {
-                        TxReceiptResult(Ok(tx_receipt)) => match tx_receipt.status {
+                        Ok(tx_status) => match tx_status {
                             StatusReadFromReceiptCheck::Reverted => (success, fail + 1, pending),
                             StatusReadFromReceiptCheck::Succeeded(_) => {
                                 (success + 1, fail, pending)
                             }
                             StatusReadFromReceiptCheck::Pending => (success, fail, pending + 1),
                         },
-                        TxReceiptResult(Err(_)) => (success, fail, pending + 1),
+                        Err(_) => (success, fail, pending + 1),
                     },
                 );
             format!(
@@ -423,7 +422,7 @@ impl BlockchainBridge {
                 .process_transaction_receipts(msg.tx_hashes)
                 .map_err(move |e| e.to_string())
                 .and_then(move |tx_receipt_results| {
-                    Self::log_status_of_tx_receipts(&logger, tx_receipt_results.as_slice());
+                    Self::log_status_of_tx_receipts(&logger, tx_receipt_results.values().collect_vec().as_slice());
                     accountant_recipient
                         .try_send(TxReceiptsMessage {
                             results: tx_receipt_results,
@@ -546,8 +545,7 @@ mod tests {
     };
     use crate::blockchain::blockchain_interface::data_structures::ProcessedPayableFallible::Correct;
     use crate::blockchain::blockchain_interface::data_structures::{
-        BlockchainTransaction, RetrievedBlockchainTransactions, RetrievedTxStatus, TxBlock,
-        TxReceiptError,
+        BlockchainTransaction, RetrievedBlockchainTransactions, TxBlock,
     };
     use crate::blockchain::errors::rpc_errors::{AppRpcError, RemoteError};
     use crate::blockchain::errors::validation_status::ValidationStatus;
@@ -1208,15 +1206,13 @@ mod tests {
         assert_eq!(
             tx_receipts_message,
             &TxReceiptsMessage {
-                results: vec![
-                    TxReceiptResult(Ok(RetrievedTxStatus::new(
-                        TxHashByTable::SentPayable(tx_hash_1),
+                results: hashmap![
+                    TxHashByTable::SentPayable(tx_hash_1) => Ok(
                         expected_receipt.into()
-                    ))),
-                    TxReceiptResult(Ok(RetrievedTxStatus::new(
-                        TxHashByTable::FailedPayable(tx_hash_2),
+                    ),
+                    TxHashByTable::FailedPayable(tx_hash_2) => Ok(
                         StatusReadFromReceiptCheck::Pending
-                    )))
+                    )
                 ],
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
@@ -1347,17 +1343,14 @@ mod tests {
         assert_eq!(
             *report_receipts_msg,
             TxReceiptsMessage {
-                results: vec![
-                    TxReceiptResult(Ok(RetrievedTxStatus::new(TxHashByTable::SentPayable(tx_hash_1), StatusReadFromReceiptCheck::Pending))),
-                    TxReceiptResult(Ok(RetrievedTxStatus::new(TxHashByTable::SentPayable(tx_hash_2),  StatusReadFromReceiptCheck::Succeeded(TxBlock {
+                results: hashmap![TxHashByTable::SentPayable(tx_hash_1) => Ok(StatusReadFromReceiptCheck::Pending),
+                    TxHashByTable::SentPayable(tx_hash_2) => Ok(StatusReadFromReceiptCheck::Succeeded(TxBlock {
                         block_hash: Default::default(),
                         block_number,
-                    })))),
-                    TxReceiptResult(Err(
-                        TxReceiptError::new(
-                            TxHashByTable::SentPayable(tx_hash_3),
-                        AppRpcError:: Remote(RemoteError::Web3RpcError { code: 429, message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string()})))),
-                    TxReceiptResult(Ok(RetrievedTxStatus::new(TxHashByTable::SentPayable(tx_hash_4), StatusReadFromReceiptCheck::Pending))),
+                    })),
+                    TxHashByTable::SentPayable(tx_hash_3) => Err(
+                        AppRpcError:: Remote(RemoteError::Web3RpcError { code: 429, message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string()})),
+                    TxHashByTable::SentPayable(tx_hash_4) => Ok(StatusReadFromReceiptCheck::Pending),
                 ],
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,

@@ -18,6 +18,7 @@ pub enum BlockchainError {
 pub enum BlockchainErrorKind {
     AppRpc(AppRpcErrorKind),
     Internal(InternalErrorKind),
+    Booo
 }
 
 #[cfg(test)]

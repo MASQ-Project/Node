@@ -11,13 +11,15 @@ use crate::accountant::scanners::pending_payable_scanner::utils::{
 };
 use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
 use crate::blockchain::blockchain_interface::data_structures::{
-    StatusReadFromReceiptCheck, TxBlock, TxReceiptError, TxReceiptResult,
+    StatusReadFromReceiptCheck, TxBlock,
 };
 use crate::blockchain::errors::internal_errors::InternalErrorKind;
 use crate::blockchain::errors::BlockchainErrorKind;
 use masq_lib::logger::Logger;
 use std::time::SystemTime;
+use itertools::Either;
 use thousands::Separable;
+use crate::blockchain::errors::rpc_errors::AppRpcError;
 
 #[derive(Default)]
 pub struct TxReceiptInterpreter {}
@@ -34,7 +36,7 @@ impl TxReceiptInterpreter {
             .into_iter()
             .fold(scan_report, |scan_report_so_far, tx_case| {
                 match tx_case.tx_receipt_result {
-                    TxReceiptResult(Ok(sent_tx_with_status)) => match sent_tx_with_status.status {
+                    Ok(tx_status) => match tx_status {
                         StatusReadFromReceiptCheck::Succeeded(tx_block) => {
                             Self::handle_tx_confirmation(
                                 scan_report_so_far,
@@ -55,7 +57,7 @@ impl TxReceiptInterpreter {
                             logger,
                         ),
                     },
-                    TxReceiptResult(Err(e)) => {
+                    Err(e) => {
                         Self::handle_rpc_failure(scan_report_so_far, tx_case.tx_by_table, e, logger)
                     }
                 }
@@ -199,21 +201,22 @@ impl TxReceiptInterpreter {
     fn handle_rpc_failure(
         mut scan_report: ReceiptScanReport,
         tx_by_table: TxByTable,
-        rpc_error: TxReceiptError,
+        rpc_error: AppRpcError,
         logger: &Logger,
     ) -> ReceiptScanReport {
+        let hash = tx_by_table.hash();
         warning!(
             logger,
             "Failed to retrieve tx receipt for {:?}: {:?}. Will retry receipt retrieval next cycle",
-            rpc_error.tx_hash,
-            rpc_error.err
+            hash,
+            rpc_error
         );
         let validation_status_update = match tx_by_table {
             TxByTable::SentPayable(sent_tx) => {
-                FailedValidationByTable::from((rpc_error, sent_tx.status))
+                FailedValidationByTable::new(hash, rpc_error, Either::Left(sent_tx.status))
             }
             TxByTable::FailedPayable(failed_tx) => {
-                FailedValidationByTable::from((rpc_error, failed_tx.status))
+                FailedValidationByTable::new(hash, rpc_error, Either::Right(failed_tx.status))
             }
         };
         scan_report.register_rpc_failure(validation_status_update);
@@ -233,13 +236,12 @@ mod tests {
     use crate::accountant::scanners::pending_payable_scanner::tx_receipt_interpreter::TxReceiptInterpreter;
     use crate::accountant::scanners::pending_payable_scanner::utils::{
         DetectedConfirmations, DetectedFailures, FailedValidation, FailedValidationByTable,
-        NormalTxConfirmation, PresortedTxFailure, ReceiptScanReport, TxByTable, TxHashByTable,
+        NormalTxConfirmation, PresortedTxFailure, ReceiptScanReport, TxByTable, 
         TxReclaim,
     };
     use crate::accountant::test_utils::{
         make_failed_tx, make_sent_tx, make_transaction_block, SentPayableDaoMock,
     };
-    use crate::blockchain::blockchain_interface::data_structures::TxReceiptError;
     use crate::blockchain::errors::internal_errors::InternalErrorKind;
     use crate::blockchain::errors::rpc_errors::{
         AppRpcError, AppRpcErrorKind, LocalError, RemoteError,
@@ -611,14 +613,12 @@ mod tests {
         sent_tx.hash = tx_hash;
         sent_tx.status = current_tx_status.clone();
         let rpc_error = AppRpcError::Remote(RemoteError::InvalidResponse("bluh".to_string()));
-        let tx_receipt_error =
-            TxReceiptError::new(TxHashByTable::SentPayable(tx_hash), rpc_error.clone());
         let scan_report = ReceiptScanReport::default();
 
         let result = TxReceiptInterpreter::handle_rpc_failure(
             scan_report,
             TxByTable::SentPayable(sent_tx),
-            tx_receipt_error,
+            rpc_error.clone(),
             &Logger::new(test_name),
         );
 
@@ -677,14 +677,12 @@ mod tests {
         failed_tx.hash = tx_hash;
         failed_tx.status = current_failure_status.clone();
         let rpc_error = AppRpcError::Local(LocalError::Internal);
-        let tx_receipt_error =
-            TxReceiptError::new(TxHashByTable::FailedPayable(tx_hash), rpc_error.clone());
         let scan_report = ReceiptScanReport::default();
 
         let result = TxReceiptInterpreter::handle_rpc_failure(
             scan_report,
             TxByTable::FailedPayable(failed_tx),
-            tx_receipt_error,
+            rpc_error.clone(),
             &Logger::new(test_name),
         );
 

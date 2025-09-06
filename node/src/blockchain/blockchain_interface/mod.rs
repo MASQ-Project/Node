@@ -4,6 +4,7 @@ pub mod blockchain_interface_web3;
 pub mod data_structures;
 pub mod lower_level_interface;
 
+use std::collections::HashMap;
 use crate::accountant::scanners::payable_scanner_extension::msgs::PricedQualifiedPayables;
 use crate::accountant::scanners::pending_payable_scanner::utils::TxHashByTable;
 use crate::blockchain::blockchain_agent::BlockchainAgent;
@@ -14,7 +15,7 @@ use crate::blockchain::blockchain_interface::data_structures::errors::{
     BlockchainAgentBuildError, BlockchainInterfaceError, PayableTransactionError,
 };
 use crate::blockchain::blockchain_interface::data_structures::{
-    ProcessedPayableFallible, RetrievedBlockchainTransactions, TxReceiptResult,
+    ProcessedPayableFallible, RetrievedBlockchainTransactions,
 };
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use crate::sub_lib::wallet::Wallet;
@@ -23,6 +24,7 @@ use futures::Future;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
 use web3::types::Address;
+use crate::accountant::TxReceiptResult;
 
 pub trait BlockchainInterface {
     fn contract_address(&self) -> Address;
@@ -46,7 +48,7 @@ pub trait BlockchainInterface {
     fn process_transaction_receipts(
         &self,
         tx_hashes: Vec<TxHashByTable>,
-    ) -> Box<dyn Future<Item = Vec<TxReceiptResult>, Error = BlockchainInterfaceError>>;
+    ) -> Box<dyn Future<Item = HashMap<TxHashByTable, TxReceiptResult>, Error = BlockchainInterfaceError>>;
 
     fn submit_payables_in_batch(
         &self,

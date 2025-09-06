@@ -37,9 +37,7 @@ use crate::blockchain::blockchain_bridge::{
     BlockMarker, RegisterNewPendingPayables, RetrieveTransactions,
 };
 use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
-use crate::blockchain::blockchain_interface::data_structures::{
-    BlockchainTransaction, ProcessedPayableFallible, TxReceiptResult,
-};
+use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, ProcessedPayableFallible, StatusReadFromReceiptCheck};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::DbInitializationConfig;
 use crate::sub_lib::accountant::AccountantSubs;
@@ -75,6 +73,7 @@ use masq_lib::ui_gateway::{MessageBody, MessagePath, MessageTarget};
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::ExpectValue;
 use std::any::type_name;
+use std::collections::HashMap;
 #[cfg(test)]
 use std::default::Default;
 use std::fmt::Display;
@@ -83,6 +82,7 @@ use std::path::Path;
 use std::rc::Rc;
 use std::time::SystemTime;
 use web3::types::H256;
+use crate::blockchain::errors::rpc_errors::AppRpcError;
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
 pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; //6 hours
@@ -139,9 +139,11 @@ pub struct ReceivedPayments {
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
+pub type TxReceiptResult = Result<StatusReadFromReceiptCheck, AppRpcError>;
+
 #[derive(Debug, PartialEq, Eq, Message, Clone)]
 pub struct TxReceiptsMessage {
-    pub results: Vec<TxReceiptResult>,
+    pub results: HashMap<TxHashByTable, TxReceiptResult>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
@@ -1259,7 +1261,7 @@ mod tests {
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
     use crate::accountant::Accountant;
     use crate::blockchain::blockchain_interface::data_structures::{
-        RetrievedTxStatus, StatusReadFromReceiptCheck, TxBlock, TxReceiptResult,
+        StatusReadFromReceiptCheck, TxBlock,
     };
     use crate::blockchain::errors::validation_status::ValidationStatus;
     use crate::blockchain::test_utils::make_tx_hash;
@@ -1962,10 +1964,9 @@ mod tests {
             block_number: 78901234.into(),
         };
         let tx_receipts_msg = TxReceiptsMessage {
-            results: vec![TxReceiptResult(Ok(RetrievedTxStatus::new(
-                TxHashByTable::SentPayable(sent_tx.hash),
+            results: hashmap![TxHashByTable::SentPayable(sent_tx.hash) => Ok(
                 StatusReadFromReceiptCheck::Succeeded(tx_block),
-            )))],
+            )],
             response_skeleton_opt,
         };
 
@@ -2188,10 +2189,9 @@ mod tests {
         let first_counter_msg_setup = setup_for_counter_msg_triggered_via_type_id!(
             RequestTransactionReceipts,
             TxReceiptsMessage {
-                results: vec![TxReceiptResult(Ok(RetrievedTxStatus::new(
-                    TxHashByTable::SentPayable(sent_tx.hash),
+                results: hashmap![TxHashByTable::SentPayable(sent_tx.hash) => Ok(
                     StatusReadFromReceiptCheck::Reverted
-                ))),],
+                ),],
                 response_skeleton_opt
             },
             &subject_addr
@@ -2815,10 +2815,9 @@ mod tests {
         let subject_addr: Addr<Accountant> = subject.start();
         let subject_subs = Accountant::make_subs_from(&subject_addr);
         let expected_tx_receipts_msg = TxReceiptsMessage {
-            results: vec![TxReceiptResult(Ok(RetrievedTxStatus::new(
-                TxHashByTable::SentPayable(tx_hash),
+            results: hashmap![TxHashByTable::SentPayable(tx_hash) => Ok(
                 StatusReadFromReceiptCheck::Reverted,
-            )))],
+            )],
             response_skeleton_opt: None,
         };
         let expected_sent_payables = SentPayables {
@@ -3545,15 +3544,14 @@ mod tests {
             )]),
             response_skeleton_opt: None,
         };
-        let tx_with_status = RetrievedTxStatus::new(
-            TxHashByTable::SentPayable(tx_hash),
+        let tx_status =
             StatusReadFromReceiptCheck::Succeeded(TxBlock {
                 block_hash: make_tx_hash(369369),
                 block_number: 4444444444u64.into(),
-            }),
+            },
         );
         let counter_msg_3 = TxReceiptsMessage {
-            results: vec![TxReceiptResult(Ok(tx_with_status))],
+            results: hashmap![TxHashByTable::SentPayable(tx_hash) => Ok(tx_status)],
             response_skeleton_opt: None,
         };
         let request_transaction_receipts_msg = RequestTransactionReceipts {
@@ -5281,13 +5279,13 @@ mod tests {
         seeds: Vec<SeedsToMakeUpPayableWithStatus>,
     ) -> (TxReceiptsMessage, Vec<TxByTable>) {
         let (tx_receipt_results, tx_record_vec) = seeds.into_iter().enumerate().fold(
-            (vec![], vec![]),
+            (hashmap![], vec![]),
             |(mut tx_receipt_results, mut record_by_table_vec), (idx, seed_params)| {
                 let tx_hash = seed_params.tx_hash;
                 let status = seed_params.status;
-                let (result, record) =
+                let (key, value, record) =
                     make_receipt_check_result_and_record(tx_hash, status, idx as u64);
-                tx_receipt_results.push(result);
+                tx_receipt_results.insert(key, value);
                 record_by_table_vec.push(record);
                 (tx_receipt_results, record_by_table_vec)
             },
@@ -5305,7 +5303,7 @@ mod tests {
         tx_hash: TxHashByTable,
         status: StatusReadFromReceiptCheck,
         idx: u64,
-    ) -> (TxReceiptResult, TxByTable) {
+    ) -> (TxHashByTable, TxReceiptResult, TxByTable) {
         match tx_hash {
             TxHashByTable::SentPayable(hash) => {
                 let mut sent_tx = make_sent_tx(1 + idx);
@@ -5319,17 +5317,17 @@ mod tests {
                     }
                 }
 
-                let result = TxReceiptResult(Ok(RetrievedTxStatus::new(tx_hash, status)));
+                let result = Ok(status);
                 let record_by_table = TxByTable::SentPayable(sent_tx);
-                (result, record_by_table)
+                (tx_hash, result, record_by_table)
             }
             TxHashByTable::FailedPayable(hash) => {
                 let mut failed_tx = make_failed_tx(1 + idx);
                 failed_tx.hash = hash;
 
-                let result = TxReceiptResult(Ok(RetrievedTxStatus::new(tx_hash, status)));
+                let result = Ok(status);
                 let record_by_table = TxByTable::FailedPayable(failed_tx);
-                (result, record_by_table)
+                (tx_hash, result, record_by_table)
             }
         }
     }

@@ -4,8 +4,9 @@ pub mod lower_level_interface_web3;
 mod utils;
 
 use std::cmp::PartialEq;
+use std::collections::HashMap;
 use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainInterfaceError, PayableTransactionError};
-use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, ProcessedPayableFallible, RetrievedTxStatus, StatusReadFromReceiptCheck, TxReceiptError, TxReceiptResult};
+use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, ProcessedPayableFallible, StatusReadFromReceiptCheck};
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use crate::blockchain::blockchain_interface::RetrievedBlockchainTransactions;
 use crate::blockchain::blockchain_interface::{BlockchainAgentBuildError, BlockchainInterface};
@@ -24,6 +25,7 @@ use crate::accountant::scanners::payable_scanner_extension::msgs::{PricedQualifi
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::accountant::db_access_objects::utils::TxHash;
 use crate::accountant::scanners::pending_payable_scanner::utils::TxHashByTable;
+use crate::accountant::TxReceiptResult;
 use crate::blockchain::blockchain_bridge::{BlockMarker, BlockScanRange, RegisterNewPendingPayables};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::LowBlockchainIntWeb3;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::utils::{create_blockchain_agent_web3, send_payables_within_batch, BlockchainAgentFutureResult};
@@ -216,7 +218,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
     fn process_transaction_receipts(
         &self,
         tx_hashes: Vec<TxHashByTable>,
-    ) -> Box<dyn Future<Item = Vec<TxReceiptResult>, Error = BlockchainInterfaceError>> {
+    ) -> Box<dyn Future<Item = HashMap<TxHashByTable, TxReceiptResult>, Error = BlockchainInterfaceError>> {
         Box::new(
             self.lower_interface()
                 .get_transaction_receipt_in_batch(Self::collect_plain_hashes(&tx_hashes))
@@ -228,30 +230,23 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                         .map(|(response, tx_hash)| match response {
                             Ok(result) => {
                                 match serde_json::from_value::<TransactionReceipt>(result) {
-                                    Ok(receipt) => TxReceiptResult(Ok(RetrievedTxStatus::new(
-                                        tx_hash,
-                                        receipt.into(),
-                                    ))),
+                                    Ok(receipt) => (tx_hash, Ok(StatusReadFromReceiptCheck::from(receipt))),
                                     Err(e) => {
                                         if e.to_string().contains("invalid type: null") {
-                                            TxReceiptResult(Ok(RetrievedTxStatus::new(
-                                                tx_hash,
-                                                StatusReadFromReceiptCheck::Pending,
-                                            )))
+                                            (tx_hash, Ok(StatusReadFromReceiptCheck::Pending))
                                         } else {
-                                            TxReceiptResult(Err(TxReceiptError::new(
-                                                tx_hash,
+                                            (tx_hash, Err(
                                                 AppRpcError::Remote(RemoteError::InvalidResponse(
                                                     e.to_string(),
-                                                )),
+                                                )
                                             )))
                                         }
                                     }
                                 }
                             }
-                            Err(e) => TxReceiptResult(Err(TxReceiptError::new(tx_hash, e.into()))),
+                            Err(e) => (tx_hash, Err(AppRpcError::from(e))),
                         })
-                        .collect::<Vec<TxReceiptResult>>())
+                        .collect::<HashMap<TxHashByTable, TxReceiptResult>>())
                 }),
         )
     }
@@ -1129,9 +1124,7 @@ mod tests {
             .wait()
             .unwrap();
 
-        assert_eq!(result[0], TxReceiptResult(Err(
-            TxReceiptError::new(
-                tx_hbt_1,
+        assert_eq!(result.get(&tx_hbt_1).unwrap(), &Err(
                 AppRpcError::Remote(
                 RemoteError::Web3RpcError {
                     code: 429,
@@ -1139,47 +1132,36 @@ mod tests {
                     "The requests per second (RPS) of your requests are higher than your plan allows."
                         .to_string()
                 }
-            ))))
+            ))
         );
         assert_eq!(
-            result[1],
-            TxReceiptResult(Ok(RetrievedTxStatus::new(
-                tx_hbt_2,
+            result.get(&tx_hbt_2).unwrap(),
+            &Ok(
                 StatusReadFromReceiptCheck::Pending
-            )))
+            )
         );
         assert_eq!(
-            result[2],
-            TxReceiptResult(Err(TxReceiptError::new(
-                tx_hbt_3,
-                AppRpcError::Remote(RemoteError::InvalidResponse(
+            result.get(&tx_hbt_3).unwrap(),
+            &Err(AppRpcError::Remote(RemoteError::InvalidResponse(
                     "invalid type: string \"trash\", expected struct Receipt".to_string()
-                ))
-            )))
+                )
+            ))
         );
         assert_eq!(
-            result[3],
-            TxReceiptResult(Ok(RetrievedTxStatus::new(
-                tx_hbt_4,
-                StatusReadFromReceiptCheck::Pending
-            )))
+            result.get(&tx_hbt_4).unwrap(),
+            &Ok(StatusReadFromReceiptCheck::Pending)
         );
         assert_eq!(
-            result[4],
-            TxReceiptResult(Ok(RetrievedTxStatus::new(
-                tx_hbt_5,
-                StatusReadFromReceiptCheck::Reverted
-            )))
+            result.get(&tx_hbt_5).unwrap(),
+            &Ok(StatusReadFromReceiptCheck::Reverted)
         );
         assert_eq!(
-            result[5],
-            TxReceiptResult(Ok(RetrievedTxStatus::new(
-                tx_hbt_6,
-                StatusReadFromReceiptCheck::Succeeded(TxBlock {
+            result.get(&tx_hbt_6).unwrap(),
+            &Ok(StatusReadFromReceiptCheck::Succeeded(TxBlock {
                     block_hash,
                     block_number,
                 }),
-            )))
+            )
         )
     }
 

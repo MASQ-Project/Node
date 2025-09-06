@@ -22,11 +22,8 @@ use crate::accountant::scanners::pending_payable_scanner::utils::{
 use crate::accountant::scanners::{
     PrivateScanner, Scanner, ScannerCommon, StartScanError, StartableScanner,
 };
-use crate::accountant::{
-    comma_joined_stringifiable, RequestTransactionReceipts, ResponseSkeleton,
-    ScanForPendingPayables, TxReceiptsMessage,
-};
-use crate::blockchain::blockchain_interface::data_structures::{TxBlock, TxReceiptResult};
+use crate::accountant::{comma_joined_stringifiable, RequestTransactionReceipts, ResponseSkeleton, ScanForPendingPayables, TxReceiptResult, TxReceiptsMessage};
+use crate::blockchain::blockchain_interface::data_structures::{TxBlock};
 use crate::blockchain::errors::validation_status::{
     ValidationFailureClock, ValidationFailureClockReal,
 };
@@ -253,14 +250,12 @@ impl PendingPayableScanner {
         let either = msg
             .results
             .into_iter()
-            .fold(init, |acc, receipt_result| match acc {
+            .fold(init, |acc, (tx_hash_by_table, tx_receipt_result)| match acc {
                 Either::Left(cases) => {
-                    let tx_hash = receipt_result.hash();
-
-                    self.resolve_real_query(cases, receipt_result, tx_hash)
+                    self.resolve_real_query(cases, tx_receipt_result, tx_hash_by_table)
                 }
                 Either::Right(mut mismatch_report) => {
-                    mismatch_report.remaining_hashes.push(receipt_result.hash());
+                    mismatch_report.remaining_hashes.push(tx_hash_by_table);
                     Either::Right(mismatch_report)
                 }
             });
@@ -816,7 +811,7 @@ mod tests {
     };
     use crate::accountant::{RequestTransactionReceipts, TxReceiptsMessage};
     use crate::blockchain::blockchain_interface::data_structures::{
-        RetrievedTxStatus, StatusReadFromReceiptCheck, TxBlock, TxReceiptError, TxReceiptResult,
+        StatusReadFromReceiptCheck, TxBlock,
     };
     use crate::blockchain::errors::rpc_errors::{AppRpcError, AppRpcErrorKind, LocalError};
     use crate::blockchain::errors::validation_status::{
@@ -938,23 +933,11 @@ mod tests {
         let confirmed_tx_block_sent_tx = make_transaction_block(901);
         let confirmed_tx_block_failed_tx = make_transaction_block(902);
         let msg = TxReceiptsMessage {
-            results: vec![
-                TxReceiptResult(Ok(RetrievedTxStatus::new(
-                    TxHashByTable::SentPayable(sent_tx_hash_1),
-                    StatusReadFromReceiptCheck::Pending,
-                ))),
-                TxReceiptResult(Ok(RetrievedTxStatus::new(
-                    TxHashByTable::SentPayable(sent_tx_hash_2),
-                    StatusReadFromReceiptCheck::Succeeded(confirmed_tx_block_sent_tx),
-                ))),
-                TxReceiptResult(Err(TxReceiptError::new(
-                    TxHashByTable::FailedPayable(failed_tx_hash_1),
-                    AppRpcError::Local(LocalError::Internal),
-                ))),
-                TxReceiptResult(Ok(RetrievedTxStatus::new(
-                    TxHashByTable::FailedPayable(failed_tx_hash_2),
-                    StatusReadFromReceiptCheck::Succeeded(confirmed_tx_block_failed_tx),
-                ))),
+            results: hashmap![
+                TxHashByTable::SentPayable(sent_tx_hash_1) => Ok(StatusReadFromReceiptCheck::Pending),
+                TxHashByTable::SentPayable(sent_tx_hash_2) => Ok(StatusReadFromReceiptCheck::Succeeded(confirmed_tx_block_sent_tx)),
+                TxHashByTable::FailedPayable(failed_tx_hash_1) => Err(AppRpcError::Local(LocalError::Internal)),
+                TxHashByTable::FailedPayable(failed_tx_hash_2) => Ok(StatusReadFromReceiptCheck::Succeeded(confirmed_tx_block_failed_tx))
             ],
             response_skeleton_opt: None,
         };
@@ -1007,23 +990,11 @@ mod tests {
         subject.yet_unproven_failed_payables = Box::new(failed_payable_cache);
         let logger = Logger::new("test");
         let msg = TxReceiptsMessage {
-            results: vec![
-                TxReceiptResult(Ok(RetrievedTxStatus::new(
-                    TxHashByTable::SentPayable(sent_tx_hash_1),
-                    StatusReadFromReceiptCheck::Pending,
-                ))),
-                TxReceiptResult(Ok(RetrievedTxStatus::new(
-                    TxHashByTable::SentPayable(sent_tx_hash_2),
-                    StatusReadFromReceiptCheck::Succeeded(make_transaction_block(444)),
-                ))),
-                TxReceiptResult(Err(TxReceiptError::new(
-                    TxHashByTable::FailedPayable(failed_tx_hash_1),
-                    AppRpcError::Local(LocalError::Internal),
-                ))),
-                TxReceiptResult(Ok(RetrievedTxStatus::new(
-                    TxHashByTable::FailedPayable(failed_tx_hash_2),
-                    StatusReadFromReceiptCheck::Succeeded(make_transaction_block(555)),
-                ))),
+            results: hashmap![TxHashByTable::SentPayable(sent_tx_hash_1) => Ok(
+                    StatusReadFromReceiptCheck::Pending),
+                TxHashByTable::SentPayable(sent_tx_hash_2) => Ok(StatusReadFromReceiptCheck::Succeeded(make_transaction_block(444))),
+                TxHashByTable::FailedPayable(failed_tx_hash_1) => Err(AppRpcError::Local(LocalError::Internal)),
+                TxHashByTable::FailedPayable(failed_tx_hash_2) => Ok(StatusReadFromReceiptCheck::Succeeded(make_transaction_block(555))),
             ],
             response_skeleton_opt: None,
         };
@@ -1074,23 +1045,10 @@ mod tests {
         subject.yet_unproven_failed_payables = Box::new(failed_payable_cache);
         let logger = Logger::new("test");
         let msg = TxReceiptsMessage {
-            results: vec![
-                TxReceiptResult(Ok(RetrievedTxStatus::new(
-                    TxHashByTable::SentPayable(sent_tx_hash_1),
-                    StatusReadFromReceiptCheck::Pending,
-                ))),
-                TxReceiptResult(Ok(RetrievedTxStatus::new(
-                    TxHashByTable::SentPayable(sent_tx_hash_2),
-                    StatusReadFromReceiptCheck::Succeeded(make_transaction_block(444)),
-                ))),
-                TxReceiptResult(Err(TxReceiptError::new(
-                    TxHashByTable::FailedPayable(failed_tx_hash_1),
-                    AppRpcError::Local(LocalError::Internal),
-                ))),
-                TxReceiptResult(Ok(RetrievedTxStatus::new(
-                    TxHashByTable::FailedPayable(failed_tx_hash_2),
-                    StatusReadFromReceiptCheck::Succeeded(make_transaction_block(555)),
-                ))),
+            results: hashmap![TxHashByTable::SentPayable(sent_tx_hash_1) => Ok(StatusReadFromReceiptCheck::Pending),
+                TxHashByTable::SentPayable(sent_tx_hash_2) => Ok(StatusReadFromReceiptCheck::Succeeded(make_transaction_block(444))),
+                TxHashByTable::FailedPayable(failed_tx_hash_1) => Err(AppRpcError::Local(LocalError::Internal)),
+                TxHashByTable::FailedPayable(failed_tx_hash_2) => Ok(StatusReadFromReceiptCheck::Succeeded(make_transaction_block(555))),
             ],
             response_skeleton_opt: None,
         };

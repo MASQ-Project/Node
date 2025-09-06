@@ -3,7 +3,6 @@
 use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureStatus};
 use crate::accountant::db_access_objects::sent_payable_dao::{SentTx, TxStatus};
 use crate::accountant::db_access_objects::utils::TxHash;
-use crate::blockchain::blockchain_interface::data_structures::{TxReceiptError, TxReceiptResult};
 use crate::blockchain::errors::validation_status::{
     PreviousAttempts, ValidationFailureClock, ValidationStatus,
 };
@@ -11,6 +10,9 @@ use crate::blockchain::errors::BlockchainErrorKind;
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeToUiMessage;
 use std::collections::HashMap;
+use itertools::Either;
+use crate::accountant::TxReceiptResult;
+use crate::blockchain::errors::rpc_errors::AppRpcError;
 
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
 pub struct ReceiptScanReport {
@@ -107,36 +109,22 @@ pub enum FailedValidationByTable {
     FailedPayable(FailedValidation<FailureStatus>),
 }
 
-impl From<(TxReceiptError, TxStatus)> for FailedValidationByTable {
-    fn from((tx_receipt_error, current_status): (TxReceiptError, TxStatus)) -> Self {
-        match tx_receipt_error.tx_hash {
-            TxHashByTable::SentPayable(tx_hash) => Self::SentPayable(FailedValidation::new(
-                tx_hash,
-                BlockchainErrorKind::AppRpc(tx_receipt_error.err.into()),
-                current_status,
-            )),
-
-            TxHashByTable::FailedPayable(tx_hash) => {
-                unreachable!(
-                    "Mismatch in the type of tx record (failed tx) and status type (TxStatus) for {:?}", tx_hash
-                )
+impl FailedValidationByTable {
+    pub fn new(tx_hash: TxHash, error: AppRpcError, status: Either<TxStatus, FailureStatus>)-> Self {
+        match status {
+            Either::Left(tx_status) => {
+                Self::SentPayable(FailedValidation::new(
+                    tx_hash,
+                    BlockchainErrorKind::AppRpc(error.into()),
+                    tx_status,
+                ))
             }
-        }
-    }
-}
-
-impl From<(TxReceiptError, FailureStatus)> for FailedValidationByTable {
-    fn from((tx_receipt_error, current_status): (TxReceiptError, FailureStatus)) -> Self {
-        match tx_receipt_error.tx_hash {
-            TxHashByTable::FailedPayable(tx_hash) => Self::FailedPayable(FailedValidation::new(
-                tx_hash,
-                BlockchainErrorKind::AppRpc(tx_receipt_error.err.into()),
-                current_status,
-            )),
-            TxHashByTable::SentPayable(tx_hash) => {
-                unreachable!(
-                    "Mismatch in the type of tx record (sent tx) and status type (FailureStatus) for {:?}",tx_hash
-                )
+            Either::Right(failure_reason) => {
+                Self::FailedPayable(FailedValidation::new(
+                    tx_hash,
+                    BlockchainErrorKind::AppRpc(error.into()),
+                    failure_reason,
+                ))
             }
         }
     }
@@ -341,7 +329,13 @@ pub enum TxByTable {
     FailedPayable(FailedTx),
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+impl TxByTable {
+    pub fn hash(&self) -> TxHash {
+        todo!()
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum TxHashByTable {
     SentPayable(TxHash),
     FailedPayable(TxHash),
@@ -355,12 +349,12 @@ mod tests {
     use crate::accountant::scanners::pending_payable_scanner::utils::{
         CurrentPendingPayables, DetectedConfirmations, DetectedFailures, FailedValidation,
         FailedValidationByTable, NormalTxConfirmation, PendingPayableCache, PresortedTxFailure,
-        ReceiptScanReport, RecheckRequiringFailures, Retry, TxHashByTable, TxReceiptError,
+        ReceiptScanReport, RecheckRequiringFailures, Retry,
         TxReclaim,
     };
     use crate::accountant::test_utils::{make_failed_tx, make_sent_tx};
     use crate::blockchain::errors::rpc_errors::{
-        AppRpcError, AppRpcErrorKind, LocalError, RemoteError,
+        AppRpcErrorKind
     };
     use crate::blockchain::errors::validation_status::{
         PreviousAttempts, ValidationFailureClockReal, ValidationStatus,
@@ -914,82 +908,6 @@ mod tests {
                 tx_hash_3 => failed_tx_3
             )
         );
-    }
-
-    #[test]
-    fn tx_receipt_error_can_be_converted_to_failed_validation_by_table() {
-        let tx_hash_sent_tx = make_tx_hash(123);
-        let api_error_sent_tx = AppRpcError::Local(LocalError::Internal);
-        let receipt_error_for_sent_tx = TxReceiptError::new(
-            TxHashByTable::SentPayable(tx_hash_sent_tx),
-            api_error_sent_tx.clone(),
-        );
-        let tx_hash_failed_tx = make_tx_hash(456);
-        let api_error_failed_tx = AppRpcError::Remote(RemoteError::Unreachable);
-        let receipt_error_for_failed_tx = TxReceiptError::new(
-            TxHashByTable::FailedPayable(tx_hash_failed_tx),
-            api_error_failed_tx.clone(),
-        );
-
-        let result_1 = FailedValidationByTable::from((
-            receipt_error_for_sent_tx,
-            TxStatus::Pending(ValidationStatus::Waiting),
-        ));
-        let result_2 = FailedValidationByTable::from((
-            receipt_error_for_failed_tx,
-            FailureStatus::RecheckRequired(ValidationStatus::Waiting),
-        ));
-
-        assert_eq!(
-            result_1,
-            FailedValidationByTable::SentPayable(FailedValidation::new(
-                tx_hash_sent_tx,
-                BlockchainErrorKind::AppRpc(api_error_sent_tx.into()),
-                TxStatus::Pending(ValidationStatus::Waiting)
-            ))
-        );
-        assert_eq!(
-            result_2,
-            FailedValidationByTable::FailedPayable(FailedValidation::new(
-                tx_hash_failed_tx,
-                BlockchainErrorKind::AppRpc(api_error_failed_tx.into()),
-                FailureStatus::RecheckRequired(ValidationStatus::Waiting)
-            ))
-        );
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Mismatch in the type of tx record (failed tx) and status type (TxStatus) for \
-        0x000000000000000000000000000000000000000000000000000000000000007b"
-    )]
-    fn tx_status_mismatch_in_conversion_to_failed_validation_by_table() {
-        let tx_hash = make_tx_hash(123);
-        let api_error = AppRpcError::Local(LocalError::Internal);
-        let mismatched_receipt_error =
-            TxReceiptError::new(TxHashByTable::FailedPayable(tx_hash), api_error);
-
-        let _ = FailedValidationByTable::from((
-            mismatched_receipt_error,
-            TxStatus::Pending(ValidationStatus::Waiting),
-        ));
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Mismatch in the type of tx record (sent tx) and status type (FailureStatus) for \
-        0x000000000000000000000000000000000000000000000000000000000000007b"
-    )]
-    fn tx_status_mismatch_in_conversion_to_failed_validation_by_table_2() {
-        let tx_hash = make_tx_hash(123);
-        let api_error = AppRpcError::Local(LocalError::Internal);
-        let mismatched_receipt_error =
-            TxReceiptError::new(TxHashByTable::SentPayable(tx_hash), api_error);
-
-        let _ = FailedValidationByTable::from((
-            mismatched_receipt_error,
-            FailureStatus::RecheckRequired(ValidationStatus::Waiting),
-        ));
     }
 
     #[test]
