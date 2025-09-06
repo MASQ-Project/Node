@@ -53,7 +53,7 @@ impl Route {
     pub fn round_trip(
         route_segment_over: RouteSegment,
         route_segment_back: RouteSegment,
-        cryptde: &dyn CryptDE, // Must be the CryptDE of the originating Node: used to encrypt return_route_id.
+        cryptde: &dyn CryptDE, // Doesn't matter which CryptDE: only used for encoding.
         consuming_wallet: Option<Wallet>,
         contract_address: Option<Address>,
     ) -> Result<Route, CodexError> {
@@ -174,11 +174,7 @@ impl Route {
             contract_address,
         );
 
-        Route::hops_to_route(
-            hops[0..].to_vec(),
-            &over.keys[0],
-            cryptde,
-        )
+        Route::hops_to_route(hops[0..].to_vec(), &over.keys[0], cryptde)
     }
 
     fn over_segment<'a>(

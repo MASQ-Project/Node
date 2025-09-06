@@ -7,7 +7,6 @@ pub mod server_impersonator_http;
 pub mod server_impersonator_tls;
 pub mod tls_protocol_pack;
 
-use std::cell::Cell;
 use crate::proxy_server::client_request_payload_factory::{
     ClientRequestPayloadFactory, ClientRequestPayloadFactoryReal,
 };
@@ -51,6 +50,7 @@ use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::MutabilityConflictHelper;
 use regex::Regex;
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::rc::Rc;
@@ -149,7 +149,10 @@ impl Handler<AddReturnRouteMessage> for ProxyServer {
         let return_route_id = msg.return_route_id;
         self.route_ids_to_return_routes_first_chance
             .insert(msg.return_route_id, msg);
-        debug!(self.logger,"Added return route info RRI{} to first-chance cache", return_route_id);
+        debug!(
+            self.logger,
+            "Added return route info RRI{} to first-chance cache", return_route_id
+        );
     }
 }
 
@@ -755,28 +758,27 @@ impl ProxyServer {
 
     fn get_next_return_route_id(&self) -> u32 {
         let return_route_id = self.next_return_route_id.get();
-        *(self.next_return_route_id.get_mut()) = return_route_id.wrapping_add(1);
+        self.next_return_route_id
+            .set(return_route_id.wrapping_add(1));
         return_route_id
     }
 
     fn try_transmit_to_hopper(
-        &self,
         args: TransmitToHopperArgs,
         add_return_route_sub: Recipient<AddReturnRouteMessage>,
         route_query_response: RouteQueryResponse,
     ) -> Result<(), String> {
         match route_query_response.expected_services {
             ExpectedServices::RoundTrip(over, back) => {
-                let return_route_id = self.get_next_return_route_id();
                 let return_route_info = AddReturnRouteMessage {
-                    return_route_id,
+                    return_route_id: args.return_route_id,
                     expected_services: back,
                     protocol: args.payload.protocol,
                     hostname_opt: args.payload.target_hostname.clone(),
                 };
                 debug!(
                     args.logger,
-                    "Adding expectant return route info: RRI{:?}", return_route_info
+                    "Adding expectant return route info: RRI{}", args.return_route_id
                 );
                 add_return_route_sub
                     .try_send(return_route_info)
@@ -882,9 +884,11 @@ impl ProxyServer {
                 let payload = args.payload;
                 let payload_size = payload.sequenced_packet.data.len();
                 let stream_key = payload.stream_key;
+                let route_with_return_route_id =
+                    route.set_return_route_id(args.main_cryptde, args.return_route_id);
                 let pkg = IncipientCoresPackage::new(
                     args.main_cryptde,
-                    route,
+                    route_with_return_route_id,
                     payload.into(),
                     &payload_destination_key,
                 )
@@ -1121,7 +1125,7 @@ impl RouteQueryResponseResolver for RouteQueryResponseResolverReal {
         let stream_key = args.payload.stream_key;
         let result = match route_result_opt {
             Ok(Some(route_query_response)) => {
-                match self.try_transmit_to_hopper(
+                match ProxyServer::try_transmit_to_hopper(
                     args,
                     add_return_route_sub,
                     route_query_response.clone(),
@@ -1167,6 +1171,7 @@ impl IBCDHelperReal {
         }
     }
 }
+
 impl IBCDHelper for IBCDHelperReal {
     fn handle_normal_client_data(
         &self,
@@ -1290,6 +1295,7 @@ impl IBCDHelper for IBCDHelperReal {
 pub struct TransmitToHopperArgs {
     pub main_cryptde: &'static dyn CryptDE,
     pub payload: ClientRequestPayload_0v1,
+    pub return_route_id: u32,
     pub client_addr: SocketAddr,
     pub timestamp: SystemTime,
     pub is_decentralized: bool,
@@ -1318,9 +1324,11 @@ impl TransmitToHopperArgs {
         } else {
             None
         };
+        let return_route_id = proxy_server.get_next_return_route_id();
         Self {
             main_cryptde: proxy_server.main_cryptde,
             payload,
+            return_route_id,
             client_addr,
             timestamp,
             logger: proxy_server.logger.clone(),
@@ -1419,6 +1427,7 @@ impl Hostname {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
     use crate::match_every_type_id;
     use crate::proxy_server::protocol_pack::ServerImpersonator;
     use crate::proxy_server::server_impersonator_http::ServerImpersonatorHttp;
@@ -1811,7 +1820,7 @@ mod tests {
         };
         let expected_pkg = IncipientCoresPackage::new(
             main_cryptde,
-            route.clone(),
+            route.clone().set_return_route_id(main_cryptde, 1),
             expected_payload.into(),
             &destination_key,
         )
@@ -1928,7 +1937,7 @@ mod tests {
         };
         let expected_pkg = IncipientCoresPackage::new(
             main_cryptde,
-            route.clone(),
+            route.clone().set_return_route_id(main_cryptde, 1),
             expected_payload.into(),
             &destination_key,
         )
@@ -2391,7 +2400,7 @@ mod tests {
             hopper_recording.get_record::<IncipientCoresPackage>(0),
             &IncipientCoresPackage::new(
                 main_cryptde,
-                expected_route.route,
+                expected_route.route.set_return_route_id(main_cryptde, 1),
                 MessageType::ClientRequest(VersionedData::new(
                     &crate::sub_lib::migrations::client_request_payload::MIGRATIONS,
                     &ClientRequestPayload_0v1 {
@@ -2471,7 +2480,7 @@ mod tests {
             hopper_recording.get_record::<IncipientCoresPackage>(0),
             &IncipientCoresPackage::new(
                 main_cryptde,
-                expected_route.route,
+                expected_route.route.set_return_route_id(main_cryptde, 1),
                 MessageType::ClientRequest(VersionedData::new(
                     &crate::sub_lib::migrations::client_request_payload::MIGRATIONS,
                     &ClientRequestPayload_0v1 {
@@ -2534,7 +2543,7 @@ mod tests {
         };
         let expected_pkg = IncipientCoresPackage::new(
             main_cryptde,
-            route.clone(),
+            route.clone().set_return_route_id(main_cryptde, 1),
             expected_payload.into(),
             &destination_key,
         )
@@ -2652,7 +2661,7 @@ mod tests {
         };
         let expected_pkg = IncipientCoresPackage::new(
             main_cryptde,
-            route.clone(),
+            route.clone().set_return_route_id(main_cryptde, 1),
             expected_payload.into(),
             &payload_destination_key,
         )
@@ -2871,8 +2880,10 @@ mod tests {
         let alias_cryptde = alias_cryptde();
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
         let destination_key = PublicKey::from(&b"our destination"[..]);
+        let route = Route { hops: vec![] };
+        let route_with_rrid = route.clone().set_return_route_id(main_cryptde, 4444);
         let route_query_response = RouteQueryResponse {
-            route: Route { hops: vec![] },
+            route,
             expected_services: ExpectedServices::RoundTrip(
                 vec![make_exit_service_from_key(destination_key.clone())],
                 vec![],
@@ -2905,7 +2916,7 @@ mod tests {
         };
         let expected_pkg = IncipientCoresPackage::new(
             main_cryptde,
-            Route { hops: vec![] },
+            route_with_rrid,
             expected_payload.into(),
             &destination_key,
         )
@@ -2926,6 +2937,7 @@ mod tests {
             subject
                 .stream_key_routes
                 .insert(stream_key, route_query_response);
+            subject.next_return_route_id = Cell::new(4444);
             let subject_addr: Addr<ProxyServer> = subject.start();
             let peer_actors = peer_actors_builder().hopper(hopper_mock).build();
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -2945,52 +2957,84 @@ mod tests {
     fn proxy_server_sends_message_to_accountant_about_all_services_consumed_on_the_route_over() {
         let cryptde = main_cryptde();
         let now = SystemTime::now();
-        let exit_earning_wallet = make_wallet("exit earning wallet");
-        let route_1_earning_wallet = make_wallet("route 1 earning wallet");
-        let route_2_earning_wallet = make_wallet("route 2 earning wallet");
+        let routing_node_1_public_key = PublicKey::new(&[1]);
+        let routing_node_2_public_key = PublicKey::new(&[2]);
+        let exit_node_public_key = PublicKey::new(&[3]);
+        let key_bytes = b"__originating consuming wallet__";
+        let keypair = Bip32EncryptionKeyProvider::from_raw_secret(key_bytes).unwrap();
+        let originating_consuming_wallet = Wallet::from(keypair);
+        let routing_node_1_earning_wallet = make_wallet("route 1 earning wallet");
+        let routing_node_2_earning_wallet = make_wallet("route 2 earning wallet");
+        let exit_node_earning_wallet = make_wallet("exit earning wallet");
+        let routing_node_1_rate_pack = rate_pack(101);
+        let routing_node_2_rate_pack = rate_pack(102);
+        let exit_node_rate_pack = rate_pack(103);
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
         let (accountant_mock, _, accountant_recording_arc) = make_recorder();
         let (hopper_mock, _, hopper_recording_arc) = make_recorder();
         let (proxy_server_mock, _, proxy_server_recording_arc) = make_recorder();
-        let routing_node_1_rate_pack = rate_pack(101);
-        let routing_node_2_rate_pack = rate_pack(102);
-        let exit_node_rate_pack = rate_pack(103);
+        let over_route_segment = RouteSegment::new(
+            vec![
+                &cryptde.public_key(),
+                &routing_node_1_public_key,
+                &routing_node_2_public_key,
+                &exit_node_public_key,
+            ],
+            Component::ProxyClient,
+        );
+        let back_route_segment = RouteSegment::new(
+            vec![
+                &exit_node_public_key,
+                &routing_node_2_public_key,
+                &routing_node_1_public_key,
+                &cryptde.public_key(),
+            ],
+            Component::ProxyServer,
+        );
+        let route = Route::round_trip(
+            over_route_segment,
+            back_route_segment,
+            cryptde,
+            Some(originating_consuming_wallet),
+            Some(TEST_DEFAULT_CHAIN.rec().contract),
+        )
+        .unwrap();
         let route_query_response = RouteQueryResponse {
-            route: make_meaningless_route(),
+            route,
             expected_services: ExpectedServices::RoundTrip(
                 vec![
                     ExpectedService::Nothing,
                     ExpectedService::Routing(
-                        PublicKey::new(&[1]),
-                        route_1_earning_wallet.clone(),
-                        routing_node_1_rate_pack,
+                        routing_node_1_public_key.clone(),
+                        routing_node_1_earning_wallet.clone(),
+                        routing_node_1_rate_pack.clone(),
                     ),
                     ExpectedService::Routing(
-                        PublicKey::new(&[2]),
-                        route_2_earning_wallet.clone(),
-                        routing_node_2_rate_pack,
+                        routing_node_2_public_key.clone(),
+                        routing_node_2_earning_wallet.clone(),
+                        routing_node_2_rate_pack.clone(),
                     ),
                     ExpectedService::Exit(
-                        PublicKey::new(&[3]),
-                        exit_earning_wallet.clone(),
-                        exit_node_rate_pack,
+                        exit_node_public_key.clone(),
+                        exit_node_earning_wallet.clone(),
+                        exit_node_rate_pack.clone(),
                     ),
                 ],
                 vec![
                     ExpectedService::Exit(
-                        PublicKey::new(&[3]),
-                        make_wallet("some wallet 1"),
-                        rate_pack(104),
+                        exit_node_public_key.clone(),
+                        exit_node_earning_wallet.clone(),
+                        exit_node_rate_pack,
                     ),
                     ExpectedService::Routing(
-                        PublicKey::new(&[2]),
-                        make_wallet("some wallet 2"),
-                        rate_pack(105),
+                        routing_node_2_public_key.clone(),
+                        routing_node_2_earning_wallet.clone(),
+                        routing_node_2_rate_pack,
                     ),
                     ExpectedService::Routing(
-                        PublicKey::new(&[1]),
-                        make_wallet("some wallet 3"),
-                        rate_pack(106),
+                        routing_node_1_public_key.clone(),
+                        routing_node_1_earning_wallet.clone(),
+                        routing_node_1_rate_pack,
                     ),
                     ExpectedService::Nothing,
                 ],
@@ -3019,6 +3063,7 @@ mod tests {
         let args = TransmitToHopperArgs {
             main_cryptde: cryptde,
             payload,
+            return_route_id: 4444,
             client_addr: source_addr,
             timestamp: now,
             is_decentralized: true,
@@ -3038,8 +3083,31 @@ mod tests {
         System::current().stop();
         system.run();
         let recording = hopper_recording_arc.lock().unwrap();
-        let record = recording.get_record::<IncipientCoresPackage>(0);
+        let mut record = recording.get_record::<IncipientCoresPackage>(0).clone();
         let payload_enc_length = record.payload.len();
+        let _ = record.route.shift(cryptde);
+        let _ = record.route.shift(&CryptDENull::from(
+            &routing_node_1_public_key,
+            TEST_DEFAULT_CHAIN,
+        ));
+        let _ = record.route.shift(&CryptDENull::from(
+            &routing_node_2_public_key,
+            TEST_DEFAULT_CHAIN,
+        ));
+        let _ = record.route.shift(&CryptDENull::from(
+            &exit_node_public_key,
+            TEST_DEFAULT_CHAIN,
+        ));
+        let _ = record.route.shift(&CryptDENull::from(
+            &routing_node_2_public_key,
+            TEST_DEFAULT_CHAIN,
+        ));
+        let _ = record.route.shift(&CryptDENull::from(
+            &routing_node_1_public_key,
+            TEST_DEFAULT_CHAIN,
+        ));
+        let _ = record.route.shift(cryptde);
+        assert_eq!(record.route.return_route_id(cryptde).unwrap(), 4444);
         let recording = accountant_recording_arc.lock().unwrap();
         let record = recording.get_record::<ReportServicesConsumedMessage>(0);
         assert_eq!(recording.len(), 1);
@@ -3048,7 +3116,7 @@ mod tests {
             &ReportServicesConsumedMessage {
                 timestamp: now,
                 exit: ExitServiceConsumed {
-                    earning_wallet: exit_earning_wallet,
+                    earning_wallet: exit_node_earning_wallet,
                     payload_size: exit_payload_size,
                     service_rate: exit_node_rate_pack.exit_service_rate,
                     byte_rate: exit_node_rate_pack.exit_byte_rate
@@ -3056,12 +3124,12 @@ mod tests {
                 routing_payload_size: payload_enc_length,
                 routing: vec![
                     RoutingServiceConsumed {
-                        earning_wallet: route_1_earning_wallet,
+                        earning_wallet: routing_node_1_earning_wallet,
                         service_rate: routing_node_1_rate_pack.routing_service_rate,
                         byte_rate: routing_node_1_rate_pack.routing_byte_rate,
                     },
                     RoutingServiceConsumed {
-                        earning_wallet: route_2_earning_wallet,
+                        earning_wallet: routing_node_2_earning_wallet,
                         service_rate: routing_node_2_rate_pack.routing_service_rate,
                         byte_rate: routing_node_2_rate_pack.routing_byte_rate,
                     }
@@ -3106,6 +3174,7 @@ mod tests {
         let args = TransmitToHopperArgs {
             main_cryptde: cryptde,
             payload,
+            return_route_id: 3333,
             client_addr: source_addr,
             timestamp: SystemTime::now(),
             is_decentralized: false,
@@ -3129,7 +3198,7 @@ mod tests {
         assert_eq!(
             record,
             &AddReturnRouteMessage {
-                return_route_id: 0,
+                return_route_id: 3333,
                 expected_services: vec![ExpectedService::Nothing],
                 protocol: ProxyProtocol::HTTP,
                 hostname_opt: Some("nowhere.com".to_string())
@@ -3394,6 +3463,7 @@ mod tests {
         let args = TransmitToHopperArgs {
             main_cryptde: cryptde,
             payload,
+            return_route_id: 2222,
             client_addr: source_addr,
             timestamp: SystemTime::now(),
             is_decentralized: true,
@@ -3578,7 +3648,7 @@ mod tests {
             data: expected_data.clone(),
         };
         let expected_tls_request = PlainData::new(tls_request);
-        let route = Route { hops: vec![] };
+        let route = Route { hops: vec![] }.set_return_route_id(main_cryptde, 1);
         let expected_payload = ClientRequestPayload_0v1 {
             stream_key: stream_key.clone(),
             sequenced_packet: SequencedPacket {
@@ -3678,7 +3748,7 @@ mod tests {
         };
         let expected_pkg = IncipientCoresPackage::new(
             main_cryptde,
-            route.clone(),
+            route.clone().set_return_route_id(main_cryptde, 1),
             expected_payload.into(),
             &destination_key,
         )
@@ -3762,7 +3832,7 @@ mod tests {
         };
         let expected_pkg = IncipientCoresPackage::new(
             main_cryptde,
-            route.clone(),
+            route.clone().set_return_route_id(main_cryptde, 1),
             expected_payload.into(),
             &destination_key,
         )
@@ -5725,6 +5795,7 @@ mod tests {
     ) {
         init_test_logging();
         let cryptde = main_cryptde();
+        let return_route_id = 272727;
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let system = System::new("report_response_services_consumed_complains_and_drops_package_if_return_route_id_is_unrecognized");
@@ -5756,7 +5827,7 @@ mod tests {
         let expired_cores_package = ExpiredCoresPackage::new(
             SocketAddr::from_str("1.2.3.4:1234").unwrap(),
             Some(make_wallet("irrelevant")),
-            return_route_with_id(cryptde, 1234),
+            return_route_with_id(cryptde, return_route_id),
             client_response_payload,
             0,
         );
@@ -5766,7 +5837,7 @@ mod tests {
 
         System::current().stop();
         system.run();
-        TestLogHandler::new().exists_log_containing("ERROR: ProxyServer: Can't report services consumed: received response with bogus return-route ID 1234 for client response. Ignoring");
+        TestLogHandler::new().exists_log_containing(format!("ERROR: ProxyServer: Can't report services consumed: received response with bogus return-route ID RRI{} for client response. Ignoring", return_route_id).as_str());
         assert_eq!(dispatcher_recording_arc.lock().unwrap().len(), 0);
         assert_eq!(accountant_recording_arc.lock().unwrap().len(), 0);
     }
@@ -5886,7 +5957,7 @@ mod tests {
         );
         subject_addr.try_send(expired_cores_package).unwrap();
 
-        TestLogHandler::new().await_log_containing("ERROR: ProxyServer: Can't report services consumed: received response with bogus return-route ID 1234 for client response. Ignoring", 1000);
+        TestLogHandler::new().await_log_containing("ERROR: ProxyServer: Can't report services consumed: received response with bogus return-route ID RRI1234 for client response. Ignoring", 1000);
     }
 
     #[test]
@@ -5971,8 +6042,7 @@ mod tests {
             Some(make_paying_wallet(b"consuming")),
             Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
-        .unwrap()
-        .set_return_route_id(main_cryptde(), 1234);
+        .unwrap();
         let affected_expected_services = vec![ExpectedService::Exit(
             affected_cryptde.public_key().clone(),
             make_paying_wallet(b"1234"),
@@ -5982,10 +6052,7 @@ mod tests {
             affected_stream_key,
             RouteQueryResponse {
                 route: affected_route.clone(),
-                expected_services: ExpectedServices::RoundTrip(
-                    affected_expected_services,
-                    vec![],
-                ),
+                expected_services: ExpectedServices::RoundTrip(affected_expected_services, vec![]),
             },
         );
         subject
@@ -6018,7 +6085,10 @@ mod tests {
         system.run();
         let recording = hopper_recording_arc.lock().unwrap();
         let record = recording.get_record::<IncipientCoresPackage>(0);
-        assert_eq!(record.route, affected_route);
+        assert_eq!(
+            record.route,
+            affected_route.set_return_route_id(main_cryptde(), 1)
+        );
         let payload = decodex::<MessageType>(&affected_cryptde, &record.payload).unwrap();
         match payload {
             MessageType::ClientRequest(vd) => assert_eq!(
@@ -6082,6 +6152,7 @@ mod tests {
                 expected_services: ExpectedServices::RoundTrip(vec![], vec![]),
             },
         );
+        subject.next_return_route_id = Cell::new(1234);
         let affected_route = Route::round_trip(
             RouteSegment::new(
                 vec![main_cryptde().public_key(), affected_cryptde.public_key()],
@@ -6095,8 +6166,7 @@ mod tests {
             Some(make_paying_wallet(b"consuming")),
             Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
-        .unwrap()
-        .set_return_route_id(main_cryptde(), 1234);
+        .unwrap();
         let affected_expected_services = vec![ExpectedService::Exit(
             affected_cryptde.public_key().clone(),
             make_paying_wallet(b"1234"),
@@ -6106,10 +6176,7 @@ mod tests {
             affected_stream_key,
             RouteQueryResponse {
                 route: affected_route.clone(),
-                expected_services: ExpectedServices::RoundTrip(
-                    affected_expected_services,
-                    vec![],
-                ),
+                expected_services: ExpectedServices::RoundTrip(affected_expected_services, vec![]),
             },
         );
         subject.logger = Logger::new(test_name);
@@ -6137,7 +6204,10 @@ mod tests {
         system.run();
         let recording = hopper_recording_arc.lock().unwrap();
         let record = recording.get_record::<IncipientCoresPackage>(0);
-        assert_eq!(record.route, affected_route);
+        assert_eq!(
+            record.route,
+            affected_route.set_return_route_id(main_cryptde(), 1234)
+        );
         let payload = decodex::<MessageType>(&affected_cryptde, &record.payload).unwrap();
         match payload {
             MessageType::ClientRequest(vd) => assert_eq!(
@@ -6286,6 +6356,7 @@ mod tests {
         let args = TransmitToHopperArgs {
             main_cryptde: cryptde,
             payload,
+            return_route_id: 8888,
             client_addr: SocketAddr::from_str("1.2.3.4:1234").unwrap(),
             timestamp: SystemTime::now(),
             is_decentralized: false,
@@ -6696,6 +6767,24 @@ mod tests {
             subject.keys_and_addrs.a_to_b(&stream_key),
             Some(socket_addr)
         );
+    }
+
+    #[test]
+    fn get_next_return_route_id_wraps_around() {
+        let mut mut_subject =
+            ProxyServer::new(main_cryptde(), alias_cryptde(), true, None, false, false);
+        mut_subject.next_return_route_id = Cell::new(0xFFFFFFFE);
+        let subject = mut_subject;
+
+        let end_minus_one = subject.get_next_return_route_id();
+        let end = subject.get_next_return_route_id();
+        let beginning = subject.get_next_return_route_id();
+        let beginning_plus_one = subject.get_next_return_route_id();
+
+        assert_eq!(end_minus_one, 0xFFFFFFFE);
+        assert_eq!(end, 0xFFFFFFFF);
+        assert_eq!(beginning, 0x00000000);
+        assert_eq!(beginning_plus_one, 0x00000001);
     }
 
     fn make_exit_service_from_key(public_key: PublicKey) -> ExpectedService {

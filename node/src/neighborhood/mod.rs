@@ -105,7 +105,6 @@ pub struct Neighborhood {
     mode: NeighborhoodModeLight,
     min_hops: Hops,
     db_patch_size: u8,
-    next_return_route_id: u32,
     overall_connection_status: OverallConnectionStatus,
     chain: Chain,
     crashable: bool,
@@ -431,7 +430,6 @@ impl Neighborhood {
             mode,
             min_hops,
             db_patch_size,
-            next_return_route_id: 0,
             overall_connection_status,
             chain: config.blockchain_bridge_config.chain,
             crashable: config.crash_point == CrashPoint::Message,
@@ -1315,13 +1313,6 @@ impl Neighborhood {
                 Some(target_key) => node.public_key() == target_key,
             },
         }
-    }
-
-    fn advance_return_route_id(&mut self) -> u32 {
-        todo!("Move this logic into the ProxyServer");
-        let return_route_id = self.next_return_route_id;
-        self.next_return_route_id = return_route_id.wrapping_add(1);
-        return_route_id
     }
 
     pub fn find_exit_locations<'a>(
@@ -3379,8 +3370,7 @@ mod tests {
                 None,
                 None,
             )
-            .unwrap()
-            .set_return_route_id(cryptde, 0),
+            .unwrap(),
             expected_services: ExpectedServices::RoundTrip(
                 vec![
                     ExpectedService::Nothing,
@@ -3451,8 +3441,7 @@ mod tests {
                 None,
                 None,
             )
-            .unwrap()
-            .set_return_route_id(cryptde, 0),
+            .unwrap(),
             expected_services: ExpectedServices::RoundTrip(
                 vec![ExpectedService::Nothing, ExpectedService::Nothing],
                 vec![ExpectedService::Nothing, ExpectedService::Nothing],
@@ -3521,8 +3510,7 @@ mod tests {
                 consuming_wallet_opt,
                 Some(contract_address),
             )
-            .unwrap()
-            .set_return_route_id(cryptde, 0),
+            .unwrap(),
             expected_services: ExpectedServices::RoundTrip(
                 vec![
                     ExpectedService::Nothing,
@@ -3552,7 +3540,7 @@ mod tests {
                 ],
             ),
         };
-        assert_eq!(expected_response, result);
+        assert_eq!(result, expected_response);
     }
 
     #[test]
@@ -3569,18 +3557,6 @@ mod tests {
             error_expectation,
             "Cannot make multi-hop route without segment keys"
         );
-    }
-
-    #[test]
-    fn next_return_route_id_wraps_around() {
-        let mut subject = make_standard_subject();
-        subject.next_return_route_id = 0xFFFFFFFF;
-
-        let end = subject.advance_return_route_id();
-        let beginning = subject.advance_return_route_id();
-
-        assert_eq!(end, 0xFFFFFFFF);
-        assert_eq!(beginning, 0x00000000);
     }
 
     /*
@@ -4474,7 +4450,6 @@ mod tests {
             error_expectation,
             "Cannot make multi_hop with unknown neighbor"
         );
-        assert_eq!(subject.next_return_route_id, 0);
     }
 
     #[test]
@@ -6958,7 +6933,7 @@ mod tests {
 
         let hops = result.clone().unwrap().route.hops;
         let actual_keys: Vec<PublicKey> = match hops.as_slice() {
-            [hop, exit, hop_back, origin, empty, _accounting] => vec![
+            [hop, exit, hop_back, origin, empty] => vec![
                 decodex::<LiveHop>(main_cryptde(), hop)
                     .expect("hop")
                     .public_key,
@@ -6975,7 +6950,11 @@ mod tests {
                     .expect("empty")
                     .public_key,
             ],
-            l => panic!("our match is wrong, real size is {}, {:?}", l.len(), l),
+            l => panic!(
+                "our match is wrong, real size is {} instead of 5, {:?}",
+                l.len(),
+                l
+            ),
         };
         let expected_public_keys = vec![
             next_door_neighbor.public_key().clone(),
@@ -7013,24 +6992,23 @@ mod tests {
             }
         };
         /*
-        This is how the route_hops vector looks like: [C1, C2, ..., C(nodes_count), ..., C2, C1, accounting]
+        This is how the route_hops vector looks like: [C1, C2, ..., C(nodes_count), ..., C2, C1]
 
         Let's consider for 3-hop route ==>
         Nodes Count --> 4
         Route Length --> 8
-        Route Hops --> [C1, C2, C3, C4, C3, C2, C1, accounting]
+        Route Hops --> [C1, C2, C3, C4, C3, C2, C1]
         Over Route --> [C1, C2, C3]
         Back Route --> [C4, C3, C2, C1]
          */
-        let mut route_hops = result.unwrap().route.hops;
+        let route_hops = result.unwrap().route.hops;
         let route_length = route_hops.len();
-        let _accounting = route_hops.pop();
         let over_route = &route_hops[..hops];
         let back_route = &route_hops[hops..];
         let over_cryptdes = cryptdes_from_node_records(&nodes[..hops]);
         let mut back_cryptdes = cryptdes_from_node_records(&nodes);
         back_cryptdes.reverse();
-        assert_eq!(route_length, 2 * nodes_count);
+        assert_eq!(route_length, 2 * nodes_count - 1);
         assert_hops(over_cryptdes, over_route);
         assert_hops(back_cryptdes, back_route);
     }
@@ -7502,24 +7480,6 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::new();
         subject.persistent_config_opt = Some(Box::new(persistent_config));
         subject
-    }
-
-    fn make_o_r_e_subject() -> (NodeRecord, NodeRecord, NodeRecord, Neighborhood) {
-        let mut subject = make_standard_subject();
-        let o = &subject.neighborhood_database.root().clone();
-        let r = &make_node_record(4567, false);
-        let e = &make_node_record(5678, false);
-        {
-            let db = &mut subject.neighborhood_database;
-            db.add_node(r.clone()).unwrap();
-            db.add_node(e.clone()).unwrap();
-            let mut dual_edge = |a: &NodeRecord, b: &NodeRecord| {
-                db.add_arbitrary_full_neighbor(a.public_key(), b.public_key())
-            };
-            dual_edge(o, r);
-            dual_edge(r, e);
-        }
-        (o.clone(), r.clone(), e.clone(), subject)
     }
 
     fn segment(nodes: &[&NodeRecord], component: &Component) -> RouteSegment {
