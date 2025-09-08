@@ -14,7 +14,7 @@ use crate::accountant::scanners::pending_payable_scanner::utils::{
 };
 use crate::accountant::scanners::scan_schedulers::{
     NewPayableScanDynIntervalComputer, PayableSequenceScanner, RescheduleScanOnErrorResolver,
-    ScanRescheduleAfterEarlyStop,
+    ScanReschedulingAfterEarlyStop,
 };
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableScanResult;
 use crate::accountant::scanners::{
@@ -443,7 +443,7 @@ pub fn assert_timestamps_from_str(examined_str: &str, expected_timestamps: Vec<S
 pub struct RescheduleScanOnErrorResolverMock {
     resolve_rescheduling_on_error_params:
         Arc<Mutex<Vec<(PayableSequenceScanner, StartScanError, bool, Logger)>>>,
-    resolve_rescheduling_on_error_results: RefCell<Vec<ScanRescheduleAfterEarlyStop>>,
+    resolve_rescheduling_on_error_results: RefCell<Vec<ScanReschedulingAfterEarlyStop>>,
 }
 
 impl RescheduleScanOnErrorResolver for RescheduleScanOnErrorResolverMock {
@@ -453,7 +453,7 @@ impl RescheduleScanOnErrorResolver for RescheduleScanOnErrorResolverMock {
         error: &StartScanError,
         is_externally_triggered: bool,
         logger: &Logger,
-    ) -> ScanRescheduleAfterEarlyStop {
+    ) -> ScanReschedulingAfterEarlyStop {
         self.resolve_rescheduling_on_error_params
             .lock()
             .unwrap()
@@ -479,7 +479,7 @@ impl RescheduleScanOnErrorResolverMock {
     }
     pub fn resolve_rescheduling_on_error_result(
         self,
-        result: ScanRescheduleAfterEarlyStop,
+        result: ScanReschedulingAfterEarlyStop,
     ) -> Self {
         self.resolve_rescheduling_on_error_results
             .borrow_mut()
