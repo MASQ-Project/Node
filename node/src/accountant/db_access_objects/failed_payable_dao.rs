@@ -61,7 +61,7 @@ impl Display for FailureStatus {
         match serde_json::to_string(self) {
             Ok(json) => write!(f, "{}", json),
             // Untestable
-            Err(e) => write!(f, "<invalid FailureStatus>"),
+            Err(_) => write!(f, "<invalid FailureStatus>"),
         }
     }
 }
