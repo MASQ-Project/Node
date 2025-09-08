@@ -61,7 +61,7 @@ impl Display for FailureStatus {
         match serde_json::to_string(self) {
             Ok(json) => write!(f, "{}", json),
             // Untestable
-            Err(_) => write!(f, "<invalid FailureStatus>"),
+            Err(e) => write!(f, "<invalid FailureStatus>"),
         }
     }
 }
@@ -591,7 +591,7 @@ mod tests {
     fn failure_reason_from_str_works() {
         // Submission error
         assert_eq!(
-            FailureReason::from_str(r#"{"Submission":{"Local":{"Decoder"}}}"#).unwrap(),
+            FailureReason::from_str(r#"{"Submission":"Decoder"}"#).unwrap(),
             FailureReason::Submission(AppRpcErrorKind::Decoder)
         );
 
@@ -640,7 +640,7 @@ mod tests {
         );
 
         assert_eq!(
-            FailureStatus::from_str(r#"{"RecheckRequired":{"Reattempting":{"ServerUnreachable":{"firstSeen":{"secs_since_epoch":1755080031,"nanos_since_epoch":612180914},"attempts":1}}}}"#).unwrap(),
+            FailureStatus::from_str(r#"{"RecheckRequired":{"Reattempting":[{"error":{"AppRpc":"ServerUnreachable"},"firstSeen":{"secs_since_epoch":1755080031,"nanos_since_epoch":612180914},"attempts":1}]}}"#).unwrap(),
             FailureStatus::RecheckRequired(ValidationStatus::Reattempting( PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable), &validation_failure_clock)))
         );
 
@@ -652,9 +652,8 @@ mod tests {
         // Invalid Variant
         assert_eq!(
             FailureStatus::from_str("\"UnknownStatus\"").unwrap_err(),
-            "unknown variant `UnknownStatus`, \
-            expected one of `RetryRequired`, `RecheckRequired`, `Concluded` \
-            at line 1 column 15 in '\"UnknownStatus\"'"
+            "unknown variant `UnknownStatus`, expected one of `RetryRequired`, `RecheckRequired`, \
+            `Concluded` at line 1 column 15 in '\"UnknownStatus\"'"
         );
 
         // Invalid Input
@@ -775,13 +774,17 @@ mod tests {
         subject
             .insert_new_records(&vec![tx1.clone(), tx2.clone(), tx3.clone(), tx4.clone()])
             .unwrap();
+        let timestamp = SystemTime::now();
+        let clock = ValidationFailureClockMock::default()
+            .now_result(timestamp)
+            .now_result(timestamp);
         let hashmap = HashMap::from([
             (tx1.hash, Concluded),
             (
                 tx2.hash,
                 RecheckRequired(ValidationStatus::Reattempting(PreviousAttempts::new(
                     BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
-                    &ValidationFailureClockReal::default(),
+                    &clock,
                 ))),
             ),
             (tx3.hash, Concluded),
@@ -798,7 +801,7 @@ mod tests {
             updated_txs[1].status,
             RecheckRequired(ValidationStatus::Reattempting(PreviousAttempts::new(
                 BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
-                &ValidationFailureClockReal::default()
+                &clock
             )))
         );
         assert_eq!(tx3.status, RetryRequired);

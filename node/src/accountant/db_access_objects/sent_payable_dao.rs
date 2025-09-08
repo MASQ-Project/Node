@@ -1189,7 +1189,7 @@ mod tests {
         );
 
         assert_eq!(
-            TxStatus::from_str(r#"{"Pending":{"Reattempting":{"InvalidResponse":{"firstSeen":{"secs_since_epoch":12456,"nanos_since_epoch":0},"attempts":1}}}}"#).unwrap(),
+            TxStatus::from_str(r#"{"Pending":{"Reattempting":[{"error":{"AppRpc":"InvalidResponse"},"firstSeen":{"secs_since_epoch":12456,"nanos_since_epoch":0},"attempts":1}]}}"#).unwrap(),
             TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::InvalidResponse), &validation_failure_clock)))
         );
 
