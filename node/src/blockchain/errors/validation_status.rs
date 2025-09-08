@@ -22,8 +22,9 @@ pub struct PreviousAttempts {
     inner: HashMap<BlockchainErrorKind, ErrorStats>,
 }
 
-// I had to implement myself as the default HashMap serialization throws errors if the key value
-// is a compound structure (cannot be projected as a simple string value)
+// had to implement it manually in an array JSON layout, as the original, default HashMap
+// serialization threw errors because the values of keys were represented by nested enums that
+// serde doesn't translate into a complex JSON value (unlike the plain string required for a key)
 impl ManualSerialize for PreviousAttempts {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -74,15 +75,13 @@ impl<'de> Visitor<'de> for PreviousAttemptsVisitor {
             stats: ErrorStats,
         }
 
-        let mut hash_map: HashMap<BlockchainErrorKind, ErrorStats> = hashmap!();
-        loop {
-            match seq.next_element::<EntryOwned>()? {
-                Some(entry) => {
-                    let _ = hash_map.insert(entry.error_kind, entry.stats);
-                }
-                None => return Ok(PreviousAttempts { inner: hash_map }),
-            }
+        let mut error_stats_map: HashMap<BlockchainErrorKind, ErrorStats> = hashmap!();
+        while let Some(entry) = seq.next_element::<EntryOwned>()? {
+            error_stats_map.insert(entry.error_kind, entry.stats);
         }
+        Ok(PreviousAttempts {
+            inner: error_stats_map,
+        })
     }
 }
 
