@@ -2624,8 +2624,7 @@ mod tests {
             block_hash: make_block_hash(333),
             block_number: U64::from(1234),
         };
-        let tx_status_1 =
-            StatusReadFromReceiptCheck::Succeeded(tx_block_1);
+        let tx_status_1 = StatusReadFromReceiptCheck::Succeeded(tx_block_1);
         let tx_hash_2 = make_tx_hash(1234);
         let mut failed_tx_2 = make_failed_tx(789);
         failed_tx_2.hash = tx_hash_2;
@@ -2633,18 +2632,15 @@ mod tests {
             block_hash: make_block_hash(222),
             block_number: U64::from(2345),
         };
-        let tx_status_2 =
-            StatusReadFromReceiptCheck::Succeeded(tx_block_2);
+        let tx_status_2 = StatusReadFromReceiptCheck::Succeeded(tx_block_2);
         let tx_hash_3 = make_tx_hash(2345);
         let mut sent_tx_3 = make_sent_tx(456);
         sent_tx_3.hash = tx_hash_3;
-        let tx_status_3 =
-            StatusReadFromReceiptCheck::Pending;
+        let tx_status_3 = StatusReadFromReceiptCheck::Pending;
         let mut sent_tx_4 = make_sent_tx(4567);
         let tx_hash_4 = sent_tx_4.hash;
         sent_tx_4.status = TxStatus::Pending(ValidationStatus::Waiting);
-        let tx_receipt_rpc_error_4 =
-            AppRpcError::Remote(RemoteError::Unreachable);
+        let tx_receipt_rpc_error_4 = AppRpcError::Remote(RemoteError::Unreachable);
         let tx_hash_5 = make_tx_hash(7890);
         let mut failed_tx_5 = make_failed_tx(888);
         failed_tx_5.hash = tx_hash_5;
@@ -2653,7 +2649,8 @@ mod tests {
                 BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
                 &ValidationFailureClockMock::default().now_result(timestamp_c),
             )));
-        let tx_receipt_rpc_error_5 = AppRpcError::Remote(RemoteError::InvalidResponse("game over".to_string()));
+        let tx_receipt_rpc_error_5 =
+            AppRpcError::Remote(RemoteError::InvalidResponse("game over".to_string()));
         let tx_hash_6 = make_tx_hash(2345);
         let mut sent_tx_6 = make_sent_tx(789);
         sent_tx_6.hash = tx_hash_6;

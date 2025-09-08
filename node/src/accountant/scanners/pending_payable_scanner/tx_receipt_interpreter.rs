@@ -6,20 +6,20 @@ use crate::accountant::db_access_objects::sent_payable_dao::{
 };
 use crate::accountant::db_access_objects::utils::from_unix_timestamp;
 use crate::accountant::scanners::pending_payable_scanner::utils::{
-    FailedValidation, FailedValidationByTable, NormalTxConfirmation, ReceiptScanReport, TxByTable,
-    TxCaseToBeInterpreted, TxReclaim,
+    ConfirmationType, FailedValidation, FailedValidationByTable, ReceiptScanReport, TxByTable,
+    TxCaseToBeInterpreted, TxHashByTable,
 };
 use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
 use crate::blockchain::blockchain_interface::data_structures::{
     StatusReadFromReceiptCheck, TxBlock,
 };
 use crate::blockchain::errors::internal_errors::InternalErrorKind;
+use crate::blockchain::errors::rpc_errors::AppRpcError;
 use crate::blockchain::errors::BlockchainErrorKind;
+use itertools::Either;
 use masq_lib::logger::Logger;
 use std::time::SystemTime;
-use itertools::Either;
 use thousands::Separable;
-use crate::blockchain::errors::rpc_errors::AppRpcError;
 
 #[derive(Default)]
 pub struct TxReceiptInterpreter {}
@@ -149,10 +149,7 @@ impl TxReceiptInterpreter {
                     },
                     ..sent_tx
                 };
-                let tx_confirmation = NormalTxConfirmation {
-                    tx: completed_sent_tx,
-                };
-                scan_report.register_confirmed_tx(tx_confirmation);
+                scan_report.register_confirmed_tx(completed_sent_tx, ConfirmationType::Normal);
             }
             TxByTable::FailedPayable(failed_tx) => {
                 info!(
@@ -162,8 +159,7 @@ impl TxReceiptInterpreter {
                 );
 
                 let sent_tx = SentTx::from((failed_tx, tx_block));
-                let reclaim = TxReclaim { reclaimed: sent_tx };
-                scan_report.register_failure_reclaim(reclaim);
+                scan_report.register_confirmed_tx(sent_tx, ConfirmationType::Reclaim);
             }
         }
         scan_report
@@ -204,13 +200,13 @@ impl TxReceiptInterpreter {
         rpc_error: AppRpcError,
         logger: &Logger,
     ) -> ReceiptScanReport {
-        let hash = tx_by_table.hash();
         warning!(
             logger,
             "Failed to retrieve tx receipt for {:?}: {:?}. Will retry receipt retrieval next cycle",
-            hash,
+            TxHashByTable::from(&tx_by_table),
             rpc_error
         );
+        let hash = tx_by_table.hash();
         let validation_status_update = match tx_by_table {
             TxByTable::SentPayable(sent_tx) => {
                 FailedValidationByTable::new(hash, rpc_error, Either::Left(sent_tx.status))
@@ -236,8 +232,7 @@ mod tests {
     use crate::accountant::scanners::pending_payable_scanner::tx_receipt_interpreter::TxReceiptInterpreter;
     use crate::accountant::scanners::pending_payable_scanner::utils::{
         DetectedConfirmations, DetectedFailures, FailedValidation, FailedValidationByTable,
-        NormalTxConfirmation, PresortedTxFailure, ReceiptScanReport, TxByTable, 
-        TxReclaim,
+        PresortedTxFailure, ReceiptScanReport, TxByTable,
     };
     use crate::accountant::test_utils::{
         make_failed_tx, make_sent_tx, make_transaction_block, SentPayableDaoMock,
@@ -288,7 +283,7 @@ mod tests {
             ReceiptScanReport {
                 failures: DetectedFailures::default(),
                 confirmations: DetectedConfirmations {
-                    normal_confirmations: vec![NormalTxConfirmation { tx: updated_tx }],
+                    normal_confirmations: vec![updated_tx],
                     reclaims: vec![]
                 }
             }
@@ -337,7 +332,7 @@ mod tests {
                 failures: DetectedFailures::default(),
                 confirmations: DetectedConfirmations {
                     normal_confirmations: vec![],
-                    reclaims: vec![TxReclaim { reclaimed: sent_tx }]
+                    reclaims: vec![sent_tx]
                 }
             }
         );

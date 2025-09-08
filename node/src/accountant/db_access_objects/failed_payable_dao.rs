@@ -62,7 +62,12 @@ impl Display for FailureStatus {
         match serde_json::to_string(self) {
             Ok(json) => write!(f, "{}", json),
             // Untestable
-            Err(e) => panic!("cat: {:?}, line: {}, column: {}", e.classify(), e.line(), e.column()) //write!(f, "<invalid FailureStatus>"),
+            Err(e) => panic!(
+                "cat: {:?}, line: {}, column: {}",
+                e.classify(),
+                e.line(),
+                e.column()
+            ), //write!(f, "<invalid FailureStatus>"),
         }
     }
 }
@@ -416,7 +421,6 @@ mod tests {
     use std::ops::Add;
     use std::str::FromStr;
     use std::time::{Duration, SystemTime};
-    use crate::blockchain::errors::internal_errors::InternalErrorKind;
 
     #[test]
     fn insert_new_records_works() {

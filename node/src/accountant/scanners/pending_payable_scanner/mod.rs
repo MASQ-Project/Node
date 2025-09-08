@@ -15,15 +15,18 @@ use crate::accountant::db_access_objects::utils::{TxHash, TxRecordWithHash};
 use crate::accountant::scanners::pending_payable_scanner::tx_receipt_interpreter::TxReceiptInterpreter;
 use crate::accountant::scanners::pending_payable_scanner::utils::{
     CurrentPendingPayables, DetectedConfirmations, DetectedFailures, FailedValidation,
-    FailedValidationByTable, MismatchReport, NormalTxConfirmation, PendingPayableCache,
-    PendingPayableScanResult, PresortedTxFailure, ReceiptScanReport, RecheckRequiringFailures,
-    Retry, TxByTable, TxCaseToBeInterpreted, TxHashByTable, TxReclaim, UpdatableValidationStatus,
+    FailedValidationByTable, MismatchReport, PendingPayableCache, PendingPayableScanResult,
+    PresortedTxFailure, ReceiptScanReport, RecheckRequiringFailures, Retry, TxByTable,
+    TxCaseToBeInterpreted, TxHashByTable, UpdatableValidationStatus,
 };
 use crate::accountant::scanners::{
     PrivateScanner, Scanner, ScannerCommon, StartScanError, StartableScanner,
 };
-use crate::accountant::{comma_joined_stringifiable, RequestTransactionReceipts, ResponseSkeleton, ScanForPendingPayables, TxReceiptResult, TxReceiptsMessage};
-use crate::blockchain::blockchain_interface::data_structures::{TxBlock};
+use crate::accountant::{
+    comma_joined_stringifiable, RequestTransactionReceipts, ResponseSkeleton,
+    ScanForPendingPayables, TxReceiptResult, TxReceiptsMessage,
+};
+use crate::blockchain::blockchain_interface::data_structures::TxBlock;
 use crate::blockchain::errors::validation_status::{
     ValidationFailureClock, ValidationFailureClockReal,
 };
@@ -250,15 +253,19 @@ impl PendingPayableScanner {
         let either = msg
             .results
             .into_iter()
-            .fold(init, |acc, (tx_hash_by_table, tx_receipt_result)| match acc {
-                Either::Left(cases) => {
-                    self.resolve_real_query(cases, tx_receipt_result, tx_hash_by_table)
-                }
-                Either::Right(mut mismatch_report) => {
-                    mismatch_report.remaining_hashes.push(tx_hash_by_table);
-                    Either::Right(mismatch_report)
-                }
-            });
+            .sorted_by_key(|(hash_by_table, _)| hash_by_table.hash())
+            .fold(
+                init,
+                |acc, (tx_hash_by_table, tx_receipt_result)| match acc {
+                    Either::Left(cases) => {
+                        self.resolve_real_query(cases, tx_receipt_result, tx_hash_by_table)
+                    }
+                    Either::Right(mut mismatch_report) => {
+                        mismatch_report.remaining_hashes.push(tx_hash_by_table);
+                        Either::Right(mismatch_report)
+                    }
+                },
+            );
 
         let cases = match either {
             Either::Left(cases) => cases,
@@ -288,7 +295,7 @@ impl PendingPayableScanner {
                         Either::Left(cases)
                     }
                     None => Either::Right(MismatchReport {
-                        noticed_at: looked_up_hash,
+                        noticed_with: looked_up_hash,
                         remaining_hashes: vec![],
                     }),
                 }
@@ -306,7 +313,7 @@ impl PendingPayableScanner {
                         Either::Left(cases)
                     }
                     None => Either::Right(MismatchReport {
-                        noticed_at: looked_up_hash,
+                        noticed_with: looked_up_hash,
                         remaining_hashes: vec![],
                     }),
                 }
@@ -327,7 +334,7 @@ impl PendingPayableScanner {
             "Looking up '{:?}' in the cache, the record could not be found. Dumping \
             the remaining values. Pending payables: {:?}. Unproven failures: {:?}. \
             All yet-to-look-up hashes: {:?}.",
-            mismatch_report.noticed_at,
+            mismatch_report.noticed_with,
             rearrange(self.current_sent_payables.dump_cache()),
             rearrange(self.yet_unproven_failed_payables.dump_cache()),
             mismatch_report.remaining_hashes
@@ -348,13 +355,7 @@ impl PendingPayableScanner {
         self.handle_normal_confirmations(confirmed_txs.normal_confirmations, logger);
     }
 
-    fn handle_tx_failure_reclaims(&mut self, reclaimed: Vec<TxReclaim>, logger: &Logger) {
-        fn unwrap_into_sent_tx(confirmed_txs: Vec<TxReclaim>) -> Vec<SentTx> {
-            confirmed_txs
-                .into_iter()
-                .map(|reclaim| reclaim.reclaimed)
-                .collect()
-        }
+    fn handle_tx_failure_reclaims(&mut self, reclaimed: Vec<SentTx>, logger: &Logger) {
         fn isolate_hashes(reclaimed: &[(TxHash, TxBlock)]) -> HashSet<TxHash> {
             reclaimed.iter().map(|(tx_hash, _)| *tx_hash).collect()
         }
@@ -363,12 +364,11 @@ impl PendingPayableScanner {
             return;
         }
 
-        let sent_txs_to_reclaim = unwrap_into_sent_tx(reclaimed);
-        let hashes_and_blocks = Self::collect_hashes_and_blocks(&sent_txs_to_reclaim)
+        let hashes_and_blocks = Self::collect_hashes_and_blocks(&reclaimed)
             .into_iter()
             .sorted()
             .collect_vec();
-        match self.sent_payable_dao.replace_records(&sent_txs_to_reclaim) {
+        match self.sent_payable_dao.replace_records(&reclaimed) {
             Ok(_) => {
                 debug!(logger, "Replaced records for txs being reclaimed")
             }
@@ -408,7 +408,7 @@ impl PendingPayableScanner {
             }
         }
 
-        self.add_to_the_total_of_paid_payable(&sent_txs_to_reclaim, logger)
+        self.add_to_the_total_of_paid_payable(&reclaimed, logger)
     }
 
     fn collect_hashes_and_blocks(reclaimed: &[SentTx]) -> HashMap<TxHash, TxBlock> {
@@ -433,17 +433,7 @@ impl PendingPayableScanner {
             .collect()
     }
 
-    fn handle_normal_confirmations(
-        &mut self,
-        confirmed_txs: Vec<NormalTxConfirmation>,
-        logger: &Logger,
-    ) {
-        fn unwrap_into_sent_tx(confirmed_txs: Vec<NormalTxConfirmation>) -> Vec<SentTx> {
-            confirmed_txs
-                .into_iter()
-                .map(|normal_tx_confirmation| normal_tx_confirmation.tx)
-                .collect()
-        }
+    fn handle_normal_confirmations(&mut self, confirmed_txs: Vec<SentTx>, logger: &Logger) {
         fn transaction_confirmed_panic(confirmed_txs: &[SentTx], e: PayableDaoError) -> ! {
             panic!(
                 "Unable to complete the tx confirmation by the adjustment of the payable \
@@ -476,11 +466,10 @@ impl PendingPayableScanner {
             return;
         }
 
-        let confirmed_sent_txs = unwrap_into_sent_tx(confirmed_txs);
-        if let Err(e) = self.payable_dao.transactions_confirmed(&confirmed_sent_txs) {
-            transaction_confirmed_panic(&confirmed_sent_txs, e)
+        if let Err(e) = self.payable_dao.transactions_confirmed(&confirmed_txs) {
+            transaction_confirmed_panic(&confirmed_txs, e)
         } else {
-            let tx_confirmations = Self::collect_hashes_and_blocks(&confirmed_sent_txs);
+            let tx_confirmations = Self::collect_hashes_and_blocks(&confirmed_txs);
 
             if let Err(e) = self.sent_payable_dao.confirm_txs(&tx_confirmations) {
                 update_tx_blocks_panic(&tx_confirmations, e)
@@ -488,7 +477,7 @@ impl PendingPayableScanner {
                 Self::log_tx_success(logger, &tx_confirmations);
             }
 
-            self.add_to_the_total_of_paid_payable(&confirmed_sent_txs, logger);
+            self.add_to_the_total_of_paid_payable(&confirmed_txs, logger);
         }
     }
 
@@ -798,9 +787,8 @@ mod tests {
     use crate::accountant::scanners::pending_payable_scanner::test_utils::ValidationFailureClockMock;
     use crate::accountant::scanners::pending_payable_scanner::utils::{
         CurrentPendingPayables, DetectedConfirmations, DetectedFailures, FailedValidation,
-        FailedValidationByTable, NormalTxConfirmation, PendingPayableCache,
-        PendingPayableScanResult, PresortedTxFailure, RecheckRequiringFailures, Retry,
-        TxHashByTable, TxReclaim,
+        FailedValidationByTable, PendingPayableCache, PendingPayableScanResult, PresortedTxFailure,
+        RecheckRequiringFailures, Retry, TxHashByTable,
     };
     use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
     use crate::accountant::scanners::test_utils::PendingPayableCacheMock;
@@ -976,7 +964,7 @@ mod tests {
     fn finish_scan_with_missing_records_inside_caches_noticed_on_missing_sent_tx() {
         let sent_tx_1 = make_sent_tx(456);
         let sent_tx_hash_1 = sent_tx_1.hash;
-        let sent_tx_hash_2 = make_tx_hash(777);
+        let sent_tx_hash_2 = make_tx_hash(876);
         let failed_tx_1 = make_failed_tx(567);
         let failed_tx_hash_1 = failed_tx_1.hash;
         let failed_tx_2 = make_failed_tx(890);
@@ -1004,18 +992,14 @@ mod tests {
 
         let panic_msg = panic.downcast_ref::<String>().unwrap();
         let regex_str_in_pieces = vec![
-            r#"Looking up 'SentPayable\(0x0000000000000000000000000000000000000000000000000000000000000309\)'"#,
+            r#"Looking up 'SentPayable\(0x000000000000000000000000000000000000000000000000000000000000036c\)'"#,
             r#" in the cache, the record could not be found. Dumping the remaining values. Pending payables: \[\]."#,
-            r#" Unproven failures: \[FailedTx \{"#,
-            r#" hash: 0x0000000000000000000000000000000000000000000000000000000000000237, receiver_address:"#,
-            r#" 0x000000000000000000000077616c6c6574353637, amount_minor: 321489000000000, timestamp: \d*,"#,
-            r#" gas_price_minor: 567000000000, nonce: 567, reason: PendingTooLong, status: RetryRequired \},"#,
-            r#" FailedTx \{ hash:"#,
+            r#" Unproven failures: \[FailedTx \{ hash:"#,
             r#" 0x000000000000000000000000000000000000000000000000000000000000037a, receiver_address:"#,
             r#" 0x000000000000000000000077616c6c6574383930, amount_minor: 792100000000000, timestamp: \d*,"#,
             r#" gas_price_minor: 890000000000, nonce: 890, reason: PendingTooLong, status: RetryRequired \}\]."#,
-            r#" All yet-to-look-up hashes: \[FailedPayable\(0x000000000000000000000000000000000000000000000000000"#,
-            r#"0000000000237\), FailedPayable\(0x000000000000000000000000000000000000000000000000000000000000037a\)\]."#,
+            r#" All yet-to-look-up hashes: \[FailedPayable\(0x0000000000000000000000000000000000000000"#,
+            r#"00000000000000000000037a\)\]."#,
         ];
         let regex_str = regex_str_in_pieces.join("");
         let expected_msg_regex = Regex::new(&regex_str).unwrap();
@@ -1322,7 +1306,7 @@ mod tests {
     #[should_panic(
         expected = "Unable to update pending-tx statuses for validation failures \
     '[FailedValidation { tx_hash: 0x00000000000000000000000000000000000000000000000000000000000001c8, \
-    validation_failure: Local(Internal), current_status: Pending(Waiting) }]' due to: \
+    validation_failure: AppRpc(Internal), current_status: Pending(Waiting) }]' due to: \
     InvalidInput(\"bluh\")"
     )]
     fn update_validation_status_for_sent_txs_panics_on_update_statuses() {
@@ -1346,7 +1330,7 @@ mod tests {
     #[should_panic(
         expected = "Unable to update failed-tx statuses for validation failures \
     '[FailedValidation { tx_hash: 0x00000000000000000000000000000000000000000000000000000000000001c8, \
-    validation_failure: Local(Internal), current_status: RecheckRequired(Waiting) }]' due to: \
+    validation_failure: AppRpc(Internal), current_status: RecheckRequired(Waiting) }]' due to: \
     InvalidInput(\"bluh\")"
     )]
     fn update_validation_status_for_failed_txs_panics_on_update_statuses() {
@@ -1590,14 +1574,7 @@ mod tests {
         subject.handle_confirmed_transactions(
             DetectedConfirmations {
                 normal_confirmations: vec![],
-                reclaims: vec![
-                    TxReclaim {
-                        reclaimed: sent_tx_1.clone(),
-                    },
-                    TxReclaim {
-                        reclaimed: sent_tx_2.clone(),
-                    },
-                ],
+                reclaims: vec![sent_tx_1.clone(), sent_tx_2.clone()],
             },
             &logger,
         );
@@ -1655,14 +1632,7 @@ mod tests {
         subject.handle_confirmed_transactions(
             DetectedConfirmations {
                 normal_confirmations: vec![],
-                reclaims: vec![
-                    TxReclaim {
-                        reclaimed: sent_tx_1.clone(),
-                    },
-                    TxReclaim {
-                        reclaimed: sent_tx_2.clone(),
-                    },
-                ],
+                reclaims: vec![sent_tx_1.clone(), sent_tx_2.clone()],
             },
             &Logger::new("test"),
         );
@@ -1709,14 +1679,7 @@ mod tests {
         subject.handle_confirmed_transactions(
             DetectedConfirmations {
                 normal_confirmations: vec![],
-                reclaims: vec![
-                    TxReclaim {
-                        reclaimed: sent_tx_1.clone(),
-                    },
-                    TxReclaim {
-                        reclaimed: sent_tx_2.clone(),
-                    },
-                ],
+                reclaims: vec![sent_tx_1.clone(), sent_tx_2.clone()],
             },
             &Logger::new("test"),
         );
@@ -1739,9 +1702,7 @@ mod tests {
         subject.handle_confirmed_transactions(
             DetectedConfirmations {
                 normal_confirmations: vec![],
-                reclaims: vec![TxReclaim {
-                    reclaimed: sent_tx.clone(),
-                }],
+                reclaims: vec![sent_tx.clone()],
             },
             &Logger::new("test"),
         );
@@ -1791,14 +1752,7 @@ mod tests {
 
         subject.handle_confirmed_transactions(
             DetectedConfirmations {
-                normal_confirmations: vec![
-                    NormalTxConfirmation {
-                        tx: sent_tx_1.clone(),
-                    },
-                    NormalTxConfirmation {
-                        tx: sent_tx_2.clone(),
-                    },
-                ],
+                normal_confirmations: vec![sent_tx_1.clone(), sent_tx_2.clone()],
                 reclaims: vec![],
             },
             &logger,
@@ -1874,12 +1828,8 @@ mod tests {
 
         subject.handle_confirmed_transactions(
             DetectedConfirmations {
-                normal_confirmations: vec![NormalTxConfirmation {
-                    tx: sent_tx_1.clone(),
-                }],
-                reclaims: vec![TxReclaim {
-                    reclaimed: sent_tx_2.clone(),
-                }],
+                normal_confirmations: vec![sent_tx_1.clone()],
+                reclaims: vec![sent_tx_2.clone()],
             },
             &logger,
         );
@@ -1941,10 +1891,7 @@ mod tests {
 
         subject.handle_confirmed_transactions(
             DetectedConfirmations {
-                normal_confirmations: vec![
-                    NormalTxConfirmation { tx: sent_tx_1 },
-                    NormalTxConfirmation { tx: sent_tx_2 },
-                ],
+                normal_confirmations: vec![sent_tx_1, sent_tx_2],
                 reclaims: vec![],
             },
             &Logger::new("test"),
@@ -1970,7 +1917,7 @@ mod tests {
 
         subject.handle_confirmed_transactions(
             DetectedConfirmations {
-                normal_confirmations: vec![NormalTxConfirmation { tx: sent_tx }],
+                normal_confirmations: vec![sent_tx],
                 reclaims: vec![],
             },
             &Logger::new("test"),
@@ -2052,13 +1999,8 @@ mod tests {
 
         subject.handle_confirmed_transactions(
             DetectedConfirmations {
-                normal_confirmations: vec![
-                    NormalTxConfirmation { tx: sent_tx_1 },
-                    NormalTxConfirmation { tx: sent_tx_2 },
-                ],
-                reclaims: vec![TxReclaim {
-                    reclaimed: sent_tx_3,
-                }],
+                normal_confirmations: vec![sent_tx_1, sent_tx_2],
+                reclaims: vec![sent_tx_3],
             },
             &Logger::new(test_name),
         );

@@ -4,7 +4,9 @@ use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
 use crate::accountant::scanners::payable_scanner_extension::msgs::{
     BlockchainAgentWithContextMessage, PricedQualifiedPayables, QualifiedPayablesMessage,
 };
-use crate::accountant::{ReceivedPayments, ResponseSkeleton, ScanError, SentPayables, SkeletonOptHolder, TxReceiptResult};
+use crate::accountant::{
+    ReceivedPayments, ResponseSkeleton, ScanError, SentPayables, SkeletonOptHolder, TxReceiptResult,
+};
 use crate::accountant::{RequestTransactionReceipts, TxReceiptsMessage};
 use crate::actor_system_factory::SubsFactory;
 use crate::blockchain::blockchain_agent::BlockchainAgent;
@@ -31,6 +33,7 @@ use actix::Handler;
 use actix::Message;
 use actix::{Addr, Recipient};
 use futures::Future;
+use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::DEFAULT_GAS_PRICE_MARGIN;
 use masq_lib::logger::Logger;
@@ -41,7 +44,6 @@ use std::path::Path;
 use std::string::ToString;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
-use itertools::Itertools;
 use web3::types::H256;
 
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
@@ -422,7 +424,10 @@ impl BlockchainBridge {
                 .process_transaction_receipts(msg.tx_hashes)
                 .map_err(move |e| e.to_string())
                 .and_then(move |tx_receipt_results| {
-                    Self::log_status_of_tx_receipts(&logger, tx_receipt_results.values().collect_vec().as_slice());
+                    Self::log_status_of_tx_receipts(
+                        &logger,
+                        tx_receipt_results.values().collect_vec().as_slice(),
+                    );
                     accountant_recipient
                         .try_send(TxReceiptsMessage {
                             results: tx_receipt_results,

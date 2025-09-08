@@ -449,13 +449,9 @@ impl AccountantBuilder {
                 .make_result(SentPayableDaoMock::new())
                 .make_result(SentPayableDaoMock::new()),
         );
-        let failed_tx_dao_for_pending_payable_scanner =
-            FailedPayableDaoMock::new().retrieve_txs_result(vec![]);
-        let failed_payable_dao_factory = self.failed_payable_dao_factory_opt.unwrap_or(
-            FailedPayableDaoFactoryMock::new()
-                .make_result(failed_tx_dao_for_pending_payable_scanner)
-                .make_result(FailedPayableDaoMock::new()),
-        );
+        let failed_payable_dao_factory = self
+            .failed_payable_dao_factory_opt
+            .unwrap_or(FailedPayableDaoFactoryMock::new().make_result(FailedPayableDaoMock::new()));
         let banned_dao_factory = self
             .banned_dao_factory_opt
             .unwrap_or(BannedDaoFactoryMock::new().make_result(BannedDaoMock::new()));
@@ -493,7 +489,8 @@ impl PayableDaoFactory for PayableDaoFactoryMock {
     fn make(&self) -> Box<dyn PayableDao> {
         if self.make_results.borrow().len() == 0 {
             panic!(
-                "PayableDao Missing. This problem mostly occurs when PayableDao is only supplied for Accountant and not for the Scanner while building Accountant."
+                "PayableDao Missing. This problem mostly occurs when PayableDao is only supplied \
+                for Accountant and not for the Scanner while building Accountant."
             )
         };
         self.make_params.lock().unwrap().push(());
@@ -529,7 +526,8 @@ impl ReceivableDaoFactory for ReceivableDaoFactoryMock {
     fn make(&self) -> Box<dyn ReceivableDao> {
         if self.make_results.borrow().len() == 0 {
             panic!(
-                "ReceivableDao Missing. This problem mostly occurs when ReceivableDao is only supplied for Accountant and not for the Scanner while building Accountant."
+                "ReceivableDao Missing. This problem mostly occurs when ReceivableDao is only \
+                supplied for Accountant and not for the Scanner while building Accountant."
             )
         };
         self.make_params.lock().unwrap().push(());
@@ -655,7 +653,7 @@ impl PayableDao for PayableDaoMock {
         &self,
         _mark_instructions: &[MarkPendingPayableID],
     ) -> Result<(), PayableDaoError> {
-        todo!()
+        todo!("will be removed in the associated card - GH-662")
         // self.mark_pending_payables_rowids_params
         //     .lock()
         //     .unwrap()

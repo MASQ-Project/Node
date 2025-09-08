@@ -3,16 +3,16 @@
 use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureStatus};
 use crate::accountant::db_access_objects::sent_payable_dao::{SentTx, TxStatus};
 use crate::accountant::db_access_objects::utils::TxHash;
+use crate::accountant::TxReceiptResult;
+use crate::blockchain::errors::rpc_errors::AppRpcError;
 use crate::blockchain::errors::validation_status::{
     PreviousAttempts, ValidationFailureClock, ValidationStatus,
 };
 use crate::blockchain::errors::BlockchainErrorKind;
+use itertools::Either;
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeToUiMessage;
 use std::collections::HashMap;
-use itertools::Either;
-use crate::accountant::TxReceiptResult;
-use crate::blockchain::errors::rpc_errors::AppRpcError;
 
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
 pub struct ReceiptScanReport {
@@ -32,12 +32,15 @@ impl ReceiptScanReport {
         }
     }
 
-    pub(super) fn register_confirmed_tx(&mut self, confirmation: NormalTxConfirmation) {
-        self.confirmations.normal_confirmations.push(confirmation);
-    }
-
-    pub(super) fn register_failure_reclaim(&mut self, reclaim: TxReclaim) {
-        self.confirmations.reclaims.push(reclaim)
+    pub(super) fn register_confirmed_tx(
+        &mut self,
+        confirmed_tx: SentTx,
+        confirmation_type: ConfirmationType,
+    ) {
+        match confirmation_type {
+            ConfirmationType::Normal => self.confirmations.normal_confirmations.push(confirmed_tx),
+            ConfirmationType::Reclaim => self.confirmations.reclaims.push(confirmed_tx),
+        }
     }
 
     pub(super) fn register_new_failure(&mut self, failed_tx: FailedTx) {
@@ -59,24 +62,20 @@ impl ReceiptScanReport {
 
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
 pub struct DetectedConfirmations {
-    pub normal_confirmations: Vec<NormalTxConfirmation>,
-    pub reclaims: Vec<TxReclaim>,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct NormalTxConfirmation {
-    pub tx: SentTx,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct TxReclaim {
-    pub reclaimed: SentTx,
+    pub normal_confirmations: Vec<SentTx>,
+    pub reclaims: Vec<SentTx>,
 }
 
 impl DetectedConfirmations {
     pub(super) fn is_empty(&self) -> bool {
         self.normal_confirmations.is_empty() && self.reclaims.is_empty()
     }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum ConfirmationType {
+    Normal,
+    Reclaim,
 }
 
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
@@ -110,22 +109,22 @@ pub enum FailedValidationByTable {
 }
 
 impl FailedValidationByTable {
-    pub fn new(tx_hash: TxHash, error: AppRpcError, status: Either<TxStatus, FailureStatus>)-> Self {
+    pub fn new(
+        tx_hash: TxHash,
+        error: AppRpcError,
+        status: Either<TxStatus, FailureStatus>,
+    ) -> Self {
         match status {
-            Either::Left(tx_status) => {
-                Self::SentPayable(FailedValidation::new(
-                    tx_hash,
-                    BlockchainErrorKind::AppRpc(error.into()),
-                    tx_status,
-                ))
-            }
-            Either::Right(failure_reason) => {
-                Self::FailedPayable(FailedValidation::new(
-                    tx_hash,
-                    BlockchainErrorKind::AppRpc(error.into()),
-                    failure_reason,
-                ))
-            }
+            Either::Left(tx_status) => Self::SentPayable(FailedValidation::new(
+                tx_hash,
+                BlockchainErrorKind::AppRpc(error.into()),
+                tx_status,
+            )),
+            Either::Right(failure_reason) => Self::FailedPayable(FailedValidation::new(
+                tx_hash,
+                BlockchainErrorKind::AppRpc(error.into()),
+                failure_reason,
+            )),
         }
     }
 }
@@ -214,7 +213,7 @@ impl UpdatableValidationStatus for FailureStatus {
 }
 
 pub struct MismatchReport {
-    pub noticed_at: TxHashByTable,
+    pub noticed_with: TxHashByTable,
     pub remaining_hashes: Vec<TxHashByTable>,
 }
 
@@ -324,6 +323,7 @@ impl TxCaseToBeInterpreted {
     }
 }
 
+#[derive(Debug)]
 pub enum TxByTable {
     SentPayable(SentTx),
     FailedPayable(FailedTx),
@@ -331,7 +331,10 @@ pub enum TxByTable {
 
 impl TxByTable {
     pub fn hash(&self) -> TxHash {
-        todo!()
+        match self {
+            TxByTable::SentPayable(tx) => tx.hash,
+            TxByTable::FailedPayable(tx) => tx.hash,
+        }
     }
 }
 
@@ -341,6 +344,24 @@ pub enum TxHashByTable {
     FailedPayable(TxHash),
 }
 
+impl TxHashByTable {
+    pub fn hash(&self) -> TxHash {
+        match self {
+            TxHashByTable::SentPayable(hash) => *hash,
+            TxHashByTable::FailedPayable(hash) => *hash,
+        }
+    }
+}
+
+impl From<&TxByTable> for TxHashByTable {
+    fn from(tx: &TxByTable) -> Self {
+        match tx {
+            TxByTable::SentPayable(tx) => TxHashByTable::SentPayable(tx.hash),
+            TxByTable::FailedPayable(tx) => TxHashByTable::FailedPayable(tx.hash),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus;
@@ -348,14 +369,11 @@ mod tests {
     use crate::accountant::scanners::pending_payable_scanner::test_utils::ValidationFailureClockMock;
     use crate::accountant::scanners::pending_payable_scanner::utils::{
         CurrentPendingPayables, DetectedConfirmations, DetectedFailures, FailedValidation,
-        FailedValidationByTable, NormalTxConfirmation, PendingPayableCache, PresortedTxFailure,
-        ReceiptScanReport, RecheckRequiringFailures, Retry,
-        TxReclaim,
+        FailedValidationByTable, PendingPayableCache, PresortedTxFailure, ReceiptScanReport,
+        RecheckRequiringFailures, Retry, TxByTable, TxHashByTable,
     };
     use crate::accountant::test_utils::{make_failed_tx, make_sent_tx};
-    use crate::blockchain::errors::rpc_errors::{
-        AppRpcErrorKind
-    };
+    use crate::blockchain::errors::rpc_errors::AppRpcErrorKind;
     use crate::blockchain::errors::validation_status::{
         PreviousAttempts, ValidationFailureClockReal, ValidationStatus,
     };
@@ -422,24 +440,16 @@ mod tests {
                 reclaims: vec![],
             },
             DetectedConfirmations {
-                normal_confirmations: vec![NormalTxConfirmation {
-                    tx: make_sent_tx(456),
-                }],
-                reclaims: vec![TxReclaim {
-                    reclaimed: make_sent_tx(999),
-                }],
+                normal_confirmations: vec![make_sent_tx(456)],
+                reclaims: vec![make_sent_tx(999)],
             },
             DetectedConfirmations {
-                normal_confirmations: vec![NormalTxConfirmation {
-                    tx: make_sent_tx(777),
-                }],
+                normal_confirmations: vec![make_sent_tx(777)],
                 reclaims: vec![],
             },
             DetectedConfirmations {
                 normal_confirmations: vec![],
-                reclaims: vec![TxReclaim {
-                    reclaimed: make_sent_tx(999),
-                }],
+                reclaims: vec![make_sent_tx(999)],
             },
         ];
 
@@ -514,24 +524,16 @@ mod tests {
                 reclaims: vec![],
             },
             DetectedConfirmations {
-                normal_confirmations: vec![NormalTxConfirmation {
-                    tx: make_sent_tx(777),
-                }],
-                reclaims: vec![TxReclaim {
-                    reclaimed: make_sent_tx(999),
-                }],
+                normal_confirmations: vec![make_sent_tx(777)],
+                reclaims: vec![make_sent_tx(999)],
             },
             DetectedConfirmations {
-                normal_confirmations: vec![NormalTxConfirmation {
-                    tx: make_sent_tx(777),
-                }],
+                normal_confirmations: vec![make_sent_tx(777)],
                 reclaims: vec![],
             },
             DetectedConfirmations {
                 normal_confirmations: vec![],
-                reclaims: vec![TxReclaim {
-                    reclaimed: make_sent_tx(999),
-                }],
+                reclaims: vec![make_sent_tx(999)],
             },
         ];
 
@@ -556,24 +558,16 @@ mod tests {
     fn requires_payments_retry_says_no() {
         let detected_confirmations_feeding = vec![
             DetectedConfirmations {
-                normal_confirmations: vec![NormalTxConfirmation {
-                    tx: make_sent_tx(777),
-                }],
-                reclaims: vec![TxReclaim {
-                    reclaimed: make_sent_tx(999),
-                }],
+                normal_confirmations: vec![make_sent_tx(777)],
+                reclaims: vec![make_sent_tx(999)],
             },
             DetectedConfirmations {
-                normal_confirmations: vec![NormalTxConfirmation {
-                    tx: make_sent_tx(777),
-                }],
+                normal_confirmations: vec![make_sent_tx(777)],
                 reclaims: vec![],
             },
             DetectedConfirmations {
                 normal_confirmations: vec![],
-                reclaims: vec![TxReclaim {
-                    reclaimed: make_sent_tx(999),
-                }],
+                reclaims: vec![make_sent_tx(999)],
             },
         ];
 
@@ -1086,5 +1080,51 @@ mod tests {
                     result, idx
                 )
             });
+    }
+
+    #[test]
+    fn tx_hash_by_table_provides_plain_hash() {
+        let expected_hash_a = make_tx_hash(123);
+        let a = TxHashByTable::SentPayable(expected_hash_a);
+        let expected_hash_b = make_tx_hash(654);
+        let b = TxHashByTable::FailedPayable(expected_hash_b);
+
+        let result_a = a.hash();
+        let result_b = b.hash();
+
+        assert_eq!(result_a, expected_hash_a);
+        assert_eq!(result_b, expected_hash_b);
+    }
+
+    #[test]
+    fn tx_by_table_can_provide_hash() {
+        let sent_tx = make_sent_tx(123);
+        let expected_hash_a = sent_tx.hash;
+        let a = TxByTable::SentPayable(sent_tx);
+        let failed_tx = make_failed_tx(654);
+        let expected_hash_b = failed_tx.hash;
+        let b = TxByTable::FailedPayable(failed_tx);
+
+        let result_a = a.hash();
+        let result_b = b.hash();
+
+        assert_eq!(result_a, expected_hash_a);
+        assert_eq!(result_b, expected_hash_b);
+    }
+
+    #[test]
+    fn tx_by_table_can_be_converted_into_tx_hash_by_table() {
+        let sent_tx = make_sent_tx(123);
+        let expected_hash_a = sent_tx.hash;
+        let a = TxByTable::SentPayable(sent_tx);
+        let failed_tx = make_failed_tx(654);
+        let expected_hash_b = failed_tx.hash;
+        let b = TxByTable::FailedPayable(failed_tx);
+
+        let result_a = TxHashByTable::from(&a);
+        let result_b = TxHashByTable::from(&b);
+
+        assert_eq!(result_a, TxHashByTable::SentPayable(expected_hash_a));
+        assert_eq!(result_b, TxHashByTable::FailedPayable(expected_hash_b));
     }
 }

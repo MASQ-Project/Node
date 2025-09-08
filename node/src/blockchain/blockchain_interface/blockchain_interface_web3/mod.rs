@@ -218,7 +218,12 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
     fn process_transaction_receipts(
         &self,
         tx_hashes: Vec<TxHashByTable>,
-    ) -> Box<dyn Future<Item = HashMap<TxHashByTable, TxReceiptResult>, Error = BlockchainInterfaceError>> {
+    ) -> Box<
+        dyn Future<
+            Item = HashMap<TxHashByTable, TxReceiptResult>,
+            Error = BlockchainInterfaceError,
+        >,
+    > {
         Box::new(
             self.lower_interface()
                 .get_transaction_receipt_in_batch(Self::collect_plain_hashes(&tx_hashes))
@@ -230,16 +235,19 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                         .map(|(response, tx_hash)| match response {
                             Ok(result) => {
                                 match serde_json::from_value::<TransactionReceipt>(result) {
-                                    Ok(receipt) => (tx_hash, Ok(StatusReadFromReceiptCheck::from(receipt))),
+                                    Ok(receipt) => {
+                                        (tx_hash, Ok(StatusReadFromReceiptCheck::from(receipt)))
+                                    }
                                     Err(e) => {
                                         if e.to_string().contains("invalid type: null") {
                                             (tx_hash, Ok(StatusReadFromReceiptCheck::Pending))
                                         } else {
-                                            (tx_hash, Err(
-                                                AppRpcError::Remote(RemoteError::InvalidResponse(
-                                                    e.to_string(),
-                                                )
-                                            )))
+                                            (
+                                                tx_hash,
+                                                Err(AppRpcError::Remote(
+                                                    RemoteError::InvalidResponse(e.to_string()),
+                                                )),
+                                            )
                                         }
                                     }
                                 }
@@ -1136,16 +1144,13 @@ mod tests {
         );
         assert_eq!(
             result.get(&tx_hbt_2).unwrap(),
-            &Ok(
-                StatusReadFromReceiptCheck::Pending
-            )
+            &Ok(StatusReadFromReceiptCheck::Pending)
         );
         assert_eq!(
             result.get(&tx_hbt_3).unwrap(),
             &Err(AppRpcError::Remote(RemoteError::InvalidResponse(
-                    "invalid type: string \"trash\", expected struct Receipt".to_string()
-                )
-            ))
+                "invalid type: string \"trash\", expected struct Receipt".to_string()
+            )))
         );
         assert_eq!(
             result.get(&tx_hbt_4).unwrap(),
@@ -1158,10 +1163,9 @@ mod tests {
         assert_eq!(
             result.get(&tx_hbt_6).unwrap(),
             &Ok(StatusReadFromReceiptCheck::Succeeded(TxBlock {
-                    block_hash,
-                    block_number,
-                }),
-            )
+                block_hash,
+                block_number,
+            }),)
         )
     }
 

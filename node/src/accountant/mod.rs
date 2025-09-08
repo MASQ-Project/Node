@@ -37,7 +37,10 @@ use crate::blockchain::blockchain_bridge::{
     BlockMarker, RegisterNewPendingPayables, RetrieveTransactions,
 };
 use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
-use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, ProcessedPayableFallible, StatusReadFromReceiptCheck};
+use crate::blockchain::blockchain_interface::data_structures::{
+    BlockchainTransaction, ProcessedPayableFallible, StatusReadFromReceiptCheck,
+};
+use crate::blockchain::errors::rpc_errors::AppRpcError;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::DbInitializationConfig;
 use crate::sub_lib::accountant::AccountantSubs;
@@ -82,7 +85,6 @@ use std::path::Path;
 use std::rc::Rc;
 use std::time::SystemTime;
 use web3::types::H256;
-use crate::blockchain::errors::rpc_errors::AppRpcError;
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
 pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; //6 hours
@@ -3544,12 +3546,10 @@ mod tests {
             )]),
             response_skeleton_opt: None,
         };
-        let tx_status =
-            StatusReadFromReceiptCheck::Succeeded(TxBlock {
-                block_hash: make_tx_hash(369369),
-                block_number: 4444444444u64.into(),
-            },
-        );
+        let tx_status = StatusReadFromReceiptCheck::Succeeded(TxBlock {
+            block_hash: make_tx_hash(369369),
+            block_number: 4444444444u64.into(),
+        });
         let counter_msg_3 = TxReceiptsMessage {
             results: hashmap![TxHashByTable::SentPayable(tx_hash) => Ok(tx_status)],
             response_skeleton_opt: None,

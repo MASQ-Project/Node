@@ -4,9 +4,9 @@ pub mod blockchain_interface_web3;
 pub mod data_structures;
 pub mod lower_level_interface;
 
-use std::collections::HashMap;
 use crate::accountant::scanners::payable_scanner_extension::msgs::PricedQualifiedPayables;
 use crate::accountant::scanners::pending_payable_scanner::utils::TxHashByTable;
+use crate::accountant::TxReceiptResult;
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::{
     BlockMarker, BlockScanRange, RegisterNewPendingPayables,
@@ -23,8 +23,8 @@ use actix::Recipient;
 use futures::Future;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
+use std::collections::HashMap;
 use web3::types::Address;
-use crate::accountant::TxReceiptResult;
 
 pub trait BlockchainInterface {
     fn contract_address(&self) -> Address;
@@ -48,7 +48,12 @@ pub trait BlockchainInterface {
     fn process_transaction_receipts(
         &self,
         tx_hashes: Vec<TxHashByTable>,
-    ) -> Box<dyn Future<Item = HashMap<TxHashByTable, TxReceiptResult>, Error = BlockchainInterfaceError>>;
+    ) -> Box<
+        dyn Future<
+            Item = HashMap<TxHashByTable, TxReceiptResult>,
+            Error = BlockchainInterfaceError,
+        >,
+    >;
 
     fn submit_payables_in_batch(
         &self,
