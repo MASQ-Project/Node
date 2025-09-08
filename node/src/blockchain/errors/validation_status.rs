@@ -142,7 +142,7 @@ impl ValidationFailureClock for ValidationFailureClockReal {
 mod tests {
     use super::*;
     use crate::blockchain::errors::internal_errors::InternalErrorKind;
-    use crate::blockchain::errors::rpc_errors::AppRpcErrorKind;
+    use crate::blockchain::errors::rpc_errors::{AppRpcErrorKind, LocalErrorKind};
     use crate::blockchain::test_utils::ValidationFailureClockMock;
     use crate::test_utils::serde_serializer_mock::{SerdeSerializerMock, SerializeSeqMock};
     use serde::ser::Error as SerdeError;
@@ -154,7 +154,7 @@ mod tests {
         // new()
         let timestamp_a = SystemTime::now();
         let subject = PreviousAttempts::new(
-            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Decoder),
+            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Decoder)),
             &validation_failure_clock,
         );
         // add_attempt()
@@ -165,22 +165,24 @@ mod tests {
         );
         let timestamp_c = SystemTime::now();
         let subject = subject.add_attempt(
-            BlockchainErrorKind::AppRpc(AppRpcErrorKind::IO),
+            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::IO)),
             &validation_failure_clock,
         );
         let timestamp_d = SystemTime::now();
         let subject = subject.add_attempt(
-            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Decoder),
+            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Decoder)),
             &validation_failure_clock,
         );
         let subject = subject.add_attempt(
-            BlockchainErrorKind::AppRpc(AppRpcErrorKind::IO),
+            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::IO)),
             &validation_failure_clock,
         );
 
         let decoder_error_stats = subject
             .inner
-            .get(&BlockchainErrorKind::AppRpc(AppRpcErrorKind::Decoder))
+            .get(&BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(
+                LocalErrorKind::Decoder,
+            )))
             .unwrap();
         assert!(
             timestamp_a <= decoder_error_stats.first_seen
@@ -208,7 +210,9 @@ mod tests {
         assert_eq!(internal_error_stats.attempts, 1);
         let io_error_stats = subject
             .inner
-            .get(&BlockchainErrorKind::AppRpc(AppRpcErrorKind::IO))
+            .get(&BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(
+                LocalErrorKind::IO,
+            )))
             .unwrap();
         assert!(
             timestamp_c <= io_error_stats.first_seen && io_error_stats.first_seen <= timestamp_d,
@@ -218,15 +222,18 @@ mod tests {
             io_error_stats.first_seen
         );
         assert_eq!(io_error_stats.attempts, 2);
-        let other_error_stats = subject
-            .inner
-            .get(&BlockchainErrorKind::AppRpc(AppRpcErrorKind::Signing));
+        let other_error_stats =
+            subject
+                .inner
+                .get(&BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(
+                    LocalErrorKind::Signing,
+                )));
         assert_eq!(other_error_stats, None);
     }
 
     #[test]
     fn previous_attempts_custom_serialize_seq_happy_path() {
-        let err = BlockchainErrorKind::AppRpc(AppRpcErrorKind::Internal);
+        let err = BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Internal));
         let timestamp = UNIX_EPOCH
             .checked_add(Duration::from_secs(1234567890))
             .unwrap();
@@ -236,7 +243,7 @@ mod tests {
 
         assert_eq!(
             result,
-            r#"[{"error":{"AppRpc":"Internal"},"firstSeen":{"secs_since_epoch":1234567890,"nanos_since_epoch":0},"attempts":1}]"#
+            r#"[{"error":{"AppRpc":{"Local":"Internal"}},"firstSeen":{"secs_since_epoch":1234567890,"nanos_since_epoch":0},"attempts":1}]"#
         );
     }
 
@@ -244,7 +251,7 @@ mod tests {
     fn previous_attempts_custom_serialize_seq_initialization_err() {
         let mock = SerdeSerializerMock::default()
             .serialize_seq_result(Err(serde_json::Error::custom("lethally acid bobbles")));
-        let err = BlockchainErrorKind::AppRpc(AppRpcErrorKind::Internal);
+        let err = BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Internal));
         let timestamp = UNIX_EPOCH
             .checked_add(Duration::from_secs(1234567890))
             .unwrap();
@@ -261,7 +268,7 @@ mod tests {
             .serialize_seq_result(Ok(SerializeSeqMock::default().serialize_element_result(
                 Err(serde_json::Error::custom("jelly gummies gone off")),
             )));
-        let err = BlockchainErrorKind::AppRpc(AppRpcErrorKind::Internal);
+        let err = BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Internal));
         let timestamp = UNIX_EPOCH
             .checked_add(Duration::from_secs(1234567890))
             .unwrap();
@@ -278,7 +285,7 @@ mod tests {
             SerdeSerializerMock::default().serialize_seq_result(Ok(SerializeSeqMock::default()
                 .serialize_element_result(Ok(()))
                 .end_result(Err(serde_json::Error::custom("funny belly ache")))));
-        let err = BlockchainErrorKind::AppRpc(AppRpcErrorKind::Internal);
+        let err = BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Internal));
         let timestamp = UNIX_EPOCH
             .checked_add(Duration::from_secs(1234567890))
             .unwrap();
@@ -291,7 +298,7 @@ mod tests {
 
     #[test]
     fn previous_attempts_custom_deserialize_happy_path() {
-        let str = r#"[{"error":{"AppRpc":"Internal"},"firstSeen":{"secs_since_epoch":1234567890,"nanos_since_epoch":0},"attempts":1}]"#;
+        let str = r#"[{"error":{"AppRpc":{"Local":"Internal"}},"firstSeen":{"secs_since_epoch":1234567890,"nanos_since_epoch":0},"attempts":1}]"#;
 
         let result = serde_json::from_str::<PreviousAttempts>(str);
 
@@ -301,19 +308,20 @@ mod tests {
         let clock = ValidationFailureClockMock::default().now_result(timestamp);
         assert_eq!(
             result.unwrap().inner,
-            hashmap!(BlockchainErrorKind::AppRpc(AppRpcErrorKind::Internal) => ErrorStats::now(&clock))
+            hashmap!(BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Internal)) => ErrorStats::now(&clock))
         );
     }
 
     #[test]
     fn previous_attempts_custom_deserialize_sad_path() {
-        let str = r#"[{"error":{"AppRpc":"Internal"},"firstSeen":"Yesterday","attempts":1}]"#;
+        let str =
+            r#"[{"error":{"AppRpc":{"Local":"Internal"}},"firstSeen":"Yesterday","attempts":1}]"#;
 
         let result = serde_json::from_str::<PreviousAttempts>(str);
 
         assert_eq!(
             result.unwrap_err().to_string(),
-            "invalid type: string \"Yesterday\", expected struct SystemTime at line 1 column 69"
+            "invalid type: string \"Yesterday\", expected struct SystemTime at line 1 column 79"
         );
     }
 }

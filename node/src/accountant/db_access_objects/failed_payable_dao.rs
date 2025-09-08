@@ -382,7 +382,7 @@ mod tests {
         make_read_only_db_connection, FailedTxBuilder,
     };
     use crate::accountant::db_access_objects::utils::current_unix_timestamp;
-    use crate::blockchain::errors::rpc_errors::AppRpcErrorKind;
+    use crate::blockchain::errors::rpc_errors::{AppRpcErrorKind, LocalErrorKind, RemoteErrorKind};
     use crate::blockchain::errors::validation_status::{
         PreviousAttempts, ValidationFailureClockReal,
     };
@@ -591,8 +591,8 @@ mod tests {
     fn failure_reason_from_str_works() {
         // Submission error
         assert_eq!(
-            FailureReason::from_str(r#"{"Submission":"Decoder"}"#).unwrap(),
-            FailureReason::Submission(AppRpcErrorKind::Decoder)
+            FailureReason::from_str(r#"{"Submission":{"Local":"Decoder"}}"#).unwrap(),
+            FailureReason::Submission(AppRpcErrorKind::Local(LocalErrorKind::Decoder))
         );
 
         // Reverted
@@ -640,8 +640,8 @@ mod tests {
         );
 
         assert_eq!(
-            FailureStatus::from_str(r#"{"RecheckRequired":{"Reattempting":[{"error":{"AppRpc":"ServerUnreachable"},"firstSeen":{"secs_since_epoch":1755080031,"nanos_since_epoch":612180914},"attempts":1}]}}"#).unwrap(),
-            FailureStatus::RecheckRequired(ValidationStatus::Reattempting( PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable), &validation_failure_clock)))
+            FailureStatus::from_str(r#"{"RecheckRequired":{"Reattempting":[{"error":{"AppRpc":{"Remote":"Unreachable"}},"firstSeen":{"secs_since_epoch":1755080031,"nanos_since_epoch":612180914},"attempts":1}]}}"#).unwrap(),
+            FailureStatus::RecheckRequired(ValidationStatus::Reattempting( PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(RemoteErrorKind::Unreachable)), &validation_failure_clock)))
         );
 
         assert_eq!(
@@ -723,7 +723,9 @@ mod tests {
             .reason(PendingTooLong)
             .status(RecheckRequired(ValidationStatus::Reattempting(
                 PreviousAttempts::new(
-                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(
+                        RemoteErrorKind::Unreachable,
+                    )),
                     &ValidationFailureClockReal::default(),
                 ),
             )))
@@ -783,7 +785,9 @@ mod tests {
             (
                 tx2.hash,
                 RecheckRequired(ValidationStatus::Reattempting(PreviousAttempts::new(
-                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(
+                        RemoteErrorKind::Unreachable,
+                    )),
                     &clock,
                 ))),
             ),
@@ -800,7 +804,7 @@ mod tests {
         assert_eq!(
             updated_txs[1].status,
             RecheckRequired(ValidationStatus::Reattempting(PreviousAttempts::new(
-                BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
+                BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(RemoteErrorKind::Unreachable)),
                 &clock
             )))
         );
