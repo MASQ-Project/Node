@@ -76,7 +76,7 @@ use masq_lib::ui_gateway::{MessageBody, MessagePath, MessageTarget};
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::ExpectValue;
 use std::any::type_name;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 #[cfg(test)]
 use std::default::Default;
 use std::fmt::Display;
@@ -145,7 +145,7 @@ pub type TxReceiptResult = Result<StatusReadFromReceiptCheck, AppRpcError>;
 
 #[derive(Debug, PartialEq, Eq, Message, Clone)]
 pub struct TxReceiptsMessage {
-    pub results: HashMap<TxHashByTable, TxReceiptResult>,
+    pub results: BTreeMap<TxHashByTable, TxReceiptResult>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
@@ -991,6 +991,8 @@ impl Accountant {
                     .expect("BlockchainBridge is dead");
             }
             Err(e) => {
+                // It is thrown away and there is no rescheduling downstream because every error
+                // happening here on the start resolves into a panic by the current design
                 let _ = self.handle_start_scan_error_and_prevent_scan_stall_point(
                     PayableSequenceScanner::RetryPayables,
                     e,
@@ -1881,10 +1883,12 @@ mod tests {
         let sent_tx = make_sent_tx(555);
         let tx_hash = sent_tx.hash;
         let sent_payable_dao = SentPayableDaoMock::default().retrieve_txs_result(vec![sent_tx]);
+        let failed_payable_dao = FailedPayableDaoMock::default().retrieve_txs_result(vec![]);
         let mut subject = AccountantBuilder::default()
             .consuming_wallet(make_paying_wallet(b"consuming"))
             .bootstrapper_config(config)
             .sent_payable_daos(vec![ForPendingPayableScanner(sent_payable_dao)])
+            .failed_payable_daos(vec![ForPendingPayableScanner(failed_payable_dao)])
             .build();
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let blockchain_bridge = blockchain_bridge
@@ -1969,7 +1973,7 @@ mod tests {
             block_number: 78901234.into(),
         };
         let tx_receipts_msg = TxReceiptsMessage {
-            results: hashmap![TxHashByTable::SentPayable(sent_tx.hash) => Ok(
+            results: btreemap![TxHashByTable::SentPayable(sent_tx.hash) => Ok(
                 StatusReadFromReceiptCheck::Succeeded(tx_block),
             )],
             response_skeleton_opt,
@@ -2194,7 +2198,7 @@ mod tests {
         let first_counter_msg_setup = setup_for_counter_msg_triggered_via_type_id!(
             RequestTransactionReceipts,
             TxReceiptsMessage {
-                results: hashmap![TxHashByTable::SentPayable(sent_tx.hash) => Ok(
+                results: btreemap![TxHashByTable::SentPayable(sent_tx.hash) => Ok(
                     StatusReadFromReceiptCheck::Reverted
                 ),],
                 response_skeleton_opt
@@ -2820,7 +2824,7 @@ mod tests {
         let subject_addr: Addr<Accountant> = subject.start();
         let subject_subs = Accountant::make_subs_from(&subject_addr);
         let expected_tx_receipts_msg = TxReceiptsMessage {
-            results: hashmap![TxHashByTable::SentPayable(tx_hash) => Ok(
+            results: btreemap![TxHashByTable::SentPayable(tx_hash) => Ok(
                 StatusReadFromReceiptCheck::Reverted,
             )],
             response_skeleton_opt: None,
@@ -3338,9 +3342,11 @@ mod tests {
     fn initial_pending_payable_scan_if_some_payables_found() {
         let sent_payable_dao =
             SentPayableDaoMock::default().retrieve_txs_result(vec![make_sent_tx(789)]);
+        let failed_payable_dao = FailedPayableDaoMock::default().retrieve_txs_result(vec![]);
         let mut subject = AccountantBuilder::default()
             .consuming_wallet(make_wallet("consuming"))
             .sent_payable_daos(vec![ForPendingPayableScanner(sent_payable_dao)])
+            .failed_payable_daos(vec![ForPendingPayableScanner(failed_payable_dao)])
             .build();
         let system = System::new("test");
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
@@ -3363,9 +3369,11 @@ mod tests {
     #[test]
     fn initial_pending_payable_scan_if_no_payables_found() {
         let sent_payable_dao = SentPayableDaoMock::default().retrieve_txs_result(vec![]);
+        let failed_payable_dao = FailedPayableDaoMock::default().retrieve_txs_result(vec![]);
         let mut subject = AccountantBuilder::default()
             .consuming_wallet(make_wallet("consuming"))
             .sent_payable_daos(vec![ForPendingPayableScanner(sent_payable_dao)])
+            .failed_payable_daos(vec![ForPendingPayableScanner(failed_payable_dao)])
             .build();
         let flag_before = subject.scanners.initial_pending_payable_scan();
 
@@ -3554,7 +3562,7 @@ mod tests {
             block_number: 4444444444u64.into(),
         });
         let counter_msg_3 = TxReceiptsMessage {
-            results: hashmap![TxHashByTable::SentPayable(tx_hash) => Ok(tx_status)],
+            results: btreemap![TxHashByTable::SentPayable(tx_hash) => Ok(tx_status)],
             response_skeleton_opt: None,
         };
         let request_transaction_receipts_msg = RequestTransactionReceipts {
@@ -5282,7 +5290,7 @@ mod tests {
         seeds: Vec<SeedsToMakeUpPayableWithStatus>,
     ) -> (TxReceiptsMessage, Vec<TxByTable>) {
         let (tx_receipt_results, tx_record_vec) = seeds.into_iter().enumerate().fold(
-            (hashmap![], vec![]),
+            (btreemap![], vec![]),
             |(mut tx_receipt_results, mut record_by_table_vec), (idx, seed_params)| {
                 let tx_hash = seed_params.tx_hash;
                 let status = seed_params.status;

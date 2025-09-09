@@ -11,7 +11,7 @@ use ethereum_types::U64;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::{Display, Formatter};
-use web3::types::H256;
+use web3::types::{TransactionReceipt, H256};
 use web3::Error;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -83,6 +83,21 @@ impl Display for StatusReadFromReceiptCheck {
                 )
             }
             StatusReadFromReceiptCheck::Pending => write!(f, "Pending"),
+        }
+    }
+}
+
+impl From<TransactionReceipt> for StatusReadFromReceiptCheck {
+    fn from(receipt: TransactionReceipt) -> Self {
+        match (receipt.status, receipt.block_hash, receipt.block_number) {
+            (Some(status), Some(block_hash), Some(block_number)) if status == U64::from(1) => {
+                StatusReadFromReceiptCheck::Succeeded(TxBlock {
+                    block_hash,
+                    block_number,
+                })
+            }
+            (Some(status), _, _) if status == U64::from(0) => StatusReadFromReceiptCheck::Reverted,
+            _ => StatusReadFromReceiptCheck::Pending,
         }
     }
 }

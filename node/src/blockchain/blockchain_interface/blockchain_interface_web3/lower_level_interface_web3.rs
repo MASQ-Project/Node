@@ -3,32 +3,14 @@
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::CONTRACT_ABI;
 use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainInterfaceError;
 use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainInterfaceError::QueryFailed;
-use crate::blockchain::blockchain_interface::data_structures::{
-    StatusReadFromReceiptCheck, TxBlock,
-};
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use ethereum_types::{H256, U256, U64};
 use futures::Future;
 use serde_json::Value;
 use web3::contract::{Contract, Options};
 use web3::transports::{Batch, Http};
-use web3::types::{Address, BlockNumber, Filter, Log, TransactionReceipt};
+use web3::types::{Address, BlockNumber, Filter, Log};
 use web3::{Error, Web3};
-
-impl From<TransactionReceipt> for StatusReadFromReceiptCheck {
-    fn from(receipt: TransactionReceipt) -> Self {
-        match (receipt.status, receipt.block_hash, receipt.block_number) {
-            (Some(status), Some(block_hash), Some(block_number)) if status == U64::from(1) => {
-                StatusReadFromReceiptCheck::Succeeded(TxBlock {
-                    block_hash,
-                    block_number,
-                })
-            }
-            (Some(status), _, _) if status == U64::from(0) => StatusReadFromReceiptCheck::Reverted,
-            _ => StatusReadFromReceiptCheck::Pending,
-        }
-    }
-}
 
 pub struct LowBlockchainIntWeb3 {
     web3: Web3<Http>,
@@ -157,7 +139,7 @@ mod tests {
     use masq_lib::utils::find_free_port;
     use std::str::FromStr;
     use web3::types::{BlockNumber, Bytes, FilterBuilder, Log, U256};
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{StatusReadFromReceiptCheck};
+    use crate::blockchain::blockchain_interface::data_structures::StatusReadFromReceiptCheck;
 
     #[test]
     fn get_transaction_fee_balance_works() {

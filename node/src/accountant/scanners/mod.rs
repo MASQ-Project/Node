@@ -1048,7 +1048,9 @@ mod tests {
         BlockchainTransaction, ProcessedPayableFallible, RpcPayableFailure,
         StatusReadFromReceiptCheck, TxBlock,
     };
-    use crate::blockchain::errors::rpc_errors::{AppRpcError, AppRpcErrorKind, RemoteError};
+    use crate::blockchain::errors::rpc_errors::{
+        AppRpcError, AppRpcErrorKind, RemoteError, RemoteErrorKind,
+    };
     use crate::blockchain::errors::validation_status::{PreviousAttempts, ValidationStatus};
     use crate::blockchain::errors::BlockchainErrorKind;
     use crate::blockchain::test_utils::{make_block_hash, make_tx_hash};
@@ -2584,6 +2586,10 @@ mod tests {
 
     #[test]
     fn pending_payable_scanner_handles_tx_receipts_message() {
+        // Note: the choice of those hashes isn't random; I tried to make sure I will know the order,
+        // in which these records will be processed, because they are in an ordered map.
+        // It is important because otherwise preparation of results with the mocks would become
+        // chaotic, as long as you care about the exact receiver of the mock call among these records
         init_test_logging();
         let test_name = "pending_payable_scanner_handles_tx_receipts_message";
         // Normal confirmation
@@ -2617,7 +2623,7 @@ mod tests {
             .update_statuses_params(&update_statuses_failed_payable_params_arc)
             .update_statuses_result(Ok(()))
             .delete_records_result(Ok(()));
-        let tx_hash_1 = make_tx_hash(4545);
+        let tx_hash_1 = make_tx_hash(0x111);
         let mut sent_tx_1 = make_sent_tx(123);
         sent_tx_1.hash = tx_hash_1;
         let tx_block_1 = TxBlock {
@@ -2625,7 +2631,7 @@ mod tests {
             block_number: U64::from(1234),
         };
         let tx_status_1 = StatusReadFromReceiptCheck::Succeeded(tx_block_1);
-        let tx_hash_2 = make_tx_hash(1234);
+        let tx_hash_2 = make_tx_hash(0x222);
         let mut failed_tx_2 = make_failed_tx(789);
         failed_tx_2.hash = tx_hash_2;
         let tx_block_2 = TxBlock {
@@ -2633,25 +2639,26 @@ mod tests {
             block_number: U64::from(2345),
         };
         let tx_status_2 = StatusReadFromReceiptCheck::Succeeded(tx_block_2);
-        let tx_hash_3 = make_tx_hash(2345);
+        let tx_hash_3 = make_tx_hash(0x333);
         let mut sent_tx_3 = make_sent_tx(456);
         sent_tx_3.hash = tx_hash_3;
         let tx_status_3 = StatusReadFromReceiptCheck::Pending;
+        let tx_hash_4 = make_tx_hash(0x444);
         let mut sent_tx_4 = make_sent_tx(4567);
-        let tx_hash_4 = sent_tx_4.hash;
+        sent_tx_4.hash = tx_hash_4;
         sent_tx_4.status = TxStatus::Pending(ValidationStatus::Waiting);
         let tx_receipt_rpc_error_4 = AppRpcError::Remote(RemoteError::Unreachable);
-        let tx_hash_5 = make_tx_hash(7890);
+        let tx_hash_5 = make_tx_hash(0x555);
         let mut failed_tx_5 = make_failed_tx(888);
         failed_tx_5.hash = tx_hash_5;
         failed_tx_5.status =
             FailureStatus::RecheckRequired(ValidationStatus::Reattempting(PreviousAttempts::new(
-                BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
+                BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(RemoteErrorKind::Unreachable)),
                 &ValidationFailureClockMock::default().now_result(timestamp_c),
             )));
         let tx_receipt_rpc_error_5 =
             AppRpcError::Remote(RemoteError::InvalidResponse("game over".to_string()));
-        let tx_hash_6 = make_tx_hash(2345);
+        let tx_hash_6 = make_tx_hash(0x666);
         let mut sent_tx_6 = make_sent_tx(789);
         sent_tx_6.hash = tx_hash_6;
         let tx_status_6 = StatusReadFromReceiptCheck::Reverted;
@@ -2675,7 +2682,7 @@ mod tests {
             .validation_failure_clock(Box::new(validation_failure_clock))
             .build();
         let msg = TxReceiptsMessage {
-            results: hashmap![
+            results: btreemap![
                 TxHashByTable::SentPayable(tx_hash_1) => Ok(tx_status_1),
                 TxHashByTable::FailedPayable(tx_hash_2) => Ok(tx_status_2),
                 TxHashByTable::SentPayable(tx_hash_3) => Ok(tx_status_3),
@@ -2701,10 +2708,10 @@ mod tests {
             block_number: tx_block_1.block_number.as_u64(),
             detection: Detection::Normal,
         };
-        let sent_tx_2 = SentTx::from((failed_tx_2, tx_block_2));
         assert_eq!(*transactions_confirmed_params, vec![vec![sent_tx_1]]);
         let confirm_tx_params = confirm_tx_params_arc.lock().unwrap();
         assert_eq!(*confirm_tx_params, vec![hashmap![tx_hash_1 => tx_block_1]]);
+        let sent_tx_2 = SentTx::from((failed_tx_2, tx_block_2));
         let replace_records_params = replace_records_params_arc.lock().unwrap();
         assert_eq!(*replace_records_params, vec![vec![sent_tx_2]]);
         let insert_new_records_params = insert_new_records_params_arc.lock().unwrap();
@@ -2719,7 +2726,7 @@ mod tests {
         assert_eq!(
             *update_statuses_pending_payable_params,
             vec![
-                hashmap!(tx_hash_4 => TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable), &ValidationFailureClockMock::default().now_result(timestamp_a)))))
+                hashmap!(tx_hash_4 => TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(RemoteErrorKind::Unreachable)), &ValidationFailureClockMock::default().now_result(timestamp_a)))))
             ]
         );
         let update_statuses_failed_payable_params =
@@ -2727,7 +2734,7 @@ mod tests {
         assert_eq!(
             *update_statuses_failed_payable_params,
             vec![
-                hashmap!(tx_hash_5 => FailureStatus::RecheckRequired(ValidationStatus::Reattempting(PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable), &ValidationFailureClockMock::default().now_result(timestamp_c)).add_attempt(BlockchainErrorKind::AppRpc(AppRpcErrorKind::InvalidResponse), &ValidationFailureClockMock::default().now_result(timestamp_b)))))
+                hashmap!(tx_hash_5 => FailureStatus::RecheckRequired(ValidationStatus::Reattempting(PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(RemoteErrorKind::Unreachable)), &ValidationFailureClockMock::default().now_result(timestamp_c)).add_attempt(BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(RemoteErrorKind::InvalidResponse)), &ValidationFailureClockMock::default().now_result(timestamp_b)))))
             ]
         );
         assert_eq!(subject.scan_started_at(ScanType::PendingPayables), None);
@@ -2735,13 +2742,13 @@ mod tests {
         test_log_handler.exists_log_containing(&format!(
             "DEBUG: {test_name}: Processing receipts for 6 txs"
         ));
-        test_log_handler.exists_log_containing(&format!("WARN: {test_name}: Failed to retrieve tx receipt for SentPayable(0x00000000000000000000000000000000000000000000000000000000000011d7): Remote(Unreachable). Will retry receipt retrieval next cycle"));
-        test_log_handler.exists_log_containing(&format!("WARN: {test_name}: Failed to retrieve tx receipt for FailedPayable(0x0000000000000000000000000000000000000000000000000000000000001ed2): Remote(InvalidResponse(\"game over\")). Will retry receipt retrieval next cycle"));
-        test_log_handler.exists_log_containing(&format!("INFO: {test_name}: Reclaimed txs 0x00000000000000000000000000000000000000000000000000000000000004d2 (block 2345) as confirmed on-chain"));
+        test_log_handler.exists_log_containing(&format!("WARN: {test_name}: Failed to retrieve tx receipt for SentPayable(0x0000000000000000000000000000000000000000000000000000000000000444): Remote(Unreachable). Will retry receipt retrieval next cycle"));
+        test_log_handler.exists_log_containing(&format!("WARN: {test_name}: Failed to retrieve tx receipt for FailedPayable(0x0000000000000000000000000000000000000000000000000000000000000555): Remote(InvalidResponse(\"game over\")). Will retry receipt retrieval next cycle"));
+        test_log_handler.exists_log_containing(&format!("INFO: {test_name}: Reclaimed txs 0x0000000000000000000000000000000000000000000000000000000000000222 (block 2345) as confirmed on-chain"));
         test_log_handler.exists_log_containing(&format!(
-                "INFO: {test_name}: Tx 0x00000000000000000000000000000000000000000000000000000000000011c1 (block 1234) was confirmed",
+                "INFO: {test_name}: Tx 0x0000000000000000000000000000000000000000000000000000000000000111 (block 1234) was confirmed",
             ));
-        test_log_handler.exists_log_containing(&format!("INFO: {test_name}: Failed txs 0x0000000000000000000000000000000000000000000000000000000000000929, 0x0000000000000000000000000000000000000000000000000000000000000315 were processed in the db"));
+        test_log_handler.exists_log_containing(&format!("INFO: {test_name}: Failed txs 0x0000000000000000000000000000000000000000000000000000000000000333, 0x0000000000000000000000000000000000000000000000000000000000000666 were processed in the db"));
     }
 
     #[test]
@@ -2752,7 +2759,7 @@ mod tests {
     fn pending_payable_scanner_handles_empty_report_transaction_receipts_message() {
         let mut pending_payable_scanner = PendingPayableScannerBuilder::new().build();
         let msg = TxReceiptsMessage {
-            results: hashmap![],
+            results: btreemap![],
             response_skeleton_opt: None,
         };
         pending_payable_scanner.mark_as_started(SystemTime::now());

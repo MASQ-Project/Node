@@ -239,7 +239,7 @@ mod tests {
     };
     use crate::blockchain::errors::internal_errors::InternalErrorKind;
     use crate::blockchain::errors::rpc_errors::{
-        AppRpcError, AppRpcErrorKind, LocalError, RemoteError,
+        AppRpcError, AppRpcErrorKind, LocalError, LocalErrorKind, RemoteError,
     };
     use crate::blockchain::errors::validation_status::{
         PreviousAttempts, ValidationFailureClockReal, ValidationStatus,
@@ -592,7 +592,7 @@ mod tests {
         test_failed_retrieval_of_receipt_for_pending_payable(
             test_name,
             TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
-                BlockchainErrorKind::AppRpc(AppRpcErrorKind::Internal),
+                BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Internal)),
                 &ValidationFailureClockReal::default(),
             ))),
         );
@@ -625,7 +625,7 @@ mod tests {
                     tx_receipt_rpc_failures: vec![FailedValidationByTable::SentPayable(
                         FailedValidation::new(
                             tx_hash,
-                            BlockchainErrorKind::AppRpc(rpc_error.into()),
+                            BlockchainErrorKind::AppRpc((&rpc_error).into()),
                             current_tx_status
                         )
                     ),]
@@ -656,7 +656,7 @@ mod tests {
         test_failed_retrieval_of_receipt_for_failed_tx(
             test_name,
             FailureStatus::RecheckRequired(ValidationStatus::Reattempting(PreviousAttempts::new(
-                BlockchainErrorKind::AppRpc(AppRpcErrorKind::Internal),
+                BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Internal)),
                 &ValidationFailureClockReal::default(),
             ))),
         );
@@ -689,7 +689,7 @@ mod tests {
                     tx_receipt_rpc_failures: vec![FailedValidationByTable::FailedPayable(
                         FailedValidation::new(
                             tx_hash,
-                            BlockchainErrorKind::AppRpc(rpc_error.into()),
+                            BlockchainErrorKind::AppRpc((&rpc_error).into()),
                             current_failure_status
                         )
                     )]

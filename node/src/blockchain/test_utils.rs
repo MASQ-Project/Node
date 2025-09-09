@@ -229,24 +229,6 @@ pub fn transport_error_message() -> String {
     }
 }
 
-#[derive(Default)]
-pub struct ValidationFailureClockMock {
-    now_results: RefCell<Vec<SystemTime>>,
-}
-
-impl ValidationFailureClock for ValidationFailureClockMock {
-    fn now(&self) -> SystemTime {
-        self.now_results.borrow_mut().remove(0)
-    }
-}
-
-impl ValidationFailureClockMock {
-    pub fn now_result(self, result: SystemTime) -> Self {
-        self.now_results.borrow_mut().push(result);
-        self
-    }
-}
-
 pub struct TransactionReceiptBuilder {
     status_opt: Option<U64>,
     block_hash_opt: Option<H256>,
@@ -293,5 +275,23 @@ impl TransactionReceiptBuilder {
             logs: vec![],
             logs_bloom: Default::default(),
         }
+    }
+}
+
+#[derive(Default)]
+pub struct ValidationFailureClockMock {
+    now_results: RefCell<Vec<SystemTime>>,
+}
+
+impl ValidationFailureClock for ValidationFailureClockMock {
+    fn now(&self) -> SystemTime {
+        self.now_results.borrow_mut().remove(0)
+    }
+}
+
+impl ValidationFailureClockMock {
+    pub fn now_result(self, result: SystemTime) -> Self {
+        self.now_results.borrow_mut().push(result);
+        self
     }
 }

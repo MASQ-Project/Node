@@ -117,12 +117,12 @@ impl FailedValidationByTable {
         match status {
             Either::Left(tx_status) => Self::SentPayable(FailedValidation::new(
                 tx_hash,
-                BlockchainErrorKind::AppRpc(error.into()),
+                BlockchainErrorKind::AppRpc((&error).into()),
                 tx_status,
             )),
             Either::Right(failure_reason) => Self::FailedPayable(FailedValidation::new(
                 tx_hash,
-                BlockchainErrorKind::AppRpc(error.into()),
+                BlockchainErrorKind::AppRpc((&error).into()),
                 failure_reason,
             )),
         }
@@ -338,7 +338,7 @@ impl TxByTable {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash, PartialOrd, Ord)]
 pub enum TxHashByTable {
     SentPayable(TxHash),
     FailedPayable(TxHash),
@@ -373,7 +373,7 @@ mod tests {
         RecheckRequiringFailures, Retry, TxByTable, TxHashByTable,
     };
     use crate::accountant::test_utils::{make_failed_tx, make_sent_tx};
-    use crate::blockchain::errors::rpc_errors::AppRpcErrorKind;
+    use crate::blockchain::errors::rpc_errors::{AppRpcErrorKind, LocalErrorKind, RemoteErrorKind};
     use crate::blockchain::errors::validation_status::{
         PreviousAttempts, ValidationFailureClockReal, ValidationStatus,
     };
@@ -418,16 +418,20 @@ mod tests {
             vec![],
             vec![FailedValidationByTable::SentPayable(FailedValidation::new(
                 make_tx_hash(2222),
-                BlockchainErrorKind::AppRpc(AppRpcErrorKind::Internal),
+                BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Internal)),
                 TxStatus::Pending(ValidationStatus::Waiting),
             ))],
             vec![FailedValidationByTable::FailedPayable(
                 FailedValidation::new(
                     make_tx_hash(12121),
-                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::InvalidResponse),
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(
+                        RemoteErrorKind::InvalidResponse,
+                    )),
                     FailureStatus::RecheckRequired(ValidationStatus::Reattempting(
                         PreviousAttempts::new(
-                            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Internal),
+                            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(
+                                LocalErrorKind::Internal,
+                            )),
                             &ValidationFailureClockReal::default(),
                         ),
                     )),
@@ -487,31 +491,39 @@ mod tests {
         let rpc_failure_feedings = vec![
             vec![FailedValidationByTable::SentPayable(FailedValidation::new(
                 make_tx_hash(2222),
-                BlockchainErrorKind::AppRpc(AppRpcErrorKind::Internal),
+                BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Internal)),
                 TxStatus::Pending(ValidationStatus::Waiting),
             ))],
             vec![FailedValidationByTable::FailedPayable(
                 FailedValidation::new(
                     make_tx_hash(1234),
-                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(
+                        RemoteErrorKind::Unreachable,
+                    )),
                     FailureStatus::RecheckRequired(ValidationStatus::Waiting),
                 ),
             )],
             vec![
                 FailedValidationByTable::SentPayable(FailedValidation::new(
                     make_tx_hash(2222),
-                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::Internal),
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Internal)),
                     TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
-                        BlockchainErrorKind::AppRpc(AppRpcErrorKind::Internal),
+                        BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(
+                            LocalErrorKind::Internal,
+                        )),
                         &ValidationFailureClockReal::default(),
                     ))),
                 )),
                 FailedValidationByTable::FailedPayable(FailedValidation::new(
                     make_tx_hash(1234),
-                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(
+                        RemoteErrorKind::Unreachable,
+                    )),
                     FailureStatus::RecheckRequired(ValidationStatus::Reattempting(
                         PreviousAttempts::new(
-                            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Internal),
+                            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(
+                                LocalErrorKind::Internal,
+                            )),
                             &ValidationFailureClockReal::default(),
                         ),
                     )),
@@ -916,12 +928,14 @@ mod tests {
             (
                 FailedValidation::new(
                     make_tx_hash(123),
-                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::Internal),
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Internal)),
                     TxStatus::Pending(ValidationStatus::Waiting),
                 ),
                 Some(TxStatus::Pending(ValidationStatus::Reattempting(
                     PreviousAttempts::new(
-                        BlockchainErrorKind::AppRpc(AppRpcErrorKind::Internal),
+                        BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(
+                            LocalErrorKind::Internal,
+                        )),
                         &ValidationFailureClockMock::default().now_result(timestamp_a),
                     ),
                 ))),
@@ -929,29 +943,41 @@ mod tests {
             (
                 FailedValidation::new(
                     make_tx_hash(123),
-                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(
+                        RemoteErrorKind::Unreachable,
+                    )),
                     TxStatus::Pending(ValidationStatus::Reattempting(
                         PreviousAttempts::new(
-                            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Internal),
+                            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(
+                                LocalErrorKind::Internal,
+                            )),
                             &ValidationFailureClockMock::default().now_result(timestamp_b),
                         )
                         .add_attempt(
-                            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Internal),
+                            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(
+                                LocalErrorKind::Internal,
+                            )),
                             &ValidationFailureClockReal::default(),
                         ),
                     )),
                 ),
                 Some(TxStatus::Pending(ValidationStatus::Reattempting(
                     PreviousAttempts::new(
-                        BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
+                        BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(
+                            RemoteErrorKind::Unreachable,
+                        )),
                         &ValidationFailureClockMock::default().now_result(timestamp_c),
                     )
                     .add_attempt(
-                        BlockchainErrorKind::AppRpc(AppRpcErrorKind::Internal),
+                        BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(
+                            LocalErrorKind::Internal,
+                        )),
                         &ValidationFailureClockMock::default().now_result(timestamp_b),
                     )
                     .add_attempt(
-                        BlockchainErrorKind::AppRpc(AppRpcErrorKind::Internal),
+                        BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(
+                            LocalErrorKind::Internal,
+                        )),
                         &ValidationFailureClockReal::default(),
                     ),
                 ))),
@@ -980,12 +1006,14 @@ mod tests {
             (
                 FailedValidation::new(
                     make_tx_hash(456),
-                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::Internal),
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Internal)),
                     FailureStatus::RecheckRequired(ValidationStatus::Waiting),
                 ),
                 Some(FailureStatus::RecheckRequired(
                     ValidationStatus::Reattempting(PreviousAttempts::new(
-                        BlockchainErrorKind::AppRpc(AppRpcErrorKind::Internal),
+                        BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(
+                            LocalErrorKind::Internal,
+                        )),
                         &ValidationFailureClockMock::default().now_result(timestamp_a),
                     )),
                 )),
@@ -993,14 +1021,20 @@ mod tests {
             (
                 FailedValidation::new(
                     make_tx_hash(456),
-                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(
+                        RemoteErrorKind::Unreachable,
+                    )),
                     FailureStatus::RecheckRequired(ValidationStatus::Reattempting(
                         PreviousAttempts::new(
-                            BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
+                            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(
+                                RemoteErrorKind::Unreachable,
+                            )),
                             &ValidationFailureClockMock::default().now_result(timestamp_b),
                         )
                         .add_attempt(
-                            BlockchainErrorKind::AppRpc(AppRpcErrorKind::InvalidResponse),
+                            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(
+                                RemoteErrorKind::InvalidResponse,
+                            )),
                             &ValidationFailureClockMock::default().now_result(timestamp_c),
                         ),
                     )),
@@ -1008,15 +1042,21 @@ mod tests {
                 Some(FailureStatus::RecheckRequired(
                     ValidationStatus::Reattempting(
                         PreviousAttempts::new(
-                            BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
+                            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(
+                                RemoteErrorKind::Unreachable,
+                            )),
                             &ValidationFailureClockMock::default().now_result(timestamp_b),
                         )
                         .add_attempt(
-                            BlockchainErrorKind::AppRpc(AppRpcErrorKind::InvalidResponse),
+                            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(
+                                RemoteErrorKind::InvalidResponse,
+                            )),
                             &ValidationFailureClockMock::default().now_result(timestamp_c),
                         )
                         .add_attempt(
-                            BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
+                            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(
+                                RemoteErrorKind::Unreachable,
+                            )),
                             &ValidationFailureClockReal::default(),
                         ),
                     ),
@@ -1039,7 +1079,7 @@ mod tests {
         let validation_failure_clock = ValidationFailureClockMock::default();
         let mal_validated_tx_status = FailedValidation::new(
             make_tx_hash(123),
-            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Internal),
+            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Internal)),
             TxStatus::Confirmed {
                 block_hash: "".to_string(),
                 block_number: 0,
@@ -1059,12 +1099,12 @@ mod tests {
         let mal_validated_failure_statuses = vec![
             FailedValidation::new(
                 make_tx_hash(456),
-                BlockchainErrorKind::AppRpc(AppRpcErrorKind::Internal),
+                BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Internal)),
                 FailureStatus::RetryRequired,
             ),
             FailedValidation::new(
                 make_tx_hash(789),
-                BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
+                BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(RemoteErrorKind::Unreachable)),
                 FailureStatus::Concluded,
             ),
         ];

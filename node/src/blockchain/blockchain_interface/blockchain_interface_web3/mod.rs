@@ -4,7 +4,7 @@ pub mod lower_level_interface_web3;
 mod utils;
 
 use std::cmp::PartialEq;
-use std::collections::HashMap;
+use std::collections::{BTreeMap};
 use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainInterfaceError, PayableTransactionError};
 use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, ProcessedPayableFallible, StatusReadFromReceiptCheck};
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
@@ -220,7 +220,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         tx_hashes: Vec<TxHashByTable>,
     ) -> Box<
         dyn Future<
-            Item = HashMap<TxHashByTable, TxReceiptResult>,
+            Item = BTreeMap<TxHashByTable, TxReceiptResult>,
             Error = BlockchainInterfaceError,
         >,
     > {
@@ -254,7 +254,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                             }
                             Err(e) => (tx_hash, Err(AppRpcError::from(e))),
                         })
-                        .collect::<HashMap<TxHashByTable, TxReceiptResult>>())
+                        .collect::<BTreeMap<TxHashByTable, TxReceiptResult>>())
                 }),
         )
     }

@@ -464,6 +464,25 @@ macro_rules! test_only_use {
 }
 
 #[macro_export(local_inner_macros)]
+macro_rules! btreemap {
+    () => {
+        ::std::collections::BTreeMap::new()
+    };
+    ($($key:expr => $val:expr,)+) => {
+        btreemap!($($key => $val),+)
+    };
+    ($($key:expr => $value:expr),+) => {
+        {
+            let mut _btm = ::std::collections::BTreeMap::new();
+            $(
+                let _ = _btm.insert($key, $value);
+            )*
+            _btm
+        }
+    };
+}
+
+#[macro_export(local_inner_macros)]
 macro_rules! hashmap {
     () => {
         ::std::collections::HashMap::new()
@@ -504,7 +523,8 @@ macro_rules! hashset {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::{HashMap, HashSet};
+    use itertools::Itertools;
+    use std::collections::{BTreeMap, HashMap, HashSet};
     use std::env::current_dir;
     use std::fmt::Write;
     use std::fs::{create_dir_all, File, OpenOptions};
@@ -863,6 +883,40 @@ mod tests {
         );
         assert_eq!(hashmap_of_string, expected_hashmap_of_string);
         assert_eq!(hashmap_with_duplicate, expected_hashmap_with_duplicate);
+    }
+
+    #[test]
+    fn btreemap_macro_works() {
+        let empty_btm: BTreeMap<String, i32> = btreemap!();
+        let btm_with_one_element = btreemap!("ABC" => "234");
+        let btm_with_multiple_elements = btreemap!("Bobble" => 2, "Hurrah" => 20, "Boom" => 42);
+        let btm_with_trailing_comma = btreemap!(12 => 1, 22 =>2,);
+        let btm_with_duplicate = btreemap!("A"=>123, "A"=>222);
+
+        let expected_empty_btm: BTreeMap<String, i32> = BTreeMap::new();
+        let mut expected_btm_with_one_element = BTreeMap::new();
+        expected_btm_with_one_element.insert("ABC", "234");
+        let mut expected_btm_with_multiple_elements = BTreeMap::new();
+        expected_btm_with_multiple_elements.insert("Bobble", 2);
+        expected_btm_with_multiple_elements.insert("Hurrah", 20);
+        expected_btm_with_multiple_elements.insert("Boom", 42);
+        let mut expected_btm_with_trailing_comma = BTreeMap::new();
+        expected_btm_with_trailing_comma.insert(12, 1);
+        expected_btm_with_trailing_comma.insert(22, 2);
+        let mut expected_btm_with_duplicate = BTreeMap::new();
+        expected_btm_with_duplicate.insert("A", 222);
+        assert_eq!(empty_btm, expected_empty_btm);
+        assert_eq!(btm_with_one_element, expected_btm_with_one_element);
+        assert_eq!(
+            btm_with_multiple_elements,
+            expected_btm_with_multiple_elements
+        );
+        assert_eq!(
+            btm_with_multiple_elements.into_iter().collect_vec(),
+            vec![("Bobble", 2), ("Boom", 42), ("Hurrah", 20)]
+        );
+        assert_eq!(btm_with_trailing_comma, expected_btm_with_trailing_comma);
+        assert_eq!(btm_with_duplicate, expected_btm_with_duplicate);
     }
 
     #[test]
