@@ -442,7 +442,7 @@ mod tests {
     use crate::accountant::db_access_objects::test_utils::{make_read_only_db_connection, TxBuilder};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock};
     use crate::blockchain::errors::BlockchainErrorKind;
-    use crate::blockchain::errors::rpc_errors::AppRpcErrorKind;
+    use crate::blockchain::errors::rpc_errors::{AppRpcErrorKind, RemoteErrorKind};
     use crate::blockchain::errors::validation_status::{PreviousAttempts, ValidationFailureClockReal};
     use crate::blockchain::test_utils::{make_block_hash, make_tx_hash, ValidationFailureClockMock};
 
@@ -458,11 +458,15 @@ mod tests {
             .hash(make_tx_hash(2))
             .status(TxStatus::Pending(ValidationStatus::Reattempting(
                 PreviousAttempts::new(
-                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(
+                        RemoteErrorKind::Unreachable,
+                    )),
                     &ValidationFailureClockReal::default(),
                 )
                 .add_attempt(
-                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(
+                        RemoteErrorKind::Unreachable,
+                    )),
                     &ValidationFailureClockReal::default(),
                 ),
             )))
@@ -694,7 +698,9 @@ mod tests {
             .hash(make_tx_hash(2))
             .status(TxStatus::Pending(ValidationStatus::Reattempting(
                 PreviousAttempts::new(
-                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::ServerUnreachable),
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(
+                        RemoteErrorKind::Unreachable,
+                    )),
                     &ValidationFailureClockReal::default(),
                 ),
             )))
@@ -1189,8 +1195,8 @@ mod tests {
         );
 
         assert_eq!(
-            TxStatus::from_str(r#"{"Pending":{"Reattempting":{"InvalidResponse":{"firstSeen":{"secs_since_epoch":12456,"nanos_since_epoch":0},"attempts":1}}}}"#).unwrap(),
-            TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::InvalidResponse), &validation_failure_clock)))
+            TxStatus::from_str(r#"{"Pending":{"Reattempting":[{"error":{"AppRpc":{"Remote":"InvalidResponse"}},"firstSeen":{"secs_since_epoch":12456,"nanos_since_epoch":0},"attempts":1}]}}"#).unwrap(),
+            TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(RemoteErrorKind::InvalidResponse)), &validation_failure_clock)))
         );
 
         assert_eq!(

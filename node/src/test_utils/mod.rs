@@ -14,6 +14,7 @@ pub mod persistent_configuration_mock;
 pub mod recorder;
 pub mod recorder_counter_msgs;
 pub mod recorder_stop_conditions;
+pub mod serde_serializer_mock;
 pub mod stream_connector_mock;
 pub mod tcp_wrapper_mocks;
 pub mod tokio_wrapper_mocks;
