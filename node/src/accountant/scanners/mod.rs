@@ -2526,7 +2526,7 @@ mod tests {
         let mut sent_tx_6 = make_sent_tx(789);
         sent_tx_6.hash = tx_hash_6;
         let tx_status_6 = StatusReadFromReceiptCheck::Reverted;
-        let pending_payable_cache = PendingPayableCacheMock::default()
+        let sent_payable_cache = PendingPayableCacheMock::default()
             .get_record_by_hash_result(Some(sent_tx_1.clone()))
             .get_record_by_hash_result(Some(sent_tx_3.clone()))
             .get_record_by_hash_result(Some(sent_tx_4))
@@ -2541,7 +2541,7 @@ mod tests {
             .payable_dao(payable_dao)
             .sent_payable_dao(sent_payable_dao)
             .failed_payable_dao(failed_payable_dao)
-            .sent_payable_cache(Box::new(pending_payable_cache))
+            .sent_payable_cache(Box::new(sent_payable_cache))
             .failed_payable_cache(Box::new(failed_payable_cache))
             .validation_failure_clock(Box::new(validation_failure_clock))
             .build();

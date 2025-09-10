@@ -348,59 +348,28 @@ impl PendingPayableScanner {
     }
 
     fn handle_tx_failure_reclaims(&mut self, reclaimed: Vec<SentTx>, logger: &Logger) {
-        fn isolate_hashes(reclaimed: &[(TxHash, TxBlock)]) -> HashSet<TxHash> {
-            reclaimed.iter().map(|(tx_hash, _)| *tx_hash).collect()
-        }
-
         if reclaimed.is_empty() {
             return;
         }
 
-        let hashes_and_blocks = Self::collect_hashes_and_blocks(&reclaimed)
-            .into_iter()
-            .sorted()
-            .collect_vec();
-        match self.sent_payable_dao.replace_records(&reclaimed) {
-            Ok(_) => {
-                debug!(logger, "Replaced records for txs being reclaimed")
-            }
-            Err(e) => {
-                panic!(
-                    "Unable to proceed in a reclaim as the replacement of sent tx records \
-                {} failed due to: {:?}",
-                    comma_joined_stringifiable(&hashes_and_blocks, |(tx_hash, _)| {
-                        format!("{:?}", tx_hash)
-                    }),
-                    e
-                )
-            }
-        }
+        let hashes_and_blocks = Self::collect_and_sort_hashes_and_blocks(&reclaimed);
 
-        match self
-            .failed_payable_dao
-            .delete_records(&isolate_hashes(&hashes_and_blocks))
-        {
-            Ok(_) => {
-                info!(
-                    logger,
-                    "Reclaimed txs {} as confirmed on-chain",
-                    comma_joined_stringifiable(&hashes_and_blocks, |(tx_hash, tx_block)| {
-                        format!("{:?} (block {})", tx_hash, tx_block.block_number)
-                    })
-                )
-            }
-            Err(e) => {
-                panic!(
-                    "Unable to delete failed tx records {} to finish the reclaims due to: {:?}",
-                    comma_joined_stringifiable(&hashes_and_blocks, |(tx_hash, _)| {
-                        format!("{:?}", tx_hash)
-                    }),
-                    e
-                )
-            }
-        }
+        self.replace_sent_tx_records(&reclaimed, &hashes_and_blocks, logger);
+
+        self.delete_failed_tx_records(&hashes_and_blocks, logger);
 
         self.add_to_the_total_of_paid_payable(&reclaimed, logger)
+    }
+
+    fn isolate_hashes(reclaimed: &[(TxHash, TxBlock)]) -> HashSet<TxHash> {
+        reclaimed.iter().map(|(tx_hash, _)| *tx_hash).collect()
+    }
+
+    fn collect_and_sort_hashes_and_blocks(sent_txs: &[SentTx]) -> Vec<(TxHash, TxBlock)> {
+        Self::collect_hashes_and_blocks(sent_txs)
+            .into_iter()
+            .sorted()
+            .collect_vec()
     }
 
     fn collect_hashes_and_blocks(reclaimed: &[SentTx]) -> HashMap<TxHash, TxBlock> {
@@ -415,7 +384,7 @@ impl PendingPayableScanner {
                         block_number: (*block_number).into()
                     }
                 } else {
-                    unreachable!(
+                    panic!(
                         "Processing a reclaim for tx {:?} which isn't filled with the confirmation details",
                         reclaim.hash
                     )
@@ -425,51 +394,78 @@ impl PendingPayableScanner {
             .collect()
     }
 
-    fn handle_normal_confirmations(&mut self, confirmed_txs: Vec<SentTx>, logger: &Logger) {
-        fn transaction_confirmed_panic(confirmed_txs: &[SentTx], e: PayableDaoError) -> ! {
-            panic!(
-                "Unable to complete the tx confirmation by the adjustment of the payable \
-                accounts {} due to: {:?}",
-                comma_joined_stringifiable(
-                    &confirmed_txs
-                        .iter()
-                        .map(|tx| tx.receiver_address)
-                        .collect_vec(),
-                    |wallet| format!("{:?}", wallet)
-                ),
-                e
-            )
+    fn replace_sent_tx_records(
+        &self,
+        sent_txs_to_reclaim: &[SentTx],
+        hashes_and_blocks: &[(TxHash, TxBlock)],
+        logger: &Logger,
+    ) {
+        match self.sent_payable_dao.replace_records(sent_txs_to_reclaim) {
+            Ok(_) => {
+                debug!(logger, "Replaced records for txs being reclaimed")
+            }
+            Err(e) => {
+                panic!(
+                    "Unable to proceed in a reclaim as the replacement of sent tx records \
+                {} failed due to: {:?}",
+                    comma_joined_stringifiable(hashes_and_blocks, |(tx_hash, _)| {
+                        format!("{:?}", tx_hash)
+                    }),
+                    e
+                )
+            }
         }
-        fn update_tx_blocks_panic(
-            tx_hashes_and_tx_blocks: &HashMap<TxHash, TxBlock>,
-            e: SentPayableDaoError,
-        ) -> ! {
-            panic!(
-                "Unable to update sent payable records {} by their tx blocks due to: {:?}",
-                comma_joined_stringifiable(
-                    &tx_hashes_and_tx_blocks.keys().sorted().collect_vec(),
-                    |tx_hash| format!("{:?}", tx_hash)
-                ),
-                e
-            )
-        }
+    }
 
+    fn delete_failed_tx_records(&self, hashes_and_blocks: &[(TxHash, TxBlock)], logger: &Logger) {
+        let hashes = Self::isolate_hashes(hashes_and_blocks);
+        match self.failed_payable_dao.delete_records(&hashes) {
+            Ok(_) => {
+                info!(
+                    logger,
+                    "Reclaimed txs {} as confirmed on-chain",
+                    comma_joined_stringifiable(hashes_and_blocks, |(tx_hash, tx_block)| {
+                        format!("{:?} (block {})", tx_hash, tx_block.block_number)
+                    })
+                )
+            }
+            Err(e) => {
+                panic!(
+                    "Unable to delete failed tx records {} to finish the reclaims due to: {:?}",
+                    comma_joined_stringifiable(hashes_and_blocks, |(tx_hash, _)| {
+                        format!("{:?}", tx_hash)
+                    }),
+                    e
+                )
+            }
+        }
+    }
+
+    fn handle_normal_confirmations(&mut self, confirmed_txs: Vec<SentTx>, logger: &Logger) {
         if confirmed_txs.is_empty() {
             return;
         }
 
-        if let Err(e) = self.payable_dao.transactions_confirmed(&confirmed_txs) {
-            transaction_confirmed_panic(&confirmed_txs, e)
+        self.confirm_transactions(&confirmed_txs);
+
+        self.update_tx_blocks(&confirmed_txs, logger);
+
+        self.add_to_the_total_of_paid_payable(&confirmed_txs, logger);
+    }
+
+    fn confirm_transactions(&self, confirmed_sent_txs: &[SentTx]) {
+        if let Err(e) = self.payable_dao.transactions_confirmed(confirmed_sent_txs) {
+            Self::transaction_confirmed_panic(confirmed_sent_txs, e);
+        }
+    }
+
+    fn update_tx_blocks(&self, confirmed_sent_txs: &[SentTx], logger: &Logger) {
+        let tx_confirmations = Self::collect_hashes_and_blocks(confirmed_sent_txs);
+
+        if let Err(e) = self.sent_payable_dao.confirm_txs(&tx_confirmations) {
+            Self::update_tx_blocks_panic(&tx_confirmations, e);
         } else {
-            let tx_confirmations = Self::collect_hashes_and_blocks(&confirmed_txs);
-
-            if let Err(e) = self.sent_payable_dao.confirm_txs(&tx_confirmations) {
-                update_tx_blocks_panic(&tx_confirmations, e)
-            } else {
-                Self::log_tx_success(logger, &tx_confirmations);
-            }
-
-            self.add_to_the_total_of_paid_payable(&confirmed_txs, logger);
+            Self::log_tx_success(logger, &tx_confirmations);
         }
     }
 
@@ -487,6 +483,34 @@ impl PendingPayableScanner {
                 _ => format!("Txs {} were confirmed", pretty_pairs),
             }
         });
+    }
+
+    fn transaction_confirmed_panic(confirmed_txs: &[SentTx], e: PayableDaoError) -> ! {
+        panic!(
+            "Unable to complete the tx confirmation by the adjustment of the payable accounts \
+            {} due to: {:?}",
+            comma_joined_stringifiable(
+                &confirmed_txs
+                    .iter()
+                    .map(|tx| tx.receiver_address)
+                    .collect_vec(),
+                |wallet| format!("{:?}", wallet)
+            ),
+            e
+        )
+    }
+    fn update_tx_blocks_panic(
+        tx_hashes_and_tx_blocks: &HashMap<TxHash, TxBlock>,
+        e: SentPayableDaoError,
+    ) -> ! {
+        panic!(
+            "Unable to update sent payable records {} by their tx blocks due to: {:?}",
+            comma_joined_stringifiable(
+                &tx_hashes_and_tx_blocks.keys().sorted().collect_vec(),
+                |tx_hash| format!("{:?}", tx_hash)
+            ),
+            e
+        )
     }
 
     fn add_to_the_total_of_paid_payable(&mut self, confirmed_payments: &[SentTx], logger: &Logger) {
@@ -891,7 +915,7 @@ mod tests {
         let failed_payable_dao = FailedPayableDaoMock::new()
             .insert_new_records_result(Ok(()))
             .delete_records_result(Ok(()));
-        let pending_payable_cache = PendingPayableCacheMock::default()
+        let sent_payable_cache = PendingPayableCacheMock::default()
             .get_record_by_hash_params(&get_record_by_hash_sent_payable_cache_params_arc)
             .get_record_by_hash_result(Some(sent_tx_1.clone()))
             .get_record_by_hash_result(Some(sent_tx_2))
@@ -905,7 +929,7 @@ mod tests {
             .payable_dao(payable_dao)
             .sent_payable_dao(sent_payable_dao)
             .failed_payable_dao(failed_payable_dao)
-            .sent_payable_cache(Box::new(pending_payable_cache))
+            .sent_payable_cache(Box::new(sent_payable_cache))
             .failed_payable_cache(Box::new(failed_payable_cache))
             .build();
         let logger = Logger::new("test");
@@ -1079,7 +1103,8 @@ mod tests {
 
         subject.handle_failed_transactions(detected_failures, &Logger::new("test"))
 
-        //mocked pending payable DAO didn't panic which means we skipped the actual process
+        // Mocked pending payable DAO without prepared results didn't panic which means none of its
+        // methods was used in this test
     }
 
     #[test]
@@ -1529,7 +1554,8 @@ mod tests {
         subject
             .handle_confirmed_transactions(DetectedConfirmations::default(), &Logger::new("test"))
 
-        // Mocked payable DAO didn't panic, which means we skipped the actual process
+        // Mocked payable DAO without prepared results didn't panic, which none of its methods was
+        // used in this test
     }
 
     #[test]
@@ -1690,9 +1716,8 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "internal error: entered unreachable code: Processing a reclaim for \
-    tx 0x0000000000000000000000000000000000000000000000000000000000000123 which isn't filled with \
-    the confirmation details"
+        expected = "Processing a reclaim for tx 0x0000000000000000000000000000000000000000000000000\
+        000000000000123 which isn't filled with the confirmation details"
     )]
     fn handle_failure_reclaim_meets_a_record_without_confirmation_details() {
         let mut subject = PendingPayableScannerBuilder::new().build();
