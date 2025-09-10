@@ -26,7 +26,7 @@ impl ReceiptScanReport {
             self.failures.requires_retry(),
             self.confirmations.is_empty(),
         ) {
-            (None, true) => unreachable!("reading tx receipts gave no results"),
+            (None, true) => unreachable!("reading tx receipts gave no results, but always should"),
             (None, _) => None,
             (Some(retry), _) => Some(retry),
         }
@@ -154,7 +154,7 @@ where
 
     pub fn new_status(&self, clock: &dyn ValidationFailureClock) -> Option<RecordStatus> {
         self.current_status
-            .update_after_failure(self.validation_failure.clone(), clock)
+            .update_after_failure(self.validation_failure, clock)
     }
 }
 
@@ -219,7 +219,7 @@ pub struct MismatchReport {
 
 pub trait PendingPayableCache<Record> {
     fn load_cache(&mut self, records: Vec<Record>);
-    fn get_record_by_hash(&mut self, hashes: TxHash) -> Option<Record>;
+    fn get_record_by_hash(&mut self, hash: TxHash) -> Option<Record>;
     fn ensure_empty_cache(&mut self, logger: &Logger);
     fn dump_cache(&mut self) -> HashMap<TxHash, Record>;
 }
@@ -235,8 +235,8 @@ impl PendingPayableCache<SentTx> for CurrentPendingPayables {
             .extend(records.into_iter().map(|tx| (tx.hash, tx)));
     }
 
-    fn get_record_by_hash(&mut self, hashes: TxHash) -> Option<SentTx> {
-        self.sent_payables.remove(&hashes)
+    fn get_record_by_hash(&mut self, hash: TxHash) -> Option<SentTx> {
+        self.sent_payables.remove(&hash)
     }
 
     fn ensure_empty_cache(&mut self, logger: &Logger) {
@@ -272,8 +272,8 @@ impl PendingPayableCache<FailedTx> for RecheckRequiringFailures {
             .extend(records.into_iter().map(|tx| (tx.hash, tx)));
     }
 
-    fn get_record_by_hash(&mut self, hashes: TxHash) -> Option<FailedTx> {
-        self.failures.remove(&hashes)
+    fn get_record_by_hash(&mut self, hash: TxHash) -> Option<FailedTx> {
+        self.failures.remove(&hash)
     }
 
     fn ensure_empty_cache(&mut self, logger: &Logger) {
@@ -457,33 +457,29 @@ mod tests {
             },
         ];
 
-        tx_failures_feedings.iter().for_each(|tx_failures| {
-            tx_receipt_rpc_failures_feeding
-                .iter()
-                .for_each(|rpc_failures| {
-                    detected_confirmations_feeding
-                        .iter()
-                        .for_each(|detected_confirmations| {
-                            let case = ReceiptScanReport {
-                                failures: DetectedFailures {
-                                    tx_failures: tx_failures.clone(),
-                                    tx_receipt_rpc_failures: rpc_failures.clone(),
-                                },
-                                confirmations: detected_confirmations.clone(),
-                            };
+        for tx_failures in &tx_failures_feedings {
+            for rpc_failures in &tx_receipt_rpc_failures_feeding {
+                for detected_confirmations in &detected_confirmations_feeding {
+                    let case = ReceiptScanReport {
+                        failures: DetectedFailures {
+                            tx_failures: tx_failures.clone(),
+                            tx_receipt_rpc_failures: rpc_failures.clone(),
+                        },
+                        confirmations: detected_confirmations.clone(),
+                    };
 
-                            let result = case.requires_payments_retry();
+                    let result = case.requires_payments_retry();
 
-                            assert_eq!(
-                                result,
-                                Some(Retry::RetryPayments),
-                                "We expected Some(Retry::RetryPayments) but got {:?} for case {:?}",
-                                result,
-                                case
-                            );
-                        })
-                })
-        });
+                    assert_eq!(
+                        result,
+                        Some(Retry::RetryPayments),
+                        "Expected Some(Retry::RetryPayments) but got {:?} for case {:?}",
+                        result,
+                        case
+                    );
+                }
+            }
+        }
     }
 
     #[test]
@@ -549,8 +545,8 @@ mod tests {
             },
         ];
 
-        rpc_failure_feedings.into_iter().for_each(|rpc_failures|{
-            detected_confirmations_feeding.iter().for_each(|detected_confirmations|{
+        for rpc_failures in &rpc_failure_feedings {
+            for detected_confirmations in &detected_confirmations_feeding {
                 let case = ReceiptScanReport {
                     failures: DetectedFailures {
                         tx_failures: vec![], // This is the determinant
@@ -561,9 +557,15 @@ mod tests {
 
                 let result = case.requires_payments_retry();
 
-                assert_eq!(result, Some(Retry::RetryTxStatusCheckOnly), "We expected Some(Retry::RetryTxStatusCheckOnly) but got {:?} for case {:?}", result, case);
-            })
-        });
+                assert_eq!(
+                    result,
+                    Some(Retry::RetryTxStatusCheckOnly),
+                    "Expected Some(Retry::RetryTxStatusCheckOnly) but got {:?} for case {:?}",
+                    result,
+                    case
+                );
+            }
+        }
     }
 
     #[test]
@@ -583,31 +585,29 @@ mod tests {
             },
         ];
 
-        detected_confirmations_feeding
-            .into_iter()
-            .for_each(|detected_confirmations| {
-                let case = ReceiptScanReport {
-                    failures: DetectedFailures {
-                        tx_failures: vec![],
-                        tx_receipt_rpc_failures: vec![],
-                    },
-                    confirmations: detected_confirmations.clone(),
-                };
+        for detected_confirmations in detected_confirmations_feeding {
+            let case = ReceiptScanReport {
+                failures: DetectedFailures {
+                    tx_failures: vec![],
+                    tx_receipt_rpc_failures: vec![],
+                },
+                confirmations: detected_confirmations.clone(),
+            };
 
-                let result = case.requires_payments_retry();
+            let result = case.requires_payments_retry();
 
-                assert_eq!(
-                    result, None,
-                    "We expected None but got {:?} for case {:?}",
-                    result, case
-                );
-            });
+            assert_eq!(
+                result, None,
+                "We expected None but got {:?} for case {:?}",
+                result, case
+            );
+        }
     }
 
     #[test]
     #[should_panic(
-        expected = "internal error: entered unreachable code: reading tx receipts gave \
-    no results"
+        expected = "internal error: entered unreachable code: reading tx receipts gave no results, \
+        but always should"
     )]
     fn requires_payments_retry_with_no_results_in_whole_summary() {
         let report = ReceiptScanReport {
@@ -921,10 +921,10 @@ mod tests {
         let timestamp_a = SystemTime::now();
         let timestamp_b = SystemTime::now().sub(Duration::from_secs(11));
         let timestamp_c = SystemTime::now().sub(Duration::from_secs(22));
-        let validation_failure_clock = ValidationFailureClockMock::default()
+        let clock = ValidationFailureClockMock::default()
             .now_result(timestamp_a)
             .now_result(timestamp_c);
-        let mal_validated_tx_statuses = vec![
+        let cases = vec![
             (
                 FailedValidation::new(
                     make_tx_hash(123),
@@ -984,14 +984,9 @@ mod tests {
             ),
         ];
 
-        mal_validated_tx_statuses.into_iter().for_each(
-            |(failed_validation, expected_tx_status)| {
-                assert_eq!(
-                    failed_validation.new_status(&validation_failure_clock),
-                    expected_tx_status
-                );
-            },
-        );
+        cases.into_iter().for_each(|(input, expected)| {
+            assert_eq!(input.new_status(&clock), expected);
+        });
     }
 
     #[test]
@@ -999,10 +994,10 @@ mod tests {
         let timestamp_a = SystemTime::now().sub(Duration::from_secs(222));
         let timestamp_b = SystemTime::now().sub(Duration::from_secs(3333));
         let timestamp_c = SystemTime::now().sub(Duration::from_secs(44444));
-        let validation_failure_clock = ValidationFailureClockMock::default()
+        let clock = ValidationFailureClockMock::default()
             .now_result(timestamp_a)
             .now_result(timestamp_b);
-        let mal_validated_failure_statuses = vec![
+        let cases = vec![
             (
                 FailedValidation::new(
                     make_tx_hash(456),
@@ -1064,14 +1059,9 @@ mod tests {
             ),
         ];
 
-        mal_validated_failure_statuses.into_iter().for_each(
-            |(failed_validation, expected_failed_tx_status)| {
-                assert_eq!(
-                    failed_validation.new_status(&validation_failure_clock),
-                    expected_failed_tx_status
-                );
-            },
-        )
+        cases.into_iter().for_each(|(input, expected)| {
+            assert_eq!(input.new_status(&clock), expected);
+        })
     }
 
     #[test]

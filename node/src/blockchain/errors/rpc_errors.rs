@@ -53,13 +53,13 @@ impl From<Web3Error> for AppRpcError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum AppRpcErrorKind {
     Local(LocalErrorKind),
     Remote(RemoteErrorKind),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum LocalErrorKind {
     Decoder,
     Internal,
@@ -68,7 +68,7 @@ pub enum LocalErrorKind {
     Transport,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum RemoteErrorKind {
     InvalidResponse,
     Unreachable,

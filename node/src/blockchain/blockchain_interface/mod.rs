@@ -23,7 +23,7 @@ use actix::Recipient;
 use futures::Future;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
-use std::collections::{HashMap};
+use std::collections::HashMap;
 use web3::types::Address;
 
 pub trait BlockchainInterface {

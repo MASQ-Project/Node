@@ -535,7 +535,6 @@ impl Scanner<SentPayables, PayableScanResult> for PayableScanner {
             debugging_summary_after_error_separation(&sent_payables, &err_opt)
         );
 
-        // TODO so, is this still properly covered with tests?
         if !sent_payables.is_empty() {
             self.check_on_missing_sent_tx_records(&sent_payables);
         }
@@ -682,31 +681,30 @@ impl PayableScanner {
         just_baked_sent_payables: &[&PendingPayable],
     ) -> Vec<PendingPayableMissingInDb> {
         let actual_sent_payables_len = just_baked_sent_payables.len();
-        let hashset_with_hashes_to_eliminate_duplicities = just_baked_sent_payables
+        let hashset_with_hashes_to_eliminate_duplicates = just_baked_sent_payables
             .iter()
             .map(|pending_payable| pending_payable.hash)
             .collect::<HashSet<TxHash>>();
 
-        if hashset_with_hashes_to_eliminate_duplicities.len() != actual_sent_payables_len {
+        if hashset_with_hashes_to_eliminate_duplicates.len() != actual_sent_payables_len {
             panic!(
-                "Found duplicities in the recent sent txs: {:?}",
+                "Found duplicates in the recent sent txs: {:?}",
                 just_baked_sent_payables
             );
         }
 
         let transaction_hashes_and_rowids_from_db = self
             .sent_payable_dao
-            .get_tx_identifiers(&hashset_with_hashes_to_eliminate_duplicities);
+            .get_tx_identifiers(&hashset_with_hashes_to_eliminate_duplicates);
         let hashes_from_db = transaction_hashes_and_rowids_from_db
             .keys()
             .copied()
             .collect::<HashSet<TxHash>>();
 
-        let missing_sent_payables_hashes: Vec<TxHash> =
-            hashset_with_hashes_to_eliminate_duplicities
-                .difference(&hashes_from_db)
-                .copied()
-                .collect();
+        let missing_sent_payables_hashes: Vec<TxHash> = hashset_with_hashes_to_eliminate_duplicates
+            .difference(&hashes_from_db)
+            .copied()
+            .collect();
 
         let mut sent_payables_hashmap = just_baked_sent_payables
             .iter()
@@ -1685,7 +1683,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Found duplicities in the recent sent txs: [PendingPayable { recipient_wallet: \
+        expected = "Found duplicates in the recent sent txs: [PendingPayable { recipient_wallet: \
         Wallet { kind: Address(0x0000000000000000000000000000000000616263) }, hash: \
         0x000000000000000000000000000000000000000000000000000000000000007b }, PendingPayable { \
         recipient_wallet: Wallet { kind: Address(0x0000000000000000000000000000000000646566) }, \
@@ -1696,7 +1694,7 @@ mod tests {
         recipient_wallet: Wallet { kind: Address(0x00000000000000000000000000000000006a6b6c) }, \
         hash: 0x0000000000000000000000000000000000000000000000000000000000000315 }]"
     )]
-    fn just_baked_pending_payables_contain_duplicities() {
+    fn just_baked_pending_payables_contain_duplicates() {
         let hash_1 = make_tx_hash(123);
         let hash_2 = make_tx_hash(456);
         let hash_3 = make_tx_hash(789);
@@ -2232,140 +2230,6 @@ mod tests {
             .exists_no_log_containing(&format!("DEBUG: {test_name}: Paying qualified debts"));
     }
 
-    // //TODO inspire yourself to write the right tests for the pending payable scanner when it starts
-    // // #[test]
-    // fn scan_for_pending_payables_finds_new_pending_payables() {
-    //     init_test_logging();
-    //     let now = SystemTime::now();
-    //     let retrieve_pending_txs_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let retrieve_failed_txs_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
-    //     let blockchain_bridge_addr = blockchain_bridge
-    //         .system_stop_conditions(match_lazily_every_type_id!(RequestTransactionReceipts))
-    //         .start();
-    //     let sent_tx_1 = make_sent_tx(456);
-    //     let tx_hash_1 = sent_tx_1.hash;
-    //     let sent_tx_2 = make_sent_tx(789);
-    //     let tx_hash_2 = sent_tx_2.hash;
-    //     let sent_payable_dao =
-    //         SentPayableDaoMock::default().retrieve_txs_params(&retrieve_pending_txs_params_arc).retrieve_txs_result(vec![sent_tx_1, sent_tx_2]);
-    //     let failed_payable_dao = FailedPayableDaoMock::default().retrieve_txs_params(&retrieve_failed_txs_params_arc).retrieve_txs_result(vec![]);
-    //     let config = bc_from_earning_wallet(make_wallet("mine"));
-    //     let system = System::new("pending payable scan");
-    //     let mut subject = AccountantBuilder::default()
-    //         .consuming_wallet(make_paying_wallet(b"consuming"))
-    //         .bootstrapper_config(config)
-    //         .build();
-    //     let pending_payable_scanner_real = PendingPayableScannerBuilder::new()
-    //         .sent_payable_dao(sent_payable_dao)
-    //         .build();
-    //     subject
-    //         .scanners
-    //         .replace_scanner(ScannerReplacement::PendingPayable(ReplacementType::Real(
-    //             pending_payable_scanner_real,
-    //         )));
-    //     subject.request_transaction_receipts_sub_opt = Some(blockchain_bridge_addr.recipient());
-    //     let account_addr = subject.start();
-    //
-    //     let _ = account_addr
-    //         .try_send(ScanForPendingPayables {
-    //             response_skeleton_opt: None,
-    //         })
-    //         .unwrap();
-    //
-    //     system.run();
-    //     let retrieve_pending_txs_params = retrieve_pending_txs_params_arc.lock().unwrap();
-    //     assert_eq!(
-    //         *retrieve_pending_txs_params,
-    //         vec![Some(RetrieveCondition::IsPending)]
-    //     );
-    //     let retrieve_failed_txs_params = retrieve_failed_txs_params_arc.lock().unwrap();
-    //     assert_eq!(
-    //         *retrieve_failed_txs_params,
-    //         vec![Some(FailureRetrieveCondition::EveryRecheckRequiredRecord)]
-    //     );
-    //     let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
-    //     let received_msg = blockchain_bridge_recording.get_record::<RequestTransactionReceipts>(0);
-    //     assert_eq!(
-    //         received_msg,
-    //         &RequestTransactionReceipts {
-    //             tx_hashes: vec![TxHashByTable::SentPayable(tx_hash_1), TxHashByTable::SentPayable(tx_hash_2)],
-    //             response_skeleton_opt: None,
-    //         }
-    //     );
-    //     assert_eq!(blockchain_bridge_recording.len(), 1);
-    //     let log_handler = TestLogHandler::new();
-    //     log_handler.exists_log_containing("DEBUG: Accountant: Found 2 pending payables to process");
-    // }
-    //
-    // #[test]
-    // fn scan_for_pending_payables_finds_new_pending_payable_and_unproven_failed_payable() {
-    //     init_test_logging();
-    //     let now = SystemTime::now();
-    //     let retrieve_pending_txs_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let retrieve_failed_txs_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
-    //     let blockchain_bridge_addr = blockchain_bridge
-    //         .system_stop_conditions(match_lazily_every_type_id!(RequestTransactionReceipts))
-    //         .start();
-    //     let sent_tx = make_sent_tx(456);
-    //     let tx_hash_1 = sent_tx.hash;
-    //     let failed_tx_1 = make_failed_tx(789);
-    //     let tx_hash_2 = failed_tx_1.hash;
-    //     let failed_tx_2 = make_failed_tx(123);
-    //     let tx_hash_3 = failed_tx_2.hash;
-    //     let sent_payable_dao =
-    //         SentPayableDaoMock::default().retrieve_txs_result(vec![sent_tx.clone()]);
-    //     let failed_payable_dao = FailedPayableDaoMock::default().retrieve_txs_result(vec![failed_tx_1, failed_tx_2]);
-    //     let config = bc_from_earning_wallet(make_wallet("mine"));
-    //     let system = System::new("pending payable scan");
-    //     let mut subject = AccountantBuilder::default()
-    //         .consuming_wallet(make_paying_wallet(b"consuming"))
-    //         .bootstrapper_config(config)
-    //         .build();
-    //     let pending_payable_scanner_real = PendingPayableScannerBuilder::new()
-    //         .sent_payable_dao(sent_payable_dao)
-    //         .build();
-    //     subject
-    //         .scanners
-    //         .replace_scanner(ScannerReplacement::PendingPayable(ReplacementType::Real(
-    //             pending_payable_scanner_real,
-    //         )));
-    //     subject.request_transaction_receipts_sub_opt = Some(blockchain_bridge_addr.recipient());
-    //     let account_addr = subject.start();
-    //
-    //     let _ = account_addr
-    //         .try_send(ScanForPendingPayables {
-    //             response_skeleton_opt: None,
-    //         })
-    //         .unwrap();
-    //
-    //     system.run();
-    //     let retrieve_pending_txs_params = retrieve_pending_txs_params_arc.lock().unwrap();
-    //     assert_eq!(
-    //         *retrieve_pending_txs_params,
-    //         vec![Some(RetrieveCondition::IsPending)]
-    //     );
-    //     let retrieve_failed_txs_params = retrieve_failed_txs_params_arc.lock().unwrap();
-    //     assert_eq!(
-    //         *retrieve_failed_txs_params,
-    //         vec![Some(FailureRetrieveCondition::EveryRecheckRequiredRecord)]
-    //     );
-    //     let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
-    //     let received_msg = blockchain_bridge_recording.get_record::<RequestTransactionReceipts>(0);
-    //     assert_eq!(
-    //         received_msg,
-    //         &RequestTransactionReceipts {
-    //             tx_hashes: vec![TxHashByTable::SentPayable(tx_hash_1),TxHashByTable::FailedPayable(tx_hash_2),  TxHashByTable::FailedPayable(tx_hash_3)],
-    //             response_skeleton_opt: None,
-    //         }
-    //     );
-    //     assert_eq!(blockchain_bridge_recording.len(), 1);
-    //     let log_handler = TestLogHandler::new();
-    //     log_handler.exists_log_containing("DEBUG: Accountant: Found 3 payables to query \
-    //     receipts for: 1 pending and 2 failed that require recheck");
-    // }
-
     #[test]
     fn pending_payable_scanner_can_initiate_a_scan() {
         init_test_logging();
@@ -2753,8 +2617,8 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "We should never receive an empty list of results. Even missing receipts can \
-        be interpreted"
+        expected = "We should never receive an empty list of results. Even receipts that could not \
+        be retrieved can be interpreted"
     )]
     fn pending_payable_scanner_handles_empty_report_transaction_receipts_message() {
         let mut pending_payable_scanner = PendingPayableScannerBuilder::new().build();

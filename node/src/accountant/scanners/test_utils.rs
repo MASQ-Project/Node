@@ -518,8 +518,8 @@ impl<Record> PendingPayableCache<Record> for PendingPayableCacheMock<Record> {
         self.load_cache_results.borrow_mut().remove(0);
     }
 
-    fn get_record_by_hash(&mut self, hashes: TxHash) -> Option<Record> {
-        self.get_record_by_hash_params.lock().unwrap().push(hashes);
+    fn get_record_by_hash(&mut self, hash: TxHash) -> Option<Record> {
+        self.get_record_by_hash_params.lock().unwrap().push(hash);
         self.get_record_by_hash_results.borrow_mut().remove(0)
     }
 

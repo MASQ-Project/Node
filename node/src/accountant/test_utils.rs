@@ -1379,7 +1379,7 @@ pub struct PendingPayableScannerBuilder {
     financial_statistics: FinancialStatistics,
     current_sent_payables: Box<dyn PendingPayableCache<SentTx>>,
     yet_unproven_failed_payables: Box<dyn PendingPayableCache<FailedTx>>,
-    validation_failure_clock: Box<dyn ValidationFailureClock>,
+    clock: Box<dyn ValidationFailureClock>,
 }
 
 impl PendingPayableScannerBuilder {
@@ -1392,7 +1392,7 @@ impl PendingPayableScannerBuilder {
             financial_statistics: FinancialStatistics::default(),
             current_sent_payables: Box::new(PendingPayableCacheMock::default()),
             yet_unproven_failed_payables: Box::new(PendingPayableCacheMock::default()),
-            validation_failure_clock: Box::new(ValidationFailureClockMock::default()),
+            clock: Box::new(ValidationFailureClockMock::default()),
         }
     }
 
@@ -1425,7 +1425,7 @@ impl PendingPayableScannerBuilder {
     }
 
     pub fn validation_failure_clock(mut self, clock: Box<dyn ValidationFailureClock>) -> Self {
-        self.validation_failure_clock = clock;
+        self.clock = clock;
         self
     }
 
@@ -1439,7 +1439,7 @@ impl PendingPayableScannerBuilder {
         );
         scanner.current_sent_payables = self.current_sent_payables;
         scanner.yet_unproven_failed_payables = self.yet_unproven_failed_payables;
-        scanner.validation_failure_clock = self.validation_failure_clock;
+        scanner.clock = self.clock;
         scanner
     }
 }

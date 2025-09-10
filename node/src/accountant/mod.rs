@@ -76,7 +76,7 @@ use masq_lib::ui_gateway::{MessageBody, MessagePath, MessageTarget};
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::ExpectValue;
 use std::any::type_name;
-use std::collections::{HashMap};
+use std::collections::HashMap;
 #[cfg(test)]
 use std::default::Default;
 use std::fmt::Display;

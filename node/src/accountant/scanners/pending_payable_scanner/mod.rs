@@ -54,7 +54,7 @@ pub struct PendingPayableScanner {
     pub financial_statistics: Rc<RefCell<FinancialStatistics>>,
     pub current_sent_payables: Box<dyn PendingPayableCache<SentTx>>,
     pub yet_unproven_failed_payables: Box<dyn PendingPayableCache<FailedTx>>,
-    pub validation_failure_clock: Box<dyn ValidationFailureClock>,
+    pub clock: Box<dyn ValidationFailureClock>,
 }
 
 impl
@@ -149,7 +149,7 @@ impl PendingPayableScanner {
             financial_statistics,
             current_sent_payables: Box::new(CurrentPendingPayables::default()),
             yet_unproven_failed_payables: Box::new(RecheckRequiringFailures::default()),
-            validation_failure_clock: Box::new(ValidationFailureClockReal::default()),
+            clock: Box::new(ValidationFailureClockReal::default()),
         }
     }
 
@@ -158,18 +158,13 @@ impl PendingPayableScanner {
             .sent_payable_dao
             .retrieve_txs(Some(RetrieveCondition::IsPending));
 
-        if !pending_txs.is_empty() {
-            let pending_tx_hashes =
-                Self::get_wrapped_hashes(&pending_txs, TxHashByTable::SentPayable);
-
-            if !pending_txs.is_empty() {
-                self.current_sent_payables.load_cache(pending_txs)
-            }
-
-            Some(pending_tx_hashes)
-        } else {
-            None
+        if pending_txs.is_empty() {
+            return None;
         }
+
+        let pending_tx_hashes = Self::get_wrapped_hashes(&pending_txs, TxHashByTable::SentPayable);
+        self.current_sent_payables.load_cache(pending_txs);
+        Some(pending_tx_hashes)
     }
 
     fn handle_unproven_failures(&mut self) -> Option<Vec<TxHashByTable>> {
@@ -177,17 +172,13 @@ impl PendingPayableScanner {
             .failed_payable_dao
             .retrieve_txs(Some(FailureRetrieveCondition::EveryRecheckRequiredRecord));
 
-        if !failures.is_empty() {
-            let failure_hashes = Self::get_wrapped_hashes(&failures, TxHashByTable::FailedPayable);
-
-            if !failures.is_empty() {
-                self.yet_unproven_failed_payables.load_cache(failures)
-            }
-
-            Some(failure_hashes)
-        } else {
-            None
+        if failures.is_empty() {
+            return None;
         }
+
+        let failure_hashes = Self::get_wrapped_hashes(&failures, TxHashByTable::FailedPayable);
+        self.yet_unproven_failed_payables.load_cache(failures);
+        Some(failure_hashes)
     }
 
     fn get_wrapped_hashes<Record>(
@@ -205,9 +196,9 @@ impl PendingPayableScanner {
 
     fn emptiness_check(&self, msg: &TxReceiptsMessage) {
         if msg.results.is_empty() {
-            unreachable!(
+            panic!(
                 "We should never receive an empty list of results. \
-            Even missing receipts can be interpreted"
+                Even receipts that could not be retrieved can be interpreted"
             )
         }
     }
@@ -250,23 +241,23 @@ impl PendingPayableScanner {
         logger: &Logger,
     ) -> Vec<TxCaseToBeInterpreted> {
         let init: Either<Vec<TxCaseToBeInterpreted>, MismatchReport> = Either::Left(vec![]);
-        let either =
-            msg.results
-                .into_iter()
-                // This must be in for predictability in tests
-                .sorted_by_key(|(hash_by_table,_)|{ hash_by_table.hash() })
-                .fold(
-                    init,
-                    |acc, (tx_hash_by_table, tx_receipt_result)| match acc {
-                        Either::Left(cases) => {
-                            self.resolve_real_query(cases, tx_receipt_result, tx_hash_by_table)
-                        }
-                        Either::Right(mut mismatch_report) => {
-                            mismatch_report.remaining_hashes.push(tx_hash_by_table);
-                            Either::Right(mismatch_report)
-                        }
-                    },
-                );
+        let either = msg
+            .results
+            .into_iter()
+            // This must be in for predictability in tests
+            .sorted_by_key(|(hash_by_table, _)| hash_by_table.hash())
+            .fold(
+                init,
+                |acc, (tx_hash_by_table, tx_receipt_result)| match acc {
+                    Either::Left(cases) => {
+                        self.resolve_real_query(cases, tx_receipt_result, tx_hash_by_table)
+                    }
+                    Either::Right(mut mismatch_report) => {
+                        mismatch_report.remaining_hashes.push(tx_hash_by_table);
+                        Either::Right(mismatch_report)
+                    }
+                },
+            );
 
         let cases = match either {
             Either::Left(cases) => cases,
@@ -661,11 +652,8 @@ impl PendingPayableScanner {
         logger: &Logger,
     ) {
         if !sent_payable_failures.is_empty() {
-            let updatable = Self::prepare_statuses_for_update(
-                &sent_payable_failures,
-                &*self.validation_failure_clock,
-                logger,
-            );
+            let updatable =
+                Self::prepare_statuses_for_update(&sent_payable_failures, &*self.clock, logger);
             if !updatable.is_empty() {
                 match self.sent_payable_dao.update_statuses(&updatable) {
                     Ok(_) => {
@@ -698,7 +686,7 @@ impl PendingPayableScanner {
         if !failed_txs_validation_failures.is_empty() {
             let updatable = Self::prepare_statuses_for_update(
                 &failed_txs_validation_failures,
-                &*self.validation_failure_clock,
+                &*self.clock,
                 logger,
             );
             if !updatable.is_empty() {
