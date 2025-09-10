@@ -76,7 +76,7 @@ use masq_lib::ui_gateway::{MessageBody, MessagePath, MessageTarget};
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::ExpectValue;
 use std::any::type_name;
-use std::collections::BTreeMap;
+use std::collections::{HashMap};
 #[cfg(test)]
 use std::default::Default;
 use std::fmt::Display;
@@ -145,7 +145,7 @@ pub type TxReceiptResult = Result<StatusReadFromReceiptCheck, AppRpcError>;
 
 #[derive(Debug, PartialEq, Eq, Message, Clone)]
 pub struct TxReceiptsMessage {
-    pub results: BTreeMap<TxHashByTable, TxReceiptResult>,
+    pub results: HashMap<TxHashByTable, TxReceiptResult>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
@@ -1973,7 +1973,7 @@ mod tests {
             block_number: 78901234.into(),
         };
         let tx_receipts_msg = TxReceiptsMessage {
-            results: btreemap![TxHashByTable::SentPayable(sent_tx.hash) => Ok(
+            results: hashmap![TxHashByTable::SentPayable(sent_tx.hash) => Ok(
                 StatusReadFromReceiptCheck::Succeeded(tx_block),
             )],
             response_skeleton_opt,
@@ -2198,7 +2198,7 @@ mod tests {
         let first_counter_msg_setup = setup_for_counter_msg_triggered_via_type_id!(
             RequestTransactionReceipts,
             TxReceiptsMessage {
-                results: btreemap![TxHashByTable::SentPayable(sent_tx.hash) => Ok(
+                results: hashmap![TxHashByTable::SentPayable(sent_tx.hash) => Ok(
                     StatusReadFromReceiptCheck::Reverted
                 ),],
                 response_skeleton_opt
@@ -2824,7 +2824,7 @@ mod tests {
         let subject_addr: Addr<Accountant> = subject.start();
         let subject_subs = Accountant::make_subs_from(&subject_addr);
         let expected_tx_receipts_msg = TxReceiptsMessage {
-            results: btreemap![TxHashByTable::SentPayable(tx_hash) => Ok(
+            results: hashmap![TxHashByTable::SentPayable(tx_hash) => Ok(
                 StatusReadFromReceiptCheck::Reverted,
             )],
             response_skeleton_opt: None,
@@ -3562,7 +3562,7 @@ mod tests {
             block_number: 4444444444u64.into(),
         });
         let counter_msg_3 = TxReceiptsMessage {
-            results: btreemap![TxHashByTable::SentPayable(tx_hash) => Ok(tx_status)],
+            results: hashmap![TxHashByTable::SentPayable(tx_hash) => Ok(tx_status)],
             response_skeleton_opt: None,
         };
         let request_transaction_receipts_msg = RequestTransactionReceipts {
@@ -5290,7 +5290,7 @@ mod tests {
         seeds: Vec<SeedsToMakeUpPayableWithStatus>,
     ) -> (TxReceiptsMessage, Vec<TxByTable>) {
         let (tx_receipt_results, tx_record_vec) = seeds.into_iter().enumerate().fold(
-            (btreemap![], vec![]),
+            (hashmap![], vec![]),
             |(mut tx_receipt_results, mut record_by_table_vec), (idx, seed_params)| {
                 let tx_hash = seed_params.tx_hash;
                 let status = seed_params.status;

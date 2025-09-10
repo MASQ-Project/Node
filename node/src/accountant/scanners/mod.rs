@@ -2682,7 +2682,7 @@ mod tests {
             .validation_failure_clock(Box::new(validation_failure_clock))
             .build();
         let msg = TxReceiptsMessage {
-            results: btreemap![
+            results: hashmap![
                 TxHashByTable::SentPayable(tx_hash_1) => Ok(tx_status_1),
                 TxHashByTable::FailedPayable(tx_hash_2) => Ok(tx_status_2),
                 TxHashByTable::SentPayable(tx_hash_3) => Ok(tx_status_3),
@@ -2759,7 +2759,7 @@ mod tests {
     fn pending_payable_scanner_handles_empty_report_transaction_receipts_message() {
         let mut pending_payable_scanner = PendingPayableScannerBuilder::new().build();
         let msg = TxReceiptsMessage {
-            results: btreemap![],
+            results: hashmap![],
             response_skeleton_opt: None,
         };
         pending_payable_scanner.mark_as_started(SystemTime::now());

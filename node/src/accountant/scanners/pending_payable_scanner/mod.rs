@@ -253,6 +253,8 @@ impl PendingPayableScanner {
         let either =
             msg.results
                 .into_iter()
+                // This must be in for predictability in tests
+                .sorted_by_key(|(hash_by_table,_)|{ hash_by_table.hash() })
                 .fold(
                     init,
                     |acc, (tx_hash_by_table, tx_receipt_result)| match acc {
@@ -332,7 +334,7 @@ impl PendingPayableScanner {
         panic!(
             "Looking up '{:?}' in the cache, the record could not be found. Dumping \
             the remaining values. Pending payables: {:?}. Unproven failures: {:?}. \
-            All yet-to-look-up hashes: {:?}.",
+            Hashes yet not looked up: {:?}.",
             mismatch_report.noticed_with,
             rearrange(self.current_sent_payables.dump_cache()),
             rearrange(self.yet_unproven_failed_payables.dump_cache()),
@@ -922,7 +924,7 @@ mod tests {
         let confirmed_tx_block_sent_tx = make_transaction_block(901);
         let confirmed_tx_block_failed_tx = make_transaction_block(902);
         let msg = TxReceiptsMessage {
-            results: btreemap![
+            results: hashmap![
                 TxHashByTable::SentPayable(sent_tx_hash_1) => Ok(StatusReadFromReceiptCheck::Pending),
                 TxHashByTable::SentPayable(sent_tx_hash_2) => Ok(StatusReadFromReceiptCheck::Succeeded(confirmed_tx_block_sent_tx)),
                 TxHashByTable::FailedPayable(failed_tx_hash_1) => Err(AppRpcError::Local(LocalError::Internal)),
@@ -963,13 +965,17 @@ mod tests {
 
     #[test]
     fn finish_scan_with_missing_records_inside_caches_noticed_on_missing_sent_tx() {
-        let sent_tx_1 = make_sent_tx(456);
-        let sent_tx_hash_1 = sent_tx_1.hash;
-        let sent_tx_hash_2 = make_tx_hash(876);
-        let failed_tx_1 = make_failed_tx(567);
-        let failed_tx_hash_1 = failed_tx_1.hash;
-        let failed_tx_2 = make_failed_tx(890);
-        let failed_tx_hash_2 = failed_tx_2.hash;
+        // Note: the ordering of the hashes matters in this test
+        let sent_tx_hash_1 = make_tx_hash(0x123);
+        let mut sent_tx_1 = make_sent_tx(456);
+        sent_tx_1.hash = sent_tx_hash_1;
+        let sent_tx_hash_2 = make_tx_hash(0x876);
+        let failed_tx_hash_1 = make_tx_hash(0x987);
+        let mut failed_tx_1 = make_failed_tx(567);
+        failed_tx_1.hash = failed_tx_hash_1;
+        let failed_tx_hash_2 = make_tx_hash(0x789);
+        let mut failed_tx_2 = make_failed_tx(890);
+        failed_tx_2.hash = failed_tx_hash_2;
         let mut pending_payable_cache = CurrentPendingPayables::default();
         pending_payable_cache.load_cache(vec![sent_tx_1]);
         let mut failed_payable_cache = RecheckRequiringFailures::default();
@@ -979,7 +985,7 @@ mod tests {
         subject.yet_unproven_failed_payables = Box::new(failed_payable_cache);
         let logger = Logger::new("test");
         let msg = TxReceiptsMessage {
-            results: btreemap![TxHashByTable::SentPayable(sent_tx_hash_1) => Ok(
+            results: hashmap![TxHashByTable::SentPayable(sent_tx_hash_1) => Ok(
                     StatusReadFromReceiptCheck::Pending),
                 TxHashByTable::SentPayable(sent_tx_hash_2) => Ok(StatusReadFromReceiptCheck::Succeeded(make_transaction_block(444))),
                 TxHashByTable::FailedPayable(failed_tx_hash_1) => Err(AppRpcError::Local(LocalError::Internal)),
@@ -993,14 +999,14 @@ mod tests {
 
         let panic_msg = panic.downcast_ref::<String>().unwrap();
         let regex_str_in_pieces = vec![
-            r#"Looking up 'SentPayable\(0x000000000000000000000000000000000000000000000000000000000000036c\)'"#,
+            r#"Looking up 'SentPayable\(0x0000000000000000000000000000000000000000000000000000000000000876\)'"#,
             r#" in the cache, the record could not be found. Dumping the remaining values. Pending payables: \[\]."#,
             r#" Unproven failures: \[FailedTx \{ hash:"#,
-            r#" 0x000000000000000000000000000000000000000000000000000000000000037a, receiver_address:"#,
-            r#" 0x000000000000000000000077616c6c6574383930, amount_minor: 792100000000000, timestamp: \d*,"#,
-            r#" gas_price_minor: 890000000000, nonce: 890, reason: PendingTooLong, status: RetryRequired \}\]."#,
-            r#" All yet-to-look-up hashes: \[FailedPayable\(0x0000000000000000000000000000000000000000"#,
-            r#"00000000000000000000037a\)\]."#,
+            r#" 0x0000000000000000000000000000000000000000000000000000000000000987, receiver_address:"#,
+            r#" 0x000000000000000000000077616c6c6574353637, amount_minor: 321489000000000, timestamp: \d*,"#,
+            r#" gas_price_minor: 567000000000, nonce: 567, reason: PendingTooLong, status: RetryRequired \}\]."#,
+            r#" Hashes yet not looked up: \[FailedPayable\(0x000000000000000000000000000000000000000"#,
+            r#"0000000000000000000000987\)\]"#,
         ];
         let regex_str = regex_str_in_pieces.join("");
         let expected_msg_regex = Regex::new(&regex_str).unwrap();
@@ -1030,7 +1036,7 @@ mod tests {
         subject.yet_unproven_failed_payables = Box::new(failed_payable_cache);
         let logger = Logger::new("test");
         let msg = TxReceiptsMessage {
-            results: btreemap![TxHashByTable::SentPayable(sent_tx_hash_1) => Ok(StatusReadFromReceiptCheck::Pending),
+            results: hashmap![TxHashByTable::SentPayable(sent_tx_hash_1) => Ok(StatusReadFromReceiptCheck::Pending),
                 TxHashByTable::SentPayable(sent_tx_hash_2) => Ok(StatusReadFromReceiptCheck::Succeeded(make_transaction_block(444))),
                 TxHashByTable::FailedPayable(failed_tx_hash_1) => Err(AppRpcError::Local(LocalError::Internal)),
                 TxHashByTable::FailedPayable(failed_tx_hash_2) => Ok(StatusReadFromReceiptCheck::Succeeded(make_transaction_block(555))),
@@ -1045,7 +1051,7 @@ mod tests {
         let regex_str_in_pieces = vec![
             r#"Looking up 'FailedPayable\(0x0000000000000000000000000000000000000000000000000000000000000385\)'"#,
             r#" in the cache, the record could not be found. Dumping the remaining values. Pending payables: \[\]."#,
-            r#" Unproven failures: \[\]. All yet-to-look-up hashes: \[\]."#,
+            r#" Unproven failures: \[\]. Hashes yet not looked up: \[\]."#,
         ];
         let regex_str = regex_str_in_pieces.join("");
         let expected_msg_regex = Regex::new(&regex_str).unwrap();

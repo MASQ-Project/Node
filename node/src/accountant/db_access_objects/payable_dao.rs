@@ -78,7 +78,7 @@ impl PayableDaoFactory for DaoFactoryReal {
 }
 
 pub struct MarkPendingPayableID {
-    pub wallet: Address,
+    pub receiver_wallet: Address,
     pub rowid: RowId,
 }
 
@@ -915,7 +915,7 @@ mod tests {
         hash: TxHash,
         previous_timestamp: SystemTime,
         new_payable_timestamp: SystemTime,
-        wallet: Address,
+        receiver_wallet: Address,
         initial_amount_wei: u128,
         balance_change: u128,
     }
@@ -931,7 +931,7 @@ mod tests {
                 hash: make_tx_hash(12345),
                 previous_timestamp: now.checked_sub(Duration::from_secs(45_000)).unwrap(),
                 new_payable_timestamp: now.checked_sub(Duration::from_secs(2)).unwrap(),
-                wallet: make_wallet("bobbles").address(),
+                receiver_wallet: make_wallet("bobbles").address(),
                 initial_amount_wei: initial_amount_1,
                 balance_change: balance_change_1,
             },
@@ -939,7 +939,7 @@ mod tests {
                 hash: make_tx_hash(54321),
                 previous_timestamp: now.checked_sub(Duration::from_secs(22_000)).unwrap(),
                 new_payable_timestamp: now.checked_sub(Duration::from_secs(2)).unwrap(),
-                wallet: make_wallet("yet more bobbles").address(),
+                receiver_wallet: make_wallet("yet more bobbles").address(),
                 initial_amount_wei: initial_amount_2,
                 balance_change: balance_change_2,
             },
@@ -949,7 +949,7 @@ mod tests {
         .map(|(idx, test_inputs)| {
             insert_payable_record_fn(
                 conn,
-                &format!("{:?}", test_inputs.wallet),
+                &format!("{:?}", test_inputs.receiver_wallet),
                 i128::try_from(test_inputs.initial_amount_wei).unwrap(),
                 to_unix_timestamp(test_inputs.previous_timestamp),
                 // TODO argument will be eliminated in GH-662
@@ -958,7 +958,7 @@ mod tests {
             let mut sent_tx = make_sent_tx((idx as u64 + 1) * 1234);
             sent_tx.hash = test_inputs.hash;
             sent_tx.amount_minor = test_inputs.balance_change;
-            sent_tx.receiver_address = test_inputs.wallet;
+            sent_tx.receiver_address = test_inputs.receiver_wallet;
             sent_tx.timestamp = to_unix_timestamp(test_inputs.new_payable_timestamp);
             sent_tx.amount_minor = test_inputs.balance_change;
 

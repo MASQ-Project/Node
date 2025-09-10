@@ -23,7 +23,7 @@ use actix::Recipient;
 use futures::Future;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
-use std::collections::BTreeMap;
+use std::collections::{HashMap};
 use web3::types::Address;
 
 pub trait BlockchainInterface {
@@ -50,7 +50,7 @@ pub trait BlockchainInterface {
         tx_hashes: Vec<TxHashByTable>,
     ) -> Box<
         dyn Future<
-            Item = BTreeMap<TxHashByTable, TxReceiptResult>,
+            Item = HashMap<TxHashByTable, TxReceiptResult>,
             Error = BlockchainInterfaceError,
         >,
     >;

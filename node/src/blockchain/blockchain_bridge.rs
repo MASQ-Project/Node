@@ -1211,7 +1211,7 @@ mod tests {
         assert_eq!(
             tx_receipts_message,
             &TxReceiptsMessage {
-                results: btreemap![
+                results: hashmap![
                     TxHashByTable::SentPayable(tx_hash_1) => Ok(
                         expected_receipt.into()
                     ),
@@ -1348,7 +1348,7 @@ mod tests {
         assert_eq!(
             *report_receipts_msg,
             TxReceiptsMessage {
-                results: btreemap![TxHashByTable::SentPayable(tx_hash_1) => Ok(StatusReadFromReceiptCheck::Pending),
+                results: hashmap![TxHashByTable::SentPayable(tx_hash_1) => Ok(StatusReadFromReceiptCheck::Pending),
                     TxHashByTable::SentPayable(tx_hash_2) => Ok(StatusReadFromReceiptCheck::Succeeded(TxBlock {
                         block_hash: Default::default(),
                         block_number,
