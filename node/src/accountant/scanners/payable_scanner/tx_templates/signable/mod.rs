@@ -84,6 +84,7 @@ impl SignableTxTemplates {
     }
 }
 
+// TODO: GH-703: Consider design changes here
 impl Deref for SignableTxTemplates {
     type Target = Vec<SignableTxTemplate>;
 

@@ -27,6 +27,7 @@ impl PricedNewTxTemplate {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PricedNewTxTemplates(pub Vec<PricedNewTxTemplate>);
 
+// TODO: GH-703: Consider design changes here
 impl Deref for PricedNewTxTemplates {
     type Target = Vec<PricedNewTxTemplate>;
 

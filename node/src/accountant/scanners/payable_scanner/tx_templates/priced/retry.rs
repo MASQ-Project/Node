@@ -56,6 +56,7 @@ impl PricedRetryTxTemplate {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PricedRetryTxTemplates(pub Vec<PricedRetryTxTemplate>);
 
+// TODO: GH-703: Consider design changes here
 impl Deref for PricedRetryTxTemplates {
     type Target = Vec<PricedRetryTxTemplate>;
 
@@ -64,6 +65,7 @@ impl Deref for PricedRetryTxTemplates {
     }
 }
 
+// TODO: GH-703: Consider design changes here
 impl DerefMut for PricedRetryTxTemplates {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
