@@ -23,6 +23,7 @@ use std::path::{Path, PathBuf};
 use std::string::ToString;
 use std::time::Duration;
 use std::time::SystemTime;
+use crate::accountant::db_access_objects::sent_payable_dao::Tx;
 
 pub type TxHash = H256;
 pub type RowId = u64;
@@ -65,6 +66,26 @@ pub fn sql_values_of_failed_tx(failed_tx: &FailedTx) -> String {
         failed_tx.nonce,
         failed_tx.reason,
         failed_tx.status
+    )
+}
+
+pub fn sql_values_of_sent_tx(sent_tx: &Tx) -> String {
+    let amount_checked = checked_conversion::<u128, i128>(sent_tx.amount);
+    let gas_price_wei_checked = checked_conversion::<u128, i128>(sent_tx.gas_price_wei);
+    let (amount_high_b, amount_low_b) = BigIntDivider::deconstruct(amount_checked);
+    let (gas_price_wei_high_b, gas_price_wei_low_b) =
+        BigIntDivider::deconstruct(gas_price_wei_checked);
+    format!(
+        "('{:?}', '{:?}', {}, {}, {}, {}, {}, {}, '{}')",
+        sent_tx.hash,
+        sent_tx.receiver_address,
+        amount_high_b,
+        amount_low_b,
+        sent_tx.timestamp,
+        gas_price_wei_high_b,
+        gas_price_wei_low_b,
+        sent_tx.nonce,
+        sent_tx.status
     )
 }
 

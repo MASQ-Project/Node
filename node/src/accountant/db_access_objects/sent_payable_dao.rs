@@ -8,7 +8,7 @@ use ethereum_types::{H256};
 use web3::types::Address;
 use masq_lib::utils::ExpectValue;
 use crate::accountant::{checked_conversion, join_with_separator};
-use crate::accountant::db_access_objects::utils::{DaoFactoryReal, TxHash, TxIdentifiers};
+use crate::accountant::db_access_objects::utils::{sql_values_of_sent_tx, DaoFactoryReal, TxHash, TxIdentifiers};
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock};
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
@@ -238,29 +238,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
              nonce, \
              status \
              ) VALUES {}",
-            join_with_separator(
-                txs,
-                |tx| {
-                    let amount_checked = checked_conversion::<u128, i128>(tx.amount);
-                    let gas_price_wei_checked = checked_conversion::<u128, i128>(tx.gas_price_wei);
-                    let (amount_high_b, amount_low_b) = BigIntDivider::deconstruct(amount_checked);
-                    let (gas_price_wei_high_b, gas_price_wei_low_b) =
-                        BigIntDivider::deconstruct(gas_price_wei_checked);
-                    format!(
-                        "('{:?}', '{:?}', {}, {}, {}, {}, {}, {}, '{}')",
-                        tx.hash,
-                        tx.receiver_address,
-                        amount_high_b,
-                        amount_low_b,
-                        tx.timestamp,
-                        gas_price_wei_high_b,
-                        gas_price_wei_low_b,
-                        tx.nonce,
-                        tx.status
-                    )
-                },
-                ", "
-            )
+            join_with_separator(txs, |tx| sql_values_of_sent_tx(tx), ", ")
         );
 
         match self.conn.prepare(&sql).expect("Internal error").execute([]) {
