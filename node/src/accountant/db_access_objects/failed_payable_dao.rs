@@ -62,12 +62,7 @@ impl Display for FailureStatus {
         match serde_json::to_string(self) {
             Ok(json) => write!(f, "{}", json),
             // Untestable
-            Err(e) => panic!(
-                "cat: {:?}, line: {}, column: {}",
-                e.classify(),
-                e.line(),
-                e.column()
-            ), //write!(f, "<invalid FailureStatus>"),
+            Err(e) => write!(f, "<invalid FailureStatus>"),
         }
     }
 }
