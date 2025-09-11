@@ -276,7 +276,7 @@ pub fn send_payables_within_batch(
         consuming_wallet,
     );
     let sent_txs_for_err = sent_txs.clone();
-    // GH-701: We were sending a message here to register txs at an initial stage
+    // TODO: GH-701: We were sending a message here to register txs at an initial stage (refer commit - 2fd4bcc72)
 
     info!(
         logger,
