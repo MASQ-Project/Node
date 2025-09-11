@@ -328,8 +328,8 @@ impl Handler<TxReceiptsMessage> for Accountant {
                         .expect("UIGateway is not bound")
                         .try_send(node_to_ui_msg)
                         .expect("UIGateway is dead");
-                    // Non-automatic pending-payable scan is not permitted to spark a payable scan
-                    // bringing over new payables with fresh nonces. The job's done here.
+                    // Non-automatic scan for pending payables is not permitted to spark a payable
+                    // scan bringing over new payables with fresh nonces. The job's done here.
                 } else {
                     self.scan_schedulers
                         .payable
@@ -342,10 +342,10 @@ impl Handler<TxReceiptsMessage> for Accountant {
                     response_skeleton_opt,
                     &self.logger,
                 ),
-                Retry::RetryTxStatusCheckOnly => todo!(),
-                // .scan_schedulers
-                // .pending_payable
-                // .schedule(ctx, &self.logger),
+                Retry::RetryTxStatusCheckOnly => self
+                    .scan_schedulers
+                    .pending_payable
+                    .schedule(ctx, &self.logger),
             },
         };
     }
@@ -4993,6 +4993,12 @@ mod tests {
             .replace_scanner(ScannerReplacement::PendingPayable(ReplacementType::Mock(
                 pending_payable_scanner,
             )));
+        subject.scan_schedulers.payable.new_payable_notify =
+            Box::new(NotifyHandleMock::default().panic_on_schedule_attempt());
+        subject.scan_schedulers.payable.new_payable_notify_later =
+            Box::new(NotifyLaterHandleMock::default().panic_on_schedule_attempt());
+        subject.scan_schedulers.pending_payable.handle =
+            Box::new(NotifyLaterHandleMock::default().panic_on_schedule_attempt());
         subject.scan_schedulers.payable.retry_payable_notify =
             Box::new(NotifyHandleMock::default().notify_params(&retry_payable_notify_params_arc));
         let system = System::new(test_name);
@@ -5031,10 +5037,84 @@ mod tests {
     }
 
     #[test]
-    fn accountant_confirms_pending_txs_and_schedules_the_new_payable_scanner_timely() {
+    fn accountant_reschedules_pending_payable_scanner_as_receipt_check_efforts_alone_failed() {
         init_test_logging();
         let test_name =
-            "accountant_confirms_pending_txs_and_schedules_the_new_payable_scanner_timely";
+            "accountant_reschedules_pending_payable_scanner_as_receipt_check_efforts_alone_failed";
+        let finish_scan_params_arc = Arc::new(Mutex::new(vec![]));
+        let pending_payable_notify_later_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut subject = AccountantBuilder::default()
+            .logger(Logger::new(test_name))
+            .build();
+        let pending_payable_scanner = ScannerMock::new()
+            .finish_scan_params(&finish_scan_params_arc)
+            .finish_scan_result(PendingPayableScanResult::PaymentRetryRequired(
+                Retry::RetryTxStatusCheckOnly,
+            ));
+        subject
+            .scanners
+            .replace_scanner(ScannerReplacement::PendingPayable(ReplacementType::Mock(
+                pending_payable_scanner,
+            )));
+        subject.scan_schedulers.payable.retry_payable_notify =
+            Box::new(NotifyHandleMock::default().panic_on_schedule_attempt());
+        subject.scan_schedulers.payable.new_payable_notify =
+            Box::new(NotifyHandleMock::default().panic_on_schedule_attempt());
+        subject.scan_schedulers.payable.new_payable_notify_later =
+            Box::new(NotifyLaterHandleMock::default().panic_on_schedule_attempt());
+        let interval = Duration::from_secs(20);
+        subject.scan_schedulers.pending_payable.interval = interval;
+        subject.scan_schedulers.pending_payable.handle = Box::new(
+            NotifyLaterHandleMock::default()
+                .notify_later_params(&pending_payable_notify_later_params_arc),
+        );
+        let system = System::new(test_name);
+        let (mut msg, _) = make_tx_receipts_msg(vec![
+            SeedsToMakeUpPayableWithStatus {
+                tx_hash: TxHashByTable::SentPayable(make_tx_hash(123)),
+                status: StatusReadFromReceiptCheck::Pending,
+            },
+            SeedsToMakeUpPayableWithStatus {
+                tx_hash: TxHashByTable::FailedPayable(make_tx_hash(456)),
+                status: StatusReadFromReceiptCheck::Reverted,
+            },
+        ]);
+        // Although it all begins with an external trigger, the response skeleton will not be
+        // propagated eventually to the further stages (see the NotifyLaterHandle assertion holding
+        // None for the response skeleton)
+        let response_skeleton_opt = Some(ResponseSkeleton {
+            client_id: 45,
+            context_id: 7,
+        });
+        msg.response_skeleton_opt = response_skeleton_opt;
+        let subject_addr = subject.start();
+
+        subject_addr.try_send(msg.clone()).unwrap();
+
+        System::current().stop();
+        system.run();
+        let mut finish_scan_params = finish_scan_params_arc.lock().unwrap();
+        let (msg_actual, logger) = finish_scan_params.remove(0);
+        assert_eq!(msg_actual, msg);
+        let pending_payable_notify_later_params =
+            pending_payable_notify_later_params_arc.lock().unwrap();
+        assert_eq!(
+            *pending_payable_notify_later_params,
+            vec![(
+                ScanForPendingPayables {
+                    response_skeleton_opt: None
+                },
+                interval
+            )]
+        );
+        assert_using_the_same_logger(&logger, test_name, None)
+    }
+
+    #[test]
+    fn accountant_confirms_all_pending_txs_and_schedules_the_new_payable_scanner_timely() {
+        init_test_logging();
+        let test_name =
+            "accountant_confirms_all_pending_txs_and_schedules_the_new_payable_scanner_timely";
         let finish_scan_params_arc = Arc::new(Mutex::new(vec![]));
         let compute_interval_params_arc = Arc::new(Mutex::new(vec![]));
         let new_payable_notify_later_arc = Arc::new(Mutex::new(vec![]));
