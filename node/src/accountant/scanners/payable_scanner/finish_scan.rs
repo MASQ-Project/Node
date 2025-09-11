@@ -191,7 +191,7 @@ mod tests {
             }
         );
         let tlh = TestLogHandler::new();
-        tlh.exists_log_matching(&format!(
+        tlh.exists_log_containing(&format!(
             "WARN: {test_name}: While retrying, 2 transactions with hashes: {} have failed.",
             join_with_separator(failed_txs, |failed_tx| format!("{:?}", failed_tx.hash), ",")
         ));
@@ -202,13 +202,13 @@ mod tests {
 
     #[test]
     fn payable_scanner_with_error_works_as_expected() {
-        execute_payable_scanner_finish_scan_with_an_error(PayableScanType::New);
-        execute_payable_scanner_finish_scan_with_an_error(PayableScanType::Retry);
+        test_execute_payable_scanner_finish_scan_with_an_error(PayableScanType::New);
+        test_execute_payable_scanner_finish_scan_with_an_error(PayableScanType::Retry);
     }
 
-    fn execute_payable_scanner_finish_scan_with_an_error(payable_scan_type: PayableScanType) {
+    fn test_execute_payable_scanner_finish_scan_with_an_error(payable_scan_type: PayableScanType) {
         init_test_logging();
-        let test_name = "payable_scanner_with_error_works_as_expected";
+        let test_name = "test_execute_payable_scanner_finish_scan_with_an_error";
         let response_skeleton = ResponseSkeleton {
             client_id: 1234,
             context_id: 5678,
@@ -235,7 +235,7 @@ mod tests {
             }
         );
         let tlh = TestLogHandler::new();
-        tlh.exists_log_matching(&format!(
+        tlh.exists_log_containing(&format!(
             "WARN: {test_name}: Local error occurred before transaction signing. Error: Any error"
         ));
         tlh.exists_log_matching(&format!(

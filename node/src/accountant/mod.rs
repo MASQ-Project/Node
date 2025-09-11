@@ -1186,6 +1186,7 @@ impl From<PendingPayableFingerprint> for PendingPayableId {
     }
 }
 
+// TODO: GH
 pub fn comma_joined_stringifiable<T, F>(collection: &[T], stringify: F) -> String
 where
     F: FnMut(&T) -> String,
@@ -3702,7 +3703,7 @@ mod tests {
             .start_scan_result(Ok(qualified_payables_msg.clone()))
             .finish_scan_result(PayableScanResult {
                 ui_response_opt: None,
-                result: NextScanToRun::PendingPayableScan, // TODO: Outcome
+                result: NextScanToRun::PendingPayableScan,
             });
         let mut config = bc_from_earning_wallet(make_wallet("hi"));
         config.scan_intervals_opt = Some(ScanIntervals {
@@ -4921,7 +4922,7 @@ mod tests {
     }
 
     #[test]
-    fn accountant_processes_sent_payables_with_retry_and_schedules_pending_payable_scanner() {
+    fn accountant_finishes_processing_of_retry_payables_and_schedules_pending_payable_scanner() {
         let mark_pending_payables_rowids_params_arc = Arc::new(Mutex::new(vec![]));
         let pending_payable_notify_later_params_arc = Arc::new(Mutex::new(vec![]));
         let inserted_new_records_params_arc = Arc::new(Mutex::new(vec![]));
@@ -4935,7 +4936,7 @@ mod tests {
             .insert_new_records_result(Ok(()));
         let failed_payble_dao = FailedPayableDaoMock::new().retrieve_txs_result(BTreeSet::new());
         let system = System::new(
-            "accountant_processes_sent_payables_with_retry_and_schedules_pending_payable_scanner",
+            "accountant_finishes_processing_of_retry_payables_and_schedules_pending_payable_scanner",
         );
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(make_wallet("some_wallet_address")))
@@ -5042,9 +5043,9 @@ mod tests {
     }
 
     #[test]
-    fn failed_txs_were_there_so_payable_scan_is_rescheduled_as_retry_payable_scan_was_omitted() {
+    fn retry_payable_scan_is_requested_to_be_repeated() {
         init_test_logging();
-        let test_name = "failed_txs_were_there_so_payable_scan_is_rescheduled_as_retry_payable_scan_was_omitted";
+        let test_name = "retry_payable_scan_is_requested_to_be_repeated";
         let finish_scan_params_arc = Arc::new(Mutex::new(vec![]));
         let retry_payable_notify_params_arc = Arc::new(Mutex::new(vec![]));
         let system = System::new(test_name);
