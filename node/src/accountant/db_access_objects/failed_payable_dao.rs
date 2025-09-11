@@ -1,7 +1,7 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::db_access_objects::sent_payable_dao::Tx;
 use crate::accountant::db_access_objects::utils::{
-    DaoFactoryReal, TxHash, TxIdentifiers, VigilantRusqliteFlatten,
+    sql_values_of_failed_tx, DaoFactoryReal, TxHash, TxIdentifiers, VigilantRusqliteFlatten,
 };
 use crate::accountant::db_access_objects::Transaction;
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
@@ -260,30 +260,7 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
              reason, \
              status
              ) VALUES {}",
-            join_with_separator(
-                txs,
-                |tx| {
-                    let amount_checked = checked_conversion::<u128, i128>(tx.amount);
-                    let gas_price_wei_checked = checked_conversion::<u128, i128>(tx.gas_price_wei);
-                    let (amount_high_b, amount_low_b) = BigIntDivider::deconstruct(amount_checked);
-                    let (gas_price_wei_high_b, gas_price_wei_low_b) =
-                        BigIntDivider::deconstruct(gas_price_wei_checked);
-                    format!(
-                        "('{:?}', '{:?}', {}, {}, {}, {}, {}, {}, '{}', '{}')",
-                        tx.hash,
-                        tx.receiver_address,
-                        amount_high_b,
-                        amount_low_b,
-                        tx.timestamp,
-                        gas_price_wei_high_b,
-                        gas_price_wei_low_b,
-                        tx.nonce,
-                        tx.reason,
-                        tx.status
-                    )
-                },
-                ", "
-            )
+            join_with_separator(txs, |tx| sql_values_of_failed_tx(tx), ", ")
         );
 
         match self.conn.prepare(&sql).expect("Internal error").execute([]) {
