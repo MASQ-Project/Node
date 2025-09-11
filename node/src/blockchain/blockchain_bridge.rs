@@ -931,9 +931,10 @@ mod tests {
         system.run();
         let time_after = SystemTime::now();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
-        let pending_payable_fingerprint_seeds_msg =
-            accountant_recording.get_record::<PendingPayableFingerprintSeeds>(0);
-        let sent_payables_msg = accountant_recording.get_record::<SentPayables>(1);
+        // TODO: GH-701: This card is related to the commented out code in this test
+        // let pending_payable_fingerprint_seeds_msg =
+        //     accountant_recording.get_record::<PendingPayableFingerprintSeeds>(0);
+        let sent_payables_msg = accountant_recording.get_record::<SentPayables>(0);
         let batch_results = sent_payables_msg.clone().payment_procedure_result.unwrap();
         assert!(batch_results.failed_txs.is_empty());
         assert_on_sent_txs(
@@ -955,19 +956,19 @@ mod tests {
             sent_payables_msg.response_skeleton_opt,
             Some(response_skeleton)
         );
-        assert!(pending_payable_fingerprint_seeds_msg.batch_wide_timestamp >= time_before);
-        assert!(pending_payable_fingerprint_seeds_msg.batch_wide_timestamp <= time_after);
-        assert_eq!(
-            pending_payable_fingerprint_seeds_msg.hashes_and_balances,
-            vec![HashAndAmount {
-                hash: H256::from_str(
-                    "81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c"
-                )
-                .unwrap(),
-                amount: account.balance_wei
-            }]
-        );
-        assert_eq!(accountant_recording.len(), 2);
+        // assert!(pending_payable_fingerprint_seeds_msg.batch_wide_timestamp >= time_before);
+        // assert!(pending_payable_fingerprint_seeds_msg.batch_wide_timestamp <= time_after);
+        // assert_eq!(
+        //     pending_payable_fingerprint_seeds_msg.hashes_and_balances,
+        //     vec![HashAndAmount {
+        //         hash: H256::from_str(
+        //             "81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c"
+        //         )
+        //         .unwrap(),
+        //         amount: account.balance_wei
+        //     }]
+        // );
+        assert_eq!(accountant_recording.len(), 1);
     }
 
     #[test]

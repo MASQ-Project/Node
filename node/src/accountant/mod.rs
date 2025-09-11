@@ -1201,7 +1201,6 @@ where
     collection
         .into_iter()
         .map(|item| stringify(&item))
-        .collect::<Vec<String>>()
         .join(separator)
 }
 
