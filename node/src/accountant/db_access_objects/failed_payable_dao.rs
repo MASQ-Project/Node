@@ -688,23 +688,6 @@ mod tests {
     }
 
     #[test]
-    fn show_str() {
-        let validation_failure_clock = ValidationFailureClockMock::default().now_result(
-            SystemTime::UNIX_EPOCH
-                .add(Duration::from_secs(1755080031))
-                .add(Duration::from_nanos(612180914)),
-        );
-        let a =
-            FailureStatus::RecheckRequired(ValidationStatus::Reattempting(PreviousAttempts::new(
-                BlockchainErrorKind::AppRpc(AppRpcErrorKind::Unreachable),
-                &validation_failure_clock,
-            )))
-            .to_string();
-
-        eprintln!("a: {}", a);
-    }
-
-    #[test]
     fn failure_status_from_str_works() {
         let validation_failure_clock = ValidationFailureClockMock::default().now_result(
             SystemTime::UNIX_EPOCH
@@ -966,12 +949,12 @@ mod tests {
         ]);
 
         let result = subject.update_statuses(hashmap);
-
         let updated_txs = subject.retrieve_txs(None);
-        let updated_tx1 = updated_txs.iter().find(|tx| tx.hash == hash1).unwrap();
-        let updated_tx2 = updated_txs.iter().find(|tx| tx.hash == hash2).unwrap();
-        let updated_tx3 = updated_txs.iter().find(|tx| tx.hash == hash3).unwrap();
-        let updated_tx4 = updated_txs.iter().find(|tx| tx.hash == hash4).unwrap();
+        let find_tx = |tx_hash| updated_txs.iter().find(|tx| tx.hash == tx_hash).unwrap();
+        let updated_tx1 = find_tx(hash1);
+        let updated_tx2 = find_tx(hash2);
+        let updated_tx3 = find_tx(hash3);
+        let updated_tx4 = find_tx(hash4);
         assert_eq!(result, Ok(()));
         assert_eq!(tx1.status, RetryRequired);
         assert_eq!(updated_tx1.status, Concluded);

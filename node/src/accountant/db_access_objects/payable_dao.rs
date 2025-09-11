@@ -1259,10 +1259,10 @@ mod tests {
     }
 
     #[test]
-    fn retrieve_payables_should_return_payables_with_no_pending_transaction_by_addresses() {
+    fn retrieve_payables_should_return_payables_by_addresses() {
         let home_dir = ensure_node_home_directory_exists(
             "payable_dao",
-            "retrieve_payables_should_return_payables_with_no_pending_transaction_by_addresses",
+            "retrieve_payables_should_return_payables_by_addresses",
         );
         let subject = PayableDaoReal::new(
             DbInitializerReal::default()

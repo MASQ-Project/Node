@@ -163,6 +163,8 @@ pub fn make_sent_tx(n: u32) -> Tx {
 }
 
 pub fn assert_on_sent_txs(left: Vec<Tx>, right: Vec<Tx>) {
+    assert_eq!(left.len(), right.len());
+
     left.iter().zip(right).for_each(|(t1, t2)| {
         assert_eq!(t1.hash, t2.hash);
         assert_eq!(t1.receiver_address, t2.receiver_address);
@@ -175,6 +177,8 @@ pub fn assert_on_sent_txs(left: Vec<Tx>, right: Vec<Tx>) {
 }
 
 pub fn assert_on_failed_txs(left: Vec<FailedTx>, right: Vec<FailedTx>) {
+    assert_eq!(left.len(), right.len());
+
     left.iter().zip(right).for_each(|(f1, f2)| {
         assert_eq!(f1.hash, f2.hash);
         assert_eq!(f1.receiver_address, f2.receiver_address);

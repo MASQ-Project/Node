@@ -114,10 +114,6 @@ mod tests {
 
     #[test]
     fn retry_payable_scan_finishes_as_expected() {
-        // filter receivers from sent txs
-        // insert sent txs in sent payables
-        // mark txs in failed tx by receiver as concluded
-        // For failed txs in this case, should only be logged
         init_test_logging();
         let test_name = "retry_payable_scan_finishes_as_expected";
         let sent_payable_insert_new_records_params_arc = Arc::new(Mutex::new(vec![]));
