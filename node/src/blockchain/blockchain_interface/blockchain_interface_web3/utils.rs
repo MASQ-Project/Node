@@ -253,14 +253,12 @@ pub fn sign_and_append_multiple_payments(
         .collect()
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn send_payables_within_batch(
     logger: &Logger,
     chain: Chain,
     web3_batch: &Web3<Batch<Http>>,
     signable_tx_templates: SignableTxTemplates,
     consuming_wallet: Wallet,
-    new_fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
 ) -> Box<dyn Future<Item = BatchResults, Error = LocalPayableError> + 'static> {
     debug!(
             logger,
@@ -278,18 +276,7 @@ pub fn send_payables_within_batch(
         consuming_wallet,
     );
     let sent_txs_for_err = sent_txs.clone();
-
-    let hashes_and_paid_amounts: Vec<HashAndAmount> =
-        sent_txs.iter().map(|tx| HashAndAmount::from(tx)).collect();
-
-    let timestamp = SystemTime::now();
-
-    new_fingerprints_recipient
-        .try_send(PendingPayableFingerprintSeeds {
-            batch_wide_timestamp: timestamp,
-            hashes_and_balances: hashes_and_paid_amounts,
-        })
-        .expect("Accountant is dead");
+    // GH-701: We were sending a message here to register txs at an initial stage
 
     info!(
         logger,
@@ -608,13 +595,10 @@ mod tests {
         )
         .unwrap();
         let web3_batch = Web3::new(Batch::new(transport));
-        let (accountant, _, accountant_recording) = make_recorder();
         let logger = Logger::new(test_name);
         let chain = DEFAULT_CHAIN;
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
-        let new_fingerprints_recipient = accountant.start().recipient();
         let system = System::new(test_name);
-        let timestamp_before = SystemTime::now();
         let expected_transmission_log = transmission_log(chain, &signable_tx_templates);
 
         let result = send_payables_within_batch(
@@ -623,19 +607,11 @@ mod tests {
             &web3_batch,
             signable_tx_templates,
             consuming_wallet.clone(),
-            new_fingerprints_recipient,
         )
         .wait();
 
         System::current().stop();
         system.run();
-        let timestamp_after = SystemTime::now();
-        let accountant_recording_result = accountant_recording.lock().unwrap();
-        let ppfs_message =
-            accountant_recording_result.get_record::<PendingPayableFingerprintSeeds>(0);
-        assert_eq!(accountant_recording_result.len(), 1);
-        assert!(timestamp_before <= ppfs_message.batch_wide_timestamp);
-        assert!(timestamp_after >= ppfs_message.batch_wide_timestamp);
         let tlh = TestLogHandler::new();
         tlh.exists_log_containing(
             &format!("DEBUG: {test_name}: Common attributes of payables to be transacted: sender wallet: {}, contract: {:?}, chain_id: {}",

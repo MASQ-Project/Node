@@ -257,7 +257,6 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         &self,
         logger: Logger,
         agent: Box<dyn BlockchainAgent>,
-        fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
         priced_templates: Either<PricedNewTxTemplates, PricedRetryTxTemplates>,
     ) -> Box<dyn Future<Item = BatchResults, Error = LocalPayableError>> {
         let consuming_wallet = agent.consuming_wallet().clone();
@@ -280,7 +279,6 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                         &web3_batch,
                         templates,
                         consuming_wallet,
-                        fingerprints_recipient,
                     )
                 }),
         )

@@ -514,14 +514,9 @@ impl BlockchainBridge {
         agent: Box<dyn BlockchainAgent>,
         priced_templates: Either<PricedNewTxTemplates, PricedRetryTxTemplates>,
     ) -> Box<dyn Future<Item = BatchResults, Error = LocalPayableError>> {
-        let new_fingerprints_recipient = self.new_fingerprints_recipient();
         let logger = self.logger.clone();
-        self.blockchain_interface.submit_payables_in_batch(
-            logger,
-            agent,
-            new_fingerprints_recipient,
-            priced_templates,
-        )
+        self.blockchain_interface
+            .submit_payables_in_batch(logger, agent, priced_templates)
     }
 
     fn new_fingerprints_recipient(&self) -> Recipient<PendingPayableFingerprintSeeds> {
