@@ -275,12 +275,27 @@ impl Scanners {
                 self.payable.mark_as_ended(logger);
             }
             ScanType::PendingPayables => {
+                self.empty_caches(logger);
                 self.pending_payable.mark_as_ended(logger);
             }
             ScanType::Receivables => {
                 self.receivable.mark_as_ended(logger);
             }
         };
+    }
+
+    fn empty_caches(&mut self, logger: &Logger) {
+        let pending_payable_scanner = self
+            .pending_payable
+            .as_any_mut()
+            .downcast_mut::<PendingPayableScanner>()
+            .expect("mismatched types");
+        pending_payable_scanner
+            .current_sent_payables
+            .ensure_empty_cache(logger);
+        pending_payable_scanner
+            .yet_unproven_failed_payables
+            .ensure_empty_cache(logger);
     }
 
     pub fn try_skipping_payable_adjustment(

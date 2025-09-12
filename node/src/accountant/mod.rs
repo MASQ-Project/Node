@@ -5565,7 +5565,7 @@ mod tests {
 
     #[test]
     fn handling_scan_error_for_externally_triggered_payables() {
-        assert_scan_error_is_handled_properly(
+        test_scan_error_is_handled_properly(
             "handling_scan_error_for_externally_triggered_payables",
             ScanError {
                 scan_type: ScanType::Payables,
@@ -5577,19 +5577,21 @@ mod tests {
 
     #[test]
     fn handling_scan_error_for_externally_triggered_pending_payables() {
-        assert_scan_error_is_handled_properly(
+        let additional_test_setup_and_assertions = prepare_setup_and_assertion_fns();
+        test_scan_error_is_handled_properly_more_specifically(
             "handling_scan_error_for_externally_triggered_pending_payables",
             ScanError {
                 scan_type: ScanType::PendingPayables,
                 response_skeleton_opt: Some(EXAMPLE_RESPONSE_SKELETON),
                 msg: EXAMPLE_ERROR_MSG.to_string(),
             },
+            Some(additional_test_setup_and_assertions),
         );
     }
 
     #[test]
     fn handling_scan_error_for_externally_triggered_receivables() {
-        assert_scan_error_is_handled_properly(
+        test_scan_error_is_handled_properly(
             "handling_scan_error_for_externally_triggered_receivables",
             ScanError {
                 scan_type: ScanType::Receivables,
@@ -5601,7 +5603,7 @@ mod tests {
 
     #[test]
     fn handling_scan_error_for_internally_triggered_payables() {
-        assert_scan_error_is_handled_properly(
+        test_scan_error_is_handled_properly(
             "handling_scan_error_for_internally_triggered_payables",
             ScanError {
                 scan_type: ScanType::Payables,
@@ -5613,19 +5615,21 @@ mod tests {
 
     #[test]
     fn handling_scan_error_for_internally_triggered_pending_payables() {
-        assert_scan_error_is_handled_properly(
+        let additional_test_setup_and_assertions = prepare_setup_and_assertion_fns();
+        test_scan_error_is_handled_properly_more_specifically(
             "handling_scan_error_for_internally_triggered_pending_payables",
             ScanError {
                 scan_type: ScanType::PendingPayables,
                 response_skeleton_opt: None,
                 msg: EXAMPLE_ERROR_MSG.to_string(),
             },
+            Some(additional_test_setup_and_assertions),
         );
     }
 
     #[test]
     fn handling_scan_error_for_internally_triggered_receivables() {
-        assert_scan_error_is_handled_properly(
+        test_scan_error_is_handled_properly(
             "handling_scan_error_for_internally_triggered_receivables",
             ScanError {
                 scan_type: ScanType::Receivables,
@@ -5633,6 +5637,34 @@ mod tests {
                 msg: EXAMPLE_ERROR_MSG.to_string(),
             },
         );
+    }
+
+    fn prepare_setup_and_assertion_fns() -> (Box<dyn FnOnce(&mut Scanners)>, Box<dyn FnOnce()>) {
+        let ensure_empty_cache_sent_tx_params_arc = Arc::new(Mutex::new(vec![]));
+        let ensure_empty_cache_failed_tx_params_arc = Arc::new(Mutex::new(vec![]));
+        let sent_payable_cache = PendingPayableCacheMock::default()
+            .ensure_empty_cache_params(&ensure_empty_cache_sent_tx_params_arc);
+        let failed_payable_cache = PendingPayableCacheMock::default()
+            .ensure_empty_cache_params(&ensure_empty_cache_failed_tx_params_arc);
+        let scanner = PendingPayableScannerBuilder::new()
+            .sent_payable_cache(Box::new(sent_payable_cache))
+            .failed_payable_cache(Box::new(failed_payable_cache))
+            .build();
+        (
+            Box::new(|scanners: &mut Scanners| {
+                scanners.replace_scanner(ScannerReplacement::PendingPayable(
+                    ReplacementType::Real(scanner),
+                ));
+            }) as Box<dyn FnOnce(&mut Scanners)>,
+            Box::new(move || {
+                let ensure_empty_cache_sent_tx_params =
+                    ensure_empty_cache_sent_tx_params_arc.lock().unwrap();
+                assert_eq!(*ensure_empty_cache_sent_tx_params, vec![()]);
+                let ensure_empty_cache_failed_tx_params =
+                    ensure_empty_cache_failed_tx_params_arc.lock().unwrap();
+                assert_eq!(*ensure_empty_cache_failed_tx_params, vec![()]);
+            }) as Box<dyn FnOnce()>,
+        )
     }
 
     #[test]
@@ -6380,15 +6412,32 @@ mod tests {
         let _: u64 = wei_to_gwei(u128::MAX);
     }
 
-    fn assert_scan_error_is_handled_properly(test_name: &str, message: ScanError) {
+    fn test_scan_error_is_handled_properly(test_name: &str, message: ScanError) {
+        test_scan_error_is_handled_properly_more_specifically(test_name, message, None)
+    }
+    fn test_scan_error_is_handled_properly_more_specifically(
+        test_name: &str,
+        message: ScanError,
+        additional_assertion_opt: Option<(Box<dyn FnOnce(&mut Scanners)>, Box<dyn FnOnce()>)>,
+    ) {
         init_test_logging();
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let mut subject = AccountantBuilder::default()
             .logger(Logger::new(test_name))
             .build();
-        subject
-            .scanners
-            .reset_scan_started(message.scan_type, MarkScanner::Started(SystemTime::now()));
+        let (adjust_scanner, run_additional_assertion) = match additional_assertion_opt {
+            Some(two_functions) => two_functions,
+            None => (
+                Box::new(|scanners: &mut Scanners| {
+                    scanners.reset_scan_started(
+                        message.scan_type,
+                        MarkScanner::Started(SystemTime::now()),
+                    )
+                }) as Box<dyn FnOnce(&mut Scanners)>,
+                Box::new(|| ()) as Box<dyn FnOnce()>,
+            ),
+        };
+        adjust_scanner(&mut subject.scanners);
         let subject_addr = subject.start();
         let system = System::new("test");
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
@@ -6445,6 +6494,7 @@ mod tests {
                 ));
             }
         }
+        run_additional_assertion();
     }
 
     #[test]
