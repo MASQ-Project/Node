@@ -16,7 +16,7 @@ impl Scanner<SentPayables, PayableScanResult> for PayableScanner {
 
         PayableScanResult {
             ui_response_opt: Self::generate_ui_response(msg.response_skeleton_opt),
-            result: Self::detect_outcome(&msg),
+            result: Self::determine_next_scan_to_run(&msg),
         }
     }
 

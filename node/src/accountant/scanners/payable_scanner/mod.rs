@@ -140,7 +140,7 @@ impl PayableScanner {
         }
     }
 
-    fn detect_outcome(msg: &SentPayables) -> NextScanToRun {
+    fn determine_next_scan_to_run(msg: &SentPayables) -> NextScanToRun {
         match &msg.payment_procedure_result {
             Ok(batch_results) => {
                 if batch_results.sent_txs.is_empty() {
@@ -338,7 +338,7 @@ mod tests {
     fn detect_outcome_works() {
         // Error
         assert_eq!(
-            PayableScanner::detect_outcome(&SentPayables {
+            PayableScanner::determine_next_scan_to_run(&SentPayables {
                 payment_procedure_result: Err("Any error".to_string()),
                 payable_scan_type: PayableScanType::New,
                 response_skeleton_opt: None,
@@ -346,7 +346,7 @@ mod tests {
             NextScanToRun::NewPayableScan
         );
         assert_eq!(
-            PayableScanner::detect_outcome(&SentPayables {
+            PayableScanner::determine_next_scan_to_run(&SentPayables {
                 payment_procedure_result: Err("Any error".to_string()),
                 payable_scan_type: PayableScanType::Retry,
                 response_skeleton_opt: None,
@@ -356,7 +356,7 @@ mod tests {
 
         // BatchResults is empty
         assert_eq!(
-            PayableScanner::detect_outcome(&SentPayables {
+            PayableScanner::determine_next_scan_to_run(&SentPayables {
                 payment_procedure_result: Ok(BatchResults {
                     sent_txs: vec![],
                     failed_txs: vec![],
@@ -367,7 +367,7 @@ mod tests {
             NextScanToRun::NewPayableScan
         );
         assert_eq!(
-            PayableScanner::detect_outcome(&SentPayables {
+            PayableScanner::determine_next_scan_to_run(&SentPayables {
                 payment_procedure_result: Ok(BatchResults {
                     sent_txs: vec![],
                     failed_txs: vec![],
@@ -380,7 +380,7 @@ mod tests {
 
         // Only FailedTxs
         assert_eq!(
-            PayableScanner::detect_outcome(&SentPayables {
+            PayableScanner::determine_next_scan_to_run(&SentPayables {
                 payment_procedure_result: Ok(BatchResults {
                     sent_txs: vec![],
                     failed_txs: vec![make_failed_tx(1), make_failed_tx(2)],
@@ -391,7 +391,7 @@ mod tests {
             NextScanToRun::RetryPayableScan
         );
         assert_eq!(
-            PayableScanner::detect_outcome(&SentPayables {
+            PayableScanner::determine_next_scan_to_run(&SentPayables {
                 payment_procedure_result: Ok(BatchResults {
                     sent_txs: vec![],
                     failed_txs: vec![make_failed_tx(1), make_failed_tx(2)],
@@ -404,7 +404,7 @@ mod tests {
 
         // Only SentTxs
         assert_eq!(
-            PayableScanner::detect_outcome(&SentPayables {
+            PayableScanner::determine_next_scan_to_run(&SentPayables {
                 payment_procedure_result: Ok(BatchResults {
                     sent_txs: vec![make_sent_tx(1), make_sent_tx(2)],
                     failed_txs: vec![],
@@ -415,7 +415,7 @@ mod tests {
             NextScanToRun::PendingPayableScan
         );
         assert_eq!(
-            PayableScanner::detect_outcome(&SentPayables {
+            PayableScanner::determine_next_scan_to_run(&SentPayables {
                 payment_procedure_result: Ok(BatchResults {
                     sent_txs: vec![make_sent_tx(1), make_sent_tx(2)],
                     failed_txs: vec![],
@@ -428,7 +428,7 @@ mod tests {
 
         // Both SentTxs and FailedTxs are present
         assert_eq!(
-            PayableScanner::detect_outcome(&SentPayables {
+            PayableScanner::determine_next_scan_to_run(&SentPayables {
                 payment_procedure_result: Ok(BatchResults {
                     sent_txs: vec![make_sent_tx(1), make_sent_tx(2)],
                     failed_txs: vec![make_failed_tx(1), make_failed_tx(2)],
@@ -439,7 +439,7 @@ mod tests {
             NextScanToRun::PendingPayableScan
         );
         assert_eq!(
-            PayableScanner::detect_outcome(&SentPayables {
+            PayableScanner::determine_next_scan_to_run(&SentPayables {
                 payment_procedure_result: Ok(BatchResults {
                     sent_txs: vec![make_sent_tx(1), make_sent_tx(2)],
                     failed_txs: vec![make_failed_tx(1), make_failed_tx(2)],

@@ -213,8 +213,7 @@ mod tests {
             },
         };
 
-        let templates_vec = vec![template1.clone(), template2.clone()];
-        let templates = NewTxTemplates::from_iter(templates_vec.into_iter());
+        let templates = NewTxTemplates::from_iter(vec![template1.clone(), template2.clone()]);
 
         assert_eq!(templates.len(), 2);
         assert_eq!(templates[0], template1);
