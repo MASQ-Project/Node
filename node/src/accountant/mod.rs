@@ -1186,7 +1186,7 @@ impl From<PendingPayableFingerprint> for PendingPayableId {
     }
 }
 
-// TODO: GH
+// TODO: Keep either comma_joined_stringifiable or join_with_separator after merge
 pub fn comma_joined_stringifiable<T, F>(collection: &[T], stringify: F) -> String
 where
     F: FnMut(&T) -> String,
