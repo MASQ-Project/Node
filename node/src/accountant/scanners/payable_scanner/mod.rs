@@ -332,10 +332,8 @@ mod tests {
         );
     }
 
-    //// New Code
-
     #[test]
-    fn detect_outcome_works() {
+    fn determine_next_scan_to_run_works() {
         // Error
         assert_eq!(
             PayableScanner::determine_next_scan_to_run(&SentPayables {

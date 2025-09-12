@@ -1370,9 +1370,9 @@ mod tests {
     }
 
     #[test]
-    fn retrieve_payables_turn_into_an_empty_vector_if_all_unqualified() {
+    fn retrieved_payables_turn_into_an_empty_vector_if_all_unqualified() {
         init_test_logging();
-        let test_name = "retrieve_payables_turn_into_an_empty_vector_if_all_unqualified";
+        let test_name = "retrieved_payables_turn_into_an_empty_vector_if_all_unqualified";
         let now = SystemTime::now();
         let payment_thresholds = PaymentThresholds::default();
         let unqualified_payable_account = vec![PayableAccount {

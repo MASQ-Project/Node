@@ -60,7 +60,7 @@ pub fn return_batch_results(
         BatchResults::default(),
         |mut batch_results, (sent_tx, response)| {
             match response {
-                Ok(_) => batch_results.sent_txs.push(sent_tx), // TODO: Validate the JSON output
+                Ok(_) => batch_results.sent_txs.push(sent_tx), // TODO: GH-547: Validate the JSON output
                 Err(rpc_error) => batch_results
                     .failed_txs
                     .push(FailedTx::from((&sent_tx, &rpc_error))),

@@ -55,7 +55,7 @@ pub fn generate_status_updates(
         .collect()
 }
 
-pub fn calculate_lengths(batch_results: &BatchResults) -> (usize, usize) {
+pub fn calculate_occurences(batch_results: &BatchResults) -> (usize, usize) {
     (batch_results.sent_txs.len(), batch_results.failed_txs.len())
 }
 
