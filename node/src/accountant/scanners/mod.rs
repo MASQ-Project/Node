@@ -1064,6 +1064,7 @@ mod tests {
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use actix::{Message, System};
     use ethereum_types::U64;
+    use itertools::Either;
     use masq_lib::logger::Logger;
     use masq_lib::messages::ScanType;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
@@ -2564,7 +2565,7 @@ mod tests {
 
         assert_eq!(
             result,
-            PendingPayableScanResult::PaymentRetryRequired(Retry::RetryPayments)
+            PendingPayableScanResult::PaymentRetryRequired(Either::Left(Retry::RetryPayments))
         );
         let transactions_confirmed_params = transactions_confirmed_params_arc.lock().unwrap();
         sent_tx_1.status = TxStatus::Confirmed {

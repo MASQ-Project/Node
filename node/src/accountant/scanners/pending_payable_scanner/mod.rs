@@ -208,7 +208,15 @@ impl PendingPayableScanner {
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) -> PendingPayableScanResult {
         if let Some(retry) = retry_opt {
-            PendingPayableScanResult::PaymentRetryRequired(retry)
+            if let Some(response_skeleton) = response_skeleton_opt {
+                let ui_msg = NodeToUiMessage {
+                    target: MessageTarget::ClientId(response_skeleton.client_id),
+                    body: UiScanResponse {}.tmb(response_skeleton.context_id),
+                };
+                PendingPayableScanResult::PaymentRetryRequired(Either::Right(ui_msg))
+            } else {
+                PendingPayableScanResult::PaymentRetryRequired(Either::Left(retry))
+            }
         } else {
             let ui_msg_opt = response_skeleton_opt.map(|response_skeleton| NodeToUiMessage {
                 target: MessageTarget::ClientId(response_skeleton.client_id),
@@ -823,7 +831,7 @@ mod tests {
     use crate::blockchain::errors::BlockchainErrorKind;
     use crate::blockchain::test_utils::{make_block_hash, make_tx_hash};
     use crate::test_utils::{make_paying_wallet, make_wallet};
-    use itertools::Itertools;
+    use itertools::{Either, Itertools};
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use regex::Regex;
@@ -949,7 +957,7 @@ mod tests {
 
         assert_eq!(
             result,
-            PendingPayableScanResult::PaymentRetryRequired(Retry::RetryPayments)
+            PendingPayableScanResult::PaymentRetryRequired(Either::Left(Retry::RetryPayments))
         );
         let get_record_by_hash_failed_payable_cache_params =
             get_record_by_hash_failed_payable_cache_params_arc
@@ -1554,8 +1562,8 @@ mod tests {
         subject
             .handle_confirmed_transactions(DetectedConfirmations::default(), &Logger::new("test"))
 
-        // Mocked payable DAO without prepared results didn't panic, which none of its methods was
-        // used in this test
+        // Mocked payable DAO without prepared results didn't panic, which means none of its methods
+        // was used in this test
     }
 
     #[test]

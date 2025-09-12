@@ -336,16 +336,21 @@ impl Handler<TxReceiptsMessage> for Accountant {
                         .schedule_new_payable_scan(ctx, &self.logger)
                 }
             }
-            PendingPayableScanResult::PaymentRetryRequired(retry) => match retry {
-                Retry::RetryPayments => self.scan_schedulers.payable.schedule_retry_payable_scan(
-                    ctx,
-                    response_skeleton_opt,
-                    &self.logger,
-                ),
-                Retry::RetryTxStatusCheckOnly => self
+            PendingPayableScanResult::PaymentRetryRequired(retry_either) => match retry_either {
+                Either::Left(Retry::RetryPayments) => self
+                    .scan_schedulers
+                    .payable
+                    .schedule_retry_payable_scan(ctx, response_skeleton_opt, &self.logger),
+                Either::Left(Retry::RetryTxStatusCheckOnly) => self
                     .scan_schedulers
                     .pending_payable
                     .schedule(ctx, &self.logger),
+                Either::Right(node_to_ui_msg) => self
+                    .ui_message_sub_opt
+                    .as_ref()
+                    .expect("UIGateway is not bound")
+                    .try_send(node_to_ui_msg)
+                    .expect("UIGateway is dead"),
             },
         };
     }
@@ -1270,6 +1275,7 @@ mod tests {
     use crate::blockchain::blockchain_interface::data_structures::{
         StatusReadFromReceiptCheck, TxBlock,
     };
+    use crate::blockchain::errors::rpc_errors::RemoteError;
     use crate::blockchain::errors::validation_status::ValidationStatus;
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
@@ -2805,7 +2811,7 @@ mod tests {
             }))
             .finish_scan_params(&scan_params.pending_payable_finish_scan)
             .finish_scan_result(PendingPayableScanResult::PaymentRetryRequired(
-                Retry::RetryPayments,
+                Either::Left(Retry::RetryPayments),
             ));
         let receivable_scanner = ScannerMock::new()
             .scan_started_at_result(None)
@@ -4986,7 +4992,7 @@ mod tests {
         let pending_payable_scanner = ScannerMock::new()
             .finish_scan_params(&finish_scan_params_arc)
             .finish_scan_result(PendingPayableScanResult::PaymentRetryRequired(
-                Retry::RetryPayments,
+                Either::Left(Retry::RetryPayments),
             ));
         subject
             .scanners
@@ -5049,7 +5055,7 @@ mod tests {
         let pending_payable_scanner = ScannerMock::new()
             .finish_scan_params(&finish_scan_params_arc)
             .finish_scan_result(PendingPayableScanResult::PaymentRetryRequired(
-                Retry::RetryTxStatusCheckOnly,
+                Either::Left(Retry::RetryTxStatusCheckOnly),
             ));
         subject
             .scanners
@@ -5069,24 +5075,10 @@ mod tests {
                 .notify_later_params(&pending_payable_notify_later_params_arc),
         );
         let system = System::new(test_name);
-        let (mut msg, _) = make_tx_receipts_msg(vec![
-            SeedsToMakeUpPayableWithStatus {
-                tx_hash: TxHashByTable::SentPayable(make_tx_hash(123)),
-                status: StatusReadFromReceiptCheck::Pending,
-            },
-            SeedsToMakeUpPayableWithStatus {
-                tx_hash: TxHashByTable::FailedPayable(make_tx_hash(456)),
-                status: StatusReadFromReceiptCheck::Reverted,
-            },
-        ]);
-        // Although it all begins with an external trigger, the response skeleton will not be
-        // propagated eventually to the further stages (see the NotifyLaterHandle assertion holding
-        // None for the response skeleton)
-        let response_skeleton_opt = Some(ResponseSkeleton {
-            client_id: 45,
-            context_id: 7,
-        });
-        msg.response_skeleton_opt = response_skeleton_opt;
+        let msg = TxReceiptsMessage {
+            results: hashmap!(TxHashByTable::SentPayable(make_tx_hash(123)) => Err(AppRpcError::Remote(RemoteError::Unreachable))),
+            response_skeleton_opt: None,
+        };
         let subject_addr = subject.start();
 
         subject_addr.try_send(msg.clone()).unwrap();
@@ -5107,6 +5099,66 @@ mod tests {
                 interval
             )]
         );
+        assert_using_the_same_logger(&logger, test_name, None)
+    }
+
+    #[test]
+    fn accountant_sends_ui_msg_for_an_external_scan_trigger_despite_the_need_of_retry_was_detected()
+    {
+        init_test_logging();
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let ui_gateway =
+            ui_gateway.system_stop_conditions(match_lazily_every_type_id!(NodeToUiMessage));
+        let test_name =
+            "accountant_sends_ui_msg_for_an_external_scan_trigger_despite_the_need_of_retry_was_detected";
+        let finish_scan_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut subject = AccountantBuilder::default()
+            .logger(Logger::new(test_name))
+            .build();
+        subject.ui_message_sub_opt = Some(ui_gateway.start().recipient());
+        let response_skeleton = ResponseSkeleton {
+            client_id: 123,
+            context_id: 333,
+        };
+        let node_to_ui_msg = NodeToUiMessage {
+            target: MessageTarget::ClientId(123),
+            body: UiScanResponse {}.tmb(333),
+        };
+        let pending_payable_scanner = ScannerMock::new()
+            .finish_scan_params(&finish_scan_params_arc)
+            .finish_scan_result(PendingPayableScanResult::PaymentRetryRequired(
+                Either::Right(node_to_ui_msg.clone()),
+            ));
+        subject
+            .scanners
+            .replace_scanner(ScannerReplacement::PendingPayable(ReplacementType::Mock(
+                pending_payable_scanner,
+            )));
+        subject.scan_schedulers.payable.retry_payable_notify =
+            Box::new(NotifyHandleMock::default().panic_on_schedule_attempt());
+        subject.scan_schedulers.payable.new_payable_notify =
+            Box::new(NotifyHandleMock::default().panic_on_schedule_attempt());
+        subject.scan_schedulers.payable.new_payable_notify_later =
+            Box::new(NotifyLaterHandleMock::default().panic_on_schedule_attempt());
+        subject.scan_schedulers.pending_payable.handle =
+            Box::new(NotifyLaterHandleMock::default().panic_on_schedule_attempt());
+        let system = System::new(test_name);
+
+        let msg = TxReceiptsMessage {
+            results: hashmap!(TxHashByTable::SentPayable(make_tx_hash(123)) => Err(AppRpcError::Remote(RemoteError::Unreachable))),
+            response_skeleton_opt: Some(response_skeleton),
+        };
+        let subject_addr = subject.start();
+
+        subject_addr.try_send(msg.clone()).unwrap();
+
+        system.run();
+        let mut finish_scan_params = finish_scan_params_arc.lock().unwrap();
+        let (msg_actual, logger) = finish_scan_params.remove(0);
+        assert_eq!(msg_actual, msg);
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        let captured_msg = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
+        assert_eq!(captured_msg, &node_to_ui_msg);
         assert_using_the_same_logger(&logger, test_name, None)
     }
 

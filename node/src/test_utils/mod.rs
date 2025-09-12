@@ -946,8 +946,7 @@ pub mod unshared_test_utils {
             ) -> Box<dyn NLSpawnHandleHolder> {
                 if self.panic_on_schedule_attempt {
                     panic!(
-                        "Message scheduling request for {:?} and interval {}ms, thought not \
-                    expected",
+                        "Message scheduling request for {:?} and interval {}ms, thought not expected",
                         msg,
                         interval.as_millis()
                     );

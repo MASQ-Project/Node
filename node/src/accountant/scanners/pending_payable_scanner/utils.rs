@@ -300,7 +300,7 @@ impl RecheckRequiringFailures {
 #[derive(Debug, PartialEq, Eq)]
 pub enum PendingPayableScanResult {
     NoPendingPayablesLeft(Option<NodeToUiMessage>),
-    PaymentRetryRequired(Retry),
+    PaymentRetryRequired(Either<Retry, NodeToUiMessage>),
 }
 
 #[derive(Debug, PartialEq, Eq)]

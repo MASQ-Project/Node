@@ -28,7 +28,6 @@ pub enum FailedPayableDaoError {
 pub enum FailureReason {
     Submission(AppRpcErrorKind),
     Reverted,
-    Unrecognized,
     PendingTooLong,
 }
 
@@ -651,7 +650,7 @@ mod tests {
         assert_eq!(
             FailureReason::from_str("\"UnknownReason\"").unwrap_err(),
             "unknown variant `UnknownReason`, \
-            expected one of `Submission`, `Reverted`, `Unrecognized`, `PendingTooLong` \
+            expected one of `Submission`, `Reverted`, `PendingTooLong` \
             at line 1 column 15 in '\"UnknownReason\"'"
         );
 
