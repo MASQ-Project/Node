@@ -2243,9 +2243,9 @@ mod tests {
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let now = SystemTime::now();
         let payment_thresholds = PaymentThresholds::default();
-        let (qualified_payables, _, all_retrieved_payables) =
+        let (qualified_payables, _, retrieved_payables) =
             make_qualified_and_unqualified_payables(now, &payment_thresholds);
-        let payable_dao = PayableDaoMock::new().retrieve_payables_result(all_retrieved_payables);
+        let payable_dao = PayableDaoMock::new().retrieve_payables_result(retrieved_payables);
         let system =
             System::new("accountant_sends_qualified_payable_msg_when_qualified_payable_found");
         let consuming_wallet = make_paying_wallet(b"consuming");

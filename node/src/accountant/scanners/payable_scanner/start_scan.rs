@@ -23,16 +23,16 @@ impl StartableScanner<ScanForNewPayables, InitialTemplatesMessage> for PayableSc
     ) -> Result<InitialTemplatesMessage, StartScanError> {
         self.mark_as_started(timestamp);
         info!(logger, "Scanning for new payables");
-        let all_retrieved_payables = self.payable_dao.retrieve_payables(None);
+        let retrieved_payables = self.payable_dao.retrieve_payables(None);
 
         debug!(
             logger,
             "{}",
-            investigate_debt_extremes(timestamp, &all_retrieved_payables)
+            investigate_debt_extremes(timestamp, &retrieved_payables)
         );
 
         let qualified_payables =
-            self.sniff_out_alarming_payables_and_maybe_log_them(all_retrieved_payables, logger);
+            self.sniff_out_alarming_payables_and_maybe_log_them(retrieved_payables, logger);
 
         match qualified_payables.is_empty() {
             true => {

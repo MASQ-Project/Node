@@ -1613,14 +1613,14 @@ pub fn make_qualified_and_unqualified_payables(
         },
     ];
 
-    let mut all_retrieved_payables = Vec::new();
-    all_retrieved_payables.extend(qualified_payable_accounts.clone());
-    all_retrieved_payables.extend(unqualified_payable_accounts.clone());
+    let mut retrieved_payables = Vec::new();
+    retrieved_payables.extend(qualified_payable_accounts.clone());
+    retrieved_payables.extend(unqualified_payable_accounts.clone());
 
     (
         qualified_payable_accounts,
         unqualified_payable_accounts,
-        all_retrieved_payables,
+        retrieved_payables,
     )
 }
 
