@@ -14,6 +14,7 @@ pub mod persistent_configuration_mock;
 pub mod recorder;
 pub mod recorder_counter_msgs;
 pub mod recorder_stop_conditions;
+pub mod serde_serializer_mock;
 pub mod stream_connector_mock;
 pub mod tcp_wrapper_mocks;
 pub mod tokio_wrapper_mocks;
@@ -569,6 +570,18 @@ pub mod unshared_test_utils {
         pub assertions: Box<dyn FnOnce(&mut A) + Send>,
     }
 
+    pub fn capture_digits_with_separators_from_str(
+        surveyed_str: &str,
+        length_between_separators: usize,
+        separator: char,
+    ) -> Vec<String> {
+        let regex =
+            format!("(\\d{{1,{length_between_separators}}}(?:{separator}\\d{{{length_between_separators}}})+)");
+        let re = regex::Regex::new(&regex).unwrap();
+        let captures = re.captures_iter(surveyed_str);
+        captures.map(|capture| capture[1].to_string()).collect()
+    }
+
     pub fn assert_on_initialization_with_panic_on_migration<A>(data_dir: &Path, act: &A)
     where
         A: Fn(&Path) + ?Sized,
@@ -933,8 +946,7 @@ pub mod unshared_test_utils {
             ) -> Box<dyn NLSpawnHandleHolder> {
                 if self.panic_on_schedule_attempt {
                     panic!(
-                        "Message scheduling request for {:?} and interval {}ms, thought not \
-                    expected",
+                        "Message scheduling request for {:?} and interval {}ms, thought not expected",
                         msg,
                         interval.as_millis()
                     );

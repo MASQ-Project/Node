@@ -5,6 +5,7 @@
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
     BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
 };
+use crate::blockchain::errors::validation_status::ValidationFailureClock;
 use bip39::{Language, Mnemonic, Seed};
 use ethabi::Hash;
 use ethereum_types::{BigEndianHash, H160, H256, U64};
@@ -13,8 +14,10 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::utils::to_string;
 use serde::Serialize;
 use serde_derive::Deserialize;
+use std::cell::RefCell;
 use std::fmt::Debug;
 use std::net::Ipv4Addr;
+use std::time::SystemTime;
 use web3::transports::{EventLoopHandle, Http};
 use web3::types::{Index, Log, SignedTransaction, TransactionReceipt, H2048, U256};
 
@@ -223,5 +226,72 @@ pub fn transport_error_message() -> String {
         "No connection could be made because the target machine actively refused it.".to_string()
     } else {
         "Connection refused".to_string()
+    }
+}
+
+pub struct TransactionReceiptBuilder {
+    status_opt: Option<U64>,
+    block_hash_opt: Option<H256>,
+    block_number_opt: Option<U64>,
+    transaction_hash: H256,
+}
+
+impl TransactionReceiptBuilder {
+    pub fn new(transaction_hash: H256) -> Self {
+        Self {
+            status_opt: None,
+            block_hash_opt: None,
+            block_number_opt: None,
+            transaction_hash,
+        }
+    }
+
+    pub fn status(mut self, status: U64) -> Self {
+        self.status_opt = Some(status);
+        self
+    }
+
+    pub fn block_hash(mut self, block_hash: H256) -> Self {
+        self.block_hash_opt = Some(block_hash);
+        self
+    }
+
+    pub fn block_number(mut self, block_number: U64) -> Self {
+        self.block_number_opt = Some(block_number);
+        self
+    }
+
+    pub fn build(self) -> TransactionReceipt {
+        TransactionReceipt {
+            status: self.status_opt,
+            root: None,
+            block_hash: self.block_hash_opt,
+            block_number: self.block_number_opt,
+            cumulative_gas_used: Default::default(),
+            gas_used: None,
+            contract_address: None,
+            transaction_hash: self.transaction_hash,
+            transaction_index: Default::default(),
+            logs: vec![],
+            logs_bloom: Default::default(),
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct ValidationFailureClockMock {
+    now_results: RefCell<Vec<SystemTime>>,
+}
+
+impl ValidationFailureClock for ValidationFailureClockMock {
+    fn now(&self) -> SystemTime {
+        self.now_results.borrow_mut().remove(0)
+    }
+}
+
+impl ValidationFailureClockMock {
+    pub fn now_result(self, result: SystemTime) -> Self {
+        self.now_results.borrow_mut().push(result);
+        self
     }
 }

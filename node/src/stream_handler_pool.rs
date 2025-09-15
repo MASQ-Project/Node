@@ -1760,7 +1760,7 @@ mod tests {
                 })
                 .unwrap();
 
-            tx.send(subject_subs).expect("Tx failure");
+            tx.send(subject_subs).expect("SentTx failure");
 
             system.run();
         });
@@ -1927,7 +1927,7 @@ mod tests {
                 })
                 .unwrap();
 
-            tx.send(subject_subs).expect("Tx failure");
+            tx.send(subject_subs).expect("SentTx failure");
 
             system.run();
         });

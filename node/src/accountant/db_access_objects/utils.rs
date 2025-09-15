@@ -46,6 +46,10 @@ pub fn from_unix_timestamp(unix_timestamp: i64) -> SystemTime {
     SystemTime::UNIX_EPOCH + interval
 }
 
+pub trait TxRecordWithHash {
+    fn hash(&self) -> TxHash;
+}
+
 pub struct DaoFactoryReal {
     pub data_directory: PathBuf,
     pub init_config: DbInitializationConfig,

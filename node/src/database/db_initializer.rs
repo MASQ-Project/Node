@@ -802,8 +802,7 @@ mod tests {
                         gas_price_wei_high_b,
                         gas_price_wei_low_b,
                         nonce,
-                        block_hash,
-                        block_number
+                        status
                         FROM sent_payable",
             )
             .unwrap();

@@ -1,108 +1,16 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::CONTRACT_ABI;
-use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError;
-use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError::QueryFailed;
+use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainInterfaceError;
+use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainInterfaceError::QueryFailed;
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use ethereum_types::{H256, U256, U64};
 use futures::Future;
-use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
-use std::fmt::Display;
-use std::str::FromStr;
 use web3::contract::{Contract, Options};
 use web3::transports::{Batch, Http};
-use web3::types::{Address, BlockNumber, Filter, Log, TransactionReceipt};
+use web3::types::{Address, BlockNumber, Filter, Log};
 use web3::{Error, Web3};
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum TransactionReceiptResult {
-    RpcResponse(TxReceipt),
-    LocalError(String),
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum TxStatus {
-    Failed,
-    Pending,
-    Succeeded(TransactionBlock),
-}
-
-impl FromStr for TxStatus {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "Pending" => Ok(TxStatus::Pending),
-            "Failed" => Ok(TxStatus::Failed), // TODO: GH-631: This should be removed
-            s if s.starts_with("Succeeded") => {
-                // The format is "Succeeded(block_number, block_hash)"
-                let parts: Vec<&str> = s[10..s.len() - 1].split(',').collect();
-                if parts.len() != 2 {
-                    return Err("Invalid Succeeded format".to_string());
-                }
-                let block_number: u64 = parts[0]
-                    .parse()
-                    .map_err(|_| "Invalid block number".to_string())?;
-                let block_hash =
-                    H256::from_str(&parts[1][2..]).map_err(|_| "Invalid block hash".to_string())?;
-                Ok(TxStatus::Succeeded(TransactionBlock {
-                    block_hash,
-                    block_number: U64::from(block_number),
-                }))
-            }
-            _ => Err(format!("Unknown status: {}", s)),
-        }
-    }
-}
-
-impl Display for TxStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            TxStatus::Failed => write!(f, "Failed"),
-            TxStatus::Pending => write!(f, "Pending"),
-            TxStatus::Succeeded(block) => {
-                write!(
-                    f,
-                    "Succeeded({},{:?})",
-                    block.block_number, block.block_hash
-                )
-            }
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct TxReceipt {
-    pub transaction_hash: H256,
-    pub status: TxStatus,
-}
-
-#[derive(Debug, Default, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
-pub struct TransactionBlock {
-    pub block_hash: H256,
-    pub block_number: U64,
-}
-
-impl From<TransactionReceipt> for TxReceipt {
-    fn from(receipt: TransactionReceipt) -> Self {
-        let status = match (receipt.status, receipt.block_hash, receipt.block_number) {
-            (Some(status), Some(block_hash), Some(block_number)) if status == U64::from(1) => {
-                TxStatus::Succeeded(TransactionBlock {
-                    block_hash,
-                    block_number,
-                })
-            }
-            (Some(status), _, _) if status == U64::from(0) => TxStatus::Failed,
-            _ => TxStatus::Pending,
-        };
-
-        TxReceipt {
-            transaction_hash: receipt.transaction_hash,
-            status,
-        }
-    }
-}
 
 pub struct LowBlockchainIntWeb3 {
     web3: Web3<Http>,
@@ -115,7 +23,7 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
     fn get_transaction_fee_balance(
         &self,
         address: Address,
-    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
+    ) -> Box<dyn Future<Item = U256, Error = BlockchainInterfaceError>> {
         Box::new(
             self.web3
                 .eth()
@@ -127,7 +35,7 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
     fn get_service_fee_balance(
         &self,
         address: Address,
-    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
+    ) -> Box<dyn Future<Item = U256, Error = BlockchainInterfaceError>> {
         Box::new(
             self.contract
                 .query("balanceOf", address, None, Options::default(), None)
@@ -135,7 +43,7 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
         )
     }
 
-    fn get_gas_price(&self) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
+    fn get_gas_price(&self) -> Box<dyn Future<Item = U256, Error = BlockchainInterfaceError>> {
         Box::new(
             self.web3
                 .eth()
@@ -144,7 +52,7 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
         )
     }
 
-    fn get_block_number(&self) -> Box<dyn Future<Item = U64, Error = BlockchainError>> {
+    fn get_block_number(&self) -> Box<dyn Future<Item = U64, Error = BlockchainInterfaceError>> {
         Box::new(
             self.web3
                 .eth()
@@ -156,7 +64,7 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
     fn get_transaction_id(
         &self,
         address: Address,
-    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
+    ) -> Box<dyn Future<Item = U256, Error = BlockchainInterfaceError>> {
         Box::new(
             self.web3
                 .eth()
@@ -168,7 +76,7 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
     fn get_transaction_receipt_in_batch(
         &self,
         hash_vec: Vec<H256>,
-    ) -> Box<dyn Future<Item = Vec<Result<Value, Error>>, Error = BlockchainError>> {
+    ) -> Box<dyn Future<Item = Vec<Result<Value, Error>>, Error = BlockchainInterfaceError>> {
         hash_vec.into_iter().for_each(|hash| {
             self.web3_batch.eth().transaction_receipt(hash);
         });
@@ -188,7 +96,7 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
     fn get_transaction_logs(
         &self,
         filter: Filter,
-    ) -> Box<dyn Future<Item = Vec<Log>, Error = BlockchainError>> {
+    ) -> Box<dyn Future<Item = Vec<Log>, Error = BlockchainInterfaceError>> {
         Box::new(
             self.web3
                 .eth()
@@ -220,9 +128,9 @@ impl LowBlockchainIntWeb3 {
 #[cfg(test)]
 mod tests {
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::TRANSACTION_LITERAL;
-    use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError::QueryFailed;
-    use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainInterface};
-    use crate::blockchain::test_utils::make_blockchain_interface_web3;
+    use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainInterfaceError::QueryFailed;
+    use crate::blockchain::blockchain_interface::{BlockchainInterfaceError, BlockchainInterface};
+    use crate::blockchain::test_utils::{make_block_hash, make_blockchain_interface_web3, make_tx_hash, TransactionReceiptBuilder};
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
     use ethereum_types::{H256, U64};
@@ -230,8 +138,8 @@ mod tests {
     use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
     use masq_lib::utils::find_free_port;
     use std::str::FromStr;
-    use web3::types::{BlockNumber, Bytes, FilterBuilder, Log, TransactionReceipt, U256};
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt, TxStatus};
+    use web3::types::{BlockNumber, Bytes, FilterBuilder, Log, U256};
+    use crate::blockchain::blockchain_interface::data_structures::StatusReadFromReceiptCheck;
 
     #[test]
     fn get_transaction_fee_balance_works() {
@@ -269,7 +177,9 @@ mod tests {
             .wait();
 
         match result {
-            Err(BlockchainError::QueryFailed(msg)) if msg.contains("invalid hex character: Q") => {
+            Err(BlockchainInterfaceError::QueryFailed(msg))
+                if msg.contains("invalid hex character: Q") =>
+            {
                 ()
             }
             x => panic!("Expected complaint about hex character, but got {:?}", x),
@@ -377,7 +287,9 @@ mod tests {
             .wait();
 
         match result {
-            Err(BlockchainError::QueryFailed(msg)) if msg.contains("invalid hex character: Q") => {
+            Err(BlockchainInterfaceError::QueryFailed(msg))
+                if msg.contains("invalid hex character: Q") =>
+            {
                 ()
             }
             x => panic!("Expected complaint about hex character, but got {:?}", x),
@@ -430,8 +342,11 @@ mod tests {
             .wait();
 
         let err_msg = match result {
-            Err(BlockchainError::QueryFailed(msg)) => msg,
-            x => panic!("Expected BlockchainError::QueryFailed, but got {:?}", x),
+            Err(BlockchainInterfaceError::QueryFailed(msg)) => msg,
+            x => panic!(
+                "Expected BlockchainInterfaceError::QueryFailed, but got {:?}",
+                x
+            ),
         };
         assert!(
             err_msg.contains(expected_err_msg),
@@ -594,17 +509,17 @@ mod tests {
 
     #[test]
     fn transaction_receipt_can_be_converted_to_successful_transaction() {
-        let tx_receipt: TxReceipt = create_tx_receipt(
-            Some(U64::from(1)),
-            Some(H256::from_low_u64_be(0x1234)),
-            Some(U64::from(10)),
-            H256::from_low_u64_be(0x5678),
-        );
+        let tx_status: StatusReadFromReceiptCheck =
+            TransactionReceiptBuilder::new(make_tx_hash(0x5678))
+                .status(U64::from(1))
+                .block_hash(make_block_hash(0x1234))
+                .block_number(10.into())
+                .build()
+                .into();
 
-        assert_eq!(tx_receipt.transaction_hash, H256::from_low_u64_be(0x5678));
-        match tx_receipt.status {
-            TxStatus::Succeeded(ref block) => {
-                assert_eq!(block.block_hash, H256::from_low_u64_be(0x1234));
+        match tx_status {
+            StatusReadFromReceiptCheck::Succeeded(ref block) => {
+                assert_eq!(block.block_hash, make_block_hash(0x1234));
                 assert_eq!(block.block_number, U64::from(10));
             }
             _ => panic!("Expected status to be Succeeded"),
@@ -613,139 +528,43 @@ mod tests {
 
     #[test]
     fn transaction_receipt_can_be_converted_to_failed_transaction() {
-        let tx_receipt: TxReceipt = create_tx_receipt(
-            Some(U64::from(0)),
-            None,
-            None,
-            H256::from_low_u64_be(0x5678),
-        );
+        let tx_status: StatusReadFromReceiptCheck =
+            TransactionReceiptBuilder::new(make_tx_hash(0x5678))
+                .status(U64::from(0))
+                .build()
+                .into();
 
-        assert_eq!(tx_receipt.transaction_hash, H256::from_low_u64_be(0x5678));
-        assert_eq!(tx_receipt.status, TxStatus::Failed);
+        assert_eq!(tx_status, StatusReadFromReceiptCheck::Reverted);
     }
 
     #[test]
     fn transaction_receipt_can_be_converted_to_pending_transaction_no_status() {
-        let tx_receipt: TxReceipt =
-            create_tx_receipt(None, None, None, H256::from_low_u64_be(0x5678));
+        let tx_status: StatusReadFromReceiptCheck =
+            TransactionReceiptBuilder::new(make_tx_hash(0x5678))
+                .build()
+                .into();
 
-        assert_eq!(tx_receipt.transaction_hash, H256::from_low_u64_be(0x5678));
-        assert_eq!(tx_receipt.status, TxStatus::Pending);
+        assert_eq!(tx_status, StatusReadFromReceiptCheck::Pending);
     }
 
     #[test]
     fn transaction_receipt_can_be_converted_to_pending_transaction_no_block_info() {
-        let tx_receipt: TxReceipt = create_tx_receipt(
-            Some(U64::from(1)),
-            None,
-            None,
-            H256::from_low_u64_be(0x5678),
-        );
+        let tx_status: StatusReadFromReceiptCheck =
+            TransactionReceiptBuilder::new(make_tx_hash(0x5678))
+                .status(U64::from(1))
+                .build()
+                .into();
 
-        assert_eq!(tx_receipt.transaction_hash, H256::from_low_u64_be(0x5678));
-        assert_eq!(tx_receipt.status, TxStatus::Pending);
+        assert_eq!(tx_status, StatusReadFromReceiptCheck::Pending);
     }
 
     #[test]
     fn transaction_receipt_can_be_converted_to_pending_transaction_no_status_and_block_info() {
-        let tx_receipt: TxReceipt = create_tx_receipt(
-            Some(U64::from(1)),
-            Some(H256::from_low_u64_be(0x1234)),
-            None,
-            H256::from_low_u64_be(0x5678),
-        );
+        let tx_status: StatusReadFromReceiptCheck =
+            TransactionReceiptBuilder::new(make_tx_hash(0x5678))
+                .build()
+                .into();
 
-        assert_eq!(tx_receipt.transaction_hash, H256::from_low_u64_be(0x5678));
-        assert_eq!(tx_receipt.status, TxStatus::Pending);
-    }
-
-    #[test]
-    fn tx_status_display_works() {
-        // Test Failed
-        assert_eq!(TxStatus::Failed.to_string(), "Failed");
-
-        // Test Pending
-        assert_eq!(TxStatus::Pending.to_string(), "Pending");
-
-        // Test Succeeded
-        let block_number = U64::from(12345);
-        let block_hash = H256::from_low_u64_be(0xabcdef);
-        let succeeded = TxStatus::Succeeded(TransactionBlock {
-            block_hash,
-            block_number,
-        });
-        assert_eq!(
-            succeeded.to_string(),
-            format!("Succeeded({},0x{:x})", block_number, block_hash)
-        );
-    }
-
-    #[test]
-    fn tx_status_from_str_works() {
-        // Test Pending
-        assert_eq!(TxStatus::from_str("Pending"), Ok(TxStatus::Pending));
-
-        // Test Failed
-        assert_eq!(TxStatus::from_str("Failed"), Ok(TxStatus::Failed));
-
-        // Test Succeeded with valid input
-        let block_number = 123456789;
-        let block_hash = H256::from_low_u64_be(0xabcdef);
-        let input = format!("Succeeded({},0x{:x})", block_number, block_hash);
-        assert_eq!(
-            TxStatus::from_str(&input),
-            Ok(TxStatus::Succeeded(TransactionBlock {
-                block_hash,
-                block_number: U64::from(block_number),
-            }))
-        );
-
-        // Test Succeeded with invalid format
-        assert_eq!(
-            TxStatus::from_str("Succeeded(123)"),
-            Err("Invalid Succeeded format".to_string())
-        );
-
-        // Test Succeeded with invalid block number
-        assert_eq!(
-            TxStatus::from_str(
-                "Succeeded(abc,0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef)"
-            ),
-            Err("Invalid block number".to_string())
-        );
-
-        // Test Succeeded with invalid block hash
-        assert_eq!(
-            TxStatus::from_str("Succeeded(123,0xinvalidhash)"),
-            Err("Invalid block hash".to_string())
-        );
-
-        // Test unknown status
-        assert_eq!(
-            TxStatus::from_str("InProgress"),
-            Err("Unknown status: InProgress".to_string())
-        );
-    }
-
-    fn create_tx_receipt(
-        status: Option<U64>,
-        block_hash: Option<H256>,
-        block_number: Option<U64>,
-        transaction_hash: H256,
-    ) -> TxReceipt {
-        let receipt = TransactionReceipt {
-            status,
-            root: None,
-            block_hash,
-            block_number,
-            cumulative_gas_used: Default::default(),
-            gas_used: None,
-            contract_address: None,
-            transaction_hash,
-            transaction_index: Default::default(),
-            logs: vec![],
-            logs_bloom: Default::default(),
-        };
-        receipt.into()
+        assert_eq!(tx_status, StatusReadFromReceiptCheck::Pending);
     }
 }

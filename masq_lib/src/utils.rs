@@ -464,6 +464,25 @@ macro_rules! test_only_use {
 }
 
 #[macro_export(local_inner_macros)]
+macro_rules! btreemap {
+    () => {
+        ::std::collections::BTreeMap::new()
+    };
+    ($($key:expr => $val:expr,)+) => {
+        btreemap!($($key => $val),+)
+    };
+    ($($key:expr => $value:expr),+) => {
+        {
+            let mut _btm = ::std::collections::BTreeMap::new();
+            $(
+                let _ = _btm.insert($key, $value);
+            )*
+            _btm
+        }
+    };
+}
+
+#[macro_export(local_inner_macros)]
 macro_rules! hashmap {
     () => {
         ::std::collections::HashMap::new()
@@ -482,10 +501,30 @@ macro_rules! hashmap {
     };
 }
 
+#[macro_export(local_inner_macros)]
+macro_rules! hashset {
+    () => {
+        ::std::collections::HashSet::new()
+    };
+    ($($val:expr,)+) => {
+        hashset!($($val),+)
+    };
+    ($($value:expr),+) => {
+        {
+            let mut _hs = ::std::collections::HashSet::new();
+            $(
+                let _ = _hs.insert($value);
+            )*
+            _hs
+        }
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
+    use itertools::Itertools;
+    use std::collections::{BTreeMap, HashMap, HashSet};
     use std::env::current_dir;
     use std::fmt::Write;
     use std::fs::{create_dir_all, File, OpenOptions};
@@ -814,7 +853,8 @@ mod tests {
         let hashmap_with_one_element = hashmap!(1 => 2);
         let hashmap_with_multiple_elements = hashmap!(1 => 2, 10 => 20, 12 => 42);
         let hashmap_with_trailing_comma = hashmap!(1 => 2, 10 => 20,);
-        let hashmap_of_string = hashmap!("key" => "val");
+        let hashmap_of_string = hashmap!("key_1" => "val_a", "key_2" => "val_b");
+        let hashmap_with_duplicate = hashmap!(1 => 2, 1 => 2);
 
         let expected_empty_hashmap: HashMap<i32, i32> = HashMap::new();
         let mut expected_hashmap_with_one_element = HashMap::new();
@@ -827,7 +867,10 @@ mod tests {
         expected_hashmap_with_trailing_comma.insert(1, 2);
         expected_hashmap_with_trailing_comma.insert(10, 20);
         let mut expected_hashmap_of_string = HashMap::new();
-        expected_hashmap_of_string.insert("key", "val");
+        expected_hashmap_of_string.insert("key_1", "val_a");
+        expected_hashmap_of_string.insert("key_2", "val_b");
+        let mut expected_hashmap_with_duplicate = HashMap::new();
+        expected_hashmap_with_duplicate.insert(1, 2);
         assert_eq!(empty_hashmap, expected_empty_hashmap);
         assert_eq!(hashmap_with_one_element, expected_hashmap_with_one_element);
         assert_eq!(
@@ -839,5 +882,78 @@ mod tests {
             expected_hashmap_with_trailing_comma
         );
         assert_eq!(hashmap_of_string, expected_hashmap_of_string);
+        assert_eq!(hashmap_with_duplicate, expected_hashmap_with_duplicate);
+    }
+
+    #[test]
+    fn btreemap_macro_works() {
+        let empty_btm: BTreeMap<String, i32> = btreemap!();
+        let btm_with_one_element = btreemap!("ABC" => "234");
+        let btm_with_multiple_elements = btreemap!("Bobble" => 2, "Hurrah" => 20, "Boom" => 42);
+        let btm_with_trailing_comma = btreemap!(12 => 1, 22 =>2,);
+        let btm_with_duplicate = btreemap!("A"=>123, "A"=>222);
+
+        let expected_empty_btm: BTreeMap<String, i32> = BTreeMap::new();
+        let mut expected_btm_with_one_element = BTreeMap::new();
+        expected_btm_with_one_element.insert("ABC", "234");
+        let mut expected_btm_with_multiple_elements = BTreeMap::new();
+        expected_btm_with_multiple_elements.insert("Bobble", 2);
+        expected_btm_with_multiple_elements.insert("Hurrah", 20);
+        expected_btm_with_multiple_elements.insert("Boom", 42);
+        let mut expected_btm_with_trailing_comma = BTreeMap::new();
+        expected_btm_with_trailing_comma.insert(12, 1);
+        expected_btm_with_trailing_comma.insert(22, 2);
+        let mut expected_btm_with_duplicate = BTreeMap::new();
+        expected_btm_with_duplicate.insert("A", 222);
+        assert_eq!(empty_btm, expected_empty_btm);
+        assert_eq!(btm_with_one_element, expected_btm_with_one_element);
+        assert_eq!(
+            btm_with_multiple_elements,
+            expected_btm_with_multiple_elements
+        );
+        assert_eq!(
+            btm_with_multiple_elements.into_iter().collect_vec(),
+            vec![("Bobble", 2), ("Boom", 42), ("Hurrah", 20)]
+        );
+        assert_eq!(btm_with_trailing_comma, expected_btm_with_trailing_comma);
+        assert_eq!(btm_with_duplicate, expected_btm_with_duplicate);
+    }
+
+    #[test]
+    fn hashset_macro_works() {
+        let empty_hashset: HashSet<i32> = hashset!();
+        let hashset_with_one_element = hashset!(2);
+        let hashset_with_multiple_elements = hashset!(2, 20, 42);
+        let hashset_with_trailing_comma = hashset!(2, 20,);
+        let hashset_of_string = hashset!("val_a", "val_b");
+        let hashset_with_duplicate = hashset!(2, 2);
+
+        let expected_empty_hashset: HashSet<i32> = HashSet::new();
+        let mut expected_hashset_with_one_element = HashSet::new();
+        expected_hashset_with_one_element.insert(2);
+        let mut expected_hashset_with_multiple_elements = HashSet::new();
+        expected_hashset_with_multiple_elements.insert(2);
+        expected_hashset_with_multiple_elements.insert(20);
+        expected_hashset_with_multiple_elements.insert(42);
+        let mut expected_hashset_with_trailing_comma = HashSet::new();
+        expected_hashset_with_trailing_comma.insert(2);
+        expected_hashset_with_trailing_comma.insert(20);
+        let mut expected_hashset_of_string = HashSet::new();
+        expected_hashset_of_string.insert("val_a");
+        expected_hashset_of_string.insert("val_b");
+        let mut expected_hashset_with_duplicate = HashSet::new();
+        expected_hashset_with_duplicate.insert(2);
+        assert_eq!(empty_hashset, expected_empty_hashset);
+        assert_eq!(hashset_with_one_element, expected_hashset_with_one_element);
+        assert_eq!(
+            hashset_with_multiple_elements,
+            expected_hashset_with_multiple_elements
+        );
+        assert_eq!(
+            hashset_with_trailing_comma,
+            expected_hashset_with_trailing_comma
+        );
+        assert_eq!(hashset_of_string, expected_hashset_of_string);
+        assert_eq!(hashset_with_duplicate, expected_hashset_with_duplicate);
     }
 }
