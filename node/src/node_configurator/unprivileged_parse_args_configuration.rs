@@ -2134,7 +2134,8 @@ mod tests {
             &mut persistent_config,
         );
 
-        let expected_msg = "Value of DebtThresholdGwei (19999) must be bigger than PermanentDebtAllowedGwei (20000) as the small value";
+        let expected_msg = "Value of DebtThresholdGwei (19999) must be bigger than \
+        PermanentDebtAllowedGwei (20000) as the smallest value";
         assert_eq!(
             result,
             Err(ConfiguratorError::required(

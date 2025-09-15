@@ -229,6 +229,55 @@ pub fn transport_error_message() -> String {
     }
 }
 
+pub struct TransactionReceiptBuilder {
+    status_opt: Option<U64>,
+    block_hash_opt: Option<H256>,
+    block_number_opt: Option<U64>,
+    transaction_hash: H256,
+}
+
+impl TransactionReceiptBuilder {
+    pub fn new(transaction_hash: H256) -> Self {
+        Self {
+            status_opt: None,
+            block_hash_opt: None,
+            block_number_opt: None,
+            transaction_hash,
+        }
+    }
+
+    pub fn status(mut self, status: U64) -> Self {
+        self.status_opt = Some(status);
+        self
+    }
+
+    pub fn block_hash(mut self, block_hash: H256) -> Self {
+        self.block_hash_opt = Some(block_hash);
+        self
+    }
+
+    pub fn block_number(mut self, block_number: U64) -> Self {
+        self.block_number_opt = Some(block_number);
+        self
+    }
+
+    pub fn build(self) -> TransactionReceipt {
+        TransactionReceipt {
+            status: self.status_opt,
+            root: None,
+            block_hash: self.block_hash_opt,
+            block_number: self.block_number_opt,
+            cumulative_gas_used: Default::default(),
+            gas_used: None,
+            contract_address: None,
+            transaction_hash: self.transaction_hash,
+            transaction_index: Default::default(),
+            logs: vec![],
+            logs_bloom: Default::default(),
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct ValidationFailureClockMock {
     now_results: RefCell<Vec<SystemTime>>,

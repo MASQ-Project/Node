@@ -111,7 +111,7 @@ impl ReceivableScanner {
                 {
                     Ok(()) => debug!(logger, "Start block updated to {}", start_block_number),
                     Err(e) => panic!(
-                        "Attempt to set new start block to {} failed due to: {:?}",
+                        "Attempt to advance the start block to {} failed due to: {:?}",
                         start_block_number, e
                     ),
                 }

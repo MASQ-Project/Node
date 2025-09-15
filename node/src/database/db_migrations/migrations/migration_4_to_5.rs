@@ -150,7 +150,7 @@ mod tests {
         conn: &dyn ConnectionWrapper,
         transaction_hash_opt: Option<H256>,
         wallet: &Wallet,
-        amount: i64,
+        amount_minor: i64,
         timestamp: SystemTime,
     ) {
         let hash_str = transaction_hash_opt
@@ -159,7 +159,7 @@ mod tests {
         let mut stm = conn.prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payment_transaction) values (?,?,?,?)").unwrap();
         let params: &[&dyn ToSql] = &[
             &wallet,
-            &amount,
+            &amount_minor,
             &to_unix_timestamp(timestamp),
             if !hash_str.is_empty() {
                 &hash_str

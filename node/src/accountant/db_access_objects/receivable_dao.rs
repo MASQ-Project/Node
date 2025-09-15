@@ -55,7 +55,7 @@ pub trait ReceivableDao {
         &self,
         now: SystemTime,
         wallet: &Wallet,
-        amount: u128,
+        amount_minor: u128,
     ) -> Result<(), ReceivableDaoError>;
 
     fn more_money_received(
@@ -112,7 +112,7 @@ impl ReceivableDao for ReceivableDaoReal {
         &self,
         timestamp: SystemTime,
         wallet: &Wallet,
-        amount: u128,
+        amount_minor: u128,
     ) -> Result<(), ReceivableDaoError> {
         let main_sql = "insert into receivable (wallet_address, balance_high_b, balance_low_b, last_received_timestamp) values \
         (:wallet, :balance_high_b, :balance_low_b, :last_received_timestamp) on conflict (wallet_address) do update set \
@@ -125,7 +125,7 @@ impl ReceivableDao for ReceivableDaoReal {
             .key(WalletAddress(wallet))
             .wei_change(WeiChange::new(
                 "balance",
-                amount,
+                amount_minor,
                 WeiChangeDirection::Addition,
             ))
             .other_params(vec![ParamByUse::BeforeOverflowOnly(

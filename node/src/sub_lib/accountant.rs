@@ -1,15 +1,15 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::db_access_objects::banned_dao::BannedDaoFactory;
+use crate::accountant::db_access_objects::failed_payable_dao::FailedPayableDaoFactory;
 use crate::accountant::db_access_objects::payable_dao::PayableDaoFactory;
-use crate::accountant::db_access_objects::pending_payable_dao::PendingPayableDaoFactory;
 use crate::accountant::db_access_objects::receivable_dao::ReceivableDaoFactory;
+use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDaoFactory;
 use crate::accountant::scanners::payable_scanner_extension::msgs::BlockchainAgentWithContextMessage;
 use crate::accountant::{
-    checked_conversion, Accountant, ReceivedPayments, ReportTransactionReceipts, ScanError,
-    SentPayables,
+    checked_conversion, Accountant, ReceivedPayments, ScanError, SentPayables, TxReceiptsMessage,
 };
 use crate::actor_system_factory::SubsFactory;
-use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
+use crate::blockchain::blockchain_bridge::RegisterNewPendingPayables;
 use crate::db_config::config_dao::ConfigDaoFactory;
 use crate::sub_lib::neighborhood::ConfigChangeMsg;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
@@ -67,7 +67,8 @@ impl PaymentThresholds {
 
 pub struct DaoFactories {
     pub payable_dao_factory: Box<dyn PayableDaoFactory>,
-    pub pending_payable_dao_factory: Box<dyn PendingPayableDaoFactory>,
+    pub sent_payable_dao_factory: Box<dyn SentPayableDaoFactory>,
+    pub failed_payable_dao_factory: Box<dyn FailedPayableDaoFactory>,
     pub receivable_dao_factory: Box<dyn ReceivableDaoFactory>,
     pub banned_dao_factory: Box<dyn BannedDaoFactory>,
     pub config_dao_factory: Box<dyn ConfigDaoFactory>,
@@ -102,8 +103,8 @@ pub struct AccountantSubs {
     pub report_services_consumed: Recipient<ReportServicesConsumedMessage>,
     pub report_payable_payments_setup: Recipient<BlockchainAgentWithContextMessage>,
     pub report_inbound_payments: Recipient<ReceivedPayments>,
-    pub init_pending_payable_fingerprints: Recipient<PendingPayableFingerprintSeeds>,
-    pub report_transaction_receipts: Recipient<ReportTransactionReceipts>,
+    pub register_new_pending_payables: Recipient<RegisterNewPendingPayables>,
+    pub report_transaction_status: Recipient<TxReceiptsMessage>,
     pub report_sent_payments: Recipient<SentPayables>,
     pub scan_errors: Recipient<ScanError>,
     pub ui_message_sub: Recipient<NodeFromUiMessage>,

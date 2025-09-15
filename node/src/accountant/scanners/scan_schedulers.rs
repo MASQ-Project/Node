@@ -44,7 +44,7 @@ pub enum PayableScanSchedulerError {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum ScanRescheduleAfterEarlyStop {
+pub enum ScanReschedulingAfterEarlyStop {
     Schedule(ScanType),
     DoNotSchedule,
 }
@@ -245,7 +245,7 @@ pub trait RescheduleScanOnErrorResolver {
         error: &StartScanError,
         is_externally_triggered: bool,
         logger: &Logger,
-    ) -> ScanRescheduleAfterEarlyStop;
+    ) -> ScanReschedulingAfterEarlyStop;
 }
 
 #[derive(Default)]
@@ -258,7 +258,7 @@ impl RescheduleScanOnErrorResolver for RescheduleScanOnErrorResolverReal {
         error: &StartScanError,
         is_externally_triggered: bool,
         logger: &Logger,
-    ) -> ScanRescheduleAfterEarlyStop {
+    ) -> ScanReschedulingAfterEarlyStop {
         let reschedule_hint = match scanner {
             PayableSequenceScanner::NewPayables => {
                 Self::resolve_new_payables(error, is_externally_triggered)
@@ -285,16 +285,16 @@ impl RescheduleScanOnErrorResolverReal {
     fn resolve_new_payables(
         err: &StartScanError,
         is_externally_triggered: bool,
-    ) -> ScanRescheduleAfterEarlyStop {
+    ) -> ScanReschedulingAfterEarlyStop {
         if is_externally_triggered {
-            ScanRescheduleAfterEarlyStop::DoNotSchedule
+            ScanReschedulingAfterEarlyStop::DoNotSchedule
         } else if matches!(err, StartScanError::ScanAlreadyRunning { .. }) {
             unreachable!(
                 "an automatic scan of NewPayableScanner should never interfere with itself {:?}",
                 err
             )
         } else {
-            ScanRescheduleAfterEarlyStop::Schedule(ScanType::Payables)
+            ScanReschedulingAfterEarlyStop::Schedule(ScanType::Payables)
         }
     }
 
@@ -304,9 +304,9 @@ impl RescheduleScanOnErrorResolverReal {
     fn resolve_retry_payables(
         err: &StartScanError,
         is_externally_triggered: bool,
-    ) -> ScanRescheduleAfterEarlyStop {
+    ) -> ScanReschedulingAfterEarlyStop {
         if is_externally_triggered {
-            ScanRescheduleAfterEarlyStop::DoNotSchedule
+            ScanReschedulingAfterEarlyStop::DoNotSchedule
         } else {
             unreachable!(
                 "{:?} should be impossible with RetryPayableScanner in automatic mode",
@@ -319,12 +319,12 @@ impl RescheduleScanOnErrorResolverReal {
         err: &StartScanError,
         initial_pending_payable_scan: bool,
         is_externally_triggered: bool,
-    ) -> ScanRescheduleAfterEarlyStop {
+    ) -> ScanReschedulingAfterEarlyStop {
         if is_externally_triggered {
-            ScanRescheduleAfterEarlyStop::DoNotSchedule
+            ScanReschedulingAfterEarlyStop::DoNotSchedule
         } else if err == &StartScanError::NothingToProcess {
             if initial_pending_payable_scan {
-                ScanRescheduleAfterEarlyStop::Schedule(ScanType::Payables)
+                ScanReschedulingAfterEarlyStop::Schedule(ScanType::Payables)
             } else {
                 unreachable!(
                     "the automatic pending payable scan should always be requested only in need, \
@@ -340,7 +340,7 @@ impl RescheduleScanOnErrorResolverReal {
                 // the user.
                 // TODO Correctly, a check-point during the bootstrap that wouldn't allow to come
                 // this far should be the solution. Part of the issue mentioned in GH-799
-                ScanRescheduleAfterEarlyStop::Schedule(ScanType::PendingPayables)
+                ScanReschedulingAfterEarlyStop::Schedule(ScanType::PendingPayables)
             } else {
                 unreachable!(
                     "PendingPayableScanner called later than the initial attempt, but \
@@ -359,7 +359,7 @@ impl RescheduleScanOnErrorResolverReal {
         scanner: PayableSequenceScanner,
         is_externally_triggered: bool,
         logger: &Logger,
-        reschedule_hint: &ScanRescheduleAfterEarlyStop,
+        reschedule_hint: &ScanReschedulingAfterEarlyStop,
     ) {
         let scan_mode = if is_externally_triggered {
             "Manual"
@@ -381,7 +381,7 @@ impl RescheduleScanOnErrorResolverReal {
 mod tests {
     use crate::accountant::scanners::scan_schedulers::{
         NewPayableScanDynIntervalComputer, NewPayableScanDynIntervalComputerReal,
-        PayableSequenceScanner, ScanRescheduleAfterEarlyStop, ScanSchedulers,
+        PayableSequenceScanner, ScanReschedulingAfterEarlyStop, ScanSchedulers,
     };
     use crate::accountant::scanners::{ManulTriggerError, StartScanError};
     use crate::sub_lib::accountant::ScanIntervals;
@@ -636,7 +636,7 @@ mod tests {
 
                 assert_eq!(
                     result,
-                    ScanRescheduleAfterEarlyStop::DoNotSchedule,
+                    ScanReschedulingAfterEarlyStop::DoNotSchedule,
                     "We expected DoNotSchedule but got {:?} at idx {} for {:?}",
                     result,
                     idx,
@@ -671,7 +671,7 @@ mod tests {
 
         assert_eq!(
             result,
-            ScanRescheduleAfterEarlyStop::Schedule(ScanType::Payables),
+            ScanReschedulingAfterEarlyStop::Schedule(ScanType::Payables),
             "We expected Schedule(Payables) but got {:?}",
             result,
         );
@@ -724,7 +724,7 @@ mod tests {
 
         assert_eq!(
             result,
-            ScanRescheduleAfterEarlyStop::Schedule(ScanType::PendingPayables),
+            ScanReschedulingAfterEarlyStop::Schedule(ScanType::PendingPayables),
             "We expected Schedule(PendingPayables) but got {:?} for {:?}",
             result,
             scanner
@@ -906,7 +906,7 @@ mod tests {
 
             assert_eq!(
                 result,
-                ScanRescheduleAfterEarlyStop::Schedule(ScanType::Payables),
+                ScanReschedulingAfterEarlyStop::Schedule(ScanType::Payables),
                 "We expected Schedule(Payables) but got '{:?}'",
                 result,
             );

@@ -1,11 +1,13 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::comma_joined_stringifiable;
-use itertools::Either;
+use crate::accountant::db_access_objects::utils::TxHash;
+use itertools::{Either, Itertools};
+use std::collections::HashSet;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use variant_count::VariantCount;
-use web3::types::{Address, H256};
+use web3::types::Address;
 
 const BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED: &str = "Uninitialized blockchain interface. To avoid \
 being delinquency-banned, you should restart the Node with a value for blockchain-service-url";
@@ -39,7 +41,10 @@ pub enum PayableTransactionError {
     TransactionID(BlockchainInterfaceError),
     UnusableWallet(String),
     Signing(String),
-    Sending { msg: String, hashes: Vec<H256> },
+    Sending {
+        msg: String,
+        hashes: HashSet<TxHash>,
+    },
     UninitializedInterface,
 }
 
@@ -61,12 +66,15 @@ impl Display for PayableTransactionError {
                 msg
             ),
             Self::Signing(msg) => write!(f, "Signing phase: \"{}\"", msg),
-            Self::Sending { msg, hashes } => write!(
-                f,
-                "Sending phase: \"{}\". Signed and hashed transactions: {}",
-                msg,
-                comma_joined_stringifiable(hashes, |hash| format!("{:?}", hash))
-            ),
+            Self::Sending { msg, hashes } => {
+                let hashes = hashes.iter().map(|hash| *hash).sorted().collect_vec();
+                write!(
+                    f,
+                    "Sending phase: \"{}\". Signed and hashed txs: {}",
+                    msg,
+                    comma_joined_stringifiable(&hashes, |hash| format!("{:?}", hash))
+                )
+            }
             Self::UninitializedInterface => {
                 write!(f, "{}", BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED)
             }
@@ -180,7 +188,7 @@ mod tests {
             ),
             PayableTransactionError::Sending {
                 msg: "Sending to cosmos belongs elsewhere".to_string(),
-                hashes: vec![make_tx_hash(0x6f), make_tx_hash(0xde)],
+                hashes: hashset![make_tx_hash(0x6f), make_tx_hash(0xde)],
             },
             PayableTransactionError::UninitializedInterface,
         ];
@@ -202,7 +210,7 @@ mod tests {
                 LEDGER wallet, stupid.\"",
                 "Signing phase: \"You cannot sign with just three crosses here, clever boy\"",
                 "Sending phase: \"Sending to cosmos belongs elsewhere\". Signed and hashed \
-                transactions: 0x000000000000000000000000000000000000000000000000000000000000006f, \
+                txs: 0x000000000000000000000000000000000000000000000000000000000000006f, \
                 0x00000000000000000000000000000000000000000000000000000000000000de",
                 BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED
             ])

@@ -2,10 +2,11 @@
 #![cfg(test)]
 
 use crate::accountant::db_access_objects::failed_payable_dao::{
-    FailedTx, FailureReason, FailureStatus, ValidationStatus,
+    FailedTx, FailureReason, FailureStatus,
 };
-use crate::accountant::db_access_objects::sent_payable_dao::{Tx, TxStatus};
+use crate::accountant::db_access_objects::sent_payable_dao::{SentTx, TxStatus};
 use crate::accountant::db_access_objects::utils::{current_unix_timestamp, TxHash};
+use crate::blockchain::errors::validation_status::ValidationStatus;
 use crate::database::db_initializer::{
     DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
 };
@@ -50,13 +51,13 @@ impl TxBuilder {
         self
     }
 
-    pub fn build(self) -> Tx {
-        Tx {
+    pub fn build(self) -> SentTx {
+        SentTx {
             hash: self.hash_opt.unwrap_or_default(),
             receiver_address: self.receiver_address_opt.unwrap_or_default(),
-            amount: self.amount_opt.unwrap_or_default(),
+            amount_minor: self.amount_opt.unwrap_or_default(),
             timestamp: self.timestamp_opt.unwrap_or_else(current_unix_timestamp),
-            gas_price_wei: self.gas_price_wei_opt.unwrap_or_default(),
+            gas_price_minor: self.gas_price_wei_opt.unwrap_or_default(),
             nonce: self.nonce_opt.unwrap_or_default(),
             status: self
                 .status_opt
@@ -111,9 +112,9 @@ impl FailedTxBuilder {
         FailedTx {
             hash: self.hash_opt.unwrap_or_default(),
             receiver_address: self.receiver_address_opt.unwrap_or_default(),
-            amount: self.amount_opt.unwrap_or_default(),
+            amount_minor: self.amount_opt.unwrap_or_default(),
             timestamp: self.timestamp_opt.unwrap_or_default(),
-            gas_price_wei: self.gas_price_wei_opt.unwrap_or_default(),
+            gas_price_minor: self.gas_price_wei_opt.unwrap_or_default(),
             nonce: self.nonce_opt.unwrap_or_default(),
             reason: self
                 .reason_opt
