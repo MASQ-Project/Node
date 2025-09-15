@@ -234,11 +234,6 @@ mod tests {
             threshold_interval_sec: 21600,
             unban_below_gwei: 500_000_000,
         };
-        let scan_intervals_expected = ScanIntervals {
-            payable_scan_interval: Duration::from_secs(600),
-            pending_payable_scan_interval: Duration::from_secs(60),
-            receivable_scan_interval: Duration::from_secs(600),
-        };
         assert_eq!(*DEFAULT_PAYMENT_THRESHOLDS, payment_thresholds_expected);
         assert_eq!(*DEFAULT_EARNING_WALLET, default_earning_wallet_expected);
         assert_eq!(

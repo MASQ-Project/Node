@@ -1246,7 +1246,6 @@ mod tests {
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::utils::{add_chain_specific_directory, AutomapProtocol};
-    use openssl::init;
     use std::cell::RefCell;
     use std::convert::TryFrom;
     #[cfg(not(target_os = "windows"))]

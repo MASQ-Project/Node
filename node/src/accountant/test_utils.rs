@@ -49,7 +49,7 @@ use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
 use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-use crate::test_utils::unshared_test_utils::{make_bc_with_defaults, TEST_SCAN_INTERVALS};
+use crate::test_utils::unshared_test_utils::make_bc_with_defaults;
 use ethereum_types::U64;
 use masq_lib::logger::Logger;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;

@@ -386,7 +386,6 @@ mod tests {
     use crate::accountant::scanners::{ManulTriggerError, StartScanError};
     use crate::sub_lib::accountant::ScanIntervals;
     use crate::test_utils::unshared_test_utils::TEST_SCAN_INTERVALS;
-    use http::header::TE;
     use itertools::Itertools;
     use lazy_static::lazy_static;
     use masq_lib::logger::Logger;

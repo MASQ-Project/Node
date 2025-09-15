@@ -24,7 +24,6 @@ use masq_lib::utils::ExpectValue;
 use rusqlite::OptionalExtension;
 use rusqlite::{Error, Row};
 use std::fmt::Debug;
-use std::str::FromStr;
 use std::time::SystemTime;
 use web3::types::H256;
 
@@ -539,7 +538,6 @@ mod tests {
     use rusqlite::ToSql;
     use rusqlite::{Connection, OpenFlags};
     use std::path::Path;
-    use std::str::FromStr;
     use std::time::Duration;
 
     #[test]

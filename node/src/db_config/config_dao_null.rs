@@ -157,7 +157,6 @@ mod tests {
     use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMockBuilder;
     use crate::db_config::config_dao::ConfigDaoReal;
     use crate::neighborhood::DEFAULT_MIN_HOPS;
-    use crate::sub_lib::accountant::ScanIntervals;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::{DEFAULT_CHAIN, ETH_MAINNET_CONTRACT_CREATION_BLOCK};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
