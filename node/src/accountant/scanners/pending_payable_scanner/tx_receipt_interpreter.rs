@@ -607,7 +607,7 @@ mod tests {
         let mut sent_tx = make_sent_tx(456);
         sent_tx.hash = tx_hash;
         sent_tx.status = current_tx_status.clone();
-        let rpc_error = AppRpcError::Remote(RemoteError::InvalidResponse("bluh".to_string()));
+        let rpc_error = AppRpcError::Remote(RemoteError::InvalidResponse("blah".to_string()));
         let scan_report = ReceiptScanReport::default();
 
         let result = TxReceiptInterpreter::handle_rpc_failure(
@@ -635,7 +635,7 @@ mod tests {
         );
         TestLogHandler::new().exists_log_containing(
             &format!("WARN: {test_name}: Failed to retrieve tx receipt for SentPayable(0x0000000000\
-            000000000000000000000000000000000000000000000000000391): Remote(InvalidResponse(\"bluh\")). \
+            000000000000000000000000000000000000000000000000000391): Remote(InvalidResponse(\"blah\")). \
             Will retry receipt retrieval next cycle"));
     }
 

@@ -192,22 +192,43 @@ impl MessageIdGenerator for MessageIdGeneratorReal {
     as_any_ref_in_trait_impl!();
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Copy)]
+pub enum DetailedScanType {
+    NewPayables,
+    RetryPayables,
+    PendingPayables,
+    Receivables,
+}
+
 #[cfg(test)]
 mod tests {
     use crate::accountant::test_utils::AccountantBuilder;
     use crate::accountant::{checked_conversion, Accountant};
     use crate::sub_lib::accountant::{
-        AccountantSubsFactoryReal, MessageIdGenerator, MessageIdGeneratorReal, PaymentThresholds,
-        ScanIntervals, SubsFactory, DEFAULT_EARNING_WALLET, DEFAULT_PAYMENT_THRESHOLDS,
-        DEFAULT_SCAN_INTERVALS, MSG_ID_INCREMENTER, TEMPORARY_CONSUMING_WALLET,
+        AccountantSubsFactoryReal, DetailedScanType, MessageIdGenerator, MessageIdGeneratorReal,
+        PaymentThresholds, ScanIntervals, SubsFactory, DEFAULT_EARNING_WALLET,
+        DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS, MSG_ID_INCREMENTER,
+        TEMPORARY_CONSUMING_WALLET,
     };
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::recorder::{make_accountant_subs_from_recorder, Recorder};
     use actix::Actor;
+    use masq_lib::messages::ScanType;
     use std::str::FromStr;
     use std::sync::atomic::Ordering;
     use std::sync::Mutex;
     use std::time::Duration;
+
+    impl From<DetailedScanType> for ScanType {
+        fn from(scan_type: DetailedScanType) -> Self {
+            match scan_type {
+                DetailedScanType::NewPayables => ScanType::Payables,
+                DetailedScanType::RetryPayables => ScanType::Payables,
+                DetailedScanType::PendingPayables => ScanType::PendingPayables,
+                DetailedScanType::Receivables => ScanType::Receivables,
+            }
+        }
+    }
 
     static MSG_ID_GENERATOR_TEST_GUARD: Mutex<()> = Mutex::new(());
 

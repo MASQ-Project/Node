@@ -865,7 +865,7 @@ mod tests {
         let pending_payable_cache_before = subject.current_sent_payables.dump_cache();
         let failed_payable_cache_before = subject.yet_unproven_failed_payables.dump_cache();
 
-        let result = subject.start_scan(&make_wallet("bluh"), SystemTime::now(), None, &logger);
+        let result = subject.start_scan(&make_wallet("blah"), SystemTime::now(), None, &logger);
 
         assert_eq!(
             result,
@@ -1344,7 +1344,7 @@ mod tests {
     #[should_panic(
         expected = "Unable to update pending-tx statuses for validation failures '[FailedValidation \
     { tx_hash: 0x00000000000000000000000000000000000000000000000000000000000001c8, validation_failure: \
-    AppRpc(Local(Internal)), current_status: Pending(Waiting) }]' due to: InvalidInput(\"bluh\")"
+    AppRpc(Local(Internal)), current_status: Pending(Waiting) }]' due to: InvalidInput(\"blah\")"
     )]
     fn update_validation_status_for_sent_txs_panics_on_update_statuses() {
         let failed_validation = FailedValidation::new(
@@ -1353,7 +1353,7 @@ mod tests {
             TxStatus::Pending(ValidationStatus::Waiting),
         );
         let sent_payable_dao = SentPayableDaoMock::default()
-            .update_statuses_result(Err(SentPayableDaoError::InvalidInput("bluh".to_string())));
+            .update_statuses_result(Err(SentPayableDaoError::InvalidInput("blah".to_string())));
         let subject = PendingPayableScannerBuilder::new()
             .sent_payable_dao(sent_payable_dao)
             .validation_failure_clock(Box::new(ValidationFailureClockReal::default()))
@@ -1367,7 +1367,7 @@ mod tests {
     #[should_panic(
         expected = "Unable to update failed-tx statuses for validation failures '[FailedValidation \
     { tx_hash: 0x00000000000000000000000000000000000000000000000000000000000001c8, validation_failure: \
-    AppRpc(Local(Internal)), current_status: RecheckRequired(Waiting) }]' due to: InvalidInput(\"bluh\")"
+    AppRpc(Local(Internal)), current_status: RecheckRequired(Waiting) }]' due to: InvalidInput(\"blah\")"
     )]
     fn update_validation_status_for_failed_txs_panics_on_update_statuses() {
         let failed_validation = FailedValidation::new(
@@ -1376,7 +1376,7 @@ mod tests {
             FailureStatus::RecheckRequired(ValidationStatus::Waiting),
         );
         let failed_payable_dao = FailedPayableDaoMock::default()
-            .update_statuses_result(Err(FailedPayableDaoError::InvalidInput("bluh".to_string())));
+            .update_statuses_result(Err(FailedPayableDaoError::InvalidInput("blah".to_string())));
         let subject = PendingPayableScannerBuilder::new()
             .failed_payable_dao(failed_payable_dao)
             .validation_failure_clock(Box::new(ValidationFailureClockReal::default()))
