@@ -1,11 +1,11 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::db_access_objects::utils::{
-    DaoFactoryReal, TxHash, TxIdentifiers, VigilantRusqliteFlatten,
+    DaoFactoryReal, TxHash, TxIdentifiers, TxRecordWithHash, VigilantRusqliteFlatten,
 };
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::{checked_conversion, comma_joined_stringifiable};
 use crate::blockchain::errors::rpc_errors::AppRpcErrorKind;
-use crate::blockchain::errors::validation_status::PreviousAttempts;
+use crate::blockchain::errors::validation_status::ValidationStatus;
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use itertools::Itertools;
 use masq_lib::utils::ExpectValue;
@@ -73,33 +73,46 @@ impl FromStr for FailureStatus {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ValidationStatus {
-    Waiting,
-    Reattempting(PreviousAttempts),
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FailedTx {
     pub hash: TxHash,
     pub receiver_address: Address,
-    pub amount: u128,
+    pub amount_minor: u128,
     pub timestamp: i64,
-    pub gas_price_wei: u128,
+    pub gas_price_minor: u128,
     pub nonce: u64,
     pub reason: FailureReason,
     pub status: FailureStatus,
 }
 
+impl TxRecordWithHash for FailedTx {
+    fn hash(&self) -> TxHash {
+        self.hash
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub enum FailureRetrieveCondition {
+    ByTxHash(Vec<TxHash>),
     ByStatus(FailureStatus),
+    EveryRecheckRequiredRecord,
 }
 
 impl Display for FailureRetrieveCondition {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            FailureRetrieveCondition::ByTxHash(hashes) => {
+                write!(
+                    f,
+                    "WHERE tx_hash IN ({})",
+                    comma_joined_stringifiable(hashes, |hash| format!("'{:?}'", hash))
+                )
+            }
             FailureRetrieveCondition::ByStatus(status) => {
                 write!(f, "WHERE status = '{}'", status)
+            }
+            FailureRetrieveCondition::EveryRecheckRequiredRecord => {
+                write!(f, "WHERE status LIKE 'RecheckRequired%'")
             }
         }
     }
@@ -107,12 +120,14 @@ impl Display for FailureRetrieveCondition {
 
 pub trait FailedPayableDao {
     fn get_tx_identifiers(&self, hashes: &HashSet<TxHash>) -> TxIdentifiers;
+    //TODO potentially atomically
     fn insert_new_records(&self, txs: &[FailedTx]) -> Result<(), FailedPayableDaoError>;
     fn retrieve_txs(&self, condition: Option<FailureRetrieveCondition>) -> Vec<FailedTx>;
     fn update_statuses(
         &self,
-        status_updates: HashMap<TxHash, FailureStatus>,
+        status_updates: &HashMap<TxHash, FailureStatus>,
     ) -> Result<(), FailedPayableDaoError>;
+    //TODO potentially atomically
     fn delete_records(&self, hashes: &HashSet<TxHash>) -> Result<(), FailedPayableDaoError>;
 }
 
@@ -187,11 +202,11 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
              status
              ) VALUES {}",
             comma_joined_stringifiable(txs, |tx| {
-                let amount_checked = checked_conversion::<u128, i128>(tx.amount);
-                let gas_price_wei_checked = checked_conversion::<u128, i128>(tx.gas_price_wei);
+                let amount_checked = checked_conversion::<u128, i128>(tx.amount_minor);
+                let gas_price_minor_checked = checked_conversion::<u128, i128>(tx.gas_price_minor);
                 let (amount_high_b, amount_low_b) = BigIntDivider::deconstruct(amount_checked);
                 let (gas_price_wei_high_b, gas_price_wei_low_b) =
-                    BigIntDivider::deconstruct(gas_price_wei_checked);
+                    BigIntDivider::deconstruct(gas_price_minor_checked);
                 format!(
                     "('{:?}', '{:?}', {}, {}, {}, {}, {}, {}, '{}', '{}')",
                     tx.hash,
@@ -255,11 +270,11 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
                 Address::from_str(&receiver_address_str[2..]).expect("Failed to parse Address");
             let amount_high_b = row.get(2).expectv("amount_high_b");
             let amount_low_b = row.get(3).expectv("amount_low_b");
-            let amount = BigIntDivider::reconstitute(amount_high_b, amount_low_b) as u128;
+            let amount_minor = BigIntDivider::reconstitute(amount_high_b, amount_low_b) as u128;
             let timestamp = row.get(4).expectv("timestamp");
             let gas_price_wei_high_b = row.get(5).expectv("gas_price_wei_high_b");
             let gas_price_wei_low_b = row.get(6).expectv("gas_price_wei_low_b");
-            let gas_price_wei =
+            let gas_price_minor =
                 BigIntDivider::reconstitute(gas_price_wei_high_b, gas_price_wei_low_b) as u128;
             let nonce = row.get(7).expectv("nonce");
             let reason_str: String = row.get(8).expectv("reason");
@@ -272,9 +287,9 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
             Ok(FailedTx {
                 hash,
                 receiver_address,
-                amount,
+                amount_minor,
                 timestamp,
-                gas_price_wei,
+                gas_price_minor,
                 nonce,
                 reason,
                 status,
@@ -287,7 +302,7 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
 
     fn update_statuses(
         &self,
-        status_updates: HashMap<TxHash, FailureStatus>,
+        status_updates: &HashMap<TxHash, FailureStatus>,
     ) -> Result<(), FailedPayableDaoError> {
         if status_updates.is_empty() {
             return Err(FailedPayableDaoError::EmptyInput);
@@ -376,15 +391,16 @@ mod tests {
     };
     use crate::accountant::db_access_objects::failed_payable_dao::{
         FailedPayableDao, FailedPayableDaoError, FailedPayableDaoReal, FailureReason,
-        FailureRetrieveCondition, FailureStatus, ValidationStatus,
+        FailureRetrieveCondition, FailureStatus,
     };
     use crate::accountant::db_access_objects::test_utils::{
         make_read_only_db_connection, FailedTxBuilder,
     };
-    use crate::accountant::db_access_objects::utils::current_unix_timestamp;
+    use crate::accountant::db_access_objects::utils::{current_unix_timestamp, TxRecordWithHash};
+    use crate::accountant::test_utils::make_failed_tx;
     use crate::blockchain::errors::rpc_errors::{AppRpcErrorKind, LocalErrorKind, RemoteErrorKind};
     use crate::blockchain::errors::validation_status::{
-        PreviousAttempts, ValidationFailureClockReal,
+        PreviousAttempts, ValidationFailureClockReal, ValidationStatus,
     };
     use crate::blockchain::errors::BlockchainErrorKind;
     use crate::blockchain::test_utils::{make_tx_hash, ValidationFailureClockMock};
@@ -470,12 +486,12 @@ mod tests {
                 [FailedTx { \
                 hash: 0x000000000000000000000000000000000000000000000000000000000000007b, \
                 receiver_address: 0x0000000000000000000000000000000000000000, \
-                amount: 0, timestamp: 0, gas_price_wei: 0, \
+                amount_minor: 0, timestamp: 0, gas_price_minor: 0, \
                 nonce: 0, reason: PendingTooLong, status: RetryRequired }, \
                 FailedTx { \
                 hash: 0x000000000000000000000000000000000000000000000000000000000000007b, \
                 receiver_address: 0x0000000000000000000000000000000000000000, \
-                amount: 0, timestamp: 0, gas_price_wei: 0, \
+                amount_minor: 0, timestamp: 0, gas_price_minor: 0, \
                 nonce: 0, reason: PendingTooLong, status: RecheckRequired(Waiting) }]"
                     .to_string()
             ))
@@ -585,6 +601,29 @@ mod tests {
         assert_eq!(result.get(&present_hash), Some(&1u64));
         assert_eq!(result.get(&absent_hash), None);
         assert_eq!(result.get(&another_present_hash), Some(&2u64));
+    }
+
+    #[test]
+    fn display_for_failure_retrieve_condition_works() {
+        let tx_hash_1 = make_tx_hash(123);
+        let tx_hash_2 = make_tx_hash(456);
+        assert_eq!(FailureRetrieveCondition::ByTxHash(vec![tx_hash_1, tx_hash_2]).to_string(),
+                   "WHERE tx_hash IN ('0x000000000000000000000000000000000000000000000000000000000000007b', \
+                   '0x00000000000000000000000000000000000000000000000000000000000001c8')"
+        );
+        assert_eq!(
+            FailureRetrieveCondition::ByStatus(RetryRequired).to_string(),
+            "WHERE status = '\"RetryRequired\"'"
+        );
+        assert_eq!(
+            FailureRetrieveCondition::ByStatus(RecheckRequired(ValidationStatus::Waiting))
+                .to_string(),
+            "WHERE status = '{\"RecheckRequired\":\"Waiting\"}'"
+        );
+        assert_eq!(
+            FailureRetrieveCondition::EveryRecheckRequiredRecord.to_string(),
+            "WHERE status LIKE 'RecheckRequired%'"
+        );
     }
 
     #[test]
@@ -794,7 +833,7 @@ mod tests {
             (tx3.hash, Concluded),
         ]);
 
-        let result = subject.update_statuses(hashmap);
+        let result = subject.update_statuses(&hashmap);
 
         let updated_txs = subject.retrieve_txs(None);
         assert_eq!(result, Ok(()));
@@ -815,6 +854,7 @@ mod tests {
             updated_txs[3].status,
             RecheckRequired(ValidationStatus::Waiting)
         );
+        assert_eq!(updated_txs.len(), 4);
     }
 
     #[test]
@@ -828,7 +868,7 @@ mod tests {
             .unwrap();
         let subject = FailedPayableDaoReal::new(wrapped_conn);
 
-        let result = subject.update_statuses(HashMap::new());
+        let result = subject.update_statuses(&HashMap::new());
 
         assert_eq!(result, Err(FailedPayableDaoError::EmptyInput));
     }
@@ -842,7 +882,7 @@ mod tests {
         let wrapped_conn = make_read_only_db_connection(home_dir);
         let subject = FailedPayableDaoReal::new(Box::new(wrapped_conn));
 
-        let result = subject.update_statuses(HashMap::from([(make_tx_hash(1), Concluded)]));
+        let result = subject.update_statuses(&HashMap::from([(make_tx_hash(1), Concluded)]));
 
         assert_eq!(
             result,
@@ -954,5 +994,15 @@ mod tests {
                 "attempt to write a readonly database".to_string()
             ))
         )
+    }
+
+    #[test]
+    fn tx_record_with_hash_is_implemented_for_failed_tx() {
+        let failed_tx = make_failed_tx(1234);
+        let hash = failed_tx.hash;
+
+        let hash_from_trait = failed_tx.hash();
+
+        assert_eq!(hash_from_trait, hash);
     }
 }

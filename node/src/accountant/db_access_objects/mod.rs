@@ -3,8 +3,8 @@
 pub mod banned_dao;
 pub mod failed_payable_dao;
 pub mod payable_dao;
-pub mod pending_payable_dao;
 pub mod receivable_dao;
+pub mod sent_payable_and_failed_payable_data_conversion;
 pub mod sent_payable_dao;
 mod test_utils;
 pub mod utils;

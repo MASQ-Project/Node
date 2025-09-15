@@ -4,8 +4,9 @@ pub mod lower_level_interface_web3;
 mod utils;
 
 use std::cmp::PartialEq;
+use std::collections::{HashMap};
 use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainInterfaceError, PayableTransactionError};
-use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, ProcessedPayableFallible};
+use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, ProcessedPayableFallible, StatusReadFromReceiptCheck};
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use crate::blockchain::blockchain_interface::RetrievedBlockchainTransactions;
 use crate::blockchain::blockchain_interface::{BlockchainAgentBuildError, BlockchainInterface};
@@ -20,12 +21,15 @@ use actix::Recipient;
 use ethereum_types::U64;
 use web3::transports::{EventLoopHandle, Http};
 use web3::types::{Address, Log, H256, U256, FilterBuilder, TransactionReceipt, BlockNumber};
-use crate::accountant::scanners::payable_scanner_extension::msgs::{UnpricedQualifiedPayables, PricedQualifiedPayables};
+use crate::accountant::scanners::payable_scanner_extension::msgs::{PricedQualifiedPayables};
 use crate::blockchain::blockchain_agent::BlockchainAgent;
-use crate::blockchain::blockchain_bridge::{BlockMarker, BlockScanRange, PendingPayableFingerprintSeeds};
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{LowBlockchainIntWeb3, TransactionReceiptResult, TxReceipt, TxStatus};
+use crate::accountant::db_access_objects::utils::TxHash;
+use crate::accountant::scanners::pending_payable_scanner::utils::TxHashByTable;
+use crate::accountant::TxReceiptResult;
+use crate::blockchain::blockchain_bridge::{BlockMarker, BlockScanRange, RegisterNewPendingPayables};
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::LowBlockchainIntWeb3;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::utils::{create_blockchain_agent_web3, send_payables_within_batch, BlockchainAgentFutureResult};
-
+use crate::blockchain::errors::rpc_errors::{AppRpcError, RemoteError};
 // TODO We should probably begin to attach these constants to the interfaces more tightly, so that
 // we aren't baffled by which interface they belong with. I suggest to declare them inside
 // their inherent impl blocks. They will then need to be preceded by the class name
@@ -182,7 +186,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         Box::new(
             get_gas_price
                 .map_err(BlockchainAgentBuildError::GasPrice)
-                .and_then(move |gas_price_wei| {
+                .and_then(move |gas_price_minor| {
                     get_transaction_fee_balance
                         .map_err(move |e| {
                             BlockchainAgentBuildError::TransactionFeeBalance(wallet_address, e)
@@ -195,7 +199,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                                 .and_then(move |masq_token_balance| {
                                     let blockchain_agent_future_result =
                                         BlockchainAgentFutureResult {
-                                            gas_price_wei,
+                                            gas_price_minor,
                                             transaction_fee_balance,
                                             masq_token_balance,
                                         };
@@ -213,38 +217,44 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
 
     fn process_transaction_receipts(
         &self,
-        transaction_hashes: Vec<H256>,
-    ) -> Box<dyn Future<Item = Vec<TransactionReceiptResult>, Error = BlockchainInterfaceError>>
-    {
+        tx_hashes: Vec<TxHashByTable>,
+    ) -> Box<
+        dyn Future<
+            Item = HashMap<TxHashByTable, TxReceiptResult>,
+            Error = BlockchainInterfaceError,
+        >,
+    > {
         Box::new(
             self.lower_interface()
-                .get_transaction_receipt_in_batch(transaction_hashes.clone())
+                .get_transaction_receipt_in_batch(Self::collect_plain_hashes(&tx_hashes))
                 .map_err(move |e| e)
                 .and_then(move |batch_response| {
                     Ok(batch_response
                         .into_iter()
-                        .zip(transaction_hashes)
-                        .map(|(response, hash)| match response {
+                        .zip(tx_hashes.into_iter())
+                        .map(|(response, tx_hash)| match response {
                             Ok(result) => {
                                 match serde_json::from_value::<TransactionReceipt>(result) {
                                     Ok(receipt) => {
-                                        TransactionReceiptResult::RpcResponse(receipt.into())
+                                        (tx_hash, Ok(StatusReadFromReceiptCheck::from(receipt)))
                                     }
                                     Err(e) => {
                                         if e.to_string().contains("invalid type: null") {
-                                            TransactionReceiptResult::RpcResponse(TxReceipt {
-                                                transaction_hash: hash,
-                                                status: TxStatus::Pending,
-                                            })
+                                            (tx_hash, Ok(StatusReadFromReceiptCheck::Pending))
                                         } else {
-                                            TransactionReceiptResult::LocalError(e.to_string())
+                                            (
+                                                tx_hash,
+                                                Err(AppRpcError::Remote(
+                                                    RemoteError::InvalidResponse(e.to_string()),
+                                                )),
+                                            )
                                         }
                                     }
                                 }
                             }
-                            Err(e) => TransactionReceiptResult::LocalError(e.to_string()),
+                            Err(e) => (tx_hash, Err(AppRpcError::from(e))),
                         })
-                        .collect::<Vec<TransactionReceiptResult>>())
+                        .collect::<HashMap<TxHashByTable, TxReceiptResult>>())
                 }),
         )
     }
@@ -253,7 +263,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         &self,
         logger: Logger,
         agent: Box<dyn BlockchainAgent>,
-        fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
+        new_pending_payables_recipient: Recipient<RegisterNewPendingPayables>,
         affordable_accounts: PricedQualifiedPayables,
     ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>
     {
@@ -274,7 +284,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                         &web3_batch,
                         consuming_wallet,
                         pending_nonce,
-                        fingerprints_recipient,
+                        new_pending_payables_recipient,
                         affordable_accounts,
                     )
                 }),
@@ -285,7 +295,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub struct HashAndAmount {
     pub hash: H256,
-    pub amount: u128,
+    pub amount_minor: u128,
 }
 
 impl BlockchainInterfaceWeb3 {
@@ -431,22 +441,43 @@ impl BlockchainInterfaceWeb3 {
             Ok(transactions)
         }
     }
+
+    fn collect_plain_hashes(hashes_by_table: &[TxHashByTable]) -> Vec<TxHash> {
+        hashes_by_table
+            .iter()
+            .map(|hash_by_table| match hash_by_table {
+                TxHashByTable::SentPayable(hash) => *hash,
+                TxHashByTable::FailedPayable(hash) => *hash,
+            })
+            .collect()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accountant::scanners::payable_scanner_extension::msgs::{
+        QualifiedPayableWithGasPrice, QualifiedPayablesBeforeGasPriceSelection,
+        UnpricedQualifiedPayables,
+    };
+    use crate::accountant::scanners::pending_payable_scanner::utils::TxHashByTable;
+    use crate::accountant::test_utils::make_payable_account;
+    use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
         BlockchainInterfaceWeb3, CONTRACT_ABI, REQUESTS_IN_PARALLEL, TRANSACTION_LITERAL,
         TRANSFER_METHOD_ID,
     };
     use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainInterfaceError::QueryFailed;
-    use crate::blockchain::blockchain_interface::data_structures::BlockchainTransaction;
+    use crate::blockchain::blockchain_interface::data_structures::{
+        BlockchainTransaction, TxBlock,
+    };
     use crate::blockchain::blockchain_interface::{
         BlockchainAgentBuildError, BlockchainInterfaceError, BlockchainInterface,
         RetrievedBlockchainTransactions,
     };
-    use crate::blockchain::test_utils::{all_chains, make_blockchain_interface_web3, ReceiptResponseBuilder};
+    use crate::blockchain::test_utils::{
+        all_chains, make_blockchain_interface_web3, make_tx_hash, ReceiptResponseBuilder,
+    };
     use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_paying_wallet;
@@ -462,10 +493,7 @@ mod tests {
     use std::str::FromStr;
     use web3::transports::Http;
     use web3::types::{H256, U256};
-    use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayablesBeforeGasPriceSelection, QualifiedPayableWithGasPrice};
-    use crate::accountant::test_utils::make_payable_account;
-    use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt, TxStatus};
+    use crate::blockchain::errors::rpc_errors::{AppRpcError, RemoteError};
 
     #[test]
     fn constants_are_correct() {
@@ -1046,27 +1074,19 @@ mod tests {
     #[test]
     fn process_transaction_receipts_works() {
         let port = find_free_port();
-        let tx_hash_1 =
-            H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0e")
-                .unwrap();
-        let tx_hash_2 =
-            H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0f")
-                .unwrap();
-        let tx_hash_3 =
-            H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0a")
-                .unwrap();
-        let tx_hash_4 =
-            H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0b")
-                .unwrap();
-        let tx_hash_5 =
-            H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0c")
-                .unwrap();
-        let tx_hash_6 =
-            H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0d")
-                .unwrap();
-        let tx_hash_vec = vec![
-            tx_hash_1, tx_hash_2, tx_hash_3, tx_hash_4, tx_hash_5, tx_hash_6,
-        ];
+        let tx_hash_1 = make_tx_hash(3300);
+        let tx_hash_2 = make_tx_hash(3401);
+        let tx_hash_3 = make_tx_hash(3502);
+        let tx_hash_4 = make_tx_hash(3603);
+        let tx_hash_5 = make_tx_hash(3704);
+        let tx_hash_6 = make_tx_hash(3805);
+        let tx_hbt_1 = TxHashByTable::FailedPayable(tx_hash_1);
+        let tx_hbt_2 = TxHashByTable::FailedPayable(tx_hash_2);
+        let tx_hbt_3 = TxHashByTable::SentPayable(tx_hash_3);
+        let tx_hbt_4 = TxHashByTable::SentPayable(tx_hash_4);
+        let tx_hbt_5 = TxHashByTable::SentPayable(tx_hash_5);
+        let tx_hbt_6 = TxHashByTable::SentPayable(tx_hash_6);
+        let sent_tx_vec = vec![tx_hbt_1, tx_hbt_2, tx_hbt_3, tx_hbt_4, tx_hbt_5, tx_hbt_6];
         let block_hash =
             H256::from_str("6d0abccae617442c26104c2bc63d1bc05e1e002e555aec4ab62a46e826b18f18")
                 .unwrap();
@@ -1108,48 +1128,45 @@ mod tests {
         let subject = make_blockchain_interface_web3(port);
 
         let result = subject
-            .process_transaction_receipts(tx_hash_vec)
+            .process_transaction_receipts(sent_tx_vec.clone())
             .wait()
             .unwrap();
 
-        assert_eq!(result[0], TransactionReceiptResult::LocalError("RPC error: Error { code: ServerError(429), message: \"The requests per second (RPS) of your requests are higher than your plan allows.\", data: None }".to_string()));
-        assert_eq!(
-            result[1],
-            TransactionReceiptResult::RpcResponse(TxReceipt {
-                transaction_hash: tx_hash_2,
-                status: TxStatus::Pending
-            })
+        assert_eq!(result.get(&tx_hbt_1).unwrap(), &Err(
+                AppRpcError::Remote(
+                RemoteError::Web3RpcError {
+                    code: 429,
+                    message:
+                    "The requests per second (RPS) of your requests are higher than your plan allows."
+                        .to_string()
+                }
+            ))
         );
         assert_eq!(
-            result[2],
-            TransactionReceiptResult::LocalError(
+            result.get(&tx_hbt_2).unwrap(),
+            &Ok(StatusReadFromReceiptCheck::Pending)
+        );
+        assert_eq!(
+            result.get(&tx_hbt_3).unwrap(),
+            &Err(AppRpcError::Remote(RemoteError::InvalidResponse(
                 "invalid type: string \"trash\", expected struct Receipt".to_string()
-            )
+            )))
         );
         assert_eq!(
-            result[3],
-            TransactionReceiptResult::RpcResponse(TxReceipt {
-                transaction_hash: tx_hash_4,
-                status: TxStatus::Pending
-            })
+            result.get(&tx_hbt_4).unwrap(),
+            &Ok(StatusReadFromReceiptCheck::Pending)
         );
         assert_eq!(
-            result[4],
-            TransactionReceiptResult::RpcResponse(TxReceipt {
-                transaction_hash: tx_hash_5,
-                status: TxStatus::Failed,
-            })
+            result.get(&tx_hbt_5).unwrap(),
+            &Ok(StatusReadFromReceiptCheck::Reverted)
         );
         assert_eq!(
-            result[5],
-            TransactionReceiptResult::RpcResponse(TxReceipt {
-                transaction_hash: tx_hash_6,
-                status: TxStatus::Succeeded(TransactionBlock {
-                    block_hash,
-                    block_number,
-                }),
-            })
-        );
+            result.get(&tx_hbt_6).unwrap(),
+            &Ok(StatusReadFromReceiptCheck::Succeeded(TxBlock {
+                block_hash,
+                block_number,
+            }),)
+        )
     }
 
     #[test]
@@ -1157,13 +1174,12 @@ mod tests {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port).start();
         let subject = make_blockchain_interface_web3(port);
-        let tx_hash_1 =
-            H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0e")
-                .unwrap();
-        let tx_hash_2 =
-            H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0f")
-                .unwrap();
-        let tx_hash_vec = vec![tx_hash_1, tx_hash_2];
+        let tx_hash_1 = make_tx_hash(789);
+        let tx_hash_2 = make_tx_hash(123);
+        let tx_hash_vec = vec![
+            TxHashByTable::SentPayable(tx_hash_1),
+            TxHashByTable::SentPayable(tx_hash_2),
+        ];
 
         let error = subject
             .process_transaction_receipts(tx_hash_vec)
@@ -1344,6 +1360,35 @@ mod tests {
                 &logger
             ),
             BlockMarker::Uninitialized
+        );
+    }
+
+    #[test]
+    fn collect_plain_hashes_works() {
+        let hash_sent_tx_1 = make_tx_hash(456);
+        let hash_sent_tx_2 = make_tx_hash(789);
+        let hash_sent_tx_3 = make_tx_hash(234);
+        let hash_failed_tx_1 = make_tx_hash(123);
+        let hash_failed_tx_2 = make_tx_hash(345);
+        let inputs = vec![
+            TxHashByTable::SentPayable(hash_sent_tx_1),
+            TxHashByTable::FailedPayable(hash_failed_tx_1),
+            TxHashByTable::SentPayable(hash_sent_tx_2),
+            TxHashByTable::SentPayable(hash_sent_tx_3),
+            TxHashByTable::FailedPayable(hash_failed_tx_2),
+        ];
+
+        let result = BlockchainInterfaceWeb3::collect_plain_hashes(&inputs);
+
+        assert_eq!(
+            result,
+            vec![
+                hash_sent_tx_1,
+                hash_failed_tx_1,
+                hash_sent_tx_2,
+                hash_sent_tx_3,
+                hash_failed_tx_2
+            ]
         );
     }
 }
