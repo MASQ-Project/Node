@@ -13,7 +13,7 @@ use crate::sub_lib::neighborhood::{
 };
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::wallet::Wallet;
-use clap::value_t;
+use clap::{value_t, Error};
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{DEFAULT_CHAIN, MASQ_URL_PREFIX};
@@ -37,16 +37,24 @@ pub trait UnprivilegedParseArgsConfiguration {
     ) -> Result<(), ConfiguratorError> {
         unprivileged_config
             .blockchain_bridge_config
-            .blockchain_service_url_opt =
-            if is_user_specified(multi_config, "blockchain-service-url") {
-                value_m!(multi_config, "blockchain-service-url", String)
-            } else {
-                match persistent_config.blockchain_service_url() {
+            .blockchain_service_url_opt = if is_user_specified(
+            multi_config,
+            "blockchain-service-url",
+        ) {
+            value_m!(multi_config, "blockchain-service-url", String)
+        } else {
+            match persistent_config.blockchain_service_url() {
                     Ok(Some(price)) => Some(price),
-                    Ok(None) => None,
+                    Ok(None) => {
+                        return Err(MultiConfig::make_configurator_error(Error {
+                            message: "The following required arguments were not provided: --blockchain-service-url USAGE: --blockchain-service-url <blockchain-service-url>".to_string(),
+                            kind: clap::ErrorKind::ArgumentNotFound,
+                            info: Some(vec!["<blockchain-service-url>".to_string()]),
+                        }))
+                    }
                     Err(pce) => return Err(pce.into_configurator_error("gas-price")),
                 }
-            };
+        };
         unprivileged_config.clandestine_port_opt = value_m!(multi_config, "clandestine-port", u16);
         unprivileged_config.blockchain_bridge_config.gas_price =
             if is_user_specified(multi_config, "gas-price") {
@@ -1202,6 +1210,48 @@ mod tests {
     }
 
     #[test]
+    fn configure_without_blockchain_service_url_returns_error() {
+        running_test();
+        let set_past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut config = BootstrapperConfig::new();
+        let mut persistent_config = configure_default_persistent_config(
+            RATE_PACK | ACCOUNTANT_CONFIG_PARAMS | MAPPING_PROTOCOL,
+        )
+        .set_past_neighbors_params(&set_past_neighbors_params_arc)
+        .set_past_neighbors_result(Ok(()));
+        let multi_config = make_simplified_multi_config([
+            "--chain",
+            "eth-ropsten",
+            "--neighbors",
+            "masq://eth-ropsten:UJNoZW5p-PDVqEjpr3b_8jZ_93yPG8i5dOAgE1bhK_A@2.3.4.5:2345",
+            "--db-password",
+            "password",
+            "--neighborhood-mode",
+            "zero-hop",
+            "--fake-public-key",
+            "booga",
+        ]);
+        let subject = UnprivilegedParseArgsConfigurationDaoReal {};
+
+        let result = subject
+            .unprivileged_parse_args(
+                &multi_config,
+                &mut config,
+                &mut persistent_config,
+                &Logger::new("test"),
+            )
+            .unwrap_err();
+
+        let expected = MultiConfig::make_configurator_error(Error {
+            message: "The following required arguments were not provided: --blockchain-service-url USAGE: --blockchain-service-url <blockchain-service-url>".to_string(),
+            kind: clap::ErrorKind::ArgumentNotFound,
+            info: Some(vec!["<blockchain-service-url>".to_string()]),
+        });
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
     fn configure_zero_hop_with_neighbors_supplied() {
         running_test();
         let set_past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1212,6 +1262,8 @@ mod tests {
         .set_past_neighbors_params(&set_past_neighbors_params_arc)
         .set_past_neighbors_result(Ok(()));
         let multi_config = make_simplified_multi_config([
+            "--blockchain-service-url",
+            "booga.com",
             "--chain",
             "eth-ropsten",
             "--neighbors",
@@ -1259,6 +1311,8 @@ mod tests {
         )
         .set_past_neighbors_params(&set_past_neighbors_params_arc);
         let multi_config = make_simplified_multi_config([
+            "--blockchain-service-url",
+            "booga.com",
             "--chain",
             "eth-ropsten",
             "--neighborhood-mode",
@@ -1462,7 +1516,7 @@ mod tests {
     #[test]
     fn unprivileged_parse_args_creates_configuration_with_defaults() {
         running_test();
-        let args = ArgsBuilder::new();
+        let args = ArgsBuilder::new().param("--blockchain-service-url", "booga.com");
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
@@ -1507,6 +1561,7 @@ mod tests {
     {
         running_test();
         let args = ArgsBuilder::new()
+            .param("--blockchain-service-url", "booga.com")
             .param("--ip", "1.2.3.4")
             .param("--fake-public-key", "BORSCHT")
             .param("--db-password", "password");
@@ -1601,7 +1656,9 @@ mod tests {
     #[test]
     fn unprivileged_parse_args_with_mapping_protocol_both_on_command_line_and_in_database() {
         running_test();
-        let args = ArgsBuilder::new().param("--mapping-protocol", "pmp");
+        let args = ArgsBuilder::new()
+            .param("--mapping-protocol", "pmp")
+            .param("--blockchain-service-url", "booga.com");
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
@@ -1639,6 +1696,7 @@ mod tests {
         );
 
         let args = ArgsBuilder::new()
+            .param("--blockchain-service-url", "booga.com")
             .param("--ip", "1.2.3.4")
             .param("--data-directory", home_directory.to_str().unwrap())
             .opt("--db-password");
@@ -1683,6 +1741,8 @@ mod tests {
         let set_scan_intervals_params_arc = Arc::new(Mutex::new(vec![]));
         let set_payment_thresholds_params_arc = Arc::new(Mutex::new(vec![]));
         let args = [
+            "--blockchain-service-url",
+            "booga.com",
             "--ip",
             "1.2.3.4",
             "--scan-intervals",
@@ -1759,6 +1819,8 @@ mod tests {
     ) {
         running_test();
         let args = [
+            "--blockchain-service-url",
+            "booga.com",
             "--ip",
             "1.2.3.4",
             "--scan-intervals",
@@ -1830,6 +1892,8 @@ mod tests {
         running_test();
         let set_rate_pack_params_arc = Arc::new(Mutex::new(vec![]));
         let args = [
+            "--blockchain-service-url",
+            "booga.com",
             "--ip",
             "1.2.3.4",
             "--neighborhood-mode",
@@ -1876,6 +1940,8 @@ mod tests {
     fn unprivileged_parse_args_rate_pack_with_values_from_cli_equal_to_database_standard_mode() {
         running_test();
         let args = [
+            "--blockchain-service-url",
+            "booga.com",
             "--ip",
             "1.2.3.4",
             "--neighborhood-mode",
@@ -1921,6 +1987,8 @@ mod tests {
     ) {
         running_test();
         let args = [
+            "--blockchain-service-url",
+            "booga.com",
             "--ip",
             "1.2.3.4",
             "--chain",
@@ -2432,7 +2500,14 @@ mod tests {
     fn unprivileged_configuration_handles_scans_off() {
         running_test();
         let subject = UnprivilegedParseArgsConfigurationDaoReal {};
-        let args = ["--ip", "1.2.3.4", "--scans", "off"];
+        let args = [
+            "--blockchain-service-url",
+            "booga.com",
+            "--ip",
+            "1.2.3.4",
+            "--scans",
+            "off",
+        ];
         let mut bootstrapper_config = BootstrapperConfig::new();
 
         subject
@@ -2453,7 +2528,14 @@ mod tests {
     fn unprivileged_configuration_handles_scans_on() {
         running_test();
         let subject = UnprivilegedParseArgsConfigurationDaoReal {};
-        let args = ["--ip", "1.2.3.4", "--scans", "on"];
+        let args = [
+            "--blockchain-service-url",
+            "booga.com",
+            "--ip",
+            "1.2.3.4",
+            "--scans",
+            "on",
+        ];
         let mut bootstrapper_config = BootstrapperConfig::new();
 
         subject
@@ -2474,7 +2556,7 @@ mod tests {
     fn unprivileged_configuration_defaults_scans() {
         running_test();
         let subject = UnprivilegedParseArgsConfigurationDaoReal {};
-        let args = ["--ip", "1.2.3.4"];
+        let args = ["--blockchain-service-url", "booga.com", "--ip", "1.2.3.4"];
         let mut bootstrapper_config = BootstrapperConfig::new();
 
         subject

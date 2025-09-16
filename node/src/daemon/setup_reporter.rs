@@ -1900,6 +1900,7 @@ mod tests {
         );
         vec![
             ("MASQ_CHAIN", TEST_DEFAULT_CHAIN.rec().literal_identifier),
+            ("MASQ_BLOCKCHAIN_SERVICE_URL", "https://booga.com"),
             ("MASQ_CLANDESTINE_PORT", "1234"),
             ("MASQ_CONSUMING_PRIVATE_KEY", "0011223344556677001122334455667700112233445566770011223344556677"),
             ("MASQ_CRASH_POINT", "Panic"),
@@ -1949,7 +1950,6 @@ mod tests {
         .collect_vec();
         let existing_setup =
             setup_cluster_from(vec![
-            ("blockchain-service-url", "https://booga.com", Set),
             ("clandestine-port", "4321", Set),
             (
                 "consuming-private-key",
@@ -1989,7 +1989,7 @@ mod tests {
         let result = subject.get_modified_setup(existing_setup, params).unwrap();
 
         let expected_result = vec![
-            ("blockchain-service-url", "", Required),
+            ("blockchain-service-url", "https://booga.com", Configured),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Configured),
             ("clandestine-port", "1234", Configured),
             ("config-file", "", Blank),
@@ -2041,6 +2041,7 @@ mod tests {
         );
         let data_dir = base_dir.join("data_dir");
         let existing_setup = setup_cluster_from(vec![
+            ("blockchain-service-url", "https://booga.com", Set),
             ("neighborhood-mode", "zero-hop", Set),
             ("chain", DEFAULT_CHAIN.rec().literal_identifier, Default),
             (
@@ -2130,6 +2131,7 @@ mod tests {
         let existing_setup = setup_cluster_from(vec![
             ("neighborhood-mode", "zero-hop", Set),
             ("chain", DEFAULT_CHAIN.rec().literal_identifier, Default),
+            ("blockchain-service-url", "https://booga.com", Set),
             (
                 "data-directory",
                 &previously_processed_data_dir.to_string_lossy().to_string(),
@@ -2170,6 +2172,7 @@ mod tests {
             .join(DEFAULT_CHAIN.rec().literal_identifier);
         let new_data_dir = base_dir.join("new_data_dir");
         let existing_setup = setup_cluster_from(vec![
+            ("blockchain-service-url", "https://booga.com", Set),
             ("neighborhood-mode", "zero-hop", Set),
             ("chain", DEFAULT_CHAIN.rec().literal_identifier, Default),
             (
@@ -2348,6 +2351,7 @@ mod tests {
         assert_eq!(schema_version_before, "0");
         let existing_setup = setup_cluster_from(vec![
             ("chain", DEFAULT_CHAIN.rec().literal_identifier, Default),
+            ("blockchain-service-url", "https://booga.com", Set),
             (
                 "data-directory",
                 &data_dir.to_string_lossy().to_string(),
@@ -2649,6 +2653,7 @@ mod tests {
                         "data-directory",
                         &home_dir.to_string_lossy().to_string(),
                     ),
+                    UiSetupRequestValue::new("blockchain-service-url", "https://booga.com"),
                     UiSetupRequestValue::new("ip", "1.2.3.4"),
                     UiSetupRequestValue::clear("chain"),
                 ],
@@ -2665,8 +2670,10 @@ mod tests {
     #[test]
     fn calculate_setup_with_chain_specific_dir_on_user_specified_directory() {
         let _guard = EnvironmentGuard::new();
-        let existing_setup =
-            setup_cluster_from(vec![("real-user", "1111:1111:/home/booga", Default)]);
+        let existing_setup = setup_cluster_from(vec![
+            ("real-user", "1111:1111:/home/booga", Default),
+            ("blockchain-service-url", "https://booga.com", Set),
+        ]);
         let masqhome = Path::new("/home/booga/masqhome");
         let incoming_setup = vec![UiSetupRequestValue::new(
             "data-directory",
@@ -2677,7 +2684,7 @@ mod tests {
 
         let result = subject.get_modified_setup(existing_setup, incoming_setup);
 
-        let expected = masqhome.join("polygon-mainnet");
+        let expected = masqhome.join("base-mainnet");
         assert_eq!(
             result.unwrap().get("data-directory").unwrap().value,
             expected.to_str().unwrap()
@@ -2687,8 +2694,10 @@ mod tests {
     #[test]
     fn calculate_setup_with_chain_specific_dir_on_default_directory() {
         let _guard = EnvironmentGuard::new();
-        let existing_setup =
-            setup_cluster_from(vec![("real-user", "1111:1111:/home/booga", Default)]);
+        let existing_setup = setup_cluster_from(vec![
+            ("real-user", "1111:1111:/home/booga", Default),
+            ("blockchain-service-url", "https://booga.com", Set),
+        ]);
         let incoming_setup = vec![UiSetupRequestValue::new("chain", "polygon-amoy")];
         let home_directory = Path::new("/home/booga");
         let data_directory = home_directory.join("data");

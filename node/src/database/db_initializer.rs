@@ -1596,7 +1596,7 @@ mod tests {
         assert!(
             config_one_debug.contains(
                     "DbInitializationConfig{init_config: CreationAndMigration { external_data: \
-                     ExternalData { chain: PolyMainnet, neighborhood_mode: Standard, db_password_opt: \
+                     ExternalData { chain: BaseMainnet, neighborhood_mode: Standard, db_password_opt: \
                       None } }, special_conn_setup: Addresses["
                 ),
             "instead, the first printed message contained: {}",

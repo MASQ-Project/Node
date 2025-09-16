@@ -29,6 +29,7 @@ fn ui_requests_something_and_gets_corresponding_response_integration() {
         test_name,
         Some(
             CommandConfig::new()
+                .pair("--blockchain-service-url", "https://booga.com")
                 .pair("--ui-port", &port.to_string())
                 .pair(
                     "--data-directory",

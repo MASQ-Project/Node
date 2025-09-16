@@ -2,6 +2,7 @@
 
 pub mod utils;
 
+use crate::utils::CommandConfig;
 use node_lib::test_utils::read_until_timeout;
 use std::io::Write;
 use std::net::SocketAddr;
@@ -14,7 +15,7 @@ use std::time::Duration;
 fn http_through_node_integration() {
     let _node = utils::MASQNode::start_standard(
         "http_through_node_integration",
-        None,
+        Some(CommandConfig::new().pair("--blockchain-service-url", "https://booga.com")),
         true,
         true,
         false,

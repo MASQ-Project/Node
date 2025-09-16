@@ -21,6 +21,7 @@ fn dump_configuration_with_an_existing_database_integration() {
             test_name,
             Some(
                 CommandConfig::new()
+                    .pair("--blockchain-service-url", "https://booga.com")
                     .pair("--ui-port", &port.to_string())
                     .pair("--chain", "polygon-amoy"),
             ),

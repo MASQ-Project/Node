@@ -463,6 +463,8 @@ mod tests {
                 .unwrap();
         }
         let multi_config = make_simplified_multi_config([
+            "--blockchain-service-url",
+            "https://booga.com",
             "--chain",
             "eth-mainnet",
             "--db-password",
@@ -505,6 +507,8 @@ mod tests {
             PersistentConfigurationReal::from(conn)
         };
         let multi_config = make_simplified_multi_config([
+            "--blockchain-service-url",
+            "https://booga.com",
             "--chain",
             "eth-mainnet",
             "--db-password",
@@ -536,8 +540,14 @@ mod tests {
             "node_configurator_standard",
             "node_configurator_standard_unprivileged_handles_fake_public_key",
         );
-        let multi_config =
-            make_simplified_multi_config(["--chain", "eth-mainnet", "--fake-public-key", "AQIDBA"]);
+        let multi_config = make_simplified_multi_config([
+            "--blockchain-service-url",
+            "https://booga.com",
+            "--chain",
+            "eth-mainnet",
+            "--fake-public-key",
+            "AQIDBA",
+        ]);
         let mut privileged_config = BootstrapperConfig::default();
         privileged_config.data_directory = home_dir;
         let subject = NodeConfiguratorStandardUnprivileged {
@@ -767,6 +777,7 @@ mod tests {
             );
         }
         let args = ArgsBuilder::new()
+            .param("--blockchain-service-url", "https://booga.com")
             .param("--data-directory", home_dir.to_str().unwrap())
             .param("--ip", "1.2.3.4");
         let mut bootstrapper_config = BootstrapperConfig::new();
@@ -1576,7 +1587,14 @@ mod tests {
         let mut subject = NodeConfiguratorStandardUnprivileged::new(&BootstrapperConfig::new());
         subject.privileged_config = BootstrapperConfig::new();
         subject.privileged_config.data_directory = data_dir;
-        let args = ["--ip", "1.2.3.4", "--gas-price", "57"];
+        let args = [
+            "--blockchain-service-url",
+            "https://booga.com",
+            "--ip",
+            "1.2.3.4",
+            "--gas-price",
+            "57",
+        ];
 
         let config = subject
             .configure(&make_simplified_multi_config(args))
@@ -1597,7 +1615,12 @@ mod tests {
         let mut subject = NodeConfiguratorStandardUnprivileged::new(&BootstrapperConfig::new());
         subject.privileged_config = BootstrapperConfig::new();
         subject.privileged_config.data_directory = data_dir;
-        let args = ["--ip", "1.2.3.4"];
+        let args = [
+            "--blockchain-service-url",
+            "https://booga.com",
+            "--ip",
+            "1.2.3.4",
+        ];
 
         let config = subject
             .configure(&make_simplified_multi_config(args))
@@ -1773,16 +1796,21 @@ mod tests {
 
         let args = match (chain_opt, data_directory_opt) {
             (Some(chain_opt), Some(data_directory_opt)) => ArgsBuilder::new()
+                .param("--blockchain-service-url", "https://booga.com")
                 .param("--chain", chain_opt)
                 .param("--real-user", "999:999:/home/cooga")
                 .param("--data-directory", data_directory_opt),
             (None, Some(data_directory_opt)) => ArgsBuilder::new()
+                .param("--blockchain-service-url", "https://booga.com")
                 .param("--data-directory", data_directory_opt)
                 .param("--real-user", "999:999:/home/cooga"),
             (Some(chain_opt), None) => ArgsBuilder::new()
+                .param("--blockchain-service-url", "https://booga.com")
                 .param("--chain", chain_opt)
                 .param("--real-user", "999:999:/home/cooga"),
-            (None, None) => ArgsBuilder::new().param("--real-user", "999:999:/home/cooga"),
+            (None, None) => ArgsBuilder::new()
+                .param("--real-user", "999:999:/home/cooga")
+                .param("--blockchain-service-url", "https://booga.com"),
         };
         let args_vec: Vec<String> = args.into();
         let dir_wrapper = match data_directory_opt {
@@ -1828,8 +1856,8 @@ mod tests {
             ),
             (
                 None,
-                Some("/cooga/polygon-amoy/polygon-mainnet"),
-                Some("/cooga/polygon-amoy/polygon-mainnet"),
+                Some("/cooga/polygon-amoy/base-mainnet"),
+                Some("/cooga/polygon-amoy/base-mainnet"),
             ),
             (
                 Some("polygon-amoy"),

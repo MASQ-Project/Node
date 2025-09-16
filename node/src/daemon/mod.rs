@@ -815,6 +815,7 @@ mod tests {
             client_id: 1234,
             body: UiSetupRequest {
                 values: vec![
+                    UiSetupRequestValue::new("blockchain-service-url", "https://booga.com"),
                     UiSetupRequestValue::new("data-directory", data_dir.to_str().unwrap()),
                     UiSetupRequestValue::new("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier),
                     UiSetupRequestValue::new("neighborhood-mode", "zero-hop"),
