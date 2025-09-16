@@ -20,8 +20,8 @@ pub const CHAIN_HELP: &str =
     "The blockchain network MASQ Node will configure itself to use. You must ensure the \
     Ethereum client specified by --blockchain-service-url communicates with the same blockchain network.";
 pub const CONFIG_FILE_HELP: &str =
-    "Optional TOML file containing configuration that doesn't often change. Should contain only \
-     scalar items, string or numeric, whose names are exactly the same as the command-line parameters \
+    "Optional TOML file containing configuration that seldom changes. Should contain only \
+     scalar items, string, or numeric, whose names are exactly the same as the command-line parameters \
      they replace (except no '--' prefix). If you specify a relative path, or no path, the Node will \
      look for your config file starting in the --data-directory. If you specify an absolute path, \
      --data-directory will be ignored when searching for the config file. A few parameters \
@@ -138,9 +138,9 @@ pub const REAL_USER_HELP: &str =
      like <uid>:<gid>:<home directory>.";
 pub const SCANS_HELP: &str =
     "The Node, when running, performs various periodic scans, including scanning for payables that need to be paid, \
-    for pending payables that have arrived (and are no longer pending), for incoming receivables that need to be \
-    recorded, and for delinquent Nodes that need to be banned. If you don't specify this parameter, or if you give \
-    it the value 'on', these scans will proceed normally. But if you give the value 'off', the scans won't be \
+    for pending payables that have arrived or happened to fail (and are no longer pending), for incoming receivables \
+    that need to be recorded, and for delinquent Nodes that need to be banned. If you don't specify this parameter, \
+    or if you give it the value 'on', these scans will proceed normally. But if you give the value 'off', the scans won't be \
     started when the Node starts, and will have to be triggered later manually and individually with the \
     MASQNode-UIv2 'scan' command. (If you don't, you'll most likely be delinquency-banned by all your neighbors.) \
     This parameter is most useful for testing.";
@@ -183,19 +183,18 @@ pub const PAYMENT_THRESHOLDS_HELP: &str = "\
 pub const SCAN_INTERVALS_HELP:&str = "\
      These three intervals describe the length of three different scan cycles running automatically in the background \
      since the Node has connected to a qualified neighborhood that consists of neighbors enabling a complete 3-hop \
-     route. Each parameter can be set independently, but by default are all the same which currently is most desirable \
-     for the consistency of service payments to and from your Node. Technically, there doesn't have to be any lower \
+     route. Each parameter can be set independently. Technically, there doesn't have to be any lower \
      limit for the minimum of time you can set; two scans of the same sort would never run at the same time but the \
      next one is always scheduled not earlier than the end of the previous one. These are ever present values, no matter \
      if the user's set any value, they have defaults. The parameters must be always supplied all together, delimited by vertical \
      bars and in the right order.\n\n\
-     1. Pending Payable Scan Interval: Amount of seconds between two sequential cycles of scanning for payments that are \
-     marked as currently pending; the payments were sent to pay our debts, the payable. The purpose of this process is to \
-     confirm the status of the pending payment; either the payment transaction was written on blockchain as successful or \
-     failed.\n\n\
-     2. Payable Scan Interval: Amount of seconds between two sequential cycles of scanning aimed to find payable accounts \
-     of that meet the criteria set by the Payment Thresholds; these accounts are tracked on behalf of our creditors. If \
-     they meet the Payment Threshold criteria, our Node will send a debt payment transaction to the creditor in question.\n\n\
+     1. Payable Scan Interval: Amount of seconds between two sequential cycles of scanning aimed to find payable accounts \
+     that meet the criteria set by the Payment Thresholds; these accounts are tracked on behalf of our creditors. \
+     If they meet the Payment Threshold criteria, our Node will send a debt payment transaction to the creditor in question.\n\n\
+     2. Pending Payable Scan Interval: The time elapsed since the last payable transaction was processed. This scan operates \
+     on an irregular schedule and is triggered after new transactions are sent or when failed transactions need to be replaced. \
+     The scanner monitors pending transactions and verifies their blockchain status, determining whether each payment was \
+     successfully recorded or failed. Any failed transaction is automatically resubmitted as soon as the failure is detected.\n\n\
      3. Receivable Scan Interval: Amount of seconds between two sequential cycles of scanning for payments on the \
      blockchain that have been sent by our creditors to us, which are credited against receivables recorded for services \
      provided.";
@@ -744,8 +743,8 @@ mod tests {
         );
         assert_eq!(
             CONFIG_FILE_HELP,
-            "Optional TOML file containing configuration that doesn't often change. Should contain only \
-             scalar items, string or numeric, whose names are exactly the same as the command-line parameters \
+            "Optional TOML file containing configuration that seldom changes. Should contain only \
+             scalar items, string, or numeric, whose names are exactly the same as the command-line parameters \
              they replace (except no '--' prefix). If you specify a relative path, or no path, the Node will \
              look for your config file starting in the --data-directory. If you specify an absolute path, \
              --data-directory will be ignored when searching for the config file. A few parameters \
@@ -883,6 +882,16 @@ mod tests {
              you start the Node using pkexec or some other method that doesn't populate the SUDO_xxx variables. Use a value \
              like <uid>:<gid>:<home directory>."
         );
+        assert_eq!(
+            SCANS_HELP,
+            "The Node, when running, performs various periodic scans, including scanning for payables that need to be paid, \
+             for pending payables that have arrived or happened to fail (and are no longer pending), for incoming receivables \
+             that need to be recorded, and for delinquent Nodes that need to be banned. If you don't specify this parameter, \
+             or if you give it the value 'on', these scans will proceed normally. But if you give the value 'off', the scans won't be \
+             started when the Node starts, and will have to be triggered later manually and individually with the \
+             MASQNode-UIv2 'scan' command. (If you don't, you'll most likely be delinquency-banned by all your neighbors.) \
+             This parameter is most useful for testing."
+        );
 
         assert_eq!(
             DEFAULT_UI_PORT_VALUE.to_string(),
@@ -959,19 +968,19 @@ mod tests {
             SCAN_INTERVALS_HELP,
             "These three intervals describe the length of three different scan cycles running automatically in the background \
              since the Node has connected to a qualified neighborhood that consists of neighbors enabling a complete 3-hop \
-             route. Each parameter can be set independently, but by default are all the same which currently is most desirable \
-             for the consistency of service payments to and from your Node. Technically, there doesn't have to be any lower \
+             route. Each parameter can be set independently. Technically, there doesn't have to be any lower \
              limit for the minimum of time you can set; two scans of the same sort would never run at the same time but the \
              next one is always scheduled not earlier than the end of the previous one. These are ever present values, no matter \
              if the user's set any value, they have defaults. The parameters must be always supplied all together, delimited by \
              vertical bars and in the right order.\n\n\
-             1. Pending Payable Scan Interval: Amount of seconds between two sequential cycles of scanning for payments that are \
-             marked as currently pending; the payments were sent to pay our debts, the payable. The purpose of this process is to \
-             confirm the status of the pending payment; either the payment transaction was written on blockchain as successful or \
-             failed.\n\n\
-             2. Payable Scan Interval: Amount of seconds between two sequential cycles of scanning aimed to find payable accounts \
-             of that meet the criteria set by the Payment Thresholds; these accounts are tracked on behalf of our creditors. If \
+             1. Payable Scan Interval: Amount of seconds between two sequential cycles of scanning aimed to find payable accounts \
+             that meet the criteria set by the Payment Thresholds; these accounts are tracked on behalf of our creditors. If \
              they meet the Payment Threshold criteria, our Node will send a debt payment transaction to the creditor in question.\n\n\
+             2. Pending Payable Scan Interval: The time elapsed since the last payable transaction was processed. This scan operates \
+             on an irregular schedule and is triggered after new transactions are sent or when failed transactions need \
+             to be replaced. The scanner monitors pending transactions and verifies their blockchain status, determining whether \
+             each payment was successfully recorded or failed. Any failed transaction is automatically resubmitted as soon \
+             as the failure is detected.\n\n\
              3. Receivable Scan Interval: Amount of seconds between two sequential cycles of scanning for payments on the \
              blockchain that have been sent by our creditors to us, which are credited against receivables recorded for services \
              provided."

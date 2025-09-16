@@ -24,7 +24,6 @@ use masq_lib::utils::ExpectValue;
 use rusqlite::OptionalExtension;
 use rusqlite::{Error, Row};
 use std::fmt::Debug;
-use std::str::FromStr;
 use std::time::SystemTime;
 use web3::types::H256;
 
@@ -313,39 +312,22 @@ impl PayableDaoReal {
         let balance_high_bytes_result = row.get(1);
         let balance_low_bytes_result = row.get(2);
         let last_paid_timestamp_result = row.get(3);
-        let pending_payable_rowid_result: Result<Option<i64>, Error> = row.get(4);
-        let pending_payable_hash_result: Result<Option<String>, Error> = row.get(5);
         match (
             wallet_result,
             balance_high_bytes_result,
             balance_low_bytes_result,
             last_paid_timestamp_result,
-            pending_payable_rowid_result,
-            pending_payable_hash_result,
         ) {
-            (
-                Ok(wallet),
-                Ok(high_bytes),
-                Ok(low_bytes),
-                Ok(last_paid_timestamp),
-                Ok(rowid_opt),
-                Ok(hash_opt),
-            ) => Ok(PayableAccount {
-                wallet,
-                balance_wei: checked_conversion::<i128, u128>(BigIntDivider::reconstitute(
-                    high_bytes, low_bytes,
-                )),
-                last_paid_timestamp: utils::from_unix_timestamp(last_paid_timestamp),
-                pending_payable_opt: rowid_opt.map(|rowid| {
-                    let hash_str =
-                        hash_opt.expect("database corrupt; missing hash but existing rowid");
-                    PendingPayableId::new(
-                        u64::try_from(rowid).unwrap(),
-                        H256::from_str(&hash_str[2..])
-                            .unwrap_or_else(|_| panic!("wrong form of tx hash {}", hash_str)),
-                    )
-                }),
-            }),
+            (Ok(wallet), Ok(high_bytes), Ok(low_bytes), Ok(last_paid_timestamp)) => {
+                Ok(PayableAccount {
+                    wallet,
+                    balance_wei: checked_conversion::<i128, u128>(BigIntDivider::reconstitute(
+                        high_bytes, low_bytes,
+                    )),
+                    last_paid_timestamp: utils::from_unix_timestamp(last_paid_timestamp),
+                    pending_payable_opt: None,
+                })
+            }
             e => panic!(
                 "Database is corrupt: PAYABLE table columns and/or types: {:?}",
                 e
@@ -359,13 +341,9 @@ impl PayableDaoReal {
                wallet_address,
                balance_high_b,
                balance_low_b,
-               last_paid_timestamp,
-               pending_payable_rowid,
-               pending_payable.transaction_hash
+               last_paid_timestamp
            from
                payable
-           left join pending_payable on
-               pending_payable.rowid = payable.pending_payable_rowid
            {} {}
            order by
                {},
@@ -560,7 +538,6 @@ mod tests {
     use rusqlite::ToSql;
     use rusqlite::{Connection, OpenFlags};
     use std::path::Path;
-    use std::str::FromStr;
     use std::time::Duration;
 
     #[test]
@@ -1314,9 +1291,9 @@ mod tests {
 
     #[test]
     fn custom_query_in_top_records_mode_with_default_ordering() {
-        //Accounts of balances smaller than one gwei don't qualify.
-        //Two accounts differ only in debt's age but not balance which allows to check doubled ordering,
-        //here by balance and then by age.
+        // Accounts of balances smaller than one gwei don't qualify.
+        // Two accounts differ only in the debt age but not the balance which allows to check double
+        // ordering, primarily by balance and then age.
         let now = current_unix_timestamp();
         let main_test_setup = accounts_for_tests_of_top_records(now);
         let subject = custom_query_test_body_for_payable(
@@ -1344,13 +1321,7 @@ mod tests {
                     wallet: Wallet::new("0x5555555555555555555555555555555555555555"),
                     balance_wei: 10_000_000_100,
                     last_paid_timestamp: from_unix_timestamp(now - 86_401),
-                    pending_payable_opt: Some(PendingPayableId::new(
-                        1,
-                        H256::from_str(
-                            "abc4546cce78230a2312e12f3acb78747340456fe5237896666100143abcd223"
-                        )
-                        .unwrap()
-                    ))
+                    pending_payable_opt: None
                 },
                 PayableAccount {
                     wallet: Wallet::new("0x4444444444444444444444444444444444444444"),
@@ -1364,9 +1335,9 @@ mod tests {
 
     #[test]
     fn custom_query_in_top_records_mode_ordered_by_age() {
-        //Accounts of balances smaller than one gwei don't qualify.
-        //Two accounts differ only in balance but not in the debt's age which allows to check doubled ordering,
-        //here by age and then by balance.
+        // Accounts of balances smaller than one gwei don't qualify.
+        // Two accounts differ only in the debt age but not the balance which allows to check double
+        // ordering, primarily by balance and then age.
         let now = current_unix_timestamp();
         let main_test_setup = accounts_for_tests_of_top_records(now);
         let subject = custom_query_test_body_for_payable(
@@ -1388,13 +1359,7 @@ mod tests {
                     wallet: Wallet::new("0x5555555555555555555555555555555555555555"),
                     balance_wei: 10_000_000_100,
                     last_paid_timestamp: from_unix_timestamp(now - 86_401),
-                    pending_payable_opt: Some(PendingPayableId::new(
-                        1,
-                        H256::from_str(
-                            "abc4546cce78230a2312e12f3acb78747340456fe5237896666100143abcd223"
-                        )
-                        .unwrap()
-                    ))
+                    pending_payable_opt: None
                 },
                 PayableAccount {
                     wallet: Wallet::new("0x1111111111111111111111111111111111111111"),
@@ -1433,8 +1398,8 @@ mod tests {
 
     #[test]
     fn custom_query_in_range_mode() {
-        //Two accounts differ only in debt's age but not balance which allows to check doubled ordering,
-        //by balance and then by age.
+        // Two accounts differ only in the debt age but not the balance which allows to check double
+        // ordering, primarily by balance and then age.
         let now = current_unix_timestamp();
         let main_setup = |conn: &dyn ConnectionWrapper, insert: InsertPayableHelperFn| {
             insert(
@@ -1518,13 +1483,7 @@ mod tests {
                     wallet: Wallet::new("0x2222222222222222222222222222222222222222"),
                     balance_wei: gwei_to_wei(1_800_456_000_u32),
                     last_paid_timestamp: from_unix_timestamp(now - 55_120),
-                    pending_payable_opt: Some(PendingPayableId::new(
-                        1,
-                        H256::from_str(
-                            "abc4546cce78230a2312e12f3acb78747340456fe5237896666100143abcd223"
-                        )
-                        .unwrap()
-                    ))
+                    pending_payable_opt: None
                 }
             ]
         );
@@ -1690,19 +1649,6 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         main_setup_fn(conn.as_ref(), &insert_payable_record_fn);
-
-        let pending_payable_account: &[&dyn ToSql] = &[
-            &String::from("0xabc4546cce78230a2312e12f3acb78747340456fe5237896666100143abcd223"),
-            &40,
-            &478945,
-            &177777777,
-            &1,
-        ];
-        conn
-            .prepare("insert into pending_payable (transaction_hash, amount_high_b, amount_low_b, payable_timestamp, attempt) values (?,?,?,?,?)")
-            .unwrap()
-            .execute(pending_payable_account)
-            .unwrap();
         PayableDaoReal::new(conn)
     }
 }

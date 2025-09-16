@@ -1167,7 +1167,7 @@ mod tests {
             log_level: LevelFilter::Off,
             crash_point: CrashPoint::None,
             dns_servers: vec![],
-            scan_intervals_opt: Some(ScanIntervals::default()),
+            scan_intervals_opt: Some(ScanIntervals::compute_default(TEST_DEFAULT_CHAIN)),
             automatic_scans_enabled: true,
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },

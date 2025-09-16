@@ -17,6 +17,7 @@ use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
 use actix::{Addr, Message};
 use lazy_static::lazy_static;
+use masq_lib::blockchains::chains::Chain;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
@@ -36,11 +37,6 @@ lazy_static! {
         permanent_debt_allowed_gwei: 500_000_000,
         threshold_interval_sec: 21600,
         unban_below_gwei: 500_000_000,
-    };
-    pub static ref DEFAULT_SCAN_INTERVALS: ScanIntervals = ScanIntervals {
-        payable_scan_interval: Duration::from_secs(600),
-        pending_payable_scan_interval: Duration::from_secs(60),
-        receivable_scan_interval: Duration::from_secs(600)
     };
 }
 
@@ -85,9 +81,15 @@ pub struct ScanIntervals {
     pub receivable_scan_interval: Duration,
 }
 
-impl Default for ScanIntervals {
-    fn default() -> Self {
-        *DEFAULT_SCAN_INTERVALS
+impl ScanIntervals {
+    pub fn compute_default(chain: Chain) -> Self {
+        Self {
+            payable_scan_interval: Duration::from_secs(600),
+            pending_payable_scan_interval: Duration::from_secs(
+                chain.rec().default_pending_payable_interval_sec,
+            ),
+            receivable_scan_interval: Duration::from_secs(600),
+        }
     }
 }
 
@@ -207,12 +209,12 @@ mod tests {
     use crate::sub_lib::accountant::{
         AccountantSubsFactoryReal, DetailedScanType, MessageIdGenerator, MessageIdGeneratorReal,
         PaymentThresholds, ScanIntervals, SubsFactory, DEFAULT_EARNING_WALLET,
-        DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS, MSG_ID_INCREMENTER,
-        TEMPORARY_CONSUMING_WALLET,
+        DEFAULT_PAYMENT_THRESHOLDS, MSG_ID_INCREMENTER, TEMPORARY_CONSUMING_WALLET,
     };
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::recorder::{make_accountant_subs_from_recorder, Recorder};
     use actix::Actor;
+    use masq_lib::blockchains::chains::Chain;
     use masq_lib::messages::ScanType;
     use std::str::FromStr;
     use std::sync::atomic::Ordering;
@@ -252,12 +254,6 @@ mod tests {
             threshold_interval_sec: 21600,
             unban_below_gwei: 500_000_000,
         };
-        let scan_intervals_expected = ScanIntervals {
-            payable_scan_interval: Duration::from_secs(600),
-            pending_payable_scan_interval: Duration::from_secs(60),
-            receivable_scan_interval: Duration::from_secs(600),
-        };
-        assert_eq!(*DEFAULT_SCAN_INTERVALS, scan_intervals_expected);
         assert_eq!(*DEFAULT_PAYMENT_THRESHOLDS, payment_thresholds_expected);
         assert_eq!(*DEFAULT_EARNING_WALLET, default_earning_wallet_expected);
         assert_eq!(
@@ -309,5 +305,35 @@ mod tests {
         let id = subject.id();
 
         assert_eq!(id, 0)
+    }
+
+    #[test]
+    fn default_for_scan_intervals_can_be_computed() {
+        let chain_a = Chain::BaseMainnet;
+        let chain_b = Chain::PolyMainnet;
+
+        let result_a = ScanIntervals::compute_default(chain_a);
+        let result_b = ScanIntervals::compute_default(chain_b);
+
+        assert_eq!(
+            result_a,
+            ScanIntervals {
+                payable_scan_interval: Duration::from_secs(600),
+                pending_payable_scan_interval: Duration::from_secs(
+                    chain_a.rec().default_pending_payable_interval_sec
+                ),
+                receivable_scan_interval: Duration::from_secs(600),
+            }
+        );
+        assert_eq!(
+            result_b,
+            ScanIntervals {
+                payable_scan_interval: Duration::from_secs(600),
+                pending_payable_scan_interval: Duration::from_secs(
+                    chain_b.rec().default_pending_payable_interval_sec
+                ),
+                receivable_scan_interval: Duration::from_secs(600),
+            }
+        );
     }
 }

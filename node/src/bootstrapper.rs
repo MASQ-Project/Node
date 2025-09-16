@@ -1233,6 +1233,7 @@ mod tests {
             vec![SocketAddr::new(IpAddr::from_str("1.2.3.4").unwrap(), 1111)];
         let mut unprivileged_config = BootstrapperConfig::new();
         //values from unprivileged config
+        let chain = unprivileged_config.blockchain_bridge_config.chain;
         let gas_price = 123;
         let blockchain_url_opt = Some("some.service@earth.abc".to_string());
         let clandestine_port_opt = Some(44444);
@@ -1252,7 +1253,7 @@ mod tests {
         unprivileged_config.earning_wallet = earning_wallet.clone();
         unprivileged_config.consuming_wallet_opt = consuming_wallet_opt.clone();
         unprivileged_config.db_password_opt = db_password_opt.clone();
-        unprivileged_config.scan_intervals_opt = Some(ScanIntervals::default());
+        unprivileged_config.scan_intervals_opt = Some(ScanIntervals::compute_default(chain));
         unprivileged_config.automatic_scans_enabled = true;
         unprivileged_config.when_pending_too_long_sec = DEFAULT_PENDING_TOO_LONG_SEC;
 
@@ -1276,7 +1277,7 @@ mod tests {
         assert_eq!(privileged_config.db_password_opt, db_password_opt);
         assert_eq!(
             privileged_config.scan_intervals_opt,
-            Some(ScanIntervals::default())
+            Some(ScanIntervals::compute_default(chain))
         );
         assert_eq!(privileged_config.automatic_scans_enabled, true);
         assert_eq!(
