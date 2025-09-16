@@ -23,6 +23,7 @@ use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
+use crate::sub_lib::accountant::DetailedScanType;
 use crate::sub_lib::blockchain_bridge::{BlockchainBridgeSubs, OutboundPaymentsInstructions};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request};
@@ -37,7 +38,6 @@ use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::DEFAULT_GAS_PRICE_MARGIN;
 use masq_lib::logger::Logger;
-use masq_lib::messages::ScanType;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use regex::Regex;
 use std::path::Path;
@@ -123,7 +123,7 @@ impl Handler<RetrieveTransactions> for BlockchainBridge {
     ) -> <Self as Handler<RetrieveTransactions>>::Result {
         self.handle_scan_future(
             Self::handle_retrieve_transactions,
-            ScanType::Receivables,
+            DetailedScanType::Receivables,
             msg,
         )
     }
@@ -135,7 +135,7 @@ impl Handler<RequestTransactionReceipts> for BlockchainBridge {
     fn handle(&mut self, msg: RequestTransactionReceipts, _ctx: &mut Self::Context) {
         self.handle_scan_future(
             Self::handle_request_transaction_receipts,
-            ScanType::PendingPayables,
+            DetailedScanType::PendingPayables,
             msg,
         )
     }
@@ -145,7 +145,13 @@ impl Handler<QualifiedPayablesMessage> for BlockchainBridge {
     type Result = ();
 
     fn handle(&mut self, msg: QualifiedPayablesMessage, _ctx: &mut Self::Context) {
-        self.handle_scan_future(Self::handle_qualified_payable_msg, ScanType::Payables, msg);
+        self.handle_scan_future(
+            Self::handle_qualified_payable_msg,
+            todo!(
+                "This needs to be decided on GH-605. Look what mode you run and set it accordingly"
+            ),
+            msg,
+        );
     }
 }
 
@@ -155,7 +161,9 @@ impl Handler<OutboundPaymentsInstructions> for BlockchainBridge {
     fn handle(&mut self, msg: OutboundPaymentsInstructions, _ctx: &mut Self::Context) {
         self.handle_scan_future(
             Self::handle_outbound_payments_instructions,
-            ScanType::Payables,
+            todo!(
+                "This needs to be decided on GH-605. Look what mode you run and set it accordingly"
+            ),
             msg,
         )
     }
@@ -440,7 +448,7 @@ impl BlockchainBridge {
         )
     }
 
-    fn handle_scan_future<M, F>(&mut self, handler: F, scan_type: ScanType, msg: M)
+    fn handle_scan_future<M, F>(&mut self, handler: F, scan_type: DetailedScanType, msg: M)
     where
         F: FnOnce(&mut BlockchainBridge, M) -> Box<dyn Future<Item = (), Error = String>>,
         M: SkeletonOptHolder,
@@ -562,15 +570,10 @@ mod tests {
     use crate::node_test_utils::check_timestamp;
     use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::recorder::{
-        make_accountant_subs_from_recorder, make_recorder, peer_actors_builder,
-    };
+    use crate::test_utils::recorder::{make_accountant_subs_from_recorder, make_blockchain_bridge_subs_from_recorder, make_recorder, peer_actors_builder};
     use crate::test_utils::recorder_stop_conditions::StopConditions;
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
-    use crate::test_utils::unshared_test_utils::{
-        assert_on_initialization_with_panic_on_migration, configure_default_persistent_config,
-        prove_that_crash_request_handler_is_hooked_up, AssertionsMessage, ZERO,
-    };
+    use crate::test_utils::unshared_test_utils::{assert_on_initialization_with_panic_on_migration, configure_default_persistent_config, prove_that_crash_request_handler_is_hooked_up, AssertionsMessage, SubsFactoryTestAddrLeaker, ZERO};
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use actix::System;
     use ethereum_types::U64;
@@ -598,6 +601,17 @@ mod tests {
             _ctx: &mut Self::Context,
         ) -> Self::Result {
             (msg.assertions)(self)
+        }
+    }
+
+    impl SubsFactory<BlockchainBridge, BlockchainBridgeSubs>
+    for SubsFactoryTestAddrLeaker<BlockchainBridge>
+    {
+        fn make(&self, addr: &Addr<BlockchainBridge>) -> BlockchainBridgeSubs {
+            self.send_leaker_msg_and_return_meaningless_subs(
+                addr,
+                make_blockchain_bridge_subs_from_recorder,
+            )
         }
     }
 
@@ -1016,7 +1030,7 @@ mod tests {
         assert_eq!(
             *scan_error_msg,
             ScanError {
-                scan_type: ScanType::Payables,
+                scan_type: DetailedScanType::NewPayables,
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321
@@ -1267,7 +1281,7 @@ mod tests {
         assert_eq!(
             scan_error,
             &ScanError {
-                scan_type: ScanType::Receivables,
+                scan_type: DetailedScanType::Receivables,
                 response_skeleton_opt: None,
                 msg: "Error while retrieving transactions: QueryFailed(\"Transport error: Error(IncompleteMessage)\")".to_string()
             }
@@ -1403,7 +1417,7 @@ mod tests {
 
         let _ = subject.handle_scan_future(
             BlockchainBridge::handle_request_transaction_receipts,
-            ScanType::PendingPayables,
+            DetailedScanType::PendingPayables,
             msg,
         );
 
@@ -1412,7 +1426,7 @@ mod tests {
         assert_eq!(
             recording.get_record::<ScanError>(0),
             &ScanError {
-                scan_type: ScanType::PendingPayables,
+                scan_type: DetailedScanType::PendingPayables,
                 response_skeleton_opt: None,
                 msg: "Blockchain error: Query failed: Transport error: Error(IncompleteMessage)"
                     .to_string()
@@ -1781,7 +1795,7 @@ mod tests {
         assert_eq!(
             scan_error_msg,
             &ScanError {
-                scan_type: ScanType::Receivables,
+                scan_type: DetailedScanType::Receivables,
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321
@@ -1841,7 +1855,7 @@ mod tests {
         assert_eq!(
             scan_error_msg,
             &ScanError {
-                scan_type: ScanType::Receivables,
+                scan_type: DetailedScanType::Receivables,
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321
@@ -1987,7 +2001,7 @@ mod tests {
 
         subject.handle_scan_future(
             BlockchainBridge::handle_retrieve_transactions,
-            ScanType::Receivables,
+            DetailedScanType::Receivables,
             retrieve_transactions,
         );
 
@@ -2041,7 +2055,7 @@ mod tests {
 
         subject.handle_scan_future(
             BlockchainBridge::handle_retrieve_transactions,
-            ScanType::Receivables,
+            DetailedScanType::Receivables,
             msg.clone(),
         );
 
@@ -2051,7 +2065,7 @@ mod tests {
         assert_eq!(
             message,
             &ScanError {
-                scan_type: ScanType::Receivables,
+                scan_type: DetailedScanType::Receivables,
                 response_skeleton_opt: msg.response_skeleton_opt,
                 msg: "Error while retrieving transactions: QueryFailed(\"RPC error: Error { code: ServerError(-32005), message: \\\"My tummy hurts\\\", data: None }\")"
                     .to_string()
@@ -2189,23 +2203,5 @@ mod tests {
     fn increase_gas_price_by_margin_works() {
         assert_eq!(increase_gas_price_by_margin(1_000_000_000), 1_300_000_000);
         assert_eq!(increase_gas_price_by_margin(9_000_000_000), 11_700_000_000);
-    }
-}
-
-#[cfg(test)]
-pub mod exportable_test_parts {
-    use super::*;
-    use crate::test_utils::recorder::make_blockchain_bridge_subs_from_recorder;
-    use crate::test_utils::unshared_test_utils::SubsFactoryTestAddrLeaker;
-
-    impl SubsFactory<BlockchainBridge, BlockchainBridgeSubs>
-        for SubsFactoryTestAddrLeaker<BlockchainBridge>
-    {
-        fn make(&self, addr: &Addr<BlockchainBridge>) -> BlockchainBridgeSubs {
-            self.send_leaker_msg_and_return_meaningless_subs(
-                addr,
-                make_blockchain_bridge_subs_from_recorder,
-            )
-        }
     }
 }
