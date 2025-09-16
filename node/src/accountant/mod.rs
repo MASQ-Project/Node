@@ -5754,7 +5754,7 @@ mod tests {
         let receivable_dao = ReceivableDaoMock::new().total_result(987_654_328_996);
         let system = System::new("test");
         let subject = AccountantBuilder::default()
-            .bootstrapper_config(make_bc_with_defaults(DEFAULT_CHAIN))
+            .bootstrapper_config(make_bc_with_defaults(TEST_DEFAULT_CHAIN))
             .payable_daos(vec![ForAccountantBody(payable_dao)])
             .receivable_daos(vec![ForAccountantBody(receivable_dao)])
             .build();

@@ -107,7 +107,6 @@ mod tests {
         assert_eq!(encrypted, false);
         let (scan_intervals, encrypted) =
             retrieve_config_row(connection.as_ref(), "scan_intervals");
-        eprintln!("{:?}", chain);
         assert_eq!(
             scan_intervals,
             Some(
