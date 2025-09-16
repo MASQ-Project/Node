@@ -588,6 +588,7 @@ mod tests {
         expected_result: Result<BatchResults, LocalPayableError>,
         port: u16,
     ) {
+        // TODO: GH-701: Add assertions for the new_fingerprints_message here, since it existed earlier
         init_test_logging();
         let (_event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
