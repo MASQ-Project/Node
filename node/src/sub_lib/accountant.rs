@@ -208,19 +208,18 @@ mod tests {
     use crate::accountant::{checked_conversion, Accountant};
     use crate::sub_lib::accountant::{
         AccountantSubsFactoryReal, DetailedScanType, MessageIdGenerator, MessageIdGeneratorReal,
-        PaymentThresholds,ScanIntervals, SubsFactory, DEFAULT_EARNING_WALLET, DEFAULT_PAYMENT_THRESHOLDS,
-        MSG_ID_INCREMENTER,
-        TEMPORARY_CONSUMING_WALLET,
+        PaymentThresholds, ScanIntervals, SubsFactory, DEFAULT_EARNING_WALLET,
+        DEFAULT_PAYMENT_THRESHOLDS, MSG_ID_INCREMENTER, TEMPORARY_CONSUMING_WALLET,
     };
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::recorder::{make_accountant_subs_from_recorder, Recorder};
     use actix::Actor;
+    use masq_lib::blockchains::chains::Chain;
     use masq_lib::messages::ScanType;
     use std::str::FromStr;
     use std::sync::atomic::Ordering;
     use std::sync::Mutex;
     use std::time::Duration;
-    use masq_lib::blockchains::chains::Chain;
 
     impl From<DetailedScanType> for ScanType {
         fn from(scan_type: DetailedScanType) -> Self {

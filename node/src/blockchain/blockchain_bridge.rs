@@ -570,10 +570,17 @@ mod tests {
     use crate::node_test_utils::check_timestamp;
     use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::recorder::{make_accountant_subs_from_recorder, make_blockchain_bridge_subs_from_recorder, make_recorder, peer_actors_builder};
+    use crate::test_utils::recorder::{
+        make_accountant_subs_from_recorder, make_blockchain_bridge_subs_from_recorder,
+        make_recorder, peer_actors_builder,
+    };
     use crate::test_utils::recorder_stop_conditions::StopConditions;
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
-    use crate::test_utils::unshared_test_utils::{assert_on_initialization_with_panic_on_migration, configure_default_persistent_config, prove_that_crash_request_handler_is_hooked_up, AssertionsMessage, SubsFactoryTestAddrLeaker, ZERO};
+    use crate::test_utils::unshared_test_utils::{
+        assert_on_initialization_with_panic_on_migration, configure_default_persistent_config,
+        prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
+        SubsFactoryTestAddrLeaker, ZERO,
+    };
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use actix::System;
     use ethereum_types::U64;
@@ -605,7 +612,7 @@ mod tests {
     }
 
     impl SubsFactory<BlockchainBridge, BlockchainBridgeSubs>
-    for SubsFactoryTestAddrLeaker<BlockchainBridge>
+        for SubsFactoryTestAddrLeaker<BlockchainBridge>
     {
         fn make(&self, addr: &Addr<BlockchainBridge>) -> BlockchainBridgeSubs {
             self.send_leaker_msg_and_return_meaningless_subs(
