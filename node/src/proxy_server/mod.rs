@@ -81,7 +81,6 @@ struct StreamInfo {
     dns_failure_retry_opt: Option<DNSFailureRetry>,
     route_opt: Option<RouteQueryResponse>,
     time_to_live_opt: Option<SystemTime>,
-    // return_route_info: AddReturnRouteMessage,
 }
 
 struct StreamInfoBuilder {
@@ -96,12 +95,6 @@ impl StreamInfoBuilder {
                 dns_failure_retry_opt: None,
                 route_opt: None,
                 time_to_live_opt: None,
-                // return_route_info: AddReturnRouteMessage{
-                //     return_route_id: 0,
-                //     expected_services: vec![],
-                //     protocol: ProxyProtocol::HTTP,
-                //     hostname_opt: None,
-                // },
             }
         }
     }
@@ -126,11 +119,6 @@ impl StreamInfoBuilder {
         self
     }
 
-    // pub fn return_route_info(mut self, add_return_route_message: AddReturnRouteMessage) -> Self {
-    //     self.product.return_route_info = add_return_route_message;
-    //     self
-    // }
-
     pub fn build(self) -> StreamInfo {
         self.product
     }
@@ -148,11 +136,11 @@ pub struct ProxyServer {
     alias_cryptde: &'static dyn CryptDE,
     crashable: bool,
     logger: Logger,
-    // Holds return-route information for requests that have not yet seen any responses
-    route_ids_to_return_routes_first_chance: TtlHashMap<u32, AddReturnRouteMessage>,
-    // Holds return-route information for requests that have seen at least one response and may
-    // see more in the future. The near future, because this TTL is much shorter.
-    route_ids_to_return_routes_stragglers: TtlHashMap<u32, AddReturnRouteMessage>,
+    // // Holds return-route information for requests that have not yet seen any responses
+    // route_ids_to_return_routes_first_chance: TtlHashMap<u32, AddReturnRouteMessage>,
+    // // Holds return-route information for requests that have seen at least one response and may
+    // // see more in the future. The near future, because this TTL is much shorter.
+    // route_ids_to_return_routes_stragglers: TtlHashMap<u32, AddReturnRouteMessage>,
     browser_proxy_sequence_offset: bool,
     inbound_client_data_helper_opt: Option<Box<dyn IBCDHelper>>,
     stream_key_purge_delay: Duration,
@@ -203,13 +191,7 @@ impl Handler<AddReturnRouteMessage> for ProxyServer {
     type Result = ();
 
     fn handle(&mut self, msg: AddReturnRouteMessage, _ctx: &mut Self::Context) -> Self::Result {
-        let return_route_id = msg.return_route_id;
-        self.route_ids_to_return_routes_first_chance
-            .insert(msg.return_route_id, msg);
-        debug!(
-            self.logger,
-            "Added return route info RRI{} to first-chance cache", return_route_id
-        );
+        // TODO: I think this whole message should probably be deleted from the application.
     }
 }
 
@@ -367,17 +349,6 @@ impl ProxyServer {
             alias_cryptde,
             crashable,
             logger: ps_logger,
-            route_ids_to_return_routes_first_chance: TtlHashMap::new(RETURN_ROUTE_TTL_FIRST_CHANCE),
-            route_ids_to_return_routes_stragglers: TtlHashMap::new_with_retire(
-                RETURN_ROUTE_TTL_STRAGGLERS,
-                move |k, _| {
-                    debug!(
-                        hm_logger,
-                        "Return route info RRI{} expired from straggler cache", *k
-                    );
-                    true
-                },
-            ),
             browser_proxy_sequence_offset: false,
             inbound_client_data_helper_opt: Some(Box::new(IBCDHelperReal::new())),
             stream_key_purge_delay: STREAM_KEY_PURGE_DELAY,
@@ -504,12 +475,20 @@ impl ProxyServer {
     }
 
     fn handle_dns_resolve_failure(&mut self, msg: &ExpiredCoresPackage<DnsResolveFailure_0v1>) {
+        let response = &msg.payload;
+        if let Some(stream_info) = self.stream_info(&response.stream_key, &self.logger) {
+            let exit_public_key = if !self.is_decentralized {
+                self.main_cryptde.public_key()
+            }
+            else if
+        }
+
         let return_route_id = match self.rri_from_remaining_route(&msg.remaining_route) {
             Some(rri) => rri,
             None => return, // TODO: Eventually we'll have to do something better here, but we'll probably need some heuristics.
         };
         let return_route_info =
-            match self.get_return_route_info(return_route_id, "dns resolve failure") {
+            match self.get_expected_services(return_route_id, "dns resolve failure") {
                 Some(rri) => rri,
                 None => return, // TODO: Eventually we'll have to do something better here, but we'll probably need some heuristics.
             };
@@ -661,7 +640,7 @@ impl ProxyServer {
             Some(rri) => rri,
             None => return,
         };
-        let return_route_info = match self.get_return_route_info(return_route_id, "client response")
+        let return_route_info = match self.get_expected_services(return_route_id, "client response")
         {
             Some(rri) => rri,
             None => return,
@@ -900,7 +879,7 @@ impl ProxyServer {
 
     fn try_transmit_to_hopper(
         args: TransmitToHopperArgs,
-        add_return_route_sub: Recipient<AddReturnRouteMessage>,
+        // add_return_route_sub: Recipient<AddReturnRouteMessage>,
         route_query_response: RouteQueryResponse,
     ) -> Result<(), String> {
         match route_query_response.expected_services {
@@ -915,9 +894,9 @@ impl ProxyServer {
                     args.logger,
                     "Adding expectant return route info: RRI{}", args.return_route_id
                 );
-                add_return_route_sub
-                    .try_send(return_route_info)
-                    .expect("ProxyServer is dead");
+                // add_return_route_sub
+                //     .try_send(return_route_info)
+                //     .expect("ProxyServer is dead");
                 ProxyServer::transmit_to_hopper(args, route_query_response.route, over)
             }
             _ => panic!("Expected RoundTrip ExpectedServices but got OneWay"),
@@ -1119,37 +1098,22 @@ impl ProxyServer {
         }
     }
 
-    fn get_return_route_info(
+    fn get_expected_services(
         &mut self,
-        return_route_id: u32,
-        source: &str,
-    ) -> Option<Rc<AddReturnRouteMessage>> {
-        match self
-            .route_ids_to_return_routes_first_chance
-            .remove(&return_route_id)
-        {
-            Some(rri) => {
-                self.route_ids_to_return_routes_stragglers
-                    .insert(return_route_id, (*rri).clone());
-                debug!(self.logger, "Return route info RRI{} found in first-chance cache; graduated to straggler cache", return_route_id);
-                Some(rri)
-            }
-            None => match self
-                .route_ids_to_return_routes_stragglers
-                .get(&return_route_id)
-            {
-                Some(rri) => {
-                    debug!(
-                        self.logger,
-                        "Return route info RRI{} found in straggler cache", return_route_id
-                    );
-                    Some(rri)
-                }
-                None => {
-                    error!(self.logger, "Can't report services consumed: received response with bogus return-route ID RRI{} for {}. Ignoring", return_route_id, source);
-                    None
-                }
+        stream_key: &StreamKey,
+    ) -> Option<Vec<ExpectedService>> {
+        match self.stream_info(stream_key, &self.logger) {
+            None => {
+                error!(self.logger, "Can't pay for return services consumed: received response with unrecognized stream key {:?}. Ignoring", stream_key);
+                return None
             },
+            Some(stream_info) => match stream_info {
+                None => {
+                    error!(self.logger, "Can't pay for return services consumed: stream_info contains no expected services list", stream_key);
+                    return None
+                },
+                Some(info) => info.expected_services.clone()
+            }
         }
     }
 
@@ -1226,6 +1190,14 @@ pub trait IBCDHelper {
         &self,
         proxy_s: &mut ProxyServer,
         msg: InboundClientData,
+        // TODO: I was wondering: could we just use msg.is_last_data here, instead of a whole different
+        // parameter? Then I thought no, they're not the same: is_last_data means the client won't
+        // send any more data, but we don't want to retire_stream_key until we've waited for any
+        // straggling responses from the server, so that we can pay for them. However, it turns out
+        // that if there is any such delay for straggling data, it's doesn't have anything to do with
+        // retire_stream_key, because retire_stream_key is always equal to msg.is_last_data. So we
+        // _could_ remove retire_stream_key and use msg.is_last_data, but I think the whole thing
+        // ought to be rejiggered to wait for straggling data.
         retire_stream_key: bool,
     ) -> Result<(), String>;
 
@@ -1242,7 +1214,7 @@ trait RouteQueryResponseResolver: Send {
     fn resolve_message(
         &self,
         args: TransmitToHopperArgs,
-        add_return_route_sub: Recipient<AddReturnRouteMessage>,
+        // add_return_route_sub: Recipient<AddReturnRouteMessage>,
         proxy_server_sub: Recipient<AddRouteResultMessage>,
         route_result_opt: Result<Option<RouteQueryResponse>, MailboxError>,
     );
@@ -1253,7 +1225,7 @@ impl RouteQueryResponseResolver for RouteQueryResponseResolverReal {
     fn resolve_message(
         &self,
         args: TransmitToHopperArgs,
-        add_return_route_sub: Recipient<AddReturnRouteMessage>,
+        // add_return_route_sub: Recipient<AddReturnRouteMessage>,
         proxy_server_sub: Recipient<AddRouteResultMessage>,
         route_result_opt: Result<Option<RouteQueryResponse>, MailboxError>,
     ) {
@@ -1262,7 +1234,7 @@ impl RouteQueryResponseResolver for RouteQueryResponseResolverReal {
             Ok(Some(route_query_response)) => {
                 match ProxyServer::try_transmit_to_hopper(
                     args,
-                    add_return_route_sub,
+                    // add_return_route_sub,
                     route_query_response.clone(),
                 ) {
                     Ok(()) => Ok(route_query_response),
@@ -1667,14 +1639,14 @@ mod tests {
         fn resolve_message(
             &self,
             args: TransmitToHopperArgs,
-            _add_return_route_sub: Recipient<AddReturnRouteMessage>,
+            // _add_return_route_sub: Recipient<AddReturnRouteMessage>,
             _proxy_server_sub: Recipient<AddRouteResultMessage>,
             route_result: Result<Option<RouteQueryResponse>, MailboxError>,
         ) {
-            self.resolve_message_params
-                .lock()
-                .unwrap()
-                .push((args, route_result));
+            // self.resolve_message_params
+            //     .lock()
+            //     .unwrap()
+            //     .push((args, route_result));
         }
     }
 
@@ -1845,7 +1817,7 @@ mod tests {
             false,
         );
 
-        let result = subject.get_return_route_info(1234, "test");
+        let result = subject.get_expected_services(1234, "test");
 
         assert!(
             result.is_none(),
@@ -1875,7 +1847,7 @@ mod tests {
             .route_ids_to_return_routes_first_chance
             .insert(1234, return_route_message.clone());
 
-        let result = subject.get_return_route_info(1234, "test").unwrap();
+        let result = subject.get_expected_services(1234, "test").unwrap();
 
         assert_eq!(*result, return_route_message);
         assert_eq!(
@@ -1908,7 +1880,7 @@ mod tests {
             .route_ids_to_return_routes_stragglers
             .insert(1234, return_route_message.clone());
 
-        let result = subject.get_return_route_info(1234, "test").unwrap();
+        let result = subject.get_expected_services(1234, "test").unwrap();
 
         assert_eq!(*result, return_route_message);
     }

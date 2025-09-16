@@ -502,6 +502,40 @@ pub enum ExpectedService {
     Nothing,
 }
 
+impl ExpectedService {
+    pub fn exit_node_key_opt(&self) -> Option<PublicKey> {
+        match self {
+            ExpectedService::Exit(key, _, _) => Some(key.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn public_key_opt(&self) -> Option<PublicKey> {
+        match self {
+            ExpectedService::Exit(key, _, _) | ExpectedService::Routing(key, _, _) => Some(key.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn wallet_opt(&self) -> Option<&Wallet> {
+        match self {
+            ExpectedService::Exit(_, wallet, _) | ExpectedService::Routing(_, wallet, _) => {
+                Some(wallet)
+            }
+            _ => None,
+        }
+    }
+
+    pub fn rate_pack_opt(&self) -> Option<&RatePack> {
+        match self {
+            ExpectedService::Exit(_, _, rate_pack) | ExpectedService::Routing(_, _, rate_pack) => {
+                Some(rate_pack)
+            }
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExpectedServices {
     OneWay(Vec<ExpectedService>),
