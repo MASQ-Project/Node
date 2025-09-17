@@ -95,16 +95,7 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
         )?;
         configure_database(&unprivileged_config, persistent_config.as_mut())?;
         let cryptde_pair = if multi_config.occurrences_of("fake-public-key") == 0 {
-
-//             let pair = value_user_specified_m!(multi_config, "new-public-key", bool);
-// eprintln!("Pair: {:?}", pair);
-//             let new_public_key = match pair {
-//                 (option, true) => option,
-//                 _ => None
-//             };
-
             let new_public_key = value_m!(multi_config, "new-public-key", OnOff);
-eprintln!("new_public_key from multi_config: {:?}", new_public_key);
 
             configure_cryptdes(
                 new_public_key,
@@ -246,12 +237,10 @@ pub fn server_initializer_collected_params<'a>(
         ],
     )
     .expect("expected MultiConfig");
-eprintln!("CommandLineVcl: {:?}", commandline_vcl.args());
     let specified_vec = extract_values_vcl_fill_multiconfig_vec(
         multiconfig_for_values_extraction,
         initialization_data,
     );
-eprintln!("config_file: {:?}\nenvironment: {:?}\ncommandline: {:?}", &config_file_vcl.vcl_args(), &environment_vcl.vcl_args(), &commandline_vcl.vcl_args());
     let mut multi_config_args_vec: Vec<Box<dyn VirtualCommandLine>> = vec![
         Box::new(config_file_vcl),
         Box::new(environment_vcl),
@@ -261,7 +250,6 @@ eprintln!("config_file: {:?}\nenvironment: {:?}\ncommandline: {:?}", &config_fil
 
     let full_multi_config = make_new_multi_config(&app, multi_config_args_vec)?;
 
-eprintln!("full_multi_config\nvalue_m!: {:?}\nvalue_user_specified_m!: {:?}\noccurrences_of: {:?}\n",value_m!(full_multi_config, "new-public-key", String), value_user_specified_m!(full_multi_config, "new-public-key", String), full_multi_config.occurrences_of("new-public-key"));
     Ok(full_multi_config)
 }
 
@@ -373,35 +361,26 @@ fn configure_cryptdes(
     persistent_config: &mut dyn PersistentConfiguration,
     db_password_opt: &Option<String>,
 ) -> CryptDEPair {
-eprintln!("configure_cryptdes() started with new_public_key = {:?}, db_password_opt = {:?}", new_public_key, db_password_opt);
     let cryptde_pair = if let Some(db_password) = db_password_opt {
-eprintln!("We have a password");
         let chain = Chain::from(persistent_config.chain_name().as_str());
         let main_result = match new_public_key {
-            None | Some(OnOff::Off) => {
-eprintln!("new-public-key = None or Some(false): Using password to retrieve old cryptde from the database");
-                persistent_config.cryptde(db_password)
-            },
+            None | Some(OnOff::Off) => persistent_config.cryptde(db_password),
             Some(OnOff::On) => {
                 let main_cryptde: Box<dyn CryptDE> = Box::new(CryptDEReal::new(chain));
                 persistent_config
                     .set_cryptde(main_cryptde.as_ref(), db_password)
                     .expect("Failed to set cryptde");
-eprintln!("new-public-key = Some(On): Created new cryptde and stored it in the database");
                 Ok(Some(main_cryptde))
             }
         };
         match main_result {
             Ok(Some(last_main_cryptde)) => {
-eprintln!("We have an old cryptde");
                 CryptDEPair::new(last_main_cryptde, Box::new(CryptDEReal::new(chain)))
             }
             Ok(None) => {
-eprintln!("We have no old cryptde");
                 if new_public_key == Some(OnOff::Off) {
                     panic!("--new-public-key off: Cannot reestablish old public key: no old public key available");
                 }
-eprintln!("new-public-key is None or Some(true): Creating new cryptde and storing it in the database");
                 let main_cryptde: Box<dyn CryptDE> = Box::new(CryptDEReal::new(chain));
                 persistent_config
                     .set_cryptde(main_cryptde.as_ref(), db_password)
@@ -412,11 +391,9 @@ eprintln!("new-public-key is None or Some(true): Creating new cryptde and storin
             Err(e) => panic!("Could not read last cryptde from database: {:?}", e),
         }
     } else {
-eprintln!("No password");
         if new_public_key == Some(OnOff::Off) {
             panic!("--new-public-key off: Cannot reestablish old public key: no --db-password provided");
         }
-eprintln!("new-public-key is None or Some(true): Creating new cryptde without storing it in the database");
         let chain = Chain::from(persistent_config.chain_name().as_str());
         let main_cryptde: Box<dyn CryptDE> = Box::new(CryptDEReal::new(chain));
         let alias_cryptde: Box<dyn CryptDE> = Box::new(CryptDEReal::new(chain));
@@ -579,6 +556,33 @@ mod tests {
                 .unwrap(),
             true
         );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "--new-public-key off: Cannot reestablish old public key: no --db-password provided"
+    )]
+    fn node_configurator_standard_unprivileged_complains_if_no_password_and_new_public_key_off() {
+        let home_dir = ensure_node_home_directory_exists(
+            "node_configurator_standard",
+            "node_configurator_standard_unprivileged_complains_if_no_password_and_new_public_key_off",
+        );
+        let multi_config = make_simplified_multi_config([
+            "--chain",
+            "eth-mainnet",
+            "--new-public-key",
+            "off",
+            "--ip",
+            "1.2.3.4",
+        ]);
+        let mut privileged_config = BootstrapperConfig::default();
+        privileged_config.data_directory = home_dir;
+        let subject = NodeConfiguratorStandardUnprivileged {
+            privileged_config,
+            logger: Logger::new("test"),
+        };
+
+        let _ = subject.configure(&multi_config).unwrap();
     }
 
     #[test]
