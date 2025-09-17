@@ -1838,7 +1838,7 @@ mod tests {
         let _clap_guard = ClapGuard::new();
         running_test();
         let home_dir = Path::new("/home/cooga");
-        let home_dir_poly_main = home_dir.join(".local").join("MASQ").join("polygon-mainnet");
+        let home_dir_poly_main = home_dir.join(".local").join("MASQ").join("base-mainnet");
         let home_dir_poly_amoy = home_dir.join(".local").join("MASQ").join("polygon-amoy");
         vec![
             (None, None, Some(home_dir_poly_main.to_str().unwrap())),

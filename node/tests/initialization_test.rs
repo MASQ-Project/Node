@@ -61,7 +61,11 @@ fn initialization_sequence_integration() {
     let daemon_port = find_free_port();
     let mut daemon = MASQNode::start_daemon(
         "initialization_sequence_integration",
-        Some(CommandConfig::new().pair("--ui-port", format!("{}", daemon_port).as_str())),
+        Some(
+            CommandConfig::new()
+                .pair("--blockchain-service-url", "https://booga.com")
+                .pair("--ui-port", format!("{}", daemon_port).as_str()),
+        ),
         true,
         true,
         false,
@@ -157,6 +161,7 @@ fn incomplete_node_descriptor_is_refused_integration() {
         "incomplete_node_descriptor_is_refused_integration",
         Some(
             CommandConfig::new()
+                .pair("--blockchain-service-url", "https://booga.com")
                 .pair(
                     "--neighbors",
                     &format!("masq://{chain_identifier}:12345vhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@12.23.34.45:5678,masq://{chain_identifier}:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@:")
@@ -188,6 +193,7 @@ fn started_without_explicit_chain_parameter_runs_fine_integration() {
     //defaulted chain - chosen on the lack of user specified chain - corresponds with descriptors
     //believed to be for the default chain
     let config = CommandConfig::new()
+        .pair("--blockchain-service-url", "https://booga.com")
         .pair("--neighborhood-mode", "standard")
         .pair("--ip", "1.0.0.1")
         .pair("--log-level", "trace")
@@ -223,6 +229,7 @@ fn requested_chain_meets_different_db_chain_and_panics_integration() {
             test_name,
             Some(
                 CommandConfig::new()
+                    .pair("--blockchain-service-url", "https://booga.com")
                     .pair("--ui-port", &port.to_string())
                     .pair("--chain", &chain_literal),
             ),
@@ -268,6 +275,7 @@ fn requested_chain_meets_different_db_chain_and_panics_integration() {
 #[test]
 fn node_creates_log_file_with_heading_integration() {
     let config = CommandConfig::new()
+        .pair("--blockchain-service-url", "https://booga.com")
         .pair("--neighborhood-mode", "standard")
         .pair("--ip", "1.0.0.1")
         .pair(

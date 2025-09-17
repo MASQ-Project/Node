@@ -366,6 +366,7 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .value_name("URL")
             .min_values(0)
             .max_values(1)
+            .required(true)
             .help(BLOCKCHAIN_SERVICE_HELP),
     )
     .arg(chain_arg())
@@ -739,7 +740,11 @@ mod tests {
              exit services from your MASQ Node (e.g. http://localhost:8545, \
              https://ropsten.infura.io/v3/YOUR-PROJECT-ID, https://mainnet.infura.io/v3/YOUR-PROJECT-ID), \
              https://base-mainnet.g.alchemy.com/v2/d66UL0lPrltmweEqVsv3opBSVI3wkL8I, \
-             https://polygon-mainnet.infura.io/v3/YOUR-PROJECT-ID"
+             https://polygon-mainnet.infura.io/v3/YOUR-PROJECT-ID \n This argument is mandatory, to ensure, you \
+             will not be deliquency banned due unable to pay your debts to MASQ network. If you are in region \
+             where you have no access to blockchain services, to create your own app, use one of following public \
+             endpoints for Base Mainnet (you need to specify Base Mainnet chain in the chain argument): \n\
+             https://mainnet.base.org \nhttps://base.llamarpc.com \nhttps://1rpc.io/base \nhttps://base-rpc.publicnode.com"
         );
         assert_eq!(
             CHAIN_HELP,

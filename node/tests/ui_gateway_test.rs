@@ -64,6 +64,7 @@ fn log_broadcasts_are_correctly_received_integration() {
         "log_broadcasts_are_correctly_received",
         Some(
             CommandConfig::new()
+                .pair("--blockchain-service-url", "https://booga.com")
                 .pair("--ui-port", &port.to_string())
                 .pair("--chain", "polygon-mainnet"),
         ),
@@ -129,7 +130,11 @@ fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
     let daemon_port = find_free_port();
     let mut daemon = utils::MASQNode::start_daemon(
         test_name,
-        Some(CommandConfig::new().pair("--ui-port", daemon_port.to_string().as_str())),
+        Some(
+            CommandConfig::new()
+                .pair("--blockchain-service-url", "https://booga.com")
+                .pair("--ui-port", daemon_port.to_string().as_str()),
+        ),
         true,
         true,
         false,
@@ -209,6 +214,7 @@ fn cleanup_after_deceased_clients_integration() {
         test_name,
         Some(
             CommandConfig::new()
+                .pair("--blockchain-service-url", "https://booga.com")
                 .pair("--chain", DEFAULT_CHAIN.rec().literal_identifier)
                 .pair("--ui-port", &port.to_string()),
         ),
