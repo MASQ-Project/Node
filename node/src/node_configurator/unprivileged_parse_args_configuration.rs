@@ -19,7 +19,7 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{DEFAULT_CHAIN, MASQ_URL_PREFIX};
 use masq_lib::logger::Logger;
 use masq_lib::multi_config::MultiConfig;
-use masq_lib::shared_schema::{ConfiguratorError, ParamError};
+use masq_lib::shared_schema::{ConfiguratorError, OnOff, ParamError};
 use masq_lib::utils::{to_string, AutomapProtocol, ExpectValue};
 use rustc_hex::FromHex;
 use std::net::{IpAddr, Ipv4Addr};
@@ -504,7 +504,7 @@ fn configure_accountant_config(
         |pc: &mut dyn PersistentConfiguration, intervals| pc.set_scan_intervals(intervals),
     )?;
     let suppress_initial_scans =
-        value_m!(multi_config, "scans", String).unwrap_or_else(|| "on".to_string()) == *"off";
+        value_m!(multi_config, "scans", OnOff).unwrap_or(OnOff::On) == OnOff::Off;
 
     config.payment_thresholds_opt = Some(payment_thresholds);
     config.scan_intervals_opt = Some(scan_intervals);

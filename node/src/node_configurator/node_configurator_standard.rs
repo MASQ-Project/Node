@@ -6,7 +6,7 @@ use crate::node_configurator::{ConfigInitializationData, DirsWrapperReal};
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use masq_lib::multi_config::{MultiConfig, VirtualCommandLine};
-use masq_lib::shared_schema::ConfiguratorError;
+use masq_lib::shared_schema::{ConfiguratorError, OnOff};
 use masq_lib::utils::NeighborhoodModeLight;
 use std::net::SocketAddr;
 use std::net::{IpAddr, Ipv4Addr};
@@ -95,8 +95,19 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
         )?;
         configure_database(&unprivileged_config, persistent_config.as_mut())?;
         let cryptde_pair = if multi_config.occurrences_of("fake-public-key") == 0 {
+
+//             let pair = value_user_specified_m!(multi_config, "new-public-key", bool);
+// eprintln!("Pair: {:?}", pair);
+//             let new_public_key = match pair {
+//                 (option, true) => option,
+//                 _ => None
+//             };
+
+            let new_public_key = value_m!(multi_config, "new-public-key", OnOff);
+eprintln!("new_public_key from multi_config: {:?}", new_public_key);
+
             configure_cryptdes(
-                None,
+                new_public_key,
                 persistent_config.as_mut(),
                 &unprivileged_config.db_password_opt,
             )
@@ -235,10 +246,12 @@ pub fn server_initializer_collected_params<'a>(
         ],
     )
     .expect("expected MultiConfig");
+eprintln!("CommandLineVcl: {:?}", commandline_vcl.args());
     let specified_vec = extract_values_vcl_fill_multiconfig_vec(
         multiconfig_for_values_extraction,
         initialization_data,
     );
+eprintln!("config_file: {:?}\nenvironment: {:?}\ncommandline: {:?}", &config_file_vcl.vcl_args(), &environment_vcl.vcl_args(), &commandline_vcl.vcl_args());
     let mut multi_config_args_vec: Vec<Box<dyn VirtualCommandLine>> = vec![
         Box::new(config_file_vcl),
         Box::new(environment_vcl),
@@ -248,6 +261,7 @@ pub fn server_initializer_collected_params<'a>(
 
     let full_multi_config = make_new_multi_config(&app, multi_config_args_vec)?;
 
+eprintln!("full_multi_config\nvalue_m!: {:?}\nvalue_user_specified_m!: {:?}\noccurrences_of: {:?}\n",value_m!(full_multi_config, "new-public-key", String), value_user_specified_m!(full_multi_config, "new-public-key", String), full_multi_config.occurrences_of("new-public-key"));
     Ok(full_multi_config)
 }
 
@@ -355,30 +369,39 @@ fn configure_database(
 }
 
 fn configure_cryptdes(
-    new_public_key: Option<bool>,
+    new_public_key: Option<OnOff>,
     persistent_config: &mut dyn PersistentConfiguration,
     db_password_opt: &Option<String>,
 ) -> CryptDEPair {
+eprintln!("configure_cryptdes() started with new_public_key = {:?}, db_password_opt = {:?}", new_public_key, db_password_opt);
     let cryptde_pair = if let Some(db_password) = db_password_opt {
+eprintln!("We have a password");
         let chain = Chain::from(persistent_config.chain_name().as_str());
         let main_result = match new_public_key {
-            None | Some(false) => persistent_config.cryptde(db_password),
-            Some(true) => {
+            None | Some(OnOff::Off) => {
+eprintln!("new-public-key = None or Some(false): Using password to retrieve old cryptde from the database");
+                persistent_config.cryptde(db_password)
+            },
+            Some(OnOff::On) => {
                 let main_cryptde: Box<dyn CryptDE> = Box::new(CryptDEReal::new(chain));
                 persistent_config
                     .set_cryptde(main_cryptde.as_ref(), db_password)
                     .expect("Failed to set cryptde");
+eprintln!("new-public-key = Some(On): Created new cryptde and stored it in the database");
                 Ok(Some(main_cryptde))
             }
         };
         match main_result {
             Ok(Some(last_main_cryptde)) => {
+eprintln!("We have an old cryptde");
                 CryptDEPair::new(last_main_cryptde, Box::new(CryptDEReal::new(chain)))
             }
             Ok(None) => {
-                if new_public_key == Some(false) {
+eprintln!("We have no old cryptde");
+                if new_public_key == Some(OnOff::Off) {
                     panic!("--new-public-key off: Cannot reestablish old public key: no old public key available");
                 }
+eprintln!("new-public-key is None or Some(true): Creating new cryptde and storing it in the database");
                 let main_cryptde: Box<dyn CryptDE> = Box::new(CryptDEReal::new(chain));
                 persistent_config
                     .set_cryptde(main_cryptde.as_ref(), db_password)
@@ -389,9 +412,11 @@ fn configure_cryptdes(
             Err(e) => panic!("Could not read last cryptde from database: {:?}", e),
         }
     } else {
-        if new_public_key == Some(false) {
+eprintln!("No password");
+        if new_public_key == Some(OnOff::Off) {
             panic!("--new-public-key off: Cannot reestablish old public key: no --db-password provided");
         }
+eprintln!("new-public-key is None or Some(true): Creating new cryptde without storing it in the database");
         let chain = Chain::from(persistent_config.chain_name().as_str());
         let main_cryptde: Box<dyn CryptDE> = Box::new(CryptDEReal::new(chain));
         let alias_cryptde: Box<dyn CryptDE> = Box::new(CryptDEReal::new(chain));
@@ -672,7 +697,7 @@ mod tests {
     fn configure_cryptdes_handles_missing_password_with_uninitialized_cryptdes_and_npk_off() {
         let mut persistent_config = PersistentConfigurationMock::new();
 
-        configure_cryptdes(Some(false), &mut persistent_config, &None);
+        configure_cryptdes(Some(OnOff::Off), &mut persistent_config, &None);
     }
 
     #[test]
@@ -684,7 +709,7 @@ mod tests {
             .set_cryptde_params(&set_cryptde_params_arc)
             .chain_name_result(TEST_DEFAULT_CHAIN.to_string());
 
-        let _result = configure_cryptdes(Some(true), &mut persistent_config, &None);
+        let _result = configure_cryptdes(Some(OnOff::On), &mut persistent_config, &None);
 
         let cryptde_params = cryptde_params_arc.lock().unwrap();
         assert_eq!(cryptde_params.len(), 0);
@@ -729,7 +754,7 @@ mod tests {
             .cryptde_result(Ok(None));
 
         configure_cryptdes(
-            Some(false),
+            Some(OnOff::Off),
             &mut persistent_config,
             &Some("db_password".to_string()),
         );
@@ -744,7 +769,7 @@ mod tests {
             .set_cryptde_result(Ok(()));
 
         let result = configure_cryptdes(
-            Some(true),
+            Some(OnOff::On),
             &mut persistent_config,
             &Some("db_password".to_string()),
         );
@@ -805,7 +830,7 @@ mod tests {
             .cryptde_result(Ok(Some(stored_main_cryptde_box.dup())));
 
         let result = configure_cryptdes(
-            Some(false),
+            Some(OnOff::Off),
             &mut persistent_config,
             &Some("db_password".to_string()),
         );
@@ -829,7 +854,7 @@ mod tests {
             .set_cryptde_result(Ok(()));
 
         let result = configure_cryptdes(
-            Some(true),
+            Some(OnOff::On),
             &mut persistent_config,
             &Some("db_password".to_string()),
         );
