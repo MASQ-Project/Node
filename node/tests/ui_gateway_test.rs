@@ -132,7 +132,6 @@ fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
         test_name,
         Some(
             CommandConfig::new()
-                .pair("--blockchain-service-url", "https://booga.com")
                 .pair("--ui-port", daemon_port.to_string().as_str()),
         ),
         true,
