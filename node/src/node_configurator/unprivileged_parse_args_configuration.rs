@@ -44,16 +44,20 @@ pub trait UnprivilegedParseArgsConfiguration {
             value_m!(multi_config, "blockchain-service-url", String)
         } else {
             match persistent_config.blockchain_service_url() {
-                    Ok(Some(price)) => Some(price),
-                    Ok(None) => {
+                Ok(Some(price)) => Some(price),
+                Ok(None) => {
+                    if self.blockchain_service_url_error(multi_config) {
                         return Err(MultiConfig::make_configurator_error(Error {
-                            message: "The following required arguments were not provided: --blockchain-service-url USAGE: --blockchain-service-url <blockchain-service-url>".to_string(),
-                            kind: clap::ErrorKind::ArgumentNotFound,
-                            info: Some(vec!["<blockchain-service-url>".to_string()]),
-                        }))
+                                message: "The following required arguments were not provided: --blockchain-service-url USAGE: --blockchain-service-url <blockchain-service-url>".to_string(),
+                                kind: clap::ErrorKind::ArgumentNotFound,
+                                info: Some(vec!["<blockchain-service-url>".to_string()]),
+                            }));
+                    } else {
+                        None
                     }
-                    Err(pce) => return Err(pce.into_configurator_error("gas-price")),
                 }
+                Err(pce) => return Err(pce.into_configurator_error("gas-price")),
+            }
         };
         unprivileged_config.clandestine_port_opt = value_m!(multi_config, "clandestine-port", u16);
         unprivileged_config.blockchain_bridge_config.gas_price =
@@ -75,6 +79,14 @@ pub trait UnprivilegedParseArgsConfiguration {
         };
 
         mnc_result.map(|config| unprivileged_config.neighborhood_config = config)
+    }
+
+    fn blockchain_service_url_error(&self, multi_config: &MultiConfig) -> bool {
+        let zerohop =
+            value_m!(multi_config, "neighborhood-mode", String) != Some("zero-hop".to_string());
+        let fake_public_key = value_m!(multi_config, "fake-public-key", String) == None;
+        let crash_point = value_m!(multi_config, "crash-point", String) == None;
+        zerohop && fake_public_key && crash_point
     }
 
     fn get_past_neighbors(
@@ -1210,7 +1222,7 @@ mod tests {
     }
 
     #[test]
-    fn configure_without_blockchain_service_url_returns_error() {
+    fn unprivileged_parse_args_without_blockchain_service_url_returns_error() {
         running_test();
         let set_past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
         let mut config = BootstrapperConfig::new();
@@ -1226,10 +1238,6 @@ mod tests {
             "masq://eth-ropsten:UJNoZW5p-PDVqEjpr3b_8jZ_93yPG8i5dOAgE1bhK_A@2.3.4.5:2345",
             "--db-password",
             "password",
-            "--neighborhood-mode",
-            "zero-hop",
-            "--fake-public-key",
-            "booga",
         ]);
         let subject = UnprivilegedParseArgsConfigurationDaoReal {};
 
@@ -1249,6 +1257,38 @@ mod tests {
         });
 
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn unprivileged_parse_args_without_blockchain_service_url_but_not_bsu_error_returns_ok() {
+        running_test();
+        let set_past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut config = BootstrapperConfig::new();
+        let mut persistent_config = configure_default_persistent_config(
+            RATE_PACK | ACCOUNTANT_CONFIG_PARAMS | MAPPING_PROTOCOL,
+        )
+        .set_past_neighbors_params(&set_past_neighbors_params_arc)
+        .set_past_neighbors_result(Ok(()));
+        let multi_config = make_simplified_multi_config([
+            "--chain",
+            "eth-ropsten",
+            "--neighbors",
+            "masq://eth-ropsten:UJNoZW5p-PDVqEjpr3b_8jZ_93yPG8i5dOAgE1bhK_A@2.3.4.5:2345",
+            "--db-password",
+            "password",
+            "--fake-public-key",
+            "booga",
+        ]);
+        let subject = UnprivilegedParseArgsConfigurationDaoReal {};
+
+        let result = subject.unprivileged_parse_args(
+            &multi_config,
+            &mut config,
+            &mut persistent_config,
+            &Logger::new("test"),
+        );
+
+        assert_eq!(result, Ok(()));
     }
 
     #[test]

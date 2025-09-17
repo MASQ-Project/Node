@@ -1517,7 +1517,12 @@ mod tests {
             .build();
 
         subject
-            .initialize_as_privileged(&make_simplified_multi_config(["--blockchain-service-url", "https://booga.com", "--ip", "111.111.111.111"]))
+            .initialize_as_privileged(&make_simplified_multi_config([
+                "--blockchain-service-url",
+                "https://booga.com",
+                "--ip",
+                "111.111.111.111",
+            ]))
             .unwrap();
     }
 

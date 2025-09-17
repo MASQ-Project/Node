@@ -366,7 +366,6 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .value_name("URL")
             .min_values(0)
             .max_values(1)
-            .required(true)
             .help(BLOCKCHAIN_SERVICE_HELP),
     )
     .arg(chain_arg())

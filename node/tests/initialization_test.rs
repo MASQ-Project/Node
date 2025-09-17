@@ -61,11 +61,7 @@ fn initialization_sequence_integration() {
     let daemon_port = find_free_port();
     let mut daemon = MASQNode::start_daemon(
         "initialization_sequence_integration",
-        Some(
-            CommandConfig::new()
-                .pair("--blockchain-service-url", "https://booga.com")
-                .pair("--ui-port", format!("{}", daemon_port).as_str()),
-        ),
+        Some(CommandConfig::new().pair("--ui-port", format!("{}", daemon_port).as_str())),
         true,
         true,
         false,
