@@ -1078,11 +1078,21 @@ mod tests {
     #[test]
     fn finish_payable_scan_keeps_the_aware_of_unresolved_pending_payable_flag_as_false_in_case_of_err(
     ) {
+        assert_finish_payable_scan_keeps_aware_flag_false_on_error(PayableScanType::New);
+        assert_finish_payable_scan_keeps_aware_flag_false_on_error(PayableScanType::Retry);
+    }
+
+    fn assert_finish_payable_scan_keeps_aware_flag_false_on_error(
+        payable_scan_type: PayableScanType,
+    ) {
         init_test_logging();
-        let test_name = "finish_payable_scan_keeps_the_aware_of_unresolved_pending_payable_flag_as_false_in_case_of_err";
+        let test_name = match payable_scan_type {
+            PayableScanType::New => "finish_payable_scan_keeps_the_aware_of_unresolved_pending_payable_flag_as_false_in_case_of_err_for_new_scan",
+            PayableScanType::Retry => "finish_payable_scan_keeps_the_aware_of_unresolved_pending_payable_flag_as_false_in_case_of_err_for_retry_scan",
+        };
         let sent_payable = SentPayables {
             payment_procedure_result: Err("Some error".to_string()),
-            payable_scan_type: PayableScanType::New,
+            payable_scan_type,
             response_skeleton_opt: None,
         };
         let logger = Logger::new(test_name);

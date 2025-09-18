@@ -21,7 +21,7 @@ use crate::accountant::payment_adjuster::PaymentAdjuster;
 use crate::accountant::scanners::payable_scanner::msgs::InitialTemplatesMessage;
 use crate::accountant::scanners::payable_scanner::payment_adjuster_integration::SolvencySensitivePaymentInstructor;
 use crate::accountant::scanners::payable_scanner::utils::{
-    batch_stats, calculate_lengths, filter_receiver_addresses_from_txs, generate_status_updates,
+    batch_stats, calculate_occurences, filter_receiver_addresses_from_txs, generate_status_updates,
     payables_debug_summary, NextScanToRun, PayableScanResult, PayableThresholdsGauge,
     PayableThresholdsGaugeReal,
 };
@@ -171,7 +171,7 @@ impl PayableScanner {
     }
 
     fn handle_new(&self, batch_results: &BatchResults, logger: &Logger) {
-        let (sent, failed) = calculate_lengths(&batch_results);
+        let (sent, failed) = calculate_occurences(&batch_results);
         debug!(
             logger,
             "Processed new txs while sending to RPC: {}",
@@ -186,7 +186,7 @@ impl PayableScanner {
     }
 
     fn handle_retry(&self, batch_results: &BatchResults, logger: &Logger) {
-        let (sent, failed) = calculate_lengths(&batch_results);
+        let (sent, failed) = calculate_occurences(&batch_results);
         debug!(
             logger,
             "Processed retried txs while sending to RPC: {}",
