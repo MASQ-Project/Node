@@ -3,7 +3,7 @@
 pub mod utils;
 
 use crate::utils::{make_conn, CommandConfig};
-use masq_lib::constants::POLYGON_MAINNET_FULL_IDENTIFIER;
+use masq_lib::constants::{DEFAULT_CHAIN, POLYGON_MAINNET_FULL_IDENTIFIER};
 use masq_lib::messages::{
     TopRecordsConfig, TopRecordsOrdering, UiFinancialsRequest, UiFinancialsResponse,
     UiShutdownRequest, NODE_UI_PROTOCOL,
@@ -48,7 +48,7 @@ fn financials_command_retrieves_payable_and_receivable_records_integration() {
         config_dao
             .set(
                 "chain_name",
-                Some(POLYGON_MAINNET_FULL_IDENTIFIER.to_string()),
+                Some(DEFAULT_CHAIN.rec().literal_identifier.to_string()),
             )
             .unwrap();
     }
