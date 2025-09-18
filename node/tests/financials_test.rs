@@ -3,7 +3,7 @@
 pub mod utils;
 
 use crate::utils::{make_conn, CommandConfig};
-use masq_lib::constants::{DEFAULT_CHAIN, POLYGON_MAINNET_FULL_IDENTIFIER};
+use masq_lib::constants::DEFAULT_CHAIN;
 use masq_lib::messages::{
     TopRecordsConfig, TopRecordsOrdering, UiFinancialsRequest, UiFinancialsResponse,
     UiShutdownRequest, NODE_UI_PROTOCOL,
