@@ -152,7 +152,7 @@ fn wait_for_process_end(process_id: u32) {
 
 #[test]
 fn incomplete_node_descriptor_is_refused_integration() {
-    let chain_identifier = "polygon-mainnet";
+    let chain_identifier = "base-mainnet";
     let mut node = utils::MASQNode::start_standard(
         "incomplete_node_descriptor_is_refused_integration",
         Some(
