@@ -319,7 +319,7 @@ pub fn create_blockchain_agent_web3(
 mod tests {
     use super::*;
     use crate::accountant::db_access_objects::test_utils::{
-        assert_on_failed_txs, assert_on_sent_txs, FailedTxBuilder,
+        assert_on_failed_txs, assert_on_sent_txs, FailedTxBuilder, TxBuilder,
     };
     use crate::accountant::gwei_to_wei;
     use crate::accountant::scanners::payable_scanner::tx_templates::priced::new::{
@@ -398,18 +398,15 @@ mod tests {
         );
 
         let mut batch_result = web3_batch.eth().transport().submit_batch().wait().unwrap();
-        let expected_tx = Tx {
-            hash: H256::from_str(
-                "94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2",
-            )
-            .unwrap(),
-            receiver_address: signable_tx_template.receiver_address,
-            amount: signable_tx_template.amount_in_wei,
-            timestamp: to_unix_timestamp(SystemTime::now()),
-            gas_price_wei: signable_tx_template.gas_price_wei,
-            nonce: signable_tx_template.nonce,
-            status: TxStatus::Pending(ValidationStatus::Waiting),
-        };
+        let hash =
+            H256::from_str("94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2")
+                .unwrap();
+        let expected_tx = TxBuilder::default()
+            .hash(hash)
+            .template(signable_tx_template)
+            .timestamp(to_unix_timestamp(SystemTime::now()))
+            .status(TxStatus::Pending(ValidationStatus::Waiting))
+            .build();
         assert_on_sent_txs(vec![result], vec![expected_tx]);
         assert_eq!(
             batch_result.pop().unwrap().unwrap(),
@@ -680,26 +677,18 @@ mod tests {
         let batch_results = {
             let signed_tx_1 =
                 sign_transaction(DEFAULT_CHAIN, &web3_batch, &template_1, &consuming_wallet);
-            let sent_tx_1 = Tx {
-                hash: signed_tx_1.transaction_hash,
-                receiver_address: template_1.receiver_address,
-                amount: template_1.amount_in_wei,
-                timestamp: to_unix_timestamp(SystemTime::now()),
-                gas_price_wei: template_1.gas_price_wei,
-                nonce: template_1.nonce,
-                status: TxStatus::Pending(ValidationStatus::Waiting),
-            };
+            let sent_tx_1 = TxBuilder::default()
+                .hash(signed_tx_1.transaction_hash)
+                .template(template_1)
+                .status(TxStatus::Pending(ValidationStatus::Waiting))
+                .build();
             let signed_tx_2 =
                 sign_transaction(DEFAULT_CHAIN, &web3_batch, &template_2, &consuming_wallet);
-            let sent_tx_2 = Tx {
-                hash: signed_tx_2.transaction_hash,
-                receiver_address: template_2.receiver_address,
-                amount: template_2.amount_in_wei,
-                timestamp: to_unix_timestamp(SystemTime::now()),
-                gas_price_wei: template_2.gas_price_wei,
-                nonce: template_2.nonce,
-                status: TxStatus::Pending(ValidationStatus::Waiting),
-            };
+            let sent_tx_2 = TxBuilder::default()
+                .hash(signed_tx_2.transaction_hash)
+                .template(template_2)
+                .status(TxStatus::Pending(ValidationStatus::Waiting))
+                .build();
 
             BatchResults {
                 sent_txs: vec![sent_tx_1, sent_tx_2],
@@ -881,30 +870,24 @@ mod tests {
         let batch_results = {
             let signed_tx_1 =
                 sign_transaction(DEFAULT_CHAIN, &web3_batch, &template_1, &consuming_wallet);
-            let sent_tx = Tx {
-                hash: signed_tx_1.transaction_hash,
-                receiver_address: template_1.receiver_address,
-                amount: template_1.amount_in_wei,
-                timestamp: to_unix_timestamp(SystemTime::now()),
-                gas_price_wei: template_1.gas_price_wei,
-                nonce: template_1.nonce,
-                status: TxStatus::Pending(ValidationStatus::Waiting),
-            };
+            let sent_tx = TxBuilder::default()
+                .hash(signed_tx_1.transaction_hash)
+                .template(template_1)
+                .timestamp(to_unix_timestamp(SystemTime::now()))
+                .status(TxStatus::Pending(ValidationStatus::Waiting))
+                .build();
             let signed_tx_2 =
                 sign_transaction(DEFAULT_CHAIN, &web3_batch, &template_2, &consuming_wallet);
-            let failed_tx = FailedTx {
-                hash: signed_tx_2.transaction_hash,
-                receiver_address: template_2.receiver_address,
-                amount: template_2.amount_in_wei,
-                timestamp: to_unix_timestamp(SystemTime::now()),
-                gas_price_wei: template_2.gas_price_wei,
-                nonce: template_2.nonce,
-                reason: FailureReason::Submission(AppRpcError::Remote(Web3RpcError {
+            let failed_tx = FailedTxBuilder::default()
+                .hash(signed_tx_2.transaction_hash)
+                .template(template_2)
+                .timestamp(to_unix_timestamp(SystemTime::now()))
+                .reason(FailureReason::Submission(AppRpcError::Remote(Web3RpcError {
                     code: 429,
                     message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string(),
-                })),
-                status: FailureStatus::RetryRequired,
-            };
+                })))
+                .status(FailureStatus::RetryRequired)
+                .build();
 
             BatchResults {
                 sent_txs: vec![sent_tx],

@@ -6,6 +6,7 @@ use crate::accountant::db_access_objects::failed_payable_dao::{
 };
 use crate::accountant::db_access_objects::sent_payable_dao::{Tx, TxStatus};
 use crate::accountant::db_access_objects::utils::{current_unix_timestamp, TxHash};
+use crate::accountant::scanners::payable_scanner::tx_templates::signable::SignableTxTemplate;
 use crate::blockchain::test_utils::make_tx_hash;
 use crate::database::db_initializer::{
     DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
@@ -48,6 +49,14 @@ impl TxBuilder {
 
     pub fn nonce(mut self, nonce: u64) -> Self {
         self.nonce_opt = Some(nonce);
+        self
+    }
+
+    pub fn template(mut self, signable_tx_template: SignableTxTemplate) -> Self {
+        self.receiver_address_opt = Some(signable_tx_template.receiver_address);
+        self.amount_opt = Some(signable_tx_template.amount_in_wei);
+        self.gas_price_wei_opt = Some(signable_tx_template.gas_price_wei);
+        self.nonce_opt = Some(signable_tx_template.nonce);
         self
     }
 
@@ -120,6 +129,14 @@ impl FailedTxBuilder {
 
     pub fn reason(mut self, reason: FailureReason) -> Self {
         self.reason_opt = Some(reason);
+        self
+    }
+
+    pub fn template(mut self, signable_tx_template: SignableTxTemplate) -> Self {
+        self.receiver_address_opt = Some(signable_tx_template.receiver_address);
+        self.amount_opt = Some(signable_tx_template.amount_in_wei);
+        self.gas_price_wei_opt = Some(signable_tx_template.gas_price_wei);
+        self.nonce_opt = Some(signable_tx_template.nonce);
         self
     }
 
