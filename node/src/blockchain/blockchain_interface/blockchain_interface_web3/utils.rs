@@ -43,7 +43,7 @@ pub struct BlockchainAgentFutureResult {
     pub masq_token_balance: U256,
 }
 
-fn return_sending_error(sent_txs: &Vec<Tx>, error: &Web3Error) -> LocalPayableError {
+fn return_sending_error(sent_txs: &[Tx], error: &Web3Error) -> LocalPayableError {
     LocalPayableError::Sending(
         sent_txs
             .iter()
@@ -70,18 +70,20 @@ pub fn return_batch_results(
     )
 }
 
+fn calculate_payments_column_width(signable_tx_templates: &SignableTxTemplates) -> usize {
+    let label_length = "[payment wei]".len();
+    let largest_amount_length = signable_tx_templates
+        .largest_amount()
+        .separate_with_commas()
+        .len();
+
+    label_length.max(largest_amount_length)
+}
+
 pub fn transmission_log(chain: Chain, signable_tx_templates: &SignableTxTemplates) -> String {
     let chain_name = chain.rec().literal_identifier;
     let (first_nonce, last_nonce) = signable_tx_templates.nonce_range();
-    let payment_column_width = {
-        let label_length = "[payment wei]".len();
-        let largest_amount_length = signable_tx_templates
-            .largest_amount()
-            .separate_with_commas()
-            .len();
-
-        label_length.max(largest_amount_length)
-    };
+    let payment_column_width = calculate_payments_column_width(signable_tx_templates);
 
     let introduction = once(format!(
         "\n\
@@ -208,12 +210,12 @@ pub fn sign_and_append_payment(
     let hash = signed_tx.transaction_hash;
     debug!(
         logger,
-        "Appending transaction with hash {:?}, amount: {} wei, to {:?}, nonce: {}, gas price: {} gwei",
+        "Appending transaction with hash {:?}, amount: {} wei, to {:?}, nonce: {}, gas price: {} wei",
         hash,
         amount_in_wei.separate_with_commas(),
         receiver_address,
         nonce,
-        wei_to_gwei::<u128, u128>(gas_price_wei).separate_with_commas()
+        gas_price_wei.separate_with_commas()
     );
 
     Tx {
@@ -420,7 +422,7 @@ mod tests {
             amount: 1,000,000,000 wei, \
             to 0x0000000000000000000000000077616c6c657431, \
             nonce: 1, \
-            gas price: 1 gwei"
+            gas price: 1,000,000,000 wei"
         ));
     }
 
@@ -453,12 +455,34 @@ mod tests {
         result
             .iter()
             .zip(signable_tx_templates.iter())
-            .for_each(|(sent_tx, template)| {
-                assert_eq!(sent_tx.receiver_address, template.receiver_address);
-                assert_eq!(sent_tx.amount, template.amount_in_wei);
-                assert_eq!(sent_tx.gas_price_wei, template.gas_price_wei);
-                assert_eq!(sent_tx.nonce, template.nonce);
-                assert_eq!(sent_tx.status, TxStatus::Pending(ValidationStatus::Waiting))
+            .enumerate()
+            .for_each(|(index, (sent_tx, template))| {
+                assert_eq!(
+                    sent_tx.receiver_address, template.receiver_address,
+                    "Transaction {} receiver_address mismatch",
+                    index
+                );
+                assert_eq!(
+                    sent_tx.amount, template.amount_in_wei,
+                    "Transaction {} amount mismatch",
+                    index
+                );
+                assert_eq!(
+                    sent_tx.gas_price_wei, template.gas_price_wei,
+                    "Transaction {} gas_price_wei mismatch",
+                    index
+                );
+                assert_eq!(
+                    sent_tx.nonce, template.nonce,
+                    "Transaction {} nonce mismatch",
+                    index
+                );
+                assert_eq!(
+                    sent_tx.status,
+                    TxStatus::Pending(ValidationStatus::Waiting),
+                    "Transaction {} status mismatch",
+                    index
+                )
             })
     }
 
@@ -637,7 +661,7 @@ mod tests {
                     }
                 }
                 other_err => {
-                    panic!("Only LocalPayableError::Sending is returned by send_payables_within_batch nut received: {} ", other_err)
+                    panic!("Only LocalPayableError::Sending is returned by send_payables_within_batch but received something else: {} ", other_err)
                 }
             },
         }
