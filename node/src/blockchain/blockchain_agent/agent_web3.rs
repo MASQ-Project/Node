@@ -537,7 +537,7 @@ mod tests {
         let consuming_wallet = make_wallet("efg");
         let consuming_wallet_balances = make_zeroed_consuming_wallet_balances();
         let ceiling_gas_price_wei = chain.rec().gas_price_safe_ceiling_minor;
-        let expected_result = match tx_templates.clone() {
+        let expected_result = match &tx_templates {
             Either::Left(new_tx_templates) => Either::Left(PricedNewTxTemplates(
                 new_tx_templates
                     .iter()
