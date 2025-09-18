@@ -1090,7 +1090,7 @@ mod tests {
         #[cfg(target_os = "windows")]
         assert_eq!(
             value_m!(env_multiconfig, "data-directory", String).unwrap(),
-            "generated/test/node_configurator_standard/server_initializer_collected_params_handle_dot_config_file_path_and_reads_arguments_from_cf/home\\data_dir\\MASQ\\polygon-mainnet".to_string()
+            "generated/test/node_configurator_standard/server_initializer_collected_params_handle_dot_config_file_path_and_reads_arguments_from_cf/home\\data_dir\\MASQ\\base-mainnet".to_string()
         );
     }
 
@@ -1201,7 +1201,7 @@ mod tests {
         #[cfg(target_os = "windows")]
         assert_eq!(
             value_m!(env_multiconfig, "data-directory", String).unwrap(),
-            "/home/booga\\data_dir\\MASQ\\polygon-mainnet".to_string()
+            "/home/booga\\data_dir\\MASQ\\base-mainnet".to_string()
         );
     }
 
@@ -1262,7 +1262,7 @@ mod tests {
         #[cfg(target_os = "windows")]
         assert_eq!(
             value_m!(env_multiconfig, "data-directory", String).unwrap(),
-            "/home/booga\\data_dir\\MASQ\\polygon-mainnet".to_string()
+            "/home/booga\\data_dir\\MASQ\\base-mainnet".to_string()
         );
     }
 
