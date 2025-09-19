@@ -149,14 +149,26 @@ mod tests {
             .enumerate()
             .for_each(|(i, (signable, tx_order))| {
                 assert_eq!(
-                    signable.receiver_address,
-                    retries[tx_order].base.receiver_address
+                    signable.receiver_address, retries[tx_order].base.receiver_address,
+                    "Element {} (tx_order {}): receiver_address mismatch",
+                    i, tx_order
                 );
-                assert_eq!(signable.nonce, nonce + i as u64);
-                assert_eq!(signable.amount_in_wei, retries[tx_order].base.amount_in_wei);
                 assert_eq!(
-                    signable.gas_price_wei,
-                    retries[tx_order].computed_gas_price_wei
+                    signable.nonce,
+                    nonce + i as u64,
+                    "Element {} (tx_order {}): nonce mismatch",
+                    i,
+                    tx_order
+                );
+                assert_eq!(
+                    signable.amount_in_wei, retries[tx_order].base.amount_in_wei,
+                    "Element {} (tx_order {}): amount_in_wei mismatch",
+                    i, tx_order
+                );
+                assert_eq!(
+                    signable.gas_price_wei, retries[tx_order].computed_gas_price_wei,
+                    "Element {} (tx_order {}): gas_price_wei mismatch",
+                    i, tx_order
                 );
             });
     }
