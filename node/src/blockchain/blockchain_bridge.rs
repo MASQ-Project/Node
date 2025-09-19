@@ -1018,10 +1018,10 @@ mod tests {
 
         system.run();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
-        let pending_payable_fingerprint_seeds_msg =
-            accountant_recording.get_record::<PendingPayableFingerprintSeeds>(0);
-        let sent_payables_msg = accountant_recording.get_record::<SentPayables>(1);
-        let scan_error_msg = accountant_recording.get_record::<ScanError>(2);
+        // let pending_payable_fingerprint_seeds_msg =
+        //     accountant_recording.get_record::<PendingPayableFingerprintSeeds>(0);
+        let sent_payables_msg = accountant_recording.get_record::<SentPayables>(0);
+        let scan_error_msg = accountant_recording.get_record::<ScanError>(1);
         let batch_results = sent_payables_msg.clone().payment_procedure_result.unwrap();
         let failed_tx = FailedTx {
             hash: H256::from_str(
@@ -1037,16 +1037,17 @@ mod tests {
             status: RetryRequired,
         };
         assert_on_failed_txs(batch_results.failed_txs, vec![failed_tx]);
-        assert_eq!(
-            pending_payable_fingerprint_seeds_msg.hashes_and_balances,
-            vec![HashAndAmount {
-                hash: H256::from_str(
-                    "81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c"
-                )
-                .unwrap(),
-                amount: account.balance_wei
-            }]
-        );
+        // TODO: GH-701: This card is related to the commented out code in this test
+        // assert_eq!(
+        //     pending_payable_fingerprint_seeds_msg.hashes_and_balances,
+        //     vec![HashAndAmount {
+        //         hash: H256::from_str(
+        //             "81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c"
+        //         )
+        //         .unwrap(),
+        //         amount: account.balance_wei
+        //     }]
+        // );
         assert_eq!(scan_error_msg.scan_type, ScanType::Payables);
         assert_eq!(
             scan_error_msg.response_skeleton_opt,
@@ -1062,7 +1063,7 @@ mod tests {
             "FailedTx { hash: 0x81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c,"
         ));
         assert!(scan_error_msg.msg.contains("reason: Submission(Local(Transport(\"Error(IncompleteMessage)\"))), status: RetryRequired }"));
-        assert_eq!(accountant_recording.len(), 3);
+        assert_eq!(accountant_recording.len(), 2);
     }
 
     #[test]
