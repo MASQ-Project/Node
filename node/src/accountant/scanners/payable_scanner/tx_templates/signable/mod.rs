@@ -132,7 +132,6 @@ mod tests {
     #[test]
     fn signable_tx_templates_can_be_created_from_priced_retry_tx_templates() {
         let nonce = 10;
-        // n is same as prev_nonce here
         let retries = PricedRetryTxTemplates(vec![
             make_priced_retry_tx_template(12),
             make_priced_retry_tx_template(6),
