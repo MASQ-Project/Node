@@ -19,22 +19,22 @@ pub struct SignableTxTemplate {
 }
 
 impl From<(&PricedNewTxTemplate, u64)> for SignableTxTemplate {
-    fn from((template, nonce): (&PricedNewTxTemplate, u64)) -> Self {
+    fn from((priced_new_tx_template, nonce): (&PricedNewTxTemplate, u64)) -> Self {
         SignableTxTemplate {
-            receiver_address: template.base.receiver_address,
-            amount_in_wei: template.base.amount_in_wei,
-            gas_price_wei: template.computed_gas_price_wei,
+            receiver_address: priced_new_tx_template.base.receiver_address,
+            amount_in_wei: priced_new_tx_template.base.amount_in_wei,
+            gas_price_wei: priced_new_tx_template.computed_gas_price_wei,
             nonce,
         }
     }
 }
 
 impl From<(&PricedRetryTxTemplate, u64)> for SignableTxTemplate {
-    fn from((template, nonce): (&PricedRetryTxTemplate, u64)) -> Self {
+    fn from((priced_retry_tx_template, nonce): (&PricedRetryTxTemplate, u64)) -> Self {
         SignableTxTemplate {
-            receiver_address: template.base.receiver_address,
-            amount_in_wei: template.base.amount_in_wei,
-            gas_price_wei: template.computed_gas_price_wei,
+            receiver_address: priced_retry_tx_template.base.receiver_address,
+            amount_in_wei: priced_retry_tx_template.base.amount_in_wei,
+            gas_price_wei: priced_retry_tx_template.computed_gas_price_wei,
             nonce,
         }
     }
@@ -49,6 +49,27 @@ impl FromIterator<SignableTxTemplate> for SignableTxTemplates {
     }
 }
 
+impl From<(PricedNewTxTemplates, u64)> for SignableTxTemplates {
+    fn from((priced_new_tx_templates, latest_nonce): (PricedNewTxTemplates, u64)) -> Self {
+        priced_new_tx_templates
+            .iter()
+            .enumerate()
+            .map(|(i, template)| SignableTxTemplate::from((template, latest_nonce + i as u64)))
+            .collect()
+    }
+}
+
+impl From<(PricedRetryTxTemplates, u64)> for SignableTxTemplates {
+    fn from((priced_retry_tx_templates, latest_nonce): (PricedRetryTxTemplates, u64)) -> Self {
+        priced_retry_tx_templates
+            .reorder_by_nonces(latest_nonce)
+            .iter()
+            .enumerate()
+            .map(|(i, template)| SignableTxTemplate::from((template, latest_nonce + i as u64)))
+            .collect()
+    }
+}
+
 impl SignableTxTemplates {
     pub fn new(
         priced_tx_templates: Either<PricedNewTxTemplates, PricedRetryTxTemplates>,
@@ -56,29 +77,12 @@ impl SignableTxTemplates {
     ) -> Self {
         match priced_tx_templates {
             Either::Left(priced_new_tx_templates) => {
-                Self::from_new_txs(priced_new_tx_templates, latest_nonce)
+                Self::from((priced_new_tx_templates, latest_nonce))
             }
             Either::Right(priced_retry_tx_templates) => {
-                Self::from_retry_txs(priced_retry_tx_templates, latest_nonce)
+                Self::from((priced_retry_tx_templates, latest_nonce))
             }
         }
-    }
-
-    fn from_new_txs(templates: PricedNewTxTemplates, latest_nonce: u64) -> Self {
-        templates
-            .iter()
-            .enumerate()
-            .map(|(i, template)| SignableTxTemplate::from((template, latest_nonce + i as u64)))
-            .collect()
-    }
-
-    fn from_retry_txs(templates: PricedRetryTxTemplates, latest_nonce: u64) -> Self {
-        templates
-            .reorder_by_nonces(latest_nonce)
-            .iter()
-            .enumerate()
-            .map(|(i, template)| SignableTxTemplate::from((template, latest_nonce + i as u64)))
-            .collect()
     }
 
     pub fn nonce_range(&self) -> (u64, u64) {
