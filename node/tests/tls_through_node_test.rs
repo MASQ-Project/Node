@@ -51,7 +51,6 @@ fn tls_through_node_integration() {
             }
         }
     };
-
     let request = "GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n".as_bytes();
     tls_stream
         .write(request.clone())
