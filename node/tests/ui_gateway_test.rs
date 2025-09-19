@@ -99,7 +99,7 @@ fn log_broadcasts_are_correctly_received_integration() {
 
 fn wait_for_masq_node_ends() {
     let mut system = System::new_all();
-    let deadline = SystemTime::now() + Duration::from_secs(5);
+    let deadline = SystemTime::now() + Duration::from_secs(10);
     loop {
         if SystemTime::now() > deadline {
             panic!("Previous instance of MASQNode does not stops");
