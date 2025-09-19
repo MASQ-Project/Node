@@ -163,14 +163,18 @@ impl PayableScanner {
     fn process_message(&self, msg: &SentPayables, logger: &Logger) {
         match &msg.payment_procedure_result {
             Ok(batch_results) => match msg.payable_scan_type {
-                PayableScanType::New => self.handle_new(batch_results, logger),
-                PayableScanType::Retry => self.handle_retry(batch_results, logger),
+                PayableScanType::New => {
+                    self.handle_batch_results_for_new_scan(batch_results, logger)
+                }
+                PayableScanType::Retry => {
+                    self.handle_batch_results_for_retry_scan(batch_results, logger)
+                }
             },
             Err(local_error) => Self::log_local_error(local_error, logger),
         }
     }
 
-    fn handle_new(&self, batch_results: &BatchResults, logger: &Logger) {
+    fn handle_batch_results_for_new_scan(&self, batch_results: &BatchResults, logger: &Logger) {
         let (sent, failed) = calculate_occurences(&batch_results);
         debug!(
             logger,
@@ -185,7 +189,7 @@ impl PayableScanner {
         }
     }
 
-    fn handle_retry(&self, batch_results: &BatchResults, logger: &Logger) {
+    fn handle_batch_results_for_retry_scan(&self, batch_results: &BatchResults, logger: &Logger) {
         let (sent, failed) = calculate_occurences(&batch_results);
         debug!(
             logger,
@@ -572,11 +576,14 @@ mod tests {
     }
 
     #[test]
-    fn handle_new_does_not_perform_any_operation_when_sent_txs_is_empty() {
-        let insert_new_records_params_sent = Arc::new(Mutex::new(vec![]));
+    fn handle_batch_results_for_new_scan_does_not_perform_any_operation_when_sent_txs_is_empty() {
+        let insert_new_records_sent_tx_params_arc = Arc::new(Mutex::new(vec![]));
+        let insert_new_records_failed_tx_params_arc = Arc::new(Mutex::new(vec![]));
         let sent_payable_dao = SentPayableDaoMock::default()
-            .insert_new_records_params(&insert_new_records_params_sent);
-        let failed_payable_dao = FailedPayableDaoMock::default().insert_new_records_result(Ok(()));
+            .insert_new_records_params(&insert_new_records_sent_tx_params_arc);
+        let failed_payable_dao = FailedPayableDaoMock::default()
+            .insert_new_records_params(&insert_new_records_failed_tx_params_arc)
+            .insert_new_records_result(Ok(()));
         let subject = PayableScannerBuilder::new()
             .sent_payable_dao(sent_payable_dao)
             .failed_payable_dao(failed_payable_dao)
@@ -586,13 +593,23 @@ mod tests {
             failed_txs: vec![make_failed_tx(1)],
         };
 
-        subject.handle_new(&batch_results, &Logger::new("test"));
+        subject.handle_batch_results_for_new_scan(&batch_results, &Logger::new("test"));
 
-        assert!(insert_new_records_params_sent.lock().unwrap().is_empty());
+        assert_eq!(
+            insert_new_records_failed_tx_params_arc
+                .lock()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(insert_new_records_sent_tx_params_arc
+            .lock()
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
-    fn handle_new_does_not_perform_any_operation_when_failed_txs_is_empty() {
+    fn handle_batch_results_for_new_scan_does_not_perform_any_operation_when_failed_txs_is_empty() {
         let insert_new_records_params_failed = Arc::new(Mutex::new(vec![]));
         let sent_payable_dao = SentPayableDaoMock::default().insert_new_records_result(Ok(()));
         let failed_payable_dao = FailedPayableDaoMock::default()
@@ -606,18 +623,18 @@ mod tests {
             failed_txs: vec![],
         };
 
-        subject.handle_new(&batch_results, &Logger::new("test"));
+        subject.handle_batch_results_for_new_scan(&batch_results, &Logger::new("test"));
 
         assert!(insert_new_records_params_failed.lock().unwrap().is_empty());
     }
 
     #[test]
-    fn handle_retry_does_not_perform_any_operation_when_sent_txs_is_empty() {
-        let insert_new_records_params_sent = Arc::new(Mutex::new(vec![]));
+    fn handle_batch_results_for_retry_scan_does_not_perform_any_operation_when_sent_txs_is_empty() {
+        let insert_new_records_sent_tx_params_arc = Arc::new(Mutex::new(vec![]));
         let retrieve_txs_params = Arc::new(Mutex::new(vec![]));
         let update_statuses_params = Arc::new(Mutex::new(vec![]));
         let sent_payable_dao = SentPayableDaoMock::default()
-            .insert_new_records_params(&insert_new_records_params_sent);
+            .insert_new_records_params(&insert_new_records_sent_tx_params_arc);
         let failed_payable_dao = FailedPayableDaoMock::default()
             .retrieve_txs_params(&retrieve_txs_params)
             .update_statuses_params(&update_statuses_params);
@@ -630,9 +647,12 @@ mod tests {
             failed_txs: vec![make_failed_tx(1)],
         };
 
-        subject.handle_retry(&batch_results, &Logger::new("test"));
+        subject.handle_batch_results_for_retry_scan(&batch_results, &Logger::new("test"));
 
-        assert!(insert_new_records_params_sent.lock().unwrap().is_empty());
+        assert!(insert_new_records_sent_tx_params_arc
+            .lock()
+            .unwrap()
+            .is_empty());
         assert!(retrieve_txs_params.lock().unwrap().is_empty());
         assert!(update_statuses_params.lock().unwrap().is_empty());
     }
@@ -655,7 +675,7 @@ mod tests {
             failed_txs: vec![],
         };
 
-        subject.handle_retry(&batch_results, &Logger::new(test_name));
+        subject.handle_batch_results_for_retry_scan(&batch_results, &Logger::new(test_name));
 
         let tlh = TestLogHandler::new();
         tlh.exists_no_log_containing(&format!("WARN: {test_name}"));
