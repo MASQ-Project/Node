@@ -1,6 +1,10 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::scanners::payable_scanner::tx_templates::priced::new::PricedNewTxTemplates;
-use crate::accountant::scanners::payable_scanner::tx_templates::priced::retry::PricedRetryTxTemplates;
+use crate::accountant::scanners::payable_scanner::tx_templates::priced::new::{
+    PricedNewTxTemplate, PricedNewTxTemplates,
+};
+use crate::accountant::scanners::payable_scanner::tx_templates::priced::retry::{
+    PricedRetryTxTemplate, PricedRetryTxTemplates,
+};
 use bytes::Buf;
 use itertools::{Either, Itertools};
 use std::ops::Deref;
@@ -12,6 +16,28 @@ pub struct SignableTxTemplate {
     pub amount_in_wei: u128,
     pub gas_price_wei: u128,
     pub nonce: u64,
+}
+
+impl From<(&PricedNewTxTemplate, u64)> for SignableTxTemplate {
+    fn from((template, nonce): (&PricedNewTxTemplate, u64)) -> Self {
+        SignableTxTemplate {
+            receiver_address: template.base.receiver_address,
+            amount_in_wei: template.base.amount_in_wei,
+            gas_price_wei: template.computed_gas_price_wei,
+            nonce,
+        }
+    }
+}
+
+impl From<(&PricedRetryTxTemplate, u64)> for SignableTxTemplate {
+    fn from((template, nonce): (&PricedRetryTxTemplate, u64)) -> Self {
+        SignableTxTemplate {
+            receiver_address: template.base.receiver_address,
+            amount_in_wei: template.base.amount_in_wei,
+            gas_price_wei: template.computed_gas_price_wei,
+            nonce,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -42,12 +68,7 @@ impl SignableTxTemplates {
         templates
             .iter()
             .enumerate()
-            .map(|(i, template)| SignableTxTemplate {
-                receiver_address: template.base.receiver_address,
-                amount_in_wei: template.base.amount_in_wei,
-                gas_price_wei: template.computed_gas_price_wei,
-                nonce: latest_nonce + i as u64,
-            })
+            .map(|(i, template)| SignableTxTemplate::from((template, latest_nonce + i as u64)))
             .collect()
     }
 
@@ -56,12 +77,7 @@ impl SignableTxTemplates {
             .reorder_by_nonces(latest_nonce)
             .iter()
             .enumerate()
-            .map(|(i, template)| SignableTxTemplate {
-                receiver_address: template.base.receiver_address,
-                amount_in_wei: template.base.amount_in_wei,
-                gas_price_wei: template.computed_gas_price_wei,
-                nonce: latest_nonce + i as u64,
-            })
+            .map(|(i, template)| SignableTxTemplate::from((template, latest_nonce + i as u64)))
             .collect()
     }
 
@@ -121,11 +137,24 @@ mod tests {
             .iter()
             .zip(result.iter())
             .enumerate()
-            .for_each(|(index, (priced, signable))| {
-                assert_eq!(signable.receiver_address, priced.base.receiver_address);
-                assert_eq!(signable.amount_in_wei, priced.base.amount_in_wei);
-                assert_eq!(signable.gas_price_wei, priced.computed_gas_price_wei);
-                assert_eq!(signable.nonce, nonce + index as u64);
+            .for_each(|(i, (priced, signable))| {
+                assert_eq!(
+                    signable.receiver_address, priced.base.receiver_address,
+                    "Element {i}: receiver_address mismatch",
+                );
+                assert_eq!(
+                    signable.amount_in_wei, priced.base.amount_in_wei,
+                    "Element {i}: amount_in_wei mismatch",
+                );
+                assert_eq!(
+                    signable.gas_price_wei, priced.computed_gas_price_wei,
+                    "Element {i}: gas_price_wei mismatch",
+                );
+                assert_eq!(
+                    signable.nonce,
+                    nonce + i as u64,
+                    "Element {i}: nonce mismatch",
+                );
             });
     }
 
