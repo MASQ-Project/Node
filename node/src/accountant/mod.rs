@@ -139,7 +139,7 @@ pub struct ReportTransactionReceipts {
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub enum PayableScanType {
     New,
     Retry,

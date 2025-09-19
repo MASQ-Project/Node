@@ -312,8 +312,6 @@ impl BlockchainBridge {
             PayableScanType::Retry
         };
 
-        let payable_scan_type_for_err = payable_scan_type.clone();
-
         let send_message_if_failure = move |msg: SentPayables| {
             sent_payable_subs.try_send(msg).expect("Accountant is dead");
         };
@@ -326,7 +324,7 @@ impl BlockchainBridge {
                         payment_procedure_result: Self::payment_procedure_result_from_error(
                             e.clone(),
                         ),
-                        payable_scan_type: payable_scan_type_for_err,
+                        payable_scan_type,
                         response_skeleton_opt: skeleton_opt,
                     });
                     format!("ReportAccountsPayable: {}", e)
