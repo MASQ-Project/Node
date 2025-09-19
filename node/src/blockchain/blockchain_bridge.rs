@@ -300,36 +300,38 @@ impl BlockchainBridge {
         msg: OutboundPaymentsInstructions,
     ) -> Box<dyn Future<Item = (), Error = String>> {
         let skeleton_opt = msg.response_skeleton_opt;
-        let sent_payable_subs = self
+        let sent_payable_subs_success = self
             .sent_payable_subs_opt
             .as_ref()
             .expect("Accountant is unbound")
             .clone();
+        let sent_payable_subs_err = sent_payable_subs_success.clone();
         let payable_scan_type = msg.scan_type();
-
-        let send_message_if_failure = move |msg: SentPayables| {
-            sent_payable_subs.try_send(msg).expect("Accountant is dead");
-        };
-        let send_message_if_successful = send_message_if_failure.clone();
 
         Box::new(
             self.process_payments(msg.agent, msg.priced_templates)
                 .map_err(move |e: LocalPayableError| {
-                    send_message_if_failure(SentPayables {
-                        payment_procedure_result: Self::payment_procedure_result_from_error(
-                            e.clone(),
-                        ),
-                        payable_scan_type,
-                        response_skeleton_opt: skeleton_opt,
-                    });
+                    sent_payable_subs_success
+                        .try_send(SentPayables {
+                            payment_procedure_result: Self::payment_procedure_result_from_error(
+                                e.clone(),
+                            ),
+                            payable_scan_type,
+                            response_skeleton_opt: skeleton_opt,
+                        })
+                        .expect("Accountant is dead");
+
                     format!("ReportAccountsPayable: {}", e)
                 })
                 .and_then(move |batch_results| {
-                    send_message_if_successful(SentPayables {
-                        payment_procedure_result: Ok(batch_results),
-                        payable_scan_type,
-                        response_skeleton_opt: skeleton_opt,
-                    });
+                    sent_payable_subs_err
+                        .try_send(SentPayables {
+                            payment_procedure_result: Ok(batch_results),
+                            payable_scan_type,
+                            response_skeleton_opt: skeleton_opt,
+                        })
+                        .expect("Accountant is dead");
+
                     Ok(())
                 }),
         )
@@ -1144,7 +1146,7 @@ mod tests {
         );
         assert!(batch_results.failed_txs.is_empty());
         let recording = accountant_recording.lock().unwrap();
-        assert_eq!(recording.len(), 1);
+        assert_eq!(recording.len(), 0);
     }
 
     #[test]
