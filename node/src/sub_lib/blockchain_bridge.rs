@@ -3,7 +3,9 @@
 use crate::accountant::scanners::payable_scanner::msgs::InitialTemplatesMessage;
 use crate::accountant::scanners::payable_scanner::tx_templates::priced::new::PricedNewTxTemplates;
 use crate::accountant::scanners::payable_scanner::tx_templates::priced::retry::PricedRetryTxTemplates;
-use crate::accountant::{RequestTransactionReceipts, ResponseSkeleton, SkeletonOptHolder};
+use crate::accountant::{
+    PayableScanType, RequestTransactionReceipts, ResponseSkeleton, SkeletonOptHolder,
+};
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::sub_lib::peer_actors::BindMessage;
@@ -58,6 +60,13 @@ impl OutboundPaymentsInstructions {
             priced_templates,
             agent,
             response_skeleton_opt,
+        }
+    }
+
+    pub fn scan_type(&self) -> PayableScanType {
+        match &self.priced_templates {
+            Either::Left(_new_templates) => PayableScanType::New,
+            Either::Right(_retry_templates) => PayableScanType::Retry,
         }
     }
 }

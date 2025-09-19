@@ -305,12 +305,7 @@ impl BlockchainBridge {
             .as_ref()
             .expect("Accountant is unbound")
             .clone();
-
-        let payable_scan_type = if msg.priced_templates.is_left() {
-            PayableScanType::New
-        } else {
-            PayableScanType::Retry
-        };
+        let payable_scan_type = msg.scan_type();
 
         let send_message_if_failure = move |msg: SentPayables| {
             sent_payable_subs.try_send(msg).expect("Accountant is dead");
