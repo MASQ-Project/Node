@@ -146,18 +146,18 @@ mod tests {
         let expected_order = vec![2, 4, 0, 1, 3];
         result
             .iter()
-            .enumerate()
             .zip(expected_order.into_iter())
-            .for_each(|((i, signable), index)| {
+            .enumerate()
+            .for_each(|(i, (signable, tx_order))| {
                 assert_eq!(
                     signable.receiver_address,
-                    retries[index].base.receiver_address
+                    retries[tx_order].base.receiver_address
                 );
                 assert_eq!(signable.nonce, nonce + i as u64);
-                assert_eq!(signable.amount_in_wei, retries[index].base.amount_in_wei);
+                assert_eq!(signable.amount_in_wei, retries[tx_order].base.amount_in_wei);
                 assert_eq!(
                     signable.gas_price_wei,
-                    retries[index].computed_gas_price_wei
+                    retries[tx_order].computed_gas_price_wei
                 );
             });
     }

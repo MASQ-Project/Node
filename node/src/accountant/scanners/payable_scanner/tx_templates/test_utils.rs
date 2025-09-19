@@ -41,8 +41,8 @@ pub fn make_priced_retry_tx_template(n: u64) -> PricedRetryTxTemplate {
 pub fn make_signable_tx_template(n: u64) -> SignableTxTemplate {
     SignableTxTemplate {
         receiver_address: make_address(1),
-        amount_in_wei: n as u128 * 1000,
-        gas_price_wei: n as u128 * 100,
+        amount_in_wei: n as u128 * 1_000,
+        gas_price_wei: n as u128 * 1_000_000,
         nonce: n,
     }
 }
@@ -50,8 +50,8 @@ pub fn make_signable_tx_template(n: u64) -> SignableTxTemplate {
 pub fn make_retry_tx_template(n: u32) -> RetryTxTemplate {
     RetryTxTemplateBuilder::new()
         .receiver_address(make_address(n))
-        .amount_in_wei(n as u128 * 1000)
-        .prev_gas_price_wei(n as u128 * 100)
+        .amount_in_wei(n as u128 * 1_000)
+        .prev_gas_price_wei(n as u128 * 1_000_000)
         .prev_nonce(n as u64)
         .build()
 }
