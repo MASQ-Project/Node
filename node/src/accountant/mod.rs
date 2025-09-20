@@ -4866,14 +4866,11 @@ mod tests {
 
     #[test]
     fn accountant_processes_sent_payables_and_schedules_pending_payable_scanner() {
-        let mark_pending_payables_rowids_params_arc = Arc::new(Mutex::new(vec![]));
         let pending_payable_notify_later_params_arc = Arc::new(Mutex::new(vec![]));
         let inserted_new_records_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_wallet = make_wallet("paying_you");
         let expected_hash = H256::from("transaction_hash".keccak256());
-        let payable_dao = PayableDaoMock::new()
-            .mark_pending_payables_rowids_params(&mark_pending_payables_rowids_params_arc)
-            .mark_pending_payables_rowids_result(Ok(()));
+        let payable_dao = PayableDaoMock::new();
         let sent_payable_dao = SentPayableDaoMock::new()
             .insert_new_records_params(&inserted_new_records_params_arc)
             .insert_new_records_result(Ok(()));
@@ -4890,6 +4887,12 @@ mod tests {
             NotifyLaterHandleMock::default()
                 .notify_later_params(&pending_payable_notify_later_params_arc),
         );
+        subject.scan_schedulers.payable.new_payable_notify =
+            Box::new(NotifyHandleMock::default().panic_on_schedule_attempt());
+        subject.scan_schedulers.payable.new_payable_notify_later =
+            Box::new(NotifyLaterHandleMock::default().panic_on_schedule_attempt());
+        subject.scan_schedulers.payable.retry_payable_notify =
+            Box::new(NotifyHandleMock::default().panic_on_schedule_attempt());
         let expected_tx = TxBuilder::default().hash(expected_hash.clone()).build();
         let sent_payable = SentPayables {
             payment_procedure_result: Ok(BatchResults {
@@ -4916,21 +4919,15 @@ mod tests {
             *pending_payable_notify_later_params,
             vec![(ScanForPendingPayables::default(), pending_payable_interval)]
         );
-        // The accountant is unbound here. We don't use the bind message. It means we can prove
-        // none of those other scan requests could have been sent (especially ScanForNewPayables,
-        // ScanForRetryPayables)
     }
 
     #[test]
     fn accountant_finishes_processing_of_retry_payables_and_schedules_pending_payable_scanner() {
-        let mark_pending_payables_rowids_params_arc = Arc::new(Mutex::new(vec![]));
         let pending_payable_notify_later_params_arc = Arc::new(Mutex::new(vec![]));
         let inserted_new_records_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_wallet = make_wallet("paying_you");
         let expected_hash = H256::from("transaction_hash".keccak256());
-        let payable_dao = PayableDaoMock::new()
-            .mark_pending_payables_rowids_params(&mark_pending_payables_rowids_params_arc)
-            .mark_pending_payables_rowids_result(Ok(()));
+        let payable_dao = PayableDaoMock::new();
         let sent_payable_dao = SentPayableDaoMock::new()
             .insert_new_records_params(&inserted_new_records_params_arc)
             .insert_new_records_result(Ok(()));
@@ -4950,6 +4947,12 @@ mod tests {
             NotifyLaterHandleMock::default()
                 .notify_later_params(&pending_payable_notify_later_params_arc),
         );
+        subject.scan_schedulers.payable.new_payable_notify =
+            Box::new(NotifyHandleMock::default().panic_on_schedule_attempt());
+        subject.scan_schedulers.payable.new_payable_notify_later =
+            Box::new(NotifyLaterHandleMock::default().panic_on_schedule_attempt());
+        subject.scan_schedulers.payable.retry_payable_notify =
+            Box::new(NotifyHandleMock::default().panic_on_schedule_attempt());
         let expected_tx = TxBuilder::default().hash(expected_hash.clone()).build();
         let sent_payable = SentPayables {
             payment_procedure_result: Ok(BatchResults {
@@ -4976,9 +4979,6 @@ mod tests {
             *pending_payable_notify_later_params,
             vec![(ScanForPendingPayables::default(), pending_payable_interval)]
         );
-        // The accountant is unbound here. We don't use the bind message. It means we can prove
-        // none of those other scan requests could have been sent (especially ScanForNewPayables,
-        // ScanForRetryPayables)
     }
 
     #[test]
