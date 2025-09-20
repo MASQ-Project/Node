@@ -230,12 +230,12 @@ mod tests {
             BlockchainErrorKind::AppRpc(AppRpcErrorKind::Decoder),
             &clock,
         );
-        let mut attempts2 =
-            PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::Io), &clock);
         attempts1 = attempts1.add_attempt(
             BlockchainErrorKind::Internal(InternalErrorKind::PendingTooLongNotReplaced),
             &clock,
         );
+        let mut attempts2 =
+            PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::Io), &clock);
         attempts2 = attempts2.add_attempt(
             BlockchainErrorKind::AppRpc(AppRpcErrorKind::Signing),
             &clock,
