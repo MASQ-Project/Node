@@ -652,25 +652,6 @@ impl PayableDao for PayableDaoMock {
         self.more_money_payable_results.borrow_mut().remove(0)
     }
 
-    fn mark_pending_payables_rowids(
-        &self,
-        _mark_instructions: &[MarkPendingPayableID],
-    ) -> Result<(), PayableDaoError> {
-        todo!("will be removed in the associated card - GH-662")
-        // self.mark_pending_payables_rowids_params
-        //     .lock()
-        //     .unwrap()
-        //     .push(
-        //         mark_instructions
-        //             .iter()
-        //             .map(|(wallet, id)| ((*wallet).clone(), *id))
-        //             .collect(),
-        //     );
-        // self.mark_pending_payables_rowids_results
-        //     .borrow_mut()
-        //     .remove(0)
-    }
-
     fn transactions_confirmed(&self, confirmed_payables: &[SentTx]) -> Result<(), PayableDaoError> {
         self.transactions_confirmed_params
             .lock()

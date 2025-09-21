@@ -755,60 +755,6 @@ impl PayableScanner {
         }
     }
 
-    // TODO this has become dead (GH-662)
-    #[allow(dead_code)]
-    fn mark_pending_payable(&self, _sent_payments: &[&PendingPayable], _logger: &Logger) {
-        todo!("remove me when the time comes")
-        // fn missing_fingerprints_msg(nonexistent: &[PendingPayableMissingInDb]) -> String {
-        //     format!(
-        //         "Expected pending payable fingerprints for {} were not found; system unreliable",
-        //         comma_joined_stringifiable(nonexistent, |pp_triple| format!(
-        //             "(tx: {:?}, to wallet: {})",
-        //             pp_triple.hash, pp_triple.recipient
-        //         ))
-        //     )
-        // }
-        // fn ready_data_for_supply<'a>(
-        //     existent: &'a [PendingPayableMissingInDb],
-        // ) -> Vec<(&'a Wallet, u64)> {
-        //     existent
-        //         .iter()
-        //         .map(|pp_triple| (pp_triple.recipient, pp_triple.rowid_opt.expectv("rowid")))
-        //         .collect()
-        // }
-        //
-        // // TODO eventually should be taken over by GH-655
-        // let missing_sent_tx_records =
-        //     self.check_for_missing_records(sent_payments);
-        //
-        // if !existent.is_empty() {
-        //     if let Err(e) = self
-        //         .payable_dao
-        //         .as_ref()
-        //         .mark_pending_payables_rowids(&existent)
-        //     {
-        //         mark_pending_payable_fatal_error(
-        //             sent_payments,
-        //             &nonexistent,
-        //             e,
-        //             missing_fingerprints_msg,
-        //             logger,
-        //         )
-        //     }
-        //     debug!(
-        //         logger,
-        //         "Payables {} marked as pending in the payable table",
-        //         comma_joined_stringifiable(sent_payments, |pending_p| format!(
-        //             "{:?}",
-        //             pending_p.hash
-        //         ))
-        //     )
-        // }
-        // if !missing_sent_tx_records.is_empty() {
-        //     panic!("{}", missing_fingerprints_msg(&missing_sent_tx_records))
-        // }
-    }
-
     fn handle_sent_payable_errors(
         &self,
         err_opt: Option<PayableTransactingErrorEnum>,
