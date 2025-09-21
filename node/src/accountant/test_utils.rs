@@ -20,7 +20,8 @@ use crate::accountant::db_access_objects::sent_payable_dao::{
     SentPayableDao, SentPayableDaoFactory, TxStatus,
 };
 use crate::accountant::db_access_objects::utils::{
-    from_unix_timestamp, to_unix_timestamp, CustomQuery, TxHash, TxIdentifiers,
+    from_unix_timestamp, to_unix_timestamp, CustomQuery, PayableAccountWithTxInfo, TxHash,
+    TxIdentifiers,
 };
 use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdjuster};
 use crate::accountant::scanners::payable_scanner_extension::msgs::{
@@ -96,7 +97,6 @@ pub fn make_payable_account_with_wallet_and_balance_and_timestamp_opt(
         wallet,
         balance_wei: balance,
         last_paid_timestamp: timestamp_opt.unwrap_or(SystemTime::now()),
-        pending_payable_opt: None,
     }
 }
 
@@ -633,7 +633,7 @@ pub struct PayableDaoMock {
     transactions_confirmed_params: Arc<Mutex<Vec<Vec<SentTx>>>>,
     transactions_confirmed_results: RefCell<Vec<Result<(), PayableDaoError>>>,
     custom_query_params: Arc<Mutex<Vec<CustomQuery<u64>>>>,
-    custom_query_result: RefCell<Vec<Option<Vec<PayableAccount>>>>,
+    custom_query_result: RefCell<Vec<Option<Vec<PayableAccountWithTxInfo>>>>,
     total_results: RefCell<Vec<u128>>,
 }
 
@@ -684,7 +684,10 @@ impl PayableDao for PayableDaoMock {
         self.non_pending_payables_results.borrow_mut().remove(0)
     }
 
-    fn custom_query(&self, custom_query: CustomQuery<u64>) -> Option<Vec<PayableAccount>> {
+    fn custom_query(
+        &self,
+        custom_query: CustomQuery<u64>,
+    ) -> Option<Vec<PayableAccountWithTxInfo>> {
         self.custom_query_params.lock().unwrap().push(custom_query);
         self.custom_query_result.borrow_mut().remove(0)
     }
@@ -759,7 +762,7 @@ impl PayableDaoMock {
         self
     }
 
-    pub fn custom_query_result(self, result: Option<Vec<PayableAccount>>) -> Self {
+    pub fn custom_query_result(self, result: Option<Vec<PayableAccountWithTxInfo>>) -> Self {
         self.custom_query_result.borrow_mut().push(result);
         self
     }
@@ -1525,7 +1528,6 @@ pub fn make_qualified_and_unqualified_payables(
         last_paid_timestamp: from_unix_timestamp(
             to_unix_timestamp(now) - payment_thresholds.maturity_threshold_sec as i64 + 1,
         ),
-        pending_payable_opt: None,
     }];
     let qualified_payable_accounts = vec![
         PayableAccount {
@@ -1536,7 +1538,6 @@ pub fn make_qualified_and_unqualified_payables(
             last_paid_timestamp: from_unix_timestamp(
                 to_unix_timestamp(now) - payment_thresholds.maturity_threshold_sec as i64 - 1,
             ),
-            pending_payable_opt: None,
         },
         PayableAccount {
             wallet: make_wallet("wallet3"),
@@ -1546,7 +1547,6 @@ pub fn make_qualified_and_unqualified_payables(
             last_paid_timestamp: from_unix_timestamp(
                 to_unix_timestamp(now) - payment_thresholds.maturity_threshold_sec as i64 - 100,
             ),
-            pending_payable_opt: None,
         },
     ];
 

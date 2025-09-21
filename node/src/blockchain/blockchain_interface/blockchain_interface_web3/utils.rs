@@ -638,13 +638,11 @@ mod tests {
                 wallet: make_wallet("4567"),
                 balance_wei: 2_345_678,
                 last_paid_timestamp: from_unix_timestamp(4500000),
-                pending_payable_opt: None,
             },
             PayableAccount {
                 wallet: make_wallet("5656"),
                 balance_wei: 6_543_210,
                 last_paid_timestamp: from_unix_timestamp(333000),
-                pending_payable_opt: None,
             },
         ];
         let tx_hashes = vec![make_tx_hash(444), make_tx_hash(333)];

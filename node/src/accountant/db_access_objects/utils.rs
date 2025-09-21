@@ -12,7 +12,8 @@ use crate::sub_lib::accountant::PaymentThresholds;
 use ethereum_types::H256;
 use masq_lib::constants::WEIS_IN_GWEI;
 use masq_lib::messages::{
-    RangeQuery, TopRecordsConfig, TopRecordsOrdering, UiPayableAccount, UiReceivableAccount,
+    CurrentTxInfo, RangeQuery, TopRecordsConfig, TopRecordsOrdering, UiPayableAccount,
+    UiReceivableAccount,
 };
 use rusqlite::{Row, Statement, ToSql};
 use std::collections::HashMap;
@@ -264,27 +265,34 @@ impl<T: Copy> From<&RangeQuery<T>> for CustomQuery<T> {
     }
 }
 
-pub fn remap_payable_accounts(accounts: Vec<PayableAccount>) -> Vec<UiPayableAccount> {
+#[derive(Debug, PartialEq)]
+pub struct PayableAccountWithTxInfo {
+    pub account: PayableAccount,
+    pub tx_opt: Option<CurrentTxInfo>,
+}
+
+pub fn remap_payable_accounts(accounts: Vec<PayableAccountWithTxInfo>) -> Vec<UiPayableAccount> {
     accounts
         .into_iter()
-        .map(|account| UiPayableAccount {
-            wallet: account.wallet.to_string(),
-            age_s: to_age(account.last_paid_timestamp),
-            balance_gwei: {
-                let gwei = (account.balance_wei / (WEIS_IN_GWEI as u128)) as u64;
-                if gwei > 0 {
-                    gwei
-                } else {
-                    panic!(
-                        "Broken code: PayableAccount with less than 1 gwei passed through db query \
-                         constraints; wallet: {}, balance: {}",
-                        account.wallet, account.balance_wei
-                    )
-                }
-            },
-            pending_payable_hash_opt: account
-                .pending_payable_opt
-                .map(|full_id| full_id.hash.to_string()),
+        .map(|account_with_tx_info| {
+            let account = account_with_tx_info.account;
+            UiPayableAccount {
+                wallet: account.wallet.to_string(),
+                age_s: to_age(account.last_paid_timestamp),
+                balance_gwei: {
+                    let gwei = (account.balance_wei / (WEIS_IN_GWEI as u128)) as u64;
+                    if gwei > 0 {
+                        gwei
+                    } else {
+                        panic!(
+                            "Broken code: PayableAccount with less than 1 gwei passed through \
+                            db query constraints; wallet: {}, balance: {}",
+                            account.wallet, account.balance_wei
+                        )
+                    }
+                },
+                current_tx_info_opt: account_with_tx_info.tx_opt,
+            }
         })
         .collect()
 }
@@ -295,14 +303,23 @@ pub fn remap_receivable_accounts(accounts: Vec<ReceivableAccount>) -> Vec<UiRece
         .map(|account| UiReceivableAccount {
             wallet: account.wallet.to_string(),
             age_s: to_age(account.last_received_timestamp),
-            balance_gwei:{
-                let gwei =  (account.balance_wei / (WEIS_IN_GWEI as i128)) as i64;
-                if gwei != 0 {gwei} else {panic!("Broken code: ReceivableAccount with balance \
-                 between {} and 0 gwei passed through db query constraints; wallet: {}, balance: {}",
-                                                 if account.balance_wei.is_positive() {"1"}else{"-1"},
-                                                 account.wallet,
-                                                 account.balance_wei
-                )}
+            balance_gwei: {
+                let gwei = (account.balance_wei / (WEIS_IN_GWEI as i128)) as i64;
+                if gwei != 0 {
+                    gwei
+                } else {
+                    panic!(
+                        "Broken code: ReceivableAccount with balance between {} and 0 gwei \
+                    passed through db query constraints; wallet: {}, balance: {}",
+                        if account.balance_wei.is_positive() {
+                            "1"
+                        } else {
+                            "-1"
+                        },
+                        account.wallet,
+                        account.balance_wei
+                    )
+                }
             },
         })
         .collect()
@@ -525,17 +542,21 @@ mod tests {
     )]
     fn remap_payable_accounts_getting_record_below_one_gwei_means_broken_database_query() {
         let accounts = vec![
-            PayableAccount {
-                wallet: make_wallet("abc123"),
-                balance_wei: 4_888_123_457,
-                last_paid_timestamp: SystemTime::now(),
-                pending_payable_opt: None,
+            PayableAccountWithTxInfo {
+                account: PayableAccount {
+                    wallet: make_wallet("abc123"),
+                    balance_wei: 4_888_123_457,
+                    last_paid_timestamp: SystemTime::now(),
+                },
+                tx_opt: None,
             },
-            PayableAccount {
-                wallet: make_wallet("ac3665c"),
-                balance_wei: 565_122_333,
-                last_paid_timestamp: SystemTime::now(),
-                pending_payable_opt: None,
+            PayableAccountWithTxInfo {
+                account: PayableAccount {
+                    wallet: make_wallet("ac3665c"),
+                    balance_wei: 565_122_333,
+                    last_paid_timestamp: SystemTime::now(),
+                },
+                tx_opt: None,
             },
         ];
         remap_payable_accounts(accounts);

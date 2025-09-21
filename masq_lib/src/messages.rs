@@ -7,6 +7,7 @@ use crate::ui_gateway::MessagePath::{Conversation, FireAndForget};
 use crate::utils::to_string;
 use core::fmt::Display;
 use core::fmt::Formatter;
+use ethereum_types::H256;
 use itertools::Itertools;
 use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
@@ -679,8 +680,15 @@ pub struct UiPayableAccount {
     pub age_s: u64,
     #[serde(rename = "balanceGwei")]
     pub balance_gwei: u64,
-    #[serde(rename = "pendingPayableHashOpt")]
-    pub pending_payable_hash_opt: Option<String>,
+    #[serde(rename = "currentTxInfoOpt")]
+    pub current_tx_info_opt: Option<CurrentTxInfo>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct CurrentTxInfo {
+    #[serde(rename = "pendingOpt")]
+    pub pending_opt: Option<H256>,
+    pub failures: usize,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
