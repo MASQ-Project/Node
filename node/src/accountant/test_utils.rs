@@ -321,7 +321,7 @@ impl AccountantBuilder {
     }
 
     pub fn sent_payable_dao(mut self, sent_payable_dao: SentPayableDaoMock) -> Self {
-        // TODO: GH-605: Merge Cleanup
+        // TODO: GH-605: Merge Cleanup - Prefer the standard create_or_update_factory! style - as in GH-598
         match self.sent_payable_dao_factory_opt {
             None => {
                 self.sent_payable_dao_factory_opt =
@@ -337,7 +337,7 @@ impl AccountantBuilder {
     }
 
     pub fn failed_payable_dao(mut self, failed_payable_dao: FailedPayableDaoMock) -> Self {
-        // TODO: GH-605: Merge cleanup
+        // TODO: GH-605: Merge cleanup - Prefer the standard create_or_update_factory! style - as in GH-598
 
         match self.failed_payable_dao_factory_opt {
             None => {

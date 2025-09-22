@@ -1078,24 +1078,29 @@ mod tests {
     #[test]
     fn finish_payable_scan_keeps_the_aware_of_unresolved_pending_payable_flag_as_false_in_case_of_err(
     ) {
-        assert_finish_payable_scan_keeps_aware_flag_false_on_error(PayableScanType::New);
-        assert_finish_payable_scan_keeps_aware_flag_false_on_error(PayableScanType::Retry);
+        test_finish_payable_scan_keeps_aware_flag_false_on_error(PayableScanType::New, "new_scan");
+        test_finish_payable_scan_keeps_aware_flag_false_on_error(
+            PayableScanType::Retry,
+            "retry_scan",
+        );
     }
 
-    fn assert_finish_payable_scan_keeps_aware_flag_false_on_error(
+    fn test_finish_payable_scan_keeps_aware_flag_false_on_error(
         payable_scan_type: PayableScanType,
+        test_name_str: &str,
     ) {
         init_test_logging();
-        let test_name = match payable_scan_type {
-            PayableScanType::New => "finish_payable_scan_keeps_the_aware_of_unresolved_pending_payable_flag_as_false_in_case_of_err_for_new_scan",
-            PayableScanType::Retry => "finish_payable_scan_keeps_the_aware_of_unresolved_pending_payable_flag_as_false_in_case_of_err_for_retry_scan",
-        };
+        let test_name = format!(
+            "finish_payable_scan_keeps_the_aware_of_unresolved_\
+             pending_payable_flag_as_false_in_case_of_err_for_\
+             {test_name_str}"
+        );
         let sent_payable = SentPayables {
             payment_procedure_result: Err("Some error".to_string()),
             payable_scan_type,
             response_skeleton_opt: None,
         };
-        let logger = Logger::new(test_name);
+        let logger = Logger::new(&test_name);
         let payable_scanner = PayableScannerBuilder::new().build();
         let mut subject = make_dull_subject();
         subject.payable = Box::new(payable_scanner);
