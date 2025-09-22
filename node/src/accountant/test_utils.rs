@@ -8,7 +8,7 @@ use crate::accountant::db_access_objects::failed_payable_dao::{
     FailureRetrieveCondition, FailureStatus,
 };
 use crate::accountant::db_access_objects::payable_dao::{
-    MarkPendingPayableID, PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory,
+    PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory,
 };
 use crate::accountant::db_access_objects::receivable_dao::{
     ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,

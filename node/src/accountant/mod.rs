@@ -6193,7 +6193,7 @@ mod tests {
                 last_paid_timestamp: SystemTime::now().sub(Duration::from_secs(7580)),
             },
             tx_opt: Some(CurrentTxInfo {
-                pending_opt: None,
+                pending_tx_hash_opt: None,
                 failures: 2,
             }),
         }];
@@ -6259,7 +6259,7 @@ mod tests {
                         age_s: extracted_payable_ages[0],
                         balance_gwei: 5,
                         current_tx_info_opt: Some(CurrentTxInfo {
-                            pending_opt: None,
+                            pending_tx_hash_opt: None,
                             failures: 2
                         }),
                     },]),
@@ -6460,7 +6460,7 @@ mod tests {
                 last_paid_timestamp: SystemTime::now().sub(Duration::from_secs(5000)),
             },
             tx_opt: Some(CurrentTxInfo {
-                pending_opt: None,
+                pending_tx_hash_opt: None,
                 failures: 3,
             }),
         }];
