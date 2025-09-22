@@ -311,7 +311,7 @@ impl BlockchainBridge {
         Box::new(
             self.process_payments(msg.agent, msg.priced_templates)
                 .map_err(move |e: LocalPayableError| {
-                    sent_payable_subs_success
+                    sent_payable_subs_err
                         .try_send(SentPayables {
                             payment_procedure_result: Self::payment_procedure_result_from_error(
                                 e.clone(),
@@ -324,7 +324,7 @@ impl BlockchainBridge {
                     format!("ReportAccountsPayable: {}", e)
                 })
                 .and_then(move |batch_results| {
-                    sent_payable_subs_err
+                    sent_payable_subs_success
                         .try_send(SentPayables {
                             payment_procedure_result: Ok(batch_results),
                             payable_scan_type,
