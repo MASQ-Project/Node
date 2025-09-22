@@ -4,7 +4,7 @@ use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
 use crate::accountant::db_access_objects::utils;
 use crate::accountant::db_access_objects::utils::{
     sum_i128_values_from_table, to_unix_timestamp, AssemblerFeeder, CustomQuery, DaoFactoryReal,
-    PayableAccountWithTxInfo, RangeStmConfig, RowId, TopStmConfig, TxHash, VigilantRusqliteFlatten,
+    PayableAccountWithTxInfo, RangeStmConfig, RowId, TopStmConfig, VigilantRusqliteFlatten,
 };
 use crate::accountant::db_big_integer::big_int_db_processor::KeyVariants::WalletAddress;
 use crate::accountant::db_big_integer::big_int_db_processor::{
@@ -24,8 +24,10 @@ use masq_lib::utils::ExpectValue;
 use rusqlite::OptionalExtension;
 use rusqlite::{Error, Row};
 use std::fmt::Debug;
+use std::str::FromStr;
 use std::time::SystemTime;
 use web3::types::H256;
+use masq_lib::messages::CurrentTxInfo;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum PayableDaoError {
@@ -190,14 +192,14 @@ impl PayableDao for PayableDaoReal {
             gwei_min_resolution_clause: "and ((balance_high_b > 0) or ((balance_high_b = 0) and (balance_low_b >= 1000000000)))",
             secondary_order_param: "last_paid_timestamp asc"
         };
-        todo!()
-        // custom_query.query::<_, i64, _, _>(
-        //     self.conn.as_ref(),
-        //     Self::stm_assembler_of_payable_cq,
-        //     variant_top,
-        //     variant_range,
-        //     Self::create_payable_account,
-        // )
+
+        custom_query.query::<_, i64, _, _>(
+            self.conn.as_ref(),
+            Self::stm_assembler_of_payable_cq,
+            variant_top,
+            variant_range,
+            Self::create_payable_account_with_tx_info,
+        )
     }
 
     fn total(&self) -> u128 {
@@ -273,25 +275,29 @@ impl PayableDaoReal {
         }
     }
 
-    fn create_payable_account(row: &Row) -> rusqlite::Result<PayableAccount> {
+    fn create_payable_account_with_tx_info(row: &Row) -> rusqlite::Result<PayableAccountWithTxInfo> {
         let wallet_result: Result<Wallet, Error> = row.get(0);
         let balance_high_bytes_result = row.get(1);
         let balance_low_bytes_result = row.get(2);
         let last_paid_timestamp_result = row.get(3);
+        let tx_hash_opt_result = row.get(4);
+        let previous_failures = row.get(5);
         match (
             wallet_result,
             balance_high_bytes_result,
             balance_low_bytes_result,
             last_paid_timestamp_result,
+            tx_hash_opt_result,
+            previous_failures
         ) {
-            (Ok(wallet), Ok(high_bytes), Ok(low_bytes), Ok(last_paid_timestamp)) => {
-                Ok(PayableAccount {
+            (Ok(wallet), Ok(high_bytes), Ok(low_bytes), Ok(last_paid_timestamp), Ok(tx_hash_opt), Ok(previous_failures))  => {
+                Ok(PayableAccountWithTxInfo {account: PayableAccount{
                     wallet,
                     balance_wei: checked_conversion::<i128, u128>(BigIntDivider::reconstitute(
                         high_bytes, low_bytes,
                     )),
                     last_paid_timestamp: utils::from_unix_timestamp(last_paid_timestamp),
-                })
+                }, tx_opt: Self::maybe_construct_tx_info(tx_hash_opt, previous_failures)})
             }
             e => panic!(
                 "Database is corrupt: PAYABLE table columns and/or types: {:?}",
@@ -300,26 +306,52 @@ impl PayableDaoReal {
         }
     }
 
+    fn maybe_construct_tx_info(tx_hash_opt: Option<String>, previous_failures: usize)->Option<CurrentTxInfo>{
+        if tx_hash_opt.is_some() || previous_failures > 0{
+            Some(CurrentTxInfo{ pending_opt: tx_hash_opt.map(|tx_hash_str|H256::from_str(&tx_hash_str[2..]).unwrap_or_else(|_|panic!("Wrong tx hash format: {}", tx_hash_str))), failures: previous_failures })
+        } else {
+            None
+        }
+    }
+
     fn stm_assembler_of_payable_cq(feeder: AssemblerFeeder) -> String {
-        format!(
-            "select
-               wallet_address,
-               balance_high_b,
-               balance_low_b,
-               last_paid_timestamp
-           from
-               payable
-           {} {}
-           order by
-               {},
-               {}
-           {}",
+        let stm = format!(
+        "SELECT
+            p.wallet_address,
+            p.balance_high_b,
+            p.balance_low_b,
+            p.last_paid_timestamp,
+            CASE WHEN s.status LIKE '%Pending%' THEN s.tx_hash ELSE NULL END AS pending_tx_hash,
+            CASE WHEN EXISTS (
+                    SELECT 1
+                    FROM failed_payable
+                    WHERE status IS NOT 'Concluded'
+                        AND receiver_address = p.wallet_address
+                )
+                THEN (
+                    SELECT COUNT(*)
+                    FROM failed_payable
+                    WHERE nonce = (SELECT MAX(nonce) FROM failed_payable)
+                )
+                ELSE 0
+            END AS recent_failures_count
+        FROM
+            payable p
+        LEFT JOIN
+            sent_payable s on p.wallet_address = s.receiver_address
+        {} {}
+        ORDER BY
+           {},
+           {}
+        {}",
             feeder.main_where_clause,
             feeder.where_clause_extension,
             feeder.order_by_first_param,
             feeder.order_by_second_param,
             feeder.limit_clause
-        )
+        );
+        eprintln!("{}", stm);
+        stm
     }
 }
 
@@ -332,25 +364,20 @@ impl TableNameDAO for PayableDaoReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::db_access_objects::failed_payable_dao;
-    use crate::accountant::db_access_objects::failed_payable_dao::{
-        FailedPayableDao, FailedPayableDaoReal,
-    };
+    use crate::accountant::db_access_objects::failed_payable_dao::{FailedPayableDao, FailedPayableDaoReal, FailedTx};
     use crate::accountant::db_access_objects::sent_payable_dao::{
         SentPayableDao, SentPayableDaoReal, SentTx, TxStatus,
     };
-    use crate::accountant::db_access_objects::utils::{
-        current_unix_timestamp, from_unix_timestamp, to_unix_timestamp,
-    };
+    use crate::accountant::db_access_objects::utils::{current_unix_timestamp, from_unix_timestamp, to_unix_timestamp, TxHash};
     use crate::accountant::gwei_to_wei;
     use crate::accountant::test_utils::{
         assert_account_creation_fn_fails_on_finding_wrong_columns_and_value_types, make_failed_tx,
-        make_sent_tx, trick_rusqlite_with_read_only_conn, FailedPayableDaoFactoryMock,
+        make_sent_tx, trick_rusqlite_with_read_only_conn,
     };
     use crate::blockchain::errors::validation_status::ValidationStatus;
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::database::db_initializer::{
-        DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
+        DbInitializationConfig, DbInitializer, DbInitializerReal,
     };
     use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::test_utils::make_wallet;
@@ -861,9 +888,19 @@ mod tests {
             .unwrap();
     }
 
+    struct TxFailuresRecordsAdjustment {
+        failed_txs: Vec<FailedTx>
+    }
+
+    struct HealthyPendingTxAdjustment {
+        pending_tx: SentTx
+    }
+
     fn accounts_for_tests_of_top_records(
+        sent_tx_adjustment_opt: Option<HealthyPendingTxAdjustment>,
+        failed_txs_adjustment_opt: Option<TxFailuresRecordsAdjustment>,
         now: i64,
-    ) -> Box<dyn Fn(PayableDaoReal, SentPayableDaoReal, FailedPayableDaoReal) -> PayableDaoReal>
+    ) -> Box<dyn FnOnce(PayableDaoReal, SentPayableDaoReal, FailedPayableDaoReal) -> PayableDaoReal>
     {
         Box::new(
             move |payable_dao_real: PayableDaoReal,
@@ -903,12 +940,14 @@ mod tests {
                     "0x5555555555555555555555555555555555555555",
                     10_000_000_100,
                 );
-                let mut failed_tx = make_failed_tx(123);
-                failed_tx.receiver_address =
-                    Wallet::new("0x5555555555555555555555555555555555555555").address();
-                failed_payable_dao_real
-                    .insert_new_records(&vec![failed_tx])
-                    .unwrap();
+
+                if let Some(failed_txs_adjustment) = failed_txs_adjustment_opt {
+                    failed_payable_dao_real.insert_new_records(&failed_txs_adjustment.failed_txs).unwrap()
+                }
+                if let Some(sent_tx_adjustment) = sent_tx_adjustment_opt {
+                    sent_payable_dao_real.insert_new_records(&vec![sent_tx_adjustment.pending_tx]).unwrap()
+                }
+
                 payable_dao_real
             },
         )
@@ -920,7 +959,24 @@ mod tests {
         // Two accounts differ only in the debt age but not the balance which allows to check double
         // ordering, primarily by balance and then age.
         let now = current_unix_timestamp();
-        let main_test_setup = accounts_for_tests_of_top_records(now);
+        let wallet_addr = "0x5555555555555555555555555555555555555555";
+        let mut sent_tx = make_sent_tx(789);
+        sent_tx.receiver_address = Wallet::new(wallet_addr).address();
+        let sent_tx_hash = sent_tx.hash;
+        let sent_tx_adjustment = HealthyPendingTxAdjustment {
+          pending_tx: sent_tx
+        };
+        let mut failed_tx_1 = make_failed_tx(123);
+        let wallet_addr = "0x2222222222222222222222222222222222222222";
+        failed_tx_1.receiver_address = Wallet::new(wallet_addr).address();
+        let failed_tx_nonce_1 = failed_tx_1.nonce;
+        let mut failed_tx_2 = make_failed_tx(456);
+        failed_tx_2.receiver_address = Wallet::new(wallet_addr).address();
+        failed_tx_2.nonce = failed_tx_nonce_1;
+        let failure_tx_adjustment = TxFailuresRecordsAdjustment {
+            failed_txs: vec![failed_tx_1, failed_tx_2]
+        };
+        let main_test_setup = accounts_for_tests_of_top_records(Some(sent_tx_adjustment), Some(failure_tx_adjustment), now);
         let subject = custom_query_test_body_for_payable(
             "custom_query_in_top_records_mode_with_default_ordering",
             main_test_setup,
@@ -942,7 +998,10 @@ mod tests {
                         balance_wei: 7_562_000_300_000,
                         last_paid_timestamp: from_unix_timestamp(now - 86_001),
                     },
-                    tx_opt: None
+                    tx_opt: Some(CurrentTxInfo {
+                        pending_opt: None,
+                        failures: 2
+                    })
                 },
                 PayableAccountWithTxInfo {
                     account: PayableAccount {
@@ -951,7 +1010,7 @@ mod tests {
                         last_paid_timestamp: from_unix_timestamp(now - 86_401),
                     },
                     tx_opt: Some(CurrentTxInfo {
-                        pending_opt: Some(make_tx_hash(123)),
+                        pending_opt: Some(sent_tx_hash),
                         failures: 0
                     })
                 },
@@ -961,10 +1020,7 @@ mod tests {
                         balance_wei: 10_000_000_100,
                         last_paid_timestamp: from_unix_timestamp(now - 86_300),
                     },
-                    tx_opt: Some(CurrentTxInfo {
-                        pending_opt: None,
-                        failures: 2
-                    })
+                    tx_opt: None
                 },
             ]
         );
@@ -976,7 +1032,14 @@ mod tests {
         // Two accounts differ only in the debt age but not the balance which allows to check double
         // ordering, primarily by balance and then age.
         let now = current_unix_timestamp();
-        let main_test_setup = accounts_for_tests_of_top_records(now);
+        let wallet_addr = "0x1111111111111111111111111111111111111111";
+        let mut sent_tx = make_sent_tx(789);
+        sent_tx.receiver_address = Wallet::new(wallet_addr).address();
+        let sent_tx_hash = sent_tx.hash;
+        let sent_tx_adjustment = HealthyPendingTxAdjustment {
+            pending_tx: sent_tx
+        };
+        let main_test_setup = accounts_for_tests_of_top_records(Some(sent_tx_adjustment), None, now);
         let subject = custom_query_test_body_for_payable(
             "custom_query_in_top_records_mode_ordered_by_age",
             main_test_setup,
@@ -1006,7 +1069,7 @@ mod tests {
                         balance_wei: 1_000_000_002,
                         last_paid_timestamp: from_unix_timestamp(now - 86_401),
                     },
-                    tx_opt: None
+                    tx_opt: Some(CurrentTxInfo{ pending_opt: Some(sent_tx_hash), failures: 0 })
                 },
                 PayableAccountWithTxInfo {
                     account: PayableAccount {
@@ -1290,7 +1353,7 @@ mod tests {
     )]
     fn create_payable_account_panics_on_database_error() {
         assert_account_creation_fn_fails_on_finding_wrong_columns_and_value_types(
-            PayableDaoReal::create_payable_account,
+            PayableDaoReal::create_payable_account_with_tx_info,
         );
     }
 
@@ -1305,7 +1368,7 @@ mod tests {
 
     fn custom_query_test_body_for_payable<F>(test_name: &str, main_setup_fn: F) -> PayableDaoReal
     where
-        F: Fn(PayableDaoReal, SentPayableDaoReal, FailedPayableDaoReal) -> PayableDaoReal,
+        F: FnOnce(PayableDaoReal, SentPayableDaoReal, FailedPayableDaoReal) -> PayableDaoReal,
     {
         let home_dir = ensure_node_home_directory_exists("payable_dao", test_name);
         let conn = || {
@@ -1317,5 +1380,40 @@ mod tests {
         let sent_payable_dao = SentPayableDaoReal::new(conn());
         let payable_dao = PayableDaoReal::new(conn());
         main_setup_fn(payable_dao, sent_payable_dao, failed_payable_dao)
+    }
+
+    #[test]
+    fn maybe_construct_tx_info_with_tx_hash_present_and_no_errors(){
+        let tx_hash = make_tx_hash(123);
+
+        let result = PayableDaoReal::maybe_construct_tx_info(Some(format!("{:?}", tx_hash)), 0);
+
+        assert_eq!(result, Some(CurrentTxInfo{ pending_opt: Some(tx_hash), failures: 0 }));
+    }
+
+    #[test]
+    fn maybe_construct_tx_info_with_tx_hash_present_and_also_errors(){
+        let tx_hash = make_tx_hash(123);
+        let errors = 3;
+
+        let result = PayableDaoReal::maybe_construct_tx_info(Some(format!("{:?}", tx_hash)), errors);
+
+        assert_eq!(result, Some(CurrentTxInfo{ pending_opt: Some(make_tx_hash(123)), failures: errors }));
+    }
+
+    #[test]
+    fn maybe_construct_tx_info_with_only_errors_present(){
+        let errors = 1;
+
+        let result = PayableDaoReal::maybe_construct_tx_info(None, errors);
+
+        assert_eq!(result, Some(CurrentTxInfo{ pending_opt: None, failures: errors }));
+    }
+
+    #[test]
+    fn maybe_construct_tx_info_returns_none(){
+        let result = PayableDaoReal::maybe_construct_tx_info(None, 0);
+
+        assert_eq!(result, None);
     }
 }
