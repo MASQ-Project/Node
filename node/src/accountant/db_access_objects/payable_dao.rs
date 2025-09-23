@@ -24,9 +24,7 @@ use masq_lib::utils::ExpectValue;
 use rusqlite::OptionalExtension;
 use rusqlite::{Error, Row};
 use std::fmt::Debug;
-use std::str::FromStr;
 use std::time::SystemTime;
-use web3::types::H256;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum PayableDaoError {
@@ -312,15 +310,12 @@ impl PayableDaoReal {
     }
 
     fn maybe_construct_tx_info(
-        tx_hash_opt: Option<String>,
+        pending_tx_hash_opt: Option<String>,
         previous_failures: usize,
     ) -> Option<CurrentTxInfo> {
-        if tx_hash_opt.is_some() || previous_failures > 0 {
+        if pending_tx_hash_opt.is_some() || previous_failures > 0 {
             Some(CurrentTxInfo {
-                pending_tx_hash_opt: tx_hash_opt.map(|tx_hash_str| {
-                    H256::from_str(&tx_hash_str[2..])
-                        .unwrap_or_else(|_| panic!("Wrong tx hash format: {}", tx_hash_str))
-                }),
+                pending_tx_hash_opt,
                 failures: previous_failures,
             })
         } else {
@@ -329,7 +324,7 @@ impl PayableDaoReal {
     }
 
     fn stm_assembler_of_payable_cq(feeder: AssemblerFeeder) -> String {
-        let stm = format!(
+        format!(
             "SELECT
             p.wallet_address,
             p.balance_high_b,
@@ -340,8 +335,8 @@ impl PayableDaoReal {
                 ELSE NULL
             END AS pending_tx_hash,
             /*
-               The following case stm counts the failing attempts for a tx processing that hasn't
-               ended yet and is ongoing.
+               The following case stm counts up the failing attempts in the tx processing while it
+               is still ongoing.
             */
             CASE WHEN EXISTS (
                     SELECT 1
@@ -376,9 +371,7 @@ impl PayableDaoReal {
             feeder.order_by_first_param,
             feeder.order_by_second_param,
             feeder.limit_clause
-        );
-        eprintln!("{}", stm);
-        stm
+        )
     }
 }
 
@@ -392,7 +385,7 @@ impl TableNameDAO for PayableDaoReal {
 mod tests {
     use super::*;
     use crate::accountant::db_access_objects::failed_payable_dao::{
-        FailedPayableDao, FailedPayableDaoReal, FailedTx, FailureStatus,
+        FailedPayableDao, FailedPayableDaoReal, FailureStatus,
     };
     use crate::accountant::db_access_objects::sent_payable_dao::{
         SentPayableDao, SentPayableDaoReal, SentTx, TxStatus,
@@ -1169,7 +1162,7 @@ mod tests {
                         last_paid_timestamp: from_unix_timestamp(now - 80_000),
                     },
                     tx_opt: Some(CurrentTxInfo {
-                        pending_tx_hash_opt: Some(sent_tx_hash_1),
+                        pending_tx_hash_opt: Some(format!("{:?}", sent_tx_hash_1)),
                         failures: 0
                     })
                 },
@@ -1180,7 +1173,7 @@ mod tests {
                         last_paid_timestamp: from_unix_timestamp(now - 80_000),
                     },
                     tx_opt: Some(CurrentTxInfo {
-                        pending_tx_hash_opt: Some(sent_tx_hash_2),
+                        pending_tx_hash_opt: Some(format!("{:?}", sent_tx_hash_2)),
                         failures: 1
                     })
                 }
@@ -1287,7 +1280,7 @@ mod tests {
                         last_paid_timestamp: from_unix_timestamp(now - 80_000),
                     },
                     tx_opt: Some(CurrentTxInfo {
-                        pending_tx_hash_opt: Some(sent_tx_hash_1),
+                        pending_tx_hash_opt: Some(format!("{:?}", sent_tx_hash_1)),
                         failures: 2
                     })
                 },
@@ -1309,7 +1302,7 @@ mod tests {
                         last_paid_timestamp: from_unix_timestamp(now - 80_000),
                     },
                     tx_opt: Some(CurrentTxInfo {
-                        pending_tx_hash_opt: Some(sent_tx_hash_2),
+                        pending_tx_hash_opt: Some(format!("{:?}", sent_tx_hash_2)),
                         failures: 0
                     })
                 },
@@ -1445,7 +1438,7 @@ mod tests {
                         last_paid_timestamp: from_unix_timestamp(now - 100_401),
                     },
                     tx_opt: Some(CurrentTxInfo {
-                        pending_tx_hash_opt: Some(make_tx_hash(0xABC)),
+                        pending_tx_hash_opt: Some(format!("{:?}", make_tx_hash(0xABC))),
                         failures: 0
                     })
                 },
@@ -1635,7 +1628,7 @@ mod tests {
         assert_eq!(
             result,
             Some(CurrentTxInfo {
-                pending_tx_hash_opt: Some(tx_hash),
+                pending_tx_hash_opt: Some(format!("{:?}", tx_hash)),
                 failures: 0
             })
         );
@@ -1652,7 +1645,7 @@ mod tests {
         assert_eq!(
             result,
             Some(CurrentTxInfo {
-                pending_tx_hash_opt: Some(make_tx_hash(123)),
+                pending_tx_hash_opt: Some(format!("{:?}", make_tx_hash(123))),
                 failures: errors
             })
         );
