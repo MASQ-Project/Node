@@ -27,8 +27,16 @@ pub(in crate::commands::financials_command) mod restricted {
                 self.wallet.to_string(),
                 self.age_s.separate_with_commas(),
                 process_gwei_into_requested_format(self.balance_gwei, is_gwei),
-                if let Some(hash) = &self.pending_payable_hash_opt {
-                    hash.to_string()
+                if let Some(current_tx_info) = &self.current_tx_info_opt {
+                    if let Some(hash) = current_tx_info.pending_tx_hash_opt.as_ref() {
+                        if current_tx_info.failures == 0 {
+                            hash.clone()
+                        } else {
+                            format!("{} – {} failed attempts so far", hash, current_tx_info.failures)
+                        }
+                    } else {
+                        format!("In processing – {} failed attempts so far", current_tx_info.failures)
+                    }
                 } else {
                     "None".to_string()
                 },

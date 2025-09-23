@@ -687,7 +687,7 @@ pub struct UiPayableAccount {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct CurrentTxInfo {
     #[serde(rename = "pendingTxHashOpt")]
-    pub pending_tx_hash_opt: Option<H256>,
+    pub pending_tx_hash_opt: Option<String>,
     pub failures: usize,
 }
 
