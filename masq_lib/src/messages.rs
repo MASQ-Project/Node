@@ -7,7 +7,6 @@ use crate::ui_gateway::MessagePath::{Conversation, FireAndForget};
 use crate::utils::to_string;
 use core::fmt::Display;
 use core::fmt::Formatter;
-use ethereum_types::H256;
 use itertools::Itertools;
 use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
