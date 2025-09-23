@@ -14,7 +14,7 @@ pub enum BlockchainError {
     Internal(InternalError),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub enum BlockchainErrorKind {
     AppRpc(AppRpcErrorKind),
     Internal(InternalErrorKind),
@@ -23,19 +23,19 @@ pub enum BlockchainErrorKind {
 #[cfg(test)]
 mod tests {
     use crate::blockchain::errors::internal_errors::InternalErrorKind;
-    use crate::blockchain::errors::rpc_errors::AppRpcErrorKind;
+    use crate::blockchain::errors::rpc_errors::{AppRpcErrorKind, LocalErrorKind};
     use crate::blockchain::errors::BlockchainErrorKind;
 
     #[test]
     fn blockchain_error_serialization_deserialization() {
         vec![
             (
-                BlockchainErrorKind::AppRpc(AppRpcErrorKind::Decoder),
-                "{\"AppRpc\":\"Decoder\"}",
+                BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Decoder)),
+                r#"{"AppRpc":{"Local":"Decoder"}}"#,
             ),
             (
                 BlockchainErrorKind::Internal(InternalErrorKind::PendingTooLongNotReplaced),
-                "{\"Internal\":\"PendingTooLongNotReplaced\"}",
+                r#"{"Internal":"PendingTooLongNotReplaced"}"#,
             ),
         ]
         .into_iter()

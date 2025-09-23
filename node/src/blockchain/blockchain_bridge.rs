@@ -3,7 +3,7 @@
 use crate::accountant::{PayableScanType, ReceivedPayments, ResponseSkeleton, ScanError, SentPayables, SkeletonOptHolder};
 use crate::accountant::{ReportTransactionReceipts, RequestTransactionReceipts};
 use crate::actor_system_factory::SubsFactory;
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::HashAndAmount;
+use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_interface::data_structures::errors::{
     BlockchainInterfaceError, LocalPayableError,
 };
@@ -15,12 +15,11 @@ use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
-use crate::sub_lib::blockchain_bridge::{
-    BlockchainBridgeSubs, OutboundPaymentsInstructions,
-};
+use crate::sub_lib::accountant::DetailedScanType;
+use crate::sub_lib::blockchain_bridge::{BlockchainBridgeSubs, OutboundPaymentsInstructions};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request};
-use crate::sub_lib::wallet::{Wallet};
+use crate::sub_lib::wallet::Wallet;
 use actix::Actor;
 use actix::Context;
 use actix::Handler;
@@ -29,6 +28,7 @@ use actix::{Addr, Recipient};
 use futures::Future;
 use itertools::{Either, Itertools};
 use masq_lib::blockchains::chains::Chain;
+use masq_lib::constants::DEFAULT_GAS_PRICE_MARGIN;
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use regex::Regex;
@@ -36,7 +36,6 @@ use std::path::Path;
 use std::string::ToString;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
-use ethabi::Hash;
 use web3::types::H256;
 use masq_lib::constants::DEFAULT_GAS_PRICE_MARGIN;
 use masq_lib::messages::ScanType;
@@ -59,12 +58,12 @@ pub struct BlockchainBridge {
     received_payments_subs_opt: Option<Recipient<ReceivedPayments>>,
     scan_error_subs_opt: Option<Recipient<ScanError>>,
     crashable: bool,
-    pending_payable_confirmation: TransactionConfirmationTools,
+    pending_payable_confirmation: TxConfirmationTools,
 }
 
-struct TransactionConfirmationTools {
-    new_pp_fingerprints_sub_opt: Option<Recipient<PendingPayableFingerprintSeeds>>,
-    report_transaction_receipts_sub_opt: Option<Recipient<ReportTransactionReceipts>>,
+struct TxConfirmationTools {
+    register_new_pending_payables_sub_opt: Option<Recipient<RegisterNewPendingPayables>>,
+    report_tx_receipts_sub_opt: Option<Recipient<TxReceiptsMessage>>,
 }
 
 #[derive(PartialEq, Eq)]
@@ -88,11 +87,10 @@ impl Handler<BindMessage> for BlockchainBridge {
 
     fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
         self.pending_payable_confirmation
-            .new_pp_fingerprints_sub_opt =
-            Some(msg.peer_actors.accountant.init_pending_payable_fingerprints);
-        self.pending_payable_confirmation
-            .report_transaction_receipts_sub_opt =
-            Some(msg.peer_actors.accountant.report_transaction_receipts);
+            .register_new_pending_payables_sub_opt =
+            Some(msg.peer_actors.accountant.register_new_pending_payables);
+        self.pending_payable_confirmation.report_tx_receipts_sub_opt =
+            Some(msg.peer_actors.accountant.report_transaction_status);
         self.payable_payments_setup_subs_opt =
             Some(msg.peer_actors.accountant.report_payable_payments_setup);
         self.sent_payable_subs_opt = Some(msg.peer_actors.accountant.report_sent_payments);
@@ -125,7 +123,7 @@ impl Handler<RetrieveTransactions> for BlockchainBridge {
     ) -> <Self as Handler<RetrieveTransactions>>::Result {
         self.handle_scan_future(
             Self::handle_retrieve_transactions,
-            ScanType::Receivables,
+            DetailedScanType::Receivables,
             msg,
         )
     }
@@ -137,7 +135,7 @@ impl Handler<RequestTransactionReceipts> for BlockchainBridge {
     fn handle(&mut self, msg: RequestTransactionReceipts, _ctx: &mut Self::Context) {
         self.handle_scan_future(
             Self::handle_request_transaction_receipts,
-            ScanType::PendingPayables,
+            DetailedScanType::PendingPayables,
             msg,
         )
     }
@@ -147,7 +145,13 @@ impl Handler<InitialTemplatesMessage> for BlockchainBridge {
     type Result = ();
 
     fn handle(&mut self, msg: InitialTemplatesMessage, _ctx: &mut Self::Context) {
-        self.handle_scan_future(Self::handle_initial_templates_msg, ScanType::Payables, msg);
+        self.handle_scan_future(
+            Self::handle_initial_templates_msg,
+            todo!(
+                "This needs to be decided on GH-605. Look what mode you run and set it accordingly"
+            ),
+            msg,
+        );
     }
 }
 
@@ -157,28 +161,23 @@ impl Handler<OutboundPaymentsInstructions> for BlockchainBridge {
     fn handle(&mut self, msg: OutboundPaymentsInstructions, _ctx: &mut Self::Context) {
         self.handle_scan_future(
             Self::handle_outbound_payments_instructions,
-            ScanType::Payables,
+            todo!(
+                "This needs to be decided on GH-605. Look what mode you run and set it accordingly"
+            ),
             msg,
         )
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Message)]
-pub struct PendingPayableFingerprintSeeds {
-    pub batch_wide_timestamp: SystemTime,
-    pub hashes_and_balances: Vec<HashAndAmount>,
+pub struct RegisterNewPendingPayables {
+    pub new_sent_txs: Vec<SentTx>,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct PendingPayableFingerprint {
-    // Sqlite begins counting from 1
-    pub rowid: u64,
-    pub timestamp: SystemTime,
-    pub hash: H256,
-    // We have Sqlite begin counting from 1
-    pub attempt: u16,
-    pub amount: u128,
-    pub process_error: Option<String>,
+impl RegisterNewPendingPayables {
+    pub fn new(new_sent_txs: Vec<SentTx>) -> Self {
+        Self { new_sent_txs }
+    }
 }
 
 impl Handler<NodeFromUiMessage> for BlockchainBridge {
@@ -204,9 +203,9 @@ impl BlockchainBridge {
             scan_error_subs_opt: None,
             crashable,
             logger: Logger::new("BlockchainBridge"),
-            pending_payable_confirmation: TransactionConfirmationTools {
-                new_pp_fingerprints_sub_opt: None,
-                report_transaction_receipts_sub_opt: None,
+            pending_payable_confirmation: TxConfirmationTools {
+                register_new_pending_payables_sub_opt: None,
+                report_tx_receipts_sub_opt: None,
             },
         }
     }
@@ -416,21 +415,21 @@ impl BlockchainBridge {
 
     fn log_status_of_tx_receipts(
         logger: &Logger,
-        transaction_receipts_results: &[TransactionReceiptResult],
+        transaction_receipts_results: &[&TxReceiptResult],
     ) {
         logger.debug(|| {
             let (successful_count, failed_count, pending_count) =
                 transaction_receipts_results.iter().fold(
                     (0, 0, 0),
                     |(success, fail, pending), transaction_receipt| match transaction_receipt {
-                        TransactionReceiptResult::RpcResponse(tx_receipt) => {
-                            match tx_receipt.status {
-                                TxStatus::Failed => (success, fail + 1, pending),
-                                TxStatus::Pending => (success, fail, pending + 1),
-                                TxStatus::Succeeded(_) => (success + 1, fail, pending),
+                        Ok(tx_status) => match tx_status {
+                            StatusReadFromReceiptCheck::Reverted => (success, fail + 1, pending),
+                            StatusReadFromReceiptCheck::Succeeded(_) => {
+                                (success + 1, fail, pending)
                             }
-                        }
-                        TransactionReceiptResult::LocalError(_) => (success, fail, pending + 1),
+                            StatusReadFromReceiptCheck::Pending => (success, fail, pending + 1),
+                        },
+                        Err(_) => (success, fail, pending + 1),
                     },
                 );
             format!(
@@ -447,30 +446,21 @@ impl BlockchainBridge {
         let logger = self.logger.clone();
         let accountant_recipient = self
             .pending_payable_confirmation
-            .report_transaction_receipts_sub_opt
+            .report_tx_receipts_sub_opt
             .clone()
             .expect("Accountant is unbound");
-
-        let transaction_hashes = msg
-            .pending_payable_fingerprints
-            .iter()
-            .map(|finger_print| finger_print.hash)
-            .collect::<Vec<Hash>>();
         Box::new(
             self.blockchain_interface
-                .process_transaction_receipts(transaction_hashes)
+                .process_transaction_receipts(msg.tx_hashes)
                 .map_err(move |e| e.to_string())
-                .and_then(move |transaction_receipts_results| {
-                    Self::log_status_of_tx_receipts(&logger, &transaction_receipts_results);
-
-                    let pairs = transaction_receipts_results
-                        .into_iter()
-                        .zip(msg.pending_payable_fingerprints.into_iter())
-                        .collect_vec();
-
+                .and_then(move |tx_receipt_results| {
+                    Self::log_status_of_tx_receipts(
+                        &logger,
+                        tx_receipt_results.values().collect_vec().as_slice(),
+                    );
                     accountant_recipient
-                        .try_send(ReportTransactionReceipts {
-                            fingerprints_with_receipts: pairs,
+                        .try_send(TxReceiptsMessage {
+                            results: tx_receipt_results,
                             response_skeleton_opt: msg.response_skeleton_opt,
                         })
                         .expect("Accountant is dead");
@@ -480,7 +470,7 @@ impl BlockchainBridge {
         )
     }
 
-    fn handle_scan_future<M, F>(&mut self, handler: F, scan_type: ScanType, msg: M)
+    fn handle_scan_future<M, F>(&mut self, handler: F, scan_type: DetailedScanType, msg: M)
     where
         F: FnOnce(&mut BlockchainBridge, M) -> Box<dyn Future<Item = (), Error = String>>,
         M: SkeletonOptHolder,
@@ -514,9 +504,9 @@ impl BlockchainBridge {
             .submit_payables_in_batch(logger, agent, priced_templates)
     }
 
-    fn new_fingerprints_recipient(&self) -> Recipient<PendingPayableFingerprintSeeds> {
+    fn new_pending_payables_recipient(&self) -> Recipient<RegisterNewPendingPayables> {
         self.pending_payable_confirmation
-            .new_pp_fingerprints_sub_opt
+            .register_new_pending_payables_sub_opt
             .clone()
             .expect("Accountant unbound")
     }
@@ -575,8 +565,10 @@ mod tests {
         BlockchainAgentBuildError, LocalPayableError,
     };
     use crate::blockchain::blockchain_interface::data_structures::{
-        BlockchainTransaction, RetrievedBlockchainTransactions,
+        BlockchainTransaction, RetrievedBlockchainTransactions, TxBlock,
     };
+    use crate::blockchain::errors::rpc_errors::{AppRpcError, RemoteError};
+    use crate::blockchain::errors::validation_status::ValidationStatus;
     use crate::blockchain::test_utils::{
         make_blockchain_interface_web3, make_tx_hash, ReceiptResponseBuilder,
     };
@@ -585,17 +577,20 @@ mod tests {
     use crate::node_test_utils::check_timestamp;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{
-        make_accountant_subs_from_recorder, make_recorder, peer_actors_builder,
+        make_accountant_subs_from_recorder, make_blockchain_bridge_subs_from_recorder,
+        make_recorder, peer_actors_builder,
     };
     use crate::test_utils::recorder_stop_conditions::StopConditions;
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use crate::test_utils::unshared_test_utils::{
         assert_on_initialization_with_panic_on_migration, configure_default_persistent_config,
-        prove_that_crash_request_handler_is_hooked_up, AssertionsMessage, ZERO,
+        prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
+        SubsFactoryTestAddrLeaker, ZERO,
     };
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use actix::System;
     use ethereum_types::U64;
+    use masq_lib::constants::DEFAULT_MAX_BLOCK_COUNT;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
     use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
@@ -635,6 +630,17 @@ mod tests {
             _ctx: &mut Self::Context,
         ) -> Self::Result {
             (msg.assertions)(self)
+        }
+    }
+
+    impl SubsFactory<BlockchainBridge, BlockchainBridgeSubs>
+        for SubsFactoryTestAddrLeaker<BlockchainBridge>
+    {
+        fn make(&self, addr: &Addr<BlockchainBridge>) -> BlockchainBridgeSubs {
+            self.send_leaker_msg_and_return_meaningless_subs(
+                addr,
+                make_blockchain_bridge_subs_from_recorder,
+            )
         }
     }
 
@@ -980,7 +986,7 @@ mod tests {
         let accountant_addr = accountant
             .system_stop_conditions(match_lazily_every_type_id!(SentPayables))
             .start();
-        let wallet_account = make_wallet("blah");
+        let account_wallet = make_wallet("blah");
         let blockchain_interface = make_blockchain_interface_web3(port);
         let persistent_configuration_mock = PersistentConfigurationMock::default();
         let subject = BlockchainBridge::new(
@@ -993,7 +999,7 @@ mod tests {
         let mut peer_actors = peer_actors_builder().build();
         peer_actors.accountant = make_accountant_subs_from_recorder(&accountant_addr);
         let account = PayableAccount {
-            wallet: wallet_account,
+            wallet: account_wallet.clone(),
             balance_wei: 111_420_204,
             last_paid_timestamp: from_unix_timestamp(150_000_000),
             pending_payable_opt: None,
@@ -1052,11 +1058,18 @@ mod tests {
         // );
         assert_eq!(scan_error_msg.scan_type, ScanType::Payables);
         assert_eq!(
-            scan_error_msg.response_skeleton_opt,
-            Some(ResponseSkeleton {
-                client_id: 1234,
-                context_id: 4321
-            })
+            *scan_error_msg,
+            ScanError {
+                scan_type: DetailedScanType::NewPayables,
+                response_skeleton_opt: Some(ResponseSkeleton {
+                    client_id: 1234,
+                    context_id: 4321
+                }),
+                msg: format!(
+                    "ReportAccountsPayable: Sending phase: \"Transport error: Error(IncompleteMessage)\". \
+                    Signed and hashed txs: 0x81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c"
+                )
+            }
         );
         assert!(scan_error_msg
             .msg
@@ -1106,7 +1119,7 @@ mod tests {
         let (accountant, _, accountant_recording) = make_recorder();
         subject
             .pending_payable_confirmation
-            .new_pp_fingerprints_sub_opt = Some(accountant.start().recipient());
+            .register_new_pending_payables_sub_opt = Some(accountant.start().recipient());
 
         let result = subject
             .process_payments(msg.agent, msg.priced_templates)
@@ -1179,7 +1192,7 @@ mod tests {
         let (accountant, _, accountant_recording) = make_recorder();
         subject
             .pending_payable_confirmation
-            .new_pp_fingerprints_sub_opt = Some(accountant.start().recipient());
+            .register_new_pending_payables_sub_opt = Some(accountant.start().recipient());
 
         let result = subject
             .process_payments(msg.agent, msg.priced_templates)
@@ -1201,21 +1214,13 @@ mod tests {
     #[test]
     fn blockchain_bridge_processes_requests_for_a_complete_and_null_transaction_receipt() {
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let accountant = accountant.system_stop_conditions(match_lazily_every_type_id!(ScanError));
-        let pending_payable_fingerprint_1 = make_pending_payable_fingerprint();
-        let hash_1 = pending_payable_fingerprint_1.hash;
-        let hash_2 = make_tx_hash(78989);
-        let pending_payable_fingerprint_2 = PendingPayableFingerprint {
-            rowid: 456,
-            timestamp: SystemTime::now(),
-            hash: hash_2,
-            attempt: 3,
-            amount: 4565,
-            process_error: None,
-        };
+        let accountant =
+            accountant.system_stop_conditions(match_lazily_every_type_id!(TxReceiptsMessage));
+        let tx_hash_1 = make_tx_hash(123);
+        let tx_hash_2 = make_tx_hash(456);
         let first_response = ReceiptResponseBuilder::default()
             .status(U64::from(1))
-            .transaction_hash(hash_1)
+            .transaction_hash(tx_hash_1)
             .build();
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
@@ -1236,9 +1241,9 @@ mod tests {
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         send_bind_message!(subject_subs, peer_actors);
         let msg = RequestTransactionReceipts {
-            pending_payable_fingerprints: vec![
-                pending_payable_fingerprint_1.clone(),
-                pending_payable_fingerprint_2.clone(),
+            tx_hashes: vec![
+                TxHashByTable::SentPayable(tx_hash_1),
+                TxHashByTable::FailedPayable(tx_hash_2),
             ],
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 1234,
@@ -1252,26 +1257,20 @@ mod tests {
         system.run();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 1);
-        let report_transaction_receipt_message =
-            accountant_recording.get_record::<ReportTransactionReceipts>(0);
+        let tx_receipts_message = accountant_recording.get_record::<TxReceiptsMessage>(0);
         let mut expected_receipt = TransactionReceipt::default();
-        expected_receipt.transaction_hash = hash_1;
+        expected_receipt.transaction_hash = tx_hash_1;
         expected_receipt.status = Some(U64::from(1));
         assert_eq!(
-            report_transaction_receipt_message,
-            &ReportTransactionReceipts {
-                fingerprints_with_receipts: vec![
-                    (
-                        TransactionReceiptResult::RpcResponse(expected_receipt.into()),
-                        pending_payable_fingerprint_1
+            tx_receipts_message,
+            &TxReceiptsMessage {
+                results: hashmap![
+                    TxHashByTable::SentPayable(tx_hash_1) => Ok(
+                        expected_receipt.into()
                     ),
-                    (
-                        TransactionReceiptResult::RpcResponse(TxReceipt {
-                            transaction_hash: hash_2,
-                            status: TxStatus::Pending
-                        }),
-                        pending_payable_fingerprint_2
-                    ),
+                    TxHashByTable::FailedPayable(tx_hash_2) => Ok(
+                        StatusReadFromReceiptCheck::Pending
+                    )
                 ],
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
@@ -1321,7 +1320,7 @@ mod tests {
         assert_eq!(
             scan_error,
             &ScanError {
-                scan_type: ScanType::Receivables,
+                scan_type: DetailedScanType::Receivables,
                 response_skeleton_opt: None,
                 msg: "Error while retrieving transactions: QueryFailed(\"Transport error: Error(IncompleteMessage)\")".to_string()
             }
@@ -1333,8 +1332,7 @@ mod tests {
     }
 
     #[test]
-    fn handle_request_transaction_receipts_short_circuits_on_failure_from_remote_process_sends_back_all_good_results_and_logs_abort(
-    ) {
+    fn handle_request_transaction_receipts_sends_back_results() {
         init_test_logging();
         let port = find_free_port();
         let block_number = U64::from(4545454);
@@ -1349,62 +1347,26 @@ mod tests {
             .begin_batch()
             .raw_response(r#"{ "jsonrpc": "2.0", "id": 1, "result": null }"#.to_string())
             .raw_response(tx_receipt_response)
-            .raw_response(r#"{ "jsonrpc": "2.0", "id": 1, "result": null }"#.to_string())
             .err_response(
                 429,
                 "The requests per second (RPS) of your requests are higher than your plan allows."
                     .to_string(),
                 7,
             )
+            .raw_response(r#"{ "jsonrpc": "2.0", "id": 1, "result": null }"#.to_string())
             .end_batch()
             .start();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let accountant_addr = accountant
-            .system_stop_conditions(match_lazily_every_type_id!(
-                ReportTransactionReceipts,
-                ScanError
-            ))
+            .system_stop_conditions(match_lazily_every_type_id!(TxReceiptsMessage))
             .start();
-        let report_transaction_receipt_recipient: Recipient<ReportTransactionReceipts> =
+        let report_transaction_receipt_recipient: Recipient<TxReceiptsMessage> =
             accountant_addr.clone().recipient();
         let scan_error_recipient: Recipient<ScanError> = accountant_addr.recipient();
-        let hash_1 = make_tx_hash(111334);
-        let hash_2 = make_tx_hash(100000);
-        let hash_3 = make_tx_hash(0x1348d);
-        let hash_4 = make_tx_hash(11111);
-        let mut fingerprint_1 = make_pending_payable_fingerprint();
-        fingerprint_1.hash = hash_1;
-        let fingerprint_2 = PendingPayableFingerprint {
-            rowid: 454,
-            timestamp: SystemTime::now(),
-            hash: hash_2,
-            attempt: 3,
-            amount: 3333,
-            process_error: None,
-        };
-        let fingerprint_3 = PendingPayableFingerprint {
-            rowid: 456,
-            timestamp: SystemTime::now(),
-            hash: hash_3,
-            attempt: 3,
-            amount: 4565,
-            process_error: None,
-        };
-        let fingerprint_4 = PendingPayableFingerprint {
-            rowid: 450,
-            timestamp: from_unix_timestamp(230_000_000),
-            hash: hash_4,
-            attempt: 1,
-            amount: 7879,
-            process_error: None,
-        };
-        let transaction_receipt = TxReceipt {
-            transaction_hash: Default::default(),
-            status: TxStatus::Succeeded(TransactionBlock {
-                block_hash: Default::default(),
-                block_number,
-            }),
-        };
+        let tx_hash_1 = make_tx_hash(1334);
+        let tx_hash_2 = make_tx_hash(1000);
+        let tx_hash_3 = make_tx_hash(1212);
+        let tx_hash_4 = make_tx_hash(1111);
         let blockchain_interface = make_blockchain_interface_web3(port);
         let system = System::new("test_transaction_receipts");
         let mut subject = BlockchainBridge::new(
@@ -1414,14 +1376,14 @@ mod tests {
         );
         subject
             .pending_payable_confirmation
-            .report_transaction_receipts_sub_opt = Some(report_transaction_receipt_recipient);
+            .report_tx_receipts_sub_opt = Some(report_transaction_receipt_recipient);
         subject.scan_error_subs_opt = Some(scan_error_recipient);
         let msg = RequestTransactionReceipts {
-            pending_payable_fingerprints: vec![
-                fingerprint_1.clone(),
-                fingerprint_2.clone(),
-                fingerprint_3.clone(),
-                fingerprint_4.clone(),
+            tx_hashes: vec![
+                TxHashByTable::SentPayable(tx_hash_1),
+                TxHashByTable::SentPayable(tx_hash_2),
+                TxHashByTable::SentPayable(tx_hash_3),
+                TxHashByTable::SentPayable(tx_hash_4),
             ],
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 1234,
@@ -1435,15 +1397,18 @@ mod tests {
         assert_eq!(system.run(), 0);
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 1);
-        let report_receipts_msg = accountant_recording.get_record::<ReportTransactionReceipts>(0);
+        let report_receipts_msg = accountant_recording.get_record::<TxReceiptsMessage>(0);
         assert_eq!(
             *report_receipts_msg,
-            ReportTransactionReceipts {
-                fingerprints_with_receipts: vec![
-                    (TransactionReceiptResult::RpcResponse(TxReceipt{ transaction_hash: hash_1, status: TxStatus::Pending }), fingerprint_1),
-                    (TransactionReceiptResult::RpcResponse(transaction_receipt), fingerprint_2),
-                    (TransactionReceiptResult::RpcResponse(TxReceipt{ transaction_hash: hash_3, status: TxStatus::Pending }), fingerprint_3),
-                    (TransactionReceiptResult::LocalError("RPC error: Error { code: ServerError(429), message: \"The requests per second (RPS) of your requests are higher than your plan allows.\", data: None }".to_string()), fingerprint_4)
+            TxReceiptsMessage {
+                results: hashmap![TxHashByTable::SentPayable(tx_hash_1) => Ok(StatusReadFromReceiptCheck::Pending),
+                    TxHashByTable::SentPayable(tx_hash_2) => Ok(StatusReadFromReceiptCheck::Succeeded(TxBlock {
+                        block_hash: Default::default(),
+                        block_number,
+                    })),
+                    TxHashByTable::SentPayable(tx_hash_3) => Err(
+                        AppRpcError:: Remote(RemoteError::Web3RpcError { code: 429, message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string()})),
+                    TxHashByTable::SentPayable(tx_hash_4) => Ok(StatusReadFromReceiptCheck::Pending),
                 ],
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
@@ -1457,32 +1422,17 @@ mod tests {
     }
 
     #[test]
-    fn handle_request_transaction_receipts_short_circuits_if_submit_batch_fails() {
+    fn handle_request_transaction_receipts_failing_submit_the_batch() {
         init_test_logging();
         let (accountant, _, accountant_recording) = make_recorder();
         let accountant_addr = accountant
             .system_stop_conditions(match_lazily_every_type_id!(ScanError))
             .start();
         let scan_error_recipient: Recipient<ScanError> = accountant_addr.clone().recipient();
-        let report_transaction_recipient: Recipient<ReportTransactionReceipts> =
+        let report_transaction_recipient: Recipient<TxReceiptsMessage> =
             accountant_addr.recipient();
-        let hash_1 = make_tx_hash(0x1b2e6);
-        let fingerprint_1 = PendingPayableFingerprint {
-            rowid: 454,
-            timestamp: SystemTime::now(),
-            hash: hash_1,
-            attempt: 3,
-            amount: 3333,
-            process_error: None,
-        };
-        let fingerprint_2 = PendingPayableFingerprint {
-            rowid: 456,
-            timestamp: SystemTime::now(),
-            hash: make_tx_hash(222444),
-            attempt: 3,
-            amount: 4565,
-            process_error: None,
-        };
+        let tx_hash_1 = make_tx_hash(10101);
+        let tx_hash_2 = make_tx_hash(10102);
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port).start();
         let blockchain_interface = make_blockchain_interface_web3(port);
@@ -1493,17 +1443,20 @@ mod tests {
         );
         subject
             .pending_payable_confirmation
-            .report_transaction_receipts_sub_opt = Some(report_transaction_recipient);
+            .report_tx_receipts_sub_opt = Some(report_transaction_recipient);
         subject.scan_error_subs_opt = Some(scan_error_recipient);
         let msg = RequestTransactionReceipts {
-            pending_payable_fingerprints: vec![fingerprint_1, fingerprint_2],
+            tx_hashes: vec![
+                TxHashByTable::SentPayable(tx_hash_1),
+                TxHashByTable::FailedPayable(tx_hash_2),
+            ],
             response_skeleton_opt: None,
         };
         let system = System::new("test");
 
         let _ = subject.handle_scan_future(
             BlockchainBridge::handle_request_transaction_receipts,
-            ScanType::PendingPayables,
+            DetailedScanType::PendingPayables,
             msg,
         );
 
@@ -1512,7 +1465,7 @@ mod tests {
         assert_eq!(
             recording.get_record::<ScanError>(0),
             &ScanError {
-                scan_type: ScanType::PendingPayables,
+                scan_type: DetailedScanType::PendingPayables,
                 response_skeleton_opt: None,
                 msg: "Blockchain error: Query failed: Transport error: Error(IncompleteMessage)"
                     .to_string()
@@ -1881,7 +1834,7 @@ mod tests {
         assert_eq!(
             scan_error_msg,
             &ScanError {
-                scan_type: ScanType::Receivables,
+                scan_type: DetailedScanType::Receivables,
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321
@@ -1941,7 +1894,7 @@ mod tests {
         assert_eq!(
             scan_error_msg,
             &ScanError {
-                scan_type: ScanType::Receivables,
+                scan_type: DetailedScanType::Receivables,
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321
@@ -2080,19 +2033,22 @@ mod tests {
         );
         let system = System::new("test");
         let accountant_addr = accountant
-            .system_stop_conditions(match_lazily_every_type_id!(ScanError))
+            .system_stop_conditions(match_lazily_every_type_id!(ReceivedPayments))
             .start();
         subject.received_payments_subs_opt = Some(accountant_addr.clone().recipient());
         subject.scan_error_subs_opt = Some(accountant_addr.recipient());
+
         subject.handle_scan_future(
             BlockchainBridge::handle_retrieve_transactions,
-            ScanType::Receivables,
+            DetailedScanType::Receivables,
             retrieve_transactions,
         );
 
         system.run();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
-        let msg_opt = accountant_recording.get_record_opt::<ScanError>(0);
+        let received_msg = accountant_recording.get_record::<ReceivedPayments>(0);
+        assert_eq!(received_msg.new_start_block, BlockMarker::Value(0xc8 + 1));
+        let msg_opt = accountant_recording.get_record_opt::<ScanError>(1);
         assert_eq!(msg_opt, None, "We didnt expect a scan error: {:?}", msg_opt);
     }
 
@@ -2138,7 +2094,7 @@ mod tests {
 
         subject.handle_scan_future(
             BlockchainBridge::handle_retrieve_transactions,
-            ScanType::Receivables,
+            DetailedScanType::Receivables,
             msg.clone(),
         );
 
@@ -2148,7 +2104,7 @@ mod tests {
         assert_eq!(
             message,
             &ScanError {
-                scan_type: ScanType::Receivables,
+                scan_type: DetailedScanType::Receivables,
                 response_skeleton_opt: msg.response_skeleton_opt,
                 msg: "Error while retrieving transactions: QueryFailed(\"RPC error: Error { code: ServerError(-32005), message: \\\"My tummy hurts\\\", data: None }\")"
                     .to_string()
@@ -2286,23 +2242,5 @@ mod tests {
     fn increase_gas_price_by_margin_works() {
         assert_eq!(increase_gas_price_by_margin(1_000_000_000), 1_300_000_000);
         assert_eq!(increase_gas_price_by_margin(9_000_000_000), 11_700_000_000);
-    }
-}
-
-#[cfg(test)]
-pub mod exportable_test_parts {
-    use super::*;
-    use crate::test_utils::recorder::make_blockchain_bridge_subs_from_recorder;
-    use crate::test_utils::unshared_test_utils::SubsFactoryTestAddrLeaker;
-
-    impl SubsFactory<BlockchainBridge, BlockchainBridgeSubs>
-        for SubsFactoryTestAddrLeaker<BlockchainBridge>
-    {
-        fn make(&self, addr: &Addr<BlockchainBridge>) -> BlockchainBridgeSubs {
-            self.send_leaker_msg_and_return_meaningless_subs(
-                addr,
-                make_blockchain_bridge_subs_from_recorder,
-            )
-        }
     }
 }

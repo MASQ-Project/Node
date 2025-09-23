@@ -1,22 +1,19 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::db_access_objects::failed_payable_dao::{
-    FailedTx, FailureReason, FailureStatus, ValidationStatus,
-};
-use crate::accountant::db_access_objects::sent_payable_dao::{Tx, TxStatus};
-use crate::accountant::db_access_objects::utils::to_unix_timestamp;
-use crate::accountant::scanners::payable_scanner::tx_templates::signable::{
-    SignableTxTemplate, SignableTxTemplates,
-};
-use crate::accountant::wei_to_gwei;
+use crate::accountant::db_access_objects::payable_dao::PayableAccount;
+use crate::accountant::db_access_objects::sent_payable_dao::{SentTx, TxStatus};
+use crate::accountant::db_access_objects::utils::{to_unix_timestamp, TxHash};
+use crate::accountant::scanners::payable_scanner_extension::msgs::PricedQualifiedPayables;
+use crate::accountant::PendingPayable;
 use crate::blockchain::blockchain_agent::agent_web3::BlockchainAgentWeb3;
 use crate::blockchain::blockchain_agent::BlockchainAgent;
-use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
+use crate::blockchain::blockchain_bridge::RegisterNewPendingPayables;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
-    BlockchainInterfaceWeb3, HashAndAmount, TRANSFER_METHOD_ID,
+    BlockchainInterfaceWeb3, TRANSFER_METHOD_ID,
 };
 use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
 use crate::blockchain::blockchain_interface::data_structures::BatchResults;
+use crate::blockchain::errors::validation_status::ValidationStatus;
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
@@ -28,17 +25,17 @@ use masq_lib::constants::WALLET_ADDRESS_LENGTH;
 use masq_lib::logger::Logger;
 use secp256k1secrets::SecretKey;
 use serde_json::Value;
+use std::collections::HashSet;
 use std::iter::once;
 use std::time::SystemTime;
 use thousands::Separable;
 use web3::transports::{Batch, Http};
 use web3::types::{Bytes, SignedTransaction, TransactionParameters, U256};
-use web3::Error as Web3Error;
 use web3::Web3;
 
 #[derive(Debug)]
 pub struct BlockchainAgentFutureResult {
-    pub gas_price_wei: U256,
+    pub gas_price_minor: U256,
     pub transaction_fee_balance: U256,
     pub masq_token_balance: U256,
 }
@@ -119,11 +116,11 @@ pub fn transmission_log(chain: Chain, signable_tx_templates: &SignableTxTemplate
     introduction.chain(body).collect()
 }
 
-pub fn sign_transaction_data(amount: u128, receiver_address: Address) -> [u8; 68] {
+pub fn sign_transaction_data(amount_minor: u128, receiver_address: Address) -> [u8; 68] {
     let mut data = [0u8; 4 + 32 + 32];
     data[0..4].copy_from_slice(&TRANSFER_METHOD_ID);
     data[16..36].copy_from_slice(&receiver_address.0[..]);
-    U256::from(amount).to_big_endian(&mut data[36..68]);
+    U256::from(amount_minor).to_big_endian(&mut data[36..68]);
     data
 }
 
@@ -235,6 +232,7 @@ pub fn append_signed_transaction_to_batch(web3_batch: &Web3<Batch<Http>>, raw_tr
 }
 
 pub fn sign_and_append_multiple_payments(
+    now: SystemTime,
     logger: &Logger,
     chain: Chain,
     web3_batch: &Web3<Batch<Http>>,
@@ -309,7 +307,7 @@ pub fn create_blockchain_agent_web3(
         masq_token_balance_in_minor_units,
     );
     Box::new(BlockchainAgentWeb3::new(
-        blockchain_agent_future_result.gas_price_wei.as_u128(),
+        blockchain_agent_future_result.gas_price_minor.as_u128(),
         gas_limit_const_part,
         wallet,
         cons_wallet_balances,
@@ -427,9 +425,10 @@ mod tests {
     }
 
     #[test]
-    fn send_and_append_multiple_payments_works() {
+    fn sign_and_append_multiple_payments_works() {
+        let now = SystemTime::now();
         let port = find_free_port();
-        let logger = Logger::new("send_and_append_multiple_payments_works");
+        let logger = Logger::new("sign_and_append_multiple_payments_works");
         let (_event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
@@ -444,7 +443,8 @@ mod tests {
             make_signable_tx_template(5),
         ]);
 
-        let result = sign_and_append_multiple_payments(
+        let mut result = sign_and_append_multiple_payments(
+            now,
             &logger,
             DEFAULT_CHAIN,
             &web3_batch,
@@ -483,7 +483,48 @@ mod tests {
                     "Transaction {} status mismatch",
                     index
                 )
-            })
+            });
+        let first_actual_sent_tx = result.remove(0);
+        let second_actual_sent_tx = result.remove(0);
+        assert_prepared_sent_tx_record(
+            first_actual_sent_tx,
+            now,
+            account_1,
+            "0x6b85347ff8edf8b126dffb85e7517ac7af1b23eace4ed5ad099d783fd039b1ee",
+            1,
+            111_234_111,
+        );
+        assert_prepared_sent_tx_record(
+            second_actual_sent_tx,
+            now,
+            account_2,
+            "0x3dac025697b994920c9cd72ab0d2df82a7caaa24d44e78b7c04e223299819d54",
+            2,
+            222_432_222,
+        );
+    }
+
+    fn assert_prepared_sent_tx_record(
+        actual_sent_tx: SentTx,
+        now: SystemTime,
+        account_1: PayableAccount,
+        expected_tx_hash_including_prefix: &str,
+        expected_nonce: u64,
+        expected_gas_price_minor: u128,
+    ) {
+        assert_eq!(actual_sent_tx.receiver_address, account_1.wallet.address());
+        assert_eq!(
+            actual_sent_tx.hash,
+            H256::from_str(&expected_tx_hash_including_prefix[2..]).unwrap()
+        );
+        assert_eq!(actual_sent_tx.amount_minor, account_1.balance_wei);
+        assert_eq!(actual_sent_tx.gas_price_minor, expected_gas_price_minor);
+        assert_eq!(actual_sent_tx.nonce, expected_nonce);
+        assert_eq!(
+            actual_sent_tx.status,
+            TxStatus::Pending(ValidationStatus::Waiting)
+        );
+        assert_eq!(actual_sent_tx.timestamp, to_unix_timestamp(now));
     }
 
     #[test]

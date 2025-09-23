@@ -1,13 +1,13 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::db_access_objects::sent_payable_dao::Tx;
 use crate::accountant::db_access_objects::utils::{
-    sql_values_of_failed_tx, DaoFactoryReal, TxHash, TxIdentifiers, VigilantRusqliteFlatten,
+    sql_values_of_failed_tx, DaoFactoryReal, TxHash, TxIdentifiers, TxRecordWithHash, VigilantRusqliteFlatten,
 };
 use crate::accountant::db_access_objects::Transaction;
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::{checked_conversion, join_with_separator};
 use crate::blockchain::errors::rpc_errors::{AppRpcError, AppRpcErrorKind};
-use crate::blockchain::errors::validation_status::PreviousAttempts;
+use crate::blockchain::errors::validation_status::ValidationStatus;
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use masq_lib::utils::ExpectValue;
 use serde_derive::{Deserialize, Serialize};
@@ -86,9 +86,9 @@ pub enum ValidationStatus {
 pub struct FailedTx {
     pub hash: TxHash,
     pub receiver_address: Address,
-    pub amount: u128,
+    pub amount_minor: u128,
     pub timestamp: i64,
-    pub gas_price_wei: u128,
+    pub gas_price_minor: u128,
     pub nonce: u64,
     pub reason: FailureReason,
     pub status: FailureStatus,
@@ -159,13 +159,22 @@ impl From<(&Tx, &Web3Error)> for FailedTx {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FailureRetrieveCondition {
+    ByTxHash(Vec<TxHash>),
     ByStatus(FailureStatus),
     ByReceiverAddresses(BTreeSet<Address>),
+    EveryRecheckRequiredRecord,
 }
 
 impl Display for FailureRetrieveCondition {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            FailureRetrieveCondition::ByTxHash(hashes) => {
+                write!(
+                    f,
+                    "WHERE tx_hash IN ({})",
+                    comma_joined_stringifiable(hashes, |hash| format!("'{:?}'", hash))
+                )
+            }
             FailureRetrieveCondition::ByStatus(status) => {
                 write!(f, "WHERE status = '{}'", status)
             }
@@ -176,18 +185,23 @@ impl Display for FailureRetrieveCondition {
                     join_with_separator(addresses, |address| format!("'{:?}'", address), ", ")
                 )
             }
+            FailureRetrieveCondition::EveryRecheckRequiredRecord => {
+                write!(f, "WHERE status LIKE 'RecheckRequired%'")
+            }
         }
     }
 }
 
 pub trait FailedPayableDao {
     fn get_tx_identifiers(&self, hashes: &BTreeSet<TxHash>) -> TxIdentifiers;
+    //TODO potentially atomically
     fn insert_new_records(&self, txs: &BTreeSet<FailedTx>) -> Result<(), FailedPayableDaoError>;
     fn retrieve_txs(&self, condition: Option<FailureRetrieveCondition>) -> BTreeSet<FailedTx>;
     fn update_statuses(
         &self,
-        status_updates: HashMap<TxHash, FailureStatus>,
+        status_updates: &HashMap<TxHash, FailureStatus>,
     ) -> Result<(), FailedPayableDaoError>;
+    //TODO potentially atomically
     fn delete_records(&self, hashes: &BTreeSet<TxHash>) -> Result<(), FailedPayableDaoError>;
 }
 
@@ -310,11 +324,11 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
                 Address::from_str(&receiver_address_str[2..]).expect("Failed to parse Address");
             let amount_high_b = row.get(2).expectv("amount_high_b");
             let amount_low_b = row.get(3).expectv("amount_low_b");
-            let amount = BigIntDivider::reconstitute(amount_high_b, amount_low_b) as u128;
+            let amount_minor = BigIntDivider::reconstitute(amount_high_b, amount_low_b) as u128;
             let timestamp = row.get(4).expectv("timestamp");
             let gas_price_wei_high_b = row.get(5).expectv("gas_price_wei_high_b");
             let gas_price_wei_low_b = row.get(6).expectv("gas_price_wei_low_b");
-            let gas_price_wei =
+            let gas_price_minor =
                 BigIntDivider::reconstitute(gas_price_wei_high_b, gas_price_wei_low_b) as u128;
             let nonce = row.get(7).expectv("nonce");
             let reason_str: String = row.get(8).expectv("reason");
@@ -327,9 +341,9 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
             Ok(FailedTx {
                 hash,
                 receiver_address,
-                amount,
+                amount_minor,
                 timestamp,
-                gas_price_wei,
+                gas_price_minor,
                 nonce,
                 reason,
                 status,
@@ -342,7 +356,7 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
 
     fn update_statuses(
         &self,
-        status_updates: HashMap<TxHash, FailureStatus>,
+        status_updates: &HashMap<TxHash, FailureStatus>,
     ) -> Result<(), FailedPayableDaoError> {
         if status_updates.is_empty() {
             return Err(FailedPayableDaoError::EmptyInput);
@@ -430,7 +444,7 @@ mod tests {
     };
     use crate::accountant::db_access_objects::failed_payable_dao::{
         FailedPayableDao, FailedPayableDaoError, FailedPayableDaoReal, FailedTx, FailureReason,
-        FailureRetrieveCondition, FailureStatus, ValidationStatus,
+        FailureRetrieveCondition, FailureStatus,
     };
     use crate::accountant::db_access_objects::test_utils::{
         make_read_only_db_connection, FailedTxBuilder,
@@ -440,7 +454,7 @@ mod tests {
     use crate::blockchain::errors::rpc_errors::LocalError::Decoder;
     use crate::blockchain::errors::rpc_errors::{AppRpcError, AppRpcErrorKind};
     use crate::blockchain::errors::validation_status::{
-        PreviousAttempts, ValidationFailureClockReal,
+        PreviousAttempts, ValidationFailureClockReal, ValidationStatus,
     };
     use crate::blockchain::errors::BlockchainErrorKind;
     use crate::blockchain::test_utils::{make_address, make_tx_hash, ValidationFailureClockMock};
@@ -530,12 +544,12 @@ mod tests {
                 {FailedTx { \
                 hash: 0x000000000000000000000000000000000000000000000000000000000000007b, \
                 receiver_address: 0x0000000000000000000000000000000000000000, \
-                amount: 0, timestamp: 1719990000, gas_price_wei: 0, \
+                amount_minor: 0, timestamp: 1719990000, gas_price_minor: 0, \
                 nonce: 2, reason: PendingTooLong, status: RecheckRequired(Waiting) }, \
                 FailedTx { \
                 hash: 0x000000000000000000000000000000000000000000000000000000000000007b, \
                 receiver_address: 0x0000000000000000000000000000000000000000, \
-                amount: 0, timestamp: 1719990000, gas_price_wei: 0, \
+                amount_minor: 0, timestamp: 1719990000, gas_price_minor: 0, \
                 nonce: 1, reason: PendingTooLong, status: RetryRequired }}"
                     .to_string()
             ))
@@ -652,12 +666,34 @@ mod tests {
     }
 
     #[test]
+    fn display_for_failure_retrieve_condition_works() {
+        let tx_hash_1 = make_tx_hash(123);
+        let tx_hash_2 = make_tx_hash(456);
+        assert_eq!(FailureRetrieveCondition::ByTxHash(vec![tx_hash_1, tx_hash_2]).to_string(),
+                   "WHERE tx_hash IN ('0x000000000000000000000000000000000000000000000000000000000000007b', \
+                   '0x00000000000000000000000000000000000000000000000000000000000001c8')"
+        );
+        assert_eq!(
+            FailureRetrieveCondition::ByStatus(RetryRequired).to_string(),
+            "WHERE status = '\"RetryRequired\"'"
+        );
+        assert_eq!(
+            FailureRetrieveCondition::ByStatus(RecheckRequired(ValidationStatus::Waiting))
+                .to_string(),
+            "WHERE status = '{\"RecheckRequired\":\"Waiting\"}'"
+        );
+        assert_eq!(
+            FailureRetrieveCondition::EveryRecheckRequiredRecord.to_string(),
+            "WHERE status LIKE 'RecheckRequired%'"
+        );
+    }
+
+    #[test]
     fn failure_reason_from_str_works() {
         // Submission error
         assert_eq!(
-            FailureReason::from_str(r#"{"Submission":{"Local":{"Decoder":"am i alive?"}}}"#)
-                .unwrap(),
-            FailureReason::Submission(AppRpcError::Local(Decoder("am i alive?".to_string())))
+            FailureReason::from_str(r#"{"Submission":{"Local":"Decoder"}}"#).unwrap(),
+            FailureReason::Submission(AppRpcErrorKind::Local(LocalErrorKind::Decoder))
         );
 
         // Reverted
@@ -705,8 +741,8 @@ mod tests {
         );
 
         assert_eq!(
-            FailureStatus::from_str(r#"{"RecheckRequired":{"Reattempting":{"AppRpc":{"Unreachable":{"firstSeen":{"secs_since_epoch":1755080031,"nanos_since_epoch":612180914},"attempts":1}}}}}"#).unwrap(),
-            FailureStatus::RecheckRequired(ValidationStatus::Reattempting( PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::Unreachable), &validation_failure_clock)))
+            FailureStatus::from_str(r#"{"RecheckRequired":{"Reattempting":[{"error":{"AppRpc":{"Remote":"Unreachable"}},"firstSeen":{"secs_since_epoch":1755080031,"nanos_since_epoch":612180914},"attempts":1}]}}"#).unwrap(),
+            FailureStatus::RecheckRequired(ValidationStatus::Reattempting( PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(RemoteErrorKind::Unreachable)), &validation_failure_clock)))
         );
 
         assert_eq!(
@@ -717,9 +753,8 @@ mod tests {
         // Invalid Variant
         assert_eq!(
             FailureStatus::from_str("\"UnknownStatus\"").unwrap_err(),
-            "unknown variant `UnknownStatus`, \
-            expected one of `RetryRequired`, `RecheckRequired`, `Concluded` \
-            at line 1 column 15 in '\"UnknownStatus\"'"
+            "unknown variant `UnknownStatus`, expected one of `RetryRequired`, `RecheckRequired`, \
+            `Concluded` at line 1 column 15 in '\"UnknownStatus\"'"
         );
 
         // Invalid Input
@@ -817,7 +852,9 @@ mod tests {
             .reason(PendingTooLong)
             .status(RecheckRequired(ValidationStatus::Reattempting(
                 PreviousAttempts::new(
-                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::Unreachable),
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(
+                        RemoteErrorKind::Unreachable,
+                    )),
                     &ValidationFailureClockReal::default(),
                 ),
             )))
@@ -936,19 +973,25 @@ mod tests {
                 tx4.clone(),
             ]))
             .unwrap();
+        let timestamp = SystemTime::now();
+        let clock = ValidationFailureClockMock::default()
+            .now_result(timestamp)
+            .now_result(timestamp);
         let hashmap = HashMap::from([
             (tx1.hash, Concluded),
             (
                 tx2.hash,
                 RecheckRequired(ValidationStatus::Reattempting(PreviousAttempts::new(
-                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::Unreachable),
-                    &ValidationFailureClockReal::default(),
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(
+                        RemoteErrorKind::Unreachable,
+                    )),
+                    &clock,
                 ))),
             ),
             (tx3.hash, Concluded),
         ]);
 
-        let result = subject.update_statuses(hashmap);
+        let result = subject.update_statuses(&hashmap);
         let updated_txs = subject.retrieve_txs(None);
         let find_tx = |tx_hash| updated_txs.iter().find(|tx| tx.hash == tx_hash).unwrap();
         let updated_tx1 = find_tx(hash1);
@@ -962,8 +1005,8 @@ mod tests {
         assert_eq!(
             updated_tx2.status,
             RecheckRequired(ValidationStatus::Reattempting(PreviousAttempts::new(
-                BlockchainErrorKind::AppRpc(AppRpcErrorKind::Unreachable),
-                &ValidationFailureClockReal::default()
+                BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(RemoteErrorKind::Unreachable)),
+                &clock
             )))
         );
         assert_eq!(tx3.status, RetryRequired);
@@ -973,6 +1016,7 @@ mod tests {
             updated_tx4.status,
             RecheckRequired(ValidationStatus::Waiting)
         );
+        assert_eq!(updated_txs.len(), 4);
     }
 
     #[test]
@@ -986,7 +1030,7 @@ mod tests {
             .unwrap();
         let subject = FailedPayableDaoReal::new(wrapped_conn);
 
-        let result = subject.update_statuses(HashMap::new());
+        let result = subject.update_statuses(&HashMap::new());
 
         assert_eq!(result, Err(FailedPayableDaoError::EmptyInput));
     }
@@ -1000,7 +1044,7 @@ mod tests {
         let wrapped_conn = make_read_only_db_connection(home_dir);
         let subject = FailedPayableDaoReal::new(Box::new(wrapped_conn));
 
-        let result = subject.update_statuses(HashMap::from([(make_tx_hash(1), Concluded)]));
+        let result = subject.update_statuses(&HashMap::from([(make_tx_hash(1), Concluded)]));
 
         assert_eq!(
             result,

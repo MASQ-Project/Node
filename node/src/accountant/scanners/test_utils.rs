@@ -2,6 +2,7 @@
 
 #![cfg(test)]
 
+use crate::accountant::db_access_objects::utils::TxHash;
 use crate::accountant::scanners::payable_scanner::msgs::{
     InitialTemplatesMessage, PricedTemplatesMessage,
 };
@@ -10,18 +11,19 @@ use crate::accountant::scanners::payable_scanner::payment_adjuster_integration::
 };
 use crate::accountant::scanners::payable_scanner::utils::PayableScanResult;
 use crate::accountant::scanners::payable_scanner::{MultistageDualPayableScanner, PayableScanner};
-use crate::accountant::scanners::pending_payable_scanner::utils::PendingPayableScanResult;
+use crate::accountant::scanners::pending_payable_scanner::utils::{
+    PendingPayableCache, PendingPayableScanResult,
+};
 use crate::accountant::scanners::scan_schedulers::{
     NewPayableScanDynIntervalComputer, PayableSequenceScanner, RescheduleScanOnErrorResolver,
-    ScanRescheduleAfterEarlyStop,
+    ScanReschedulingAfterEarlyStop,
 };
 use crate::accountant::scanners::{
     PendingPayableScanner, PrivateScanner, RealScannerMarker, ReceivableScanner, Scanner,
     StartScanError, StartableScanner,
 };
 use crate::accountant::{
-    ReceivedPayments, ReportTransactionReceipts, RequestTransactionReceipts, ResponseSkeleton,
-    SentPayables,
+    ReceivedPayments, RequestTransactionReceipts, ResponseSkeleton, SentPayables, TxReceiptsMessage,
 };
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::sub_lib::blockchain_bridge::{ConsumingWalletBalances, OutboundPaymentsInstructions};
@@ -33,6 +35,7 @@ use masq_lib::ui_gateway::NodeToUiMessage;
 use regex::Regex;
 use std::any::type_name;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use time::{format_description, PrimitiveDateTime};
@@ -368,11 +371,7 @@ pub enum ScannerReplacement {
     PendingPayable(
         ReplacementType<
             PendingPayableScanner,
-            ScannerMock<
-                RequestTransactionReceipts,
-                ReportTransactionReceipts,
-                PendingPayableScanResult,
-            >,
+            ScannerMock<RequestTransactionReceipts, TxReceiptsMessage, PendingPayableScanResult>,
         >,
     ),
     Receivable(
@@ -388,8 +387,8 @@ pub enum MarkScanner<'a> {
     Started(SystemTime),
 }
 
-// Cautious: Don't compare to another timestamp on a full match; this timestamp is trimmed in
-// nanoseconds down to three digits
+// Cautious: Don't compare to another timestamp on an exact match. This timestamp is trimmed in
+// nanoseconds down to three digits. Works only for the format bound by TIME_FORMATTING_STRING
 pub fn parse_system_time_from_str(examined_str: &str) -> Vec<SystemTime> {
     let regex = Regex::new(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})").unwrap();
     let captures = regex.captures_iter(examined_str);
@@ -445,7 +444,7 @@ pub fn assert_timestamps_from_str(examined_str: &str, expected_timestamps: Vec<S
 pub struct RescheduleScanOnErrorResolverMock {
     resolve_rescheduling_on_error_params:
         Arc<Mutex<Vec<(PayableSequenceScanner, StartScanError, bool, Logger)>>>,
-    resolve_rescheduling_on_error_results: RefCell<Vec<ScanRescheduleAfterEarlyStop>>,
+    resolve_rescheduling_on_error_results: RefCell<Vec<ScanReschedulingAfterEarlyStop>>,
 }
 
 impl RescheduleScanOnErrorResolver for RescheduleScanOnErrorResolverMock {
@@ -455,7 +454,7 @@ impl RescheduleScanOnErrorResolver for RescheduleScanOnErrorResolverMock {
         error: &StartScanError,
         is_externally_triggered: bool,
         logger: &Logger,
-    ) -> ScanRescheduleAfterEarlyStop {
+    ) -> ScanReschedulingAfterEarlyStop {
         self.resolve_rescheduling_on_error_params
             .lock()
             .unwrap()
@@ -481,7 +480,7 @@ impl RescheduleScanOnErrorResolverMock {
     }
     pub fn resolve_rescheduling_on_error_result(
         self,
-        result: ScanRescheduleAfterEarlyStop,
+        result: ScanReschedulingAfterEarlyStop,
     ) -> Self {
         self.resolve_rescheduling_on_error_results
             .borrow_mut()
@@ -492,4 +491,71 @@ impl RescheduleScanOnErrorResolverMock {
 
 pub fn make_zeroed_consuming_wallet_balances() -> ConsumingWalletBalances {
     ConsumingWalletBalances::new(0.into(), 0.into())
+}
+
+pub struct PendingPayableCacheMock<Record> {
+    load_cache_params: Arc<Mutex<Vec<Vec<Record>>>>,
+    load_cache_results: RefCell<Vec<HashMap<TxHash, Record>>>,
+    get_record_by_hash_params: Arc<Mutex<Vec<TxHash>>>,
+    get_record_by_hash_results: RefCell<Vec<Option<Record>>>,
+    ensure_empty_cache_params: Arc<Mutex<Vec<()>>>,
+}
+
+impl<Record> Default for PendingPayableCacheMock<Record> {
+    fn default() -> Self {
+        Self {
+            load_cache_params: Arc::new(Mutex::new(vec![])),
+            load_cache_results: RefCell::new(vec![]),
+            get_record_by_hash_params: Arc::new(Mutex::new(vec![])),
+            get_record_by_hash_results: RefCell::new(vec![]),
+            ensure_empty_cache_params: Arc::new(Mutex::new(vec![])),
+        }
+    }
+}
+
+impl<Record> PendingPayableCache<Record> for PendingPayableCacheMock<Record> {
+    fn load_cache(&mut self, records: Vec<Record>) {
+        self.load_cache_params.lock().unwrap().push(records);
+        self.load_cache_results.borrow_mut().remove(0);
+    }
+
+    fn get_record_by_hash(&mut self, hash: TxHash) -> Option<Record> {
+        self.get_record_by_hash_params.lock().unwrap().push(hash);
+        self.get_record_by_hash_results.borrow_mut().remove(0)
+    }
+
+    fn ensure_empty_cache(&mut self, _logger: &Logger) {
+        self.ensure_empty_cache_params.lock().unwrap().push(());
+    }
+
+    fn dump_cache(&mut self) -> HashMap<TxHash, Record> {
+        unimplemented!("not needed yet")
+    }
+}
+
+impl<Record> PendingPayableCacheMock<Record> {
+    pub fn load_cache_params(mut self, params: &Arc<Mutex<Vec<Vec<Record>>>>) -> Self {
+        self.load_cache_params = params.clone();
+        self
+    }
+
+    pub fn load_cache_result(self, result: HashMap<TxHash, Record>) -> Self {
+        self.load_cache_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn get_record_by_hash_params(mut self, params: &Arc<Mutex<Vec<TxHash>>>) -> Self {
+        self.get_record_by_hash_params = params.clone();
+        self
+    }
+
+    pub fn get_record_by_hash_result(self, result: Option<Record>) -> Self {
+        self.get_record_by_hash_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn ensure_empty_cache_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+        self.ensure_empty_cache_params = params.clone();
+        self
+    }
 }

@@ -2,11 +2,13 @@
 
 use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
 use crate::accountant::{comma_joined_stringifiable, join_with_separator};
-use itertools::Either;
+use crate::accountant::db_access_objects::utils::TxHash;
+use itertools::{Either, Itertools};
+use std::collections::HashSet;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use variant_count::VariantCount;
-use web3::types::{Address, H256};
+use web3::types::Address;
 
 const BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED: &str = "Uninitialized blockchain interface. To avoid \
 being delinquency-banned, you should restart the Node with a value for blockchain-service-url";
@@ -199,7 +201,7 @@ mod tests {
                 LEDGER wallet, stupid.\"",
                 "Signing phase: \"You cannot sign with just three crosses here, clever boy\"",
                 "Sending phase: \"Sending to cosmos belongs elsewhere\". Signed and hashed \
-                transactions: 0x000000000000000000000000000000000000000000000000000000000000006f, \
+                txs: 0x000000000000000000000000000000000000000000000000000000000000006f, \
                 0x00000000000000000000000000000000000000000000000000000000000000de",
                 BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED
             ])

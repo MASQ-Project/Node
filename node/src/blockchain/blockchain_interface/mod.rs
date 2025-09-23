@@ -6,17 +6,16 @@ pub mod lower_level_interface;
 
 use actix::Recipient;
 use ethereum_types::H256;
-use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainAgentBuildError, BlockchainInterfaceError, LocalPayableError};
-use crate::blockchain::blockchain_interface::data_structures::{BatchResults, RetrievedBlockchainTransactions};
+use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainAgentBuildError, BlockchainInterfaceError, PayableTransactionError};
+use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RetrievedBlockchainTransactions};
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use crate::sub_lib::wallet::Wallet;
+use actix::Recipient;
 use futures::Future;
 use itertools::Either;
 use masq_lib::blockchains::chains::Chain;
-use web3::types::Address;
 use masq_lib::logger::Logger;
-use crate::accountant::scanners::payable_scanner::tx_templates::priced::new::PricedNewTxTemplates;
-use crate::accountant::scanners::payable_scanner::tx_templates::priced::retry::PricedRetryTxTemplates;
+use crate::accountant::scanners::payable_scanner_extension::msgs::{PricedQualifiedPayables};
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::{BlockMarker, BlockScanRange, PendingPayableFingerprintSeeds};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionReceiptResult;
@@ -42,8 +41,13 @@ pub trait BlockchainInterface {
 
     fn process_transaction_receipts(
         &self,
-        transaction_hashes: Vec<H256>,
-    ) -> Box<dyn Future<Item = Vec<TransactionReceiptResult>, Error = BlockchainInterfaceError>>;
+        tx_hashes: Vec<TxHashByTable>,
+    ) -> Box<
+        dyn Future<
+            Item = HashMap<TxHashByTable, TxReceiptResult>,
+            Error = BlockchainInterfaceError,
+        >,
+    >;
 
     fn submit_payables_in_batch(
         &self,
