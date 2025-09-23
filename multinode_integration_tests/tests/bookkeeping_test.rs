@@ -9,11 +9,11 @@ use multinode_integration_tests_lib::utils::{payable_dao, receivable_dao};
 use node_lib::accountant::db_access_objects::payable_dao::PayableAccount;
 use node_lib::accountant::db_access_objects::receivable_dao::ReceivableAccount;
 use node_lib::accountant::db_access_objects::utils::CustomQuery;
+use node_lib::sub_lib::neighborhood::RatePack;
 use node_lib::sub_lib::wallet::Wallet;
 use std::collections::HashMap;
 use std::thread;
 use std::time::{Duration, SystemTime};
-use node_lib::sub_lib::neighborhood::RatePack;
 
 #[test]
 fn provided_and_consumed_services_are_recorded_in_databases() {
@@ -117,13 +117,13 @@ pub fn start_real_node(cluster: &mut MASQNodeCluster, neighbor: NodeReference) -
             .neighbor(neighbor)
             .earning_wallet_info(make_earning_wallet_info(&index.to_string()))
             .chain(cluster.chain)
-            .rate_pack( RatePack {
+            .rate_pack(RatePack {
                 //TODO create method in RatePack to return Default RatePack increased by some value or factor - make sure there is a test for this method
                 routing_byte_rate: 2000000000,
                 routing_service_rate: 2000000000,
                 exit_byte_rate: 2000000000,
                 exit_service_rate: 2000000000,
-            } )
+            })
             .build(),
     )
 }
