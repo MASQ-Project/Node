@@ -27,7 +27,7 @@ pub(in crate::commands::financials_command) mod restricted {
                 self.wallet.to_string(),
                 self.age_s.separate_with_commas(),
                 process_gwei_into_requested_format(self.balance_gwei, is_gwei),
-                match &self.current_tx_info_opt {
+                match &self.tx_processing_info_opt {
                     Some(current_tx_info) => match &current_tx_info.pending_tx_hash_opt {
                         Some(hash) => {
                             if current_tx_info.failures == 0 {

@@ -1335,7 +1335,7 @@ mod tests {
     };
     use masq_lib::messages::TopRecordsOrdering::{Age, Balance};
     use masq_lib::messages::{
-        CurrentTxInfo, CustomQueries, RangeQuery, TopRecordsConfig, UiFinancialStatistics,
+        TxProcessingInfo, CustomQueries, RangeQuery, TopRecordsConfig, UiFinancialStatistics,
         UiMessageError, UiPayableAccount, UiReceivableAccount, UiScanRequest, UiScanResponse,
     };
     use masq_lib::test_utils::logging::init_test_logging;
@@ -6087,7 +6087,7 @@ mod tests {
                         wallet: make_wallet("abcd123").to_string(),
                         age_s: extracted_payable_ages[0],
                         balance_gwei: 58,
-                        current_tx_info_opt: None,
+                        tx_processing_info_opt: None,
                     },]),
                     receivable_opt: Some(vec![UiReceivableAccount {
                         wallet: make_wallet("efe4848").to_string(),
@@ -6192,7 +6192,7 @@ mod tests {
                 balance_wei: 5_686_860_056,
                 last_paid_timestamp: SystemTime::now().sub(Duration::from_secs(7580)),
             },
-            tx_opt: Some(CurrentTxInfo {
+            tx_opt: Some(TxProcessingInfo {
                 pending_tx_hash_opt: None,
                 failures: 2,
             }),
@@ -6258,7 +6258,7 @@ mod tests {
                         wallet: make_wallet("abcd123").to_string(),
                         age_s: extracted_payable_ages[0],
                         balance_gwei: 5,
-                        current_tx_info_opt: Some(CurrentTxInfo {
+                        tx_processing_info_opt: Some(TxProcessingInfo {
                             pending_tx_hash_opt: None,
                             failures: 2
                         }),
@@ -6459,7 +6459,7 @@ mod tests {
                 balance_wei: 8_686_005,
                 last_paid_timestamp: SystemTime::now().sub(Duration::from_secs(5000)),
             },
-            tx_opt: Some(CurrentTxInfo {
+            tx_opt: Some(TxProcessingInfo {
                 pending_tx_hash_opt: None,
                 failures: 3,
             }),

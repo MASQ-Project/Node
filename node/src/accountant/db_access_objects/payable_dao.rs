@@ -18,7 +18,7 @@ use crate::sub_lib::wallet::Wallet;
 use ethabi::Address;
 #[cfg(test)]
 use itertools::Either;
-use masq_lib::messages::CurrentTxInfo;
+use masq_lib::messages::TxProcessingInfo;
 use masq_lib::utils::ExpectValue;
 #[cfg(test)]
 use rusqlite::OptionalExtension;
@@ -312,9 +312,9 @@ impl PayableDaoReal {
     fn maybe_construct_tx_info(
         pending_tx_hash_opt: Option<String>,
         previous_failures: usize,
-    ) -> Option<CurrentTxInfo> {
+    ) -> Option<TxProcessingInfo> {
         if pending_tx_hash_opt.is_some() || previous_failures > 0 {
-            Some(CurrentTxInfo {
+            Some(TxProcessingInfo {
                 pending_tx_hash_opt,
                 failures: previous_failures,
             })
@@ -406,7 +406,7 @@ mod tests {
     use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::test_utils::make_wallet;
     use itertools::Itertools;
-    use masq_lib::messages::CurrentTxInfo;
+    use masq_lib::messages::TxProcessingInfo;
     use masq_lib::messages::TopRecordsOrdering::{Age, Balance};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::Connection;
@@ -1150,7 +1150,7 @@ mod tests {
                         balance_wei: 333_000_000_000,
                         last_paid_timestamp: from_unix_timestamp(now - 80_000),
                     },
-                    tx_opt: Some(CurrentTxInfo {
+                    tx_opt: Some(TxProcessingInfo {
                         pending_tx_hash_opt: None,
                         failures: 2
                     })
@@ -1161,7 +1161,7 @@ mod tests {
                         balance_wei: 222_000_000_000,
                         last_paid_timestamp: from_unix_timestamp(now - 80_000),
                     },
-                    tx_opt: Some(CurrentTxInfo {
+                    tx_opt: Some(TxProcessingInfo {
                         pending_tx_hash_opt: Some(format!("{:?}", sent_tx_hash_1)),
                         failures: 0
                     })
@@ -1172,7 +1172,7 @@ mod tests {
                         balance_wei: 111_000_000_000,
                         last_paid_timestamp: from_unix_timestamp(now - 80_000),
                     },
-                    tx_opt: Some(CurrentTxInfo {
+                    tx_opt: Some(TxProcessingInfo {
                         pending_tx_hash_opt: Some(format!("{:?}", sent_tx_hash_2)),
                         failures: 1
                     })
@@ -1279,7 +1279,7 @@ mod tests {
                         balance_wei: 4_000_000_000,
                         last_paid_timestamp: from_unix_timestamp(now - 80_000),
                     },
-                    tx_opt: Some(CurrentTxInfo {
+                    tx_opt: Some(TxProcessingInfo {
                         pending_tx_hash_opt: Some(format!("{:?}", sent_tx_hash_1)),
                         failures: 2
                     })
@@ -1290,7 +1290,7 @@ mod tests {
                         balance_wei: 3_000_000_000,
                         last_paid_timestamp: from_unix_timestamp(now - 80_000),
                     },
-                    tx_opt: Some(CurrentTxInfo {
+                    tx_opt: Some(TxProcessingInfo {
                         pending_tx_hash_opt: None,
                         failures: 1
                     })
@@ -1301,7 +1301,7 @@ mod tests {
                         balance_wei: 2_000_000_000,
                         last_paid_timestamp: from_unix_timestamp(now - 80_000),
                     },
-                    tx_opt: Some(CurrentTxInfo {
+                    tx_opt: Some(TxProcessingInfo {
                         pending_tx_hash_opt: Some(format!("{:?}", sent_tx_hash_2)),
                         failures: 0
                     })
@@ -1312,7 +1312,7 @@ mod tests {
                         balance_wei: 1_000_000_000,
                         last_paid_timestamp: from_unix_timestamp(now - 80_000),
                     },
-                    // No CurrentTxInfo despite existing FailedTx records (The record has the failure
+                    // No TxProcessingInfo despite existing FailedTx records (The record has the failure
                     // status = 'Concluded')
                     tx_opt: None
                 }
@@ -1437,7 +1437,7 @@ mod tests {
                         balance_wei: gwei_to_wei(1_800_456_000_u32),
                         last_paid_timestamp: from_unix_timestamp(now - 100_401),
                     },
-                    tx_opt: Some(CurrentTxInfo {
+                    tx_opt: Some(TxProcessingInfo {
                         pending_tx_hash_opt: Some(format!("{:?}", make_tx_hash(0xABC))),
                         failures: 0
                     })
@@ -1627,7 +1627,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Some(CurrentTxInfo {
+            Some(TxProcessingInfo {
                 pending_tx_hash_opt: Some(format!("{:?}", tx_hash)),
                 failures: 0
             })
@@ -1644,7 +1644,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Some(CurrentTxInfo {
+            Some(TxProcessingInfo {
                 pending_tx_hash_opt: Some(format!("{:?}", make_tx_hash(123))),
                 failures: errors
             })
@@ -1659,7 +1659,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Some(CurrentTxInfo {
+            Some(TxProcessingInfo {
                 pending_tx_hash_opt: None,
                 failures: errors
             })

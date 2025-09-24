@@ -324,7 +324,7 @@ mod tests {
     use crate::test_utils::mocks::CommandContextMock;
     use atty::Stream;
     use masq_lib::messages::{
-        CurrentTxInfo, ToMessageBody, TopRecordsOrdering, UiFinancialStatistics,
+        TxProcessingInfo, ToMessageBody, TopRecordsOrdering, UiFinancialStatistics,
         UiFinancialsResponse, UiPayableAccount, UiReceivableAccount,
     };
     use masq_lib::ui_gateway::MessageBody;
@@ -1028,27 +1028,27 @@ mod tests {
                             wallet: "0xA884A2F1A5Ec6C2e499644666a5E6af97B966888".to_string(),
                             age_s: 5645405400,
                             balance_gwei: 68843325667,
-                            current_tx_info_opt: None,
+                            tx_processing_info_opt: None,
                         },
                         UiPayableAccount {
                             wallet: "0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440".to_string(),
                             age_s: 150000,
                             balance_gwei: 999888777,
-                            current_tx_info_opt: Some(CurrentTxInfo{pending_tx_hash_opt: Some("0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e".to_string()),failures: 0}
+                            tx_processing_info_opt: Some(TxProcessingInfo{pending_tx_hash_opt: Some("0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e".to_string()),failures: 0}
                             ),
                         },
                         UiPayableAccount {
                             wallet: "0x563cCaC5596b7ac986ff8F7ca056789a122c3230".to_string(),
                             age_s: 12055,
                             balance_gwei: 33444555,
-                            current_tx_info_opt: Some(CurrentTxInfo{pending_tx_hash_opt: None,failures: 3}
+                            tx_processing_info_opt: Some(TxProcessingInfo{pending_tx_hash_opt: None,failures: 3}
                             ),
                         },
                         UiPayableAccount {
                             wallet: "0xeF456a11A5Ec6C2e499655787a5E6af97c961123".to_string(),
                             age_s: 161514,
                             balance_gwei: 1111,
-                            current_tx_info_opt: Some(CurrentTxInfo{pending_tx_hash_opt: Some("0xb45a663d56121112f4d45c1c3a245be32eAA6afd20b759b762f1dba945ec2f41".to_string()),failures: 1}
+                            tx_processing_info_opt: Some(TxProcessingInfo{pending_tx_hash_opt: Some("0xb45a663d56121112f4d45c1c3a245be32eAA6afd20b759b762f1dba945ec2f41".to_string()),failures: 1}
                             ),
                         },
                     ]),
@@ -1071,7 +1071,7 @@ mod tests {
                         wallet: "0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440".to_string(),
                         age_s: 150000,
                         balance_gwei: 8,
-                        current_tx_info_opt: Some(CurrentTxInfo{pending_tx_hash_opt: Some(
+                        tx_processing_info_opt: Some(TxProcessingInfo{pending_tx_hash_opt: Some(
                             "0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e"
                                 .to_string()),failures: 0}
                         ),
@@ -1369,7 +1369,7 @@ mod tests {
                     wallet: "0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440".to_string(),
                     age_s: 150000,
                     balance_gwei: 1200000000000,
-                    current_tx_info_opt: Some(CurrentTxInfo{pending_tx_hash_opt: Some(
+                    tx_processing_info_opt: Some(TxProcessingInfo{pending_tx_hash_opt: Some(
                         "0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e"
                             .to_string()),failures: 4}
                     ),
@@ -1620,7 +1620,7 @@ mod tests {
                         wallet: "0xA884A2F1A5Ec6C2e499644666a5E6af97B966888".to_string(),
                         age_s: 5405400,
                         balance_gwei: 644000000,
-                        current_tx_info_opt: Some(CurrentTxInfo{pending_tx_hash_opt: Some(
+                        tx_processing_info_opt: Some(TxProcessingInfo{pending_tx_hash_opt: Some(
                             "0x3648c8b8c7e067ac30b80b6936159326d564dd13b7ae465b26647154ada2c638"
                                 .to_string()), failures: 0}
                         ),
@@ -1629,7 +1629,7 @@ mod tests {
                         wallet: "0xEA674fdac714fd979de3EdF0F56AA9716B198ec8".to_string(),
                         age_s: 28120444,
                         balance_gwei: 97524120,
-                        current_tx_info_opt: None,
+                        tx_processing_info_opt: None,
                     },
                 ]),
                 receivable_opt: Some(vec![
@@ -1706,7 +1706,7 @@ mod tests {
                         wallet: "0x6e250504DdfFDb986C4F0bb8Df162503B4118b05".to_string(),
                         age_s: 4445,
                         balance_gwei: 3862654858938090,
-                        current_tx_info_opt: Some( CurrentTxInfo{pending_tx_hash_opt: Some(
+                        tx_processing_info_opt: Some( TxProcessingInfo{pending_tx_hash_opt: Some(
                             "0x5fe272ed1e941cc05fbd624ec4b1546cd03c25d53e24ba2c18b11feb83cd4581"
                                 .to_string()),failures: 0}
                         ),
@@ -1715,13 +1715,13 @@ mod tests {
                         wallet: "0xA884A2F1A5Ec6C2e499644666a5E6af97B966888".to_string(),
                         age_s: 70000,
                         balance_gwei: 708090,
-                        current_tx_info_opt: Some(CurrentTxInfo{pending_tx_hash_opt: None, failures: 3}),
+                        tx_processing_info_opt: Some(TxProcessingInfo{pending_tx_hash_opt: None, failures: 3}),
                     },
                     UiPayableAccount {
                         wallet: "0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440".to_string(),
                         age_s: 6089909,
                         balance_gwei: 66658,
-                        current_tx_info_opt: None,
+                        tx_processing_info_opt: None,
                     },
                 ]),
                 receivable_opt: None,

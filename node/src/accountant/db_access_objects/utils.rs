@@ -12,7 +12,7 @@ use crate::sub_lib::accountant::PaymentThresholds;
 use ethereum_types::H256;
 use masq_lib::constants::WEIS_IN_GWEI;
 use masq_lib::messages::{
-    CurrentTxInfo, RangeQuery, TopRecordsConfig, TopRecordsOrdering, UiPayableAccount,
+    TxProcessingInfo, RangeQuery, TopRecordsConfig, TopRecordsOrdering, UiPayableAccount,
     UiReceivableAccount,
 };
 use rusqlite::{Row, Statement, ToSql};
@@ -268,7 +268,7 @@ impl<T: Copy> From<&RangeQuery<T>> for CustomQuery<T> {
 #[derive(Debug, PartialEq)]
 pub struct PayableAccountWithTxInfo {
     pub account: PayableAccount,
-    pub tx_opt: Option<CurrentTxInfo>,
+    pub tx_opt: Option<TxProcessingInfo>,
 }
 
 pub fn remap_payable_accounts(accounts: Vec<PayableAccountWithTxInfo>) -> Vec<UiPayableAccount> {
@@ -291,7 +291,7 @@ pub fn remap_payable_accounts(accounts: Vec<PayableAccountWithTxInfo>) -> Vec<Ui
                         )
                     }
                 },
-                current_tx_info_opt: account_with_tx_info.tx_opt,
+                tx_processing_info_opt: account_with_tx_info.tx_opt,
             }
         })
         .collect()

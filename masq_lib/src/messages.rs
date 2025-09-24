@@ -679,12 +679,12 @@ pub struct UiPayableAccount {
     pub age_s: u64,
     #[serde(rename = "balanceGwei")]
     pub balance_gwei: u64,
-    #[serde(rename = "currentTxInfoOpt")]
-    pub current_tx_info_opt: Option<CurrentTxInfo>,
+    #[serde(rename = "txProcessingInfoOpt")]
+    pub tx_processing_info_opt: Option<TxProcessingInfo>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
-pub struct CurrentTxInfo {
+pub struct TxProcessingInfo {
     #[serde(rename = "pendingTxHashOpt")]
     pub pending_tx_hash_opt: Option<String>,
     pub failures: usize,
