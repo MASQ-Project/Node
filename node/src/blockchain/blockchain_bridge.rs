@@ -1,13 +1,24 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::{PayableScanType, ReceivedPayments, ResponseSkeleton, ScanError, SentPayables, SkeletonOptHolder};
-use crate::accountant::{ReportTransactionReceipts, RequestTransactionReceipts};
+use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
+use crate::accountant::scanners::payable_scanner::msgs::{
+    InitialTemplatesMessage, PricedTemplatesMessage,
+};
+use crate::accountant::scanners::payable_scanner::tx_templates::priced::new::PricedNewTxTemplates;
+use crate::accountant::scanners::payable_scanner::tx_templates::priced::retry::PricedRetryTxTemplates;
+use crate::accountant::scanners::payable_scanner::utils::initial_templates_msg_stats;
+use crate::accountant::{
+    PayableScanType, ReceivedPayments, ResponseSkeleton, ScanError, SentPayables, SkeletonOptHolder,
+};
+use crate::accountant::{RequestTransactionReceipts, TxReceiptResult, TxReceiptsMessage};
 use crate::actor_system_factory::SubsFactory;
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_interface::data_structures::errors::{
     BlockchainInterfaceError, LocalPayableError,
 };
-use crate::blockchain::blockchain_interface::data_structures::{BatchResults};
+use crate::blockchain::blockchain_interface::data_structures::{
+    BatchResults, StatusReadFromReceiptCheck,
+};
 use crate::blockchain::blockchain_interface::BlockchainInterface;
 use crate::blockchain::blockchain_interface_initializer::BlockchainInterfaceInitializer;
 use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DbInitializerReal};
@@ -30,6 +41,7 @@ use itertools::{Either, Itertools};
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::DEFAULT_GAS_PRICE_MARGIN;
 use masq_lib::logger::Logger;
+use masq_lib::messages::ScanType;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use regex::Regex;
 use std::path::Path;
@@ -37,14 +49,6 @@ use std::string::ToString;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use web3::types::H256;
-use masq_lib::constants::DEFAULT_GAS_PRICE_MARGIN;
-use masq_lib::messages::ScanType;
-use crate::accountant::scanners::payable_scanner::msgs::{PricedTemplatesMessage, InitialTemplatesMessage};
-use crate::accountant::scanners::payable_scanner::tx_templates::priced::new::PricedNewTxTemplates;
-use crate::accountant::scanners::payable_scanner::tx_templates::priced::retry::PricedRetryTxTemplates;
-use crate::accountant::scanners::payable_scanner::utils::initial_templates_msg_stats;
-use crate::blockchain::blockchain_agent::BlockchainAgent;
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionReceiptResult, TxStatus};
 
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
 pub const DEFAULT_BLOCKCHAIN_SERVICE_URL: &str = "https://0.0.0.0";
@@ -557,9 +561,21 @@ impl SubsFactory<BlockchainBridge, BlockchainBridgeSubs> for BlockchainBridgeSub
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
+    use crate::accountant::db_access_objects::failed_payable_dao::FailureReason::Submission;
+    use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::RetryRequired;
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
+    use crate::accountant::db_access_objects::sent_payable_dao::TxStatus::Pending;
+    use crate::accountant::db_access_objects::test_utils::{
+        assert_on_failed_txs, assert_on_sent_txs,
+    };
     use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp};
-    use crate::accountant::test_utils::{make_payable_account, make_pending_payable_fingerprint};
+    use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::NewTxTemplates;
+    use crate::accountant::scanners::payable_scanner::tx_templates::priced::new::PricedNewTxTemplate;
+    use crate::accountant::scanners::payable_scanner::tx_templates::test_utils::make_priced_new_tx_templates;
+    use crate::accountant::scanners::pending_payable_scanner::utils::TxHashByTable;
+    use crate::accountant::test_utils::make_payable_account;
+    use crate::blockchain::blockchain_agent::test_utils::BlockchainAgentMock;
     use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError::TransactionID;
     use crate::blockchain::blockchain_interface::data_structures::errors::{
         BlockchainAgentBuildError, LocalPayableError,
@@ -567,14 +583,20 @@ mod tests {
     use crate::blockchain::blockchain_interface::data_structures::{
         BlockchainTransaction, RetrievedBlockchainTransactions, TxBlock,
     };
-    use crate::blockchain::errors::rpc_errors::{AppRpcError, RemoteError};
+    use crate::blockchain::errors::rpc_errors::AppRpcError::Local;
+    use crate::blockchain::errors::rpc_errors::LocalError::Transport;
+    use crate::blockchain::errors::rpc_errors::{
+        AppRpcError, AppRpcErrorKind, LocalErrorKind, RemoteError,
+    };
     use crate::blockchain::errors::validation_status::ValidationStatus;
+    use crate::blockchain::errors::validation_status::ValidationStatus::Waiting;
     use crate::blockchain::test_utils::{
         make_blockchain_interface_web3, make_tx_hash, ReceiptResponseBuilder,
     };
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::match_lazily_every_type_id;
     use crate::node_test_utils::check_timestamp;
+    use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{
         make_accountant_subs_from_recorder, make_blockchain_bridge_subs_from_recorder,
@@ -604,22 +626,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
     use web3::types::{TransactionReceipt, H160};
-    use masq_lib::constants::DEFAULT_MAX_BLOCK_COUNT;
-    use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, ValidationStatus};
-    use crate::accountant::db_access_objects::failed_payable_dao::FailureReason::Submission;
-    use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::RetryRequired;
-    use crate::accountant::db_access_objects::failed_payable_dao::ValidationStatus::Waiting;
-    use crate::accountant::db_access_objects::sent_payable_dao::Tx;
-    use crate::accountant::db_access_objects::sent_payable_dao::TxStatus::Pending;
-    use crate::accountant::db_access_objects::test_utils::{assert_on_failed_txs, assert_on_sent_txs};
-    use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::NewTxTemplates;
-    use crate::accountant::scanners::payable_scanner::tx_templates::priced::new::PricedNewTxTemplate;
-    use crate::accountant::scanners::payable_scanner::tx_templates::test_utils::make_priced_new_tx_templates;
-    use crate::blockchain::blockchain_agent::test_utils::BlockchainAgentMock;
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt};
-    use crate::blockchain::errors::rpc_errors::AppRpcError::Local;
-    use crate::blockchain::errors::rpc_errors::LocalError::Transport;
-    use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 
     impl Handler<AssertionsMessage<Self>> for BlockchainBridge {
         type Result = ();
@@ -940,15 +946,15 @@ mod tests {
         assert!(batch_results.failed_txs.is_empty());
         assert_on_sent_txs(
             batch_results.sent_txs,
-            vec![Tx {
+            vec![SentTx {
                 hash: H256::from_str(
                     "81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c",
                 )
                 .unwrap(),
                 receiver_address: account.wallet.address(),
-                amount: account.balance_wei,
+                amount_minor: account.balance_wei,
                 timestamp: to_unix_timestamp(SystemTime::now()),
-                gas_price_wei: 111_222_333,
+                gas_price_minor: 111_222_333,
                 nonce: 32,
                 status: Pending(Waiting),
             }],
@@ -1037,11 +1043,11 @@ mod tests {
             )
             .unwrap(),
             receiver_address: account.wallet.address(),
-            amount: account.balance_wei,
+            amount_minor: account.balance_wei,
             timestamp: to_unix_timestamp(SystemTime::now()),
-            gas_price_wei: 111222333,
+            gas_price_minor: 111222333,
             nonce: 32,
-            reason: Submission(Local(Transport("Error(IncompleteMessage)".to_string()))),
+            reason: Submission(AppRpcErrorKind::Local(LocalErrorKind::Transport)),
             status: RetryRequired,
         };
         assert_on_failed_txs(batch_results.failed_txs, vec![failed_tx]);
@@ -1056,7 +1062,6 @@ mod tests {
         //         amount: account.balance_wei
         //     }]
         // );
-        assert_eq!(scan_error_msg.scan_type, ScanType::Payables);
         assert_eq!(
             *scan_error_msg,
             ScanError {
@@ -1131,27 +1136,27 @@ mod tests {
         assert_on_sent_txs(
             batch_results.sent_txs,
             vec![
-                Tx {
+                SentTx {
                     hash: H256::from_str(
                         "c0756e8da662cee896ed979456c77931668b7f8456b9f978fc3305671f8f82ad",
                     )
                     .unwrap(),
                     receiver_address: account_1.wallet.address(),
-                    amount: account_1.balance_wei,
+                    amount_minor: account_1.balance_wei,
                     timestamp: to_unix_timestamp(SystemTime::now()),
-                    gas_price_wei: 777_777_777,
+                    gas_price_minor: 777_777_777,
                     nonce: 1,
                     status: Pending(ValidationStatus::Waiting),
                 },
-                Tx {
+                SentTx {
                     hash: H256::from_str(
                         "9ba19f88ce43297d700b1f57ed8bc6274d01a5c366b78dd05167f9874c867ba0",
                     )
                     .unwrap(),
                     receiver_address: account_2.wallet.address(),
-                    amount: account_2.balance_wei,
+                    amount_minor: account_2.balance_wei,
                     timestamp: to_unix_timestamp(SystemTime::now()),
-                    gas_price_wei: 999_999_999,
+                    gas_price_minor: 999_999_999,
                     nonce: 2,
                     status: Pending(ValidationStatus::Waiting),
                 },

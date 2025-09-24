@@ -1,19 +1,23 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::collections::{HashMap, HashSet};
+use crate::accountant::db_access_objects::utils::{
+    sql_values_of_sent_tx, DaoFactoryReal, TxHash, TxIdentifiers,
+};
+use crate::accountant::db_access_objects::Transaction;
+use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
+use crate::accountant::{checked_conversion, comma_joined_stringifiable, join_with_separator};
+use crate::blockchain::blockchain_interface::data_structures::TxBlock;
+use crate::blockchain::errors::validation_status::ValidationStatus;
+use crate::database::rusqlite_wrappers::ConnectionWrapper;
+use ethereum_types::H256;
+use itertools::Itertools;
+use masq_lib::utils::ExpectValue;
+use serde_derive::{Deserialize, Serialize};
+use std::cmp::Ordering;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
-use ethereum_types::{H256};
 use web3::types::Address;
-use masq_lib::utils::ExpectValue;
-use crate::accountant::{checked_conversion, comma_joined_stringifiable};
-use crate::accountant::db_access_objects::utils::{TxHash, TxIdentifiers};
-use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock};
-use crate::database::rusqlite_wrappers::ConnectionWrapper;
-use itertools::Itertools;
-use serde_derive::{Deserialize, Serialize};
-use crate::accountant::db_access_objects::failed_payable_dao::ValidationStatus;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SentPayableDaoError {
@@ -35,7 +39,7 @@ pub struct SentTx {
     pub status: TxStatus,
 }
 
-impl Transaction for Tx {
+impl Transaction for SentTx {
     fn hash(&self) -> TxHash {
         self.hash
     }
@@ -45,7 +49,7 @@ impl Transaction for Tx {
     }
 
     fn amount(&self) -> u128 {
-        self.amount
+        self.amount_minor
     }
 
     fn timestamp(&self) -> i64 {
@@ -53,7 +57,7 @@ impl Transaction for Tx {
     }
 
     fn gas_price_wei(&self) -> u128 {
-        self.gas_price_wei
+        self.gas_price_minor
     }
 
     fn nonce(&self) -> u64 {
@@ -65,20 +69,20 @@ impl Transaction for Tx {
     }
 }
 
-impl PartialOrd for Tx {
+impl PartialOrd for SentTx {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for Tx {
+impl Ord for SentTx {
     fn cmp(&self, other: &Self) -> Ordering {
         // Descending Order
         other
             .timestamp
             .cmp(&self.timestamp)
             .then_with(|| other.nonce.cmp(&self.nonce))
-            .then_with(|| other.amount.cmp(&self.amount))
+            .then_with(|| other.amount_minor.cmp(&self.amount_minor))
     }
 }
 
@@ -159,13 +163,16 @@ impl Display for RetrieveCondition {
 
 pub trait SentPayableDao {
     fn get_tx_identifiers(&self, hashes: &BTreeSet<TxHash>) -> TxIdentifiers;
-    fn insert_new_records(&self, txs: &BTreeSet<Tx>) -> Result<(), SentPayableDaoError>;
-    fn retrieve_txs(&self, condition: Option<RetrieveCondition>) -> BTreeSet<Tx>;
-    fn confirm_tx(
+    fn insert_new_records(&self, txs: &BTreeSet<SentTx>) -> Result<(), SentPayableDaoError>;
+    fn retrieve_txs(&self, condition: Option<RetrieveCondition>) -> BTreeSet<SentTx>;
+    //TODO potentially atomically
+    fn confirm_txs(&self, hash_map: &HashMap<TxHash, TxStatus>) -> Result<(), SentPayableDaoError>;
+    fn replace_records(&self, new_txs: &BTreeSet<SentTx>) -> Result<(), SentPayableDaoError>;
+    fn update_statuses(
         &self,
         hash_map: &HashMap<TxHash, TxStatus>,
     ) -> Result<(), SentPayableDaoError>;
-    fn replace_records(&self, new_txs: &BTreeSet<Tx>) -> Result<(), SentPayableDaoError>;
+    //TODO potentially atomically
     fn delete_records(&self, hashes: &BTreeSet<TxHash>) -> Result<(), SentPayableDaoError>;
 }
 
@@ -220,7 +227,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
         .collect()
     }
 
-    fn insert_new_records(&self, txs: &BTreeSet<Tx>) -> Result<(), SentPayableDaoError> {
+    fn insert_new_records(&self, txs: &BTreeSet<SentTx>) -> Result<(), SentPayableDaoError> {
         if txs.is_empty() {
             return Err(SentPayableDaoError::EmptyInput);
         }
@@ -351,7 +358,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
         Ok(())
     }
 
-    fn replace_records(&self, new_txs: &BTreeSet<Tx>) -> Result<(), SentPayableDaoError> {
+    fn replace_records(&self, new_txs: &BTreeSet<SentTx>) -> Result<(), SentPayableDaoError> {
         if new_txs.is_empty() {
             return Err(SentPayableDaoError::EmptyInput);
         }
@@ -517,28 +524,40 @@ impl SentPayableDaoFactory for DaoFactoryReal {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{HashMap, HashSet};
-    use std::ops::Add;
-    use std::str::FromStr;
-    use std::sync::{Arc, Mutex};
-    use std::time::{Duration, UNIX_EPOCH};
-    use crate::accountant::db_access_objects::sent_payable_dao::{Detection, RetrieveCondition, SentPayableDao, SentPayableDaoError, SentPayableDaoReal, TxConfirmation, TxStatus};
+    use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::{
+        ByHash, ByNonce, IsPending,
+    };
+    use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDaoError::{
+        EmptyInput, PartialExecution,
+    };
+    use crate::accountant::db_access_objects::sent_payable_dao::{
+        Detection, RetrieveCondition, SentPayableDao, SentPayableDaoError, SentPayableDaoReal,
+        SentTx, TxStatus,
+    };
+    use crate::accountant::db_access_objects::test_utils::{
+        make_read_only_db_connection, make_sent_tx, TxBuilder,
+    };
+    use crate::accountant::db_access_objects::Transaction;
+    use crate::accountant::scanners::pending_payable_scanner::test_utils::ValidationFailureClockMock;
+    use crate::blockchain::blockchain_interface::data_structures::TxBlock;
+    use crate::blockchain::errors::rpc_errors::{AppRpcErrorKind, LocalErrorKind, RemoteErrorKind};
+    use crate::blockchain::errors::validation_status::{
+        PreviousAttempts, ValidationFailureClockReal, ValidationStatus,
+    };
+    use crate::blockchain::errors::BlockchainErrorKind;
+    use crate::blockchain::test_utils::{make_address, make_block_hash, make_tx_hash};
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal,
     };
     use crate::database::test_utils::ConnectionWrapperMock;
     use ethereum_types::{H256, U64};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use rusqlite::{Connection};
-    use crate::accountant::db_access_objects::failed_payable_dao::{ValidationStatus};
-    use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::{ByHash, IsPending};
-    use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDaoError::{EmptyInput, PartialExecution};
-    use crate::accountant::db_access_objects::test_utils::{make_read_only_db_connection, TxBuilder};
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock};
-    use crate::blockchain::errors::BlockchainErrorKind;
-    use crate::blockchain::errors::rpc_errors::AppRpcErrorKind;
-    use crate::blockchain::errors::validation_status::{PreviousAttempts, ValidationFailureClockReal};
-    use crate::blockchain::test_utils::{make_block_hash, make_tx_hash, ValidationFailureClockMock};
+    use rusqlite::Connection;
+    use std::collections::{BTreeSet, HashMap, HashSet};
+    use std::ops::{Add, Sub};
+    use std::str::FromStr;
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     #[test]
     fn insert_new_records_works() {
@@ -1188,7 +1207,7 @@ mod tests {
         let mut tx3 = make_sent_tx(123);
         tx3.status = TxStatus::Pending(ValidationStatus::Waiting);
         subject
-            .insert_new_records(&vec![tx1.clone(), tx2.clone(), tx3.clone()])
+            .insert_new_records(&BTreeSet::from([tx1.clone(), tx2.clone(), tx3.clone()]))
             .unwrap();
         let hashmap = HashMap::from([
             (
@@ -1554,30 +1573,30 @@ mod tests {
 
     #[test]
     fn tx_ordering_works() {
-        let tx1 = Tx {
+        let tx1 = SentTx {
             hash: make_tx_hash(1),
             receiver_address: make_address(1),
-            amount: 100,
+            amount_minor: 100,
             timestamp: 1000,
-            gas_price_wei: 10,
+            gas_price_minor: 10,
             nonce: 1,
             status: TxStatus::Pending(ValidationStatus::Waiting),
         };
-        let tx2 = Tx {
+        let tx2 = SentTx {
             hash: make_tx_hash(2),
             receiver_address: make_address(2),
-            amount: 200,
+            amount_minor: 200,
             timestamp: 1000,
-            gas_price_wei: 20,
+            gas_price_minor: 20,
             nonce: 1,
             status: TxStatus::Pending(ValidationStatus::Waiting),
         };
-        let tx3 = Tx {
+        let tx3 = SentTx {
             hash: make_tx_hash(3),
             receiver_address: make_address(3),
-            amount: 100,
+            amount_minor: 100,
             timestamp: 2000,
-            gas_price_wei: 30,
+            gas_price_minor: 30,
             nonce: 2,
             status: TxStatus::Pending(ValidationStatus::Waiting),
         };
@@ -1595,27 +1614,27 @@ mod tests {
     fn transaction_trait_methods_for_tx() {
         let hash = make_tx_hash(1);
         let receiver_address = make_address(1);
-        let amount = 1000;
+        let amount_minor = 1000;
         let timestamp = 1625247600;
-        let gas_price_wei = 2000;
+        let gas_price_minor = 2000;
         let nonce = 42;
         let status = TxStatus::Pending(ValidationStatus::Waiting);
 
-        let tx = Tx {
+        let tx = SentTx {
             hash,
             receiver_address,
-            amount,
+            amount_minor,
             timestamp,
-            gas_price_wei,
+            gas_price_minor,
             nonce,
             status,
         };
 
         assert_eq!(tx.receiver_address(), receiver_address);
         assert_eq!(tx.hash(), hash);
-        assert_eq!(tx.amount(), amount);
+        assert_eq!(tx.amount(), amount_minor);
         assert_eq!(tx.timestamp(), timestamp);
-        assert_eq!(tx.gas_price_wei(), gas_price_wei);
+        assert_eq!(tx.gas_price_wei(), gas_price_minor);
         assert_eq!(tx.nonce(), nonce);
         assert_eq!(tx.is_failed(), false);
     }

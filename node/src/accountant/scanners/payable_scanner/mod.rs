@@ -12,11 +12,10 @@ use crate::accountant::db_access_objects::failed_payable_dao::FailureRetrieveCon
 use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::RetryRequired;
 use crate::accountant::db_access_objects::failed_payable_dao::{
     FailedPayableDao, FailedTx, FailureReason, FailureRetrieveCondition, FailureStatus,
-    ValidationStatus,
 };
 use crate::accountant::db_access_objects::payable_dao::PayableRetrieveCondition::ByAddresses;
 use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDao};
-use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDao, Tx};
+use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDao, SentTx};
 use crate::accountant::payment_adjuster::PaymentAdjuster;
 use crate::accountant::scanners::payable_scanner::msgs::InitialTemplatesMessage;
 use crate::accountant::scanners::payable_scanner::payment_adjuster_integration::SolvencySensitivePaymentInstructor;
@@ -31,6 +30,7 @@ use crate::accountant::{
     ScanForRetryPayables, SentPayables,
 };
 use crate::blockchain::blockchain_interface::data_structures::BatchResults;
+use crate::blockchain::errors::validation_status::ValidationStatus;
 use crate::sub_lib::accountant::PaymentThresholds;
 use itertools::Itertools;
 use masq_lib::logger::Logger;
@@ -207,7 +207,7 @@ impl PayableScanner {
         }
     }
 
-    fn update_statuses_of_prev_txs(&self, sent_txs: &Vec<Tx>) {
+    fn update_statuses_of_prev_txs(&self, sent_txs: &Vec<SentTx>) {
         // TODO: We can do better here, possibly by creating a relationship between failed and sent txs
         // Also, consider the fact that some txs will be with PendingTooLong status, what should we do with them?
         let retrieved_txs = self.retrieve_failed_txs_by_receiver_addresses(&sent_txs);
@@ -225,7 +225,10 @@ impl PayableScanner {
         }
     }
 
-    fn retrieve_failed_txs_by_receiver_addresses(&self, sent_txs: &Vec<Tx>) -> BTreeSet<FailedTx> {
+    fn retrieve_failed_txs_by_receiver_addresses(
+        &self,
+        sent_txs: &Vec<SentTx>,
+    ) -> BTreeSet<FailedTx> {
         let receiver_addresses = filter_receiver_addresses_from_txs(sent_txs.iter());
         self.failed_payable_dao
             .retrieve_txs(Some(FailureRetrieveCondition::ByReceiverAddresses(
@@ -257,7 +260,7 @@ impl PayableScanner {
         )
     }
 
-    fn insert_records_in_sent_payables(&self, sent_txs: &Vec<Tx>) {
+    fn insert_records_in_sent_payables(&self, sent_txs: &Vec<SentTx>) {
         self.sent_payable_dao
             .insert_new_records(&sent_txs.iter().cloned().collect())
             .unwrap_or_else(|e| {

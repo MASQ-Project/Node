@@ -4,8 +4,9 @@ pub mod lower_level_interface_web3;
 mod utils;
 
 use std::cmp::PartialEq;
-use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainInterfaceError, PayableTransactionError};
-use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, ProcessedPayableFallible};
+use std::collections::HashMap;
+use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainInterfaceError, LocalPayableError};
+use crate::blockchain::blockchain_interface::data_structures::{BatchResults, BlockchainTransaction, StatusReadFromReceiptCheck};
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use crate::blockchain::blockchain_interface::RetrievedBlockchainTransactions;
 use crate::blockchain::blockchain_interface::{BlockchainAgentBuildError, BlockchainInterface};
@@ -21,9 +22,12 @@ use ethereum_types::U64;
 use itertools::Either;
 use web3::transports::{EventLoopHandle, Http};
 use web3::types::{Address, Log, H256, U256, FilterBuilder, TransactionReceipt, BlockNumber};
-use crate::accountant::scanners::payable_scanner_extension::msgs::{UnpricedQualifiedPayables, PricedQualifiedPayables};
+use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::accountant::db_access_objects::utils::TxHash;
+use crate::accountant::scanners::payable_scanner::tx_templates::priced::new::PricedNewTxTemplates;
+use crate::accountant::scanners::payable_scanner::tx_templates::priced::retry::PricedRetryTxTemplates;
+use crate::accountant::scanners::payable_scanner::tx_templates::signable::SignableTxTemplates;
 use crate::accountant::scanners::pending_payable_scanner::utils::TxHashByTable;
 use crate::accountant::TxReceiptResult;
 use crate::blockchain::blockchain_bridge::{BlockMarker, BlockScanRange, RegisterNewPendingPayables};
@@ -297,11 +301,11 @@ pub struct HashAndAmount {
     pub amount_minor: u128,
 }
 
-impl From<&Tx> for HashAndAmount {
-    fn from(tx: &Tx) -> Self {
+impl From<&SentTx> for HashAndAmount {
+    fn from(tx: &SentTx) -> Self {
         HashAndAmount {
             hash: tx.hash,
-            amount: tx.amount,
+            amount_minor: tx.amount_minor,
         }
     }
 }
@@ -464,10 +468,6 @@ impl BlockchainInterfaceWeb3 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::scanners::payable_scanner_extension::msgs::{
-        QualifiedPayableWithGasPrice, QualifiedPayablesBeforeGasPriceSelection,
-        UnpricedQualifiedPayables,
-    };
     use crate::accountant::scanners::pending_payable_scanner::utils::TxHashByTable;
     use crate::accountant::test_utils::make_payable_account;
     use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
@@ -502,10 +502,10 @@ mod tests {
     use itertools::Either;
     use web3::transports::Http;
     use web3::types::{H256, U256};
-    use crate::accountant::scanners::payable_scanner_extension::msgs::{QualifiedPayablesBeforeGasPriceSelection, QualifiedPayableWithGasPrice};
-    use crate::accountant::test_utils::make_payable_account;
-    use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt, TxStatus};
+    use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::NewTxTemplates;
+    use crate::accountant::scanners::payable_scanner::tx_templates::initial::retry::RetryTxTemplates;
+    use crate::accountant::scanners::payable_scanner::tx_templates::priced::retry::PricedRetryTxTemplate;
+    use crate::accountant::scanners::payable_scanner::tx_templates::test_utils::RetryTxTemplateBuilder;
 
     #[test]
     fn constants_are_correct() {

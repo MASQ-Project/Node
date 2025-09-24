@@ -68,8 +68,6 @@ impl PaymentThresholds {
 pub struct DaoFactories {
     pub payable_dao_factory: Box<dyn PayableDaoFactory>,
     pub sent_payable_dao_factory: Box<dyn SentPayableDaoFactory>,
-    pub sent_payable_dao_factory: Box<dyn SentPayableDaoFactory>,
-    pub failed_payable_dao_factory: Box<dyn FailedPayableDaoFactory>, // TODO: This should go away
     pub failed_payable_dao_factory: Box<dyn FailedPayableDaoFactory>,
     pub receivable_dao_factory: Box<dyn ReceivableDaoFactory>,
     pub banned_dao_factory: Box<dyn BannedDaoFactory>,

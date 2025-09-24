@@ -22,11 +22,26 @@ use crate::accountant::db_access_objects::utils::{
 use crate::accountant::financials::visibility_restricted_module::{
     check_query_is_within_tech_limits, financials_entry_check,
 };
-use crate::accountant::scanners::{StartScanError, Scanners};
-use crate::blockchain::blockchain_bridge::{BlockMarker, PendingPayableFingerprint, PendingPayableFingerprintSeeds, RetrieveTransactions};
+use crate::accountant::scanners::payable_scanner::msgs::{
+    InitialTemplatesMessage, PricedTemplatesMessage,
+};
+use crate::accountant::scanners::payable_scanner::utils::NextScanToRun;
+use crate::accountant::scanners::pending_payable_scanner::utils::{
+    PendingPayableScanResult, Retry, TxHashByTable,
+};
+use crate::accountant::scanners::scan_schedulers::{
+    PayableSequenceScanner, ScanReschedulingAfterEarlyStop, ScanSchedulers,
+};
+use crate::accountant::scanners::{Scanners, StartScanError};
+use crate::blockchain::blockchain_bridge::{
+    BlockMarker, RegisterNewPendingPayables, RetrieveTransactions,
+};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::HashAndAmount;
 use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
-use crate::blockchain::blockchain_interface::data_structures::{BatchResults, BlockchainTransaction};
+use crate::blockchain::blockchain_interface::data_structures::{
+    BatchResults, BlockchainTransaction, StatusReadFromReceiptCheck,
+};
+use crate::blockchain::errors::rpc_errors::AppRpcError;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::DbInitializationConfig;
 use crate::sub_lib::accountant::DaoFactories;
@@ -62,7 +77,7 @@ use masq_lib::ui_gateway::{MessageBody, MessagePath, MessageTarget};
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::ExpectValue;
 use std::any::type_name;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 #[cfg(test)]
 use std::default::Default;
 use std::fmt::Display;
@@ -72,11 +87,6 @@ use std::path::Path;
 use std::rc::Rc;
 use std::time::SystemTime;
 use web3::types::H256;
-use crate::accountant::scanners::payable_scanner::msgs::{PricedTemplatesMessage, InitialTemplatesMessage};
-use crate::accountant::scanners::payable_scanner::utils::NextScanToRun;
-use crate::accountant::scanners::pending_payable_scanner::utils::PendingPayableScanResult;
-use crate::accountant::scanners::scan_schedulers::{PayableSequenceScanner, ScanRescheduleAfterEarlyStop, ScanSchedulers};
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionReceiptResult;
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
 pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; //6 hours
@@ -1167,7 +1177,10 @@ impl Accountant {
             comma_joined_stringifiable(tx_hashes, |sent_tx| format!("{:?}", sent_tx.hash))
         }
 
-        match self.sent_payable_dao.insert_new_records(&msg.new_sent_txs) {
+        match self
+            .sent_payable_dao
+            .insert_new_records(&BTreeSet::from(msg.new_sent_txs))
+        {
             Ok(_) => debug!(
                 self.logger,
                 "Registered new pending payables for: {}",
@@ -1265,7 +1278,7 @@ pub fn wei_to_gwei<T: TryFrom<S>, S: Display + Copy + Div<Output = S> + From<u32
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::scanners::payable_scanner::test_utils::{PayableScannerBuilder};
+    use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureReason};
     use crate::accountant::db_access_objects::payable_dao::{
         PayableAccount, PayableDaoError, PayableDaoFactory,
     };
@@ -1273,18 +1286,43 @@ mod tests {
     use crate::accountant::db_access_objects::sent_payable_dao::{
         Detection, SentPayableDaoError, TxStatus,
     };
+    use crate::accountant::db_access_objects::test_utils::{
+        make_failed_tx, make_sent_tx, TxBuilder,
+    };
     use crate::accountant::db_access_objects::utils::{
         from_unix_timestamp, to_unix_timestamp, CustomQuery,
     };
     use crate::accountant::payment_adjuster::Adjustment;
-    use crate::accountant::scanners::test_utils::{MarkScanner, NewPayableScanDynIntervalComputerMock, ReplacementType, RescheduleScanOnErrorResolverMock, ScannerMock, ScannerReplacement};
-    use crate::accountant::scanners::{StartScanError};
+    use crate::accountant::scanners::payable_scanner::test_utils::PayableScannerBuilder;
+    use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::NewTxTemplates;
+    use crate::accountant::scanners::payable_scanner::tx_templates::initial::retry::RetryTxTemplates;
+    use crate::accountant::scanners::payable_scanner::tx_templates::test_utils::{
+        make_priced_new_tx_templates, make_retry_tx_template,
+    };
+    use crate::accountant::scanners::payable_scanner::utils::PayableScanResult;
+    use crate::accountant::scanners::pending_payable_scanner::utils::TxByTable;
+    use crate::accountant::scanners::scan_schedulers::{
+        NewPayableScanDynIntervalComputer, NewPayableScanDynIntervalComputerReal,
+    };
+    use crate::accountant::scanners::test_utils::{
+        MarkScanner, NewPayableScanDynIntervalComputerMock, PendingPayableCacheMock,
+        ReplacementType, RescheduleScanOnErrorResolverMock, ScannerMock, ScannerReplacement,
+    };
+    use crate::accountant::scanners::StartScanError;
     use crate::accountant::test_utils::DaoWithDestination::{
         ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,
     };
-    use crate::accountant::test_utils::{bc_from_earning_wallet, bc_from_wallets, make_payable_account, make_pending_payable_fingerprint, make_qualified_and_unqualified_payables, BannedDaoFactoryMock, ConfigDaoFactoryMock, MessageIdGeneratorMock, PayableDaoFactoryMock, PayableDaoMock, PaymentAdjusterMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock, ReceivableDaoFactoryMock, ReceivableDaoMock, FailedPayableDaoFactoryMock, FailedPayableDaoMock, SentPayableDaoFactoryMock, SentPayableDaoMock};
+    use crate::accountant::test_utils::{
+        bc_from_earning_wallet, bc_from_wallets, make_payable_account,
+        make_qualified_and_unqualified_payables, make_transaction_block, BannedDaoFactoryMock,
+        ConfigDaoFactoryMock, FailedPayableDaoFactoryMock, FailedPayableDaoMock,
+        MessageIdGeneratorMock, PayableDaoFactoryMock, PayableDaoMock, PaymentAdjusterMock,
+        PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock,
+        SentPayableDaoFactoryMock, SentPayableDaoMock,
+    };
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
     use crate::accountant::Accountant;
+    use crate::blockchain::blockchain_agent::test_utils::BlockchainAgentMock;
     use crate::blockchain::blockchain_interface::data_structures::{
         StatusReadFromReceiptCheck, TxBlock,
     };
@@ -1343,15 +1381,6 @@ mod tests {
     use std::sync::Mutex;
     use std::time::{Duration, UNIX_EPOCH};
     use std::vec;
-    use crate::accountant::db_access_objects::test_utils::{make_failed_tx, make_sent_tx, TxBuilder};
-    use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::NewTxTemplates;
-    use crate::accountant::scanners::payable_scanner::tx_templates::initial::retry::RetryTxTemplates;
-    use crate::accountant::scanners::payable_scanner::tx_templates::test_utils::{make_priced_new_tx_templates, make_retry_tx_template};
-    use crate::accountant::scanners::payable_scanner::utils::PayableScanResult;
-    use crate::accountant::scanners::scan_schedulers::{NewPayableScanDynIntervalComputer, NewPayableScanDynIntervalComputerReal};
-    use crate::blockchain::blockchain_agent::test_utils::BlockchainAgentMock;
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt, TxStatus};
-    use crate::test_utils::recorder_counter_msgs::SingleTypeCounterMsgSetup;
 
     impl Handler<AssertionsMessage<Accountant>> for Accountant {
         type Result = ();
@@ -4984,12 +5013,14 @@ mod tests {
 
     #[test]
     fn accountant_finishes_processing_of_retry_payables_and_schedules_pending_payable_scanner() {
+        let get_tx_identifiers_params_arc = Arc::new(Mutex::new(vec![]));
         let pending_payable_notify_later_params_arc = Arc::new(Mutex::new(vec![]));
         let inserted_new_records_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_wallet = make_wallet("paying_you");
         let expected_hash = H256::from("transaction_hash".keccak256());
         let payable_dao = PayableDaoMock::new();
         let sent_payable_dao = SentPayableDaoMock::new()
+            .get_tx_identifiers_params(&get_tx_identifiers_params_arc)
             .insert_new_records_params(&inserted_new_records_params_arc)
             .insert_new_records_result(Ok(()));
         let failed_payble_dao = FailedPayableDaoMock::new().retrieve_txs_result(BTreeSet::new());
@@ -5041,70 +5072,6 @@ mod tests {
         assert_eq!(
             *pending_payable_notify_later_params,
             vec![(ScanForPendingPayables::default(), pending_payable_interval)]
-        );
-    }
-
-    #[test]
-    fn no_payables_left_the_node_so_payable_scan_is_rescheduled_as_pending_payable_scan_was_omitted(
-    ) {
-        init_test_logging();
-        let test_name = "no_payables_left_the_node_so_payable_scan_is_rescheduled_as_pending_payable_scan_was_omitted";
-        let finish_scan_params_arc = Arc::new(Mutex::new(vec![]));
-        let payable_notify_later_params_arc = Arc::new(Mutex::new(vec![]));
-        let system = System::new(test_name);
-        let mut subject = AccountantBuilder::default()
-            .logger(Logger::new(test_name))
-            .build();
-        subject
-            .scanners
-            .replace_scanner(ScannerReplacement::Payable(ReplacementType::Mock(
-                ScannerMock::default()
-                    .finish_scan_params(&finish_scan_params_arc)
-                    .finish_scan_result(PayableScanResult {
-                        ui_response_opt: None,
-                        result: NextScanToRun::NewPayableScan,
-                    }),
-            )));
-        // Important. Otherwise, the scan would've been handled through a different endpoint and
-        // gone for a very long time
-        subject
-            .scan_schedulers
-            .payable
-            .inner
-            .lock()
-            .unwrap()
-            .last_new_payable_scan_timestamp = SystemTime::now();
-        subject.scan_schedulers.payable.new_payable_notify_later = Box::new(
-            NotifyLaterHandleMock::default().notify_later_params(&payable_notify_later_params_arc),
-        );
-        subject.scan_schedulers.pending_payable.handle =
-            Box::new(NotifyLaterHandleMock::default().panic_on_schedule_attempt());
-        let sent_payable = SentPayables {
-            payment_procedure_result: Err(PayableTransactionError::Sending {
-                msg: "booga".to_string(),
-                hashes: vec![make_tx_hash(456)],
-            }),
-            payable_scan_type: PayableScanType::New,
-            response_skeleton_opt: None,
-        };
-        let addr = subject.start();
-
-        addr.try_send(sent_payable.clone())
-            .expect("unexpected actix error");
-
-        System::current().stop();
-        assert_eq!(system.run(), 0);
-        let mut finish_scan_params = finish_scan_params_arc.lock().unwrap();
-        let (actual_sent_payable, logger) = finish_scan_params.remove(0);
-        assert_eq!(actual_sent_payable, sent_payable,);
-        assert_using_the_same_logger(&logger, test_name, None);
-        let mut payable_notify_later_params = payable_notify_later_params_arc.lock().unwrap();
-        let (scheduled_msg, _interval) = payable_notify_later_params.remove(0);
-        assert_eq!(scheduled_msg, ScanForNewPayables::default());
-        assert!(
-            payable_notify_later_params.is_empty(),
-            "Should be empty but {:?}",
-            payable_notify_later_params
         );
     }
 

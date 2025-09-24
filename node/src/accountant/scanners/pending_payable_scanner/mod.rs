@@ -11,7 +11,7 @@ use crate::accountant::db_access_objects::payable_dao::{PayableDao, PayableDaoEr
 use crate::accountant::db_access_objects::sent_payable_dao::{
     RetrieveCondition, SentPayableDao, SentPayableDaoError, SentTx, TxStatus,
 };
-use crate::accountant::db_access_objects::utils::{TxHash, TxRecordWithHash};
+use crate::accountant::db_access_objects::utils::TxHash;
 use crate::accountant::scanners::pending_payable_scanner::tx_receipt_interpreter::TxReceiptInterpreter;
 use crate::accountant::scanners::pending_payable_scanner::utils::{
     CurrentPendingPayables, DetectedConfirmations, DetectedFailures, FailedValidation,
@@ -181,18 +181,19 @@ impl PendingPayableScanner {
         Some(failure_hashes)
     }
 
-    fn get_wrapped_hashes<Record>(
-        records: &[Record],
-        wrap_the_hash: fn(TxHash) -> TxHashByTable,
-    ) -> Vec<TxHashByTable>
-    where
-        Record: TxRecordWithHash,
-    {
-        records
-            .iter()
-            .map(|record| wrap_the_hash(record.hash()))
-            .collect_vec()
-    }
+    // TODO: GH-605: Another issue with this fn
+    // fn get_wrapped_hashes<Record>(
+    //     records: &[Record],
+    //     wrap_the_hash: fn(TxHash) -> TxHashByTable,
+    // ) -> Vec<TxHashByTable>
+    // where
+    //     Record: TxRecordWithHash,
+    // {
+    //     records
+    //         .iter()
+    //         .map(|record| wrap_the_hash(record.hash()))
+    //         .collect_vec()
+    // }
 
     fn emptiness_check(&self, msg: &TxReceiptsMessage) {
         if msg.results.is_empty() {
@@ -805,6 +806,7 @@ mod tests {
     use crate::accountant::db_access_objects::sent_payable_dao::{
         Detection, SentPayableDaoError, TxStatus,
     };
+    use crate::accountant::db_access_objects::test_utils::{make_failed_tx, make_sent_tx};
     use crate::accountant::scanners::pending_payable_scanner::test_utils::ValidationFailureClockMock;
     use crate::accountant::scanners::pending_payable_scanner::utils::{
         CurrentPendingPayables, DetectedConfirmations, DetectedFailures, FailedValidation,
@@ -815,8 +817,8 @@ mod tests {
     use crate::accountant::scanners::test_utils::PendingPayableCacheMock;
     use crate::accountant::scanners::{Scanner, StartScanError, StartableScanner};
     use crate::accountant::test_utils::{
-        make_failed_tx, make_sent_tx, make_transaction_block, FailedPayableDaoMock, PayableDaoMock,
-        PendingPayableScannerBuilder, SentPayableDaoMock,
+        make_transaction_block, FailedPayableDaoMock, PayableDaoMock, PendingPayableScannerBuilder,
+        SentPayableDaoMock,
     };
     use crate::accountant::{RequestTransactionReceipts, TxReceiptsMessage};
     use crate::blockchain::blockchain_interface::data_structures::{

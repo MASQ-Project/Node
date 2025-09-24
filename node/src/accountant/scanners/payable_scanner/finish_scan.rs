@@ -27,7 +27,6 @@ impl Scanner<SentPayables, PayableScanResult> for PayableScanner {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::db_access_objects::failed_payable_dao::ValidationStatus::Waiting;
     use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureStatus};
     use crate::accountant::db_access_objects::test_utils::{
         make_failed_tx, make_sent_tx, FailedTxBuilder,
@@ -38,6 +37,7 @@ mod tests {
     use crate::accountant::test_utils::{FailedPayableDaoMock, SentPayableDaoMock};
     use crate::accountant::{join_with_separator, PayableScanType, ResponseSkeleton, SentPayables};
     use crate::blockchain::blockchain_interface::data_structures::BatchResults;
+    use crate::blockchain::errors::validation_status::ValidationStatus::Waiting;
     use crate::blockchain::test_utils::make_tx_hash;
     use masq_lib::logger::Logger;
     use masq_lib::messages::{ToMessageBody, UiScanResponse};

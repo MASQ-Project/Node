@@ -9,8 +9,8 @@ use serde::{
 use serde_derive::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 use std::fmt::Formatter;
+use std::hash::{Hash, Hasher};
 use std::time::SystemTime;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -167,15 +167,14 @@ impl ValidationFailureClock for ValidationFailureClockReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accountant::scanners::pending_payable_scanner::test_utils::ValidationFailureClockMock;
     use crate::blockchain::errors::internal_errors::InternalErrorKind;
-    use crate::blockchain::test_utils::ValidationFailureClockMock;
-    use std::collections::hash_map::DefaultHasher;
-    use std::time::Duration;
     use crate::blockchain::errors::rpc_errors::{AppRpcErrorKind, LocalErrorKind};
-    use crate::blockchain::test_utils::ValidationFailureClockMock;
     use crate::test_utils::serde_serializer_mock::{SerdeSerializerMock, SerializeSeqMock};
     use serde::ser::Error as SerdeError;
-    use std::time::{Duration, UNIX_EPOCH};
+    use std::collections::hash_map::DefaultHasher;
+    use std::time::Duration;
+    use std::time::UNIX_EPOCH;
 
     #[test]
     fn previous_attempts_and_validation_failure_clock_work_together_fine() {
@@ -194,7 +193,7 @@ mod tests {
         );
         let timestamp_c = SystemTime::now();
         let subject = subject.add_attempt(
-            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::IO)),
+            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Io)),
             &validation_failure_clock,
         );
         let timestamp_d = SystemTime::now();
@@ -203,7 +202,7 @@ mod tests {
             &validation_failure_clock,
         );
         let subject = subject.add_attempt(
-            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::IO)),
+            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Io)),
             &validation_failure_clock,
         );
 
@@ -240,7 +239,7 @@ mod tests {
         let io_error_stats = subject
             .inner
             .get(&BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(
-                LocalErrorKind::IO,
+                LocalErrorKind::Io,
             )))
             .unwrap();
         assert!(
@@ -268,15 +267,17 @@ mod tests {
             .now_result(now)
             .now_result(now + Duration::from_secs(2));
         let attempts1 = PreviousAttempts::new(
-            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Decoder),
+            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Decoder)),
             &clock,
         );
         let attempts2 = PreviousAttempts::new(
-            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Decoder),
+            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Decoder)),
             &clock,
         );
-        let attempts3 =
-            PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::Io), &clock);
+        let attempts3 = PreviousAttempts::new(
+            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Io)),
+            &clock,
+        );
         let hash1 = {
             let mut hasher = DefaultHasher::new();
             attempts1.hash(&mut hasher);
@@ -306,17 +307,19 @@ mod tests {
             .now_result(now + Duration::from_secs(2))
             .now_result(now + Duration::from_secs(3));
         let mut attempts1 = PreviousAttempts::new(
-            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Decoder),
+            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Decoder)),
             &clock,
         );
         attempts1 = attempts1.add_attempt(
             BlockchainErrorKind::Internal(InternalErrorKind::PendingTooLongNotReplaced),
             &clock,
         );
-        let mut attempts2 =
-            PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::Io), &clock);
+        let mut attempts2 = PreviousAttempts::new(
+            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Io)),
+            &clock,
+        );
         attempts2 = attempts2.add_attempt(
-            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Signing),
+            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Signing)),
             &clock,
         );
 

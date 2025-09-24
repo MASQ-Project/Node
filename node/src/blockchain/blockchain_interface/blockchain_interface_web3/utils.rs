@@ -1,13 +1,14 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::db_access_objects::sent_payable_dao::{SentTx, TxStatus};
-use crate::accountant::db_access_objects::utils::{to_unix_timestamp, TxHash};
-use crate::accountant::scanners::payable_scanner_extension::msgs::PricedQualifiedPayables;
-use crate::accountant::PendingPayable;
+use crate::accountant::db_access_objects::utils::to_unix_timestamp;
+use crate::accountant::scanners::payable_scanner::tx_templates::signable::{
+    SignableTxTemplate, SignableTxTemplates,
+};
 use crate::blockchain::blockchain_agent::agent_web3::BlockchainAgentWeb3;
 use crate::blockchain::blockchain_agent::BlockchainAgent;
-use crate::blockchain::blockchain_bridge::RegisterNewPendingPayables;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
     BlockchainInterfaceWeb3, TRANSFER_METHOD_ID,
 };
@@ -16,7 +17,6 @@ use crate::blockchain::blockchain_interface::data_structures::BatchResults;
 use crate::blockchain::errors::validation_status::ValidationStatus;
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
-use actix::Recipient;
 use ethabi::Address;
 use futures::Future;
 use itertools::Either;
@@ -40,7 +40,7 @@ pub struct BlockchainAgentFutureResult {
     pub masq_token_balance: U256,
 }
 
-fn return_sending_error(sent_txs: &[Tx], error: &Web3Error) -> LocalPayableError {
+fn return_sending_error(sent_txs: &[SentTx], error: &Web3Error) -> LocalPayableError {
     LocalPayableError::Sending(
         sent_txs
             .iter()
@@ -50,7 +50,7 @@ fn return_sending_error(sent_txs: &[Tx], error: &Web3Error) -> LocalPayableError
 }
 
 pub fn return_batch_results(
-    txs: Vec<Tx>,
+    txs: Vec<SentTx>,
     responses: Vec<web3::transports::Result<Value>>,
 ) -> BatchResults {
     txs.into_iter().zip(responses).fold(
@@ -192,7 +192,7 @@ pub fn sign_and_append_payment(
     signable_tx_template: &SignableTxTemplate,
     consuming_wallet: &Wallet,
     logger: &Logger,
-) -> Tx {
+) -> SentTx {
     let &SignableTxTemplate {
         receiver_address,
         amount_in_wei,
@@ -215,12 +215,12 @@ pub fn sign_and_append_payment(
         gas_price_wei.separate_with_commas()
     );
 
-    Tx {
+    SentTx {
         hash,
         receiver_address,
-        amount: amount_in_wei,
+        amount_minor: amount_in_wei,
         timestamp: to_unix_timestamp(SystemTime::now()),
-        gas_price_wei,
+        gas_price_minor: gas_price_wei,
         nonce,
         status: TxStatus::Pending(ValidationStatus::Waiting),
     }
@@ -238,7 +238,7 @@ pub fn sign_and_append_multiple_payments(
     web3_batch: &Web3<Batch<Http>>,
     signable_tx_templates: &SignableTxTemplates,
     consuming_wallet: Wallet,
-) -> Vec<Tx> {
+) -> Vec<SentTx> {
     signable_tx_templates
         .iter()
         .map(|signable_tx_template| {
@@ -318,6 +318,7 @@ pub fn create_blockchain_agent_web3(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus;
     use crate::accountant::db_access_objects::test_utils::{
         assert_on_failed_txs, assert_on_sent_txs, FailedTxBuilder, TxBuilder,
     };

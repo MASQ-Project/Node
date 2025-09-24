@@ -2,14 +2,16 @@
 
 pub mod errors;
 
-use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
+use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
+use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
+use crate::accountant::scanners::pending_payable_scanner::utils::TxHashByTable;
 use crate::blockchain::blockchain_bridge::BlockMarker;
 use crate::sub_lib::wallet::Wallet;
 use ethereum_types::U64;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
-use std::fmt::Formatter;
-use web3::types::H256;
+use std::fmt::{Display, Formatter};
+use web3::types::{TransactionReceipt, H256};
 use web3::Error;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -37,7 +39,7 @@ pub struct RetrievedBlockchainTransactions {
 
 #[derive(Default, Debug, PartialEq, Clone)]
 pub struct BatchResults {
-    pub sent_txs: Vec<Tx>,
+    pub sent_txs: Vec<SentTx>,
     pub failed_txs: Vec<FailedTx>,
 }
 

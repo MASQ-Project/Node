@@ -366,13 +366,13 @@ impl From<&TxByTable> for TxHashByTable {
 mod tests {
     use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus;
     use crate::accountant::db_access_objects::sent_payable_dao::{Detection, TxStatus};
+    use crate::accountant::db_access_objects::test_utils::{make_failed_tx, make_sent_tx};
     use crate::accountant::scanners::pending_payable_scanner::test_utils::ValidationFailureClockMock;
     use crate::accountant::scanners::pending_payable_scanner::utils::{
         CurrentPendingPayables, DetectedConfirmations, DetectedFailures, FailedValidation,
         FailedValidationByTable, PendingPayableCache, PresortedTxFailure, ReceiptScanReport,
         RecheckRequiringFailures, Retry, TxByTable, TxHashByTable,
     };
-    use crate::accountant::test_utils::{make_failed_tx, make_sent_tx};
     use crate::blockchain::errors::rpc_errors::{AppRpcErrorKind, LocalErrorKind, RemoteErrorKind};
     use crate::blockchain::errors::validation_status::{
         PreviousAttempts, ValidationFailureClockReal, ValidationStatus,

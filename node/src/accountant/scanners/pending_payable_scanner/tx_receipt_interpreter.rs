@@ -228,15 +228,14 @@ mod tests {
     use crate::accountant::db_access_objects::sent_payable_dao::{
         Detection, RetrieveCondition, SentTx, TxStatus,
     };
+    use crate::accountant::db_access_objects::test_utils::{make_failed_tx, make_sent_tx};
     use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp};
     use crate::accountant::scanners::pending_payable_scanner::tx_receipt_interpreter::TxReceiptInterpreter;
     use crate::accountant::scanners::pending_payable_scanner::utils::{
         DetectedConfirmations, DetectedFailures, FailedValidation, FailedValidationByTable,
         PresortedTxFailure, ReceiptScanReport, TxByTable,
     };
-    use crate::accountant::test_utils::{
-        make_failed_tx, make_sent_tx, make_transaction_block, SentPayableDaoMock,
-    };
+    use crate::accountant::test_utils::{make_transaction_block, SentPayableDaoMock};
     use crate::blockchain::errors::internal_errors::InternalErrorKind;
     use crate::blockchain::errors::rpc_errors::{
         AppRpcError, AppRpcErrorKind, LocalError, LocalErrorKind, RemoteError,

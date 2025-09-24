@@ -489,8 +489,6 @@ impl ActorFactory for ActorFactoryReal {
                     payable_dao_factory,
                     sent_payable_dao_factory,
                     failed_payable_dao_factory,
-                    sent_payable_dao_factory,
-                    failed_payable_dao_factory,
                     receivable_dao_factory,
                     banned_dao_factory,
                     config_dao_factory,

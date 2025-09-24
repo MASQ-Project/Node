@@ -1,15 +1,11 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::comma_joined_stringifiable;
 use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureStatus};
 use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDaoError};
-use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
-use crate::accountant::db_access_objects::sent_payable_dao::Tx;
 use crate::accountant::db_access_objects::utils::{ThresholdUtils, TxHash};
 use crate::accountant::db_access_objects::Transaction;
 use crate::accountant::scanners::payable_scanner::msgs::InitialTemplatesMessage;
-use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::NewTxTemplates;
-use crate::accountant::scanners::payable_scanner::tx_templates::initial::retry::RetryTxTemplates;
+use crate::accountant::{comma_joined_stringifiable, PendingPayable};
 use crate::blockchain::blockchain_interface::data_structures::BatchResults;
 use crate::sub_lib::accountant::PaymentThresholds;
 use crate::sub_lib::wallet::Wallet;

@@ -59,7 +59,7 @@ pub enum AppRpcErrorKind {
     Remote(RemoteErrorKind),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub enum LocalErrorKind {
     Decoder,
     Internal,
@@ -68,7 +68,7 @@ pub enum LocalErrorKind {
     Transport,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub enum RemoteErrorKind {
     InvalidResponse,
     Unreachable,
@@ -81,7 +81,7 @@ impl From<&AppRpcError> for AppRpcErrorKind {
             AppRpcError::Local(local) => match local {
                 LocalError::Decoder(_) => Self::Local(LocalErrorKind::Decoder),
                 LocalError::Internal => Self::Local(LocalErrorKind::Internal),
-                LocalError::IO(_) => Self::Local(LocalErrorKind::IO),
+                LocalError::IO(_) => Self::Local(LocalErrorKind::Io),
                 LocalError::Signing(_) => Self::Local(LocalErrorKind::Signing),
                 LocalError::Transport(_) => Self::Local(LocalErrorKind::Transport),
             },
@@ -162,7 +162,7 @@ mod tests {
         );
         assert_eq!(
             AppRpcErrorKind::from(&AppRpcError::Local(LocalError::IO("IO error".to_string()))),
-            AppRpcErrorKind::Local(LocalErrorKind::IO)
+            AppRpcErrorKind::Local(LocalErrorKind::Io)
         );
         assert_eq!(
             AppRpcErrorKind::from(&AppRpcError::Local(LocalError::Signing(
@@ -200,7 +200,7 @@ mod tests {
         let errors = vec![
             AppRpcErrorKind::Local(LocalErrorKind::Decoder),
             AppRpcErrorKind::Local(LocalErrorKind::Internal),
-            AppRpcErrorKind::Local(LocalErrorKind::IO),
+            AppRpcErrorKind::Local(LocalErrorKind::Io),
             AppRpcErrorKind::Local(LocalErrorKind::Signing),
             AppRpcErrorKind::Local(LocalErrorKind::Transport),
             AppRpcErrorKind::Remote(RemoteErrorKind::InvalidResponse),

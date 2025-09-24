@@ -1,16 +1,22 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::collections::{BTreeSet};
+use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
 use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
 use crate::accountant::db_access_objects::utils;
-use crate::accountant::db_access_objects::utils::{from_unix_timestamp, sum_i128_values_from_table, to_unix_timestamp, AssemblerFeeder, CustomQuery, DaoFactoryReal, RangeStmConfig, RowId, TopStmConfig, TxHash, VigilantRusqliteFlatten};
+use crate::accountant::db_access_objects::utils::{
+    from_unix_timestamp, sum_i128_values_from_table, to_unix_timestamp, AssemblerFeeder,
+    CustomQuery, DaoFactoryReal, RangeStmConfig, RowId, TopStmConfig, TxHash,
+    VigilantRusqliteFlatten,
+};
 use crate::accountant::db_big_integer::big_int_db_processor::KeyVariants::WalletAddress;
 use crate::accountant::db_big_integer::big_int_db_processor::{
     BigIntDbProcessor, BigIntDbProcessorReal, BigIntSqlConfig, DisplayableRusqliteParamPair,
     ParamByUse, SQLParamsBuilder, TableNameDAO, WeiChange, WeiChangeDirection,
 };
-use crate::accountant::{checked_conversion, sign_conversion, PendingPayableId};
-use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
+use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
+use crate::accountant::{
+    checked_conversion, join_with_separator, sign_conversion, PendingPayableId,
+};
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use crate::sub_lib::wallet::Wallet;
 use ethabi::Address;
@@ -21,10 +27,10 @@ use masq_lib::utils::ExpectValue;
 #[cfg(test)]
 use rusqlite::OptionalExtension;
 use rusqlite::{Error, Row};
+use std::collections::BTreeSet;
 use std::fmt::{Debug, Display, Formatter};
 use std::time::SystemTime;
-use web3::types::{Address, H256};
-use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
+use web3::types::H256;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum PayableDaoError {
@@ -555,13 +561,15 @@ impl TableNameDAO for PayableDaoReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accountant::db_access_objects::payable_dao::PayableRetrieveCondition::ByAddresses;
     use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
+    use crate::accountant::db_access_objects::test_utils::make_sent_tx;
     use crate::accountant::db_access_objects::utils::{
         current_unix_timestamp, from_unix_timestamp, to_unix_timestamp,
     };
     use crate::accountant::gwei_to_wei;
     use crate::accountant::test_utils::{
-        assert_account_creation_fn_fails_on_finding_wrong_columns_and_value_types, make_sent_tx,
+        assert_account_creation_fn_fails_on_finding_wrong_columns_and_value_types,
         trick_rusqlite_with_read_only_conn,
     };
     use crate::blockchain::test_utils::make_tx_hash;
@@ -569,6 +577,7 @@ mod tests {
         DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
     };
     use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
+    use crate::database::test_utils::ConnectionWrapperMock;
     use crate::test_utils::make_wallet;
     use itertools::Itertools;
     use masq_lib::messages::TopRecordsOrdering::{Age, Balance};
@@ -577,7 +586,7 @@ mod tests {
     use rusqlite::{Connection, OpenFlags};
     use std::path::Path;
     use std::str::FromStr;
-    use crate::database::test_utils::ConnectionWrapperMock;
+    use time::Duration;
 
     #[test]
     fn more_money_payable_works_for_new_address() {
@@ -971,7 +980,7 @@ mod tests {
                 // TODO argument will be eliminated in GH-662
                 None,
             );
-            let mut sent_tx = make_sent_tx((idx as u64 + 1) * 1234);
+            let mut sent_tx = make_sent_tx((idx as u32 + 1) * 1234);
             sent_tx.hash = test_inputs.hash;
             sent_tx.amount_minor = test_inputs.balance_change;
             sent_tx.receiver_address = test_inputs.receiver_wallet;

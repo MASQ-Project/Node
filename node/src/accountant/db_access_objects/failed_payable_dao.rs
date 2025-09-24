@@ -1,13 +1,13 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::db_access_objects::sent_payable_dao::Tx;
+use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
 use crate::accountant::db_access_objects::utils::{
-    sql_values_of_failed_tx, DaoFactoryReal, TxHash, TxIdentifiers, TxRecordWithHash, VigilantRusqliteFlatten,
+    sql_values_of_failed_tx, DaoFactoryReal, TxHash, TxIdentifiers, VigilantRusqliteFlatten,
 };
 use crate::accountant::db_access_objects::Transaction;
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
-use crate::accountant::{checked_conversion, join_with_separator};
+use crate::accountant::{checked_conversion, comma_joined_stringifiable, join_with_separator};
 use crate::blockchain::errors::rpc_errors::{AppRpcError, AppRpcErrorKind};
-use crate::blockchain::errors::validation_status::ValidationStatus;
+use crate::blockchain::errors::validation_status::{PreviousAttempts, ValidationStatus};
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use masq_lib::utils::ExpectValue;
 use serde_derive::{Deserialize, Serialize};
@@ -29,7 +29,7 @@ pub enum FailedPayableDaoError {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub enum FailureReason {
-    Submission(AppRpcError),
+    Submission(AppRpcErrorKind),
     Reverted,
     PendingTooLong,
 }
@@ -74,12 +74,6 @@ impl FromStr for FailureStatus {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         serde_json::from_str(s).map_err(|e| format!("{} in '{}'", e, s))
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
-pub enum ValidationStatus {
-    Waiting,
-    Reattempting(PreviousAttempts),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -142,14 +136,14 @@ impl Ord for FailedTx {
     }
 }
 
-impl From<(&Tx, &Web3Error)> for FailedTx {
-    fn from((sent_tx, error): (&Tx, &Web3Error)) -> Self {
+impl From<(&SentTx, &Web3Error)> for FailedTx {
+    fn from((sent_tx, error): (&SentTx, &Web3Error)) -> Self {
         Self {
             hash: sent_tx.hash,
             receiver_address: sent_tx.receiver_address,
-            amount: sent_tx.amount,
+            amount_minor: sent_tx.amount_minor,
             timestamp: sent_tx.timestamp,
-            gas_price_wei: sent_tx.gas_price_wei,
+            gas_price_minor: sent_tx.gas_price_minor,
             nonce: sent_tx.nonce,
             reason: FailureReason::Submission(error.clone().into()),
             status: FailureStatus::RetryRequired,
@@ -451,13 +445,16 @@ mod tests {
     };
     use crate::accountant::db_access_objects::utils::current_unix_timestamp;
     use crate::accountant::db_access_objects::Transaction;
+    use crate::accountant::scanners::pending_payable_scanner::test_utils::ValidationFailureClockMock;
     use crate::blockchain::errors::rpc_errors::LocalError::Decoder;
-    use crate::blockchain::errors::rpc_errors::{AppRpcError, AppRpcErrorKind};
+    use crate::blockchain::errors::rpc_errors::{
+        AppRpcError, AppRpcErrorKind, LocalErrorKind, RemoteErrorKind,
+    };
     use crate::blockchain::errors::validation_status::{
         PreviousAttempts, ValidationFailureClockReal, ValidationStatus,
     };
     use crate::blockchain::errors::BlockchainErrorKind;
-    use crate::blockchain::test_utils::{make_address, make_tx_hash, ValidationFailureClockMock};
+    use crate::blockchain::test_utils::{make_address, make_tx_hash};
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal,
     };

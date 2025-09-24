@@ -30,9 +30,9 @@ impl From<&FailedTx> for RetryTxTemplate {
         RetryTxTemplate {
             base: BaseTxTemplate {
                 receiver_address: failed_tx.receiver_address,
-                amount_in_wei: failed_tx.amount,
+                amount_in_wei: failed_tx.amount_minor,
             },
-            prev_gas_price_wei: failed_tx.gas_price_wei,
+            prev_gas_price_wei: failed_tx.gas_price_minor,
             prev_nonce: failed_tx.nonce,
         }
     }
@@ -110,8 +110,8 @@ mod tests {
         let failed_tx = FailedTx {
             hash: tx_hash,
             receiver_address,
-            amount: amount_in_wei,
-            gas_price_wei: gas_price,
+            amount_minor: amount_in_wei,
+            gas_price_minor: gas_price,
             nonce,
             timestamp: 1234567,
             reason: FailureReason::PendingTooLong,
