@@ -1133,7 +1133,10 @@ impl PayableScannerBuilder {
         self
     }
 
-    pub fn payable_threshold_gauge(mut self, payable_threshold_gauge: Box<dyn PayableThresholdsGauge>) -> Self {
+    pub fn payable_threshold_gauge(
+        mut self,
+        payable_threshold_gauge: Box<dyn PayableThresholdsGauge>,
+    ) -> Self {
         self.payable_inspector = PayableInspector::new(payable_threshold_gauge);
         self
     }

@@ -171,27 +171,35 @@ fn loading_test_with_randomized_params() {
 
     let second_stage_scenarios = first_stage_output.allowed_scenarios;
     let test_overall_output_collector = first_stage_output.output_collector;
-    let scenario_adjustment_results = second_stage_scenarios
-        .into_iter()
-        .map(|scenario| {
-            let prepared_adjustment = scenario.prepared_adjustment;
-            let account_infos =
-                preserve_account_infos(&prepared_adjustment.adjustment_analysis.accounts, now);
-            let required_adjustment = prepared_adjustment.adjustment_analysis.adjustment.clone();
-            let cw_service_fee_balance_minor =
-                prepared_adjustment.agent.service_fee_balance_minor();
+    let (test_overall_output_collector, scenario_adjustment_results) =
+        second_stage_scenarios.into_iter().fold(
+            (test_overall_output_collector, vec![]),
+            |(test_overall_output_collector_in_fold, mut scenario_results), scenario| {
+                let prepared_adjustment = scenario.prepared_adjustment;
+                let account_infos =
+                    preserve_account_infos(&prepared_adjustment.adjustment_analysis.accounts, now);
 
-            let payment_adjuster_result = subject.adjust_payments(prepared_adjustment);
+                let required_adjustment =
+                    prepared_adjustment.adjustment_analysis.adjustment.clone();
+                let cw_service_fee_balance_minor =
+                    prepared_adjustment.agent.service_fee_balance_minor();
 
-            administrate_single_scenario_result(
-                payment_adjuster_result,
-                account_infos,
-                scenario.applied_thresholds,
-                required_adjustment,
-                cw_service_fee_balance_minor,
-            )
-        })
-        .collect();
+                let payment_adjuster_result = subject.adjust_payments(prepared_adjustment);
+
+                let (t_o_c_i_f, scenario_result) = administrate_single_scenario_result(
+                    test_overall_output_collector_in_fold,
+                    payment_adjuster_result,
+                    account_infos,
+                    scenario.applied_thresholds,
+                    required_adjustment,
+                    cw_service_fee_balance_minor,
+                );
+
+                scenario_results.push(scenario_result);
+
+                (t_o_c_i_f, scenario_results)
+            },
+        );
 
     render_results_to_file_and_attempt_basic_assertions(
         scenario_adjustment_results,
@@ -271,7 +279,13 @@ fn generate_highly_randomized_payable_account_balance(
     // what the default number generator from this library seemed to be able to provide only.
     // Using some nesting, it scattered the distribution better and allowed me to have accounts
     // with diverse balances.
-    let mut generate_u128 = || generate_non_zero_usize(gn, 100) as u128;
+    const COEFFICIENT_A: usize = 100;
+    const COEFFICIENT_B: usize = 2;
+    const COEFFICIENT_C: usize = 3;
+    const COEFFICIENT_D: usize = 4;
+    const COEFFICIENT_E: usize = 5;
+
+    let mut generate_u128 = || generate_non_zero_usize(gn, COEFFICIENT_A) as u128;
 
     let parameter_a = generate_u128();
     let parameter_b = generate_u128();
@@ -280,29 +294,17 @@ fn generate_highly_randomized_payable_account_balance(
     let parameter_e = generate_u128();
     let parameter_f = generate_u128();
 
-    let mut use_variable_exponent =
+    let mut apply_arbitrary_variable_exponent =
         |parameter: u128, up_to: usize| parameter.pow(generate_non_zero_usize(gn, up_to) as u32);
 
-    let a_b_c_d_e = parameter_a
-        * use_variable_exponent(parameter_b, 2)
-        * use_variable_exponent(parameter_c, 3)
-        * use_variable_exponent(parameter_d, 4)
-        * use_variable_exponent(parameter_e, 5);
-    let addition = (0..6).fold(a_b_c_d_e, |so_far, subtrahend| {
-        if so_far != a_b_c_d_e {
-            so_far
-        } else {
-            if let Some(num) =
-                a_b_c_d_e.checked_sub(use_variable_exponent(parameter_f, 6 - subtrahend))
-            {
-                num
-            } else {
-                so_far
-            }
-        }
-    });
+    let a_b_c_d_e_f = parameter_a
+        * apply_arbitrary_variable_exponent(parameter_b, COEFFICIENT_B)
+        * apply_arbitrary_variable_exponent(parameter_c, COEFFICIENT_C)
+        * apply_arbitrary_variable_exponent(parameter_d, COEFFICIENT_D)
+        * apply_arbitrary_variable_exponent(parameter_e, COEFFICIENT_E)
+        * parameter_f;
 
-    thresholds.permanent_debt_allowed_gwei as u128 + addition
+    thresholds.permanent_debt_allowed_gwei as u128 + a_b_c_d_e_f
 }
 
 fn try_make_qualified_payables_by_applied_thresholds(
@@ -314,36 +316,43 @@ fn try_make_qualified_payables_by_applied_thresholds(
     match applied_thresholds {
         AppliedThresholds::Defaulted => try_to_make_qualified_payables(
             payable_accounts,
-            &PRESERVED_TEST_PAYMENT_THRESHOLDS,
+            &PaymentThresholds::default(),
             now,
             false,
         ),
         AppliedThresholds::CommonButRandomized { common_thresholds } => {
-            try_to_make_qualified_payables(
-                payable_accounts,
-                common_thresholds,
-                now,
-                false,
-            )
+            try_to_make_qualified_payables(payable_accounts, common_thresholds, now, false)
         }
         AppliedThresholds::RandomizedForEachAccount {
             individual_thresholds,
-        } => {
-            let vec_of_thresholds = individual_thresholds.values().collect_vec();
-            let zipped = payable_accounts.into_iter().zip(vec_of_thresholds.iter());
-            zipped
-                .flat_map(|(qualified_payable, thresholds)| {
-                    make_single_qualified_payable_opt(
-                        qualified_payable,
-                        &payment_inspector,
-                        &thresholds,
-                        false,
-                        now,
-                    )
-                })
-                .collect()
-        }
+        } => make_qualified_payables_for_individualized_thresholds(
+            payable_accounts,
+            now,
+            &payment_inspector,
+            individual_thresholds,
+        ),
     }
+}
+
+fn make_qualified_payables_for_individualized_thresholds(
+    payable_accounts: Vec<PayableAccount>,
+    now: SystemTime,
+    payment_inspector: &PayableInspector,
+    individual_thresholds: &HashMap<Address, PaymentThresholds>,
+) -> Vec<QualifiedPayableAccount> {
+    let vec_of_thresholds = individual_thresholds.values().collect_vec();
+    let zipped = payable_accounts.into_iter().zip(vec_of_thresholds.iter());
+    zipped
+        .flat_map(|(qualified_payable, thresholds)| {
+            make_single_qualified_payable_opt(
+                qualified_payable,
+                &payment_inspector,
+                &thresholds,
+                false,
+                now,
+            )
+        })
+        .collect()
 }
 
 fn try_generating_qualified_payables_and_cw_balance(
@@ -382,11 +391,15 @@ fn pick_appropriate_cw_service_fee_balance(
     // Values picked empirically
     const COEFFICIENT_A: usize = 1000;
     const COEFFICIENT_B: usize = 2;
+
     let balance_average = sum_as(qualified_payables, |account| {
         account.initial_balance_minor()
     }) / accounts_count as u128;
+
     let max_pieces = accounts_count * COEFFICIENT_A;
-    let number_of_pieces = generate_usize(gn, max_pieces - COEFFICIENT_B) as u128 + COEFFICIENT_B as u128;
+    let number_of_pieces =
+        generate_usize(gn, max_pieces - COEFFICIENT_B) as u128 + COEFFICIENT_B as u128;
+
     balance_average / COEFFICIENT_A as u128 * number_of_pieces
 }
 
@@ -400,12 +413,9 @@ fn make_payables_according_to_thresholds_setup(
     let nominated_thresholds = choose_thresholds(gn, &wallets);
 
     let payables = match &nominated_thresholds {
-        AppliedThresholds::Defaulted => make_payables_with_common_thresholds(
-            gn,
-            wallets,
-            &PRESERVED_TEST_PAYMENT_THRESHOLDS,
-            now,
-        ),
+        AppliedThresholds::Defaulted => {
+            make_payables_with_common_thresholds(gn, wallets, &PaymentThresholds::default(), now)
+        }
         AppliedThresholds::CommonButRandomized { common_thresholds } => {
             make_payables_with_common_thresholds(gn, wallets, common_thresholds, now)
         }
@@ -519,12 +529,13 @@ fn make_adjustment(gn: &mut ThreadRng, accounts_count: usize) -> Adjustment {
 }
 
 fn administrate_single_scenario_result(
+    mut test_overall_output_collector: TestOverallOutputCollector,
     payment_adjuster_result: Result<OutboundPaymentsInstructions, PaymentAdjusterError>,
     account_infos: Vec<AccountInfo>,
     used_thresholds: AppliedThresholds,
     required_adjustment: Adjustment,
     cw_service_fee_balance_minor: u128,
-) -> ScenarioResult {
+) -> (TestOverallOutputCollector, ScenarioResult) {
     let common = CommonScenarioInfo {
         cw_service_fee_balance_minor,
         required_adjustment,
@@ -537,17 +548,23 @@ fn administrate_single_scenario_result(
                 PercentPortionOfCWUsed::new(&adjusted_accounts, &common);
             let merged =
                 merge_information_about_particular_account(account_infos, adjusted_accounts);
-            let interpretable_adjustments = merged
-                .into_iter()
-                .map(InterpretableAccountAdjustmentResult::new)
-                .collect_vec();
-            let (partially_sorted_interpretable_adjustments, were_no_accounts_eliminated) =
+
+            let (interpretable_adjustments, adjusted_accounts_within_this_scenario) =
+                prepare_interpretable_adjustment_results(merged);
+
+            look_after_adjustment_statistics(
+                &mut test_overall_output_collector,
+                adjusted_accounts_within_this_scenario,
+            );
+
+            let (partially_sorted_interpretable_adjustments, no_accounts_eliminated) =
                 sort_interpretable_adjustments(interpretable_adjustments);
+
             Ok(SuccessfulAdjustment {
                 common,
                 portion_of_cw_cumulatively_used_percents,
                 partially_sorted_interpretable_adjustments,
-                no_accounts_eliminated: were_no_accounts_eliminated,
+                no_accounts_eliminated,
             })
         }
         Err(adjuster_error) => Err(FailedAdjustment {
@@ -557,7 +574,10 @@ fn administrate_single_scenario_result(
         }),
     };
 
-    ScenarioResult::new(reinterpreted_result)
+    (
+        test_overall_output_collector,
+        ScenarioResult::new(reinterpreted_result),
+    )
 }
 
 fn merge_information_about_particular_account(
@@ -576,6 +596,35 @@ fn merge_information_about_particular_account(
             (info, adjusted_account_opt)
         })
         .collect()
+}
+
+fn prepare_interpretable_adjustment_results(
+    merged: Vec<(AccountInfo, Option<PayableAccount>)>,
+) -> (Vec<InterpretableAccountAdjustmentResult>, usize) {
+    merged.into_iter().fold(
+        (vec![], 0),
+        |(mut interpretable_accounts, adjusted_accounts_so_far),
+         (info, maybe_eliminated_account)| {
+            let (interpretable_account, was_this_account_eliminated) =
+                InterpretableAccountAdjustmentResult::new(info, maybe_eliminated_account);
+            interpretable_accounts.push(interpretable_account);
+            (
+                interpretable_accounts,
+                adjusted_accounts_so_far + if was_this_account_eliminated { 1 } else { 0 },
+            )
+        },
+    )
+}
+
+fn look_after_adjustment_statistics(
+    test_overall_output_collector: &mut TestOverallOutputCollector,
+    adjusted_accounts_within_this_scenario: usize,
+) {
+    if adjusted_accounts_within_this_scenario > 1 {
+        test_overall_output_collector.scenarios_with_more_than_one_adjustment += 1
+    }
+    test_overall_output_collector.adjusted_account_count_total +=
+        adjusted_accounts_within_this_scenario;
 }
 
 enum PercentPortionOfCWUsed {
@@ -681,7 +730,7 @@ fn render_results_to_file_and_attempt_basic_assertions(
         total_scenarios_handled_including_invalid_ones, number_of_requested_scenarios
     );
     // Only some of the generated scenarios are acceptable, don't be surprised by the waste. That's
-    // anticipated given the nature of the generator and the requirements on the payable accounts
+    // expected given the nature of the generator and the requirements on the payable accounts
     // so that they are picked up and let in the PaymentAdjuster. We'll be better off truly faithful
     // to the use case and the expected conditions. Therefore, we insist on making "guaranteed"
     // QualifiedPayableAccounts out of PayableAccount which is where we take the losses.
@@ -743,6 +792,9 @@ fn write_brief_test_summary_at_file_s_tail(
          Plain service fee adjustments:......... {}\n\
          Bills fulfillment distribution:\n\
          {}\n\n\
+         Individual accounts adjusted:.......... {}\n\
+         Scenarios with more than one account\n\
+         adjusted:.............................. {}\n\n\
          Unsuccessful\n\
          Caught by the entry check:............. {}\n\
          With 'RecursionDrainedAllAccounts':.... {}\n\
@@ -766,6 +818,8 @@ fn write_brief_test_summary_at_file_s_tail(
         output_collector
             .fulfillment_distribution_for_service_fee_adjustments
             .render_in_two_lines(),
+        output_collector.adjusted_account_count_total,
+        output_collector.scenarios_with_more_than_one_adjustment,
         output_collector.scenarios_denied_before_adjustment_started,
         output_collector.all_accounts_eliminated,
         output_collector.late_immoderately_insufficient_service_fee_balance,
@@ -1081,6 +1135,8 @@ struct TestOverallOutputCollector {
     // ____________________________________
     oks: usize,
     with_no_accounts_eliminated: usize,
+    adjusted_account_count_total: usize,
+    scenarios_with_more_than_one_adjustment: usize,
     fulfillment_distribution_for_transaction_fee_adjustments: PercentageFulfillmentDistribution,
     fulfillment_distribution_for_service_fee_adjustments: PercentageFulfillmentDistribution,
     // Errors
@@ -1095,6 +1151,8 @@ impl TestOverallOutputCollector {
             scenarios_denied_before_adjustment_started: 0,
             oks: 0,
             with_no_accounts_eliminated: 0,
+            adjusted_account_count_total: 0,
+            scenarios_with_more_than_one_adjustment: 0,
             fulfillment_distribution_for_transaction_fee_adjustments: Default::default(),
             fulfillment_distribution_for_service_fee_adjustments: Default::default(),
             all_accounts_eliminated: 0,
@@ -1238,27 +1296,30 @@ impl AccountWithWallet for InterpretableAccountAdjustmentResult {
 }
 
 impl InterpretableAccountAdjustmentResult {
-    fn new((info, non_eliminated_payable): (AccountInfo, Option<PayableAccount>)) -> Self {
-        let bill_coverage_in_percentage_opt = match &non_eliminated_payable {
-            Some(payable) => {
-                let bill_coverage_in_percentage = {
-                    let percentage =
-                        (payable.balance_wei * 100) / info.initially_requested_service_fee_minor;
-                    u8::try_from(percentage).unwrap()
-                };
-                Some(bill_coverage_in_percentage)
-            }
-            None => None,
-        };
-        InterpretableAccountAdjustmentResult {
-            info: AccountInfo {
-                wallet: info.wallet,
-                debt_age_s: info.debt_age_s,
-                initially_requested_service_fee_minor: info.initially_requested_service_fee_minor,
+    fn new(info: AccountInfo, maybe_eliminated_payable: Option<PayableAccount>) -> (Self, bool) {
+        let (bill_coverage_in_percentage_opt, was_this_account_adjusted) =
+            match &maybe_eliminated_payable {
+                Some(payable) => {
+                    let percents_of_bill_coverage = Self::percents_of_bill_coverage(&info, payable);
+                    (
+                        Some(percents_of_bill_coverage),
+                        percents_of_bill_coverage != 100,
+                    )
+                }
+                None => (None, false),
+            };
+        (
+            InterpretableAccountAdjustmentResult {
+                info,
+                bill_coverage_in_percentage_opt,
             },
+            was_this_account_adjusted,
+        )
+    }
 
-            bill_coverage_in_percentage_opt,
-        }
+    fn percents_of_bill_coverage(info: &AccountInfo, payable: &PayableAccount) -> u8 {
+        let percentage = (payable.balance_wei * 100) / info.initially_requested_service_fee_minor;
+        u8::try_from(percentage).unwrap()
     }
 }
 

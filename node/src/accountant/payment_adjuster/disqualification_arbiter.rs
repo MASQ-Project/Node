@@ -283,7 +283,7 @@ mod tests {
     };
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::UnconfirmedAdjustment;
     use crate::accountant::payment_adjuster::test_utils::local_utils::{
-        make_meaningless_weighed_account, make_meaningless_unconfirmed_adjustment,
+        make_meaningless_unconfirmed_adjustment, make_meaningless_weighed_account,
     };
     use itertools::Itertools;
     use masq_lib::logger::Logger;

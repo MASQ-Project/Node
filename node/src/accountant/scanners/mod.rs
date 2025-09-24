@@ -1327,9 +1327,7 @@ mod tests {
             PayableDaoMock::new().non_pending_payables_result(all_non_pending_payables);
         let mut subject = PayableScannerBuilder::new()
             .payable_dao(payable_dao)
-            .payable_threshold_gauge(Box::new(
-                PayableThresholdsGaugeReal::default())
-            )
+            .payable_threshold_gauge(Box::new(PayableThresholdsGaugeReal::default()))
             .build();
 
         let result = subject.begin_scan(now, None, &Logger::new(test_name));
@@ -1363,9 +1361,7 @@ mod tests {
             PayableDaoMock::new().non_pending_payables_result(all_non_pending_payables);
         let mut subject = PayableScannerBuilder::new()
             .payable_dao(payable_dao)
-            .payable_threshold_gauge(Box::new(
-                PayableThresholdsGaugeReal::default()
-            ))
+            .payable_threshold_gauge(Box::new(PayableThresholdsGaugeReal::default()))
             .build();
         let _result = subject.begin_scan(now, None, &Logger::new("test"));
 
@@ -1388,9 +1384,7 @@ mod tests {
             PayableDaoMock::new().non_pending_payables_result(unqualified_payable_accounts);
         let mut subject = PayableScannerBuilder::new()
             .payable_dao(payable_dao)
-            .payable_threshold_gauge(Box::new(
-                PayableThresholdsGaugeReal::default()
-            ))
+            .payable_threshold_gauge(Box::new(PayableThresholdsGaugeReal::default()))
             .build();
 
         let result = subject.begin_scan(now, None, &Logger::new("test"));
@@ -2186,9 +2180,7 @@ mod tests {
         }];
         let subject = PayableScannerBuilder::new()
             .payment_thresholds(payment_thresholds)
-            .payable_threshold_gauge(Box::new(
-                PayableThresholdsGaugeReal::default()
-            ))
+            .payable_threshold_gauge(Box::new(PayableThresholdsGaugeReal::default()))
             .build();
         let test_name =
             "payable_with_debt_above_the_slope_is_qualified_and_the_threshold_value_is_returned";
@@ -2219,9 +2211,7 @@ mod tests {
         };
         let subject = PayableScannerBuilder::new()
             .payment_thresholds(payment_thresholds)
-            .payable_threshold_gauge(Box::new(
-                PayableThresholdsGaugeReal::default()
-            ))
+            .payable_threshold_gauge(Box::new(PayableThresholdsGaugeReal::default()))
             .build();
         let test_name = "payable_with_debt_above_the_slope_is_qualified";
         let logger = Logger::new(test_name);
@@ -2262,9 +2252,7 @@ mod tests {
         }];
         let subject = PayableScannerBuilder::new()
             .payment_thresholds(payment_thresholds)
-            .payable_threshold_gauge(Box::new(
-                PayableThresholdsGaugeReal::default()
-            ))
+            .payable_threshold_gauge(Box::new(PayableThresholdsGaugeReal::default()))
             .build();
         let logger = Logger::new(test_name);
 
@@ -2301,9 +2289,7 @@ mod tests {
         };
         let subject = PayableScannerBuilder::new()
             .payment_thresholds(payment_thresholds)
-            .payable_threshold_gauge(Box::new(
-                PayableThresholdsGaugeReal::default()
-            ))
+            .payable_threshold_gauge(Box::new(PayableThresholdsGaugeReal::default()))
             .build();
         let intercept_before = subject
             .payable_exceeded_threshold(&payable, SystemTime::now())

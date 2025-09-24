@@ -2,7 +2,6 @@
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationSuspectedAccount;
-use crate::masq_lib::utils::ExpectValue;
 use itertools::Itertools;
 use masq_lib::constants::WALLET_ADDRESS_LENGTH;
 use masq_lib::logger::Logger;

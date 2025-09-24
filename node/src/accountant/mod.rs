@@ -1084,9 +1084,7 @@ mod tests {
         TransactionFeeImmoderateInsufficiency,
     };
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
-    use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{
-        PayableInspector, PayableThresholdsGaugeReal,
-    };
+    use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableThresholdsGaugeReal;
     use crate::accountant::scanners::test_utils::protect_qualified_payables_in_test;
     use crate::accountant::scanners::BeginScanError;
     use crate::accountant::test_utils::DaoWithDestination::{
@@ -3626,9 +3624,7 @@ mod tests {
                 let payable_scanner = PayableScannerBuilder::new()
                     .payable_dao(payable_dao_for_payable_scanner)
                     .pending_payable_dao(pending_payable_dao_for_payable_scanner)
-                    .payable_threshold_gauge(Box::new(
-                        PayableThresholdsGaugeReal::default()
-                    ))
+                    .payable_threshold_gauge(Box::new(PayableThresholdsGaugeReal::default()))
                     .payment_adjuster(payment_adjuster)
                     .build();
                 subject.scanners.payable = Box::new(payable_scanner);

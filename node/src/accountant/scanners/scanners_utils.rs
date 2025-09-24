@@ -316,7 +316,9 @@ pub mod payable_scanner_utils {
 
             eprintln!(
                 "Balance wei: {}\n\
-                 Threshold:   {}", payable.balance_wei, threshold);
+                 Threshold:   {}",
+                payable.balance_wei, threshold
+            );
             if payable.balance_wei > threshold {
                 Some(threshold)
             } else {
