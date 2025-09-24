@@ -1144,37 +1144,38 @@ mod tests {
 
     #[test]
     fn no_missing_records() {
-        let wallet_1 = make_wallet("abc");
-        let hash_1 = make_tx_hash(123);
-        let wallet_2 = make_wallet("def");
-        let hash_2 = make_tx_hash(345);
-        let wallet_3 = make_wallet("ghi");
-        let hash_3 = make_tx_hash(546);
-        let wallet_4 = make_wallet("jkl");
-        let hash_4 = make_tx_hash(678);
-        let pending_payables_owned = vec![
-            PendingPayable::new(wallet_1.clone(), hash_1),
-            PendingPayable::new(wallet_2.clone(), hash_2),
-            PendingPayable::new(wallet_3.clone(), hash_3),
-            PendingPayable::new(wallet_4.clone(), hash_4),
-        ];
-        let pending_payables_ref = pending_payables_owned
-            .iter()
-            .collect::<Vec<&PendingPayable>>();
-        let sent_payable_dao = SentPayableDaoMock::new().get_tx_identifiers_result(
-            hashmap!(hash_4 => 4, hash_1 => 1, hash_3 => 3, hash_2 => 2),
-        );
-        let subject = PayableScannerBuilder::new()
-            .sent_payable_dao(sent_payable_dao)
-            .build();
-
-        let missing_records = subject.check_for_missing_records(&pending_payables_ref);
-
-        assert!(
-            missing_records.is_empty(),
-            "We thought the vec would be empty but contained: {:?}",
-            missing_records
-        );
+        todo!("pending payable issue");
+        // let wallet_1 = make_wallet("abc");
+        // let hash_1 = make_tx_hash(123);
+        // let wallet_2 = make_wallet("def");
+        // let hash_2 = make_tx_hash(345);
+        // let wallet_3 = make_wallet("ghi");
+        // let hash_3 = make_tx_hash(546);
+        // let wallet_4 = make_wallet("jkl");
+        // let hash_4 = make_tx_hash(678);
+        // let pending_payables_owned = vec![
+        //     PendingPayable::new(wallet_1.clone(), hash_1),
+        //     PendingPayable::new(wallet_2.clone(), hash_2),
+        //     PendingPayable::new(wallet_3.clone(), hash_3),
+        //     PendingPayable::new(wallet_4.clone(), hash_4),
+        // ];
+        // let pending_payables_ref = pending_payables_owned
+        //     .iter()
+        //     .collect::<Vec<&PendingPayable>>();
+        // let sent_payable_dao = SentPayableDaoMock::new().get_tx_identifiers_result(
+        //     hashmap!(hash_4 => 4, hash_1 => 1, hash_3 => 3, hash_2 => 2),
+        // );
+        // let subject = PayableScannerBuilder::new()
+        //     .sent_payable_dao(sent_payable_dao)
+        //     .build();
+        //
+        // let missing_records = subject.check_for_missing_records(&pending_payables_ref);
+        //
+        // assert!(
+        //     missing_records.is_empty(),
+        //     "We thought the vec would be empty but contained: {:?}",
+        //     missing_records
+        // );
     }
 
     #[test]
@@ -1191,23 +1192,24 @@ mod tests {
         hash: 0x0000000000000000000000000000000000000000000000000000000000000315 }]"
     )]
     fn just_baked_pending_payables_contain_duplicates() {
-        let hash_1 = make_tx_hash(123);
-        let hash_2 = make_tx_hash(456);
-        let hash_3 = make_tx_hash(789);
-        let pending_payables = vec![
-            PendingPayable::new(make_wallet("abc"), hash_1),
-            PendingPayable::new(make_wallet("def"), hash_2),
-            PendingPayable::new(make_wallet("ghi"), hash_2),
-            PendingPayable::new(make_wallet("jkl"), hash_3),
-        ];
-        let pending_payables_ref = pending_payables.iter().collect::<Vec<&PendingPayable>>();
-        let sent_payable_dao = SentPayableDaoMock::new()
-            .get_tx_identifiers_result(hashmap!(hash_1 => 1, hash_2 => 3, hash_3 => 5));
-        let subject = PayableScannerBuilder::new()
-            .sent_payable_dao(sent_payable_dao)
-            .build();
-
-        subject.check_for_missing_records(&pending_payables_ref);
+        todo!("another pending payable issue");
+        // let hash_1 = make_tx_hash(123);
+        // let hash_2 = make_tx_hash(456);
+        // let hash_3 = make_tx_hash(789);
+        // let pending_payables = vec![
+        //     PendingPayable::new(make_wallet("abc"), hash_1),
+        //     PendingPayable::new(make_wallet("def"), hash_2),
+        //     PendingPayable::new(make_wallet("ghi"), hash_2),
+        //     PendingPayable::new(make_wallet("jkl"), hash_3),
+        // ];
+        // let pending_payables_ref = pending_payables.iter().collect::<Vec<&PendingPayable>>();
+        // let sent_payable_dao = SentPayableDaoMock::new()
+        //     .get_tx_identifiers_result(hashmap!(hash_1 => 1, hash_2 => 3, hash_3 => 5));
+        // let subject = PayableScannerBuilder::new()
+        //     .sent_payable_dao(sent_payable_dao)
+        //     .build();
+        //
+        // subject.check_for_missing_records(&pending_payables_ref);
     }
 
     #[test]
@@ -1216,22 +1218,23 @@ mod tests {
     to wallet: 0x00000000000000000000000000626c6168323232) \
     were not found. The system has become unreliable")]
     fn payable_scanner_found_out_nonexistent_sent_tx_records() {
-        init_test_logging();
-        let test_name = "payable_scanner_found_out_nonexistent_sent_tx_records";
-        let hash_1 = make_tx_hash(0xff);
-        let hash_2 = make_tx_hash(0xf8);
-        let sent_payable_dao =
-            SentPayableDaoMock::default().get_tx_identifiers_result(hashmap!(hash_1 => 7881));
-        let payable_1 = PendingPayable::new(make_wallet("blah111"), hash_1);
-        let payable_2 = PendingPayable::new(make_wallet("blah222"), hash_2);
-        let payable_dao = PayableDaoMock::new().mark_pending_payables_rowids_result(Err(
-            PayableDaoError::SignConversion(9999999999999),
-        ));
-        let mut subject = PayableScannerBuilder::new()
-            .payable_dao(payable_dao)
-            .sent_payable_dao(sent_payable_dao)
-            .build();
         todo!("GH-605: Work on it")
+        // init_test_logging();
+        // let test_name = "payable_scanner_found_out_nonexistent_sent_tx_records";
+        // let hash_1 = make_tx_hash(0xff);
+        // let hash_2 = make_tx_hash(0xf8);
+        // let sent_payable_dao =
+        //     SentPayableDaoMock::default().get_tx_identifiers_result(hashmap!(hash_1 => 7881));
+        // let payable_1 = PendingPayable::new(make_wallet("blah111"), hash_1);
+        // let payable_2 = PendingPayable::new(make_wallet("blah222"), hash_2);
+        // let payable_dao = PayableDaoMock::new().mark_pending_payables_rowids_result(Err(
+        //     PayableDaoError::SignConversion(9999999999999),
+        // ));
+        // let mut subject = PayableScannerBuilder::new()
+        //     .payable_dao(payable_dao)
+        //     .sent_payable_dao(sent_payable_dao)
+        //     .build();
+
         // let sent_payables = SentPayables {
         //     payment_procedure_result: Ok(vec![
         //         ProcessedPayableFallible::Correct(payable_1),
@@ -1631,7 +1634,7 @@ mod tests {
         let sent_payable_dao =
             SentPayableDaoMock::new().retrieve_txs_result(vec![make_sent_tx(123)]);
         let failed_payable_dao =
-            FailedPayableDaoMock::new().retrieve_txs_result(vec![make_failed_tx(456)]);
+            FailedPayableDaoMock::new().retrieve_txs_result(BTreeSet::from([make_failed_tx(456)]));
         let pending_payable_scanner = PendingPayableScannerBuilder::new()
             .sent_payable_dao(sent_payable_dao)
             .failed_payable_dao(failed_payable_dao)

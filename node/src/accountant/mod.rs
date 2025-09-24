@@ -427,7 +427,7 @@ impl Handler<ScanError> for Accountant {
                 DetailedScanType::RetryPayables => self
                     .scan_schedulers
                     .payable
-                    .schedule_retry_payable_scan(ctx, None, &self.logger),
+                    .schedule_retry_payable_scan(ctx, &self.logger),
                 DetailedScanType::PendingPayables => self
                     .scan_schedulers
                     .pending_payable
@@ -5604,7 +5604,7 @@ mod tests {
     ) -> (TxHashByTable, TxReceiptResult, TxByTable) {
         match tx_hash {
             TxHashByTable::SentPayable(hash) => {
-                let mut sent_tx = make_sent_tx(1 + idx);
+                let mut sent_tx = make_sent_tx((1 + idx) as u32);
                 sent_tx.hash = hash;
 
                 if let StatusReadFromReceiptCheck::Succeeded(block) = &status {

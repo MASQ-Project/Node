@@ -163,7 +163,7 @@ impl PendingPayableScanner {
         }
 
         let pending_tx_hashes = Self::get_wrapped_hashes(&pending_txs, TxHashByTable::SentPayable);
-        self.current_sent_payables.load_cache(pending_txs);
+        self.current_sent_payables.load_cache(pending_txs.into());
         Some(pending_tx_hashes)
     }
 
@@ -177,7 +177,8 @@ impl PendingPayableScanner {
         }
 
         let failure_hashes = Self::get_wrapped_hashes(&failures, TxHashByTable::FailedPayable);
-        self.yet_unproven_failed_payables.load_cache(failures);
+        self.yet_unproven_failed_payables
+            .load_cache(failures.into());
         Some(failure_hashes)
     }
 
@@ -409,7 +410,10 @@ impl PendingPayableScanner {
         hashes_and_blocks: &[(TxHash, TxBlock)],
         logger: &Logger,
     ) {
-        match self.sent_payable_dao.replace_records(sent_txs_to_reclaim) {
+        match self
+            .sent_payable_dao
+            .replace_records(sent_txs_to_reclaim.into())
+        {
             Ok(_) => {
                 debug!(logger, "Replaced records for txs being reclaimed")
             }
@@ -428,7 +432,7 @@ impl PendingPayableScanner {
 
     fn delete_failed_tx_records(&self, hashes_and_blocks: &[(TxHash, TxBlock)], logger: &Logger) {
         let hashes = Self::isolate_hashes(hashes_and_blocks);
-        match self.failed_payable_dao.delete_records(&hashes) {
+        match self.failed_payable_dao.delete_records(&hashes.into()) {
             Ok(_) => {
                 info!(
                     logger,
@@ -837,7 +841,7 @@ mod tests {
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use regex::Regex;
-    use std::collections::HashMap;
+    use std::collections::{BTreeMap, BTreeSet, HashMap};
     use std::ops::Sub;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Mutex};
@@ -1429,7 +1433,10 @@ mod tests {
         subject.handle_failed_transactions(detected_failures, &Logger::new("test"));
 
         let insert_new_records_params = insert_new_records_params_arc.lock().unwrap();
-        assert_eq!(*insert_new_records_params, vec![vec![failed_tx_1]]);
+        assert_eq!(
+            *insert_new_records_params,
+            vec![BTreeSet::from([failed_tx_1])]
+        );
         let delete_records_params = delete_records_params_arc.lock().unwrap();
         assert_eq!(*delete_records_params, vec![hashset![tx_hash_1]]);
         let update_statuses_params = update_status_params_arc.lock().unwrap();
@@ -1621,7 +1628,11 @@ mod tests {
         let replace_records_params = replace_records_params_arc.lock().unwrap();
         assert_eq!(*replace_records_params, vec![vec![sent_tx_1, sent_tx_2]]);
         let delete_records_params = delete_records_params_arc.lock().unwrap();
-        assert_eq!(*delete_records_params, vec![hashset![tx_hash_1, tx_hash_2]]);
+        // assert_eq!(*delete_records_params, vec![hashset![tx_hash_1, tx_hash_2]]);
+        assert_eq!(
+            *delete_records_params,
+            vec![BTreeSet::from([tx_hash_1, tx_hash_2])]
+        );
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!(
             "INFO: {test_name}: Reclaimed txs 0x0000000000000000000000000000000000000000000000000000000000000123 \
@@ -1879,7 +1890,8 @@ mod tests {
         let replace_records_params = replace_records_params_arc.lock().unwrap();
         assert_eq!(*replace_records_params, vec![vec![sent_tx_2]]);
         let delete_records_params = delete_records_params_arc.lock().unwrap();
-        assert_eq!(*delete_records_params, vec![hashset![tx_hash_2]]);
+        // assert_eq!(*delete_records_params, vec![hashset![tx_hash_2]]);
+        assert_eq!(*delete_records_params, vec![BTreeSet::from([tx_hash_2])]);
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!(
             "INFO: {test_name}: Reclaimed txs \

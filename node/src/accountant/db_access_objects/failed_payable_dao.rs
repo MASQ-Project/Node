@@ -98,7 +98,7 @@ impl Transaction for FailedTx {
     }
 
     fn amount(&self) -> u128 {
-        self.amount
+        self.amount_minor
     }
 
     fn timestamp(&self) -> i64 {
@@ -106,7 +106,7 @@ impl Transaction for FailedTx {
     }
 
     fn gas_price_wei(&self) -> u128 {
-        self.gas_price_wei
+        self.gas_price_minor
     }
 
     fn nonce(&self) -> u64 {
@@ -132,12 +132,14 @@ impl Ord for FailedTx {
             .timestamp
             .cmp(&self.timestamp)
             .then_with(|| other.nonce.cmp(&self.nonce))
-            .then_with(|| other.amount.cmp(&self.amount))
+            .then_with(|| other.amount_minor.cmp(&self.amount_minor))
     }
 }
 
 impl From<(&SentTx, &Web3Error)> for FailedTx {
     fn from((sent_tx, error): (&SentTx, &Web3Error)) -> Self {
+        let app_rpc_error = AppRpcError::from(error.clone());
+        let error_kind = AppRpcErrorKind::from(&app_rpc_error);
         Self {
             hash: sent_tx.hash,
             receiver_address: sent_tx.receiver_address,
@@ -145,7 +147,7 @@ impl From<(&SentTx, &Web3Error)> for FailedTx {
             timestamp: sent_tx.timestamp,
             gas_price_minor: sent_tx.gas_price_minor,
             nonce: sent_tx.nonce,
-            reason: FailureReason::Submission(error.clone().into()),
+            reason: FailureReason::Submission(error_kind),
             status: FailureStatus::RetryRequired,
         }
     }
@@ -357,7 +359,7 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
         }
 
         let case_statements = join_with_separator(
-            &status_updates,
+            status_updates,
             |(hash, status)| format!("WHEN tx_hash = '{:?}' THEN '{}'", hash, status),
             " ",
         );
@@ -1223,9 +1225,9 @@ mod tests {
         let failed_tx = FailedTx {
             hash,
             receiver_address,
-            amount,
+            amount_minor: amount,
             timestamp,
-            gas_price_wei,
+            gas_price_minor: gas_price_wei,
             nonce,
             reason,
             status,

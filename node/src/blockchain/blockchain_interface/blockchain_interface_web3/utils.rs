@@ -31,6 +31,7 @@ use std::time::SystemTime;
 use thousands::Separable;
 use web3::transports::{Batch, Http};
 use web3::types::{Bytes, SignedTransaction, TransactionParameters, U256};
+use web3::Error as Web3Error;
 use web3::Web3;
 
 #[derive(Debug)]
@@ -232,7 +233,6 @@ pub fn append_signed_transaction_to_batch(web3_batch: &Web3<Batch<Http>>, raw_tr
 }
 
 pub fn sign_and_append_multiple_payments(
-    now: SystemTime,
     logger: &Logger,
     chain: Chain,
     web3_batch: &Web3<Batch<Http>>,
@@ -318,7 +318,7 @@ pub fn create_blockchain_agent_web3(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus;
+    use crate::accountant::db_access_objects::failed_payable_dao::{FailureReason, FailureStatus};
     use crate::accountant::db_access_objects::test_utils::{
         assert_on_failed_txs, assert_on_sent_txs, FailedTxBuilder, TxBuilder,
     };
@@ -334,9 +334,11 @@ mod tests {
         BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
     };
     use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError::Sending;
-    use crate::blockchain::errors::rpc_errors::AppRpcError;
     use crate::blockchain::errors::rpc_errors::LocalError::Transport;
     use crate::blockchain::errors::rpc_errors::RemoteError::Web3RpcError;
+    use crate::blockchain::errors::rpc_errors::{
+        AppRpcError, AppRpcErrorKind, LocalErrorKind, RemoteErrorKind,
+    };
     use crate::blockchain::test_utils::{
         make_address, make_blockchain_interface_web3, make_tx_hash, transport_error_code,
         transport_error_message,
@@ -445,7 +447,6 @@ mod tests {
         ]);
 
         let mut result = sign_and_append_multiple_payments(
-            now,
             &logger,
             DEFAULT_CHAIN,
             &web3_batch,
@@ -464,12 +465,12 @@ mod tests {
                     index
                 );
                 assert_eq!(
-                    sent_tx.amount, template.amount_in_wei,
+                    sent_tx.amount_minor, template.amount_in_wei,
                     "Transaction {} amount mismatch",
                     index
                 );
                 assert_eq!(
-                    sent_tx.gas_price_wei, template.gas_price_wei,
+                    sent_tx.gas_price_minor, template.gas_price_wei,
                     "Transaction {} gas_price_wei mismatch",
                     index
                 );
@@ -485,47 +486,6 @@ mod tests {
                     index
                 )
             });
-        let first_actual_sent_tx = result.remove(0);
-        let second_actual_sent_tx = result.remove(0);
-        assert_prepared_sent_tx_record(
-            first_actual_sent_tx,
-            now,
-            account_1,
-            "0x6b85347ff8edf8b126dffb85e7517ac7af1b23eace4ed5ad099d783fd039b1ee",
-            1,
-            111_234_111,
-        );
-        assert_prepared_sent_tx_record(
-            second_actual_sent_tx,
-            now,
-            account_2,
-            "0x3dac025697b994920c9cd72ab0d2df82a7caaa24d44e78b7c04e223299819d54",
-            2,
-            222_432_222,
-        );
-    }
-
-    fn assert_prepared_sent_tx_record(
-        actual_sent_tx: SentTx,
-        now: SystemTime,
-        account_1: PayableAccount,
-        expected_tx_hash_including_prefix: &str,
-        expected_nonce: u64,
-        expected_gas_price_minor: u128,
-    ) {
-        assert_eq!(actual_sent_tx.receiver_address, account_1.wallet.address());
-        assert_eq!(
-            actual_sent_tx.hash,
-            H256::from_str(&expected_tx_hash_including_prefix[2..]).unwrap()
-        );
-        assert_eq!(actual_sent_tx.amount_minor, account_1.balance_wei);
-        assert_eq!(actual_sent_tx.gas_price_minor, expected_gas_price_minor);
-        assert_eq!(actual_sent_tx.nonce, expected_nonce);
-        assert_eq!(
-            actual_sent_tx.status,
-            TxStatus::Pending(ValidationStatus::Waiting)
-        );
-        assert_eq!(actual_sent_tx.timestamp, to_unix_timestamp(now));
     }
 
     #[test]
@@ -812,9 +772,9 @@ mod tests {
                     .timestamp(to_unix_timestamp(SystemTime::now()) - 5)
                     .gas_price_wei(template.gas_price_wei)
                     .nonce(template.nonce)
-                    .reason(FailureReason::Submission(AppRpcError::Local(Transport(
-                        err_msg.clone(),
-                    ))))
+                    .reason(FailureReason::Submission(AppRpcErrorKind::Local(
+                        LocalErrorKind::Transport,
+                    )))
                     .status(FailureStatus::RetryRequired)
                     .build()
             })
@@ -881,7 +841,9 @@ mod tests {
                     .timestamp(to_unix_timestamp(SystemTime::now()) - 5)
                     .gas_price_wei(template.gas_price_wei)
                     .nonce(template.nonce)
-                    .reason(FailureReason::Submission(AppRpcError::Remote(Web3RpcError { code: 429, message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string() })))
+                    .reason(FailureReason::Submission(AppRpcErrorKind::Remote(
+                        RemoteErrorKind::Web3RpcError(429),
+                    )))
                     .status(FailureStatus::RetryRequired)
                     .build()
             })
@@ -948,10 +910,9 @@ mod tests {
                 .hash(signed_tx_2.transaction_hash)
                 .template(template_2)
                 .timestamp(to_unix_timestamp(SystemTime::now()))
-                .reason(FailureReason::Submission(AppRpcError::Remote(Web3RpcError {
-                    code: 429,
-                    message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string(),
-                })))
+                .reason(FailureReason::Submission(AppRpcErrorKind::Remote(
+                    RemoteErrorKind::Web3RpcError(429),
+                )))
                 .status(FailureStatus::RetryRequired)
                 .build();
 

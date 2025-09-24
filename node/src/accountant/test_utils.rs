@@ -177,8 +177,6 @@ impl Default for AccountantBuilder {
             receivable_dao_factory_opt: None,
             sent_payable_dao_factory_opt: None,
             failed_payable_dao_factory_opt: None,
-            sent_payable_dao_factory_opt: None,
-            failed_payable_dao_factory_opt: None,
             banned_dao_factory_opt: None,
             config_dao_factory_opt: None,
         }
@@ -1027,38 +1025,38 @@ pub fn bc_from_wallets(consuming_wallet: Wallet, earning_wallet: Wallet) -> Boot
 
 #[derive(Default)]
 pub struct SentPayableDaoMock {
-    get_tx_identifiers_params: Arc<Mutex<Vec<HashSet<TxHash>>>>,
+    get_tx_identifiers_params: Arc<Mutex<Vec<BTreeSet<TxHash>>>>,
     get_tx_identifiers_results: RefCell<Vec<TxIdentifiers>>,
     insert_new_records_params: Arc<Mutex<Vec<BTreeSet<SentTx>>>>,
     insert_new_records_results: RefCell<Vec<Result<(), SentPayableDaoError>>>,
     retrieve_txs_params: Arc<Mutex<Vec<Option<RetrieveCondition>>>>,
-    retrieve_txs_results: RefCell<Vec<Vec<SentTx>>>,
+    retrieve_txs_results: RefCell<Vec<BTreeSet<SentTx>>>,
     confirm_tx_params: Arc<Mutex<Vec<HashMap<TxHash, TxBlock>>>>,
     confirm_tx_results: RefCell<Vec<Result<(), SentPayableDaoError>>>,
     update_statuses_params: Arc<Mutex<Vec<HashMap<TxHash, TxStatus>>>>,
     update_statuses_results: RefCell<Vec<Result<(), SentPayableDaoError>>>,
     replace_records_params: Arc<Mutex<Vec<Vec<SentTx>>>>,
     replace_records_results: RefCell<Vec<Result<(), SentPayableDaoError>>>,
-    delete_records_params: Arc<Mutex<Vec<HashSet<TxHash>>>>,
+    delete_records_params: Arc<Mutex<Vec<BTreeSet<TxHash>>>>,
     delete_records_results: RefCell<Vec<Result<(), SentPayableDaoError>>>,
 }
 
 impl SentPayableDao for SentPayableDaoMock {
-    fn get_tx_identifiers(&self, hashes: &HashSet<TxHash>) -> TxIdentifiers {
+    fn get_tx_identifiers(&self, hashes: &BTreeSet<TxHash>) -> TxIdentifiers {
         self.get_tx_identifiers_params
             .lock()
             .unwrap()
             .push(hashes.clone());
         self.get_tx_identifiers_results.borrow_mut().remove(0)
     }
-    fn insert_new_records(&self, txs: &[SentTx]) -> Result<(), SentPayableDaoError> {
+    fn insert_new_records(&self, txs: &BTreeSet<SentTx>) -> Result<(), SentPayableDaoError> {
         self.insert_new_records_params
             .lock()
             .unwrap()
             .push(txs.to_vec());
         self.insert_new_records_results.borrow_mut().remove(0)
     }
-    fn retrieve_txs(&self, condition: Option<RetrieveCondition>) -> Vec<SentTx> {
+    fn retrieve_txs(&self, condition: Option<RetrieveCondition>) -> BTreeSet<SentTx> {
         self.retrieve_txs_params.lock().unwrap().push(condition);
         self.retrieve_txs_results.borrow_mut().remove(0)
     }
@@ -1069,7 +1067,7 @@ impl SentPayableDao for SentPayableDaoMock {
             .push(hash_map.clone());
         self.confirm_tx_results.borrow_mut().remove(0)
     }
-    fn replace_records(&self, new_txs: &[SentTx]) -> Result<(), SentPayableDaoError> {
+    fn replace_records(&self, new_txs: &BTreeSet<SentTx>) -> Result<(), SentPayableDaoError> {
         self.replace_records_params
             .lock()
             .unwrap()
@@ -1088,7 +1086,7 @@ impl SentPayableDao for SentPayableDaoMock {
         self.update_statuses_results.borrow_mut().remove(0)
     }
 
-    fn delete_records(&self, hashes: &HashSet<TxHash>) -> Result<(), SentPayableDaoError> {
+    fn delete_records(&self, hashes: &BTreeSet<TxHash>) -> Result<(), SentPayableDaoError> {
         self.delete_records_params
             .lock()
             .unwrap()

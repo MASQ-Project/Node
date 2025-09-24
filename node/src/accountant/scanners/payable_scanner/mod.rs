@@ -239,7 +239,7 @@ impl PayableScanner {
     fn update_failed_txs(&self, failed_txs: &BTreeSet<FailedTx>, status: FailureStatus) {
         let status_updates = generate_status_updates(failed_txs, status);
         self.failed_payable_dao
-            .update_statuses(status_updates)
+            .update_statuses(&status_updates)
             .unwrap_or_else(|e| panic!("Failed to conclude txs in database: {:?}", e));
     }
 

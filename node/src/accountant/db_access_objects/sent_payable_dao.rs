@@ -86,7 +86,7 @@ impl Ord for SentTx {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TxStatus {
     Pending(ValidationStatus),
     Confirmed {
@@ -94,6 +94,18 @@ pub enum TxStatus {
         block_number: u64,
         detection: Detection,
     },
+}
+
+impl PartialOrd for TxStatus {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        todo!()
+    }
+}
+
+impl Ord for TxStatus {
+    fn cmp(&self, other: &Self) -> Ordering {
+        todo!()
+    }
 }
 
 impl FromStr for TxStatus {
@@ -166,7 +178,7 @@ pub trait SentPayableDao {
     fn insert_new_records(&self, txs: &BTreeSet<SentTx>) -> Result<(), SentPayableDaoError>;
     fn retrieve_txs(&self, condition: Option<RetrieveCondition>) -> BTreeSet<SentTx>;
     //TODO potentially atomically
-    fn confirm_txs(&self, hash_map: &HashMap<TxHash, TxStatus>) -> Result<(), SentPayableDaoError>;
+    fn confirm_txs(&self, hash_map: &HashMap<TxHash, TxBlock>) -> Result<(), SentPayableDaoError>;
     fn replace_records(&self, new_txs: &BTreeSet<SentTx>) -> Result<(), SentPayableDaoError>;
     fn update_statuses(
         &self,
@@ -553,7 +565,7 @@ mod tests {
     use ethereum_types::{H256, U64};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::Connection;
-    use std::collections::{BTreeSet, HashMap, HashSet};
+    use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
     use std::ops::{Add, Sub};
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
@@ -919,12 +931,12 @@ mod tests {
             .nonce(35)
             .build();
         subject
-            .insert_new_records(&vec![tx1.clone(), tx2, tx3.clone()])
+            .insert_new_records(&BTreeSet::from([tx1.clone(), tx2, tx3.clone()]))
             .unwrap();
 
         let result = subject.retrieve_txs(Some(ByNonce(vec![33, 35])));
 
-        assert_eq!(result, vec![tx1, tx3]);
+        assert_eq!(result, BTreeSet::from([tx1, tx3]));
     }
 
     #[test]
@@ -1248,7 +1260,7 @@ mod tests {
 
         let result = subject.update_statuses(&hashmap);
 
-        let updated_txs = subject.retrieve_txs(None);
+        let updated_txs: Vec<_> = subject.retrieve_txs(None).into_iter().collect();
         assert_eq!(result, Ok(()));
         assert_eq!(
             updated_txs[0].status,

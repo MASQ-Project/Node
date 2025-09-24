@@ -50,7 +50,7 @@ impl From<&FailedTx> for PayableAccount {
     fn from(failed_tx: &FailedTx) -> Self {
         PayableAccount {
             wallet: Wallet::from(failed_tx.receiver_address),
-            balance_wei: failed_tx.amount,
+            balance_wei: failed_tx.amount_minor,
             last_paid_timestamp: from_unix_timestamp(failed_tx.timestamp),
             pending_payable_opt: None,
         }
@@ -585,8 +585,7 @@ mod tests {
     use rusqlite::ToSql;
     use rusqlite::{Connection, OpenFlags};
     use std::path::Path;
-    use std::str::FromStr;
-    use time::Duration;
+    use std::time::Duration;
 
     #[test]
     fn more_money_payable_works_for_new_address() {

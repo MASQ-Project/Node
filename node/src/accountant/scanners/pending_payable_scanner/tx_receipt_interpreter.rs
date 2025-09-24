@@ -93,7 +93,8 @@ impl TxReceiptInterpreter {
                 let replacement_tx = sent_payable_dao
                     .retrieve_txs(Some(RetrieveCondition::ByNonce(vec![failed_tx.nonce])));
                 let replacement_tx_hash = replacement_tx
-                    .get(0)
+                    .iter()
+                    .next()
                     .unwrap_or_else(|| {
                         panic!(
                             "Attempted to display a replacement tx for {:?} but couldn't find \
