@@ -324,7 +324,7 @@ mod tests {
     use crate::test_utils::mocks::CommandContextMock;
     use atty::Stream;
     use masq_lib::messages::{
-        TxProcessingInfo, ToMessageBody, TopRecordsOrdering, UiFinancialStatistics,
+        ToMessageBody, TopRecordsOrdering, TxProcessingInfo, UiFinancialStatistics,
         UiFinancialsResponse, UiPayableAccount, UiReceivableAccount,
     };
     use masq_lib::ui_gateway::MessageBody;

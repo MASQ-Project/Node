@@ -1335,7 +1335,7 @@ mod tests {
     };
     use masq_lib::messages::TopRecordsOrdering::{Age, Balance};
     use masq_lib::messages::{
-        TxProcessingInfo, CustomQueries, RangeQuery, TopRecordsConfig, UiFinancialStatistics,
+        CustomQueries, RangeQuery, TopRecordsConfig, TxProcessingInfo, UiFinancialStatistics,
         UiMessageError, UiPayableAccount, UiReceivableAccount, UiScanRequest, UiScanResponse,
     };
     use masq_lib::test_utils::logging::init_test_logging;

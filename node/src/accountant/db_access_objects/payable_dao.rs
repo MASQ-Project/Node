@@ -406,8 +406,8 @@ mod tests {
     use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::test_utils::make_wallet;
     use itertools::Itertools;
-    use masq_lib::messages::TxProcessingInfo;
     use masq_lib::messages::TopRecordsOrdering::{Age, Balance};
+    use masq_lib::messages::TxProcessingInfo;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::Connection;
     use rusqlite::ToSql;

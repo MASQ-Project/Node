@@ -12,7 +12,7 @@ use crate::sub_lib::accountant::PaymentThresholds;
 use ethereum_types::H256;
 use masq_lib::constants::WEIS_IN_GWEI;
 use masq_lib::messages::{
-    TxProcessingInfo, RangeQuery, TopRecordsConfig, TopRecordsOrdering, UiPayableAccount,
+    RangeQuery, TopRecordsConfig, TopRecordsOrdering, TxProcessingInfo, UiPayableAccount,
     UiReceivableAccount,
 };
 use rusqlite::{Row, Statement, ToSql};
