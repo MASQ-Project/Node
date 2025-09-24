@@ -998,6 +998,7 @@ impl Neighborhood {
                 vec![ExpectedService::Nothing, ExpectedService::Nothing],
                 vec![ExpectedService::Nothing, ExpectedService::Nothing],
             ),
+            hostname_opt: None,
         }
     }
 
@@ -1033,13 +1034,14 @@ impl Neighborhood {
             hostname_opt,
         )?;
         debug!(self.logger, "Route back: {:?}", back);
-        self.compose_route_query_response(over, back)
+        self.compose_route_query_response(over, back, request_msg.hostname_opt)
     }
 
     fn compose_route_query_response(
         &mut self,
         over: RouteSegment,
         back: RouteSegment,
+        hostname_opt: Option<String>,
     ) -> Result<RouteQueryResponse, String> {
         let segments = vec![&over, &back];
 
@@ -1075,6 +1077,7 @@ impl Neighborhood {
                 expected_request_services,
                 expected_response_services,
             ),
+            hostname_opt
         })
     }
 
@@ -3343,7 +3346,7 @@ mod tests {
         }
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
-        let msg = RouteQueryMessage::data_indefinite_route_request(None, 54000);
+        let msg = RouteQueryMessage::data_indefinite_route_request(Some("booga.com".to_string()), 54000);
 
         let future = sub.send(msg);
 
@@ -3389,6 +3392,7 @@ mod tests {
                     ExpectedService::Nothing,
                 ],
             ),
+            hostname_opt: Some("booga.com".to_string()),
         };
         assert_eq!(expected_response, result);
     }
@@ -3446,6 +3450,7 @@ mod tests {
                 vec![ExpectedService::Nothing, ExpectedService::Nothing],
                 vec![ExpectedService::Nothing, ExpectedService::Nothing],
             ),
+            hostname_opt: None,
         };
         assert_eq!(result, expected_response);
     }
@@ -3539,6 +3544,7 @@ mod tests {
                     ExpectedService::Nothing,
                 ],
             ),
+            hostname_opt: None,
         };
         assert_eq!(result, expected_response);
     }
@@ -3550,6 +3556,7 @@ mod tests {
         let result: Result<RouteQueryResponse, String> = subject.compose_route_query_response(
             RouteSegment::new(vec![], Component::Neighborhood),
             RouteSegment::new(vec![], Component::Neighborhood),
+            None,
         );
         assert!(result.is_err());
         let error_expectation: String = result.expect_err("Expected an Err but got:");
@@ -4427,6 +4434,7 @@ mod tests {
         let result: Result<RouteQueryResponse, String> = subject.compose_route_query_response(
             RouteSegment::new(vec![], Component::ProxyClient),
             RouteSegment::new(vec![], Component::ProxyServer),
+            None,
         );
         assert!(result.is_err());
         let error_expectation: String = result.expect_err("Expected an Err but got:");
@@ -4443,6 +4451,7 @@ mod tests {
         let result: Result<RouteQueryResponse, String> = subject.compose_route_query_response(
             RouteSegment::new(vec![&PublicKey::new(&[3, 3, 8])], Component::ProxyClient),
             RouteSegment::new(vec![&PublicKey::new(&[8, 3, 3])], Component::ProxyServer),
+            None,
         );
         assert!(result.is_err());
         let error_expectation: String = result.expect_err("Expected an Err but got:");
@@ -6276,7 +6285,7 @@ mod tests {
         });
         let tlh = TestLogHandler::new();
         tlh.await_log_containing(
-            &format!("\"BAYFBw\" [label=\"AR v0 US\\nBAYFBw\\n4.6.5.7:4657\"];"),
+            "\"BAYFBw\" [label=\"AR v0 US\\nBAYFBw\\n4.6.5.7:4657\"];",
             5000,
         );
 
@@ -7136,9 +7145,9 @@ mod tests {
                 .metadata
                 .unreachable_hosts
                 .contains(&unreachable_host));
-            TestLogHandler::new().exists_log_matching(&format!(
+            TestLogHandler::new().exists_log_matching(
                 "DEBUG: Neighborhood: Marking host facebook.com unreachable for the Node with public key 0x657869745F6E6F6465"
-            ));
+            );
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();

@@ -248,6 +248,7 @@ pub fn zero_hop_route_response(
             vec![ExpectedService::Nothing, ExpectedService::Nothing],
             vec![ExpectedService::Nothing, ExpectedService::Nothing],
         ),
+        hostname_opt: None,
     }
 }
 

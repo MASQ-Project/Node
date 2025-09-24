@@ -246,6 +246,7 @@ impl CryptDENull {
     fn wrong_key_message(key_data: &[u8], data: &CryptData) -> String {
         let prefix_len = std::cmp::min(key_data.len(), data.len());
         let vec = Vec::from(&data.as_slice()[0..prefix_len]);
+panic!("Wrong key");
         format!(
             "Could not decrypt with {} data beginning with {}",
             key_data.to_hex::<String>(),

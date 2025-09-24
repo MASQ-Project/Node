@@ -546,6 +546,7 @@ pub enum ExpectedServices {
 pub struct RouteQueryResponse {
     pub route: Route,
     pub expected_services: ExpectedServices,
+    pub hostname_opt: Option<String>,
 }
 
 #[derive(Clone, Debug, Message, PartialEq, Eq)]
