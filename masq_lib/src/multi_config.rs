@@ -61,7 +61,6 @@ impl<'a> MultiConfig<'a> {
         schema: &App<'a, 'a>,
         vcls: Vec<Box<dyn VirtualCommandLine>>,
     ) -> Result<MultiConfig<'a>, ConfiguratorError> {
-        //TODO check if blockchain-service-url present in config down the road from here and return ConfiguratorError
         let initial: Box<dyn VirtualCommandLine> =
             Box::new(CommandLineVcl::new(vec![String::new()]));
         let merged = vcls

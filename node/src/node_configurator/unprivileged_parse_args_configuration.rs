@@ -44,7 +44,7 @@ pub trait UnprivilegedParseArgsConfiguration {
             value_m!(multi_config, "blockchain-service-url", String)
         } else {
             match persistent_config.blockchain_service_url() {
-                Ok(Some(price)) => Some(price),
+                Ok(Some(blockchain_service_url)) => Some(blockchain_service_url),
                 Ok(None) => {
                     if self.blockchain_service_url_error(multi_config) {
                         return Err(MultiConfig::make_configurator_error(Error {
@@ -1302,8 +1302,6 @@ mod tests {
         .set_past_neighbors_params(&set_past_neighbors_params_arc)
         .set_past_neighbors_result(Ok(()));
         let multi_config = make_simplified_multi_config([
-            "--blockchain-service-url",
-            "booga.com",
             "--chain",
             "eth-ropsten",
             "--neighbors",
@@ -1351,8 +1349,6 @@ mod tests {
         )
         .set_past_neighbors_params(&set_past_neighbors_params_arc);
         let multi_config = make_simplified_multi_config([
-            "--blockchain-service-url",
-            "booga.com",
             "--chain",
             "eth-ropsten",
             "--neighborhood-mode",
@@ -1601,7 +1597,6 @@ mod tests {
     {
         running_test();
         let args = ArgsBuilder::new()
-            .param("--blockchain-service-url", "booga.com")
             .param("--ip", "1.2.3.4")
             .param("--fake-public-key", "BORSCHT")
             .param("--db-password", "password");

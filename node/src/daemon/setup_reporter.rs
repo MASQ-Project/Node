@@ -2041,7 +2041,6 @@ mod tests {
         );
         let data_dir = base_dir.join("data_dir");
         let existing_setup = setup_cluster_from(vec![
-            ("blockchain-service-url", "https://booga.com", Set),
             ("neighborhood-mode", "zero-hop", Set),
             ("chain", DEFAULT_CHAIN.rec().literal_identifier, Default),
             (
@@ -2131,7 +2130,6 @@ mod tests {
         let existing_setup = setup_cluster_from(vec![
             ("neighborhood-mode", "zero-hop", Set),
             ("chain", DEFAULT_CHAIN.rec().literal_identifier, Default),
-            ("blockchain-service-url", "https://booga.com", Set),
             (
                 "data-directory",
                 &previously_processed_data_dir.to_string_lossy().to_string(),
@@ -2172,7 +2170,6 @@ mod tests {
             .join(DEFAULT_CHAIN.rec().literal_identifier);
         let new_data_dir = base_dir.join("new_data_dir");
         let existing_setup = setup_cluster_from(vec![
-            ("blockchain-service-url", "https://booga.com", Set),
             ("neighborhood-mode", "zero-hop", Set),
             ("chain", DEFAULT_CHAIN.rec().literal_identifier, Default),
             (

@@ -540,14 +540,8 @@ mod tests {
             "node_configurator_standard",
             "node_configurator_standard_unprivileged_handles_fake_public_key",
         );
-        let multi_config = make_simplified_multi_config([
-            "--blockchain-service-url",
-            "https://booga.com",
-            "--chain",
-            "eth-mainnet",
-            "--fake-public-key",
-            "AQIDBA",
-        ]);
+        let multi_config =
+            make_simplified_multi_config(["--chain", "eth-mainnet", "--fake-public-key", "AQIDBA"]);
         let mut privileged_config = BootstrapperConfig::default();
         privileged_config.data_directory = home_dir;
         let subject = NodeConfiguratorStandardUnprivileged {

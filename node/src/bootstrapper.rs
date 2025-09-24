@@ -1423,8 +1423,6 @@ mod tests {
             .add_listener_handler(third_handler)
             .build();
         let args = [
-            "--blockchain-service-url",
-            "https://booga.com",
             "--neighborhood-mode",
             "zero-hop",
             "--clandestine-port",
@@ -1779,8 +1777,6 @@ mod tests {
             .add_listener_handler(Box::new(another_listener_handler))
             .build();
         let args = [
-            "--blockchain-service-url",
-            "https://booga.com",
             "--neighborhood-mode",
             "zero-hop",
             "--data-directory",

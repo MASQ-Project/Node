@@ -118,7 +118,9 @@ pub fn start_real_node(cluster: &mut MASQNodeCluster, neighbor: NodeReference) -
             .earning_wallet_info(make_earning_wallet_info(&index.to_string()))
             .chain(cluster.chain)
             .rate_pack(RatePack {
-                //TODO create method in RatePack to return Default RatePack increased by some value or factor - make sure there is a test for this method
+                //TODO in case we are going to test more scenarios with need of higher RatePack:
+                // create method in RatePack to return Default RatePack increased by some value or factor
+                // make sure there is a test for this method
                 routing_byte_rate: 2000000000,
                 routing_service_rate: 2000000000,
                 exit_byte_rate: 2000000000,
