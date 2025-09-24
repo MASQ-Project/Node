@@ -1753,11 +1753,11 @@ mod tests {
 
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!(
-            "WARN: {test_name}: Add more funds into your consuming wallet in order to become able \
-            to repay already expired liabilities as the creditors would respond by delinquency bans \
-            otherwise. Details: Current transaction fee balance is not enough to pay a single payment. \
-            Number of canceled payments: 1. Transaction fee per payment: 3,300,000,000,000,000 wei, \
-            while the wallet contains: 123,000,000,000 wei."
+            "WARN: {test_name}: Add more funds into your consuming wallet to become able to repay \
+            already matured debts as the creditors would respond by a delinquency ban otherwise. \
+            Details: Current transaction fee balance is not enough to pay a single payment. Number \
+            of canceled payments: 1. Transaction fee per payment: 3,300,000,000,000,000 wei, while \
+            the wallet contains: 123,000,000,000 wei."
         ));
         log_handler
             .exists_log_containing(&format!("INFO: {test_name}: The Payables scan ended in"));
@@ -1832,8 +1832,8 @@ mod tests {
         // No NodeUiMessage was sent because there is no `response_skeleton`. It is evident by
         // the fact that the test didn't blow up even though UIGateway is unbound
         TestLogHandler::new().exists_log_containing(&format!(
-            "ERROR: {test_name}: Payable scanner is unable to generate payment \
-            instructions. Resolution of the issue appears to be the user's responsibility."
+            "ERROR: {test_name}: Payable scanner is unable to generate payment instructions. \
+            It seems only the user can solve this problem."
         ));
     }
 
@@ -3626,9 +3626,9 @@ mod tests {
                 let payable_scanner = PayableScannerBuilder::new()
                     .payable_dao(payable_dao_for_payable_scanner)
                     .pending_payable_dao(pending_payable_dao_for_payable_scanner)
-                    .payable_inspector(PayableInspector::new(Box::new(
-                        PayableThresholdsGaugeReal::default(),
-                    )))
+                    .payable_threshold_gauge(Box::new(
+                        PayableThresholdsGaugeReal::default()
+                    ))
                     .payment_adjuster(payment_adjuster)
                     .build();
                 subject.scanners.payable = Box::new(payable_scanner);

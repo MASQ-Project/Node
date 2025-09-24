@@ -283,7 +283,7 @@ mod tests {
     };
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::UnconfirmedAdjustment;
     use crate::accountant::payment_adjuster::test_utils::local_utils::{
-        make_meaningless_weighed_account, make_non_guaranteed_unconfirmed_adjustment,
+        make_meaningless_weighed_account, make_meaningless_unconfirmed_adjustment,
     };
     use itertools::Itertools;
     use masq_lib::logger::Logger;
@@ -445,7 +445,7 @@ mod tests {
 
     #[test]
     fn list_accounts_nominated_for_disqualification_ignores_adjustment_even_to_the_dsq_limit() {
-        let mut account = make_non_guaranteed_unconfirmed_adjustment(444);
+        let mut account = make_meaningless_unconfirmed_adjustment(444);
         account.proposed_adjusted_balance_minor = 1_000_000_000;
         account
             .weighed_account
@@ -535,7 +535,7 @@ mod tests {
             .into_iter()
             .enumerate()
             .map(|(idx, weight)| {
-                let mut account = make_non_guaranteed_unconfirmed_adjustment(idx as u64);
+                let mut account = make_meaningless_unconfirmed_adjustment(idx as u64);
                 account.weighed_account.weight = weight;
                 account
             })

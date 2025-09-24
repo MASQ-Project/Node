@@ -314,6 +314,9 @@ pub mod payable_scanner_utils {
                 .payable_threshold_gauge
                 .calculate_payout_threshold_in_gwei(payment_thresholds, debt_age);
 
+            eprintln!(
+                "Balance wei: {}\n\
+                 Threshold:   {}", payable.balance_wei, threshold);
             if payable.balance_wei > threshold {
                 Some(threshold)
             } else {

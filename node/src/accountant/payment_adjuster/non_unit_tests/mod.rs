@@ -18,7 +18,7 @@ use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{
     PayableInspector, PayableThresholdsGaugeReal,
 };
 use crate::accountant::test_utils::{
-    make_single_qualified_payable_opt, try_to_make_guaranteed_qualified_payables,
+    make_single_qualified_payable_opt, try_to_make_qualified_payables,
 };
 use crate::accountant::{AnalyzedPayableAccount, QualifiedPayableAccount};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::TX_FEE_MARGIN_IN_PERCENT;
@@ -42,10 +42,10 @@ use web3::types::{Address, U256};
 
 #[test]
 // TODO If an option for "occasional tests" is added, this is a good adept
-#[ignore]
+//#[ignore]
 fn loading_test_with_randomized_params() {
-    // This is a fuzz test. It generates possibly an overwhelming amount of scenarios that
-    // the PaymentAdjuster could be given sort them out, as realistic as it can get, while its
+    // This is a fuzz test. It generates possibly an overwhelming number of scenarios that
+    // the PaymentAdjuster could be given to sort them out, as realistic as it can get, while its
     // nature of randomness offers chances to have a dense range of combinations that a human fails
     // to even try imagining. The hypothesis is that some of those might be corner cases whose
     // trickiness wasn't recognized when the functionality was still at design. This test is to
@@ -64,8 +64,8 @@ fn loading_test_with_randomized_params() {
     // we allow this always implied waste than trying to invent an algorithm whose randomness would
     // be exercised within strictly controlled boundaries.
 
-    // Some other are lost quite early as legitimate errors that the PaymentAdjuster can detect,
-    // which would prevent finishing the search for given scenario.
+    // Some others are lost quite early as legitimate errors that the PaymentAdjuster can detect,
+    // which would prevent finishing the search for a given scenario.
 
     // When the test reaches its end, it produces important output in a text file, located:
     // node/generated/test/payment_adjuster/tests/home/loading_test_output.txt
@@ -81,15 +81,15 @@ fn loading_test_with_randomized_params() {
     // payables. See those percentages. They may not excel at explaining themselves when it comes to
     // their inconsistent proportionality towards the balances. These percents represent a payment
     // coverage of the initial debts. But why don't they correspond with ascending balances? There's
-    // a principle to equip accounts low balances with the biggest weights. True. However, it doesn't
+    // a principle to equip account low balances with the biggest weights. True. However, it doesn't
     // need to be reflected so clearly, though. The adjustment depends heavily on a so-called
     // "disqualification limit". Besides other purposes, this value affects that the payment won't
     // require the entire amount but only its portion. That inherently will do for the payer to stay
     // unbanned. In bulky accounts, this until-some-time forgiven portion stands only as a fraction
     // of a whole. Small accounts, however, if it can be applied (as opposed to the account having
     // to be excluded) might get shrunk a lot, and therefore many percents are to be reported as
-    // missing. This is what the numbers like 99% and 90% illustrates. That said, the letter account
-    // comes across as it should take precedence for its expectedly larger weight, and gain at the
+    // missing. This is what the numbers like 99% and 90% illustrate. That said, the letter account
+    // comes across as it should take precedence for its expectedly larger weight and gain at the
     // expanse of the other, but the percents speak otherwise. Yet, it's correct. The interpretation
     // is the key. (Caution: this test displays its output with those accounts sorted).
 
@@ -100,9 +100,9 @@ fn loading_test_with_randomized_params() {
     // 2000000|1000|1000|1000000|500000|1000000
     // _____________________________________________________________________________________________
     //   1,988,742,049,305,843 wei |  236,766 s | 100 %
-    //  21,971,010,542,100,729 wei |  472,884 s | 99 %                         # # # # # # # #
-    //   4,726,030,753,976,563 wei |  395,377 s | 95 %                         # # # # # # # #
-    //   3,995,577,830,314,875 wei |  313,396 s | 90 %                         # # # # # # # #
+    //  21,971,010,542,100,729 wei |  472,884 s | 99 %                         << << << <<
+    //   4,726,030,753,976,563 wei |  395,377 s | 95 %                         << << << <<
+    //   3,995,577,830,314,875 wei |  313,396 s | 90 %                         << << << <<
     // 129,594,971,536,673,815 wei |  343,511 s | X
 
     // In the code, we select and pale up accounts so that the picked balance isn't the full range,
@@ -256,20 +256,21 @@ fn generate_debt_age(gn: &mut ThreadRng, thresholds: &PaymentThresholds) -> u64 
         gn,
         thresholds.maturity_threshold_sec,
         thresholds.maturity_threshold_sec + thresholds.threshold_interval_sec,
-    ) / 2
+    )
 }
 
 fn generate_highly_randomized_payable_account_balance(
     gn: &mut ThreadRng,
     thresholds: &PaymentThresholds,
 ) -> u128 {
-    // This seems overcomplicated, damn. As a result of simple intentions though. I wanted to ensure
-    // occurrence of accounts with balances having different magnitudes in the frame of a single
-    // scenario. This was crucial to me so much that I was ready to write even this piece of code
-    // a bit crazy by look.
-    // This setup worked well to stress the randomness I needed, a lot more significant compared to
-    // what the naked number generator can put for you. Using some nesting, it broke the rigid
-    // pattern and gave an existence to accounts with diverse balances.
+    // This seems overcomplicated, damn. Yet it's a result of good simple intentions. I wanted
+    // to ensure the occurrence of accounts with balances of different magnitudes to be generated
+    // for a single scenario. This was crucial to me so much that I didn't stop myself from writing
+    // this fishy-looking piece of code.
+    // This setup worked well for the randomness I needed, a lot significantly more compared to
+    // what the default number generator from this library seemed to be able to provide only.
+    // Using some nesting, it scattered the distribution better and allowed me to have accounts
+    // with diverse balances.
     let mut generate_u128 = || generate_non_zero_usize(gn, 100) as u128;
 
     let parameter_a = generate_u128();
@@ -311,14 +312,14 @@ fn try_make_qualified_payables_by_applied_thresholds(
 ) -> Vec<QualifiedPayableAccount> {
     let payment_inspector = PayableInspector::new(Box::new(PayableThresholdsGaugeReal::default()));
     match applied_thresholds {
-        AppliedThresholds::Defaulted => try_to_make_guaranteed_qualified_payables(
+        AppliedThresholds::Defaulted => try_to_make_qualified_payables(
             payable_accounts,
             &PRESERVED_TEST_PAYMENT_THRESHOLDS,
             now,
             false,
         ),
         AppliedThresholds::CommonButRandomized { common_thresholds } => {
-            try_to_make_guaranteed_qualified_payables(
+            try_to_make_qualified_payables(
                 payable_accounts,
                 common_thresholds,
                 now,
@@ -378,14 +379,15 @@ fn pick_appropriate_cw_service_fee_balance(
     qualified_payables: &[QualifiedPayableAccount],
     accounts_count: usize,
 ) -> u128 {
-    // Value picked empirically
-    const COEFFICIENT: usize = 1000;
+    // Values picked empirically
+    const COEFFICIENT_A: usize = 1000;
+    const COEFFICIENT_B: usize = 2;
     let balance_average = sum_as(qualified_payables, |account| {
         account.initial_balance_minor()
     }) / accounts_count as u128;
-    let max_pieces = accounts_count * COEFFICIENT;
-    let number_of_pieces = generate_usize(gn, max_pieces - 2) as u128 + 2;
-    balance_average / COEFFICIENT as u128 * number_of_pieces
+    let max_pieces = accounts_count * COEFFICIENT_A;
+    let number_of_pieces = generate_usize(gn, max_pieces - COEFFICIENT_B) as u128 + COEFFICIENT_B as u128;
+    balance_average / COEFFICIENT_A as u128 * number_of_pieces
 }
 
 fn make_payables_according_to_thresholds_setup(
@@ -715,10 +717,9 @@ fn introduction(file: &mut File) {
     let page_width = PAGE_WIDTH;
     file.write_fmt(format_args!(
         "{:^page_width$}\n",
-        "A short summary can be found at the tail"
+        "There is a short summary at the tail"
     ))
     .unwrap();
-    write_thick_dividing_line(file);
     write_thick_dividing_line(file)
 }
 
@@ -747,8 +748,8 @@ fn write_brief_test_summary_at_file_s_tail(
          With 'RecursionDrainedAllAccounts':.... {}\n\
          With late insufficient balance errors:. {}\n\n\
          Legend\n\
-         Adjusted balances are highlighted by \
-         these marks by the side:............. . {}",
+         Adjusted balances are highlighted\n\
+         by these marks by the side:............ {}",
         scenarios_requested,
         scenarios_evaluated,
         output_collector.oks,
@@ -976,7 +977,7 @@ fn single_account_output(
     .unwrap();
 }
 
-const NON_EXHAUSTED_ACCOUNT_MARKER: &str = "# # # # # # # #";
+const NON_EXHAUSTED_ACCOUNT_MARKER: &str = "<< << << <<";
 
 fn resolve_account_fulfilment_status_graphically(
     bill_coverage_in_percentage_opt: Option<u8>,

@@ -54,15 +54,43 @@ use masq_lib::utils::convert_collection;
 use crate::accountant::payment_adjuster::preparatory_analyser::accounts_abstraction::DisqualificationLimitProvidingAccount;
 
 // PaymentAdjuster is a recursive and scalable algorithm that inspects payments under conditions
-// of an acute insolvency. You can easily expand the range of evaluated parameters to determine
-// an optimized allocation of scarce assets by writing your own CriterionCalculator. The calculator
-// is supposed to be dedicated to a single parameter that can be tracked for each payable account.
+// of acute insolvency. Each parameter that participates in the determination of the optimized
+// asset allocation should have its own calculator. You can easily maintain the range of evaluated
+// parameters by removing or adding your own calculator. These calculators, placed in a vector,
+// make the heart of the algorithm.
 //
-// For parameters that can't be derived from each account, or even one at all, there is a way to
-// provide such data up into the calculator. This can be achieved via the PaymentAdjusterInner.
+// For parameters that can't be derived from an account, there is still a way to provide such values
+// up into the calculator. This can be achieved via the PaymentAdjusterInner.
+
+// Algorithm description:
 //
-// Once the new calculator exists, its place belongs in the vector of calculators which is the heart
-// of this module.
+// It begins with accounts getting weights from the criteria calculators. The weighting is inverse
+// to the debt size, accounts with smaller debts are prioritized so that we can satisfy as many
+// accounts as possible and avoid the same number of bans.
+//
+// If it is necessary to adjust the set by the transaction fee, the accounts are sorted
+// by the weights and only accounts that fit together under the limit are kept in. The adjustment
+// by service fee follows up (or it may take the first place if the need for the previous step was
+// missing).
+
+// Here comes the recursive part. The algorithm iterates through the weighted accounts and assigns
+// a proportional portion of the available means to them. Since the initial stage of the Payment-
+// Adjuster, where accounts were tested on causing insolvency, they've remained equipped with
+// a computed parameter of the so-called disqualification limit. This limit determines
+// if the weight-derived assignment of the money is too low or enough. If it is below the limit,
+// the account is removed from consideration. However, only a single account with the smallest
+// weight is eliminated per each recursion.
+
+// The pool of money remains the same, but the set of accounts is reduced. The recursion repeats.
+// If none of the accounts disqualifies, it means all accounts were proposed with enough money.
+// Although the proposals may exceed the disqualification limits, only the value of the limit is
+// dedicated to the selected accounts.
+
+// The remaining assets are later allocated to the accounts based on the order by their weights,
+// exhausting them fully one account after another up their 100% allocation until there is any
+// money that can be distributed.
+
+// In the end, the accounts are shaped back as a PayableAccount and returned.
 
 pub type AdjustmentAnalysisResult =
     Result<Either<IntactOriginalAccounts, AdjustmentAnalysisReport>, PaymentAdjusterError>;

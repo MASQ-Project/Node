@@ -113,8 +113,8 @@ pub(super) mod local_utils {
                 .into_iter()
                 .map(|months| (months, constant_balance))
                 .collect(),
-            Either::Right(specific_months_and_specific_balance) => {
-                specific_months_and_specific_balance
+            Either::Right(specific_months_and_specific_balances) => {
+                specific_months_and_specific_balances
             }
         };
         accounts_seeds
@@ -143,7 +143,7 @@ pub(super) mod local_utils {
         unban_below_gwei: 1_000_000,
     };
 
-    pub fn make_non_guaranteed_unconfirmed_adjustment(n: u64) -> UnconfirmedAdjustment {
+    pub fn make_meaningless_unconfirmed_adjustment(n: u64) -> UnconfirmedAdjustment {
         let qualified_account = make_meaningless_qualified_payable(n);
         let account_balance = qualified_account.bare_account.balance_wei;
         let proposed_adjusted_balance_minor = (2 * account_balance) / 3;

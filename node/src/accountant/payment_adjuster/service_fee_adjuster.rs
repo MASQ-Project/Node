@@ -68,11 +68,12 @@ impl ServiceFeeAdjusterReal {
     // wisely, better redistributed among the rest of accounts, as much as the wider group of them
     // can be satisfied, even though just partially.
     //
-    // However, if it begins to be clear that the remaining money doesn't allow to keep any
+    // However, if it begins to be clear that the remaining money doesn't allow keeping any
     // additional account in the selection, there is the next step to come, where the already
     // selected accounts are reviewed again in the order of their significance resolved from
     // remembering their weights from the earlier processing, and the unused money is poured into,
     // until all resources are used.
+
     fn try_confirm_some_accounts(
         unconfirmed_adjustments: Vec<UnconfirmedAdjustment>,
     ) -> Either<Vec<UnconfirmedAdjustment>, AdjustmentIterationResult> {
@@ -190,7 +191,7 @@ fn compute_proportional_cw_fragment(
     multiplication_coefficient: u128,
 ) -> u128 {
     cw_service_fee_balance_minor
-        // Considered safe for the nature of the calculus producing this coefficient
+        // Considered safe as to the nature of the calculus producing this coefficient
         .checked_mul(multiplication_coefficient)
         .unwrap_or_else(|| {
             panic!(
@@ -207,13 +208,13 @@ mod tests {
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustedAccountBeforeFinalization;
     use crate::accountant::payment_adjuster::service_fee_adjuster::ServiceFeeAdjusterReal;
     use crate::accountant::payment_adjuster::test_utils::local_utils::{
-        make_non_guaranteed_unconfirmed_adjustment, multiply_by_quintillion,
+        make_meaningless_unconfirmed_adjustment, multiply_by_quintillion,
         multiply_by_quintillion_concise,
     };
 
     #[test]
     fn filter_and_process_confirmable_accounts_limits_them_by_their_disqualification_edges() {
-        let mut account_1 = make_non_guaranteed_unconfirmed_adjustment(111);
+        let mut account_1 = make_meaningless_unconfirmed_adjustment(111);
         let weight_1 = account_1.weighed_account.weight;
         account_1
             .weighed_account
@@ -226,7 +227,7 @@ mod tests {
             .analyzed_account
             .disqualification_limit_minor = multiply_by_quintillion_concise(1.8);
         account_1.proposed_adjusted_balance_minor = multiply_by_quintillion_concise(3.0);
-        let mut account_2 = make_non_guaranteed_unconfirmed_adjustment(222);
+        let mut account_2 = make_meaningless_unconfirmed_adjustment(222);
         let weight_2 = account_2.weighed_account.weight;
         account_2
             .weighed_account
@@ -239,7 +240,7 @@ mod tests {
             .analyzed_account
             .disqualification_limit_minor = multiply_by_quintillion_concise(4.2) - 1;
         account_2.proposed_adjusted_balance_minor = multiply_by_quintillion_concise(4.2);
-        let mut account_3 = make_non_guaranteed_unconfirmed_adjustment(333);
+        let mut account_3 = make_meaningless_unconfirmed_adjustment(333);
         account_3
             .weighed_account
             .analyzed_account
@@ -251,7 +252,7 @@ mod tests {
             .analyzed_account
             .disqualification_limit_minor = multiply_by_quintillion(2) + 1;
         account_3.proposed_adjusted_balance_minor = multiply_by_quintillion(2);
-        let mut account_4 = make_non_guaranteed_unconfirmed_adjustment(444);
+        let mut account_4 = make_meaningless_unconfirmed_adjustment(444);
         let weight_4 = account_4.weighed_account.weight;
         account_4
             .weighed_account
@@ -264,7 +265,7 @@ mod tests {
             .analyzed_account
             .disqualification_limit_minor = multiply_by_quintillion_concise(0.5);
         account_4.proposed_adjusted_balance_minor = multiply_by_quintillion_concise(0.5);
-        let mut account_5 = make_non_guaranteed_unconfirmed_adjustment(555);
+        let mut account_5 = make_meaningless_unconfirmed_adjustment(555);
         account_5
             .weighed_account
             .analyzed_account
@@ -341,18 +342,21 @@ pub mod illustrative_util {
             unconfirmed_adjustments[1].wallet(),
             wallet_of_expected_outweighed
         );
-        // To prevent unjust reallocation we used to secure a rule an account could never demand
-        // more than 100% of its size.
+        // To prevent unjust reallocation, we secured a rule an account could never demand more
+        // than 100% of its size.
 
-        // Later it was changed to a different policy, the so called "outweighed" account is given
-        // automatically a balance equal to its disqualification limit. Still, later on, it's quite
-        // likely to acquire slightly more by a distribution of the last bits of funds away from
-        // within the consuming wallet.
+        // Later it was changed to a different policy, the so-called "outweighed" account is given
+        // automatically a balance equal to its disqualification limit. Still, it's quite likely
+        // some accounts will acquire slightly more by a distribution of the last bits of funds
+        // away out of the consuming wallet.
+
+        // Here, though, the assertion illustrates what the latest policy intends to fight off,
+        // as the unprotected proposed adjusted balance rises over the original balance.
         let proposed_adjusted_balance = unconfirmed_adjustments[1].proposed_adjusted_balance_minor;
         assert!(
             proposed_adjusted_balance > (original_balance_of_outweighed_account * 11 / 10),
-            "we expected the proposed balance at least 1.1 times bigger than the original balance \
-            which is {} but it was {}",
+            "we expected the proposed balance to be unsound, bigger than the original balance \
+            (at least 1.1 times more) which would be {} but it was {}",
             original_balance_of_outweighed_account.separate_with_commas(),
             proposed_adjusted_balance.separate_with_commas()
         );

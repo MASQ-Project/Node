@@ -1133,8 +1133,8 @@ impl PayableScannerBuilder {
         self
     }
 
-    pub fn payable_inspector(mut self, payable_inspector: PayableInspector) -> Self {
-        self.payable_inspector = payable_inspector;
+    pub fn payable_threshold_gauge(mut self, payable_threshold_gauge: Box<dyn PayableThresholdsGauge>) -> Self {
+        self.payable_inspector = PayableInspector::new(payable_threshold_gauge);
         self
     }
 
@@ -1747,7 +1747,7 @@ pub fn make_qualified_payables(
     payment_thresholds: &PaymentThresholds,
     now: SystemTime,
 ) -> Vec<QualifiedPayableAccount> {
-    try_to_make_guaranteed_qualified_payables(payables, payment_thresholds, now, true)
+    try_to_make_qualified_payables(payables, payment_thresholds, now, true)
 }
 
 pub fn make_analyzed_payables(
@@ -1758,7 +1758,7 @@ pub fn make_analyzed_payables(
     convert_qualified_p_into_analyzed_p(make_qualified_payables(payables, payment_thresholds, now))
 }
 
-pub fn try_to_make_guaranteed_qualified_payables(
+pub fn try_to_make_qualified_payables(
     payables: Vec<PayableAccount>,
     payment_thresholds: &PaymentThresholds,
     now: SystemTime,
