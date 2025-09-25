@@ -656,17 +656,17 @@ mod tests {
             Err(SentPayableDaoError::InvalidInput(
                 "Duplicate hashes found in the input. Input Transactions: \
                 {\
-                Tx { \
+                SentTx { \
                 hash: 0x00000000000000000000000000000000000000000000000000000000000004d2, \
                 receiver_address: 0x0000000000000000000000000000000000000000, \
                 amount_minor: 0, timestamp: 1749204020, gas_price_minor: 0, \
                 nonce: 0, status: Confirmed { block_hash: \
                 \"0x000000000000000000000000000000000000000000000000000000003b9acbc8\", \
                 block_number: 7890123, detection: Reclaim } }, \
-                Tx { \
+                SentTx { \
                 hash: 0x00000000000000000000000000000000000000000000000000000000000004d2, \
                 receiver_address: 0x0000000000000000000000000000000000000000, \
-                amount: 0, timestamp: 1749204017, gas_price_wei: 0, \
+                amount_minor: 0, timestamp: 1749204017, gas_price_minor: 0, \
                 nonce: 0, status: Pending(Waiting) }\
                 }"
                 .to_string()
@@ -1264,13 +1264,6 @@ mod tests {
         assert_eq!(result, Ok(()));
         assert_eq!(
             updated_txs[0].status,
-            TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
-                BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Internal)),
-                &ValidationFailureClockMock::default().now_result(timestamp_a)
-            )))
-        );
-        assert_eq!(
-            updated_txs[1].status,
             TxStatus::Pending(ValidationStatus::Reattempting(
                 PreviousAttempts::new(
                     BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(
@@ -1285,6 +1278,13 @@ mod tests {
                     &ValidationFailureClockReal::default()
                 )
             ))
+        );
+        assert_eq!(
+            updated_txs[1].status,
+            TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
+                BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Internal)),
+                &ValidationFailureClockMock::default().now_result(timestamp_a)
+            )))
         );
         assert_eq!(
             updated_txs[2].status,
