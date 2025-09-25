@@ -14,6 +14,7 @@ use node_lib::sub_lib::dispatcher::Component;
 use node_lib::sub_lib::hopper::IncipientCoresPackage;
 use node_lib::sub_lib::route::Route;
 use node_lib::sub_lib::route::RouteSegment;
+use node_lib::sub_lib::stream_key::StreamKey;
 use node_lib::test_utils::{main_cryptde, make_meaningless_message_type, make_paying_wallet};
 use std::collections::HashSet;
 use std::io::ErrorKind;
@@ -66,6 +67,7 @@ fn server_relays_cores_package() {
     let masquerader = JsonMasquerader::new();
     let server = MASQCoresServer::new(cluster.chain);
     let cryptde = server.main_cryptde();
+    let stream_key = StreamKey::make_meaningless_stream_key();
     let mut client = MASQCoresClient::new(server.local_addr(), cryptde);
     let mut route = Route::one_way(
         RouteSegment::new(
@@ -80,7 +82,7 @@ fn server_relays_cores_package() {
     let incipient = IncipientCoresPackage::new(
         cryptde,
         route.clone(),
-        make_meaningless_message_type(),
+        make_meaningless_message_type(stream_key),
         &cryptde.public_key(),
     )
     .unwrap();
@@ -97,7 +99,7 @@ fn server_relays_cores_package() {
 
     route.shift(cryptde).unwrap();
     assert_eq!(expired.remaining_route, route);
-    assert_eq!(expired.payload, make_meaningless_message_type());
+    assert_eq!(expired.payload, make_meaningless_message_type(stream_key));
 }
 
 #[test]
@@ -109,6 +111,7 @@ fn one_mock_node_talks_to_another() {
     let mock_node_1 = cluster.get_mock_node_by_name("mock_node_1").unwrap();
     let mock_node_2 = cluster.get_mock_node_by_name("mock_node_2").unwrap();
     let cryptde = main_cryptde();
+    let stream_key = StreamKey::make_meaningless_stream_key();
     let route = Route::one_way(
         RouteSegment::new(
             vec![
@@ -125,7 +128,7 @@ fn one_mock_node_talks_to_another() {
     let incipient_cores_package = IncipientCoresPackage::new(
         cryptde,
         route,
-        make_meaningless_message_type(),
+        make_meaningless_message_type(stream_key),
         &mock_node_2.main_public_key(),
     )
     .unwrap();
@@ -154,7 +157,7 @@ fn one_mock_node_talks_to_another() {
     assert_eq!(package_to, mock_node_2.socket_addr(PortSelector::First));
     assert_eq!(
         expired_cores_package.payload,
-        make_meaningless_message_type()
+        make_meaningless_message_type(stream_key)
     );
 }
 

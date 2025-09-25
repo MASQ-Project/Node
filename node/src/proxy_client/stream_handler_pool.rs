@@ -831,7 +831,8 @@ mod tests {
         );
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: A shutdown signal was sent to the StreamReader \
-            for stream key {}.", stream_key
+            for stream key {}.",
+            stream_key
         ));
     }
 

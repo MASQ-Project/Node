@@ -1077,7 +1077,7 @@ impl Neighborhood {
                 expected_request_services,
                 expected_response_services,
             ),
-            hostname_opt
+            hostname_opt,
         })
     }
 
@@ -3346,7 +3346,8 @@ mod tests {
         }
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
-        let msg = RouteQueryMessage::data_indefinite_route_request(Some("booga.com".to_string()), 54000);
+        let msg =
+            RouteQueryMessage::data_indefinite_route_request(Some("booga.com".to_string()), 54000);
 
         let future = sub.send(msg);
 

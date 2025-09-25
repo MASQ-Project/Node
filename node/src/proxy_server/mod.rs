@@ -30,7 +30,7 @@ use crate::sub_lib::neighborhood::{NRMetadataChange, RouteQueryMessage};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
 use crate::sub_lib::proxy_server::ProxyServerSubs;
-use crate::sub_lib::proxy_server::{StreamKeyPurge};
+use crate::sub_lib::proxy_server::StreamKeyPurge;
 use crate::sub_lib::proxy_server::{
     AddRouteResultMessage, ClientRequestPayload_0v1, ProxyProtocol,
 };
@@ -80,53 +80,6 @@ struct StreamInfo {
     route_opt: Option<RouteQueryResponse>,
     protocol_opt: Option<ProxyProtocol>,
     time_to_live_opt: Option<SystemTime>,
-}
-
-struct StreamInfoBuilder {
-    product: StreamInfo
-}
-
-impl StreamInfoBuilder {
-    pub fn new() -> Self {
-        Self {
-            product: StreamInfo {
-                tunneled_host_opt: None,
-                dns_failure_retry_opt: None,
-                route_opt: None,
-                protocol_opt: None,
-                time_to_live_opt: None,
-            }
-        }
-    }
-
-    pub fn tunneled_host(mut self, host: &str) -> Self {
-        self.product.tunneled_host_opt = Some(host.to_string());
-        self
-    }
-
-    pub fn dns_failure_retry(mut self, retry: DNSFailureRetry) -> Self {
-        self.product.dns_failure_retry_opt = Some(retry);
-        self
-    }
-
-    pub fn route(mut self, route: RouteQueryResponse) -> Self {
-        self.product.route_opt = Some(route);
-        self
-    }
-
-    pub fn protocol(mut self, protocol: ProxyProtocol) -> Self {
-        self.product.protocol_opt = Some(protocol);
-        self
-    }
-
-    pub fn time_to_live(mut self, ttl: SystemTime) -> Self {
-        self.product.time_to_live_opt = Some(ttl);
-        self
-    }
-
-    pub fn build(self) -> StreamInfo {
-        self.product
-    }
 }
 
 pub struct ProxyServer {
@@ -198,29 +151,30 @@ impl Handler<AddRouteResultMessage> for ProxyServer {
         let mut delayed_log: Box<dyn FnOnce(&Logger)> = Box::new(|_: &Logger| {});
         if let Some(stream_info) = self.stream_info_mut(&msg.stream_key) {
             match &stream_info.dns_failure_retry_opt {
-                Some(dns_failure) => {
-                    match msg.result {
-                        Ok(route_query_response) => {
-                            let target_hostname = dns_failure.unsuccessful_request.target_hostname.clone();
-                            let retries_left = dns_failure.retries_left;
-                            let stream_key = msg.stream_key.clone();
-                            delayed_log = Box::new(move |logger: &Logger| {
-                                debug!(
+                Some(dns_failure) => match msg.result {
+                    Ok(route_query_response) => {
+                        let target_hostname =
+                            dns_failure.unsuccessful_request.target_hostname.clone();
+                        let retries_left = dns_failure.retries_left;
+                        let stream_key = msg.stream_key;
+                        delayed_log = Box::new(move |logger: &Logger| {
+                            debug!(
                                     logger,
                                     "Found a new route for hostname: {:?} - stream key: {}  retries left: {}",
                                     target_hostname,
                                     stream_key,
                                     retries_left
                                 );
-                            });
-                            stream_info.route_opt = Some(route_query_response);
-                        }
-                        Err(e) => {
-                            let target_hostname = dns_failure.unsuccessful_request.target_hostname.clone();
-                            let retries_left = dns_failure.retries_left;
-                            let stream_key = msg.stream_key.clone();
-                            delayed_log = Box::new(move |logger: &Logger| {
-                                warning!(
+                        });
+                        stream_info.route_opt = Some(route_query_response);
+                    }
+                    Err(e) => {
+                        let target_hostname =
+                            dns_failure.unsuccessful_request.target_hostname.clone();
+                        let retries_left = dns_failure.retries_left;
+                        let stream_key = msg.stream_key;
+                        delayed_log = Box::new(move |logger: &Logger| {
+                            warning!(
                                     logger,
                                     "No route found for hostname: {:?} - stream key {} - retries left: {} - AddRouteResultMessage Error: {}",
                                     target_hostname,
@@ -228,12 +182,11 @@ impl Handler<AddRouteResultMessage> for ProxyServer {
                                     retries_left,
                                     e
                                 );
-                            });
-                        }
+                        });
                     }
                 },
                 None => {
-                    let stream_key = msg.stream_key.clone();
+                    let stream_key = msg.stream_key;
                     delayed_log = Box::new(move |logger: &Logger| {
                         error!(
                             logger,
@@ -353,10 +306,7 @@ impl ProxyServer {
     fn stream_info(&self, stream_key: &StreamKey, logger: &Logger) -> Option<&StreamInfo> {
         match self.stream_info.get(stream_key) {
             None => {
-                error!(
-                    logger,
-                    "Stream key {} not found in stream_info", stream_key
-                );
+                error!(logger, "Stream key {} not found in stream_info", stream_key);
                 None
             }
             Some(info) => Some(info),
@@ -381,21 +331,15 @@ impl ProxyServer {
         stream_key: &StreamKey,
     ) -> Result<DNSFailureRetry, String> {
         match stream_info.dns_failure_retry_opt.take() {
-            None => {
-                Err(format!(
-                    "No DNSFailureRetry entry found for the stream_key: {:?}",
-                    stream_key
-                ))
-            },
-            Some(retry) => Ok(retry)
+            None => Err(format!(
+                "No DNSFailureRetry entry found for the stream_key: {:?}",
+                stream_key
+            )),
+            Some(retry) => Ok(retry),
         }
     }
 
-    fn retry_dns_resolution(
-        &mut self,
-        retry: &DNSFailureRetry,
-        client_addr: SocketAddr,
-    ) {
+    fn retry_dns_resolution(&mut self, retry: &DNSFailureRetry, client_addr: SocketAddr) {
         let args = TransmitToHopperArgs::new(
             self,
             retry.unsuccessful_request.clone(),
@@ -410,11 +354,7 @@ impl ProxyServer {
             .as_ref()
             .expect("IBCDHelper uninitialized");
 
-        inbound_client_data_helper.request_route_and_transmit(
-            args,
-            route_source,
-            proxy_server_sub,
-        );
+        inbound_client_data_helper.request_route_and_transmit(args, route_source, proxy_server_sub);
     }
 
     fn retire_stream_key(&mut self, stream_key: &StreamKey) {
@@ -442,14 +382,16 @@ impl ProxyServer {
             .expect("Dispatcher is dead");
     }
 
-    fn get_response_services(route_query_response: &RouteQueryResponse) -> Option<&Vec<ExpectedService>> {
+    fn get_response_services(
+        route_query_response: &RouteQueryResponse,
+    ) -> Option<&[ExpectedService]> {
         match &route_query_response.expected_services {
             ExpectedServices::RoundTrip(_, back) => Some(back),
             _ => None,
         }
     }
 
-    fn find_exit_node_key(response_services: &Vec<ExpectedService>) -> Option<PublicKey> {
+    fn find_exit_node_key(response_services: &[ExpectedService]) -> Option<PublicKey> {
         match response_services.first() {
             Some(ExpectedService::Exit(pk, _, _)) => Some(pk.clone()),
             _ => None,
@@ -469,7 +411,8 @@ impl ProxyServer {
         let mut stream_info = match self.stream_info(&response.stream_key, &self.logger) {
             Some(info) => (*info).clone(),
             None => {
-                error!(self.logger,
+                error!(
+                    self.logger,
                     "Discarding DnsResolveFailure message from an unrecognized stream key {:?}",
                     &response.stream_key
                 );
@@ -482,10 +425,9 @@ impl ProxyServer {
             Some(route_query_response) => route_query_response,
             None => {
                 error!(
-                        self.logger,
-                        "Stream info for stream key {} has no route info",
-                        &response.stream_key
-                    );
+                    self.logger,
+                    "Stream info for stream key {} has no route info", &response.stream_key
+                );
                 return;
             }
         };
@@ -493,19 +435,18 @@ impl ProxyServer {
             Some(response_services) => response_services,
             None => {
                 error!(
-                        self.logger,
-                        "Stream info for stream key {} has no response services in its route info",
-                        &response.stream_key
-                    );
+                    self.logger,
+                    "Stream info for stream key {} has no response services in its route info",
+                    &response.stream_key
+                );
                 return;
             }
         };
         let exit_public_key = if !self.is_decentralized {
             self.main_cryptde.public_key().clone()
-        }
-        else {
+        } else {
             match Self::find_exit_node_key(response_services) {
-                Some(exit_public_key) => exit_public_key.clone(),
+                Some(exit_public_key) => exit_public_key,
                 None => {
                     error!(
                         self.logger,
@@ -561,7 +502,7 @@ impl ProxyServer {
                         self.send_dns_failure_response_to_the_browser(
                             client_addr,
                             protocol,
-                            hostname_opt.clone(),
+                            hostname_opt,
                         );
                     }
                 } else {
@@ -639,6 +580,8 @@ impl ProxyServer {
         &mut self,
         msg: ExpiredCoresPackage<ClientResponsePayload_0v1>,
     ) {
+        // TODO: Maybe comment this back in. The issue is apparently that the second hop is the
+        // return route information, which doesn't to_string() very well anymore.
         // debug!(
         //     self.logger,
         //     "ExpiredCoresPackage remaining_route: {}",
@@ -665,15 +608,18 @@ impl ProxyServer {
         let old_timestamp_opt = match self.stream_info_mut(&stream_key) {
             Some(info) => {
                 let time_to_live_opt = info.time_to_live_opt;
-                match ProxyServer::remove_dns_failure_retry(info, &stream_key) {
-                    _ => trace!(
+                // This call to remove_dns_failure_retry is here only because it needs access to
+                // a mutable StreamInfo, and we have one handy here. It has nothing to do with
+                // timestamps.
+                if let Err(e) = ProxyServer::remove_dns_failure_retry(info, &stream_key) {
+                    trace!(
                         self.logger,
-                        "No DNS retry entry found for stream key: {} during a successful attempt",
-                        &stream_key
-                    )
-                };
+                        "No DNS retry entry found for stream key {} during a successful attempt: {}",
+                        &stream_key, e
+                    );
+                }
                 time_to_live_opt
-            },
+            }
             None => None,
         };
         if let Some(old_timestamp) = old_timestamp_opt {
@@ -819,10 +765,16 @@ impl ProxyServer {
                 let stream_key = self
                     .stream_key_factory
                     .make(self.main_cryptde.public_key(), ibcd.client_addr);
-                self.keys_and_addrs.insert(stream_key.clone(), ibcd.client_addr);
+                self.keys_and_addrs.insert(stream_key, ibcd.client_addr);
                 self.stream_info.insert(
-                    stream_key.clone(),
-                    StreamInfoBuilder::new().build(),
+                    stream_key,
+                    StreamInfo {
+                        tunneled_host_opt: None,
+                        dns_failure_retry_opt: None,
+                        route_opt: None,
+                        protocol_opt: None,
+                        time_to_live_opt: None,
+                    },
                 );
                 debug!(
                     self.logger,
@@ -892,7 +844,7 @@ impl ProxyServer {
         match route_query_response.expected_services {
             ExpectedServices::RoundTrip(over, _) => {
                 ProxyServer::transmit_to_hopper(args, route_query_response.route, over)
-            },
+            }
             _ => panic!("Expected RoundTrip ExpectedServices but got OneWay"),
         }
     }
@@ -1102,7 +1054,7 @@ impl ProxyServer {
 
     fn report_response_services_consumed(
         &self,
-        expected_services: &Vec<ExpectedService>,
+        expected_services: &[ExpectedService],
         exit_size: usize,
         routing_size: usize,
     ) {
@@ -1211,10 +1163,7 @@ impl RouteQueryResponseResolver for RouteQueryResponseResolverReal {
         let stream_key = args.payload.stream_key;
         let result = match route_result_opt {
             Ok(Some(route_query_response)) => {
-                match ProxyServer::try_transmit_to_hopper(
-                    args,
-                    route_query_response.clone(),
-                ) {
+                match ProxyServer::try_transmit_to_hopper(args, route_query_response.clone()) {
                     Ok(()) => Ok(route_query_response),
                     Err(e) => Err(e),
                 }
@@ -1304,8 +1253,9 @@ impl IBCDHelper for IBCDHelperReal {
 
         {
             let is_decentralized = proxy.is_decentralized;
-            let mut stream_info = proxy.stream_info_mut(&stream_key)
-                .expect(&format!("Stream key {} disappeared!", &stream_key));
+            let mut stream_info = proxy
+                .stream_info_mut(&stream_key)
+                .unwrap_or_else(|| panic!("Stream key {} disappeared!", &stream_key));
             if stream_info.dns_failure_retry_opt.is_none() {
                 let dns_failure_retry = DNSFailureRetry {
                     unsuccessful_request: payload.clone(),
@@ -1318,8 +1268,9 @@ impl IBCDHelper for IBCDHelperReal {
         let args =
             TransmitToHopperArgs::new(proxy, payload, client_addr, timestamp, retire_stream_key);
         let pld = &args.payload;
-        let stream_info = proxy.stream_info(&pld.stream_key, &proxy.logger)
-            .expect(&format!("Stream key {} disappeared!", &pld.stream_key));
+        let stream_info = proxy
+            .stream_info(&pld.stream_key, &proxy.logger)
+            .unwrap_or_else(|| panic!("Stream key {} disappeared!", &pld.stream_key));
         if let Some(route_query_response) = &stream_info.route_opt {
             debug!(
                 proxy.logger,
@@ -1333,11 +1284,7 @@ impl IBCDHelper for IBCDHelperReal {
         } else {
             let route_source = proxy.out_subs("Neighborhood").route_source.clone();
             let proxy_server_sub = proxy.out_subs("ProxyServer").route_result_sub.clone();
-            self.request_route_and_transmit(
-                args,
-                route_source,
-                proxy_server_sub,
-            );
+            self.request_route_and_transmit(args, route_source, proxy_server_sub);
             Ok(())
         }
     }
@@ -1368,11 +1315,7 @@ impl IBCDHelper for IBCDHelperReal {
                     payload_size,
                 ))
                 .then(move |route_result| {
-                    message_resolver.resolve_message(
-                        args,
-                        proxy_server_sub,
-                        route_result,
-                    );
+                    message_resolver.resolve_message(args, proxy_server_sub, route_result);
                     Ok(())
                 }),
         );
@@ -1639,6 +1582,53 @@ mod tests {
         }
     }
 
+    struct StreamInfoBuilder {
+        product: StreamInfo,
+    }
+
+    impl StreamInfoBuilder {
+        pub fn new() -> Self {
+            Self {
+                product: StreamInfo {
+                    tunneled_host_opt: None,
+                    dns_failure_retry_opt: None,
+                    route_opt: None,
+                    protocol_opt: None,
+                    time_to_live_opt: None,
+                },
+            }
+        }
+
+        pub fn tunneled_host(mut self, host: &str) -> Self {
+            self.product.tunneled_host_opt = Some(host.to_string());
+            self
+        }
+
+        pub fn dns_failure_retry(mut self, retry: DNSFailureRetry) -> Self {
+            self.product.dns_failure_retry_opt = Some(retry);
+            self
+        }
+
+        pub fn route(mut self, route: RouteQueryResponse) -> Self {
+            self.product.route_opt = Some(route);
+            self
+        }
+
+        pub fn protocol(mut self, protocol: ProxyProtocol) -> Self {
+            self.product.protocol_opt = Some(protocol);
+            self
+        }
+
+        pub fn time_to_live(mut self, ttl: SystemTime) -> Self {
+            self.product.time_to_live_opt = Some(ttl);
+            self
+        }
+
+        pub fn build(self) -> StreamInfo {
+            self.product
+        }
+    }
+
     #[test]
     fn constants_have_correct_values() {
         assert_eq!(CRASH_KEY, "PROXYSERVER");
@@ -1798,8 +1788,7 @@ mod tests {
     }
 
     #[test]
-    fn get_expected_services_produces_rri_when_it_exists()
-    {
+    fn get_expected_services_produces_rri_when_it_exists() {
         let mut subject = ProxyServer::new(
             main_cryptde(),
             alias_cryptde(),
@@ -1810,23 +1799,23 @@ mod tests {
         );
         let exit_public_key = PublicKey::new(&b"exit key"[..]);
         let stream_key = StreamKey::make_meaningless_stream_key();
-        let back_services = vec![ExpectedService::Exit(exit_public_key, make_wallet("booga"), rate_pack(1000))];
-        let expected_services = ExpectedServices::RoundTrip(
-            vec![],
-            back_services.clone()
+        let back_services = vec![ExpectedService::Exit(
+            exit_public_key,
+            make_wallet("booga"),
+            rate_pack(1000),
+        )];
+        let expected_services = ExpectedServices::RoundTrip(vec![], back_services.clone());
+        subject.stream_info.insert(
+            stream_key.clone(),
+            StreamInfoBuilder::new()
+                .route(RouteQueryResponse {
+                    route: make_meaningless_route(),
+                    expected_services: expected_services.clone(),
+                    hostname_opt: None,
+                })
+                .protocol(ProxyProtocol::TLS)
+                .build(),
         );
-        subject
-            .stream_info.insert(
-                stream_key.clone(),
-                StreamInfoBuilder::new()
-                    .route(RouteQueryResponse{
-                        route: make_meaningless_route(),
-                        expected_services: expected_services.clone(),
-                        hostname_opt: None,
-                    })
-                    .protocol(ProxyProtocol::TLS)
-                    .build(),
-            );
 
         let result = subject.get_expected_return_services(&stream_key).unwrap();
 
@@ -2094,16 +2083,18 @@ mod tests {
         subject
             .keys_and_addrs
             .insert(stream_key.clone(), socket_addr.clone());
-        subject.stream_info.insert(
-            stream_key.clone(),
-            StreamInfoBuilder::new().build()
-        );
+        subject
+            .stream_info
+            .insert(stream_key.clone(), StreamInfoBuilder::new().build());
         subject.stream_info.insert(
             stream_key.clone(),
             StreamInfoBuilder::new()
-                .route(RouteQueryResponse{
+                .route(RouteQueryResponse {
                     route: make_meaningless_route(),
-                    expected_services: ExpectedServices::RoundTrip(vec![], vec![ExpectedService::Nothing]),
+                    expected_services: ExpectedServices::RoundTrip(
+                        vec![],
+                        vec![ExpectedService::Nothing],
+                    ),
                     hostname_opt: None,
                 })
                 .build(),
@@ -2448,11 +2439,12 @@ mod tests {
             let mut subject =
                 ProxyServer::new(main_cryptde, alias_cryptde, false, None, false, false);
             subject.stream_key_factory = Box::new(stream_key_factory);
-            subject.keys_and_addrs.insert(stream_key.clone(), socket_addr);
-            subject.stream_info.insert(
-                stream_key,
-                StreamInfoBuilder::new().build()
-            );
+            subject
+                .keys_and_addrs
+                .insert(stream_key.clone(), socket_addr);
+            subject
+                .stream_info
+                .insert(stream_key, StreamInfoBuilder::new().build());
             let subject_addr: Addr<ProxyServer> = subject.start();
             let peer_actors = peer_actors_builder()
                 .dispatcher(dispatcher)
@@ -2533,10 +2525,9 @@ mod tests {
                 ProxyServer::new(main_cryptde, alias_cryptde, false, None, false, false);
             subject.stream_key_factory = Box::new(stream_key_factory);
             subject.keys_and_addrs.insert(stream_key, socket_addr);
-            subject.stream_info.insert(
-                stream_key.clone(),
-                StreamInfoBuilder::new().build()
-            );
+            subject
+                .stream_info
+                .insert(stream_key.clone(), StreamInfoBuilder::new().build());
             let subject_addr: Addr<ProxyServer> = subject.start();
             let peer_actors = peer_actors_builder()
                 .dispatcher(dispatcher)
@@ -2650,10 +2641,9 @@ mod tests {
             );
             subject.stream_key_factory = Box::new(stream_key_factory);
             subject.keys_and_addrs.insert(stream_key, socket_addr);
-            subject.stream_info.insert(
-                stream_key.clone(),
-                StreamInfoBuilder::new().build()
-            );
+            subject
+                .stream_info
+                .insert(stream_key.clone(), StreamInfoBuilder::new().build());
             let subject_addr: Addr<ProxyServer> = subject.start();
             let peer_actors = peer_actors_builder()
                 .hopper(hopper_mock)
@@ -3030,10 +3020,12 @@ mod tests {
                 false,
             );
             subject.stream_key_factory = Box::new(stream_key_factory);
-            subject.keys_and_addrs.insert(stream_key.clone(), socket_addr);
+            subject
+                .keys_and_addrs
+                .insert(stream_key.clone(), socket_addr);
             subject.stream_info.insert(
                 stream_key,
-                StreamInfoBuilder::new().route(route_query_response).build()
+                StreamInfoBuilder::new().route(route_query_response).build(),
             );
             subject.next_return_route_id = Cell::new(0);
             let subject_addr: Addr<ProxyServer> = subject.start();
@@ -3173,10 +3165,7 @@ mod tests {
             retire_stream_key_sub_opt: None,
         };
 
-        let result = ProxyServer::try_transmit_to_hopper(
-            args,
-            route_query_response,
-        );
+        let result = ProxyServer::try_transmit_to_hopper(args, route_query_response);
 
         System::current().stop();
         system.run();
@@ -3283,10 +3272,7 @@ mod tests {
             retire_stream_key_sub_opt: Some(peer_actors.proxy_server.stream_shutdown_sub),
         };
 
-        let result = ProxyServer::try_transmit_to_hopper(
-            args,
-            route_query_response,
-        );
+        let result = ProxyServer::try_transmit_to_hopper(args, route_query_response);
 
         System::current().stop();
         system.run();
@@ -3368,7 +3354,8 @@ mod tests {
     #[test]
     fn route_result_message_handler_logs_error_when_no_dns_retries_exist() {
         init_test_logging();
-        let system = System::new("route_result_message_handler_logs_error_when_no_dns_retries_exist");
+        let system =
+            System::new("route_result_message_handler_logs_error_when_no_dns_retries_exist");
         let mut subject = ProxyServer::new(
             main_cryptde(),
             alias_cryptde(),
@@ -3380,7 +3367,7 @@ mod tests {
         let stream_key = StreamKey::make_meaningless_stream_key();
         subject.stream_info.insert(
             stream_key.clone(),
-            StreamInfoBuilder::new().build() // no DNS retries
+            StreamInfoBuilder::new().build(), // no DNS retries
         );
         let subject_addr: Addr<ProxyServer> = subject.start();
         let peer_actors = peer_actors_builder().build();
@@ -3567,10 +3554,7 @@ mod tests {
             retire_stream_key_sub_opt: None,
         };
 
-        let _result = ProxyServer::try_transmit_to_hopper(
-            args,
-            route_result,
-        );
+        let _result = ProxyServer::try_transmit_to_hopper(args, route_result);
     }
 
     #[test]
@@ -3938,10 +3922,9 @@ mod tests {
                 false,
             );
             subject.keys_and_addrs.insert(stream_key, client_addr);
-            subject.stream_info.insert(
-                stream_key,
-                StreamInfoBuilder::new().build(),
-            );
+            subject
+                .stream_info
+                .insert(stream_key, StreamInfoBuilder::new().build());
             let system = System::new(test_name);
             let subject_addr: Addr<ProxyServer> = subject.start();
             let peer_actors = peer_actors_builder()
@@ -4064,11 +4047,14 @@ mod tests {
             StreamInfoBuilder::new()
                 .route(RouteQueryResponse {
                     route: Route { hops: vec![] },
-                    expected_services: ExpectedServices::RoundTrip(vec![], vec![ExpectedService::Nothing]),
+                    expected_services: ExpectedServices::RoundTrip(
+                        vec![],
+                        vec![ExpectedService::Nothing],
+                    ),
                     hostname_opt: None,
                 })
                 .protocol(ProxyProtocol::TLS)
-                .build()
+                .build(),
         );
         let subject_addr: Addr<ProxyServer> = subject.start();
         let remaining_route = return_route_with_id(cryptde, 1234);
@@ -4259,7 +4245,7 @@ mod tests {
                 })
                 .protocol(ProxyProtocol::HTTP)
                 .tunneled_host("hostname")
-                .build()
+                .build(),
         );
         let proxy_server_addr = subject.start();
         let schedule_stream_key_purge_sub = proxy_server_addr.clone().recipient();
@@ -4352,17 +4338,20 @@ mod tests {
             StreamInfoBuilder::new()
                 .route(RouteQueryResponse {
                     route: Route { hops: vec![] },
-                    expected_services: ExpectedServices::RoundTrip(vec![], vec![ExpectedService::Exit(
-                        exit_key,
-                        exit_wallet.clone(),
-                        exit_rates.clone(),
-                    )]),
+                    expected_services: ExpectedServices::RoundTrip(
+                        vec![],
+                        vec![ExpectedService::Exit(
+                            exit_key,
+                            exit_wallet.clone(),
+                            exit_rates.clone(),
+                        )],
+                    ),
                     hostname_opt: None,
                 })
                 .tunneled_host("hostname")
                 .protocol(ProxyProtocol::HTTP)
                 .time_to_live(SystemTime::now())
-                .build()
+                .build(),
         );
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
@@ -4445,27 +4434,30 @@ mod tests {
             StreamInfoBuilder::new()
                 .route(RouteQueryResponse {
                     route: Route { hops: vec![] },
-                    expected_services: ExpectedServices::RoundTrip(vec![], vec![
-                        ExpectedService::Exit(
-                            irrelevant_public_key.clone(),
-                            incoming_route_d_wallet.clone(),
-                            rate_pack_d,
-                        ),
-                        ExpectedService::Routing(
-                            irrelevant_public_key.clone(),
-                            incoming_route_e_wallet.clone(),
-                            rate_pack_e,
-                        ),
-                        ExpectedService::Routing(
-                            irrelevant_public_key.clone(),
-                            incoming_route_f_wallet.clone(),
-                            rate_pack_f,
-                        ),
-                        ExpectedService::Nothing,
-                    ]),
+                    expected_services: ExpectedServices::RoundTrip(
+                        vec![],
+                        vec![
+                            ExpectedService::Exit(
+                                irrelevant_public_key.clone(),
+                                incoming_route_d_wallet.clone(),
+                                rate_pack_d,
+                            ),
+                            ExpectedService::Routing(
+                                irrelevant_public_key.clone(),
+                                incoming_route_e_wallet.clone(),
+                                rate_pack_e,
+                            ),
+                            ExpectedService::Routing(
+                                irrelevant_public_key.clone(),
+                                incoming_route_f_wallet.clone(),
+                                rate_pack_f,
+                            ),
+                            ExpectedService::Nothing,
+                        ],
+                    ),
                     hostname_opt: None,
                 })
-                .build()
+                .build(),
         );
         let subject_addr: Addr<ProxyServer> = subject.start();
         let first_client_response_payload = ClientResponsePayload_0v1 {
@@ -4624,34 +4616,37 @@ mod tests {
         subject.stream_info.insert(
             stream_key_clone.clone(),
             StreamInfoBuilder::new()
-                .dns_failure_retry(DNSFailureRetry{
+                .dns_failure_retry(DNSFailureRetry {
                     unsuccessful_request: dns_fail_client_payload,
                     retries_left: 3,
                 })
-                .route(RouteQueryResponse{
+                .route(RouteQueryResponse {
                     route: Route { hops: vec![] },
-                    expected_services: ExpectedServices::RoundTrip(vec![], vec![
-                        ExpectedService::Exit(
-                            irrelevant_public_key.clone(),
-                            incoming_route_d_wallet.clone(),
-                            rate_pack_d,
-                        ),
-                        ExpectedService::Routing(
-                            irrelevant_public_key.clone(),
-                            incoming_route_e_wallet.clone(),
-                            rate_pack_e,
-                        ),
-                        ExpectedService::Routing(
-                            irrelevant_public_key.clone(),
-                            incoming_route_f_wallet.clone(),
-                            rate_pack_f,
-                        ),
-                        ExpectedService::Nothing,
-                    ]),
+                    expected_services: ExpectedServices::RoundTrip(
+                        vec![],
+                        vec![
+                            ExpectedService::Exit(
+                                irrelevant_public_key.clone(),
+                                incoming_route_d_wallet.clone(),
+                                rate_pack_d,
+                            ),
+                            ExpectedService::Routing(
+                                irrelevant_public_key.clone(),
+                                incoming_route_e_wallet.clone(),
+                                rate_pack_e,
+                            ),
+                            ExpectedService::Routing(
+                                irrelevant_public_key.clone(),
+                                incoming_route_f_wallet.clone(),
+                                rate_pack_f,
+                            ),
+                            ExpectedService::Nothing,
+                        ],
+                    ),
                     hostname_opt: None,
                 })
                 .protocol(ProxyProtocol::TLS)
-                .build()
+                .build(),
         );
         let subject_addr: Addr<ProxyServer> = subject.start();
         let first_client_response_payload = ClientResponsePayload_0v1 {
@@ -4678,7 +4673,10 @@ mod tests {
         subject_addr
             .try_send(AssertionsMessage {
                 assertions: Box::new(move |proxy_server: &mut ProxyServer| {
-                    let retry_opt = &proxy_server.stream_info(&stream_key_clone, &logger).unwrap().dns_failure_retry_opt;
+                    let retry_opt = &proxy_server
+                        .stream_info(&stream_key_clone, &logger)
+                        .unwrap()
+                        .dns_failure_retry_opt;
                     assert!(retry_opt.is_none());
                 }),
             })
@@ -4712,24 +4710,27 @@ mod tests {
         subject.stream_info.insert(
             stream_key.clone(),
             StreamInfoBuilder::new()
-                .route(RouteQueryResponse{
+                .route(RouteQueryResponse {
                     route: Route { hops: vec![] },
-                    expected_services: ExpectedServices::RoundTrip(vec![], vec![
-                        ExpectedService::Exit(
-                            irrelevant_public_key.clone(),
-                            incoming_route_d_wallet.clone(),
-                            rate_pack_d,
-                        ),
-                        ExpectedService::Routing(
-                            irrelevant_public_key.clone(),
-                            incoming_route_e_wallet.clone(),
-                            rate_pack_e,
-                        ),
-                    ]),
+                    expected_services: ExpectedServices::RoundTrip(
+                        vec![],
+                        vec![
+                            ExpectedService::Exit(
+                                irrelevant_public_key.clone(),
+                                incoming_route_d_wallet.clone(),
+                                rate_pack_d,
+                            ),
+                            ExpectedService::Routing(
+                                irrelevant_public_key.clone(),
+                                incoming_route_e_wallet.clone(),
+                                rate_pack_e,
+                            ),
+                        ],
+                    ),
                     hostname_opt: None,
                 })
                 .protocol(ProxyProtocol::TLS)
-                .build()
+                .build(),
         );
         let subject_addr: Addr<ProxyServer> = subject.start();
         let client_response_payload = ClientResponsePayload_0v1 {
@@ -4817,21 +4818,24 @@ mod tests {
         subject.stream_info.insert(
             stream_key.clone(),
             StreamInfoBuilder::new()
-                .dns_failure_retry(DNSFailureRetry{
+                .dns_failure_retry(DNSFailureRetry {
                     unsuccessful_request: client_payload,
                     retries_left: 0,
                 })
-                .route(RouteQueryResponse{
+                .route(RouteQueryResponse {
                     route: Route { hops: vec![] },
-                    expected_services: ExpectedServices::RoundTrip(vec![], vec![ExpectedService::Exit(
-                        exit_public_key.clone(),
-                        exit_wallet,
-                        rate_pack(10),
-                    )]),
+                    expected_services: ExpectedServices::RoundTrip(
+                        vec![],
+                        vec![ExpectedService::Exit(
+                            exit_public_key.clone(),
+                            exit_wallet,
+                            rate_pack(10),
+                        )],
+                    ),
                     hostname_opt: Some("server.com".to_string()),
                 })
                 .protocol(ProxyProtocol::HTTP)
-                .build()
+                .build(),
         );
         let subject_addr: Addr<ProxyServer> = subject.start();
         let dns_resolve_failure = DnsResolveFailure_0v1::new(stream_key);
@@ -4894,34 +4898,37 @@ mod tests {
         subject.stream_info.insert(
             stream_key.clone(),
             StreamInfoBuilder::new()
-                .dns_failure_retry(DNSFailureRetry{
+                .dns_failure_retry(DNSFailureRetry {
                     unsuccessful_request: client_payload,
                     retries_left: 0,
                 })
-                .route(RouteQueryResponse{
+                .route(RouteQueryResponse {
                     route: Route { hops: vec![] },
-                    expected_services: ExpectedServices::RoundTrip(vec![], vec![
-                        ExpectedService::Exit(
-                            irrelevant_public_key.clone(),
-                            incoming_route_d_wallet.clone(),
-                            rate_pack_d,
-                        ),
-                        ExpectedService::Routing(
-                            irrelevant_public_key.clone(),
-                            incoming_route_e_wallet.clone(),
-                            rate_pack_e,
-                        ),
-                        ExpectedService::Routing(
-                            irrelevant_public_key.clone(),
-                            incoming_route_f_wallet.clone(),
-                            rate_pack_f,
-                        ),
-                        ExpectedService::Nothing,
-                    ]),
+                    expected_services: ExpectedServices::RoundTrip(
+                        vec![],
+                        vec![
+                            ExpectedService::Exit(
+                                irrelevant_public_key.clone(),
+                                incoming_route_d_wallet.clone(),
+                                rate_pack_d,
+                            ),
+                            ExpectedService::Routing(
+                                irrelevant_public_key.clone(),
+                                incoming_route_e_wallet.clone(),
+                                rate_pack_e,
+                            ),
+                            ExpectedService::Routing(
+                                irrelevant_public_key.clone(),
+                                incoming_route_f_wallet.clone(),
+                                rate_pack_f,
+                            ),
+                            ExpectedService::Nothing,
+                        ],
+                    ),
                     hostname_opt: None,
                 })
                 .protocol(ProxyProtocol::TLS)
-                .build()
+                .build(),
         );
         let subject_addr: Addr<ProxyServer> = subject.start();
         let dns_resolve_failure_payload = DnsResolveFailure_0v1::new(stream_key);
@@ -5005,21 +5012,24 @@ mod tests {
         subject.stream_info.insert(
             stream_key.clone(),
             StreamInfoBuilder::new()
-                .dns_failure_retry(DNSFailureRetry{
+                .dns_failure_retry(DNSFailureRetry {
                     unsuccessful_request: client_payload,
                     retries_left: 0,
                 })
-                .route(RouteQueryResponse{
+                .route(RouteQueryResponse {
                     route: Route { hops: vec![] },
-                    expected_services: ExpectedServices::RoundTrip(vec![], vec![ExpectedService::Exit(
-                        exit_public_key.clone(),
-                        exit_wallet.clone(),
-                        rate_pack(10),
-                    )]),
+                    expected_services: ExpectedServices::RoundTrip(
+                        vec![],
+                        vec![ExpectedService::Exit(
+                            exit_public_key.clone(),
+                            exit_wallet.clone(),
+                            rate_pack(10),
+                        )],
+                    ),
                     hostname_opt: Some("server.com".to_string()),
                 })
                 .protocol(ProxyProtocol::HTTP)
-                .build()
+                .build(),
         );
         let subject_addr: Addr<ProxyServer> = subject.start();
         let dns_resolve_failure = DnsResolveFailure_0v1::new(stream_key);
@@ -5084,21 +5094,24 @@ mod tests {
         subject.stream_info.insert(
             stream_key,
             StreamInfoBuilder::new()
-                .dns_failure_retry(DNSFailureRetry{
+                .dns_failure_retry(DNSFailureRetry {
                     unsuccessful_request: client_payload,
                     retries_left: 0,
                 })
-                .route(RouteQueryResponse{
+                .route(RouteQueryResponse {
                     route: Route { hops: vec![] },
-                    expected_services: ExpectedServices::RoundTrip(vec![], vec![ExpectedService::Exit(
-                        exit_public_key.clone(),
-                        exit_wallet,
-                        rate_pack(10),
-                    )]),
+                    expected_services: ExpectedServices::RoundTrip(
+                        vec![],
+                        vec![ExpectedService::Exit(
+                            exit_public_key.clone(),
+                            exit_wallet,
+                            rate_pack(10),
+                        )],
+                    ),
                     hostname_opt: None,
                 })
                 .protocol(ProxyProtocol::HTTP)
-                .build()
+                .build(),
         );
         let subject_addr: Addr<ProxyServer> = subject.start();
         let dns_resolve_failure = DnsResolveFailure_0v1::new(stream_key);
@@ -5128,7 +5141,8 @@ mod tests {
     }
 
     #[test]
-    fn handle_dns_resolve_failure_logs_when_stream_key_is_found_in_stream_info_but_not_keys_and_addrs() {
+    fn handle_dns_resolve_failure_logs_when_stream_key_is_found_in_stream_info_but_not_keys_and_addrs(
+    ) {
         init_test_logging();
         let system = System::new("test");
         let (neighborhood_mock, _, _) = make_recorder();
@@ -5150,21 +5164,24 @@ mod tests {
         subject.stream_info.insert(
             stream_key,
             StreamInfoBuilder::new()
-                .dns_failure_retry(DNSFailureRetry{
+                .dns_failure_retry(DNSFailureRetry {
                     unsuccessful_request: client_payload,
                     retries_left: 0,
                 })
-                .route(RouteQueryResponse{
+                .route(RouteQueryResponse {
                     route: Route { hops: vec![] },
-                    expected_services: ExpectedServices::RoundTrip(vec![], vec![ExpectedService::Exit(
-                        exit_public_key.clone(),
-                        exit_wallet.clone(),
-                        rate_pack(10),
-                    )]),
+                    expected_services: ExpectedServices::RoundTrip(
+                        vec![],
+                        vec![ExpectedService::Exit(
+                            exit_public_key.clone(),
+                            exit_wallet.clone(),
+                            rate_pack(10),
+                        )],
+                    ),
                     hostname_opt: Some("server.com".to_string()),
                 })
                 .protocol(ProxyProtocol::HTTP)
-                .build()
+                .build(),
         );
         let subject_addr: Addr<ProxyServer> = subject.start();
         let dns_resolve_failure = DnsResolveFailure_0v1::new(stream_key);
@@ -5224,21 +5241,24 @@ mod tests {
         subject.stream_info.insert(
             stream_key,
             StreamInfoBuilder::new()
-                .dns_failure_retry(DNSFailureRetry{
+                .dns_failure_retry(DNSFailureRetry {
                     unsuccessful_request: client_payload,
                     retries_left: 0,
                 })
-                .route(RouteQueryResponse{
+                .route(RouteQueryResponse {
                     route: Route { hops: vec![] },
-                    expected_services: ExpectedServices::RoundTrip(vec![], vec![ExpectedService::Exit(
-                        exit_public_key.clone(),
-                        exit_wallet.clone(),
-                        rate_pack(10),
-                    )]),
+                    expected_services: ExpectedServices::RoundTrip(
+                        vec![],
+                        vec![ExpectedService::Exit(
+                            exit_public_key.clone(),
+                            exit_wallet.clone(),
+                            rate_pack(10),
+                        )],
+                    ),
                     hostname_opt: None,
                 })
                 .protocol(ProxyProtocol::HTTP)
-                .build()
+                .build(),
         );
         let subject_addr: Addr<ProxyServer> = subject.start();
         let dns_resolve_failure = DnsResolveFailure_0v1::new(stream_key);
@@ -5263,12 +5283,10 @@ mod tests {
 
         System::current().stop();
         system.run();
-        TestLogHandler::new().exists_log_containing(
-            &format!(
-                "Discarding DnsResolveFailure message from an unrecognized stream key {:?}",
-                stream_key
-            )
-        );
+        TestLogHandler::new().exists_log_containing(&format!(
+            "Discarding DnsResolveFailure message from an unrecognized stream key {:?}",
+            stream_key
+        ));
     }
 
     #[test]
@@ -5301,7 +5319,7 @@ mod tests {
         subject.stream_info.insert(
             stream_key,
             StreamInfoBuilder::new()
-                .dns_failure_retry(DNSFailureRetry{
+                .dns_failure_retry(DNSFailureRetry {
                     unsuccessful_request: client_payload,
                     retries_left: 0,
                 })
@@ -5313,12 +5331,12 @@ mod tests {
                         vec![
                             make_exit_service_from_key(PublicKey::new(b"exit_node")),
                             ExpectedService::Nothing,
-                        ]
+                        ],
                     ),
                     hostname_opt: None,
                 })
                 .protocol(ProxyProtocol::HTTP)
-                .build()
+                .build(),
         );
         let dns_resolve_failure = DnsResolveFailure_0v1::new(stream_key);
         let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure_0v1> =
@@ -5360,17 +5378,20 @@ mod tests {
         subject.stream_info.insert(
             stream_key.clone(),
             StreamInfoBuilder::new()
-                .dns_failure_retry(DNSFailureRetry{
+                .dns_failure_retry(DNSFailureRetry {
                     unsuccessful_request: client_payload,
                     retries_left: 0,
                 })
-                .route(RouteQueryResponse{
+                .route(RouteQueryResponse {
                     route: Route { hops: vec![] },
-                    expected_services: ExpectedServices::RoundTrip(vec![], vec![ExpectedService::Nothing, ExpectedService::Nothing]),
+                    expected_services: ExpectedServices::RoundTrip(
+                        vec![],
+                        vec![ExpectedService::Nothing, ExpectedService::Nothing],
+                    ),
                     hostname_opt: Some("server.com".to_string()),
                 })
                 .protocol(ProxyProtocol::HTTP)
-                .build()
+                .build(),
         );
         let subject_addr: Addr<ProxyServer> = subject.start();
         let dns_resolve_failure = DnsResolveFailure_0v1::new(stream_key);
@@ -5460,17 +5481,20 @@ mod tests {
         subject.stream_info.insert(
             stream_key.clone(),
             StreamInfoBuilder::new()
-                .dns_failure_retry(DNSFailureRetry{
+                .dns_failure_retry(DNSFailureRetry {
                     unsuccessful_request: client_payload.clone(),
                     retries_left: 3,
                 })
-                .route(RouteQueryResponse{
+                .route(RouteQueryResponse {
                     route: Route { hops: vec![] },
-                    expected_services: ExpectedServices::RoundTrip(vec![], expected_services.clone()),
+                    expected_services: ExpectedServices::RoundTrip(
+                        vec![],
+                        expected_services.clone(),
+                    ),
                     hostname_opt: Some("server.com".to_string()),
                 })
                 .protocol(ProxyProtocol::HTTP)
-                .build()
+                .build(),
         );
         let message_resolver = RouteQueryResponseResolverMock::default()
             .resolve_message_params(&resolve_message_params_arc);
@@ -5501,7 +5525,8 @@ mod tests {
                 assertions: Box::new(move |proxy_server: &mut ProxyServer| {
                     let retry = proxy_server
                         .stream_info(&stream_key, &logger)
-                        .unwrap().dns_failure_retry_opt
+                        .unwrap()
+                        .dns_failure_retry_opt
                         .as_ref()
                         .unwrap();
                     assert_eq!(retry.retries_left, 2);
@@ -5558,13 +5583,16 @@ mod tests {
         subject.stream_info.insert(
             stream_key.clone(),
             StreamInfoBuilder::new()
-                .route(RouteQueryResponse{
+                .route(RouteQueryResponse {
                     route: Route { hops: vec![] },
-                    expected_services: ExpectedServices::RoundTrip(vec![], expected_services.clone()),
+                    expected_services: ExpectedServices::RoundTrip(
+                        vec![],
+                        expected_services.clone(),
+                    ),
                     hostname_opt: Some("server.com".to_string()),
                 })
                 .protocol(ProxyProtocol::HTTP)
-                .build()
+                .build(),
         );
         let subject_addr: Addr<ProxyServer> = subject.start();
         let dns_resolve_failure = DnsResolveFailure_0v1::new(stream_key);
@@ -5638,17 +5666,20 @@ mod tests {
         subject.stream_info.insert(
             stream_key_clone.clone(),
             StreamInfoBuilder::new()
-                .dns_failure_retry(DNSFailureRetry{
+                .dns_failure_retry(DNSFailureRetry {
                     unsuccessful_request: client_payload,
                     retries_left: 3,
                 })
-                .route(RouteQueryResponse{
+                .route(RouteQueryResponse {
                     route: Route { hops: vec![] },
-                    expected_services: ExpectedServices::RoundTrip(vec![], expected_services.clone()),
+                    expected_services: ExpectedServices::RoundTrip(
+                        vec![],
+                        expected_services.clone(),
+                    ),
                     hostname_opt: Some("server.com".to_string()),
                 })
                 .protocol(ProxyProtocol::HTTP)
-                .build()
+                .build(),
         );
         let message_resolver_factory = RouteQueryResponseResolverFactoryMock::default()
             .make_params(&make_params_arc)
@@ -5723,13 +5754,16 @@ mod tests {
         subject.stream_info.insert(
             stream_key.clone(),
             StreamInfoBuilder::new()
-                .route(RouteQueryResponse{
+                .route(RouteQueryResponse {
                     route: Route { hops: vec![] },
-                    expected_services: ExpectedServices::RoundTrip(vec![], vec![ExpectedService::Nothing]),
+                    expected_services: ExpectedServices::RoundTrip(
+                        vec![],
+                        vec![ExpectedService::Nothing],
+                    ),
                     hostname_opt: None,
                 })
                 .protocol(ProxyProtocol::HTTP)
-                .build()
+                .build(),
         );
         let subject_addr: Addr<ProxyServer> = subject.start();
 
@@ -5849,7 +5883,7 @@ mod tests {
         subject
             .keys_and_addrs
             .insert(unaffected_stream_key, unaffected_socket_addr);
-        subject.stream_info.insert (
+        subject.stream_info.insert(
             unaffected_stream_key,
             StreamInfoBuilder::new()
                 .route(RouteQueryResponse {
@@ -5858,7 +5892,7 @@ mod tests {
                     hostname_opt: Some("booga.com".to_string()),
                 })
                 .tunneled_host("blah")
-                .build()
+                .build(),
         );
 
         subject.handle_stream_shutdown_msg(StreamShutdownMsg {
@@ -5875,10 +5909,12 @@ mod tests {
             .keys_and_addrs
             .a_to_b(&unaffected_stream_key)
             .is_some());
+        assert!(subject.stream_info.contains_key(&unaffected_stream_key));
         assert!(subject
-            .stream_info
-            .contains_key(&unaffected_stream_key));
-        assert!(subject.stream_info(&unaffected_stream_key, &logger).unwrap().tunneled_host_opt.is_some());
+            .stream_info(&unaffected_stream_key, &logger)
+            .unwrap()
+            .tunneled_host_opt
+            .is_some());
     }
 
     #[test]
@@ -5912,7 +5948,7 @@ mod tests {
                     hostname_opt: Some("booga.com".to_string()),
                 })
                 .tunneled_host("blah")
-                .build()
+                .build(),
         );
         let affected_route = Route::round_trip(
             RouteSegment::new(
@@ -5938,11 +5974,14 @@ mod tests {
             StreamInfoBuilder::new()
                 .route(RouteQueryResponse {
                     route: affected_route.clone(),
-                    expected_services: ExpectedServices::RoundTrip(affected_expected_services, vec![]),
+                    expected_services: ExpectedServices::RoundTrip(
+                        affected_expected_services,
+                        vec![],
+                    ),
                     hostname_opt: Some("booga.com".to_string()),
                 })
                 .tunneled_host("tunneled.com")
-                .build()
+                .build(),
         );
         let subject_addr = subject.start();
         let (hopper, _, hopper_recording_arc) = make_recorder();
@@ -6036,7 +6075,7 @@ mod tests {
                     expected_services: ExpectedServices::RoundTrip(vec![], vec![]),
                     hostname_opt: Some("booga.com".to_string()),
                 })
-                .build()
+                .build(),
         );
         subject.next_return_route_id = Cell::new(1234);
         let affected_route = Route::round_trip(
@@ -6063,10 +6102,13 @@ mod tests {
             StreamInfoBuilder::new()
                 .route(RouteQueryResponse {
                     route: affected_route.clone(),
-                    expected_services: ExpectedServices::RoundTrip(affected_expected_services, vec![]),
+                    expected_services: ExpectedServices::RoundTrip(
+                        affected_expected_services,
+                        vec![],
+                    ),
                     hostname_opt: Some("booga.com".to_string()),
                 })
-                .build()
+                .build(),
         );
         subject.logger = Logger::new(test_name);
         let subject_addr = subject.start();
@@ -6145,10 +6187,9 @@ mod tests {
         let socket_addr = SocketAddr::from_str("3.4.5.6:7777").unwrap();
         let stream_key = StreamKey::make_meaningful_stream_key("All Things Must Pass");
         subject.keys_and_addrs.insert(stream_key, socket_addr);
-        subject.stream_info.insert(
-            stream_key.clone(),
-            StreamInfoBuilder::new().build()
-        );
+        subject
+            .stream_info
+            .insert(stream_key.clone(), StreamInfoBuilder::new().build());
         let msg = StreamShutdownMsg {
             peer_addr: socket_addr,
             stream_type: RemovedStreamType::NonClandestine(NonClandestineAttributes {
@@ -6176,7 +6217,7 @@ mod tests {
         let socket_addr = SocketAddr::from_str("3.4.5.6:7890").unwrap();
         let stream_key = StreamKey::make_meaningful_stream_key("All Things Must Pass");
         subject.keys_and_addrs.insert(stream_key, socket_addr);
-        subject.stream_info.insert (
+        subject.stream_info.insert(
             stream_key,
             StreamInfoBuilder::new()
                 .route(RouteQueryResponse {
@@ -6185,7 +6226,7 @@ mod tests {
                     hostname_opt: Some("booga.com".to_string()),
                 })
                 .tunneled_host("blah")
-                .build()
+                .build(),
         );
         let msg = StreamShutdownMsg {
             peer_addr: socket_addr,
@@ -6263,11 +6304,7 @@ mod tests {
         let subject = RouteQueryResponseResolverReal {};
         let system = System::new("resolve_message_handles_mailbox_error_from_neighborhood");
 
-        subject.resolve_message(
-            args,
-            proxy_server_sub,
-            Err(MailboxError::Timeout),
-        );
+        subject.resolve_message(args, proxy_server_sub, Err(MailboxError::Timeout));
 
         System::current().stop();
         system.run();
@@ -6403,7 +6440,12 @@ mod tests {
         subject_addr
             .try_send(AssertionsMessage {
                 assertions: Box::new(move |proxy_server: &mut ProxyServer| {
-                    let dns_retry = proxy_server.stream_info(&stream_key, &logger).unwrap().dns_failure_retry_opt.as_ref().unwrap();
+                    let dns_retry = proxy_server
+                        .stream_info(&stream_key, &logger)
+                        .unwrap()
+                        .dns_failure_retry_opt
+                        .as_ref()
+                        .unwrap();
                     assert_eq!(dns_retry.retries_left, 3);
                     assert_eq!(dns_retry.unsuccessful_request, expected_payload);
                 }),
@@ -6415,7 +6457,8 @@ mod tests {
 
     #[test]
     fn new_http_request_creates_new_exhausted_entry_inside_dns_retries_hashmap_zero_hop() {
-        let test_name = "new_http_request_creates_new_exhausted_entry_inside_dns_retries_hashmap_zero_hop";
+        let test_name =
+            "new_http_request_creates_new_exhausted_entry_inside_dns_retries_hashmap_zero_hop";
         let logger = Logger::new(test_name);
         let main_cryptde = main_cryptde();
         let alias_cryptde = alias_cryptde();
@@ -6474,7 +6517,12 @@ mod tests {
         subject_addr
             .try_send(AssertionsMessage {
                 assertions: Box::new(move |proxy_server: &mut ProxyServer| {
-                    let dns_retry = proxy_server.stream_info(&stream_key, &logger).unwrap().dns_failure_retry_opt.as_ref().unwrap();
+                    let dns_retry = proxy_server
+                        .stream_info(&stream_key, &logger)
+                        .unwrap()
+                        .dns_failure_retry_opt
+                        .as_ref()
+                        .unwrap();
                     assert_eq!(dns_retry.retries_left, 0);
                     assert_eq!(dns_retry.unsuccessful_request, expected_payload);
                 }),

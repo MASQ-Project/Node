@@ -448,8 +448,8 @@ pub fn read_until_timeout(stream: &mut dyn Read) -> Vec<u8> {
     response
 }
 
-pub fn make_meaningless_message_type() -> MessageType {
-    DnsResolveFailure_0v1::new(StreamKey::make_meaningless_stream_key()).into()
+pub fn make_meaningless_message_type(stream_key: StreamKey) -> MessageType {
+    DnsResolveFailure_0v1::new(stream_key).into()
 }
 
 pub fn handle_connection_error(stream: TcpStream) {

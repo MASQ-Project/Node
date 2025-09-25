@@ -512,7 +512,9 @@ impl ExpectedService {
 
     pub fn public_key_opt(&self) -> Option<PublicKey> {
         match self {
-            ExpectedService::Exit(key, _, _) | ExpectedService::Routing(key, _, _) => Some(key.clone()),
+            ExpectedService::Exit(key, _, _) | ExpectedService::Routing(key, _, _) => {
+                Some(key.clone())
+            }
             _ => None,
         }
     }

@@ -227,10 +227,7 @@ mod tests {
             },
         );
         let stream_killer_parameters = stream_killer_params.try_recv().unwrap();
-        assert_eq!(
-            stream_killer_parameters,
-            (stream_key, 3)
-        );
+        assert_eq!(stream_killer_parameters, (stream_key, 3));
     }
 
     #[test]
@@ -312,10 +309,7 @@ mod tests {
         let kill_stream_msg = stream_killer_params
             .try_recv()
             .expect("stream was not killed");
-        assert_eq!(
-            kill_stream_msg,
-            (stream_key, 3)
-        );
+        assert_eq!(kill_stream_msg, (stream_key, 3));
         assert!(stream_killer_params.try_recv().is_err());
     }
 

@@ -99,6 +99,7 @@ mod tests {
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::route::RouteSegment;
     use crate::sub_lib::route::{Route, RouteError};
+    use crate::sub_lib::stream_key::StreamKey;
     use crate::test_utils::{
         main_cryptde, make_meaningless_message_type, make_meaningless_route, make_paying_wallet,
     };
@@ -135,7 +136,9 @@ mod tests {
         let relay_key = PublicKey::new(&[1, 2]);
         let relay_cryptde = CryptDENull::from(&relay_key, TEST_DEFAULT_CHAIN);
         let cryptde = main_cryptde();
-        let serialized_payload = serde_cbor::ser::to_vec(&make_meaningless_message_type()).unwrap();
+        let stream_key = StreamKey::make_meaningless_stream_key();
+        let serialized_payload =
+            serde_cbor::ser::to_vec(&make_meaningless_message_type(stream_key)).unwrap();
         let encrypted_payload = cryptde
             .encode(&destination_key, &PlainData::new(&serialized_payload))
             .unwrap();
@@ -198,7 +201,7 @@ mod tests {
         let key34 = PublicKey::new(&[3, 4]);
         let node_addr34 = NodeAddr::new(&IpAddr::from_str("3.4.3.4").unwrap(), &[1234]);
         let mut route = Route::single_hop(&key34, cryptde).unwrap();
-        let payload = make_meaningless_message_type();
+        let payload = make_meaningless_message_type(StreamKey::make_meaningless_stream_key());
 
         let incipient =
             NoLookupIncipientCoresPackage::new(cryptde, &key34, &node_addr34, payload.clone())
@@ -222,7 +225,7 @@ mod tests {
             cryptde,
             &blank_key,
             &node_addr34,
-            make_meaningless_message_type(),
+            make_meaningless_message_type(StreamKey::make_meaningless_stream_key()),
         );
 
         assert_eq!(
@@ -248,7 +251,7 @@ mod tests {
             Some(contract_address),
         )
         .unwrap();
-        let payload = make_meaningless_message_type();
+        let payload = make_meaningless_message_type(StreamKey::make_meaningless_stream_key());
 
         let incipient =
             IncipientCoresPackage::new(cryptde, route.clone(), payload.clone(), &key56).unwrap();
@@ -274,7 +277,7 @@ mod tests {
         let incipient = IncipientCoresPackage::new(
             cryptde,
             Route { hops: vec![] },
-            make_meaningless_message_type(),
+            make_meaningless_message_type(StreamKey::make_meaningless_stream_key()),
             &PublicKey::new(&[3, 4]),
         )
         .unwrap();
@@ -291,7 +294,8 @@ mod tests {
     #[test]
     fn expired_cores_package_can_be_constructed_from_live_cores_package() {
         let immediate_neighbor_ip = SocketAddr::from_str("1.2.3.4:1234").unwrap();
-        let payload = make_meaningless_message_type();
+        let stream_key = StreamKey::make_meaningless_stream_key();
+        let payload = make_meaningless_message_type(stream_key);
         let first_stop_key = PublicKey::new(&[3, 4]);
         let first_stop_cryptde = CryptDENull::from(&first_stop_key, TEST_DEFAULT_CHAIN);
         let relay_key = PublicKey::new(&[1, 2]);

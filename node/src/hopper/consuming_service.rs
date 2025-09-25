@@ -138,6 +138,7 @@ mod tests {
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::route::Route;
     use crate::sub_lib::route::RouteSegment;
+    use crate::sub_lib::stream_key::StreamKey;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::{main_cryptde, make_meaningless_message_type, make_paying_wallet};
@@ -158,7 +159,7 @@ mod tests {
             main_cryptde(),
             &target_key,
             &target_node_addr,
-            make_meaningless_message_type(),
+            make_meaningless_message_type(StreamKey::make_meaningless_stream_key()),
         )
         .unwrap();
         let system = System::new("");
@@ -228,7 +229,7 @@ mod tests {
             Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
-        let payload = make_meaningless_message_type();
+        let payload = make_meaningless_message_type(StreamKey::make_meaningless_stream_key());
         let incipient_cores_package =
             IncipientCoresPackage::new(cryptde, route.clone(), payload, &destination_key).unwrap();
         let system = System::new("converts_incipient_message_to_live_and_sends_to_dispatcher");
@@ -275,7 +276,7 @@ mod tests {
             Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
-        let payload = make_meaningless_message_type();
+        let payload = make_meaningless_message_type(StreamKey::make_meaningless_stream_key());
         let incipient_cores_package =
             IncipientCoresPackage::new(cryptde, route.clone(), payload, &destination_key).unwrap();
         let system = System::new("consume_sends_zero_hop_incipient_directly_to_hopper");
@@ -326,7 +327,7 @@ mod tests {
             IncipientCoresPackage::new(
                 main_cryptde(),
                 Route { hops: vec![] },
-                make_meaningless_message_type(),
+                make_meaningless_message_type(StreamKey::make_meaningless_stream_key()),
                 &PublicKey::new(&[1, 2]),
             )
             .unwrap(),

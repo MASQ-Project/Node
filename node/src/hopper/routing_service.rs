@@ -1286,7 +1286,7 @@ mod tests {
         let origin_key = PublicKey::new(&[1, 2]);
         let origin_cryptde = CryptDENull::from(&origin_key, TEST_DEFAULT_CHAIN);
         let destination_key = PublicKey::new(&[3, 4]);
-        let payload = make_meaningless_message_type();
+        let payload = make_meaningless_message_type(StreamKey::make_meaningless_stream_key());
         let route = Route::one_way(
             RouteSegment::new(
                 vec![&origin_key, &main_cryptde.public_key(), &destination_key],
