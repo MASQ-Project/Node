@@ -1773,17 +1773,18 @@ mod tests {
                 context_id,
             }),
         };
-        let requests = (1..=4).map(|context_id|{
-            RetrieveTransactions {
+        let requests = (1..=4)
+            .map(|context_id| RetrieveTransactions {
                 recipient: earning_wallet.clone(),
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id,
-                })
-            }}).collect_vec();
+                }),
+            })
+            .collect_vec();
         let before = SystemTime::now();
 
-        requests.into_iter().for_each(|request|{
+        requests.into_iter().for_each(|request| {
             addr.try_send(request).unwrap();
         });
 

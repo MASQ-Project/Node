@@ -2406,9 +2406,16 @@ mod tests {
         let _end_block_nbr = 0x4be662u64;
         let wallet = Wallet::new(to);
         init_test_logging();
-        let test_retrieve_transactions = |last_end_block: u64, newly_computed_end_block: BlockNumber, expected_new_start_block: u64| -> u64{
+        let test_retrieve_transactions = |last_end_block: u64,
+                                          newly_computed_end_block: BlockNumber,
+                                          expected_new_start_block: u64|
+         -> u64 {
             let result = subject
-                .retrieve_transactions(BlockNumber::Number(last_end_block.into()), newly_computed_end_block, &wallet)
+                .retrieve_transactions(
+                    BlockNumber::Number(last_end_block.into()),
+                    newly_computed_end_block,
+                    &wallet,
+                )
                 .unwrap();
             let new_start_block = if let BlockNumber::Number(value) = result.new_start_block {
                 value.as_u64()
@@ -2423,20 +2430,23 @@ mod tests {
         let last_end_block_1 = 1;
         let expected_new_start_block_1 = 1 + 1 + DEFAULT_MAX_BLOCK_COUNT;
 
-        let new_start_block_1 = test_retrieve_transactions(last_end_block_1, end_block_1, expected_new_start_block_1);
+        let new_start_block_1 =
+            test_retrieve_transactions(last_end_block_1, end_block_1, expected_new_start_block_1);
 
         // Second call to retrieve_transactions with non-overlapping but continuous block range
         let end_block_2 = BlockNumber::Number((new_start_block_1 + DEFAULT_MAX_BLOCK_COUNT).into());
         let last_end_block_2 = new_start_block_1;
-        let expected_new_start_block_2 =1 + new_start_block_1 + DEFAULT_MAX_BLOCK_COUNT;
+        let expected_new_start_block_2 = 1 + new_start_block_1 + DEFAULT_MAX_BLOCK_COUNT;
 
-        let new_start_block_2 = test_retrieve_transactions(last_end_block_2, end_block_2, expected_new_start_block_2);
+        let new_start_block_2 =
+            test_retrieve_transactions(last_end_block_2, end_block_2, expected_new_start_block_2);
 
         let end_block_3 = BlockNumber::Number((new_start_block_2 + DEFAULT_MAX_BLOCK_COUNT).into());
         let last_end_block_3 = new_start_block_2;
         let expected_new_start_block_3 = 1 + new_start_block_2 + DEFAULT_MAX_BLOCK_COUNT;
 
-        let new_start_block_3 = test_retrieve_transactions(last_end_block_3, end_block_3, expected_new_start_block_3);
+        let new_start_block_3 =
+            test_retrieve_transactions(last_end_block_3, end_block_3, expected_new_start_block_3);
 
         let end_block_4 = BlockNumber::Number((new_start_block_3 + DEFAULT_MAX_BLOCK_COUNT).into());
         let last_end_block_4 = new_start_block_3;
