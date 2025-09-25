@@ -2406,65 +2406,43 @@ mod tests {
         let _end_block_nbr = 0x4be662u64;
         let wallet = Wallet::new(to);
         init_test_logging();
-
+        let test_retrieve_transactions = |last_end_block: u64, newly_computed_end_block: BlockNumber, expected_new_start_block: u64| -> u64{
+            let result = subject
+                .retrieve_transactions(BlockNumber::Number(last_end_block.into()), newly_computed_end_block, &wallet)
+                .unwrap();
+            let new_start_block = if let BlockNumber::Number(value) = result.new_start_block {
+                value.as_u64()
+            } else {
+                panic!("Unexpected block number type")
+            };
+            assert_eq!(new_start_block, expected_new_start_block);
+            new_start_block
+        };
         // First call to retrieve_transactions
         let end_block_1 = BlockNumber::Number((1u64 + DEFAULT_MAX_BLOCK_COUNT).into());
-        let result1 = subject
-            .retrieve_transactions(BlockNumber::Number(1u64.into()), end_block_1, &wallet)
-            .unwrap();
+        let last_end_block_1 = 1;
+        let expected_new_start_block_1 = 1 + 1 + DEFAULT_MAX_BLOCK_COUNT;
+
+        let new_start_block_1 = test_retrieve_transactions(last_end_block_1, end_block_1, expected_new_start_block_1);
 
         // Second call to retrieve_transactions with non-overlapping but continuous block range
-        let new_start_block_1 = if let BlockNumber::Number(value) = result1.new_start_block {
-            value.as_u64()
-        } else {
-            panic!("Unexpected block number type")
-        };
-
         let end_block_2 = BlockNumber::Number((new_start_block_1 + DEFAULT_MAX_BLOCK_COUNT).into());
-        let result2 = subject
-            .retrieve_transactions(result1.new_start_block, end_block_2, &wallet)
-            .unwrap();
+        let last_end_block_2 = new_start_block_1;
+        let expected_new_start_block_2 =1 + new_start_block_1 + DEFAULT_MAX_BLOCK_COUNT;
 
-        let new_start_block_2 = if let BlockNumber::Number(value) = result2.new_start_block {
-            value.as_u64()
-        } else {
-            panic!("Unexpected block number type")
-        };
+        let new_start_block_2 = test_retrieve_transactions(last_end_block_2, end_block_2, expected_new_start_block_2);
+
         let end_block_3 = BlockNumber::Number((new_start_block_2 + DEFAULT_MAX_BLOCK_COUNT).into());
-        let result3 = subject
-            .retrieve_transactions(result2.new_start_block, end_block_3, &wallet)
-            .unwrap();
+        let last_end_block_3 = new_start_block_2;
+        let expected_new_start_block_3 = 1 + new_start_block_2 + DEFAULT_MAX_BLOCK_COUNT;
 
-        let new_start_block_3 = if let BlockNumber::Number(value) = result3.new_start_block {
-            value.as_u64()
-        } else {
-            panic!("Unexpected block number type")
-        };
+        let new_start_block_3 = test_retrieve_transactions(last_end_block_3, end_block_3, expected_new_start_block_3);
 
         let end_block_4 = BlockNumber::Number((new_start_block_3 + DEFAULT_MAX_BLOCK_COUNT).into());
-        let result4 = subject
-            .retrieve_transactions(result3.new_start_block, end_block_4, &wallet)
-            .unwrap();
+        let last_end_block_4 = new_start_block_3;
+        let expected_new_start_block_4 = 1 + new_start_block_3 + DEFAULT_MAX_BLOCK_COUNT;
 
-        let new_start_block_4 = if let BlockNumber::Number(value) = result4.new_start_block {
-            value.as_u64()
-        } else {
-            panic!("Unexpected block number type")
-        };
-
-        assert_eq!(new_start_block_1, 2 + DEFAULT_MAX_BLOCK_COUNT);
-        assert_eq!(
-            new_start_block_2,
-            1 + new_start_block_1 + DEFAULT_MAX_BLOCK_COUNT
-        );
-        assert_eq!(
-            new_start_block_3,
-            1 + new_start_block_2 + DEFAULT_MAX_BLOCK_COUNT
-        );
-        assert_eq!(
-            new_start_block_4,
-            1 + new_start_block_3 + DEFAULT_MAX_BLOCK_COUNT
-        );
+        test_retrieve_transactions(last_end_block_4, end_block_4, expected_new_start_block_4);
 
         let test_log_handler = TestLogHandler::new();
         test_log_handler.exists_log_containing(

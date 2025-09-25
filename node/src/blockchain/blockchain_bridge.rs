@@ -1710,47 +1710,34 @@ mod tests {
             System::new("handle_retrieve_transactions_repeated_calling_does_not_skip_blocks");
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let earning_wallet = make_wallet("earningwallet");
-        let amount1 = 42;
-        let amount2 = 55;
-        let amount3 = 75;
-        let amount4 = 99;
+        let amount_1 = 42;
+        let amount_2 = 55;
+        let amount_3 = 75;
+        let amount_4 = 99;
         let initial_start_block: u64 = 0x45f2f3; // 4_584_179
         let new_start_block_1 = initial_start_block + 1 + DEFAULT_MAX_BLOCK_COUNT;
-        let expected_transactions1 = RetrievedBlockchainTransactions {
-            new_start_block: BlockNumber::Number(new_start_block_1.into()),
-            transactions: vec![BlockchainTransaction {
-                block_number: initial_start_block + 0x14382,
-                from: earning_wallet.clone(),
-                wei_amount: amount1,
-            }],
-        };
         let new_start_block_2 = initial_start_block + 2 + (2 * DEFAULT_MAX_BLOCK_COUNT);
-        let expected_transactions2 = RetrievedBlockchainTransactions {
-            new_start_block: BlockNumber::Number(new_start_block_2.into()),
-            transactions: vec![BlockchainTransaction {
-                block_number: initial_start_block + 0x308b3,
-                from: earning_wallet.clone(),
-                wei_amount: amount2,
-            }],
-        };
         let new_start_block_3 = initial_start_block + 3 + (3 * DEFAULT_MAX_BLOCK_COUNT);
-        let expected_transactions3 = RetrievedBlockchainTransactions {
-            new_start_block: BlockNumber::Number(new_start_block_3.into()),
-            transactions: vec![BlockchainTransaction {
-                block_number: initial_start_block + 0x34248,
-                from: earning_wallet.clone(),
-                wei_amount: amount3,
-            }],
-        };
         let new_start_block_4 = 0x4be667;
-        let expected_transactions4 = RetrievedBlockchainTransactions {
-            new_start_block: BlockNumber::Number(new_start_block_4.into()),
-            transactions: vec![BlockchainTransaction {
-                block_number: initial_start_block + 0x49b7e,
-                from: earning_wallet.clone(),
-                wei_amount: amount4,
-            }],
-        };
+        let make_expected_transactions =
+            |new_start_block: u64, initial_start_block_increment: u64, wei_amount: u128| {
+                RetrievedBlockchainTransactions {
+                    new_start_block: BlockNumber::Number(new_start_block.into()),
+                    transactions: vec![BlockchainTransaction {
+                        block_number: initial_start_block + initial_start_block_increment,
+                        from: earning_wallet.clone(),
+                        wei_amount,
+                    }],
+                }
+            };
+        let expected_transactions_1 =
+            make_expected_transactions(new_start_block_1, 0x14382, amount_1);
+        let expected_transactions_2 =
+            make_expected_transactions(new_start_block_2, 0x308b3, amount_2);
+        let expected_transactions_3 =
+            make_expected_transactions(new_start_block_3, 0x34248, amount_3);
+        let expected_transactions_4 =
+            make_expected_transactions(new_start_block_4, 0x49b7e, amount_4);
         let lower_interface = LowBlockchainIntMock::default()
             .get_block_number_result(Ok(0x4be663.into()))
             .get_block_number_result(Ok(0x4be664.into()))
@@ -1759,10 +1746,10 @@ mod tests {
         let blockchain_interface = BlockchainInterfaceMock::default()
             .lower_interface_results(Box::new(lower_interface))
             .retrieve_transactions_params(&retrieve_transactions_params_arc)
-            .retrieve_transactions_result(Ok(expected_transactions1.clone()))
-            .retrieve_transactions_result(Ok(expected_transactions2.clone()))
-            .retrieve_transactions_result(Ok(expected_transactions3.clone()))
-            .retrieve_transactions_result(Ok(expected_transactions4.clone()));
+            .retrieve_transactions_result(Ok(expected_transactions_1.clone()))
+            .retrieve_transactions_result(Ok(expected_transactions_2.clone()))
+            .retrieve_transactions_result(Ok(expected_transactions_3.clone()))
+            .retrieve_transactions_result(Ok(expected_transactions_4.clone()));
         let persistent_config = PersistentConfigurationMock::new()
             .max_block_count_result(Ok(Some(DEFAULT_MAX_BLOCK_COUNT)))
             .start_block_result(Ok(Some(initial_start_block)))
@@ -1779,45 +1766,30 @@ mod tests {
         let subject_subs = BlockchainBridge::make_subs_from(&addr);
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         send_bind_message!(subject_subs, peer_actors);
-        let retrieve_transactions1 = RetrieveTransactions {
+        let make_retrieve_transactions_msg = |context_id: u64| RetrieveTransactions {
             recipient: earning_wallet.clone(),
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 1234,
-                context_id: 1,
+                context_id,
             }),
         };
-        let retrieve_transactions2 = RetrieveTransactions {
-            recipient: earning_wallet.clone(),
-            response_skeleton_opt: Some(ResponseSkeleton {
-                client_id: 1234,
-                context_id: 2,
-            }),
-        };
-        let retrieve_transactions3 = RetrieveTransactions {
-            recipient: earning_wallet.clone(),
-            response_skeleton_opt: Some(ResponseSkeleton {
-                client_id: 1234,
-                context_id: 3,
-            }),
-        };
-        let retrieve_transactions4 = RetrieveTransactions {
-            recipient: earning_wallet.clone(),
-            response_skeleton_opt: Some(ResponseSkeleton {
-                client_id: 1234,
-                context_id: 4,
-            }),
-        };
+        let requests = (1..=4).map(|context_id|{
+            RetrieveTransactions {
+                recipient: earning_wallet.clone(),
+                response_skeleton_opt: Some(ResponseSkeleton {
+                    client_id: 1234,
+                    context_id,
+                })
+            }}).collect_vec();
         let before = SystemTime::now();
 
-        let _ = addr.try_send(retrieve_transactions1).unwrap();
-        let _ = addr.try_send(retrieve_transactions2).unwrap();
-        let _ = addr.try_send(retrieve_transactions3).unwrap();
-        let _ = addr.try_send(retrieve_transactions4).unwrap();
+        requests.into_iter().for_each(|request|{
+            addr.try_send(request).unwrap();
+        });
 
         System::current().stop();
         system.run();
         let after = SystemTime::now();
-
         let retrieve_transactions_params = retrieve_transactions_params_arc.lock().unwrap();
         assert_eq!(
             *retrieve_transactions_params,
@@ -1845,63 +1817,31 @@ mod tests {
             ]
         );
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
+        vec![
+            (expected_transactions_1, new_start_block_1),
+            (expected_transactions_2, new_start_block_2),
+            (expected_transactions_3, new_start_block_3),
+            (expected_transactions_4, new_start_block_4),
+        ]
+        .into_iter()
+        .enumerate()
+        .for_each(|(idx, (expected_transactions, new_start_block))| {
+            let received_payment = accountant_received_payment.get_record::<ReceivedPayments>(idx);
+            check_timestamp(before, received_payment.timestamp, after);
+            assert_eq!(
+                received_payment,
+                &ReceivedPayments {
+                    timestamp: received_payment.timestamp,
+                    payments: expected_transactions.transactions,
+                    new_start_block,
+                    response_skeleton_opt: Some(ResponseSkeleton {
+                        client_id: 1234,
+                        context_id: idx as u64 + 1
+                    }),
+                }
+            );
+        });
         assert_eq!(accountant_received_payment.len(), 4);
-        let received_payments1 = accountant_received_payment.get_record::<ReceivedPayments>(0);
-        check_timestamp(before, received_payments1.timestamp, after);
-        assert_eq!(
-            received_payments1,
-            &ReceivedPayments {
-                timestamp: received_payments1.timestamp,
-                payments: expected_transactions1.transactions,
-                new_start_block: new_start_block_1,
-                response_skeleton_opt: Some(ResponseSkeleton {
-                    client_id: 1234,
-                    context_id: 1
-                }),
-            }
-        );
-        let received_payments2 = accountant_received_payment.get_record::<ReceivedPayments>(1);
-        check_timestamp(before, received_payments2.timestamp, after);
-        assert_eq!(
-            received_payments2,
-            &ReceivedPayments {
-                timestamp: received_payments2.timestamp,
-                payments: expected_transactions2.transactions,
-                new_start_block: new_start_block_2,
-                response_skeleton_opt: Some(ResponseSkeleton {
-                    client_id: 1234,
-                    context_id: 2
-                }),
-            }
-        );
-        let received_payments3 = accountant_received_payment.get_record::<ReceivedPayments>(2);
-        check_timestamp(before, received_payments3.timestamp, after);
-        assert_eq!(
-            received_payments3,
-            &ReceivedPayments {
-                timestamp: received_payments3.timestamp,
-                payments: expected_transactions3.transactions,
-                new_start_block: new_start_block_3,
-                response_skeleton_opt: Some(ResponseSkeleton {
-                    client_id: 1234,
-                    context_id: 3
-                }),
-            }
-        );
-        let received_payments4 = accountant_received_payment.get_record::<ReceivedPayments>(3);
-        check_timestamp(before, received_payments4.timestamp, after);
-        assert_eq!(
-            received_payments4,
-            &ReceivedPayments {
-                timestamp: received_payments4.timestamp,
-                payments: expected_transactions4.transactions,
-                new_start_block: new_start_block_4,
-                response_skeleton_opt: Some(ResponseSkeleton {
-                    client_id: 1234,
-                    context_id: 4
-                }),
-            }
-        );
     }
 
     fn success_handler(
