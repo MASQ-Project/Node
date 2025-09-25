@@ -436,22 +436,22 @@ fn prepare_account_wallets(accounts_count: usize) -> Vec<Wallet> {
 fn choose_thresholds(gn: &mut ThreadRng, prepared_wallets: &[Wallet]) -> AppliedThresholds {
     let be_defaulted = generate_boolean(gn);
     if be_defaulted {
-        AppliedThresholds::Defaulted
-    } else {
-        let be_same_for_all_accounts = generate_boolean(gn);
-        if be_same_for_all_accounts {
-            AppliedThresholds::CommonButRandomized {
-                common_thresholds: return_single_randomized_thresholds(gn),
-            }
-        } else {
-            let individual_thresholds = prepared_wallets
-                .iter()
-                .map(|wallet| (wallet.address(), return_single_randomized_thresholds(gn)))
-                .collect::<HashMap<Address, PaymentThresholds>>();
-            AppliedThresholds::RandomizedForEachAccount {
-                individual_thresholds,
-            }
-        }
+        return AppliedThresholds::Defaulted;
+    }
+
+    let be_same_for_all_accounts = generate_boolean(gn);
+    if be_same_for_all_accounts {
+        return AppliedThresholds::CommonButRandomized {
+            common_thresholds: return_single_randomized_thresholds(gn),
+        };
+    }
+
+    let individual_thresholds = prepared_wallets
+        .iter()
+        .map(|wallet| (wallet.address(), return_single_randomized_thresholds(gn)))
+        .collect::<HashMap<Address, PaymentThresholds>>();
+    AppliedThresholds::RandomizedForEachAccount {
+        individual_thresholds,
     }
 }
 
@@ -512,7 +512,7 @@ fn make_agent(cw_service_fee_balance: u128) -> BlockchainAgentMock {
         .service_fee_balance_minor_result(cw_service_fee_balance)
         // For PaymentAdjuster itself
         .service_fee_balance_minor_result(cw_service_fee_balance)
-        .gas_price_margin_result(TX_FEE_MARGIN_IN_PERCENT.clone())
+        .gas_price_margin_result(*TX_FEE_MARGIN_IN_PERCENT)
 }
 
 fn make_adjustment(gn: &mut ThreadRng, accounts_count: usize) -> Adjustment {
@@ -636,10 +636,10 @@ impl PercentPortionOfCWUsed {
     fn new(adjusted_accounts: &[PayableAccount], common: &CommonScenarioInfo) -> Self {
         let used_absolute: u128 = sum_as(adjusted_accounts, |account| account.balance_wei);
         let percents = ((100 * used_absolute) / common.cw_service_fee_balance_minor) as u8;
-        if percents >= 1 {
-            PercentPortionOfCWUsed::Percents(percents)
-        } else {
+        if percents < 1 {
             PercentPortionOfCWUsed::LessThanOnePercent
+        } else {
+            PercentPortionOfCWUsed::Percents(percents)
         }
     }
 
@@ -797,7 +797,7 @@ fn write_brief_test_summary_at_file_s_tail(
          adjusted:.............................. {}\n\n\
          Unsuccessful\n\
          Caught by the entry check:............. {}\n\
-         With 'RecursionDrainedAllAccounts':.... {}\n\
+         With 'RecursionEliminatedAllAccounts':.... {}\n\
          With late insufficient balance errors:. {}\n\n\
          Legend\n\
          Adjusted balances are highlighted\n\
@@ -876,7 +876,7 @@ fn do_final_processing_of_single_scenario(
                 PaymentAdjusterError::AbsolutelyInsufficientServiceFeeBalancePostTxFeeAdjustment { .. } => {
                     output_collector.late_immoderately_insufficient_service_fee_balance += 1
                 }
-                PaymentAdjusterError::RecursionDrainedAllAccounts => {
+                PaymentAdjusterError::RecursionEliminatedAllAccounts => {
                     output_collector.all_accounts_eliminated += 1
                 }
             }

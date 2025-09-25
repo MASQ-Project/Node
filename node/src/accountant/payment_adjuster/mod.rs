@@ -34,7 +34,7 @@ use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
     exhaust_cw_balance_entirely, find_largest_exceeding_balance,
     sum_as, no_affordable_accounts_found,
 };
-use crate::accountant::payment_adjuster::preparatory_analyser::{LateServiceFeeSingleTxErrorFactory, PreparatoryAnalyzer};
+use crate::accountant::payment_adjuster::preparatory_analyser::{LaterServiceFeeErrorFactory, PreparatoryAnalyzer};
 use crate::accountant::payment_adjuster::service_fee_adjuster::{
     ServiceFeeAdjuster, ServiceFeeAdjusterReal,
 };
@@ -212,7 +212,7 @@ impl PaymentAdjusterReal {
         let processed_accounts = self.resolve_initial_adjustment_dispatch(weighed_accounts)?;
 
         if no_affordable_accounts_found(&processed_accounts) {
-            return Err(PaymentAdjusterError::RecursionDrainedAllAccounts);
+            return Err(PaymentAdjusterError::RecursionEliminatedAllAccounts);
         }
 
         match processed_accounts {
@@ -258,7 +258,7 @@ impl PaymentAdjusterReal {
             &weighed_accounts
         );
 
-        let error_factory = LateServiceFeeSingleTxErrorFactory::new(&weighed_accounts);
+        let error_factory = LaterServiceFeeErrorFactory::new(&weighed_accounts);
 
         let weighed_accounts_affordable_by_transaction_fee =
             eliminate_accounts_by_tx_fee_limit(weighed_accounts, transaction_count_limit);
@@ -313,21 +313,20 @@ impl PaymentAdjusterReal {
         }
 
         if !decided_accounts.is_empty() {
-            self.adjust_remaining_remaining_cw_balance_down(&decided_accounts)
+            self.adjust_remaining_cw_balance_down(&decided_accounts)
         }
 
-        let merged =
-            if self.is_cw_balance_enough_to_remaining_accounts(&remaining_undecided_accounts) {
-                Self::merge_accounts(
-                    decided_accounts,
-                    convert_collection(remaining_undecided_accounts),
-                )
-            } else {
-                Self::merge_accounts(
-                    decided_accounts,
-                    self.propose_possible_adjustment_recursively(remaining_undecided_accounts),
-                )
-            };
+        let merged = if self.is_cw_balance_enough(&remaining_undecided_accounts) {
+            Self::merge_accounts(
+                decided_accounts,
+                convert_collection(remaining_undecided_accounts),
+            )
+        } else {
+            Self::merge_accounts(
+                decided_accounts,
+                self.propose_possible_adjustment_recursively(remaining_undecided_accounts),
+            )
+        };
 
         diagnostics!(
             "\nFINAL SET OF ADJUSTED ACCOUNTS IN CURRENT ITERATION:",
@@ -337,10 +336,7 @@ impl PaymentAdjusterReal {
         merged
     }
 
-    fn is_cw_balance_enough_to_remaining_accounts(
-        &self,
-        remaining_undecided_accounts: &[WeighedPayable],
-    ) -> bool {
+    fn is_cw_balance_enough(&self, remaining_undecided_accounts: &[WeighedPayable]) -> bool {
         let remaining_cw_service_fee_balance = self.inner.remaining_cw_service_fee_balance_minor();
         let minimum_sum_required: u128 = sum_as(remaining_undecided_accounts, |weighed_account| {
             weighed_account.disqualification_limit()
@@ -392,7 +388,7 @@ impl PaymentAdjusterReal {
             .collect()
     }
 
-    fn adjust_remaining_remaining_cw_balance_down(
+    fn adjust_remaining_cw_balance_down(
         &self,
         decided_accounts: &[AdjustedAccountBeforeFinalization],
     ) {
@@ -476,7 +472,7 @@ pub enum PaymentAdjusterError {
         original_total_service_fee_required_minor: u128,
         cw_service_fee_balance_minor: u128,
     },
-    RecursionDrainedAllAccounts,
+    RecursionEliminatedAllAccounts,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -498,7 +494,7 @@ impl PaymentAdjusterError {
             PaymentAdjusterError::AbsolutelyInsufficientServiceFeeBalancePostTxFeeAdjustment {
                 ..
             } => true,
-            PaymentAdjusterError::RecursionDrainedAllAccounts => true,
+            PaymentAdjusterError::RecursionEliminatedAllAccounts => true,
             // We haven't needed to worry in this matter yet, this is rather a future alarm that
             // will draw attention after somebody adds a possibility for an error not necessarily
             // implying that an insolvency was detected before. At the moment, each error occurs
@@ -566,7 +562,7 @@ impl Display for PaymentAdjusterError {
                         original_total_service_fee_required_minor.separate_with_commas(),
                 cw_service_fee_balance_minor.separate_with_commas()
             ),
-            PaymentAdjusterError::RecursionDrainedAllAccounts => write!(
+            PaymentAdjusterError::RecursionEliminatedAllAccounts => write!(
                 f,
                 "The payments adjusting process failed to find any combination of payables that \
                 can be paid immediately with the finances provided."
@@ -973,7 +969,7 @@ mod tests {
                 required amount of service fee: 1,234,567,891,011 wei, while the wallet contains \
                 333,333 wei."),
             (
-                PaymentAdjusterError::RecursionDrainedAllAccounts,
+                PaymentAdjusterError::RecursionEliminatedAllAccounts,
                 "The payments adjusting process failed to find any combination of payables that \
                 can be paid immediately with the finances provided.",
             ),
@@ -1002,7 +998,7 @@ mod tests {
     #[test]
     fn we_can_say_if_error_occurred_after_insolvency_was_detected() {
         let inputs = vec![
-            PaymentAdjusterError::RecursionDrainedAllAccounts,
+            PaymentAdjusterError::RecursionEliminatedAllAccounts,
             PaymentAdjusterError::AbsolutelyInsufficientBalance {
                 number_of_accounts: 0,
                 transaction_fee_opt: Some(TransactionFeeImmoderateInsufficiency {
@@ -1215,7 +1211,7 @@ mod tests {
                 ok.affordable_accounts
             ),
         };
-        assert_eq!(err, PaymentAdjusterError::RecursionDrainedAllAccounts)
+        assert_eq!(err, PaymentAdjusterError::RecursionEliminatedAllAccounts)
     }
 
     #[test]
@@ -1351,7 +1347,7 @@ mod tests {
             Ok(_) => panic!("we expected err but got ok"),
             Err(e) => e,
         };
-        assert_eq!(err, PaymentAdjusterError::RecursionDrainedAllAccounts);
+        assert_eq!(err, PaymentAdjusterError::RecursionEliminatedAllAccounts);
         let expected_log = |wallet: &str| {
             format!(
                 "INFO: {test_name}: Ready payment to {wallet} was eliminated to spare MASQ for \
@@ -1405,7 +1401,7 @@ mod tests {
             initial_disqualification_limit_for_each_account;
         let weighed_payables = vec![payable_1, payable_2];
 
-        let result = subject.is_cw_balance_enough_to_remaining_accounts(&weighed_payables);
+        let result = subject.is_cw_balance_enough(&weighed_payables);
 
         assert_eq!(result, expected_result)
     }
@@ -2492,7 +2488,7 @@ mod tests {
         // It allows to halt the code executions without a dive in the recursion
         assert_eq!(
             actual_result,
-            Err(PaymentAdjusterError::RecursionDrainedAllAccounts)
+            Err(PaymentAdjusterError::RecursionEliminatedAllAccounts)
         );
         let mut perform_adjustment_by_service_fee_params =
             perform_adjustment_by_service_fee_params_arc.lock().unwrap();
