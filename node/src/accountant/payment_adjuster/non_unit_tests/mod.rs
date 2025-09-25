@@ -42,7 +42,7 @@ use web3::types::{Address, U256};
 
 #[test]
 // TODO If an option for "occasional tests" is added, this is a good adept
-//#[ignore]
+#[ignore]
 fn loading_test_with_randomized_params() {
     // This is a fuzz test. It generates possibly an overwhelming number of scenarios that
     // the PaymentAdjuster could be given to sort them out, as realistic as it can get, while its
@@ -90,7 +90,7 @@ fn loading_test_with_randomized_params() {
     // to be excluded) might get shrunk a lot, and therefore many percents are to be reported as
     // missing. This is what the numbers like 99% and 90% illustrate. That said, the letter account
     // comes across as it should take precedence for its expectedly larger weight and gain at the
-    // expanse of the other, but the percents speak otherwise. Yet, it's correct. The interpretation
+    // expanse of the other, but the percents speak otherwise. Yet it's correct. The interpretation
     // is the key. (Caution: this test displays its output with those accounts sorted).
 
     // CW service fee balance: 32,041,461,894,055,482 wei

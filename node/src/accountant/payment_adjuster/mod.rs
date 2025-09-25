@@ -28,7 +28,7 @@ use crate::accountant::payment_adjuster::inner::{
 use crate::accountant::payment_adjuster::logging_and_diagnostics::log_functions::{
     accounts_before_and_after_debug,
 };
-use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustedAccountBeforeFinalization, WeighedPayable};
+use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AccountsByFinalization, AdjustedAccountBeforeFinalization, WeighedPayable};
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
     eliminate_accounts_by_tx_fee_limit,
     exhaust_cw_balance_entirely, find_largest_exceeding_balance,
@@ -216,31 +216,25 @@ impl PaymentAdjusterReal {
         }
 
         match processed_accounts {
-            Either::Left(non_exhausted_accounts) => {
-                let original_cw_service_fee_balance_minor =
-                    self.inner.original_cw_service_fee_balance_minor();
-                let exhaustive_affordable_accounts = exhaust_cw_balance_entirely(
-                    non_exhausted_accounts,
-                    original_cw_service_fee_balance_minor,
-                );
-                Ok(exhaustive_affordable_accounts)
+            AccountsByFinalization::Unexhausted(unexhausted_accounts) => {
+                Ok(exhaust_cw_balance_entirely(
+                    unexhausted_accounts,
+                    self.inner.original_cw_service_fee_balance_minor(),
+                ))
             }
-            Either::Right(finalized_accounts) => Ok(finalized_accounts),
+            AccountsByFinalization::Finalized(accounts) => Ok(accounts),
         }
     }
 
     fn resolve_initial_adjustment_dispatch(
         &self,
         weighed_payables: Vec<WeighedPayable>,
-    ) -> Result<
-        Either<Vec<AdjustedAccountBeforeFinalization>, Vec<PayableAccount>>,
-        PaymentAdjusterError,
-    > {
+    ) -> Result<AccountsByFinalization, PaymentAdjusterError> {
         if let Some(limit) = self.inner.transaction_count_limit_opt() {
             return self.begin_with_adjustment_by_transaction_fee(weighed_payables, limit);
         }
 
-        Ok(Either::Left(
+        Ok(AccountsByFinalization::Unexhausted(
             self.propose_possible_adjustment_recursively(weighed_payables),
         ))
     }
@@ -249,10 +243,7 @@ impl PaymentAdjusterReal {
         &self,
         weighed_accounts: Vec<WeighedPayable>,
         transaction_count_limit: u16,
-    ) -> Result<
-        Either<Vec<AdjustedAccountBeforeFinalization>, Vec<PayableAccount>>,
-        PaymentAdjusterError,
-    > {
+    ) -> Result<AccountsByFinalization, PaymentAdjusterError> {
         diagnostics!(
             "\nBEGINNING WITH ADJUSTMENT BY TRANSACTION FEE FOR ACCOUNTS:",
             &weighed_accounts
@@ -276,12 +267,16 @@ impl PaymentAdjusterReal {
                     weighed_accounts_affordable_by_transaction_fee,
                 );
 
-            Ok(Either::Left(final_set_before_exhausting_cw_balance))
+            Ok(AccountsByFinalization::Unexhausted(
+                final_set_before_exhausting_cw_balance,
+            ))
         } else {
             let accounts_not_needing_adjustment =
                 convert_collection(weighed_accounts_affordable_by_transaction_fee);
 
-            Ok(Either::Right(accounts_not_needing_adjustment))
+            Ok(AccountsByFinalization::Finalized(
+                accounts_not_needing_adjustment,
+            ))
         }
     }
 
@@ -577,7 +572,7 @@ mod tests {
     use crate::accountant::payment_adjuster::inner::PaymentAdjusterInner;
     use crate::accountant::payment_adjuster::logging_and_diagnostics::log_functions::LATER_DETECTED_SERVICE_FEE_SEVERE_SCARCITY;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-        AdjustmentIterationResult, WeighedPayable,
+        AccountsByFinalization, AdjustmentIterationResult, WeighedPayable,
     };
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
         find_largest_exceeding_balance, sum_as,
@@ -1071,12 +1066,13 @@ mod tests {
             WeighedPayable::new(account_2, weighed_account_2),
         ];
 
-        let mut result = subject
-            .resolve_initial_adjustment_dispatch(weighed_payables.clone())
-            .unwrap()
-            .left()
-            .unwrap();
+        let result = subject.resolve_initial_adjustment_dispatch(weighed_payables.clone());
 
+        let mut accounts = if let AccountsByFinalization::Unexhausted(accounts) = result.unwrap() {
+            accounts
+        } else {
+            panic!("We expected unexhausted accounts but got those already finalized")
+        };
         // This shows how the weights can turn tricky for which it's important to have a hard upper
         // limit, chosen quite down, as the disqualification limit, for optimisation. In its
         // extremity, the naked algorithm of the reallocation of funds could have granted a value
@@ -1095,19 +1091,19 @@ mod tests {
             .analyzed_account
             .qualified_as
             .bare_account;
-        let first_returned_account = result.remove(0);
+        let first_returned_account = accounts.remove(0);
         assert_eq!(&first_returned_account.original_account, payable_account_2);
         assert_eq!(
             first_returned_account.proposed_adjusted_balance_minor,
             disqualification_limit_2
         );
-        let second_returned_account = result.remove(0);
+        let second_returned_account = accounts.remove(0);
         assert_eq!(&second_returned_account.original_account, payable_account_1);
         assert_eq!(
             second_returned_account.proposed_adjusted_balance_minor,
             disqualification_limit_1
         );
-        assert!(result.is_empty());
+        assert!(accounts.is_empty());
     }
 
     #[test]
@@ -2289,12 +2285,15 @@ mod tests {
             .into_iter()
             .map(|calculator| calculator.calculate(&qualified_payable, &context))
             .fold(0, |previous_result, current_result| {
+                // Testing a bigger gap between the values of the different calculators (we don't
+                // want to use previous_result != current_result because that could also mean
+                // a difference by one or a similarly negligible value)
                 let slightly_less_than_current = (current_result * 97) / 100;
                 let slightly_more_than_current = (current_result * 103) / 100;
                 assert_ne!(current_result, 0);
                 assert!(
                     previous_result <= slightly_less_than_current
-                        || slightly_more_than_current <= previous_result
+                        || previous_result >= slightly_more_than_current
                 );
                 current_result
             });

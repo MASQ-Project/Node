@@ -229,10 +229,10 @@ impl PreparatoryAnalyzer {
         let lowest_disqualification_limit =
             Self::find_lowest_disqualification_limit(prepared_accounts);
 
-        // We cannot do much in this area but stepping in if the cw balance is zero or nearly
+        // We can do little in this area but stepping in if the cw balance is zero or nearly
         // zero with the assumption that the debt with the lowest disqualification limit in
         // the set fits in the available balance. If it doesn't, we're not going to bother
-        // the payment adjuster by that work, so it'll abort and no payments will come out.
+        // the payment adjuster by that work, so it'll abort, and no payments will come out.
         if lowest_disqualification_limit <= cw_service_fee_balance_minor {
             Ok(())
         } else {
@@ -638,9 +638,9 @@ mod tests {
         let subject = PreparatoryAnalyzer::new();
 
         [
-            (service_fee_totally_required_minor - 1, false),
+            (service_fee_totally_required_minor - 1, true),
             (service_fee_totally_required_minor, false),
-            (service_fee_totally_required_minor + 1, true),
+            (service_fee_totally_required_minor + 1, false),
         ]
         .iter()
         .for_each(|(service_fee_balance, adjustment_is_needed_expected)| {
