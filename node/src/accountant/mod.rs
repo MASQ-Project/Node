@@ -1177,10 +1177,9 @@ impl Accountant {
             comma_joined_stringifiable(tx_hashes, |sent_tx| format!("{:?}", sent_tx.hash))
         }
 
-        match self
-            .sent_payable_dao
-            .insert_new_records(&BTreeSet::from(msg.new_sent_txs))
-        {
+        let sent_txs: BTreeSet<SentTx> = msg.new_sent_txs.iter().cloned().collect();
+
+        match self.sent_payable_dao.insert_new_records(&sent_txs) {
             Ok(_) => debug!(
                 self.logger,
                 "Registered new pending payables for: {}",
@@ -1404,8 +1403,6 @@ mod tests {
     fn new_calls_factories_properly() {
         let config = make_bc_with_defaults(DEFAULT_CHAIN);
         let payable_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
-        let sent_payable_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
-        let failed_payable_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
         let failed_payable_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
         let sent_payable_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
         let receivable_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1428,7 +1425,7 @@ mod tests {
             .make_result(SentPayableDaoMock::new()); // For Payable Scanner
         let failed_payable_dao_factory = FailedPayableDaoFactoryMock::new()
             .make_params(&failed_payable_dao_factory_params_arc)
-            .make_result(FailedPayableDaoMock::new().retrieve_txs_result(vec![])); // For PendingPayableScanner;
+            .make_result(FailedPayableDaoMock::new().retrieve_txs_result(BTreeSet::new())); // For PendingPayableScanner;
         let receivable_dao_factory = ReceivableDaoFactoryMock::new()
             .make_params(&receivable_dao_factory_params_arc)
             .make_result(ReceivableDaoMock::new()) // For Accountant
@@ -1446,8 +1443,6 @@ mod tests {
                 payable_dao_factory: Box::new(payable_dao_factory),
                 sent_payable_dao_factory: Box::new(sent_payable_dao_factory),
                 failed_payable_dao_factory: Box::new(failed_payable_dao_factory),
-                failed_payable_dao_factory: Box::new(failed_payable_dao_factory),
-                sent_payable_dao_factory: Box::new(sent_payable_dao_factory),
                 receivable_dao_factory: Box::new(receivable_dao_factory),
                 banned_dao_factory: Box::new(banned_dao_factory),
                 config_dao_factory: Box::new(config_dao_factory),
@@ -1953,8 +1948,10 @@ mod tests {
         });
         let sent_tx = make_sent_tx(555);
         let tx_hash = sent_tx.hash;
-        let sent_payable_dao = SentPayableDaoMock::default().retrieve_txs_result(vec![sent_tx]);
-        let failed_payable_dao = FailedPayableDaoMock::default().retrieve_txs_result(vec![]);
+        let sent_payable_dao =
+            SentPayableDaoMock::default().retrieve_txs_result(BTreeSet::from([sent_tx]));
+        let failed_payable_dao =
+            FailedPayableDaoMock::default().retrieve_txs_result(BTreeSet::new());
         let mut subject = AccountantBuilder::default()
             .consuming_wallet(make_paying_wallet(b"consuming"))
             .bootstrapper_config(config)
@@ -2244,7 +2241,7 @@ mod tests {
         let sent_tx = make_sent_tx(123);
         let tx_hash = sent_tx.hash;
         let sent_payable_dao = SentPayableDaoMock::default()
-            .retrieve_txs_result(vec![sent_tx.clone()])
+            .retrieve_txs_result(BTreeSet::from([sent_tx.clone()]))
             .delete_records_params(&delete_records_params_arc)
             .delete_records_result(Ok(()));
         let failed_payable_dao = FailedPayableDaoMock::default()
@@ -2311,9 +2308,12 @@ mod tests {
         system.run();
         let insert_new_records_params = insert_new_records_params_arc.lock().unwrap();
         let expected_failed_tx = FailedTx::from((sent_tx, FailureReason::Reverted));
-        assert_eq!(*insert_new_records_params, vec![vec![expected_failed_tx]]);
+        assert_eq!(
+            *insert_new_records_params,
+            vec![BTreeSet::from([expected_failed_tx])]
+        );
         let delete_records_params = delete_records_params_arc.lock().unwrap();
-        assert_eq!(*delete_records_params, vec![hashset![tx_hash]]);
+        assert_eq!(*delete_records_params, vec![BTreeSet::from([tx_hash])]);
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         assert_eq!(
             ui_gateway_recording.get_record::<NodeToUiMessage>(0),
@@ -3419,8 +3419,9 @@ mod tests {
     #[test]
     fn initial_pending_payable_scan_if_some_payables_found() {
         let sent_payable_dao =
-            SentPayableDaoMock::default().retrieve_txs_result(vec![make_sent_tx(789)]);
-        let failed_payable_dao = FailedPayableDaoMock::default().retrieve_txs_result(vec![]);
+            SentPayableDaoMock::default().retrieve_txs_result(BTreeSet::from([make_sent_tx(789)]));
+        let failed_payable_dao =
+            FailedPayableDaoMock::default().retrieve_txs_result(BTreeSet::new());
         let mut subject = AccountantBuilder::default()
             .consuming_wallet(make_wallet("consuming"))
             .sent_payable_daos(vec![ForPendingPayableScanner(sent_payable_dao)])
@@ -3446,8 +3447,9 @@ mod tests {
 
     #[test]
     fn initial_pending_payable_scan_if_no_payables_found() {
-        let sent_payable_dao = SentPayableDaoMock::default().retrieve_txs_result(vec![]);
-        let failed_payable_dao = FailedPayableDaoMock::default().retrieve_txs_result(vec![]);
+        let sent_payable_dao = SentPayableDaoMock::default().retrieve_txs_result(BTreeSet::new());
+        let failed_payable_dao =
+            FailedPayableDaoMock::default().retrieve_txs_result(BTreeSet::new());
         let mut subject = AccountantBuilder::default()
             .consuming_wallet(make_wallet("consuming"))
             .sent_payable_daos(vec![ForPendingPayableScanner(sent_payable_dao)])
@@ -4949,7 +4951,7 @@ mod tests {
 
     #[test]
     fn accountant_processes_sent_payables_and_schedules_pending_payable_scanner() {
-        let get_tx_identifiers_params_arc = Arc::new(Mutex::new(vec![]));
+        // let get_tx_identifiers_params_arc = Arc::new(Mutex::new(vec![]));
         let pending_payable_notify_later_params_arc = Arc::new(Mutex::new(vec![]));
         let inserted_new_records_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_wallet = make_wallet("paying_you");
@@ -5066,7 +5068,10 @@ mod tests {
             BTreeSet::from([expected_tx])
         );
         let get_tx_identifiers_params = get_tx_identifiers_params_arc.lock().unwrap();
-        assert_eq!(*get_tx_identifiers_params, vec![hashset!(expected_hash)]);
+        assert_eq!(
+            *get_tx_identifiers_params,
+            vec![BTreeSet::from([expected_hash])]
+        );
         let pending_payable_notify_later_params =
             pending_payable_notify_later_params_arc.lock().unwrap();
         assert_eq!(
@@ -5620,7 +5625,7 @@ mod tests {
                 (tx_hash, result, record_by_table)
             }
             TxHashByTable::FailedPayable(hash) => {
-                let mut failed_tx = make_failed_tx(1 + idx);
+                let mut failed_tx = make_failed_tx(1 + idx as u32);
                 failed_tx.hash = hash;
 
                 let result = Ok(status);
@@ -5662,7 +5667,10 @@ mod tests {
         System::current().stop();
         assert_eq!(system.run(), 0);
         let insert_new_records_params = insert_new_records_params_arc.lock().unwrap();
-        assert_eq!(*insert_new_records_params, vec![vec![sent_tx_1, sent_tx_2]]);
+        assert_eq!(
+            *insert_new_records_params,
+            vec![BTreeSet::from([sent_tx_1, sent_tx_2])]
+        );
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: Registered new pending payables for: \
              0x000000000000000000000000000000000000000000000000000000000006c81c, \
@@ -5701,7 +5709,10 @@ mod tests {
         let _ = subject.register_new_pending_sent_tx(msg);
 
         let insert_new_records_params = insert_new_records_params_arc.lock().unwrap();
-        assert_eq!(*insert_new_records_params, vec![vec![sent_tx_1, sent_tx_2]]);
+        assert_eq!(
+            *insert_new_records_params,
+            vec![BTreeSet::from([sent_tx_1, sent_tx_2])]
+        );
         TestLogHandler::new().exists_log_containing(&format!(
             "ERROR: {test_name}: Failed to save new pending payable records for \
             0x00000000000000000000000000000000000000000000000000000000000001c8, \

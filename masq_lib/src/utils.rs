@@ -520,6 +520,25 @@ macro_rules! hashset {
     };
 }
 
+#[macro_export(local_inner_macros)]
+macro_rules! btreeset {
+    () => {
+        ::std::collections::BTreeSet::new()
+    };
+    ($($val:expr,)+) => {
+        btreeset!($($val),+)
+    };
+    ($($value:expr),+) => {
+        {
+            let mut _bts = ::std::collections::BTreeSet::new();
+            $(
+                let _ = _bts.insert($value);
+            )*
+            _bts
+        }
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -955,5 +974,46 @@ mod tests {
         );
         assert_eq!(hashset_of_string, expected_hashset_of_string);
         assert_eq!(hashset_with_duplicate, expected_hashset_with_duplicate);
+    }
+
+    #[test]
+    fn btreeset_macro_works() {
+        let empty_btreeset: BTreeSet<i32> = btreeset!();
+        let btreeset_with_one_element = btreeset!(2);
+        let btreeset_with_multiple_elements = btreeset!(2, 20, 42);
+        let btreeset_with_trailing_comma = btreeset!(2, 20,);
+        let btreeset_of_string = btreeset!("val_a", "val_b");
+        let btreeset_with_duplicate = btreeset!(2, 2);
+
+        let expected_empty_btreeset: BTreeSet<i32> = BTreeSet::new();
+        let mut expected_btreeset_with_one_element = BTreeSet::new();
+        expected_btreeset_with_one_element.insert(2);
+        let mut expected_btreeset_with_multiple_elements = BTreeSet::new();
+        expected_btreeset_with_multiple_elements.insert(2);
+        expected_btreeset_with_multiple_elements.insert(20);
+        expected_btreeset_with_multiple_elements.insert(42);
+        let mut expected_btreeset_with_trailing_comma = BTreeSet::new();
+        expected_btreeset_with_trailing_comma.insert(2);
+        expected_btreeset_with_trailing_comma.insert(20);
+        let mut expected_btreeset_of_string = BTreeSet::new();
+        expected_btreeset_of_string.insert("val_a");
+        expected_btreeset_of_string.insert("val_b");
+        let mut expected_btreeset_with_duplicate = BTreeSet::new();
+        expected_btreeset_with_duplicate.insert(2);
+        assert_eq!(empty_btreeset, expected_empty_btreeset);
+        assert_eq!(
+            btreeset_with_one_element,
+            expected_btreeset_with_one_element
+        );
+        assert_eq!(
+            btreeset_with_multiple_elements,
+            expected_btreeset_with_multiple_elements
+        );
+        assert_eq!(
+            btreeset_with_trailing_comma,
+            expected_btreeset_with_trailing_comma
+        );
+        assert_eq!(btreeset_of_string, expected_btreeset_of_string);
+        assert_eq!(btreeset_with_duplicate, expected_btreeset_with_duplicate);
     }
 }

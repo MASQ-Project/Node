@@ -379,7 +379,7 @@ impl AccountantBuilder {
     ) -> Self {
         specially_configured_daos.iter_mut().for_each(|dao| {
             if let DaoWithDestination::ForPendingPayableScanner(dao) = dao {
-                let mut extended_queue = vec![vec![]];
+                let mut extended_queue = vec![BTreeSet::new()];
                 extended_queue.append(&mut dao.retrieve_txs_results.borrow_mut());
                 dao.retrieve_txs_results.replace(extended_queue);
             }
@@ -1035,7 +1035,7 @@ pub struct SentPayableDaoMock {
     confirm_tx_results: RefCell<Vec<Result<(), SentPayableDaoError>>>,
     update_statuses_params: Arc<Mutex<Vec<HashMap<TxHash, TxStatus>>>>,
     update_statuses_results: RefCell<Vec<Result<(), SentPayableDaoError>>>,
-    replace_records_params: Arc<Mutex<Vec<Vec<SentTx>>>>,
+    replace_records_params: Arc<Mutex<Vec<BTreeSet<SentTx>>>>,
     replace_records_results: RefCell<Vec<Result<(), SentPayableDaoError>>>,
     delete_records_params: Arc<Mutex<Vec<BTreeSet<TxHash>>>>,
     delete_records_results: RefCell<Vec<Result<(), SentPayableDaoError>>>,
@@ -1053,7 +1053,7 @@ impl SentPayableDao for SentPayableDaoMock {
         self.insert_new_records_params
             .lock()
             .unwrap()
-            .push(txs.to_vec());
+            .push(txs.clone());
         self.insert_new_records_results.borrow_mut().remove(0)
     }
     fn retrieve_txs(&self, condition: Option<RetrieveCondition>) -> BTreeSet<SentTx> {
@@ -1071,7 +1071,7 @@ impl SentPayableDao for SentPayableDaoMock {
         self.replace_records_params
             .lock()
             .unwrap()
-            .push(new_txs.to_vec());
+            .push(new_txs.clone());
         self.replace_records_results.borrow_mut().remove(0)
     }
 
@@ -1100,7 +1100,7 @@ impl SentPayableDaoMock {
         SentPayableDaoMock::default()
     }
 
-    pub fn get_tx_identifiers_params(mut self, params: &Arc<Mutex<Vec<HashSet<TxHash>>>>) -> Self {
+    pub fn get_tx_identifiers_params(mut self, params: &Arc<Mutex<Vec<BTreeSet<TxHash>>>>) -> Self {
         self.get_tx_identifiers_params = params.clone();
         self
     }
@@ -1128,7 +1128,7 @@ impl SentPayableDaoMock {
         self
     }
 
-    pub fn retrieve_txs_result(self, result: Vec<SentTx>) -> Self {
+    pub fn retrieve_txs_result(self, result: BTreeSet<SentTx>) -> Self {
         self.retrieve_txs_results.borrow_mut().push(result);
         self
     }
@@ -1143,7 +1143,7 @@ impl SentPayableDaoMock {
         self
     }
 
-    pub fn replace_records_params(mut self, params: &Arc<Mutex<Vec<Vec<SentTx>>>>) -> Self {
+    pub fn replace_records_params(mut self, params: &Arc<Mutex<Vec<BTreeSet<SentTx>>>>) -> Self {
         self.replace_records_params = params.clone();
         self
     }
@@ -1166,7 +1166,7 @@ impl SentPayableDaoMock {
         self
     }
 
-    pub fn delete_records_params(mut self, params: &Arc<Mutex<Vec<HashSet<TxHash>>>>) -> Self {
+    pub fn delete_records_params(mut self, params: &Arc<Mutex<Vec<BTreeSet<TxHash>>>>) -> Self {
         self.delete_records_params = params.clone();
         self
     }

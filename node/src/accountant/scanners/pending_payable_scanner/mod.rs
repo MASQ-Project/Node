@@ -38,7 +38,7 @@ use masq_lib::logger::Logger;
 use masq_lib::messages::{ScanType, ToMessageBody, UiScanResponse};
 use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt::Display;
 use std::rc::Rc;
 use std::str::FromStr;
@@ -163,7 +163,8 @@ impl PendingPayableScanner {
         }
 
         let pending_tx_hashes = Self::get_wrapped_hashes(&pending_txs, TxHashByTable::SentPayable);
-        self.current_sent_payables.load_cache(pending_txs.into());
+        self.current_sent_payables
+            .load_cache(pending_txs.into_iter().collect());
         Some(pending_tx_hashes)
     }
 
@@ -178,7 +179,7 @@ impl PendingPayableScanner {
 
         let failure_hashes = Self::get_wrapped_hashes(&failures, TxHashByTable::FailedPayable);
         self.yet_unproven_failed_payables
-            .load_cache(failures.into());
+            .load_cache(failures.into_iter().collect());
         Some(failure_hashes)
     }
 
@@ -371,7 +372,7 @@ impl PendingPayableScanner {
         self.add_to_the_total_of_paid_payable(&reclaimed, logger)
     }
 
-    fn isolate_hashes(reclaimed: &[(TxHash, TxBlock)]) -> HashSet<TxHash> {
+    fn isolate_hashes(reclaimed: &[(TxHash, TxBlock)]) -> BTreeSet<TxHash> {
         reclaimed.iter().map(|(tx_hash, _)| *tx_hash).collect()
     }
 
@@ -410,10 +411,9 @@ impl PendingPayableScanner {
         hashes_and_blocks: &[(TxHash, TxBlock)],
         logger: &Logger,
     ) {
-        match self
-            .sent_payable_dao
-            .replace_records(sent_txs_to_reclaim.into())
-        {
+        let btreeset: BTreeSet<SentTx> = sent_txs_to_reclaim.iter().cloned().collect();
+
+        match self.sent_payable_dao.replace_records(&btreeset) {
             Ok(_) => {
                 debug!(logger, "Replaced records for txs being reclaimed")
             }
@@ -579,7 +579,7 @@ impl PendingPayableScanner {
     }
 
     fn add_new_failures(&self, new_failures: Vec<FailedTx>, logger: &Logger) {
-        fn prepare_hashset(failures: &[FailedTx]) -> HashSet<TxHash> {
+        fn prepare_btreeset(failures: &[FailedTx]) -> BTreeSet<TxHash> {
             failures.iter().map(|failure| failure.hash).collect()
         }
         fn log_procedure_finished(logger: &Logger, new_failures: &[FailedTx]) {
@@ -594,7 +594,12 @@ impl PendingPayableScanner {
             return;
         }
 
-        if let Err(e) = self.failed_payable_dao.insert_new_records(&new_failures) {
+        let new_failures_btree_set: BTreeSet<FailedTx> = new_failures.iter().cloned().collect();
+
+        if let Err(e) = self
+            .failed_payable_dao
+            .insert_new_records(&new_failures_btree_set)
+        {
             panic!(
                 "Unable to persist failed txs {} due to: {:?}",
                 comma_joined_stringifiable(&new_failures, |failure| format!("{:?}", failure.hash)),
@@ -604,7 +609,7 @@ impl PendingPayableScanner {
 
         match self
             .sent_payable_dao
-            .delete_records(&prepare_hashset(&new_failures))
+            .delete_records(&prepare_btreeset(&new_failures))
         {
             Ok(_) => {
                 log_procedure_finished(logger, &new_failures);
@@ -858,9 +863,9 @@ mod tests {
         let failed_tx_2 = make_failed_tx(890);
         let failed_tx_hash_2 = failed_tx_2.hash;
         let sent_payable_dao = SentPayableDaoMock::new()
-            .retrieve_txs_result(vec![sent_tx_1.clone(), sent_tx_2.clone()]);
+            .retrieve_txs_result(btreeset![sent_tx_1.clone(), sent_tx_2.clone()]);
         let failed_payable_dao = FailedPayableDaoMock::new()
-            .retrieve_txs_result(vec![failed_tx_1.clone(), failed_tx_2.clone()]);
+            .retrieve_txs_result(btreeset![failed_tx_1.clone(), failed_tx_2.clone()]);
         let mut subject = PendingPayableScannerBuilder::new()
             .sent_payable_dao(sent_payable_dao)
             .failed_payable_dao(failed_payable_dao)
@@ -1093,8 +1098,8 @@ mod tests {
     fn throws_an_error_when_no_records_to_process_were_found() {
         let now = SystemTime::now();
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
-        let sent_payable_dao = SentPayableDaoMock::new().retrieve_txs_result(vec![]);
-        let failed_payable_dao = FailedPayableDaoMock::new().retrieve_txs_result(vec![]);
+        let sent_payable_dao = SentPayableDaoMock::new().retrieve_txs_result(btreeset![]);
+        let failed_payable_dao = FailedPayableDaoMock::new().retrieve_txs_result(btreeset![]);
         let mut subject = PendingPayableScannerBuilder::new()
             .failed_payable_dao(failed_payable_dao)
             .sent_payable_dao(sent_payable_dao)
@@ -1156,10 +1161,10 @@ mod tests {
         let insert_new_records_params = insert_new_records_params_arc.lock().unwrap();
         assert_eq!(
             *insert_new_records_params,
-            vec![vec![failed_tx_1, failed_tx_2]]
+            vec![btreeset![failed_tx_1, failed_tx_2]]
         );
         let delete_records_params = delete_records_params_arc.lock().unwrap();
-        assert_eq!(*delete_records_params, vec![hashset![hash_1, hash_2]]);
+        assert_eq!(*delete_records_params, vec![btreeset![hash_1, hash_2]]);
         TestLogHandler::new().exists_log_containing(&format!(
             "INFO: {test_name}: Failed txs 0x0000000000000000000000000000000000000000000000000000000000000321, \
             0x0000000000000000000000000000000000000000000000000000000000000654 were processed in the db"
@@ -1193,7 +1198,7 @@ mod tests {
             )));
         let failed_payable_dao = FailedPayableDaoMock::default()
             .retrieve_txs_params(&retrieve_failed_txs_params_arc)
-            .retrieve_txs_result(vec![failed_tx_1, failed_tx_2])
+            .retrieve_txs_result(btreeset![failed_tx_1, failed_tx_2])
             .update_statuses_params(&update_statuses_failed_tx_params_arc)
             .update_statuses_result(Ok(()));
         let mut sent_tx = make_sent_tx(789);
@@ -1201,7 +1206,7 @@ mod tests {
         sent_tx.status = TxStatus::Pending(ValidationStatus::Waiting);
         let sent_payable_dao = SentPayableDaoMock::default()
             .retrieve_txs_params(&retrieve_sent_txs_params_arc)
-            .retrieve_txs_result(vec![sent_tx.clone()])
+            .retrieve_txs_result(btreeset![sent_tx.clone()])
             .update_statuses_params(&update_statuses_sent_tx_params_arc)
             .update_statuses_result(Ok(()));
         let validation_failure_clock = ValidationFailureClockMock::default()
@@ -1438,7 +1443,7 @@ mod tests {
             vec![BTreeSet::from([failed_tx_1])]
         );
         let delete_records_params = delete_records_params_arc.lock().unwrap();
-        assert_eq!(*delete_records_params, vec![hashset![tx_hash_1]]);
+        assert_eq!(*delete_records_params, vec![btreeset![tx_hash_1]]);
         let update_statuses_params = update_status_params_arc.lock().unwrap();
         assert_eq!(
             *update_statuses_params,
@@ -1626,7 +1631,10 @@ mod tests {
         );
 
         let replace_records_params = replace_records_params_arc.lock().unwrap();
-        assert_eq!(*replace_records_params, vec![vec![sent_tx_1, sent_tx_2]]);
+        assert_eq!(
+            *replace_records_params,
+            vec![btreeset![sent_tx_1, sent_tx_2]]
+        );
         let delete_records_params = delete_records_params_arc.lock().unwrap();
         // assert_eq!(*delete_records_params, vec![hashset![tx_hash_1, tx_hash_2]]);
         assert_eq!(
@@ -1888,7 +1896,7 @@ mod tests {
         let confirm_tx_params = confirm_tx_params_arc.lock().unwrap();
         assert_eq!(*confirm_tx_params, vec![hashmap![tx_hash_1 => tx_block_1]]);
         let replace_records_params = replace_records_params_arc.lock().unwrap();
-        assert_eq!(*replace_records_params, vec![vec![sent_tx_2]]);
+        assert_eq!(*replace_records_params, vec![btreeset![sent_tx_2]]);
         let delete_records_params = delete_records_params_arc.lock().unwrap();
         // assert_eq!(*delete_records_params, vec![hashset![tx_hash_2]]);
         assert_eq!(*delete_records_params, vec![BTreeSet::from([tx_hash_2])]);

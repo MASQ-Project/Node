@@ -249,6 +249,7 @@ mod tests {
     use crate::test_utils::unshared_test_utils::capture_digits_with_separators_from_str;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
+    use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
 
@@ -417,7 +418,7 @@ mod tests {
         let newer_sent_tx_for_older_failed_tx = make_sent_tx(2244);
         let sent_payable_dao = SentPayableDaoMock::new()
             .retrieve_txs_params(&retrieve_txs_params_arc)
-            .retrieve_txs_result(vec![newer_sent_tx_for_older_failed_tx]);
+            .retrieve_txs_result(BTreeSet::from([newer_sent_tx_for_older_failed_tx]));
         let hash = make_tx_hash(0x913);
         let sent_tx_timestamp = to_unix_timestamp(
             SystemTime::now()
@@ -484,7 +485,7 @@ mod tests {
         newer_sent_tx_for_older_failed_tx.hash = make_tx_hash(0x7c6);
         let sent_payable_dao = SentPayableDaoMock::new()
             .retrieve_txs_params(&retrieve_txs_params_arc)
-            .retrieve_txs_result(vec![newer_sent_tx_for_older_failed_tx]);
+            .retrieve_txs_result(BTreeSet::from([newer_sent_tx_for_older_failed_tx]));
         let tx_hash = make_tx_hash(0x913);
         let mut failed_tx = make_failed_tx(789);
         let failed_tx_nonce = failed_tx.nonce;
@@ -564,7 +565,7 @@ mod tests {
     ) {
         let scan_report = ReceiptScanReport::default();
         let still_pending_tx = make_failed_tx(456);
-        let sent_payable_dao = SentPayableDaoMock::new().retrieve_txs_result(vec![]);
+        let sent_payable_dao = SentPayableDaoMock::new().retrieve_txs_result(BTreeSet::new());
 
         let _ = TxReceiptInterpreter::handle_still_pending_tx(
             scan_report,

@@ -665,6 +665,7 @@ mod tests {
     use rusqlite::{ffi, ErrorCode};
     use std::cell::RefCell;
     use std::collections::BTreeSet;
+    use std::ops::Sub;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::rc::Rc;
     use std::sync::{Arc, Mutex};
@@ -1584,7 +1585,8 @@ mod tests {
         let sent_tx = make_sent_tx(456);
         let sent_tx_hash = sent_tx.hash;
         let failed_tx = make_failed_tx(789);
-        let sent_payable_dao = SentPayableDaoMock::new().retrieve_txs_result(vec![sent_tx.clone()]);
+        let sent_payable_dao =
+            SentPayableDaoMock::new().retrieve_txs_result(btreeset![sent_tx.clone()]);
         let failed_payable_dao =
             FailedPayableDaoMock::new().retrieve_txs_result(BTreeSet::from([failed_tx.clone()]));
         let mut subject = make_dull_subject();
@@ -1632,7 +1634,7 @@ mod tests {
         let consuming_wallet = make_paying_wallet(b"consuming");
         let mut subject = make_dull_subject();
         let sent_payable_dao =
-            SentPayableDaoMock::new().retrieve_txs_result(vec![make_sent_tx(123)]);
+            SentPayableDaoMock::new().retrieve_txs_result(btreeset![make_sent_tx(123)]);
         let failed_payable_dao =
             FailedPayableDaoMock::new().retrieve_txs_result(BTreeSet::from([make_failed_tx(456)]));
         let pending_payable_scanner = PendingPayableScannerBuilder::new()
@@ -1922,13 +1924,16 @@ mod tests {
         assert_eq!(*confirm_tx_params, vec![hashmap![tx_hash_1 => tx_block_1]]);
         let sent_tx_2 = SentTx::from((failed_tx_2, tx_block_2));
         let replace_records_params = replace_records_params_arc.lock().unwrap();
-        assert_eq!(*replace_records_params, vec![vec![sent_tx_2]]);
+        assert_eq!(*replace_records_params, vec![btreeset![sent_tx_2]]);
         let insert_new_records_params = insert_new_records_params_arc.lock().unwrap();
         let expected_failure_for_tx_3 = FailedTx::from((sent_tx_3, FailureReason::PendingTooLong));
         let expected_failure_for_tx_6 = FailedTx::from((sent_tx_6, FailureReason::Reverted));
         assert_eq!(
             *insert_new_records_params,
-            vec![vec![expected_failure_for_tx_3, expected_failure_for_tx_6]]
+            vec![btreeset![
+                expected_failure_for_tx_3,
+                expected_failure_for_tx_6
+            ]]
         );
         let update_statuses_pending_payable_params =
             update_statuses_pending_payable_params_arc.lock().unwrap();
