@@ -12,6 +12,7 @@ use crate::accountant::db_access_objects::sent_payable_dao::{
     RetrieveCondition, SentPayableDao, SentPayableDaoError, SentTx, TxStatus,
 };
 use crate::accountant::db_access_objects::utils::TxHash;
+use crate::accountant::db_access_objects::Transaction;
 use crate::accountant::scanners::pending_payable_scanner::tx_receipt_interpreter::TxReceiptInterpreter;
 use crate::accountant::scanners::pending_payable_scanner::utils::{
     CurrentPendingPayables, DetectedConfirmations, DetectedFailures, FailedValidation,
@@ -162,9 +163,11 @@ impl PendingPayableScanner {
             return None;
         }
 
-        let pending_tx_hashes = Self::get_wrapped_hashes(&pending_txs, TxHashByTable::SentPayable);
-        self.current_sent_payables
-            .load_cache(pending_txs.into_iter().collect());
+        let pending_txs_vec: Vec<SentTx> = pending_txs.into_iter().collect();
+
+        let pending_tx_hashes =
+            Self::get_wrapped_hashes(&pending_txs_vec, TxHashByTable::SentPayable);
+        self.current_sent_payables.load_cache(pending_txs_vec);
         Some(pending_tx_hashes)
     }
 
@@ -177,25 +180,25 @@ impl PendingPayableScanner {
             return None;
         }
 
-        let failure_hashes = Self::get_wrapped_hashes(&failures, TxHashByTable::FailedPayable);
-        self.yet_unproven_failed_payables
-            .load_cache(failures.into_iter().collect());
+        let failures_vec: Vec<FailedTx> = failures.into_iter().collect();
+
+        let failure_hashes = Self::get_wrapped_hashes(&failures_vec, TxHashByTable::FailedPayable);
+        self.yet_unproven_failed_payables.load_cache(failures_vec);
         Some(failure_hashes)
     }
 
-    // TODO: GH-605: Another issue with this fn
-    // fn get_wrapped_hashes<Record>(
-    //     records: &[Record],
-    //     wrap_the_hash: fn(TxHash) -> TxHashByTable,
-    // ) -> Vec<TxHashByTable>
-    // where
-    //     Record: TxRecordWithHash,
-    // {
-    //     records
-    //         .iter()
-    //         .map(|record| wrap_the_hash(record.hash()))
-    //         .collect_vec()
-    // }
+    fn get_wrapped_hashes<Record>(
+        records: &[Record],
+        wrap_the_hash: fn(TxHash) -> TxHashByTable,
+    ) -> Vec<TxHashByTable>
+    where
+        Record: Transaction,
+    {
+        records
+            .iter()
+            .map(|record| wrap_the_hash(record.hash()))
+            .collect_vec()
+    }
 
     fn emptiness_check(&self, msg: &TxReceiptsMessage) {
         if msg.results.is_empty() {

@@ -1673,7 +1673,6 @@ mod tests {
         let payable_dao = PayableDaoMock::default().mark_pending_payables_rowids_result(Ok(()));
         let sent_payable_dao = SentPayableDaoMock::default().insert_new_records_result(Ok(()));
         let subject = AccountantBuilder::default()
-            .sent_payable_daos(vec![ForPayableScanner(sent_payable_dao)])
             .payable_daos(vec![ForPayableScanner(payable_dao)])
             .sent_payable_dao(sent_payable_dao)
             .bootstrapper_config(config)
