@@ -15,8 +15,8 @@ use crate::accountant::payment_adjuster::preparatory_analyser::accounts_abstract
     BalanceProvidingAccount, DisqualificationLimitProvidingAccount,
 };
 use crate::accountant::payment_adjuster::{
-    Adjustment, AdjustmentAnalysisReport, PaymentAdjusterError, ServiceFeeImmoderateInsufficiency,
-    TransactionFeeImmoderateInsufficiency,
+    Adjustment, AdjustmentAnalysisReport, DetectionPhase, PaymentAdjusterError,
+    ServiceFeeImmoderateInsufficiency, TransactionFeeImmoderateInsufficiency,
 };
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::{AnalyzedPayableAccount, QualifiedPayableAccount};
@@ -115,10 +115,12 @@ impl PreparatoryAnalyzer {
         let construct_error =
             |tx_fee_check_err_opt: Option<TransactionFeeImmoderateInsufficiency>,
              service_fee_check_err_opt: Option<ServiceFeeImmoderateInsufficiency>| {
-                PaymentAdjusterError::AbsolutelyInsufficientBalance {
+                PaymentAdjusterError::AbsoluteFeeInsufficiency {
                     number_of_accounts,
-                    transaction_fee_opt: tx_fee_check_err_opt,
-                    service_fee_opt: service_fee_check_err_opt,
+                    detection_phase: DetectionPhase::InitialCheck {
+                        transaction_fee_opt: tx_fee_check_err_opt,
+                        service_fee_opt: service_fee_check_err_opt,
+                    },
                 }
             };
 
@@ -349,12 +351,14 @@ impl ServiceFeeErrorFactory<PaymentAdjusterError, WeighedPayable> for LaterServi
         cw_service_fee_balance_minor: u128,
     ) -> PaymentAdjusterError {
         let number_of_accounts = current_set_of_accounts.len();
-        PaymentAdjusterError::AbsolutelyInsufficientServiceFeeBalancePostTxFeeAdjustment {
-            original_number_of_accounts: self.original_number_of_accounts,
+        PaymentAdjusterError::AbsoluteFeeInsufficiency {
             number_of_accounts,
-            original_total_service_fee_required_minor: self
-                .original_total_service_fee_required_minor,
-            cw_service_fee_balance_minor,
+            detection_phase: DetectionPhase::PostTxFeeAdjustment {
+                cw_service_fee_balance_minor,
+                original_number_of_accounts: self.original_number_of_accounts,
+                original_total_service_fee_required_minor: self
+                    .original_total_service_fee_required_minor,
+            },
         }
     }
 }
@@ -378,7 +382,7 @@ mod tests {
         DisqualificationGaugeMock,
     };
     use crate::accountant::payment_adjuster::{
-        Adjustment, AdjustmentAnalysisReport, PaymentAdjusterError,
+        Adjustment, AdjustmentAnalysisReport, DetectionPhase, PaymentAdjusterError,
         ServiceFeeImmoderateInsufficiency,
     };
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
@@ -591,17 +595,19 @@ mod tests {
             make_meaningless_weighed_account(1011),
         ];
         let original_number_of_accounts = original_accounts.len();
-        let initial_sum = sum_as(&original_accounts, |account| {
+        let original_total_service_fee_required_minor = sum_as(&original_accounts, |account| {
             account.initial_balance_minor()
         });
         let error_factory = LaterServiceFeeErrorFactory::new(&original_accounts);
         let ensure_accounts_right_type = |accounts| accounts;
         let prepare_expected_error = |number_of_accounts, _, cw_service_fee_balance_minor| {
-            PaymentAdjusterError::AbsolutelyInsufficientServiceFeeBalancePostTxFeeAdjustment {
-                original_number_of_accounts,
+            PaymentAdjusterError::AbsoluteFeeInsufficiency {
                 number_of_accounts,
-                original_total_service_fee_required_minor: initial_sum,
-                cw_service_fee_balance_minor,
+                detection_phase: DetectionPhase::PostTxFeeAdjustment {
+                    original_number_of_accounts,
+                    cw_service_fee_balance_minor,
+                    original_total_service_fee_required_minor,
+                },
             }
         };
 

@@ -330,8 +330,8 @@ impl SolvencySensitivePaymentInstructor for PayableScanner {
     fn cancel_scan(&mut self, logger: &Logger) {
         error!(
             logger,
-            "Payable scanner is unable to generate payment instructions. It seems only the user can \
-            solve this problem."
+            "Payable scanner is unable to generate payment instructions. It looks like only \
+            the user can resolve this issue."
         );
         self.mark_as_ended(logger)
     }

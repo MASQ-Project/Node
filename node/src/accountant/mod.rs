@@ -1080,7 +1080,7 @@ mod tests {
     use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
     use crate::accountant::payment_adjuster::test_utils::exposed_utils::convert_qualified_p_into_analyzed_p;
     use crate::accountant::payment_adjuster::{
-        Adjustment, AdjustmentAnalysisReport, PaymentAdjusterError,
+        Adjustment, AdjustmentAnalysisReport, DetectionPhase, PaymentAdjusterError,
         TransactionFeeImmoderateInsufficiency,
     };
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
@@ -1737,13 +1737,15 @@ mod tests {
         let test_name =
             "payment_adjuster_throws_out_an_error_during_stage_one_the_insolvency_check";
         let payment_adjuster = PaymentAdjusterMock::default().consider_adjustment_result(Err(
-            PaymentAdjusterError::AbsolutelyInsufficientBalance {
+            PaymentAdjusterError::AbsoluteFeeInsufficiency {
                 number_of_accounts: 1,
-                transaction_fee_opt: Some(TransactionFeeImmoderateInsufficiency {
-                    per_transaction_requirement_minor: gwei_to_wei(60_u64 * 55_000),
-                    cw_transaction_fee_balance_minor: gwei_to_wei(123_u64),
-                }),
-                service_fee_opt: None,
+                detection_phase: DetectionPhase::InitialCheck {
+                    transaction_fee_opt: Some(TransactionFeeImmoderateInsufficiency {
+                        per_transaction_requirement_minor: gwei_to_wei(60_u64 * 55_000),
+                        cw_transaction_fee_balance_minor: gwei_to_wei(123_u64),
+                    }),
+                    service_fee_opt: None,
+                },
             },
         ));
 
@@ -1761,7 +1763,7 @@ mod tests {
             .exists_log_containing(&format!("INFO: {test_name}: The Payables scan ended in"));
         log_handler.exists_log_containing(&format!(
             "ERROR: {test_name}: Payable scanner is unable to generate payment instructions. \
-            Resolution of the issue appears to be the user's responsibility."
+            It looks like only the user can resolve this issue."
         ));
     }
 
@@ -1782,8 +1784,8 @@ mod tests {
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!(
             "WARN: {test_name}: Payment adjustment has not produced any executable payments. Add \
-            more funds into your consuming wallet in order to become able to repay already expired \
-            liabilities as the creditors would respond by delinquency bans otherwise. Details: The \
+            more funds into your consuming wallet to become able to repay already matured debts as \
+            the creditors would respond by a delinquency ban otherwise. Details: The \
             payments adjusting process failed to find any combination of payables that can be paid \
             immediately with the finances provided"
         ));
@@ -1791,7 +1793,7 @@ mod tests {
             .exists_log_containing(&format!("INFO: {test_name}: The Payables scan ended in"));
         log_handler.exists_log_containing(&format!(
             "ERROR: {test_name}: Payable scanner is unable to generate payment instructions. \
-            Resolution of the issue appears to be the user's responsibility."
+            It looks like only the user can resolve this issue."
         ));
     }
 
@@ -1802,13 +1804,15 @@ mod tests {
             "payment_adjuster_error_is_not_reported_to_ui_if_scan_not_manually_requested";
         let mut subject = AccountantBuilder::default().build();
         let payment_adjuster = PaymentAdjusterMock::default().consider_adjustment_result(Err(
-            PaymentAdjusterError::AbsolutelyInsufficientBalance {
+            PaymentAdjusterError::AbsoluteFeeInsufficiency {
                 number_of_accounts: 20,
-                transaction_fee_opt: Some(TransactionFeeImmoderateInsufficiency {
-                    per_transaction_requirement_minor: 40_000_000_000,
-                    cw_transaction_fee_balance_minor: U256::from(123),
-                }),
-                service_fee_opt: None,
+                detection_phase: DetectionPhase::InitialCheck {
+                    transaction_fee_opt: Some(TransactionFeeImmoderateInsufficiency {
+                        per_transaction_requirement_minor: 40_000_000_000,
+                        cw_transaction_fee_balance_minor: U256::from(123),
+                    }),
+                    service_fee_opt: None,
+                },
             },
         ));
         let payable_scanner = PayableScannerBuilder::new()
@@ -1831,7 +1835,7 @@ mod tests {
         // the fact that the test didn't blow up even though UIGateway is unbound
         TestLogHandler::new().exists_log_containing(&format!(
             "ERROR: {test_name}: Payable scanner is unable to generate payment instructions. \
-            It seems only the user can solve this problem."
+            It looks like only the user can resolve this issue."
         ));
     }
 

@@ -9,7 +9,7 @@ use crate::accountant::payment_adjuster::preparatory_analyser::accounts_abstract
 use crate::accountant::payment_adjuster::test_utils::exposed_utils::convert_qualified_p_into_analyzed_p;
 use crate::accountant::payment_adjuster::test_utils::local_utils::PRESERVED_TEST_PAYMENT_THRESHOLDS;
 use crate::accountant::payment_adjuster::{
-    Adjustment, AdjustmentAnalysisReport, PaymentAdjuster, PaymentAdjusterError,
+    Adjustment, AdjustmentAnalysisReport, DetectionPhase, PaymentAdjuster, PaymentAdjusterError,
     PaymentAdjusterReal,
 };
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
@@ -870,12 +870,17 @@ fn do_final_processing_of_single_scenario(
         }
         Err(negative) => {
             match negative.adjuster_error {
-                PaymentAdjusterError::AbsolutelyInsufficientBalance { .. } => {
-                    panic!("Such errors should be already filtered out")
-                }
-                PaymentAdjusterError::AbsolutelyInsufficientServiceFeeBalancePostTxFeeAdjustment { .. } => {
-                    output_collector.late_immoderately_insufficient_service_fee_balance += 1
-                }
+                PaymentAdjusterError::AbsoluteFeeInsufficiency {
+                    ref detection_phase,
+                    ..
+                } => match detection_phase {
+                    DetectionPhase::InitialCheck { .. } => {
+                        panic!("Such errors should be already filtered out")
+                    }
+                    DetectionPhase::PostTxFeeAdjustment { .. } => {
+                        output_collector.late_immoderately_insufficient_service_fee_balance += 1
+                    }
+                },
                 PaymentAdjusterError::RecursionEliminatedAllAccounts => {
                     output_collector.all_accounts_eliminated += 1
                 }

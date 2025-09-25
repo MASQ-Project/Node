@@ -11,8 +11,8 @@ use thousands::Separable;
 use web3::types::{Address, U256};
 
 const REFILL_RECOMMENDATION: &str = "\
-Please be aware that abandoning your debts is going to result in delinquency bans. In order to \
-consume services without limitations, you will need to place more funds into your consuming wallet.";
+Please be aware that abandoning your debts is going to result in delinquency bans. To consume \
+services without limitations, you will need to place more funds into your consuming wallet.";
 pub const LATER_DETECTED_SERVICE_FEE_SEVERE_SCARCITY: &str = "\
 Passed successfully adjustment by transaction fee, then rechecked the service fee balance to be \
 applied on the adjusted set, but discovered a shortage of MASQ not to suffice even for a single \
@@ -203,8 +203,8 @@ mod tests {
     fn constants_are_correct() {
         assert_eq!(
             REFILL_RECOMMENDATION,
-            "Please be aware that abandoning your debts is going to result in delinquency bans. In \
-            order to consume services without limitations, you will need to place more funds into \
+            "Please be aware that abandoning your debts is going to result in delinquency bans. \
+            To consume services without limitations, you will need to place more funds into \
             your consuming wallet."
         );
         assert_eq!(
