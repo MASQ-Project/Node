@@ -761,12 +761,14 @@ mod tests {
         init_test_logging();
         let test_name = "write_failure_for_nonexistent_stream_generates_termination_message";
         let cryptde = main_cryptde();
+        let stream_key = StreamKey::make_meaningless_stream_key();
+        let stream_key_inner = stream_key.clone();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let originator_key = PublicKey::new(&b"men's souls"[..]);
         let (reader_shutdown_tx, reader_shutdown_rx) = unbounded();
         thread::spawn(move || {
             let client_request_payload = ClientRequestPayload_0v1 {
-                stream_key: StreamKey::make_meaningless_stream_key(),
+                stream_key: stream_key_inner,
                 sequenced_packet: SequencedPacket {
                     data: b"These are the times".to_vec(),
                     sequence_number: 0,
@@ -820,7 +822,7 @@ mod tests {
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(0),
             &InboundServerData {
-                stream_key: StreamKey::make_meaningless_stream_key(),
+                stream_key: stream_key.clone(),
                 last_data: true,
                 sequence_number: 0,
                 source: SocketAddr::from_str("2.3.4.5:80").unwrap(),
@@ -829,7 +831,7 @@ mod tests {
         );
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: A shutdown signal was sent to the StreamReader \
-            for stream key AAAAAAAAAAAAAAAAAAAAAAAAAAA."
+            for stream key {}.", stream_key
         ));
     }
 
@@ -838,11 +840,13 @@ mod tests {
         let cryptde = main_cryptde();
         let write_parameters = Arc::new(Mutex::new(vec![]));
         let expected_write_parameters = write_parameters.clone();
+        let stream_key = StreamKey::make_meaningless_stream_key();
+        let stream_key_inner = stream_key.clone();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         thread::spawn(move || {
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             let client_request_payload = ClientRequestPayload_0v1 {
-                stream_key: StreamKey::make_meaningless_stream_key(),
+                stream_key: stream_key_inner,
                 sequenced_packet: SequencedPacket {
                     data: b"These are the times".to_vec(),
                     sequence_number: 0,
@@ -921,7 +925,7 @@ mod tests {
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(0),
             &InboundServerData {
-                stream_key: StreamKey::make_meaningless_stream_key(),
+                stream_key,
                 last_data: false,
                 sequence_number: 0,
                 source: SocketAddr::from_str("3.4.5.6:80").unwrap(),
@@ -1057,11 +1061,13 @@ mod tests {
         let expected_lookup_ip_parameters = lookup_ip_parameters.clone();
         let write_parameters = Arc::new(Mutex::new(vec![]));
         let expected_write_parameters = write_parameters.clone();
+        let stream_key = StreamKey::make_meaningless_stream_key();
+        let stream_key_inner = stream_key.clone();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         thread::spawn(move || {
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             let client_request_payload = ClientRequestPayload_0v1 {
-                stream_key: StreamKey::make_meaningless_stream_key(),
+                stream_key: stream_key_inner,
                 sequenced_packet: SequencedPacket {
                     data: b"These are the times".to_vec(),
                     sequence_number: 0,
@@ -1150,7 +1156,7 @@ mod tests {
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(0),
             &InboundServerData {
-                stream_key: StreamKey::make_meaningless_stream_key(),
+                stream_key,
                 last_data: false,
                 sequence_number: 0,
                 source: SocketAddr::from_str("3.4.5.6:80").unwrap(),
@@ -1231,6 +1237,8 @@ mod tests {
         let expected_lookup_ip_parameters = lookup_ip_parameters.clone();
         let write_parameters = Arc::new(Mutex::new(vec![]));
         let expected_write_parameters = write_parameters.clone();
+        let stream_key = StreamKey::make_meaningless_stream_key();
+        let stream_key_inner = stream_key.clone();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let (accountant, accountant_awaiter, accountant_recording_arc) = make_recorder();
         let before = SystemTime::now();
@@ -1240,7 +1248,7 @@ mod tests {
                 .accountant(accountant)
                 .build();
             let client_request_payload = ClientRequestPayload_0v1 {
-                stream_key: StreamKey::make_meaningless_stream_key(),
+                stream_key: stream_key_inner,
                 sequenced_packet: SequencedPacket {
                     data: b"These are the times".to_vec(),
                     sequence_number: 0,
@@ -1331,7 +1339,7 @@ mod tests {
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(0),
             &InboundServerData {
-                stream_key: StreamKey::make_meaningless_stream_key(),
+                stream_key,
                 last_data: false,
                 sequence_number: 0,
                 source: SocketAddr::from_str("3.4.5.6:80").unwrap(),

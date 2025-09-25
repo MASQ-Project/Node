@@ -30,7 +30,7 @@ use crate::sub_lib::neighborhood::{NRMetadataChange, RouteQueryMessage};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
 use crate::sub_lib::proxy_server::ProxyServerSubs;
-use crate::sub_lib::proxy_server::{AddReturnRouteMessage, StreamKeyPurge};
+use crate::sub_lib::proxy_server::{StreamKeyPurge};
 use crate::sub_lib::proxy_server::{
     AddRouteResultMessage, ClientRequestPayload_0v1, ProxyProtocol,
 };
@@ -68,7 +68,6 @@ struct ProxyServerOutSubs {
     accountant: Recipient<ReportServicesConsumedMessage>,
     route_source: Recipient<RouteQueryMessage>,
     update_node_record_metadata: Recipient<UpdateNodeRecordMetadataMessage>,
-    add_return_route: Recipient<AddReturnRouteMessage>,
     stream_shutdown_sub: Recipient<StreamShutdownMsg>,
     route_result_sub: Recipient<AddRouteResultMessage>,
     schedule_stream_key_purge: Recipient<MessageScheduler<StreamKeyPurge>>,
@@ -169,7 +168,6 @@ impl Handler<BindMessage> for ProxyServer {
             accountant: msg.peer_actors.accountant.report_services_consumed,
             route_source: msg.peer_actors.neighborhood.route_query,
             update_node_record_metadata: msg.peer_actors.neighborhood.update_node_record_metadata,
-            add_return_route: msg.peer_actors.proxy_server.add_return_route,
             stream_shutdown_sub: msg.peer_actors.proxy_server.stream_shutdown_sub,
             route_result_sub: msg.peer_actors.proxy_server.route_result_sub,
             schedule_stream_key_purge: msg.peer_actors.proxy_server.schedule_stream_key_purge,
@@ -190,29 +188,6 @@ impl Handler<InboundClientData> for ProxyServer {
         {
             error!(self.logger, "{}", e)
         }
-    }
-}
-
-impl Handler<AddReturnRouteMessage> for ProxyServer {
-    type Result = ();
-
-    fn handle(&mut self, _msg: AddReturnRouteMessage, _ctx: &mut Self::Context) -> Self::Result {
-        // TODO: I think this whole message should probably be deleted from the application.
-    }
-}
-
-impl AddReturnRouteMessage {
-    pub fn find_exit_node_key(&self) -> Option<&PublicKey> {
-        self.expected_services
-            .iter()
-            .find_map(|service| match service {
-                ExpectedService::Exit(public_key, _, _) => Some(public_key),
-                _ => None,
-            })
-    }
-
-    pub fn is_zero_hop(&self) -> bool {
-        self.expected_services == vec![ExpectedService::Nothing, ExpectedService::Nothing]
     }
 }
 
@@ -368,7 +343,6 @@ impl ProxyServer {
             from_dispatcher: recipient!(addr, InboundClientData),
             from_hopper: recipient!(addr, ExpiredCoresPackage<ClientResponsePayload_0v1>),
             dns_failure_from_hopper: recipient!(addr, ExpiredCoresPackage<DnsResolveFailure_0v1>),
-            add_return_route: recipient!(addr, AddReturnRouteMessage),
             stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
             node_from_ui: recipient!(addr, NodeFromUiMessage),
             route_result_sub: recipient!(addr, AddRouteResultMessage),
@@ -567,7 +541,7 @@ impl ProxyServer {
                     // TODO: Malefactor ban the exit node because it lied about the DNS failure.
                 }
                 self.report_response_services_consumed(response_services, 0, msg.payload_len);
-                if let (Some(retry_ref)) = &mut stream_info.dns_failure_retry_opt {
+                if let Some(retry_ref) = &mut stream_info.dns_failure_retry_opt {
                     debug!(
                         self.logger,
                         "Handling DNS failure for hostname {:?} - stream key: {}  retries left: {}",
@@ -1684,7 +1658,6 @@ mod tests {
             accountant: recipient!(addr, ReportServicesConsumedMessage),
             route_source: recipient!(addr, RouteQueryMessage),
             update_node_record_metadata: recipient!(addr, UpdateNodeRecordMetadataMessage),
-            add_return_route: recipient!(addr, AddReturnRouteMessage),
             stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
             route_result_sub: recipient!(addr, AddRouteResultMessage),
             schedule_stream_key_purge: recipient!(addr, MessageScheduler<StreamKeyPurge>),
@@ -1842,12 +1815,6 @@ mod tests {
             vec![],
             back_services.clone()
         );
-        let return_route_message = AddReturnRouteMessage {
-            return_route_id: 1234,
-            expected_services: back_services.clone(),
-            protocol: ProxyProtocol::TLS,
-            hostname_opt: None,
-        };
         subject
             .stream_info.insert(
                 stream_key.clone(),
@@ -1855,14 +1822,14 @@ mod tests {
                     .route(RouteQueryResponse{
                         route: make_meaningless_route(),
                         expected_services: expected_services.clone(),
-                        hostname_opt: Some("booga.com".to_string()),
+                        hostname_opt: None,
                     })
+                    .protocol(ProxyProtocol::TLS)
                     .build(),
             );
 
         let result = subject.get_expected_return_services(&stream_key).unwrap();
 
-        let back = expected_services;
         assert_eq!(result, back_services);
     }
 
@@ -3009,7 +2976,7 @@ mod tests {
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
         let destination_key = PublicKey::from(&b"our destination"[..]);
         let route = Route { hops: vec![] };
-        let route_with_rrid = route.clone().set_return_route_id(main_cryptde, 4444);
+        let route_with_rrid = route.clone().set_return_route_id(main_cryptde, 0);
         let route_query_response = RouteQueryResponse {
             route,
             expected_services: ExpectedServices::RoundTrip(
@@ -3068,7 +3035,7 @@ mod tests {
                 stream_key,
                 StreamInfoBuilder::new().route(route_query_response).build()
             );
-            subject.next_return_route_id = Cell::new(4444);
+            subject.next_return_route_id = Cell::new(0);
             let subject_addr: Addr<ProxyServer> = subject.start();
             let peer_actors = peer_actors_builder().hopper(hopper_mock).build();
             subject_addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -3620,25 +3587,20 @@ mod tests {
             false,
             false,
         );
-        let add_return_route_message = AddReturnRouteMessage {
-            return_route_id: 0,
-            expected_services: vec![
-                ExpectedService::Routing(
-                    PublicKey::from(&b"key"[..]),
-                    make_wallet("some wallet"),
-                    rate_pack(10),
-                ),
-                ExpectedService::Exit(
-                    PublicKey::from(&b"exit_key"[..]),
-                    make_wallet("exit"),
-                    rate_pack(11),
-                ),
-            ],
-            protocol: ProxyProtocol::HTTP,
-            hostname_opt: None,
-        };
+        let expected_services = vec![
+            ExpectedService::Routing(
+                PublicKey::from(&b"key"[..]),
+                make_wallet("some wallet"),
+                rate_pack(10),
+            ),
+            ExpectedService::Exit(
+                PublicKey::from(&b"exit_key"[..]),
+                make_wallet("exit"),
+                rate_pack(11),
+            ),
+        ];
 
-        subject.report_response_services_consumed(&add_return_route_message.expected_services, 1234, 3456);
+        subject.report_response_services_consumed(&expected_services, 1234, 3456);
     }
 
     #[test]
@@ -5208,7 +5170,7 @@ mod tests {
         let dns_resolve_failure = DnsResolveFailure_0v1::new(stream_key);
         let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure_0v1> =
             ExpiredCoresPackage::new(
-                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+                socket_addr,
                 Some(make_wallet("irrelevant")),
                 return_route_with_id(cryptde, return_route_id),
                 dns_resolve_failure.into(),
@@ -5830,7 +5792,6 @@ mod tests {
     ) {
         init_test_logging();
         let cryptde = main_cryptde();
-        let return_route_id = 272727;
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let system = System::new("report_response_services_consumed_complains_and_drops_package_if_return_route_id_is_unrecognized");
@@ -6299,7 +6260,6 @@ mod tests {
             accountant_sub: recipient!(&addr, ReportServicesConsumedMessage),
             retire_stream_key_sub_opt: None,
         };
-        let add_return_route_sub = recipient!(&addr, AddReturnRouteMessage);
         let subject = RouteQueryResponseResolverReal {};
         let system = System::new("resolve_message_handles_mailbox_error_from_neighborhood");
 
