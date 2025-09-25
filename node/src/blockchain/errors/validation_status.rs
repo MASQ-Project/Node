@@ -13,10 +13,22 @@ use std::fmt::Formatter;
 use std::hash::{Hash, Hasher};
 use std::time::SystemTime;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ValidationStatus {
     Waiting,
     Reattempting(PreviousAttempts),
+}
+
+impl PartialOrd for ValidationStatus {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        todo!()
+    }
+}
+
+impl Ord for ValidationStatus {
+    fn cmp(&self, other: &Self) -> Ordering {
+        todo!()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
