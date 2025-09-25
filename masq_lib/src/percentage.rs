@@ -6,28 +6,6 @@ use num::{CheckedDiv, CheckedMul, Integer};
 use std::any::type_name;
 use std::fmt::Debug;
 use std::ops::Rem;
-// Designed to store values from 0 to 100 and offer a set of handy methods for PurePercentage
-// operations over a wide variety of integer types. It is also to look after the least significant
-// digit on the resulted number in order to avoid the effect of a loss on precision that genuinely
-// comes with division on integers if a remainder is left over. The percents are always represented
-// by an unsigned integer. On the contrary, the numbers that it is applied on can take on both
-// positive and negative values.
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PurePercentage {
-    degree: u8,
-}
-
-// This is a wider type that allows to specify cumulative percents of more than only 100.
-// The expected use of this would look like requesting percents meaning possibly multiples of 100%,
-// roughly, of a certain base number. Similarly to the PurePercentage type, also signed numbers
-// would be accepted.
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct LoosePercentage {
-    multiples_of_100_percent: u32,
-    degrees_from_remainder: PurePercentage,
-}
 
 pub trait PercentageInteger:
     TryFrom<i8>
@@ -51,50 +29,17 @@ macro_rules! impl_percentage_integer {
 
 impl_percentage_integer!(u8, u16, u32, u64, u128, i8, i16, i32, i64, i128);
 
-impl LoosePercentage {
-    pub fn new(percents: u32) -> Self {
-        let multiples_of_100_percent = percents / 100;
-        let remainder = (percents % 100) as u8;
-        let degrees_from_remainder =
-            PurePercentage::try_from(remainder).expect("should never happen");
-        Self {
-            multiples_of_100_percent,
-            degrees_from_remainder,
-        }
-    }
+// Designed to store values from 0 to 100 and offer a set of handy methods for PurePercentage
+// operations over a wide variety of integer types. It is also to look after the least significant
+// digit on the resulted number in order to avoid the effect of a loss on precision that genuinely
+// comes with division on integers if a remainder is left over. The percents are always represented
+// by an unsigned integer. On the contrary, the numbers that it is applied on can take on both
+// positive and negative values.
 
-    // If this overflows you probably want to precede the operation by converting your base number
-    // to a larger integer type
-    pub fn of<N>(&self, num: N) -> Result<N, BaseTypeOverflow>
-    where
-        N: PercentageInteger,
-        <N as TryFrom<i8>>::Error: Debug,
-        N: TryFrom<u32>,
-        <N as TryFrom<u32>>::Error: Debug,
-        i16: TryFrom<N>,
-        <i16 as TryFrom<N>>::Error: Debug,
-    {
-        let multiples = match N::try_from(self.multiples_of_100_percent) {
-            Ok(num) => num,
-            Err(_) => return Err(BaseTypeOverflow {}),
-        };
-
-        let by_wholes = match num.checked_mul(&multiples) {
-            Some(num) => num,
-            None => return Err(BaseTypeOverflow {}),
-        };
-
-        let by_remainder = self.degrees_from_remainder.of(num);
-
-        match by_wholes.checked_add(&by_remainder) {
-            Some(res) => Ok(res),
-            None => Err(BaseTypeOverflow {}),
-        }
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PurePercentage {
+    degree: u8,
 }
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct BaseTypeOverflow {}
 
 impl TryFrom<u8> for PurePercentage {
     type Error = String;
@@ -103,10 +48,114 @@ impl TryFrom<u8> for PurePercentage {
         match degree {
             0..=100 => Ok(Self { degree }),
             x => Err(format!(
-                "Accepts only range from 0 to 100 but {} was supplied",
+                "Accepts only range from 0 to 100, but {} was supplied",
                 x
             )),
         }
+    }
+}
+
+trait PurePercentageInternalMethods<N>
+where
+    Self: Sized,
+{
+    fn _of(&self, num: N) -> N;
+    fn __check_zero_and_maybe_return_it(&self, num: N) -> Option<N>;
+    fn __abs(num: N, is_signed: bool) -> N;
+    fn __derive_rounding_increment(remainder: N) -> N;
+    fn _increase_by_percent_for(&self, num: N) -> N;
+    fn _decrease_by_percent_for(&self, num: N) -> N;
+    fn __handle_upper_overflow(&self, num: N) -> N;
+}
+
+impl<N> PurePercentageInternalMethods<N> for PurePercentage
+where
+    N: PercentageInteger,
+    <N as TryFrom<i8>>::Error: Debug,
+    i16: TryFrom<N>,
+    <i16 as TryFrom<N>>::Error: Debug,
+{
+    fn _of(&self, num: N) -> N {
+        if let Some(zero) = self.__check_zero_and_maybe_return_it(num) {
+            return zero;
+        }
+
+        let product_before_final_div = match N::try_from(self.degree as i8)
+            .expect("Each integer has 100")
+            .checked_mul(&num)
+        {
+            Some(num) => num,
+            None => return self.__handle_upper_overflow(num),
+        };
+
+        let (base, remainder) = base_and_rem_from_div_100(product_before_final_div);
+
+        base + Self::__derive_rounding_increment(remainder)
+    }
+
+    fn __check_zero_and_maybe_return_it(&self, num: N) -> Option<N> {
+        let zero = N::try_from(0).expect("Each integer has 0");
+        if num == zero || N::try_from(self.degree as i8).expect("Each integer has 100") == zero {
+            Some(zero)
+        } else {
+            None
+        }
+    }
+
+    fn __abs(num: N, is_negative: bool) -> N {
+        if is_negative {
+            N::try_from(-1)
+                .expect("Negative 1 must be possible for a confirmed signed integer")
+                .checked_mul(&num)
+                .expect("Must be possible for these low values")
+        } else {
+            num
+        }
+    }
+
+    // This function helps to correct the last digit of the resulting integer to be as close
+    // as possible to the hypothetical fractional number, if we could go beyond the decimal point.
+    fn __derive_rounding_increment(remainder: N) -> N {
+        let is_negative = remainder < N::try_from(0).expect("Each integer has 0");
+        let is_minor =
+            Self::__abs(remainder, is_negative) < N::try_from(50).expect("Each integer has 50");
+        let addition = match (is_negative, is_minor) {
+            (false, true) => 0,
+            (false, false) => 1,
+            (true, true) => 0,
+            (true, false) => -1,
+        };
+        N::try_from(addition).expect("Each integer has 1, or -1 if signed")
+    }
+
+    fn _increase_by_percent_for(&self, num: N) -> N {
+        let to_add = self._of(num);
+        num.checked_add(&to_add).unwrap_or_else(|| {
+            panic!(
+                "Overflowed during addition of {} percent, that is an extra {:?} for {:?} of type {}.",
+                self.degree,
+                to_add,
+                num,
+                type_name::<N>()
+            )
+        })
+    }
+
+    fn _decrease_by_percent_for(&self, num: N) -> N {
+        let to_subtract = self._of(num);
+        num.checked_sub(&to_subtract)
+            .expect("Mathematically impossible")
+    }
+
+    fn __handle_upper_overflow(&self, num: N) -> N {
+        let (base, remainder) = base_and_rem_from_div_100(num);
+        let percents = N::try_from(self.degree as i8).expect("Each integer has 100");
+        let percents_of_base = base * percents;
+        let (percents_of_remainder, nearly_lost_tail) =
+            base_and_rem_for_ensured_i16(remainder, percents);
+        let final_rounding_element = Self::__derive_rounding_increment(nearly_lost_tail);
+
+        percents_of_base + percents_of_remainder + final_rounding_element
     }
 }
 
@@ -118,170 +167,154 @@ impl PurePercentage {
         i16: TryFrom<N>,
         <i16 as TryFrom<N>>::Error: Debug,
     {
-        if let Some(zero) = self.return_zero(num) {
-            return zero;
-        }
-
-        let product_before_final_div = match N::try_from(self.degree as i8)
-            .expect("Each type has 100")
-            .checked_mul(&num)
-        {
-            Some(num) => num,
-            None => return self.handle_upper_overflow(num),
-        };
-
-        Self::div_by_100_and_round(product_before_final_div)
+        self._of(num)
     }
 
-    fn return_zero<N>(&self, num: N) -> Option<N>
-    where
-        N: PercentageInteger,
-        <N as TryFrom<i8>>::Error: Debug,
-    {
-        let zero = N::try_from(0).expect("Each type has 0");
-        if num == zero || N::try_from(self.degree as i8).expect("Each type has 100") == zero {
-            Some(zero)
-        } else {
-            None
-        }
-    }
-
-    fn div_by_100_and_round<N>(num: N) -> N
-    where
-        N: PercentageInteger,
-        <N as TryFrom<i8>>::Error: Debug,
-    {
-        let divisor = N::try_from(100).expect("Each type has 100");
-        let desired_rounding = Self::should_be_rounded_to(num, divisor);
-        let significant_digits_only = num.checked_div(&divisor).expect("Division failed");
-
-        macro_rules! adjust_num {
-            ($significant_digits: expr, $method_add_or_sub: ident, $msg_in_expect: literal) => {
-                $significant_digits
-                    .$method_add_or_sub(&N::try_from(1).expect("Each type has 1"))
-                    .expect($msg_in_expect)
-            };
-        }
-
-        match desired_rounding {
-            RoundingTo::BiggerPositive => {
-                adjust_num!(significant_digits_only, checked_add, "Addition failed")
-            }
-            RoundingTo::BiggerNegative => {
-                adjust_num!(significant_digits_only, checked_sub, "Subtraction failed")
-            }
-            RoundingTo::SmallerNegative | RoundingTo::SmallerPositive => significant_digits_only,
-        }
-    }
-
-    fn should_be_rounded_to<N>(num: N, divisor: N) -> RoundingTo
-    where
-        N: PercentageInteger,
-        <N as TryFrom<i8>>::Error: Debug,
-    {
-        let least_significant_digits: N = num % divisor;
-        let is_signed = num < N::try_from(0).expect("Each type has 0");
-        let divider = N::try_from(50).expect("Each type has 50");
-        let abs_of_significant_digits =
-            Self::abs_of_least_significant_digits(least_significant_digits, is_signed);
-        let is_minor = abs_of_significant_digits < divider;
-        match (is_signed, is_minor) {
-            (false, true) => RoundingTo::SmallerPositive,
-            (false, false) => RoundingTo::BiggerPositive,
-            (true, true) => RoundingTo::SmallerNegative,
-            (true, false) => RoundingTo::BiggerNegative,
-        }
-    }
-
-    fn abs_of_least_significant_digits<N>(least_significant_digits: N, is_signed: bool) -> N
-    where
-        N: TryFrom<i8> + CheckedMul,
-        <N as TryFrom<i8>>::Error: Debug,
-    {
-        if is_signed {
-            N::try_from(-1)
-                .expect("Negative 1 must be possible for a confirmed signed integer")
-                .checked_mul(&least_significant_digits)
-                .expect("Must be possible in these low values")
-        } else {
-            least_significant_digits
-        }
-    }
-
-    pub fn add_percent_to<N>(&self, num: N) -> N
+    pub fn increase_by_percent_for<N>(&self, num: N) -> N
     where
         N: PercentageInteger,
         <N as TryFrom<i8>>::Error: Debug,
         i16: TryFrom<N>,
         <i16 as TryFrom<N>>::Error: Debug,
     {
-        let to_add = self.of(num);
-        num.checked_add(&to_add).unwrap_or_else(|| {
-            panic!(
-                "Overflowed during addition of {} percent, that is {:?}, to {:?} of type {}.",
-                self.degree,
-                to_add,
-                num,
-                type_name::<N>()
-            )
-        })
+        self._increase_by_percent_for(num)
     }
 
-    pub fn subtract_percent_from<N>(&self, num: N) -> N
-    where
-        N: PercentageInteger + CheckedSub,
-        <N as TryFrom<i8>>::Error: Debug,
-        i16: TryFrom<N>,
-        <i16 as TryFrom<N>>::Error: Debug,
-    {
-        let to_subtract = self.of(num);
-        num.checked_sub(&to_subtract)
-            .expect("should never happen by its principle")
-    }
-
-    fn handle_upper_overflow<N>(&self, num: N) -> N
+    pub fn decrease_by_percent_for<N>(&self, num: N) -> N
     where
         N: PercentageInteger,
         <N as TryFrom<i8>>::Error: Debug,
         i16: TryFrom<N>,
         <i16 as TryFrom<N>>::Error: Debug,
     {
-        let hundred = N::try_from(100).expect("Each type has 100");
-        let modulo = num % hundred;
-        let percent = N::try_from(self.degree as i8).expect("Each type has 100");
-
-        let without_treated_remainder = (num / hundred) * percent;
-        let final_remainder_treatment = Self::treat_remainder(modulo, percent);
-        without_treated_remainder + final_remainder_treatment
-    }
-
-    fn treat_remainder<N>(modulo: N, percent: N) -> N
-    where
-        N: PercentageInteger,
-        <N as TryFrom<i8>>::Error: Debug,
-        i16: TryFrom<N>,
-        <i16 as TryFrom<N>>::Error: Debug,
-    {
-        let extended_remainder_prepared_for_rounding = i16::try_from(modulo)
-            .unwrap_or_else(|_| panic!("u16 from -100..=100 failed at modulo {:?}", modulo))
-            * i16::try_from(percent).expect("i16 from within 0..=100 failed at multiplier");
-        let rounded = Self::div_by_100_and_round(extended_remainder_prepared_for_rounding);
-        N::try_from(rounded as i8).expect("Each type has 0 up to 100")
+        self._decrease_by_percent_for(num)
     }
 }
 
+fn base_and_rem_for_ensured_i16<N>(a: N, b: N) -> (N, N)
+where
+    N: PercentageInteger,
+    <N as TryFrom<i8>>::Error: Debug,
+    i16: TryFrom<N>,
+    <i16 as TryFrom<N>>::Error: Debug,
+{
+    let num = i16::try_from(a)
+        .expect("Remainder: Each integer can go up to 100, or down to -100 if signed")
+        * i16::try_from(b)
+            .expect("Percents: Each integer can go up to 100, or down to -100 if signed");
+
+    let (base, remainder) = base_and_rem_from_div_100(num);
+
+    (
+        N::try_from(base as i8)
+            .expect("Base: Each integer can go up to 100, or down to -100 if signed"),
+        N::try_from(remainder as i8)
+            .expect("Remainder: Each integer can go up to 100, or down to -100 if signed"),
+    )
+}
+
+fn base_and_rem_from_div_100<N>(num: N) -> (N, N)
+where
+    N: PercentageInteger,
+    <N as TryFrom<i8>>::Error: Debug,
+{
+    let hundred = N::try_from(100i8).expect("Each integer has 100");
+    let modulo = num % hundred;
+    (num / hundred, modulo)
+}
+
+// This is a wider type that allows to specify cumulative percents of more than only 100.
+// The expected use of this would look like requesting percents meaning possibly multiples of 100%,
+// roughly, of a certain base number. Similarly to the PurePercentage type, also signed numbers
+// would be accepted.
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LoosePercentage {
+    multiplier_of_100_percent: u32,
+    degrees_from_remainder: PurePercentage,
+}
+
+impl LoosePercentage {
+    pub fn new(percents: u32) -> Self {
+        let multiples_of_100_percent = percents / 100;
+        let remainder = (percents % 100) as u8;
+        let degrees_from_remainder =
+            PurePercentage::try_from(remainder).expect("Should never happen.");
+        Self {
+            multiplier_of_100_percent: multiples_of_100_percent,
+            degrees_from_remainder,
+        }
+    }
+
+    // If this returns an overflow error, you may want to precede this by converting the base
+    // number to a larger integer
+    pub fn of<N>(&self, num: N) -> Result<N, BaseTypeOverflow>
+    where
+        N: PercentageInteger + TryFrom<u32>,
+        <N as TryFrom<i8>>::Error: Debug,
+        <N as TryFrom<u32>>::Error: Debug,
+        i16: TryFrom<N>,
+        <i16 as TryFrom<N>>::Error: Debug,
+    {
+        let multiplier = match N::try_from(self.multiplier_of_100_percent) {
+            Ok(n) => n,
+            Err(e) => {
+                return Err(BaseTypeOverflow {
+                    msg: format!(
+                        "Couldn't init multiplier {} to type {} due to {:?}.",
+                        self.multiplier_of_100_percent,
+                        type_name::<N>(),
+                        e
+                    ),
+                })
+            }
+        };
+
+        let wholes = match num.checked_mul(&multiplier) {
+            Some(n) => n,
+            None => {
+                return Err(BaseTypeOverflow {
+                    msg: format!(
+                        "Multiplication failed between {:?} and {:?} for type {}.",
+                        num,
+                        multiplier,
+                        type_name::<N>()
+                    ),
+                })
+            }
+        };
+
+        let remainder = self.degrees_from_remainder.of(num);
+
+        match wholes.checked_add(&remainder) {
+            Some(res) => Ok(res),
+            None => Err(BaseTypeOverflow {
+                msg: format!(
+                    "Final addition failed on {:?} and {:?} for type {}.",
+                    wholes,
+                    remainder,
+                    type_name::<N>()
+                ),
+            }),
+        }
+    }
+
+    // Note that functions like 'add_percents_to' or 'subtract_percents_from' don't need to be
+    // implemented here, even though they are at the 'PurePercentage'. You can substitute them
+    // simply by querying 100 + <your desired addition in percents> or 100 - <your desired
+    // subtraction in percents in the interval (1..=99) >
+}
+
 #[derive(Debug, PartialEq, Eq)]
-enum RoundingTo {
-    BiggerPositive,
-    BiggerNegative,
-    SmallerPositive,
-    SmallerNegative,
+pub struct BaseTypeOverflow {
+    msg: String,
 }
 
 #[cfg(test)]
 mod tests {
     use crate::percentage::{
-        BaseTypeOverflow, LoosePercentage, PercentageInteger, PurePercentage, RoundingTo,
+        BaseTypeOverflow, LoosePercentage, PercentageInteger, PurePercentage,
+        PurePercentageInternalMethods,
     };
     use std::fmt::Debug;
 
@@ -289,29 +322,90 @@ mod tests {
     fn percentage_is_implemented_for_all_rust_integers() {
         let subject = PurePercentage::try_from(50).unwrap();
 
-        assert_integer_compatibility(&subject, u8::MAX, 128);
-        assert_integer_compatibility(&subject, u16::MAX, 32768);
-        assert_integer_compatibility(&subject, u32::MAX, 2147483648);
-        assert_integer_compatibility(&subject, u64::MAX, 9223372036854775808);
-        assert_integer_compatibility(&subject, u128::MAX, 170141183460469231731687303715884105728);
-        assert_integer_compatibility(&subject, i8::MIN, -64);
-        assert_integer_compatibility(&subject, i16::MIN, -16384);
-        assert_integer_compatibility(&subject, i32::MIN, -1073741824);
-        assert_integer_compatibility(&subject, i64::MIN, -4611686018427387904);
-        assert_integer_compatibility(&subject, i128::MIN, -85070591730234615865843651857942052864);
+        assert_positive_integer_compatibility(&subject, u8::MAX, 128);
+        assert_positive_integer_compatibility(&subject, u16::MAX, 32768);
+        assert_positive_integer_compatibility(&subject, u32::MAX, 2147483648);
+        assert_positive_integer_compatibility(&subject, u64::MAX, 9223372036854775808);
+        assert_positive_integer_compatibility(
+            &subject,
+            u128::MAX,
+            170141183460469231731687303715884105728,
+        );
+        assert_negative_integer_compatibility(&subject, i8::MIN, -64);
+        assert_negative_integer_compatibility(&subject, i16::MIN, -16384);
+        assert_negative_integer_compatibility(&subject, i32::MIN, -1073741824);
+        assert_negative_integer_compatibility(&subject, i64::MIN, -4611686018427387904);
+        assert_negative_integer_compatibility(
+            &subject,
+            i128::MIN,
+            -85070591730234615865843651857942052864,
+        );
     }
 
-    fn assert_integer_compatibility<N>(subject: &PurePercentage, num: N, expected: N)
+    fn assert_positive_integer_compatibility<N>(
+        subject: &PurePercentage,
+        num: N,
+        expected_literal_num: N,
+    ) where
+        N: PercentageInteger,
+        <N as TryFrom<i8>>::Error: Debug,
+        i16: TryFrom<N>,
+        <i16 as TryFrom<N>>::Error: Debug,
+    {
+        assert_against_literal_value(subject, num, expected_literal_num);
+
+        let trivially_calculated_half = num / N::try_from(2).unwrap();
+        // Widening the bounds to compensate the extra rounding
+        let one = N::try_from(1).unwrap();
+        assert!(
+            trivially_calculated_half <= expected_literal_num
+                && expected_literal_num <= (trivially_calculated_half + one),
+            "We expected {:?} to be {:?} or {:?}",
+            expected_literal_num,
+            trivially_calculated_half,
+            trivially_calculated_half + one
+        )
+    }
+
+    fn assert_negative_integer_compatibility<N>(
+        subject: &PurePercentage,
+        num: N,
+        expected_literal_num: N,
+    ) where
+        N: PercentageInteger,
+        <N as TryFrom<i8>>::Error: Debug,
+        i16: TryFrom<N>,
+        <i16 as TryFrom<N>>::Error: Debug,
+    {
+        assert_against_literal_value(subject, num, expected_literal_num);
+
+        let trivially_calculated_half = num / N::try_from(2).unwrap();
+        // Widening the bounds to compensate the extra rounding
+        let one = N::try_from(1).unwrap();
+        assert!(
+            trivially_calculated_half >= expected_literal_num
+                && expected_literal_num >= trivially_calculated_half - one,
+            "We expected {:?} to be {:?} or {:?}",
+            expected_literal_num,
+            trivially_calculated_half,
+            trivially_calculated_half - one
+        )
+    }
+
+    fn assert_against_literal_value<N>(subject: &PurePercentage, num: N, expected_literal_num: N)
     where
         N: PercentageInteger,
         <N as TryFrom<i8>>::Error: Debug,
         i16: TryFrom<N>,
         <i16 as TryFrom<N>>::Error: Debug,
     {
-        assert_eq!(subject.of(num), expected);
-        let half = num / N::try_from(2).unwrap();
-        let one = N::try_from(1).unwrap();
-        assert!((half - one) <= half && half <= (half + one))
+        let percents_of_num = subject.of(num);
+
+        assert_eq!(
+            percents_of_num, expected_literal_num,
+            "Expected {:?}, but was {:?}",
+            expected_literal_num, percents_of_num
+        );
     }
 
     #[test]
@@ -322,34 +416,31 @@ mod tests {
 
     #[test]
     fn pure_percentage_end_to_end_test_for_unsigned() {
+        let base_value = 100;
+        let act = |percent, base| PurePercentage::try_from(percent).unwrap().of(base);
         let expected_values = (0..=100).collect::<Vec<i8>>();
 
-        test_end_to_end(100, expected_values, |percent, base| {
-            PurePercentage::try_from(percent).unwrap().of(base)
-        })
+        test_end_to_end(act, base_value, expected_values)
     }
 
     #[test]
     fn pure_percentage_end_to_end_test_for_signed() {
+        let base_value = -100;
+        let act = |percent, base| PurePercentage::try_from(percent).unwrap().of(base);
         let expected_values = (-100..=0).rev().collect::<Vec<i8>>();
 
-        test_end_to_end(-100, expected_values, |percent, base| {
-            PurePercentage::try_from(percent).unwrap().of(base)
-        })
+        test_end_to_end(act, base_value, expected_values)
     }
 
-    fn test_end_to_end<F>(
-        base: i8,
-        expected_values: Vec<i8>,
-        create_percentage_and_apply_it_on_number: F,
-    ) where
+    fn test_end_to_end<F>(act: F, base: i8, expected_values: Vec<i8>)
+    where
         F: Fn(u8, i8) -> i8,
     {
         let range = 0_u8..=100;
 
         let round_returned_range = range
             .into_iter()
-            .map(|percent| create_percentage_and_apply_it_on_number(percent, base))
+            .map(|percent| act(percent, base))
             .collect::<Vec<i8>>();
 
         assert_eq!(round_returned_range, expected_values)
@@ -363,7 +454,7 @@ mod tests {
                 assert_eq!(
                     res,
                     Err(format!(
-                        "Accepts only range from 0 to 100 but {} was supplied",
+                        "Accepts only range from 0 to 100, but {} was supplied",
                         num
                     ))
                 )
@@ -412,7 +503,7 @@ mod tests {
                 .of(case.examined_base_number);
             assert_eq!(
                 result, case.expected_result,
-                "For {} percent and number {} the expected result was {} but we got {}",
+                "For {} percent and number {} the expected result was {}, but we got {}",
                 case.requested_percent, case.examined_base_number, case.expected_result, result
             )
         })
@@ -421,58 +512,46 @@ mod tests {
     #[test]
     fn should_be_rounded_to_works_for_last_but_one_digit() {
         [
-            (49, RoundingTo::SmallerPositive, RoundingTo::SmallerNegative),
-            (50, RoundingTo::BiggerPositive, RoundingTo::BiggerNegative),
-            (51, RoundingTo::BiggerPositive, RoundingTo::BiggerNegative),
-            (5, RoundingTo::SmallerPositive, RoundingTo::SmallerNegative),
-            (
-                100,
-                RoundingTo::SmallerPositive,
-                RoundingTo::SmallerNegative,
-            ),
-            (
-                787879,
-                RoundingTo::BiggerPositive,
-                RoundingTo::BiggerNegative,
-            ),
-            (
-                898784545,
-                RoundingTo::SmallerPositive,
-                RoundingTo::SmallerNegative,
-            ),
+            (49, 0),
+            (50, 1),
+            (51, 1),
+            (5, 0),
+            (99,1),
+            (0,0)
         ]
         .into_iter()
         .for_each(
-            |(num, expected_result_for_unsigned_base, expected_result_for_signed_base)| {
-                let result = PurePercentage::should_be_rounded_to(num, 100);
+            |(num, expected_abs_result)| {
+                let result = PurePercentage::__derive_rounding_increment(num);
                 assert_eq!(
-                result,
-                expected_result_for_unsigned_base,
-                "Unsigned number {} was identified for rounding as {:?} but it should've been {:?}",
-                num,
-                result,
-                expected_result_for_unsigned_base
+                    result,
+                    expected_abs_result,
+                    "Unsigned number {} was identified for rounding as {:?}, but it should've been {:?}",
+                    num,
+                    result,
+                    expected_abs_result
             );
                 let signed = num as i64 * -1;
-                let result = PurePercentage::should_be_rounded_to(signed, 100);
+                let result = PurePercentage::__derive_rounding_increment(signed);
+                let expected_neg_result = expected_abs_result * -1;
                 assert_eq!(
                 result,
-                expected_result_for_signed_base,
-                "Signed number {} was identified for rounding as {:?} but it should've been {:?}",
+                expected_neg_result,
+                "Signed number {} was identified for rounding as {:?}, but it should've been {:?}",
                 signed,
                 result,
-                expected_result_for_signed_base
+                expected_neg_result
             )
             },
         )
     }
 
     #[test]
-    fn add_percent_to_works() {
+    fn increase_by_percent_for_works() {
         let subject = PurePercentage::try_from(13).unwrap();
 
-        let unsigned = subject.add_percent_to(100);
-        let signed = subject.add_percent_to(-100);
+        let unsigned = subject.increase_by_percent_for(100);
+        let signed = subject.increase_by_percent_for(-100);
 
         assert_eq!(unsigned, 113);
         assert_eq!(signed, -113)
@@ -480,19 +559,19 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "Overflowed during addition of 1 percent, that is \
-    184467440737095516, to 18446744073709551615 of type u64.")]
-    fn add_percent_to_hits_overflow() {
+    an extra 184467440737095516 for 18446744073709551615 of type u64.")]
+    fn increase_by_percent_for_hits_overflow() {
         let _ = PurePercentage::try_from(1)
             .unwrap()
-            .add_percent_to(u64::MAX);
+            .increase_by_percent_for(u64::MAX);
     }
 
     #[test]
-    fn subtract_percent_from_works() {
+    fn decrease_by_percent_for_works() {
         let subject = PurePercentage::try_from(55).unwrap();
 
-        let unsigned = subject.subtract_percent_from(100);
-        let signed = subject.subtract_percent_from(-100);
+        let unsigned = subject.decrease_by_percent_for(100);
+        let signed = subject.decrease_by_percent_for(-100);
 
         assert_eq!(unsigned, 45);
         assert_eq!(signed, -45)
@@ -524,7 +603,7 @@ mod tests {
         assert_eq!(case_one, 187541898082713775);
         assert_eq!(case_two, 77);
         assert_eq!(case_three, 76)
-        //Note: Interestingly, this isn't a threat on the negative numbers, even the extremes.
+        // Note: Interestingly, this isn't a threat on the negative numbers, even the extremes.
     }
 
     #[test]
@@ -535,20 +614,20 @@ mod tests {
 
     #[test]
     fn loose_percentage_end_to_end_test_for_standard_values_unsigned() {
+        let base_value = 100;
+        let act = |percent, base| LoosePercentage::new(percent as u32).of(base).unwrap();
         let expected_values = (0..=100).collect::<Vec<i8>>();
 
-        test_end_to_end(100, expected_values, |percent, base| {
-            LoosePercentage::new(percent as u32).of(base).unwrap()
-        })
+        test_end_to_end(act, base_value, expected_values)
     }
 
     #[test]
     fn loose_percentage_end_to_end_test_for_standard_values_signed() {
+        let base_value = -100;
+        let act = |percent, base| LoosePercentage::new(percent as u32).of(base).unwrap();
         let expected_values = (-100..=0).rev().collect::<Vec<i8>>();
 
-        test_end_to_end(-100, expected_values, |percent, base| {
-            LoosePercentage::new(percent as u32).of(base).unwrap()
-        })
+        test_end_to_end(act, base_value, expected_values)
     }
 
     const TEST_SET: [Case; 5] = [
@@ -621,26 +700,42 @@ mod tests {
 
         let result: Result<u8, BaseTypeOverflow> = subject.of(1);
 
-        assert_eq!(result, Err(BaseTypeOverflow {}))
+        assert_eq!(
+            result,
+            Err(BaseTypeOverflow {
+                msg: "Couldn't init multiplier 256 to type u8 due to TryFromIntError(())."
+                    .to_string()
+            })
+        )
     }
 
     #[test]
-    fn loose_percentage_multiplying_input_number_hits_limit() {
+    fn loose_percentage_hits_limit_at_multiplication() {
         let percents = 200;
         let subject = LoosePercentage::new(percents);
 
         let result: Result<u8, BaseTypeOverflow> = subject.of(u8::MAX);
 
-        assert_eq!(result, Err(BaseTypeOverflow {}))
+        assert_eq!(
+            result,
+            Err(BaseTypeOverflow {
+                msg: "Multiplication failed between 255 and 2 for type u8.".to_string()
+            })
+        )
     }
 
     #[test]
-    fn loose_percentage_adding_portion_from_remainder_hits_limit() {
+    fn loose_percentage_hits_limit_at_addition_from_remainder() {
         let percents = 101;
         let subject = LoosePercentage::new(percents);
 
         let result: Result<u8, BaseTypeOverflow> = subject.of(u8::MAX);
 
-        assert_eq!(result, Err(BaseTypeOverflow {}))
+        assert_eq!(
+            result,
+            Err(BaseTypeOverflow {
+                msg: "Final addition failed on 255 and 3 for type u8.".to_string()
+            })
+        )
     }
 }

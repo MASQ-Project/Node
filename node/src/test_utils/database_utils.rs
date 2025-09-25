@@ -7,7 +7,7 @@ use crate::database::db_initializer::ExternalData;
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 
 use crate::database::db_migrations::db_migrator::DbMigrator;
-use crate::test_utils::standard_dir_for_test_input_data;
+use crate::test_utils::test_input_data_standard_dir;
 use masq_lib::logger::Logger;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::{to_string, NeighborhoodModeLight};
@@ -26,7 +26,7 @@ pub fn bring_db_0_back_to_life_and_return_connection(db_path: &Path) -> Connecti
         _ => (),
     };
     let conn = Connection::open(&db_path).unwrap();
-    let file_path = standard_dir_for_test_input_data().join("database_version_0_sqls.txt");
+    let file_path = test_input_data_standard_dir().join("database_version_0_sqls.txt");
     let mut file = File::open(file_path).unwrap();
     let mut buffer = String::new();
     file.read_to_string(&mut buffer).unwrap();

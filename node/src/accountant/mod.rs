@@ -1078,15 +1078,13 @@ mod tests {
     };
     use crate::accountant::db_access_objects::receivable_dao::ReceivableAccount;
     use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
-    use crate::accountant::payment_adjuster::test_utils::exposed_utils::convert_qualified_into_analyzed_payables_in_test;
+    use crate::accountant::payment_adjuster::test_utils::exposed_utils::convert_qualified_p_into_analyzed_p;
     use crate::accountant::payment_adjuster::{
-        Adjustment, AdjustmentAnalysisReport, PaymentAdjusterError,
+        Adjustment, AdjustmentAnalysisReport, DetectionPhase, PaymentAdjusterError,
         TransactionFeeImmoderateInsufficiency,
     };
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
-    use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{
-        PayableInspector, PayableThresholdsGaugeReal,
-    };
+    use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableThresholdsGaugeReal;
     use crate::accountant::scanners::test_utils::protect_qualified_payables_in_test;
     use crate::accountant::scanners::BeginScanError;
     use crate::accountant::test_utils::DaoWithDestination::{
@@ -1585,7 +1583,7 @@ mod tests {
         let prepare_unadjusted_and_adjusted_payable = |n: u64| {
             let unadjusted_account = make_meaningless_qualified_payable(n);
             let adjusted_account = PayableAccount {
-                balance_wei: gwei_to_wei(n / 3),
+                balance_wei: gwei_to_wei::<u128, _>(n) / 3,
                 ..unadjusted_account.bare_account.clone()
             };
             (unadjusted_account, adjusted_account)
@@ -1621,7 +1619,7 @@ mod tests {
             response_skeleton_opt: Some(response_skeleton),
         };
         let analyzed_accounts =
-            convert_qualified_into_analyzed_payables_in_test(unadjusted_qualified_accounts.clone());
+            convert_qualified_p_into_analyzed_p(unadjusted_qualified_accounts.clone());
         let adjustment_analysis =
             AdjustmentAnalysisReport::new(Adjustment::ByServiceFee, analyzed_accounts.clone());
         let payment_adjuster = PaymentAdjusterMock::default()
@@ -1739,13 +1737,15 @@ mod tests {
         let test_name =
             "payment_adjuster_throws_out_an_error_during_stage_one_the_insolvency_check";
         let payment_adjuster = PaymentAdjusterMock::default().consider_adjustment_result(Err(
-            PaymentAdjusterError::AbsolutelyInsufficientBalance {
+            PaymentAdjusterError::AbsoluteFeeInsufficiency {
                 number_of_accounts: 1,
-                transaction_fee_opt: Some(TransactionFeeImmoderateInsufficiency {
-                    per_transaction_requirement_minor: gwei_to_wei(60_u64 * 55_000),
-                    cw_transaction_fee_balance_minor: gwei_to_wei(123_u64),
-                }),
-                service_fee_opt: None,
+                detection_phase: DetectionPhase::InitialCheck {
+                    transaction_fee_opt: Some(TransactionFeeImmoderateInsufficiency {
+                        per_transaction_requirement_minor: gwei_to_wei(60_u64 * 55_000),
+                        cw_transaction_fee_balance_minor: gwei_to_wei(123_u64),
+                    }),
+                    service_fee_opt: None,
+                },
             },
         ));
 
@@ -1753,17 +1753,17 @@ mod tests {
 
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!(
-            "WARN: {test_name}: Add more funds into your consuming wallet in order to become able \
-            to repay already expired liabilities as the creditors would respond by delinquency bans \
-            otherwise. Details: Current transaction fee balance is not enough to pay a single payment. \
-            Number of canceled payments: 1. Transaction fee per payment: 3,300,000,000,000,000 wei, \
-            while the wallet contains: 123,000,000,000 wei."
+            "WARN: {test_name}: Add more funds into your consuming wallet to become able to repay \
+            already matured debts as the creditors would respond by a delinquency ban otherwise. \
+            Details: Current transaction fee balance is not enough to pay a single payment. Number \
+            of canceled payments: 1. Transaction fee per payment: 3,300,000,000,000,000 wei, while \
+            the wallet contains: 123,000,000,000 wei."
         ));
         log_handler
             .exists_log_containing(&format!("INFO: {test_name}: The Payables scan ended in"));
         log_handler.exists_log_containing(&format!(
-            "ERROR: {test_name}: Payable scanner is blocked from preparing instructions for payments. \
-            The cause appears to be in competence of the user."
+            "ERROR: {test_name}: Payable scanner is unable to generate payment instructions. \
+            It looks like only the user can resolve this issue."
         ));
     }
 
@@ -1777,23 +1777,23 @@ mod tests {
                 Adjustment::ByServiceFee,
                 vec![make_meaningless_analyzed_account(123)],
             ))))
-            .adjust_payments_result(Err(PaymentAdjusterError::RecursionDrainedAllAccounts));
+            .adjust_payments_result(Err(PaymentAdjusterError::RecursionEliminatedAllAccounts));
 
         test_payment_adjuster_error_during_different_stages(test_name, payment_adjuster);
 
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!(
             "WARN: {test_name}: Payment adjustment has not produced any executable payments. Add \
-            more funds into your consuming wallet in order to become able to repay already expired \
-            liabilities as the creditors would respond by delinquency bans otherwise. Details: The \
+            more funds into your consuming wallet to become able to repay already matured debts as \
+            the creditors would respond by a delinquency ban otherwise. Details: The \
             payments adjusting process failed to find any combination of payables that can be paid \
             immediately with the finances provided"
         ));
         log_handler
             .exists_log_containing(&format!("INFO: {test_name}: The Payables scan ended in"));
         log_handler.exists_log_containing(&format!(
-            "ERROR: {test_name}: Payable scanner is blocked from preparing instructions for \
-            payments. The cause appears to be in competence of the user"
+            "ERROR: {test_name}: Payable scanner is unable to generate payment instructions. \
+            It looks like only the user can resolve this issue."
         ));
     }
 
@@ -1804,13 +1804,15 @@ mod tests {
             "payment_adjuster_error_is_not_reported_to_ui_if_scan_not_manually_requested";
         let mut subject = AccountantBuilder::default().build();
         let payment_adjuster = PaymentAdjusterMock::default().consider_adjustment_result(Err(
-            PaymentAdjusterError::AbsolutelyInsufficientBalance {
+            PaymentAdjusterError::AbsoluteFeeInsufficiency {
                 number_of_accounts: 20,
-                transaction_fee_opt: Some(TransactionFeeImmoderateInsufficiency {
-                    per_transaction_requirement_minor: 40_000_000_000,
-                    cw_transaction_fee_balance_minor: U256::from(123),
-                }),
-                service_fee_opt: None,
+                detection_phase: DetectionPhase::InitialCheck {
+                    transaction_fee_opt: Some(TransactionFeeImmoderateInsufficiency {
+                        per_transaction_requirement_minor: 40_000_000_000,
+                        cw_transaction_fee_balance_minor: U256::from(123),
+                    }),
+                    service_fee_opt: None,
+                },
             },
         ));
         let payable_scanner = PayableScannerBuilder::new()
@@ -1832,8 +1834,8 @@ mod tests {
         // No NodeUiMessage was sent because there is no `response_skeleton`. It is evident by
         // the fact that the test didn't blow up even though UIGateway is unbound
         TestLogHandler::new().exists_log_containing(&format!(
-            "ERROR: {test_name}: Payable scanner is blocked from preparing instructions for payments. \
-            The cause appears to be in competence of the user"
+            "ERROR: {test_name}: Payable scanner is unable to generate payment instructions. \
+            It looks like only the user can resolve this issue."
         ));
     }
 
@@ -3626,9 +3628,7 @@ mod tests {
                 let payable_scanner = PayableScannerBuilder::new()
                     .payable_dao(payable_dao_for_payable_scanner)
                     .pending_payable_dao(pending_payable_dao_for_payable_scanner)
-                    .payable_inspector(PayableInspector::new(Box::new(
-                        PayableThresholdsGaugeReal::default(),
-                    )))
+                    .payable_threshold_gauge(Box::new(PayableThresholdsGaugeReal::default()))
                     .payment_adjuster(payment_adjuster)
                     .build();
                 subject.scanners.payable = Box::new(payable_scanner);

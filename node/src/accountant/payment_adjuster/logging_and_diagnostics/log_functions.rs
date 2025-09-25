@@ -2,7 +2,6 @@
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationSuspectedAccount;
-use crate::masq_lib::utils::ExpectValue;
 use itertools::Itertools;
 use masq_lib::constants::WALLET_ADDRESS_LENGTH;
 use masq_lib::logger::Logger;
@@ -12,8 +11,8 @@ use thousands::Separable;
 use web3::types::{Address, U256};
 
 const REFILL_RECOMMENDATION: &str = "\
-Please be aware that abandoning your debts is going to result in delinquency bans. In order to \
-consume services without limitations, you will need to place more funds into your consuming wallet.";
+Please be aware that abandoning your debts is going to result in delinquency bans. To consume \
+services without limitations, you will need to place more funds into your consuming wallet.";
 pub const LATER_DETECTED_SERVICE_FEE_SEVERE_SCARCITY: &str = "\
 Passed successfully adjustment by transaction fee, then rechecked the service fee balance to be \
 applied on the adjusted set, but discovered a shortage of MASQ not to suffice even for a single \
@@ -27,17 +26,17 @@ pub fn accounts_before_and_after_debug(
 ) -> String {
     let excluded_wallets_and_balances =
         preprocess_excluded_accounts(&original_account_balances_mapped, adjusted_accounts);
-    let excluded_accounts_summary = excluded_wallets_and_balances.is_empty().not().then(|| {
+    let excluded_accounts_summary_opt = excluded_wallets_and_balances.is_empty().not().then(|| {
         write_title_and_summary(
             &excluded_accounts_title(),
             &format_summary_for_excluded_accounts(&excluded_wallets_and_balances),
         )
     });
-    let included_accounts = write_title_and_summary(
+    let included_accounts_summary = write_title_and_summary(
         &included_accounts_title(),
         &format_summary_for_included_accounts(&original_account_balances_mapped, adjusted_accounts),
     );
-    concatenate_summaries(included_accounts, excluded_accounts_summary)
+    concatenate_summaries(included_accounts_summary, excluded_accounts_summary_opt)
 }
 
 fn included_accounts_title() -> String {
@@ -66,19 +65,18 @@ fn format_summary_for_included_accounts(
             // Sorting in descending order
             Ord::cmp(&account_b.balance_wei, &account_a.balance_wei)
         })
-        .map(|account| {
-            let original_balance = original_account_balances_mapped
-                .get(&account.wallet.address())
-                .expectv("");
-            (account, *original_balance)
-        })
-        .map(format_single_included_account)
+        .map(|account| format_single_included_account(account, original_account_balances_mapped))
         .join("\n")
 }
 
 fn format_single_included_account(
-    (processed_account, original_balance): (&PayableAccount, u128),
+    processed_account: &PayableAccount,
+    original_account_balances_mapped: &HashMap<Address, u128>,
 ) -> String {
+    let original_balance = original_account_balances_mapped
+        .get(&processed_account.wallet.address())
+        .expect("The hashmap should contain every wallet");
+
     format!(
         "{} {}\n{:^length$} {}",
         processed_account.wallet,
@@ -174,20 +172,19 @@ pub fn log_adjustment_by_service_fee_is_required(
 
 pub fn log_insufficient_transaction_fee_balance(
     logger: &Logger,
-    cw_required_transactions_count: u16,
+    requested_tx_count: u16,
+    feasible_tx_count: u16,
     txn_fee_required_per_txn_minor: u128,
     transaction_fee_minor: U256,
-    limiting_count: u16,
 ) {
     warning!(
         logger,
         "Transaction fee balance of {} wei cannot cover the anticipated {} wei for {} \
         transactions. Maximal count is set to {}. Adjustment must be performed.",
         transaction_fee_minor.separate_with_commas(),
-        (cw_required_transactions_count as u128 * txn_fee_required_per_txn_minor)
-            .separate_with_commas(),
-        cw_required_transactions_count,
-        limiting_count
+        (requested_tx_count as u128 * txn_fee_required_per_txn_minor).separate_with_commas(),
+        requested_tx_count,
+        feasible_tx_count
     );
     info!(logger, "{}", REFILL_RECOMMENDATION)
 }
@@ -206,8 +203,8 @@ mod tests {
     fn constants_are_correct() {
         assert_eq!(
             REFILL_RECOMMENDATION,
-            "Please be aware that abandoning your debts is going to result in delinquency bans. In \
-            order to consume services without limitations, you will need to place more funds into \
+            "Please be aware that abandoning your debts is going to result in delinquency bans. \
+            To consume services without limitations, you will need to place more funds into \
             your consuming wallet."
         );
         assert_eq!(

@@ -330,8 +330,8 @@ impl SolvencySensitivePaymentInstructor for PayableScanner {
     fn cancel_scan(&mut self, logger: &Logger) {
         error!(
             logger,
-            "Payable scanner is blocked from preparing instructions for payments. The cause appears \
-            to be in competence of the user."
+            "Payable scanner is unable to generate payment instructions. It looks like only \
+            the user can resolve this issue."
         );
         self.mark_as_ended(logger)
     }
@@ -582,9 +582,8 @@ impl PayableScanner {
     }
 
     const ADD_MORE_FUNDS_URGE: &'static str =
-        "Add more funds into your consuming wallet in order to \
-    become able to repay already expired liabilities as the creditors would respond by delinquency \
-    bans otherwise";
+        "Add more funds into your consuming wallet to become able to repay already matured debts \
+        as the creditors would respond by a delinquency ban otherwise";
 }
 
 pub struct PendingPayableScanner {
@@ -1328,9 +1327,7 @@ mod tests {
             PayableDaoMock::new().non_pending_payables_result(all_non_pending_payables);
         let mut subject = PayableScannerBuilder::new()
             .payable_dao(payable_dao)
-            .payable_inspector(PayableInspector::new(Box::new(
-                PayableThresholdsGaugeReal::default(),
-            )))
+            .payable_threshold_gauge(Box::new(PayableThresholdsGaugeReal::default()))
             .build();
 
         let result = subject.begin_scan(now, None, &Logger::new(test_name));
@@ -1364,9 +1361,7 @@ mod tests {
             PayableDaoMock::new().non_pending_payables_result(all_non_pending_payables);
         let mut subject = PayableScannerBuilder::new()
             .payable_dao(payable_dao)
-            .payable_inspector(PayableInspector::new(Box::new(
-                PayableThresholdsGaugeReal::default(),
-            )))
+            .payable_threshold_gauge(Box::new(PayableThresholdsGaugeReal::default()))
             .build();
         let _result = subject.begin_scan(now, None, &Logger::new("test"));
 
@@ -1389,9 +1384,7 @@ mod tests {
             PayableDaoMock::new().non_pending_payables_result(unqualified_payable_accounts);
         let mut subject = PayableScannerBuilder::new()
             .payable_dao(payable_dao)
-            .payable_inspector(PayableInspector::new(Box::new(
-                PayableThresholdsGaugeReal::default(),
-            )))
+            .payable_threshold_gauge(Box::new(PayableThresholdsGaugeReal::default()))
             .build();
 
         let result = subject.begin_scan(now, None, &Logger::new("test"));
@@ -2187,9 +2180,7 @@ mod tests {
         }];
         let subject = PayableScannerBuilder::new()
             .payment_thresholds(payment_thresholds)
-            .payable_inspector(PayableInspector::new(Box::new(
-                PayableThresholdsGaugeReal::default(),
-            )))
+            .payable_threshold_gauge(Box::new(PayableThresholdsGaugeReal::default()))
             .build();
         let test_name =
             "payable_with_debt_above_the_slope_is_qualified_and_the_threshold_value_is_returned";
@@ -2220,9 +2211,7 @@ mod tests {
         };
         let subject = PayableScannerBuilder::new()
             .payment_thresholds(payment_thresholds)
-            .payable_inspector(PayableInspector::new(Box::new(
-                PayableThresholdsGaugeReal::default(),
-            )))
+            .payable_threshold_gauge(Box::new(PayableThresholdsGaugeReal::default()))
             .build();
         let test_name = "payable_with_debt_above_the_slope_is_qualified";
         let logger = Logger::new(test_name);
@@ -2263,9 +2252,7 @@ mod tests {
         }];
         let subject = PayableScannerBuilder::new()
             .payment_thresholds(payment_thresholds)
-            .payable_inspector(PayableInspector::new(Box::new(
-                PayableThresholdsGaugeReal::default(),
-            )))
+            .payable_threshold_gauge(Box::new(PayableThresholdsGaugeReal::default()))
             .build();
         let logger = Logger::new(test_name);
 
@@ -2288,9 +2275,9 @@ mod tests {
             unban_below_gwei: 0,
         };
         let wallet = make_wallet("abc");
-        // It is important to have a payable laying in the declining part of the thresholds, also
-        // it will be the more believable the steeper we have the slope because then a single second
-        // can make a certain difference for the intercept value which is the value this test
+        // It is important to have a payable lying in the declining part of the thresholds, also
+        // it will be more believable the steeper we have the slope because then a single second
+        // can make a certain difference for the intercept value, which is the value this test
         // compares for carrying out the conclusion
         let debt_age = payment_thresholds.maturity_threshold_sec
             + (payment_thresholds.threshold_interval_sec / 2);
@@ -2302,9 +2289,7 @@ mod tests {
         };
         let subject = PayableScannerBuilder::new()
             .payment_thresholds(payment_thresholds)
-            .payable_inspector(PayableInspector::new(Box::new(
-                PayableThresholdsGaugeReal::default(),
-            )))
+            .payable_threshold_gauge(Box::new(PayableThresholdsGaugeReal::default()))
             .build();
         let intercept_before = subject
             .payable_exceeded_threshold(&payable, SystemTime::now())

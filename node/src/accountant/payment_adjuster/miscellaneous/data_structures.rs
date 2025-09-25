@@ -101,6 +101,11 @@ impl AffordableAndRequiredTxCounts {
     }
 }
 
+pub enum AccountsByFinalization {
+    Unexhausted(Vec<AdjustedAccountBeforeFinalization>),
+    Finalized(Vec<PayableAccount>),
+}
+
 #[cfg(test)]
 mod tests {
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::AffordableAndRequiredTxCounts;

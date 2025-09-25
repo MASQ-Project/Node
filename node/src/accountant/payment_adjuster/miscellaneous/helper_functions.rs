@@ -6,16 +6,14 @@ use crate::accountant::payment_adjuster::diagnostics;
 use crate::accountant::payment_adjuster::logging_and_diagnostics::diagnostics::ordinary_diagnostic_functions::{
     exhausting_cw_balance_diagnostics, not_exhausting_cw_balance_diagnostics,
 };
-use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustedAccountBeforeFinalization, WeighedPayable};
+use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AccountsByFinalization, AdjustedAccountBeforeFinalization, WeighedPayable};
 use crate::accountant::{AnalyzedPayableAccount};
-use itertools::{Either, Itertools};
+use itertools::{Itertools};
 
-pub fn no_affordable_accounts_found(
-    accounts: &Either<Vec<AdjustedAccountBeforeFinalization>, Vec<PayableAccount>>,
-) -> bool {
+pub fn no_affordable_accounts_found(accounts: &AccountsByFinalization) -> bool {
     match accounts {
-        Either::Left(vector) => vector.is_empty(),
-        Either::Right(vector) => vector.is_empty(),
+        AccountsByFinalization::Finalized(vector) => vector.is_empty(),
+        AccountsByFinalization::Unexhausted(vector) => vector.is_empty(),
     }
 }
 
@@ -185,7 +183,9 @@ impl ConsumingWalletExhaustingStatus {
 #[cfg(test)]
 mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-    use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustedAccountBeforeFinalization;
+    use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
+        AccountsByFinalization, AdjustedAccountBeforeFinalization,
+    };
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
         compute_mul_coefficient_preventing_fractional_numbers, eliminate_accounts_by_tx_fee_limit,
         exhaust_cw_balance_entirely, find_largest_exceeding_balance, no_affordable_accounts_found,
@@ -195,19 +195,19 @@ mod tests {
     use crate::accountant::test_utils::{make_meaningless_analyzed_account, make_payable_account};
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
-    use itertools::{Either, Itertools};
+    use itertools::Itertools;
     use std::time::SystemTime;
 
     #[test]
-    fn no_affordable_accounts_found_found_returns_true_for_non_finalized_accounts() {
-        let result = no_affordable_accounts_found(&Either::Left(vec![]));
+    fn no_affordable_accounts_found_returns_true_for_non_finalized_accounts() {
+        let result = no_affordable_accounts_found(&AccountsByFinalization::Unexhausted(vec![]));
 
         assert_eq!(result, true)
     }
 
     #[test]
     fn no_affordable_accounts_found_returns_false_for_non_finalized_accounts() {
-        let result = no_affordable_accounts_found(&Either::Left(vec![
+        let result = no_affordable_accounts_found(&AccountsByFinalization::Unexhausted(vec![
             AdjustedAccountBeforeFinalization::new(make_payable_account(456), 5678, 1234),
         ]));
 
@@ -216,14 +216,16 @@ mod tests {
 
     #[test]
     fn no_affordable_accounts_found_returns_true_for_finalized_accounts() {
-        let result = no_affordable_accounts_found(&Either::Right(vec![]));
+        let result = no_affordable_accounts_found(&AccountsByFinalization::Finalized(vec![]));
 
         assert_eq!(result, true)
     }
 
     #[test]
     fn no_affordable_accounts_found_returns_false_for_finalized_accounts() {
-        let result = no_affordable_accounts_found(&Either::Right(vec![make_payable_account(123)]));
+        let result = no_affordable_accounts_found(&AccountsByFinalization::Finalized(vec![
+            make_payable_account(123),
+        ]));
 
         assert_eq!(result, false)
     }

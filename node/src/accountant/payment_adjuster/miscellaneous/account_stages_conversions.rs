@@ -66,11 +66,11 @@ impl From<UnconfirmedAdjustment> for AdjustedAccountBeforeFinalization {
 // an amount that equals to their disqualification limit (and can be later provided with even more)
 impl From<WeighedPayable> for AdjustedAccountBeforeFinalization {
     fn from(weighed_account: WeighedPayable) -> Self {
-        let limited_adjusted_balance = weighed_account.disqualification_limit();
-        minimal_acceptable_balance_assigned_diagnostics(&weighed_account, limited_adjusted_balance);
+        let adjusted_balance = weighed_account.disqualification_limit();
+        minimal_acceptable_balance_assigned_diagnostics(&weighed_account, adjusted_balance);
         let weight = weighed_account.weight;
         let original_account = weighed_account.analyzed_account.qualified_as.bare_account;
-        AdjustedAccountBeforeFinalization::new(original_account, weight, limited_adjusted_balance)
+        AdjustedAccountBeforeFinalization::new(original_account, weight, adjusted_balance)
     }
 }
 

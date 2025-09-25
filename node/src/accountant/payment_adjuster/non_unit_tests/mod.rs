@@ -6,10 +6,10 @@ use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t};
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::sum_as;
 use crate::accountant::payment_adjuster::preparatory_analyser::accounts_abstraction::BalanceProvidingAccount;
-use crate::accountant::payment_adjuster::test_utils::exposed_utils::convert_qualified_into_analyzed_payables_in_test;
+use crate::accountant::payment_adjuster::test_utils::exposed_utils::convert_qualified_p_into_analyzed_p;
 use crate::accountant::payment_adjuster::test_utils::local_utils::PRESERVED_TEST_PAYMENT_THRESHOLDS;
 use crate::accountant::payment_adjuster::{
-    Adjustment, AdjustmentAnalysisReport, PaymentAdjuster, PaymentAdjusterError,
+    Adjustment, AdjustmentAnalysisReport, DetectionPhase, PaymentAdjuster, PaymentAdjusterError,
     PaymentAdjusterReal,
 };
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
@@ -18,7 +18,7 @@ use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{
     PayableInspector, PayableThresholdsGaugeReal,
 };
 use crate::accountant::test_utils::{
-    make_single_qualified_payable_opt, try_to_make_guaranteed_qualified_payables,
+    make_single_qualified_payable_opt, try_to_make_qualified_payables,
 };
 use crate::accountant::{AnalyzedPayableAccount, QualifiedPayableAccount};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::TX_FEE_MARGIN_IN_PERCENT;
@@ -44,8 +44,8 @@ use web3::types::{Address, U256};
 // TODO If an option for "occasional tests" is added, this is a good adept
 #[ignore]
 fn loading_test_with_randomized_params() {
-    // This is a fuzz test. It generates possibly an overwhelming amount of scenarios that
-    // the PaymentAdjuster could be given sort them out, as realistic as it can get, while its
+    // This is a fuzz test. It generates possibly an overwhelming number of scenarios that
+    // the PaymentAdjuster could be given to sort them out, as realistic as it can get, while its
     // nature of randomness offers chances to have a dense range of combinations that a human fails
     // to even try imagining. The hypothesis is that some of those might be corner cases whose
     // trickiness wasn't recognized when the functionality was still at design. This test is to
@@ -64,8 +64,8 @@ fn loading_test_with_randomized_params() {
     // we allow this always implied waste than trying to invent an algorithm whose randomness would
     // be exercised within strictly controlled boundaries.
 
-    // Some other are lost quite early as legitimate errors that the PaymentAdjuster can detect,
-    // which would prevent finishing the search for given scenario.
+    // Some others are lost quite early as legitimate errors that the PaymentAdjuster can detect,
+    // which would prevent finishing the search for a given scenario.
 
     // When the test reaches its end, it produces important output in a text file, located:
     // node/generated/test/payment_adjuster/tests/home/loading_test_output.txt
@@ -81,16 +81,16 @@ fn loading_test_with_randomized_params() {
     // payables. See those percentages. They may not excel at explaining themselves when it comes to
     // their inconsistent proportionality towards the balances. These percents represent a payment
     // coverage of the initial debts. But why don't they correspond with ascending balances? There's
-    // a principle to equip accounts low balances with the biggest weights. True. However, it doesn't
+    // a principle to equip account low balances with the biggest weights. True. However, it doesn't
     // need to be reflected so clearly, though. The adjustment depends heavily on a so-called
     // "disqualification limit". Besides other purposes, this value affects that the payment won't
     // require the entire amount but only its portion. That inherently will do for the payer to stay
     // unbanned. In bulky accounts, this until-some-time forgiven portion stands only as a fraction
     // of a whole. Small accounts, however, if it can be applied (as opposed to the account having
     // to be excluded) might get shrunk a lot, and therefore many percents are to be reported as
-    // missing. This is what the numbers like 99% and 90% illustrates. That said, the letter account
-    // comes across as it should take precedence for its expectedly larger weight, and gain at the
-    // expanse of the other, but the percents speak otherwise. Yet, it's correct. The interpretation
+    // missing. This is what the numbers like 99% and 90% illustrate. That said, the letter account
+    // comes across as it should take precedence for its expectedly larger weight and gain at the
+    // expanse of the other, but the percents speak otherwise. Yet it's correct. The interpretation
     // is the key. (Caution: this test displays its output with those accounts sorted).
 
     // CW service fee balance: 32,041,461,894,055,482 wei
@@ -100,9 +100,9 @@ fn loading_test_with_randomized_params() {
     // 2000000|1000|1000|1000000|500000|1000000
     // _____________________________________________________________________________________________
     //   1,988,742,049,305,843 wei |  236,766 s | 100 %
-    //  21,971,010,542,100,729 wei |  472,884 s | 99 %                         # # # # # # # #
-    //   4,726,030,753,976,563 wei |  395,377 s | 95 %                         # # # # # # # #
-    //   3,995,577,830,314,875 wei |  313,396 s | 90 %                         # # # # # # # #
+    //  21,971,010,542,100,729 wei |  472,884 s | 99 %                         << << << <<
+    //   4,726,030,753,976,563 wei |  395,377 s | 95 %                         << << << <<
+    //   3,995,577,830,314,875 wei |  313,396 s | 90 %                         << << << <<
     // 129,594,971,536,673,815 wei |  343,511 s | X
 
     // In the code, we select and pale up accounts so that the picked balance isn't the full range,
@@ -171,27 +171,35 @@ fn loading_test_with_randomized_params() {
 
     let second_stage_scenarios = first_stage_output.allowed_scenarios;
     let test_overall_output_collector = first_stage_output.output_collector;
-    let scenario_adjustment_results = second_stage_scenarios
-        .into_iter()
-        .map(|scenario| {
-            let prepared_adjustment = scenario.prepared_adjustment;
-            let account_infos =
-                preserve_account_infos(&prepared_adjustment.adjustment_analysis.accounts, now);
-            let required_adjustment = prepared_adjustment.adjustment_analysis.adjustment.clone();
-            let cw_service_fee_balance_minor =
-                prepared_adjustment.agent.service_fee_balance_minor();
+    let (test_overall_output_collector, scenario_adjustment_results) =
+        second_stage_scenarios.into_iter().fold(
+            (test_overall_output_collector, vec![]),
+            |(test_overall_output_collector_in_fold, mut scenario_results), scenario| {
+                let prepared_adjustment = scenario.prepared_adjustment;
+                let account_infos =
+                    preserve_account_infos(&prepared_adjustment.adjustment_analysis.accounts, now);
 
-            let payment_adjuster_result = subject.adjust_payments(prepared_adjustment);
+                let required_adjustment =
+                    prepared_adjustment.adjustment_analysis.adjustment.clone();
+                let cw_service_fee_balance_minor =
+                    prepared_adjustment.agent.service_fee_balance_minor();
 
-            administrate_single_scenario_result(
-                payment_adjuster_result,
-                account_infos,
-                scenario.applied_thresholds,
-                required_adjustment,
-                cw_service_fee_balance_minor,
-            )
-        })
-        .collect();
+                let payment_adjuster_result = subject.adjust_payments(prepared_adjustment);
+
+                let (t_o_c_i_f, scenario_result) = administrate_single_scenario_result(
+                    test_overall_output_collector_in_fold,
+                    payment_adjuster_result,
+                    account_infos,
+                    scenario.applied_thresholds,
+                    required_adjustment,
+                    cw_service_fee_balance_minor,
+                );
+
+                scenario_results.push(scenario_result);
+
+                (t_o_c_i_f, scenario_results)
+            },
+        );
 
     render_results_to_file_and_attempt_basic_assertions(
         scenario_adjustment_results,
@@ -219,7 +227,7 @@ fn try_making_single_valid_scenario(
     let (cw_service_fee_balance, qualified_payables, applied_thresholds) =
         try_generating_qualified_payables_and_cw_balance(gn, accounts_count, now)?;
 
-    let analyzed_accounts = convert_qualified_into_analyzed_payables_in_test(qualified_payables);
+    let analyzed_accounts = convert_qualified_p_into_analyzed_p(qualified_payables);
     let agent = make_agent(cw_service_fee_balance);
     let adjustment = make_adjustment(gn, analyzed_accounts.len());
     let prepared_adjustment = PreparedAdjustment::new(
@@ -256,21 +264,28 @@ fn generate_debt_age(gn: &mut ThreadRng, thresholds: &PaymentThresholds) -> u64 
         gn,
         thresholds.maturity_threshold_sec,
         thresholds.maturity_threshold_sec + thresholds.threshold_interval_sec,
-    ) / 2
+    )
 }
 
 fn generate_highly_randomized_payable_account_balance(
     gn: &mut ThreadRng,
     thresholds: &PaymentThresholds,
 ) -> u128 {
-    // This seems overcomplicated, damn. As a result of simple intentions though. I wanted to ensure
-    // occurrence of accounts with balances having different magnitudes in the frame of a single
-    // scenario. This was crucial to me so much that I was ready to write even this piece of code
-    // a bit crazy by look.
-    // This setup worked well to stress the randomness I needed, a lot more significant compared to
-    // what the naked number generator can put for you. Using some nesting, it broke the rigid
-    // pattern and gave an existence to accounts with diverse balances.
-    let mut generate_u128 = || generate_non_zero_usize(gn, 100) as u128;
+    // This seems overcomplicated, damn. Yet it's a result of good simple intentions. I wanted
+    // to ensure the occurrence of accounts with balances of different magnitudes to be generated
+    // for a single scenario. This was crucial to me so much that I didn't stop myself from writing
+    // this fishy-looking piece of code.
+    // This setup worked well for the randomness I needed, a lot significantly more compared to
+    // what the default number generator from this library seemed to be able to provide only.
+    // Using some nesting, it scattered the distribution better and allowed me to have accounts
+    // with diverse balances.
+    const COEFFICIENT_A: usize = 100;
+    const COEFFICIENT_B: usize = 2;
+    const COEFFICIENT_C: usize = 3;
+    const COEFFICIENT_D: usize = 4;
+    const COEFFICIENT_E: usize = 5;
+
+    let mut generate_u128 = || generate_non_zero_usize(gn, COEFFICIENT_A) as u128;
 
     let parameter_a = generate_u128();
     let parameter_b = generate_u128();
@@ -279,29 +294,17 @@ fn generate_highly_randomized_payable_account_balance(
     let parameter_e = generate_u128();
     let parameter_f = generate_u128();
 
-    let mut use_variable_exponent =
+    let mut apply_arbitrary_variable_exponent =
         |parameter: u128, up_to: usize| parameter.pow(generate_non_zero_usize(gn, up_to) as u32);
 
-    let a_b_c_d_e = parameter_a
-        * use_variable_exponent(parameter_b, 2)
-        * use_variable_exponent(parameter_c, 3)
-        * use_variable_exponent(parameter_d, 4)
-        * use_variable_exponent(parameter_e, 5);
-    let addition = (0..6).fold(a_b_c_d_e, |so_far, subtrahend| {
-        if so_far != a_b_c_d_e {
-            so_far
-        } else {
-            if let Some(num) =
-                a_b_c_d_e.checked_sub(use_variable_exponent(parameter_f, 6 - subtrahend))
-            {
-                num
-            } else {
-                so_far
-            }
-        }
-    });
+    let a_b_c_d_e_f = parameter_a
+        * apply_arbitrary_variable_exponent(parameter_b, COEFFICIENT_B)
+        * apply_arbitrary_variable_exponent(parameter_c, COEFFICIENT_C)
+        * apply_arbitrary_variable_exponent(parameter_d, COEFFICIENT_D)
+        * apply_arbitrary_variable_exponent(parameter_e, COEFFICIENT_E)
+        * parameter_f;
 
-    thresholds.permanent_debt_allowed_gwei as u128 + addition
+    thresholds.permanent_debt_allowed_gwei as u128 + a_b_c_d_e_f
 }
 
 fn try_make_qualified_payables_by_applied_thresholds(
@@ -311,38 +314,45 @@ fn try_make_qualified_payables_by_applied_thresholds(
 ) -> Vec<QualifiedPayableAccount> {
     let payment_inspector = PayableInspector::new(Box::new(PayableThresholdsGaugeReal::default()));
     match applied_thresholds {
-        AppliedThresholds::Defaulted => try_to_make_guaranteed_qualified_payables(
+        AppliedThresholds::Defaulted => try_to_make_qualified_payables(
             payable_accounts,
-            &PRESERVED_TEST_PAYMENT_THRESHOLDS,
+            &PaymentThresholds::default(),
             now,
             false,
         ),
         AppliedThresholds::CommonButRandomized { common_thresholds } => {
-            try_to_make_guaranteed_qualified_payables(
-                payable_accounts,
-                common_thresholds,
-                now,
-                false,
-            )
+            try_to_make_qualified_payables(payable_accounts, common_thresholds, now, false)
         }
         AppliedThresholds::RandomizedForEachAccount {
             individual_thresholds,
-        } => {
-            let vec_of_thresholds = individual_thresholds.values().collect_vec();
-            let zipped = payable_accounts.into_iter().zip(vec_of_thresholds.iter());
-            zipped
-                .flat_map(|(qualified_payable, thresholds)| {
-                    make_single_qualified_payable_opt(
-                        qualified_payable,
-                        &payment_inspector,
-                        &thresholds,
-                        false,
-                        now,
-                    )
-                })
-                .collect()
-        }
+        } => make_qualified_payables_for_individualized_thresholds(
+            payable_accounts,
+            now,
+            &payment_inspector,
+            individual_thresholds,
+        ),
     }
+}
+
+fn make_qualified_payables_for_individualized_thresholds(
+    payable_accounts: Vec<PayableAccount>,
+    now: SystemTime,
+    payment_inspector: &PayableInspector,
+    individual_thresholds: &HashMap<Address, PaymentThresholds>,
+) -> Vec<QualifiedPayableAccount> {
+    let vec_of_thresholds = individual_thresholds.values().collect_vec();
+    let zipped = payable_accounts.into_iter().zip(vec_of_thresholds.iter());
+    zipped
+        .flat_map(|(qualified_payable, thresholds)| {
+            make_single_qualified_payable_opt(
+                qualified_payable,
+                &payment_inspector,
+                &thresholds,
+                false,
+                now,
+            )
+        })
+        .collect()
 }
 
 fn try_generating_qualified_payables_and_cw_balance(
@@ -378,14 +388,19 @@ fn pick_appropriate_cw_service_fee_balance(
     qualified_payables: &[QualifiedPayableAccount],
     accounts_count: usize,
 ) -> u128 {
-    // Value picked empirically
-    const COEFFICIENT: usize = 1000;
+    // Values picked empirically
+    const COEFFICIENT_A: usize = 1000;
+    const COEFFICIENT_B: usize = 2;
+
     let balance_average = sum_as(qualified_payables, |account| {
         account.initial_balance_minor()
     }) / accounts_count as u128;
-    let max_pieces = accounts_count * COEFFICIENT;
-    let number_of_pieces = generate_usize(gn, max_pieces - 2) as u128 + 2;
-    balance_average / COEFFICIENT as u128 * number_of_pieces
+
+    let max_pieces = accounts_count * COEFFICIENT_A;
+    let number_of_pieces =
+        generate_usize(gn, max_pieces - COEFFICIENT_B) as u128 + COEFFICIENT_B as u128;
+
+    balance_average / COEFFICIENT_A as u128 * number_of_pieces
 }
 
 fn make_payables_according_to_thresholds_setup(
@@ -398,12 +413,9 @@ fn make_payables_according_to_thresholds_setup(
     let nominated_thresholds = choose_thresholds(gn, &wallets);
 
     let payables = match &nominated_thresholds {
-        AppliedThresholds::Defaulted => make_payables_with_common_thresholds(
-            gn,
-            wallets,
-            &PRESERVED_TEST_PAYMENT_THRESHOLDS,
-            now,
-        ),
+        AppliedThresholds::Defaulted => {
+            make_payables_with_common_thresholds(gn, wallets, &PaymentThresholds::default(), now)
+        }
         AppliedThresholds::CommonButRandomized { common_thresholds } => {
             make_payables_with_common_thresholds(gn, wallets, common_thresholds, now)
         }
@@ -424,22 +436,22 @@ fn prepare_account_wallets(accounts_count: usize) -> Vec<Wallet> {
 fn choose_thresholds(gn: &mut ThreadRng, prepared_wallets: &[Wallet]) -> AppliedThresholds {
     let be_defaulted = generate_boolean(gn);
     if be_defaulted {
-        AppliedThresholds::Defaulted
-    } else {
-        let be_same_for_all_accounts = generate_boolean(gn);
-        if be_same_for_all_accounts {
-            AppliedThresholds::CommonButRandomized {
-                common_thresholds: return_single_randomized_thresholds(gn),
-            }
-        } else {
-            let individual_thresholds = prepared_wallets
-                .iter()
-                .map(|wallet| (wallet.address(), return_single_randomized_thresholds(gn)))
-                .collect::<HashMap<Address, PaymentThresholds>>();
-            AppliedThresholds::RandomizedForEachAccount {
-                individual_thresholds,
-            }
-        }
+        return AppliedThresholds::Defaulted;
+    }
+
+    let be_same_for_all_accounts = generate_boolean(gn);
+    if be_same_for_all_accounts {
+        return AppliedThresholds::CommonButRandomized {
+            common_thresholds: return_single_randomized_thresholds(gn),
+        };
+    }
+
+    let individual_thresholds = prepared_wallets
+        .iter()
+        .map(|wallet| (wallet.address(), return_single_randomized_thresholds(gn)))
+        .collect::<HashMap<Address, PaymentThresholds>>();
+    AppliedThresholds::RandomizedForEachAccount {
+        individual_thresholds,
     }
 }
 
@@ -500,7 +512,7 @@ fn make_agent(cw_service_fee_balance: u128) -> BlockchainAgentMock {
         .service_fee_balance_minor_result(cw_service_fee_balance)
         // For PaymentAdjuster itself
         .service_fee_balance_minor_result(cw_service_fee_balance)
-        .gas_price_margin_result(TX_FEE_MARGIN_IN_PERCENT.clone())
+        .gas_price_margin_result(*TX_FEE_MARGIN_IN_PERCENT)
 }
 
 fn make_adjustment(gn: &mut ThreadRng, accounts_count: usize) -> Adjustment {
@@ -517,12 +529,13 @@ fn make_adjustment(gn: &mut ThreadRng, accounts_count: usize) -> Adjustment {
 }
 
 fn administrate_single_scenario_result(
+    mut test_overall_output_collector: TestOverallOutputCollector,
     payment_adjuster_result: Result<OutboundPaymentsInstructions, PaymentAdjusterError>,
     account_infos: Vec<AccountInfo>,
     used_thresholds: AppliedThresholds,
     required_adjustment: Adjustment,
     cw_service_fee_balance_minor: u128,
-) -> ScenarioResult {
+) -> (TestOverallOutputCollector, ScenarioResult) {
     let common = CommonScenarioInfo {
         cw_service_fee_balance_minor,
         required_adjustment,
@@ -535,17 +548,23 @@ fn administrate_single_scenario_result(
                 PercentPortionOfCWUsed::new(&adjusted_accounts, &common);
             let merged =
                 merge_information_about_particular_account(account_infos, adjusted_accounts);
-            let interpretable_adjustments = merged
-                .into_iter()
-                .map(InterpretableAccountAdjustmentResult::new)
-                .collect_vec();
-            let (partially_sorted_interpretable_adjustments, were_no_accounts_eliminated) =
+
+            let (interpretable_adjustments, adjusted_accounts_within_this_scenario) =
+                prepare_interpretable_adjustment_results(merged);
+
+            look_after_adjustment_statistics(
+                &mut test_overall_output_collector,
+                adjusted_accounts_within_this_scenario,
+            );
+
+            let (partially_sorted_interpretable_adjustments, no_accounts_eliminated) =
                 sort_interpretable_adjustments(interpretable_adjustments);
+
             Ok(SuccessfulAdjustment {
                 common,
                 portion_of_cw_cumulatively_used_percents,
                 partially_sorted_interpretable_adjustments,
-                no_accounts_eliminated: were_no_accounts_eliminated,
+                no_accounts_eliminated,
             })
         }
         Err(adjuster_error) => Err(FailedAdjustment {
@@ -555,7 +574,10 @@ fn administrate_single_scenario_result(
         }),
     };
 
-    ScenarioResult::new(reinterpreted_result)
+    (
+        test_overall_output_collector,
+        ScenarioResult::new(reinterpreted_result),
+    )
 }
 
 fn merge_information_about_particular_account(
@@ -576,6 +598,35 @@ fn merge_information_about_particular_account(
         .collect()
 }
 
+fn prepare_interpretable_adjustment_results(
+    merged: Vec<(AccountInfo, Option<PayableAccount>)>,
+) -> (Vec<InterpretableAccountAdjustmentResult>, usize) {
+    merged.into_iter().fold(
+        (vec![], 0),
+        |(mut interpretable_accounts, adjusted_accounts_so_far),
+         (info, maybe_eliminated_account)| {
+            let (interpretable_account, was_this_account_eliminated) =
+                InterpretableAccountAdjustmentResult::new(info, maybe_eliminated_account);
+            interpretable_accounts.push(interpretable_account);
+            (
+                interpretable_accounts,
+                adjusted_accounts_so_far + if was_this_account_eliminated { 1 } else { 0 },
+            )
+        },
+    )
+}
+
+fn look_after_adjustment_statistics(
+    test_overall_output_collector: &mut TestOverallOutputCollector,
+    adjusted_accounts_within_this_scenario: usize,
+) {
+    if adjusted_accounts_within_this_scenario > 1 {
+        test_overall_output_collector.scenarios_with_more_than_one_adjustment += 1
+    }
+    test_overall_output_collector.adjusted_account_count_total +=
+        adjusted_accounts_within_this_scenario;
+}
+
 enum PercentPortionOfCWUsed {
     Percents(u8),
     LessThanOnePercent,
@@ -585,10 +636,10 @@ impl PercentPortionOfCWUsed {
     fn new(adjusted_accounts: &[PayableAccount], common: &CommonScenarioInfo) -> Self {
         let used_absolute: u128 = sum_as(adjusted_accounts, |account| account.balance_wei);
         let percents = ((100 * used_absolute) / common.cw_service_fee_balance_minor) as u8;
-        if percents >= 1 {
-            PercentPortionOfCWUsed::Percents(percents)
-        } else {
+        if percents < 1 {
             PercentPortionOfCWUsed::LessThanOnePercent
+        } else {
+            PercentPortionOfCWUsed::Percents(percents)
         }
     }
 
@@ -679,7 +730,7 @@ fn render_results_to_file_and_attempt_basic_assertions(
         total_scenarios_handled_including_invalid_ones, number_of_requested_scenarios
     );
     // Only some of the generated scenarios are acceptable, don't be surprised by the waste. That's
-    // anticipated given the nature of the generator and the requirements on the payable accounts
+    // expected given the nature of the generator and the requirements on the payable accounts
     // so that they are picked up and let in the PaymentAdjuster. We'll be better off truly faithful
     // to the use case and the expected conditions. Therefore, we insist on making "guaranteed"
     // QualifiedPayableAccounts out of PayableAccount which is where we take the losses.
@@ -715,10 +766,9 @@ fn introduction(file: &mut File) {
     let page_width = PAGE_WIDTH;
     file.write_fmt(format_args!(
         "{:^page_width$}\n",
-        "A short summary can be found at the tail"
+        "There is a short summary at the tail"
     ))
     .unwrap();
-    write_thick_dividing_line(file);
     write_thick_dividing_line(file)
 }
 
@@ -742,13 +792,16 @@ fn write_brief_test_summary_at_file_s_tail(
          Plain service fee adjustments:......... {}\n\
          Bills fulfillment distribution:\n\
          {}\n\n\
+         Individual accounts adjusted:.......... {}\n\
+         Scenarios with more than one account\n\
+         adjusted:.............................. {}\n\n\
          Unsuccessful\n\
          Caught by the entry check:............. {}\n\
-         With 'RecursionDrainedAllAccounts':.... {}\n\
+         With 'RecursionEliminatedAllAccounts':.... {}\n\
          With late insufficient balance errors:. {}\n\n\
          Legend\n\
-         Adjusted balances are highlighted by \
-         these marks by the side:............. . {}",
+         Adjusted balances are highlighted\n\
+         by these marks by the side:............ {}",
         scenarios_requested,
         scenarios_evaluated,
         output_collector.oks,
@@ -765,6 +818,8 @@ fn write_brief_test_summary_at_file_s_tail(
         output_collector
             .fulfillment_distribution_for_service_fee_adjustments
             .render_in_two_lines(),
+        output_collector.adjusted_account_count_total,
+        output_collector.scenarios_with_more_than_one_adjustment,
         output_collector.scenarios_denied_before_adjustment_started,
         output_collector.all_accounts_eliminated,
         output_collector.late_immoderately_insufficient_service_fee_balance,
@@ -815,13 +870,18 @@ fn do_final_processing_of_single_scenario(
         }
         Err(negative) => {
             match negative.adjuster_error {
-                PaymentAdjusterError::AbsolutelyInsufficientBalance { .. } => {
-                    panic!("Such errors should be already filtered out")
-                }
-                PaymentAdjusterError::AbsolutelyInsufficientServiceFeeBalancePostTxFeeAdjustment { .. } => {
-                    output_collector.late_immoderately_insufficient_service_fee_balance += 1
-                }
-                PaymentAdjusterError::RecursionDrainedAllAccounts => {
+                PaymentAdjusterError::AbsoluteFeeInsufficiency {
+                    ref detection_phase,
+                    ..
+                } => match detection_phase {
+                    DetectionPhase::InitialCheck { .. } => {
+                        panic!("Such errors should be already filtered out")
+                    }
+                    DetectionPhase::PostTxFeeAdjustment { .. } => {
+                        output_collector.late_immoderately_insufficient_service_fee_balance += 1
+                    }
+                },
+                PaymentAdjusterError::RecursionEliminatedAllAccounts => {
                     output_collector.all_accounts_eliminated += 1
                 }
             }
@@ -976,7 +1036,7 @@ fn single_account_output(
     .unwrap();
 }
 
-const NON_EXHAUSTED_ACCOUNT_MARKER: &str = "# # # # # # # #";
+const NON_EXHAUSTED_ACCOUNT_MARKER: &str = "<< << << <<";
 
 fn resolve_account_fulfilment_status_graphically(
     bill_coverage_in_percentage_opt: Option<u8>,
@@ -1080,6 +1140,8 @@ struct TestOverallOutputCollector {
     // ____________________________________
     oks: usize,
     with_no_accounts_eliminated: usize,
+    adjusted_account_count_total: usize,
+    scenarios_with_more_than_one_adjustment: usize,
     fulfillment_distribution_for_transaction_fee_adjustments: PercentageFulfillmentDistribution,
     fulfillment_distribution_for_service_fee_adjustments: PercentageFulfillmentDistribution,
     // Errors
@@ -1094,6 +1156,8 @@ impl TestOverallOutputCollector {
             scenarios_denied_before_adjustment_started: 0,
             oks: 0,
             with_no_accounts_eliminated: 0,
+            adjusted_account_count_total: 0,
+            scenarios_with_more_than_one_adjustment: 0,
             fulfillment_distribution_for_transaction_fee_adjustments: Default::default(),
             fulfillment_distribution_for_service_fee_adjustments: Default::default(),
             all_accounts_eliminated: 0,
@@ -1237,27 +1301,30 @@ impl AccountWithWallet for InterpretableAccountAdjustmentResult {
 }
 
 impl InterpretableAccountAdjustmentResult {
-    fn new((info, non_eliminated_payable): (AccountInfo, Option<PayableAccount>)) -> Self {
-        let bill_coverage_in_percentage_opt = match &non_eliminated_payable {
-            Some(payable) => {
-                let bill_coverage_in_percentage = {
-                    let percentage =
-                        (payable.balance_wei * 100) / info.initially_requested_service_fee_minor;
-                    u8::try_from(percentage).unwrap()
-                };
-                Some(bill_coverage_in_percentage)
-            }
-            None => None,
-        };
-        InterpretableAccountAdjustmentResult {
-            info: AccountInfo {
-                wallet: info.wallet,
-                debt_age_s: info.debt_age_s,
-                initially_requested_service_fee_minor: info.initially_requested_service_fee_minor,
+    fn new(info: AccountInfo, maybe_eliminated_payable: Option<PayableAccount>) -> (Self, bool) {
+        let (bill_coverage_in_percentage_opt, was_this_account_adjusted) =
+            match &maybe_eliminated_payable {
+                Some(payable) => {
+                    let percents_of_bill_coverage = Self::percents_of_bill_coverage(&info, payable);
+                    (
+                        Some(percents_of_bill_coverage),
+                        percents_of_bill_coverage != 100,
+                    )
+                }
+                None => (None, false),
+            };
+        (
+            InterpretableAccountAdjustmentResult {
+                info,
+                bill_coverage_in_percentage_opt,
             },
+            was_this_account_adjusted,
+        )
+    }
 
-            bill_coverage_in_percentage_opt,
-        }
+    fn percents_of_bill_coverage(info: &AccountInfo, payable: &PayableAccount) -> u8 {
+        let percentage = (payable.balance_wei * 100) / info.initially_requested_service_fee_minor;
+        u8::try_from(percentage).unwrap()
     }
 }
 

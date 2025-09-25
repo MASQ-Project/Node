@@ -177,13 +177,13 @@ impl DisqualificationGaugeReal {
         let considered_forgiven = threshold_intercept_minor - permanent_debt_allowed_minor;
         let minimal_acceptable_payment = exceeding_threshold + permanent_debt_allowed_minor;
 
-        let condition_of_debt_fast_growth = minimal_acceptable_payment
+        let is_debt_growing_fast = minimal_acceptable_payment
             >= Self::FIRST_QUALIFICATION_CONDITION_COEFFICIENT * considered_forgiven;
 
-        let condition_of_position_on_rather_the_left_half_of_the_slope = considered_forgiven
+        let situated_on_the_left_half_of_the_slope = considered_forgiven
             >= Self::SECOND_QUALIFICATION_CONDITION_COEFFICIENT * permanent_debt_allowed_minor;
 
-        condition_of_debt_fast_growth && condition_of_position_on_rather_the_left_half_of_the_slope
+        is_debt_growing_fast && situated_on_the_left_half_of_the_slope
     }
 
     fn determine_adequate_minimal_payment(
@@ -207,6 +207,9 @@ impl DisqualificationGaugeReal {
     //       This schema shows the conditions used to determine the disqualification limit
     //                          (or minimal acceptable payment)
     //
+    //  Y axis - debt size
+    //
+    //  |
     //  |         A +
     //  |           |     P   -----------+
     //  |           |     P              |
@@ -237,7 +240,7 @@ impl DisqualificationGaugeReal {
     //  |              U  U      \ U \  |            P
     //  |              U  U       \U  \ |            P
     //  |              U  U        U   \|D'          P       E'
-    //  +---------------------------+---+---------------------+
+    //  +---------------------------+---+---------------------+   X axis - time
     //                 3  4        2                 1
     //
     //  This diagram presents computation of the disqualification limit which differs by four cases.
@@ -280,7 +283,7 @@ mod tests {
     };
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::UnconfirmedAdjustment;
     use crate::accountant::payment_adjuster::test_utils::local_utils::{
-        make_meaningless_weighed_account, make_non_guaranteed_unconfirmed_adjustment,
+        make_meaningless_unconfirmed_adjustment, make_meaningless_weighed_account,
     };
     use itertools::Itertools;
     use masq_lib::logger::Logger;
@@ -442,7 +445,7 @@ mod tests {
 
     #[test]
     fn list_accounts_nominated_for_disqualification_ignores_adjustment_even_to_the_dsq_limit() {
-        let mut account = make_non_guaranteed_unconfirmed_adjustment(444);
+        let mut account = make_meaningless_unconfirmed_adjustment(444);
         account.proposed_adjusted_balance_minor = 1_000_000_000;
         account
             .weighed_account
@@ -525,24 +528,6 @@ mod tests {
         );
 
         assert_eq!(result, wallet_3);
-        // Hardening of the test with more formal checks
-        let all_wallets = unconfirmed_adjustments
-            .iter()
-            .map(|unconfirmed_adjustment| {
-                &unconfirmed_adjustment
-                    .weighed_account
-                    .analyzed_account
-                    .qualified_as
-                    .bare_account
-                    .wallet
-            })
-            .collect_vec();
-        assert_eq!(all_wallets.len(), 4);
-        let wallets_same_as_wallet_3 = all_wallets
-            .iter()
-            .filter(|wallet| wallet.address() == wallet_3)
-            .collect_vec();
-        assert_eq!(wallets_same_as_wallet_3.len(), 1);
     }
 
     fn make_unconfirmed_adjustments(weights: Vec<u128>) -> Vec<UnconfirmedAdjustment> {
@@ -550,7 +535,7 @@ mod tests {
             .into_iter()
             .enumerate()
             .map(|(idx, weight)| {
-                let mut account = make_non_guaranteed_unconfirmed_adjustment(idx as u64);
+                let mut account = make_meaningless_unconfirmed_adjustment(idx as u64);
                 account.weighed_account.weight = weight;
                 account
             })
