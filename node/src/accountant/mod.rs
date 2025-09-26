@@ -147,7 +147,7 @@ pub struct TxReceiptsMessage {
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum PayableScanType {
     New,
     Retry,

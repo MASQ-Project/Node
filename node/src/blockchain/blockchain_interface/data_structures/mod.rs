@@ -36,7 +36,7 @@ pub struct RetrievedBlockchainTransactions {
     pub transactions: Vec<BlockchainTransaction>,
 }
 
-#[derive(Default, Debug, PartialEq, Clone)]
+#[derive(Default, Debug, PartialEq, Eq, Clone)]
 pub struct BatchResults {
     pub sent_txs: Vec<SentTx>,
     pub failed_txs: Vec<FailedTx>,
