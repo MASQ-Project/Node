@@ -277,7 +277,7 @@ impl Scanners {
         };
     }
 
-    fn empty_caches(&mut self, logger: &Logger) {
+    fn empty_caches(&mut self, _logger: &Logger) {
         todo!("GH-605: Bert - As any mut is not a type");
         // let pending_payable_scanner = self
         //     .pending_payable
@@ -588,7 +588,7 @@ mod tests {
     use crate::accountant::db_access_objects::failed_payable_dao::{
         FailedTx, FailureReason, FailureStatus,
     };
-    use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDaoError};
+    use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::db_access_objects::sent_payable_dao::{Detection, SentTx, TxStatus};
     use crate::accountant::db_access_objects::test_utils::{make_failed_tx, make_sent_tx};
     use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp};
@@ -607,7 +607,6 @@ mod tests {
     };
     use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
     use crate::accountant::scanners::receivable_scanner::ReceivableScanner;
-    use crate::accountant::scanners::test_utils::ScannerReplacement::PendingPayable;
     use crate::accountant::scanners::test_utils::{
         assert_timestamps_from_str, parse_system_time_from_str,
         trim_expected_timestamp_to_three_digits_nanos, MarkScanner, NullScanner,
@@ -649,7 +648,7 @@ mod tests {
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use crate::test_utils::{make_paying_wallet, make_wallet};
-    use actix::{Message, System};
+    use actix::Message;
     use ethereum_types::U64;
     use itertools::Either;
     use masq_lib::logger::Logger;
@@ -665,7 +664,6 @@ mod tests {
     use std::rc::Rc;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
-    use web3::Error;
 
     impl Scanners {
         pub fn replace_scanner(&mut self, replacement: ScannerReplacement) {

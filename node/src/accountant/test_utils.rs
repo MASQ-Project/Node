@@ -4,7 +4,7 @@
 
 use crate::accountant::db_access_objects::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::accountant::db_access_objects::failed_payable_dao::{
-    FailedPayableDao, FailedPayableDaoError, FailedPayableDaoFactory, FailedTx, FailureReason,
+    FailedPayableDao, FailedPayableDaoError, FailedPayableDaoFactory, FailedTx,
     FailureRetrieveCondition, FailureStatus,
 };
 use crate::accountant::db_access_objects::payable_dao::{
@@ -32,8 +32,8 @@ use crate::accountant::scanners::receivable_scanner::ReceivableScanner;
 use crate::accountant::scanners::test_utils::PendingPayableCacheMock;
 use crate::accountant::{gwei_to_wei, Accountant};
 use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, TxBlock};
-use crate::blockchain::errors::validation_status::{ValidationFailureClock, ValidationStatus};
-use crate::blockchain::test_utils::{make_block_hash, make_tx_hash};
+use crate::blockchain::errors::validation_status::ValidationFailureClock;
+use crate::blockchain::test_utils::make_block_hash;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
@@ -51,13 +51,12 @@ use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use rusqlite::{Connection, OpenFlags, Row};
 use std::any::type_name;
 use std::cell::RefCell;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap};
 use std::fmt::Debug;
 use std::path::Path;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
-use web3::types::Address;
 
 pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableAccount {
     let now = to_unix_timestamp(SystemTime::now());
@@ -422,12 +421,18 @@ impl AccountantBuilder {
                 .make_result(ReceivableDaoMock::new())
                 .make_result(ReceivableDaoMock::new()),
         );
-        let sent_payable_dao_factory = self
-            .sent_payable_dao_factory_opt
-            .unwrap_or(SentPayableDaoFactoryMock::new().make_result(SentPayableDaoMock::new()));
-        let failed_payable_dao_factory = self
-            .failed_payable_dao_factory_opt
-            .unwrap_or(FailedPayableDaoFactoryMock::new().make_result(FailedPayableDaoMock::new()));
+        let sent_payable_dao_factory = self.sent_payable_dao_factory_opt.unwrap_or(
+            SentPayableDaoFactoryMock::new()
+                .make_result(SentPayableDaoMock::new())
+                .make_result(SentPayableDaoMock::new())
+                .make_result(SentPayableDaoMock::new()),
+        );
+        let failed_payable_dao_factory = self.failed_payable_dao_factory_opt.unwrap_or(
+            FailedPayableDaoFactoryMock::new()
+                .make_result(FailedPayableDaoMock::new())
+                .make_result(FailedPayableDaoMock::new())
+                .make_result(FailedPayableDaoMock::new()),
+        );
         let banned_dao_factory = self
             .banned_dao_factory_opt
             .unwrap_or(BannedDaoFactoryMock::new().make_result(BannedDaoMock::new()));

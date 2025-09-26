@@ -331,26 +331,18 @@ mod tests {
         BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
     };
     use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError::Sending;
-    use crate::blockchain::errors::rpc_errors::LocalError::Transport;
-    use crate::blockchain::errors::rpc_errors::RemoteError::Web3RpcError;
-    use crate::blockchain::errors::rpc_errors::{
-        AppRpcError, AppRpcErrorKind, LocalErrorKind, RemoteErrorKind,
-    };
+    use crate::blockchain::errors::rpc_errors::{AppRpcErrorKind, LocalErrorKind, RemoteErrorKind};
     use crate::blockchain::test_utils::{
-        make_address, make_blockchain_interface_web3, make_tx_hash, transport_error_code,
-        transport_error_message,
+        make_address, transport_error_code, transport_error_message,
     };
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_paying_wallet;
     use crate::test_utils::make_wallet;
-    use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::unshared_test_utils::decode_hex;
-    use actix::{Actor, System};
+    use actix::System;
     use ethabi::Address;
     use ethereum_types::H256;
     use itertools::Either;
-    use jsonrpc_core::ErrorCode::ServerError;
-    use jsonrpc_core::{Error, ErrorCode};
     use masq_lib::constants::{DEFAULT_CHAIN, DEFAULT_GAS_PRICE};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;

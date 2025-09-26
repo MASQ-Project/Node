@@ -448,10 +448,7 @@ mod tests {
     use crate::accountant::db_access_objects::utils::current_unix_timestamp;
     use crate::accountant::db_access_objects::Transaction;
     use crate::accountant::scanners::pending_payable_scanner::test_utils::ValidationFailureClockMock;
-    use crate::blockchain::errors::rpc_errors::LocalError::Decoder;
-    use crate::blockchain::errors::rpc_errors::{
-        AppRpcError, AppRpcErrorKind, LocalErrorKind, RemoteErrorKind,
-    };
+    use crate::blockchain::errors::rpc_errors::{AppRpcErrorKind, LocalErrorKind, RemoteErrorKind};
     use crate::blockchain::errors::validation_status::{
         PreviousAttempts, ValidationFailureClockReal, ValidationStatus,
     };

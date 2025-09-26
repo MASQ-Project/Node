@@ -202,13 +202,16 @@ mod tests {
 
     #[test]
     fn payable_scanner_with_error_works_as_expected() {
-        test_execute_payable_scanner_finish_scan_with_an_error(PayableScanType::New);
-        test_execute_payable_scanner_finish_scan_with_an_error(PayableScanType::Retry);
+        test_execute_payable_scanner_finish_scan_with_an_error(PayableScanType::New, "new");
+        test_execute_payable_scanner_finish_scan_with_an_error(PayableScanType::Retry, "retry");
     }
 
-    fn test_execute_payable_scanner_finish_scan_with_an_error(payable_scan_type: PayableScanType) {
+    fn test_execute_payable_scanner_finish_scan_with_an_error(
+        payable_scan_type: PayableScanType,
+        suffix: &str,
+    ) {
         init_test_logging();
-        let test_name = "test_execute_payable_scanner_finish_scan_with_an_error";
+        let test_name = &format!("test_execute_payable_scanner_finish_scan_with_an_error_{suffix}");
         let response_skeleton = ResponseSkeleton {
             client_id: 1234,
             context_id: 5678,
@@ -217,7 +220,7 @@ mod tests {
         subject.mark_as_started(SystemTime::now());
         let sent_payables = SentPayables {
             payment_procedure_result: Err("Any error".to_string()),
-            payable_scan_type: PayableScanType::New,
+            payable_scan_type,
             response_skeleton_opt: Some(response_skeleton),
         };
         let logger = Logger::new(test_name);
@@ -231,7 +234,10 @@ mod tests {
                     target: MessageTarget::ClientId(response_skeleton.client_id),
                     body: UiScanResponse {}.tmb(response_skeleton.context_id),
                 }),
-                result: NextScanToRun::NewPayableScan,
+                result: match payable_scan_type {
+                    PayableScanType::New => NextScanToRun::NewPayableScan,
+                    PayableScanType::Retry => NextScanToRun::RetryPayableScan,
+                },
             }
         );
         let tlh = TestLogHandler::new();

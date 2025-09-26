@@ -569,7 +569,7 @@ mod tests {
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::Connection;
     use std::cmp::Ordering;
-    use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+    use std::collections::{BTreeSet, HashMap};
     use std::ops::{Add, Sub};
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};

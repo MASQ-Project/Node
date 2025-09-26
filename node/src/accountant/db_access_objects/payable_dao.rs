@@ -576,7 +576,6 @@ mod tests {
         DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
     };
     use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
-    use crate::database::test_utils::ConnectionWrapperMock;
     use crate::test_utils::make_wallet;
     use itertools::Itertools;
     use masq_lib::messages::TopRecordsOrdering::{Age, Balance};

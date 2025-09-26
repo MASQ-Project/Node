@@ -324,7 +324,6 @@ impl Handler<TxReceiptsMessage> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: TxReceiptsMessage, ctx: &mut Self::Context) -> Self::Result {
-        let response_skeleton_opt = msg.response_skeleton_opt;
         match self.scanners.finish_pending_payable_scan(msg, &self.logger) {
             PendingPayableScanResult::NoPendingPayablesLeft(ui_msg_opt) => {
                 if let Some(node_to_ui_msg) = ui_msg_opt {
@@ -1413,15 +1412,11 @@ mod tests {
         let sent_payable_dao_factory = SentPayableDaoFactoryMock::new()
             .make_params(&sent_payable_dao_factory_params_arc)
             .make_result(SentPayableDaoMock::new()) // For Accountant
+            .make_result(SentPayableDaoMock::new()) // For Payable Scanner
             .make_result(SentPayableDaoMock::new()); // For PendingPayable Scanner
         let failed_payable_dao_factory = FailedPayableDaoFactoryMock::new()
             .make_params(&failed_payable_dao_factory_params_arc)
-            .make_result(FailedPayableDaoMock::new()); // For Payable Scanner
-        let sent_payable_dao_factory = SentPayableDaoFactoryMock::new()
-            .make_params(&sent_payable_dao_factory_params_arc)
-            .make_result(SentPayableDaoMock::new()); // For Payable Scanner
-        let failed_payable_dao_factory = FailedPayableDaoFactoryMock::new()
-            .make_params(&failed_payable_dao_factory_params_arc)
+            .make_result(FailedPayableDaoMock::new()) // For Payable Scanner
             .make_result(FailedPayableDaoMock::new().retrieve_txs_result(BTreeSet::new())); // For PendingPayableScanner;
         let receivable_dao_factory = ReceivableDaoFactoryMock::new()
             .make_params(&receivable_dao_factory_params_arc)
@@ -1452,19 +1447,11 @@ mod tests {
         );
         assert_eq!(
             *sent_payable_dao_factory_params_arc.lock().unwrap(),
+            vec![(), (), ()]
+        );
+        assert_eq!(
+            *failed_payable_dao_factory_params_arc.lock().unwrap(),
             vec![(), ()]
-        );
-        assert_eq!(
-            *failed_payable_dao_factory_params_arc.lock().unwrap(),
-            vec![()]
-        );
-        assert_eq!(
-            *sent_payable_dao_factory_params_arc.lock().unwrap(),
-            vec![()]
-        );
-        assert_eq!(
-            *failed_payable_dao_factory_params_arc.lock().unwrap(),
-            vec![()]
         );
         assert_eq!(
             *receivable_dao_factory_params_arc.lock().unwrap(),
@@ -6858,7 +6845,7 @@ pub mod exportable_test_parts {
         check_if_source_code_is_attached, ensure_node_home_directory_exists, ShouldWeRunTheTest,
     };
     use regex::Regex;
-    use std::collections::{BTreeSet, HashSet};
+    use std::collections::BTreeSet;
     use std::env::current_dir;
     use std::fs::File;
     use std::io::{BufRead, BufReader};

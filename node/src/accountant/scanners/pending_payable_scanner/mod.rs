@@ -849,7 +849,7 @@ mod tests {
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use regex::Regex;
-    use std::collections::{BTreeMap, BTreeSet, HashMap};
+    use std::collections::{BTreeSet, HashMap};
     use std::ops::Sub;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Mutex};

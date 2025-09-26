@@ -566,15 +566,11 @@ mod tests {
     use crate::accountant::scanners::pending_payable_scanner::utils::TxHashByTable;
     use crate::accountant::test_utils::make_payable_account;
     use crate::blockchain::blockchain_agent::test_utils::BlockchainAgentMock;
+    use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainAgentBuildError;
     use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError::TransactionID;
-    use crate::blockchain::blockchain_interface::data_structures::errors::{
-        BlockchainAgentBuildError, LocalPayableError,
-    };
     use crate::blockchain::blockchain_interface::data_structures::{
         BlockchainTransaction, RetrievedBlockchainTransactions, TxBlock,
     };
-    use crate::blockchain::errors::rpc_errors::AppRpcError::Local;
-    use crate::blockchain::errors::rpc_errors::LocalError::Transport;
     use crate::blockchain::errors::rpc_errors::{
         AppRpcError, AppRpcErrorKind, LocalErrorKind, RemoteError,
     };

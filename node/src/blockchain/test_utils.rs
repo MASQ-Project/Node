@@ -5,7 +5,6 @@
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
     BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
 };
-use crate::blockchain::errors::validation_status::ValidationFailureClock;
 use bip39::{Language, Mnemonic, Seed};
 use ethabi::Hash;
 use ethereum_types::{BigEndianHash, H160, H256, U64};
@@ -14,10 +13,8 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::utils::to_string;
 use serde::Serialize;
 use serde_derive::Deserialize;
-use std::cell::RefCell;
 use std::fmt::Debug;
 use std::net::Ipv4Addr;
-use std::time::SystemTime;
 use web3::transports::{EventLoopHandle, Http};
 use web3::types::{Address, Index, Log, SignedTransaction, TransactionReceipt, H2048, U256};
 
