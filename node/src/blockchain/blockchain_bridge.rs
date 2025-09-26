@@ -8,7 +8,7 @@ use crate::accountant::scanners::payable_scanner::tx_templates::priced::new::Pri
 use crate::accountant::scanners::payable_scanner::tx_templates::priced::retry::PricedRetryTxTemplates;
 use crate::accountant::scanners::payable_scanner::utils::initial_templates_msg_stats;
 use crate::accountant::{
-    PayableScanType, ReceivedPayments, ResponseSkeleton, ScanError, SentPayables, SkeletonOptHolder,
+    ReceivedPayments, ResponseSkeleton, ScanError, SentPayables, SkeletonOptHolder,
 };
 use crate::accountant::{RequestTransactionReceipts, TxReceiptResult, TxReceiptsMessage};
 use crate::actor_system_factory::SubsFactory;
@@ -41,7 +41,6 @@ use itertools::{Either, Itertools};
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::DEFAULT_GAS_PRICE_MARGIN;
 use masq_lib::logger::Logger;
-use masq_lib::messages::ScanType;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use regex::Regex;
 use std::path::Path;
@@ -149,13 +148,14 @@ impl Handler<InitialTemplatesMessage> for BlockchainBridge {
     type Result = ();
 
     fn handle(&mut self, msg: InitialTemplatesMessage, _ctx: &mut Self::Context) {
-        self.handle_scan_future(
-            Self::handle_initial_templates_msg,
-            todo!(
-                "This needs to be decided on GH-605. Look what mode you run and set it accordingly"
-            ),
-            msg,
-        );
+        todo!("This needs to be decided on GH-605. Look what mode you run and set it accordingly");
+        // self.handle_scan_future(
+        //     Self::handle_initial_templates_msg,
+        //     todo!(
+        //         "This needs to be decided on GH-605. Look what mode you run and set it accordingly"
+        //     ),
+        //     msg,
+        // );
     }
 }
 
@@ -163,13 +163,14 @@ impl Handler<OutboundPaymentsInstructions> for BlockchainBridge {
     type Result = ();
 
     fn handle(&mut self, msg: OutboundPaymentsInstructions, _ctx: &mut Self::Context) {
-        self.handle_scan_future(
-            Self::handle_outbound_payments_instructions,
-            todo!(
-                "This needs to be decided on GH-605. Look what mode you run and set it accordingly"
-            ),
-            msg,
-        )
+        todo!("This needs to be decided on GH-605. Look what mode you run and set it accordingly")
+        // self.handle_scan_future(
+        //     Self::handle_outbound_payments_instructions,
+        //     todo!(
+        //         "This needs to be decided on GH-605. Look what mode you run and set it accordingly"
+        //     ),
+        //     msg,
+        // )
     }
 }
 

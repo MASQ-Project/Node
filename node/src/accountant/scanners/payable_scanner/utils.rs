@@ -9,7 +9,6 @@ use crate::accountant::{comma_joined_stringifiable, PendingPayable};
 use crate::blockchain::blockchain_interface::data_structures::BatchResults;
 use crate::sub_lib::accountant::PaymentThresholds;
 use crate::sub_lib::wallet::Wallet;
-use bytes::Buf;
 use itertools::{Either, Itertools};
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeToUiMessage;

@@ -12,7 +12,6 @@ use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use web3::types::{TransactionReceipt, H256};
-use web3::Error;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BlockchainTransaction {

@@ -543,6 +543,7 @@ macro_rules! btreeset {
 mod tests {
     use super::*;
     use itertools::Itertools;
+    use std::collections::BTreeSet;
     use std::collections::{BTreeMap, HashMap, HashSet};
     use std::env::current_dir;
     use std::fmt::Write;

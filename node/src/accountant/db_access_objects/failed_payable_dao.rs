@@ -5,9 +5,9 @@ use crate::accountant::db_access_objects::utils::{
 };
 use crate::accountant::db_access_objects::Transaction;
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
-use crate::accountant::{checked_conversion, comma_joined_stringifiable, join_with_separator};
+use crate::accountant::{comma_joined_stringifiable, join_with_separator};
 use crate::blockchain::errors::rpc_errors::{AppRpcError, AppRpcErrorKind};
-use crate::blockchain::errors::validation_status::{PreviousAttempts, ValidationStatus};
+use crate::blockchain::errors::validation_status::ValidationStatus;
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use masq_lib::utils::ExpectValue;
 use serde_derive::{Deserialize, Serialize};

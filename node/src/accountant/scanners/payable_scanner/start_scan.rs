@@ -1,6 +1,4 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::db_access_objects::failed_payable_dao::FailureRetrieveCondition::ByStatus;
-use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::RetryRequired;
 use crate::accountant::scanners::payable_scanner::msgs::InitialTemplatesMessage;
 use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::NewTxTemplates;
 use crate::accountant::scanners::payable_scanner::tx_templates::initial::retry::RetryTxTemplates;

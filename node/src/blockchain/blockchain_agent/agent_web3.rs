@@ -7,11 +7,9 @@ use crate::accountant::scanners::payable_scanner::tx_templates::priced::retry::P
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
-use itertools::{Either, Itertools};
+use itertools::Either;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
-use masq_lib::utils::ExpectValue;
-use thousands::Separable;
 
 #[derive(Debug, Clone)]
 pub struct BlockchainAgentWeb3 {

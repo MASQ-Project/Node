@@ -36,8 +36,6 @@ use crate::accountant::scanners::{Scanners, StartScanError};
 use crate::blockchain::blockchain_bridge::{
     BlockMarker, RegisterNewPendingPayables, RetrieveTransactions,
 };
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::HashAndAmount;
-use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
 use crate::blockchain::blockchain_interface::data_structures::{
     BatchResults, BlockchainTransaction, StatusReadFromReceiptCheck,
 };
@@ -81,12 +79,10 @@ use std::collections::{BTreeSet, HashMap};
 #[cfg(test)]
 use std::default::Default;
 use std::fmt::Display;
-use std::hash::Hash;
 use std::ops::{Div, Mul};
 use std::path::Path;
 use std::rc::Rc;
 use std::time::SystemTime;
-use web3::types::H256;
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
 pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; //6 hours

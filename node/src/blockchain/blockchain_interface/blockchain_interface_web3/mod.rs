@@ -17,7 +17,6 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
 use std::convert::{From, TryInto};
 use std::fmt::Debug;
-use actix::Recipient;
 use ethereum_types::U64;
 use itertools::Either;
 use web3::transports::{EventLoopHandle, Http};
@@ -30,7 +29,7 @@ use crate::accountant::scanners::payable_scanner::tx_templates::priced::retry::P
 use crate::accountant::scanners::payable_scanner::tx_templates::signable::SignableTxTemplates;
 use crate::accountant::scanners::pending_payable_scanner::utils::TxHashByTable;
 use crate::accountant::TxReceiptResult;
-use crate::blockchain::blockchain_bridge::{BlockMarker, BlockScanRange, RegisterNewPendingPayables};
+use crate::blockchain::blockchain_bridge::{BlockMarker, BlockScanRange};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::LowBlockchainIntWeb3;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::utils::{create_blockchain_agent_web3, send_payables_within_batch, BlockchainAgentFutureResult};
 use crate::blockchain::errors::rpc_errors::{AppRpcError, RemoteError};

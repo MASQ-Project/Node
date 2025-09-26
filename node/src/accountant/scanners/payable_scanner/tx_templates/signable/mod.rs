@@ -5,7 +5,6 @@ use crate::accountant::scanners::payable_scanner::tx_templates::priced::new::{
 use crate::accountant::scanners::payable_scanner::tx_templates::priced::retry::{
     PricedRetryTxTemplate, PricedRetryTxTemplates,
 };
-use bytes::Buf;
 use itertools::{Either, Itertools};
 use std::ops::Deref;
 use web3::types::Address;

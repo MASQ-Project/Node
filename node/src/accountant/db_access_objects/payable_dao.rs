@@ -5,8 +5,7 @@ use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
 use crate::accountant::db_access_objects::utils;
 use crate::accountant::db_access_objects::utils::{
     from_unix_timestamp, sum_i128_values_from_table, to_unix_timestamp, AssemblerFeeder,
-    CustomQuery, DaoFactoryReal, RangeStmConfig, RowId, TopStmConfig, TxHash,
-    VigilantRusqliteFlatten,
+    CustomQuery, DaoFactoryReal, RangeStmConfig, RowId, TopStmConfig, VigilantRusqliteFlatten,
 };
 use crate::accountant::db_big_integer::big_int_db_processor::KeyVariants::WalletAddress;
 use crate::accountant::db_big_integer::big_int_db_processor::{
@@ -30,7 +29,6 @@ use rusqlite::{Error, Row};
 use std::collections::BTreeSet;
 use std::fmt::{Debug, Display, Formatter};
 use std::time::SystemTime;
-use web3::types::H256;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum PayableDaoError {

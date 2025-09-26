@@ -14,7 +14,7 @@ use itertools::Itertools;
 use masq_lib::utils::ExpectValue;
 use serde_derive::{Deserialize, Serialize};
 use std::cmp::Ordering;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use web3::types::Address;

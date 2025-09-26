@@ -6,10 +6,7 @@ pub mod receivable_scanner;
 pub mod scan_schedulers;
 pub mod test_utils;
 
-use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDao};
-use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDao;
-use crate::accountant::db_access_objects::utils::TxHash;
-use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
+use crate::accountant::payment_adjuster::PaymentAdjusterReal;
 use crate::accountant::scanners::payable_scanner::msgs::{
     InitialTemplatesMessage, PricedTemplatesMessage,
 };
@@ -25,7 +22,6 @@ use crate::accountant::{
     TxReceiptsMessage,
 };
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
-use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
 use crate::db_config::persistent_configuration::PersistentConfigurationReal;
 use crate::sub_lib::accountant::{
     DaoFactories, DetailedScanType, FinancialStatistics, PaymentThresholds,
@@ -33,14 +29,12 @@ use crate::sub_lib::accountant::{
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
-use itertools::{Either, Itertools};
+use itertools::Either;
 use masq_lib::logger::Logger;
 use masq_lib::logger::TIME_FORMATTING_STRING;
-use masq_lib::messages::{ScanType, ToMessageBody, UiScanResponse};
-use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
-use masq_lib::utils::ExpectValue;
+use masq_lib::messages::ScanType;
+use masq_lib::ui_gateway::NodeToUiMessage;
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::rc::Rc;
 use std::time::SystemTime;

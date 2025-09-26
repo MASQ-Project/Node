@@ -2,7 +2,7 @@
 
 use crate::accountant::scanners::StartScanError;
 use crate::accountant::{
-    Accountant, ResponseSkeleton, ScanForNewPayables, ScanForPendingPayables, ScanForReceivables,
+    Accountant, ScanForNewPayables, ScanForPendingPayables, ScanForReceivables,
     ScanForRetryPayables,
 };
 use crate::sub_lib::accountant::ScanIntervals;

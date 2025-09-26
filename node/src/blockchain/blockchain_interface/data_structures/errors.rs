@@ -1,10 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
-use crate::accountant::{comma_joined_stringifiable, join_with_separator};
-use crate::accountant::db_access_objects::utils::TxHash;
-use itertools::{Either, Itertools};
-use std::collections::HashSet;
+use crate::accountant::join_with_separator;
+use itertools::Either;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use variant_count::VariantCount;

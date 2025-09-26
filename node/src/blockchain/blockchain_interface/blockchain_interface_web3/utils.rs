@@ -1,7 +1,6 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
-use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::db_access_objects::sent_payable_dao::{SentTx, TxStatus};
 use crate::accountant::db_access_objects::utils::to_unix_timestamp;
 use crate::accountant::scanners::payable_scanner::tx_templates::signable::{
@@ -19,13 +18,11 @@ use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
 use ethabi::Address;
 use futures::Future;
-use itertools::Either;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::WALLET_ADDRESS_LENGTH;
 use masq_lib::logger::Logger;
 use secp256k1secrets::SecretKey;
 use serde_json::Value;
-use std::collections::HashSet;
 use std::iter::once;
 use std::time::SystemTime;
 use thousands::Separable;
