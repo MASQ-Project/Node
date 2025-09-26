@@ -277,19 +277,18 @@ impl Scanners {
         };
     }
 
-    fn empty_caches(&mut self, _logger: &Logger) {
-        todo!("GH-605: Bert - As any mut is not a type");
-        // let pending_payable_scanner = self
-        //     .pending_payable
-        //     .as_any_mut()
-        //     .downcast_mut::<PendingPayableScanner>()
-        //     .expect("mismatched types");
-        // pending_payable_scanner
-        //     .current_sent_payables
-        //     .ensure_empty_cache(logger);
-        // pending_payable_scanner
-        //     .yet_unproven_failed_payables
-        //     .ensure_empty_cache(logger);
+    fn empty_caches(&mut self, logger: &Logger) {
+        let pending_payable_scanner = self
+            .pending_payable
+            .as_any_mut()
+            .downcast_mut::<PendingPayableScanner>()
+            .expect("mismatched types");
+        pending_payable_scanner
+            .current_sent_payables
+            .ensure_empty_cache(logger);
+        pending_payable_scanner
+            .yet_unproven_failed_payables
+            .ensure_empty_cache(logger);
     }
 
     pub fn try_skipping_payable_adjustment(
@@ -1186,24 +1185,24 @@ mod tests {
         hash: 0x0000000000000000000000000000000000000000000000000000000000000315 }]"
     )]
     fn just_baked_pending_payables_contain_duplicates() {
-        todo!("GH-605: Bert");
-        // let hash_1 = make_tx_hash(123);
-        // let hash_2 = make_tx_hash(456);
-        // let hash_3 = make_tx_hash(789);
-        // let pending_payables = vec![
-        //     PendingPayable::new(make_wallet("abc"), hash_1),
-        //     PendingPayable::new(make_wallet("def"), hash_2),
-        //     PendingPayable::new(make_wallet("ghi"), hash_2),
-        //     PendingPayable::new(make_wallet("jkl"), hash_3),
-        // ];
-        // let pending_payables_ref = pending_payables.iter().collect::<Vec<&PendingPayable>>();
-        // let sent_payable_dao = SentPayableDaoMock::new()
-        //     .get_tx_identifiers_result(hashmap!(hash_1 => 1, hash_2 => 3, hash_3 => 5));
-        // let subject = PayableScannerBuilder::new()
-        //     .sent_payable_dao(sent_payable_dao)
-        //     .build();
-        //
-        // subject.check_for_missing_records(&pending_payables_ref);
+       // todo!("GH-605: Bert");
+       //  let hash_1 = make_tx_hash(123);
+       //  let hash_2 = make_tx_hash(456);
+       //  let hash_3 = make_tx_hash(789);
+       //  let pending_payables = vec![
+       //      PendingPayable::new(make_wallet("abc"), hash_1),
+       //      PendingPayable::new(make_wallet("def"), hash_2),
+       //      PendingPayable::new(make_wallet("ghi"), hash_2),
+       //      PendingPayable::new(make_wallet("jkl"), hash_3),
+       //  ];
+       //  let pending_payables_ref = pending_payables.iter().collect::<Vec<&PendingPayable>>();
+       //  let sent_payable_dao = SentPayableDaoMock::new()
+       //      .get_tx_identifiers_result(hashmap!(hash_1 => 1, hash_2 => 3, hash_3 => 5));
+       //  let subject = PayableScannerBuilder::new()
+       //      .sent_payable_dao(sent_payable_dao)
+       //      .build();
+       //
+       //  subject.check_for_missing_records(&pending_payables_ref);
     }
 
     #[test]

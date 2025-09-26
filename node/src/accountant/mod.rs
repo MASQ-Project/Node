@@ -1306,14 +1306,7 @@ mod tests {
     use crate::accountant::test_utils::DaoWithDestination::{
         ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,
     };
-    use crate::accountant::test_utils::{
-        bc_from_earning_wallet, bc_from_wallets, make_payable_account,
-        make_qualified_and_unqualified_payables, make_transaction_block, BannedDaoFactoryMock,
-        ConfigDaoFactoryMock, FailedPayableDaoFactoryMock, FailedPayableDaoMock,
-        MessageIdGeneratorMock, PayableDaoFactoryMock, PayableDaoMock, PaymentAdjusterMock,
-        PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock,
-        SentPayableDaoFactoryMock, SentPayableDaoMock,
-    };
+    use crate::accountant::test_utils::{bc_from_earning_wallet, bc_from_wallets, make_payable_account, make_qualified_and_unqualified_payables, make_transaction_block, BannedDaoFactoryMock, ConfigDaoFactoryMock, DaoWithDestination, FailedPayableDaoFactoryMock, FailedPayableDaoMock, MessageIdGeneratorMock, PayableDaoFactoryMock, PayableDaoMock, PaymentAdjusterMock, PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock, SentPayableDaoFactoryMock, SentPayableDaoMock};
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
     use crate::accountant::Accountant;
     use crate::blockchain::blockchain_agent::test_utils::BlockchainAgentMock;
@@ -1658,7 +1651,7 @@ mod tests {
         let sent_payable_dao = SentPayableDaoMock::default().insert_new_records_result(Ok(()));
         let subject = AccountantBuilder::default()
             .payable_daos(vec![ForPayableScanner(payable_dao)])
-            .sent_payable_dao(sent_payable_dao)
+            .sent_payable_daos(vec![DaoWithDestination::ForPayableScanner(sent_payable_dao)])
             .bootstrapper_config(config)
             .build();
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
@@ -4947,14 +4940,12 @@ mod tests {
         // let sent_payable_dao = SentPayableDaoMock::default()
         //     .get_tx_identifiers_params(&get_tx_identifiers_params_arc)
         //     .get_tx_identifiers_result(hashmap! (expected_hash => expected_rowid));
-
         let system =
             System::new("accountant_processes_sent_payables_and_schedules_pending_payable_scanner");
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(make_wallet("some_wallet_address")))
             .payable_daos(vec![ForPayableScanner(payable_dao)])
-            // .sent_payable_daos(vec![ForPayableScanner(sent_payable_dao)])
-            .sent_payable_dao(sent_payable_dao)
+            .sent_payable_daos(vec![ForPayableScanner(sent_payable_dao)])
             .build();
         let pending_payable_interval = Duration::from_millis(55);
         subject.scan_schedulers.pending_payable.interval = pending_payable_interval;
@@ -5015,8 +5006,8 @@ mod tests {
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(make_wallet("some_wallet_address")))
             .payable_daos(vec![ForPayableScanner(payable_dao)])
-            .failed_payable_dao(failed_payble_dao)
-            .sent_payable_dao(sent_payable_dao)
+            .failed_payable_daos(vec![ForPayableScanner(failed_payble_dao)])
+            .sent_payable_daos(vec![ForPayableScanner(sent_payable_dao)])
             .build();
         let pending_payable_interval = Duration::from_millis(55);
         subject.scan_schedulers.pending_payable.interval = pending_payable_interval;

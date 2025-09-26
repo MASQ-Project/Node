@@ -8,7 +8,7 @@ use crate::accountant::db_access_objects::sent_payable_dao::{SentTx, TxStatus};
 use crate::accountant::db_access_objects::utils::{current_unix_timestamp, TxHash};
 use crate::accountant::scanners::payable_scanner::tx_templates::signable::SignableTxTemplate;
 use crate::blockchain::errors::validation_status::ValidationStatus;
-use crate::blockchain::test_utils::make_tx_hash;
+use crate::blockchain::test_utils::{make_address, make_tx_hash};
 use crate::database::db_initializer::{
     DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
 };
@@ -168,6 +168,10 @@ pub fn make_failed_tx(n: u32) -> FailedTx {
     let n = (n * 2) + 1; // Always Odd
     FailedTxBuilder::default()
         .hash(make_tx_hash(n))
+        .timestamp(((3*n) as i64).pow(3))
+        .receiver_address(make_address(n.pow(2)))
+        .gas_price_wei((n as u128).pow(3))
+        .amount((n as u128).pow(4))
         .nonce(n as u64)
         .build()
 }
@@ -176,7 +180,13 @@ pub fn make_sent_tx(n: u32) -> SentTx {
     let n = n * 2; // Always Even
     TxBuilder::default()
         .hash(make_tx_hash(n))
-        .nonce(n as u64)
+        .timestamp(((3*n) as i64).pow(3))
+        .template(SignableTxTemplate{
+            receiver_address: make_address(n.pow(2)),
+            amount_in_wei: (n as u128).pow(4),
+            gas_price_wei: (n as u128).pow(3),
+            nonce: n as u64,
+        })
         .build()
 }
 

@@ -260,9 +260,11 @@ const PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER: [DestinationMarker; 3] = [
     DestinationMarker::PendingPayableScanner,
 ];
 
-//TODO Utkarsh should also update this
-const FAILED_PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER: [DestinationMarker; 1] =
-    [DestinationMarker::PendingPayableScanner];
+const FAILED_PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER: [DestinationMarker; 2] =
+    [
+        DestinationMarker::PayableScanner,
+        DestinationMarker::PendingPayableScanner
+    ];
 
 const SENT_PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER: [DestinationMarker; 3] = [
     DestinationMarker::AccountantBody,
@@ -354,38 +356,38 @@ impl AccountantBuilder {
         )
     }
 
-    pub fn sent_payable_dao(mut self, sent_payable_dao: SentPayableDaoMock) -> Self {
-        // TODO: GH-605: Bert Merge Cleanup - Prefer the standard create_or_update_factory! style - as in GH-598
-        match self.sent_payable_dao_factory_opt {
-            None => {
-                self.sent_payable_dao_factory_opt =
-                    Some(SentPayableDaoFactoryMock::new().make_result(sent_payable_dao))
-            }
-            Some(sent_payable_dao_factory) => {
-                self.sent_payable_dao_factory_opt =
-                    Some(sent_payable_dao_factory.make_result(sent_payable_dao))
-            }
-        }
-
-        self
-    }
-
-    pub fn failed_payable_dao(mut self, failed_payable_dao: FailedPayableDaoMock) -> Self {
-        // TODO: GH-605: Bert Merge cleanup - Prefer the standard create_or_update_factory! style - as in GH-598
-
-        match self.failed_payable_dao_factory_opt {
-            None => {
-                self.failed_payable_dao_factory_opt =
-                    Some(FailedPayableDaoFactoryMock::new().make_result(failed_payable_dao))
-            }
-            Some(failed_payable_dao_factory) => {
-                self.failed_payable_dao_factory_opt =
-                    Some(failed_payable_dao_factory.make_result(failed_payable_dao))
-            }
-        }
-
-        self
-    }
+    // pub fn sent_payable_dao(mut self, sent_payable_dao: SentPayableDaoMock) -> Self {
+    //     // TODO: GH-605: Bert Merge Cleanup - Prefer the standard create_or_update_factory! style - as in GH-598
+    //     match self.sent_payable_dao_factory_opt {
+    //         None => {
+    //             self.sent_payable_dao_factory_opt =
+    //                 Some(SentPayableDaoFactoryMock::new().make_result(sent_payable_dao))
+    //         }
+    //         Some(sent_payable_dao_factory) => {
+    //             self.sent_payable_dao_factory_opt =
+    //                 Some(sent_payable_dao_factory.make_result(sent_payable_dao))
+    //         }
+    //     }
+    //
+    //     self
+    // }
+    //
+    // pub fn failed_payable_dao(mut self, failed_payable_dao: FailedPayableDaoMock) -> Self {
+    //     // TODO: GH-605: Bert Merge cleanup - Prefer the standard create_or_update_factory! style - as in GH-598
+    //
+    //     match self.failed_payable_dao_factory_opt {
+    //         None => {
+    //             self.failed_payable_dao_factory_opt =
+    //                 Some(FailedPayableDaoFactoryMock::new().make_result(failed_payable_dao))
+    //         }
+    //         Some(failed_payable_dao_factory) => {
+    //             self.failed_payable_dao_factory_opt =
+    //                 Some(failed_payable_dao_factory.make_result(failed_payable_dao))
+    //         }
+    //     }
+    //
+    //     self
+    // }
 
     //TODO this method seems to be never used?
     pub fn banned_dao(mut self, banned_dao: BannedDaoMock) -> Self {

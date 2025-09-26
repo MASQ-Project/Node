@@ -865,7 +865,6 @@ mod tests {
         let test_name = "failure_cache_ensure_empty_sad_path";
         let mut subject = RecheckRequiringFailures::new();
         let failed_tx = make_failed_tx(567);
-        let tx_timestamp = failed_tx.timestamp;
         let records = vec![failed_tx.clone()];
         let logger = Logger::new(test_name);
         subject.load_cache(records);
@@ -880,10 +879,10 @@ mod tests {
         TestLogHandler::default().exists_log_containing(&format!(
             "DEBUG: {test_name}: \
         Cache misuse - some tx failures left unprocessed: \
-        {{0x0000000000000000000000000000000000000000000000000000000000000237: FailedTx {{ hash: \
-        0x0000000000000000000000000000000000000000000000000000000000000237, receiver_address: \
-        0x000000000000000000000077616c6c6574353637, amount_minor: 321489000000000, timestamp: \
-        {tx_timestamp}, gas_price_minor: 567000000000, nonce: 567, reason: PendingTooLong, status: \
+        {{0x000000000000000000000000000000000000000000000000000000000000046f: FailedTx {{ hash: \
+        0x000000000000000000000000000000000000000000000000000000000000046f, receiver_address: \
+        0x000000000000000000000000000000000013a821, amount_minor: 1659523650625, timestamp: \
+        39477655125, gas_price_minor: 1462135375, nonce: 1135, reason: PendingTooLong, status: \
         RetryRequired }}}}. Dumping."
         ));
     }

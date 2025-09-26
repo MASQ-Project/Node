@@ -185,7 +185,7 @@ pub fn make_default_signed_transaction() -> SignedTransaction {
     }
 }
 
-pub fn make_hash(base: u32) -> Hash {
+fn make_hash(base: u32) -> H256 {
     H256::from_uint(&U256::from(base))
 }
 
