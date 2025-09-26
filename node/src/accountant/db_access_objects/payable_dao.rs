@@ -29,6 +29,7 @@ use rusqlite::{Error, Row};
 use std::collections::BTreeSet;
 use std::fmt::{Debug, Display, Formatter};
 use std::time::SystemTime;
+use web3::types::H256;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum PayableDaoError {
@@ -563,7 +564,7 @@ mod tests {
     use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
     use crate::accountant::db_access_objects::test_utils::make_sent_tx;
     use crate::accountant::db_access_objects::utils::{
-        current_unix_timestamp, from_unix_timestamp, to_unix_timestamp,
+        current_unix_timestamp, from_unix_timestamp, to_unix_timestamp, TxHash,
     };
     use crate::accountant::gwei_to_wei;
     use crate::accountant::test_utils::{

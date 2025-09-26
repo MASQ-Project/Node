@@ -431,4 +431,43 @@ mod tests {
             "invalid type: string \"Yesterday\", expected struct SystemTime at line 1 column 79"
         );
     }
+
+    #[test]
+    fn validation_status_ordering_works_correctly() {
+        let now = SystemTime::now();
+        let clock = ValidationFailureClockMock::default()
+            .now_result(now)
+            .now_result(now + Duration::from_secs(1));
+
+        let waiting = ValidationStatus::Waiting;
+        let reattempting_early = ValidationStatus::Reattempting(PreviousAttempts::new(
+            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Decoder)),
+            &clock,
+        ));
+        let reattempting_late = ValidationStatus::Reattempting(PreviousAttempts::new(
+            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Io)),
+            &clock,
+        ));
+
+        // Waiting < Reattempting
+        assert_eq!(waiting.cmp(&reattempting_early), Ordering::Less);
+        assert_eq!(
+            waiting.partial_cmp(&reattempting_early),
+            Some(Ordering::Less)
+        );
+
+        // Earlier reattempting < Later reattempting
+        assert_eq!(reattempting_early.cmp(&reattempting_late), Ordering::Less);
+        assert_eq!(
+            reattempting_early.partial_cmp(&reattempting_late),
+            Some(Ordering::Less)
+        );
+
+        // Waiting == Waiting
+        assert_eq!(waiting.cmp(&ValidationStatus::Waiting), Ordering::Equal);
+        assert_eq!(
+            waiting.partial_cmp(&ValidationStatus::Waiting),
+            Some(Ordering::Equal)
+        );
+    }
 }

@@ -1376,6 +1376,7 @@ mod tests {
     use std::sync::Mutex;
     use std::time::{Duration, UNIX_EPOCH};
     use std::vec;
+    use web3::types::H256;
 
     impl Handler<AssertionsMessage<Accountant>> for Accountant {
         type Result = ();

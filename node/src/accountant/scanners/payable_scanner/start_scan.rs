@@ -80,7 +80,9 @@ impl StartableScanner<ScanForRetryPayables, InitialTemplatesMessage> for Payable
 mod tests {
     use super::*;
     use crate::accountant::db_access_objects::failed_payable_dao::FailureReason::PendingTooLong;
+    use crate::accountant::db_access_objects::failed_payable_dao::FailureRetrieveCondition::ByStatus;
     use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus;
+    use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::RetryRequired;
     use crate::accountant::db_access_objects::payable_dao::PayableRetrieveCondition;
     use crate::accountant::db_access_objects::test_utils::FailedTxBuilder;
     use crate::accountant::scanners::payable_scanner::test_utils::PayableScannerBuilder;

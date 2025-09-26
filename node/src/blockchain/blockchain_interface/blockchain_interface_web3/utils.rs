@@ -348,6 +348,7 @@ mod tests {
     use actix::{Actor, System};
     use ethabi::Address;
     use ethereum_types::H256;
+    use itertools::Either;
     use jsonrpc_core::ErrorCode::ServerError;
     use jsonrpc_core::{Error, ErrorCode};
     use masq_lib::constants::{DEFAULT_CHAIN, DEFAULT_GAS_PRICE};
