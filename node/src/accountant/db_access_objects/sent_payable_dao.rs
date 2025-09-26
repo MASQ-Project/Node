@@ -98,13 +98,32 @@ pub enum TxStatus {
 
 impl PartialOrd for TxStatus {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        todo!()
+        Some(self.cmp(other))
     }
 }
 
 impl Ord for TxStatus {
     fn cmp(&self, other: &Self) -> Ordering {
-        todo!()
+        match (self, other) {
+            (TxStatus::Pending(status1), TxStatus::Pending(status2)) => status1.cmp(status2),
+            (TxStatus::Pending(_), TxStatus::Confirmed { .. }) => Ordering::Less,
+            (TxStatus::Confirmed { .. }, TxStatus::Pending(_)) => Ordering::Greater,
+            (
+                TxStatus::Confirmed {
+                    block_number: bn1,
+                    detection: det1,
+                    block_hash: bh1,
+                },
+                TxStatus::Confirmed {
+                    block_number: bn2,
+                    detection: det2,
+                    block_hash: bh2,
+                },
+            ) => bn1
+                .cmp(bn2)
+                .then_with(|| det1.cmp(det2))
+                .then_with(|| bh1.cmp(bh2)),
+        }
     }
 }
 
@@ -187,22 +206,6 @@ pub trait SentPayableDao {
     //TODO potentially atomically
     fn delete_records(&self, hashes: &BTreeSet<TxHash>) -> Result<(), SentPayableDaoError>;
 }
-
-// TODO: GH-605: Coming from GH-598
-// pub trait SentPayableDao {
-//     fn get_tx_identifiers(&self, hashes: &HashSet<TxHash>) -> TxIdentifiers;
-//     fn insert_new_records(&self, txs: &[SentTx]) -> Result<(), SentPayableDaoError>;
-//     fn retrieve_txs(&self, condition: Option<RetrieveCondition>) -> Vec<SentTx>;
-//     //TODO potentially atomically
-//     fn confirm_txs(&self, hash_map: &HashMap<TxHash, TxBlock>) -> Result<(), SentPayableDaoError>;
-//     fn replace_records(&self, new_txs: &[SentTx]) -> Result<(), SentPayableDaoError>;
-//     fn update_statuses(
-//         &self,
-//         hash_map: &HashMap<TxHash, TxStatus>,
-//     ) -> Result<(), SentPayableDaoError>;
-//     //TODO potentially atomically
-//     fn delete_records(&self, hashes: &HashSet<TxHash>) -> Result<(), SentPayableDaoError>;
-// }
 
 #[derive(Debug)]
 pub struct SentPayableDaoReal<'a> {
@@ -565,6 +568,7 @@ mod tests {
     use ethereum_types::{H256, U64};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::Connection;
+    use std::cmp::Ordering;
     use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
     use std::ops::{Add, Sub};
     use std::str::FromStr;
@@ -1649,5 +1653,61 @@ mod tests {
         assert_eq!(tx.gas_price_wei(), gas_price_minor);
         assert_eq!(tx.nonce(), nonce);
         assert_eq!(tx.is_failed(), false);
+    }
+
+    #[test]
+    fn tx_status_ordering_works_correctly() {
+        let now = SystemTime::now();
+        let clock = ValidationFailureClockMock::default()
+            .now_result(now)
+            .now_result(now + Duration::from_secs(1));
+
+        let pending_waiting = TxStatus::Pending(ValidationStatus::Waiting);
+        let pending_reattempting =
+            TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
+                BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Decoder)),
+                &clock,
+            )));
+        let confirmed_early = TxStatus::Confirmed {
+            block_hash: "0x123".to_string(),
+            block_number: 100,
+            detection: Detection::Normal,
+        };
+        let confirmed_late = TxStatus::Confirmed {
+            block_hash: "0x456".to_string(),
+            block_number: 200,
+            detection: Detection::Normal,
+        };
+
+        // Pending < Confirmed
+        assert_eq!(pending_waiting.cmp(&confirmed_early), Ordering::Less);
+        assert_eq!(
+            pending_waiting.partial_cmp(&confirmed_early),
+            Some(Ordering::Less)
+        );
+
+        // Within Pending: Waiting < Reattempting
+        assert_eq!(pending_waiting.cmp(&pending_reattempting), Ordering::Less);
+        assert_eq!(
+            pending_waiting.partial_cmp(&pending_reattempting),
+            Some(Ordering::Less)
+        );
+
+        // Within Confirmed: earlier block < later block
+        assert_eq!(confirmed_early.cmp(&confirmed_late), Ordering::Less);
+        assert_eq!(
+            confirmed_early.partial_cmp(&confirmed_late),
+            Some(Ordering::Less)
+        );
+
+        // Equal comparison
+        assert_eq!(
+            pending_waiting.cmp(&TxStatus::Pending(ValidationStatus::Waiting)),
+            Ordering::Equal
+        );
+        assert_eq!(
+            pending_waiting.partial_cmp(&TxStatus::Pending(ValidationStatus::Waiting)),
+            Some(Ordering::Equal)
+        );
     }
 }

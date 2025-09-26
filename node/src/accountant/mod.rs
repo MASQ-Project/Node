@@ -2226,7 +2226,7 @@ mod tests {
     ) {
         // TODO when we have more logic in place with the other cards taken in, we'll need to configure these
         // accordingly
-        // TODO now only GH-605 logic is missing
+        // TODO: GH-605: Bert - now only GH-605 logic is missing
         let response_skeleton_opt = Some(ResponseSkeleton {
             client_id: 4555,
             context_id: 5566,

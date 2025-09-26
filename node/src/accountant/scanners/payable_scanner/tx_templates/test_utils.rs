@@ -31,7 +31,6 @@ pub fn make_priced_new_tx_template(n: u64) -> PricedNewTxTemplate {
 }
 
 pub fn make_priced_retry_tx_template(prev_nonce: u64) -> PricedRetryTxTemplate {
-    // TODO: GH-605: During the merge, check against fns used by Bert and keep only one version of the two.
     PricedRetryTxTemplate {
         base: BaseTxTemplate::from(&make_payable_account(prev_nonce)),
         prev_nonce,

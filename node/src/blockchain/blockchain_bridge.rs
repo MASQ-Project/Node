@@ -151,9 +151,7 @@ impl Handler<InitialTemplatesMessage> for BlockchainBridge {
         todo!("This needs to be decided on GH-605. Look what mode you run and set it accordingly");
         // self.handle_scan_future(
         //     Self::handle_initial_templates_msg,
-        //     todo!(
-        //         "This needs to be decided on GH-605. Look what mode you run and set it accordingly"
-        //     ),
+        //     DetailedScanType::
         //     msg,
         // );
     }
@@ -166,9 +164,7 @@ impl Handler<OutboundPaymentsInstructions> for BlockchainBridge {
         todo!("This needs to be decided on GH-605. Look what mode you run and set it accordingly")
         // self.handle_scan_future(
         //     Self::handle_outbound_payments_instructions,
-        //     todo!(
-        //         "This needs to be decided on GH-605. Look what mode you run and set it accordingly"
-        //     ),
+        //     DetailedScanType::
         //     msg,
         // )
     }
@@ -508,14 +504,6 @@ impl BlockchainBridge {
         self.blockchain_interface
             .submit_payables_in_batch(logger, agent, priced_templates)
     }
-
-    // TODO: GH-605: Unused code
-    // fn new_pending_payables_recipient(&self) -> Recipient<RegisterNewPendingPayables> {
-    //     self.pending_payable_confirmation
-    //         .register_new_pending_payables_sub_opt
-    //         .clone()
-    //         .expect("Accountant unbound")
-    // }
 
     pub fn extract_max_block_count(error: BlockchainInterfaceError) -> Option<u64> {
         let regex_result =

@@ -278,7 +278,7 @@ impl Scanners {
     }
 
     fn empty_caches(&mut self, logger: &Logger) {
-        todo!("GH-605: As any mut is not a type");
+        todo!("GH-605: Bert - As any mut is not a type");
         // let pending_payable_scanner = self
         //     .pending_payable
         //     .as_any_mut()
@@ -1188,7 +1188,7 @@ mod tests {
         hash: 0x0000000000000000000000000000000000000000000000000000000000000315 }]"
     )]
     fn just_baked_pending_payables_contain_duplicates() {
-        todo!("another pending payable issue");
+        todo!("GH-605: Bert");
         // let hash_1 = make_tx_hash(123);
         // let hash_2 = make_tx_hash(456);
         // let hash_3 = make_tx_hash(789);
@@ -1207,111 +1207,6 @@ mod tests {
         //
         // subject.check_for_missing_records(&pending_payables_ref);
     }
-
-    #[test]
-    #[should_panic(expected = "Expected sent-payable records for \
-    (tx: 0x00000000000000000000000000000000000000000000000000000000000000f8, \
-    to wallet: 0x00000000000000000000000000626c6168323232) \
-    were not found. The system has become unreliable")]
-    fn payable_scanner_found_out_nonexistent_sent_tx_records() {
-        todo!("GH-605: Work on it")
-        // init_test_logging();
-        // let test_name = "payable_scanner_found_out_nonexistent_sent_tx_records";
-        // let hash_1 = make_tx_hash(0xff);
-        // let hash_2 = make_tx_hash(0xf8);
-        // let sent_payable_dao =
-        //     SentPayableDaoMock::default().get_tx_identifiers_result(hashmap!(hash_1 => 7881));
-        // let payable_1 = PendingPayable::new(make_wallet("blah111"), hash_1);
-        // let payable_2 = PendingPayable::new(make_wallet("blah222"), hash_2);
-        // let payable_dao = PayableDaoMock::new().mark_pending_payables_rowids_result(Err(
-        //     PayableDaoError::SignConversion(9999999999999),
-        // ));
-        // let mut subject = PayableScannerBuilder::new()
-        //     .payable_dao(payable_dao)
-        //     .sent_payable_dao(sent_payable_dao)
-        //     .build();
-
-        // let sent_payables = SentPayables {
-        //     payment_procedure_result: Ok(vec![
-        //         ProcessedPayableFallible::Correct(payable_1),
-        //         ProcessedPayableFallible::Correct(payable_2),
-        //     ]),
-        //     response_skeleton_opt: None,
-        // };
-
-        // subject.finish_scan(sent_payables, &Logger::new(test_name));
-    }
-
-    // TODO: GH-605: Verify and remove
-    // #[test]
-    // fn payable_scanner_is_facing_failed_transactions_and_their_sent_tx_records_exist() {
-    //     init_test_logging();
-    //     let test_name =
-    //         "payable_scanner_is_facing_failed_transactions_and_their_sent_tx_records_exist";
-    //     let get_tx_identifiers_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let delete_records_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let hash_tx_1 = make_tx_hash(0x15b3);
-    //     let hash_tx_2 = make_tx_hash(0x3039);
-    //     let first_sent_tx_rowid = 3;
-    //     let second_sent_tx_rowid = 5;
-    //     let system = System::new(test_name);
-    //     let sent_payable_dao = SentPayableDaoMock::default()
-    //         .get_tx_identifiers_params(&get_tx_identifiers_params_arc)
-    //         .get_tx_identifiers_result(
-    //             hashmap!(hash_tx_1 => first_sent_tx_rowid, hash_tx_2 => second_sent_tx_rowid),
-    //         )
-    //         .delete_records_params(&delete_records_params_arc)
-    //         .delete_records_result(Ok(()));
-    //     let payable_scanner = PayableScannerBuilder::new()
-    //         .sent_payable_dao(sent_payable_dao)
-    //         .build();
-    //     let logger = Logger::new(test_name);
-    //     let sent_payable = SentPayables {
-    //         payment_procedure_result: Err(PayableTransactionError::Sending {
-    //             msg: "Attempt failed".to_string(),
-    //             hashes: hashset![hash_tx_1, hash_tx_2],
-    //         }),
-    //         response_skeleton_opt: None,
-    //     };
-    //     let mut subject = make_dull_subject();
-    //     subject.payable = Box::new(payable_scanner);
-    //     let sent_payables = SentPayables {
-    //         payment_procedure_result: Ok(BatchResults {
-    //             sent_txs: vec![make_sent_tx(1)],
-    //             failed_txs: vec![],
-    //         }),
-    //         payable_scan_type: PayableScanType::New,
-    //         response_skeleton_opt: None,
-    //     };
-    //     let aware_of_unresolved_pending_payable_before =
-    //         subject.aware_of_unresolved_pending_payable;
-    //
-    //     subject.finish_payable_scan(sent_payables, &logger);
-    //
-    //     let aware_of_unresolved_pending_payable_after = subject.aware_of_unresolved_pending_payable;
-    //     assert_eq!(aware_of_unresolved_pending_payable_before, false);
-    //     assert_eq!(aware_of_unresolved_pending_payable_after, false);
-    //     let sent_tx_rowids_params = get_tx_identifiers_params_arc.lock().unwrap();
-    //     assert_eq!(*sent_tx_rowids_params, vec![hashset!(hash_tx_1, hash_tx_2)]);
-    //     let delete_records_params = delete_records_params_arc.lock().unwrap();
-    //     assert_eq!(*delete_records_params, vec![hashset!(hash_tx_1, hash_tx_2)]);
-    //     let log_handler = TestLogHandler::new();
-    //     log_handler.exists_log_containing(&format!(
-    //         "WARN: {test_name}: \
-    //      Any persisted data from the failed process will be deleted. Caused by: Sending phase: \
-    //      \"Attempt failed\". \
-    //      Signed and hashed txs: \
-    //      0x00000000000000000000000000000000000000000000000000000000000015b3, \
-    //      0x0000000000000000000000000000000000000000000000000000000000003039"
-    //     ));
-    //     log_handler.exists_log_containing(&format!(
-    //         "WARN: {test_name}: \
-    //         Deleting sent payable records for \
-    //         0x00000000000000000000000000000000000000000000000000000000000015b3, \
-    //         0x0000000000000000000000000000000000000000000000000000000000003039",
-    //     ));
-    //     // we haven't supplied any result for mark_pending_payable() and so it's proved uncalled
-    // }
 
     #[test]
     fn finish_payable_scan_changes_the_aware_of_unresolved_pending_payable_flag_as_true_when_pending_txs_found_in_retry_mode(

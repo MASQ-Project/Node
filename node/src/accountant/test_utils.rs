@@ -95,66 +95,12 @@ pub fn make_payable_account_with_wallet_and_balance_and_timestamp_opt(
     }
 }
 
-// TODO: GH-605: Remove them
-// pub fn make_sent_tx(num: u64) -> SentTx {
-//     if num == 0 {
-//         panic!("num for generating must be greater than 0");
-//     }
-//     let params = TxRecordCommonParts::new(num);
-//     SentTx {
-//         hash: params.hash,
-//         receiver_address: params.receiver_address,
-//         amount_minor: params.amount_minor,
-//         timestamp: params.timestamp,
-//         gas_price_minor: params.gas_price_minor,
-//         nonce: params.nonce,
-//         status: TxStatus::Pending(ValidationStatus::Waiting),
-//     }
-// }
-//
-// pub fn make_failed_tx(num: u64) -> FailedTx {
-//     let params = TxRecordCommonParts::new(num);
-//     FailedTx {
-//         hash: params.hash,
-//         receiver_address: params.receiver_address,
-//         amount_minor: params.amount_minor,
-//         timestamp: params.timestamp,
-//         gas_price_minor: params.gas_price_minor,
-//         nonce: params.nonce,
-//         reason: FailureReason::PendingTooLong,
-//         status: FailureStatus::RetryRequired,
-//     }
-// }
-
 pub fn make_transaction_block(num: u64) -> TxBlock {
     TxBlock {
         block_hash: make_block_hash(num as u32),
         block_number: U64::from(num * num * num),
     }
 }
-
-// TODO: GH-605: Unused code
-// struct TxRecordCommonParts {
-//     hash: TxHash,
-//     receiver_address: Address,
-//     amount_minor: u128,
-//     timestamp: i64,
-//     gas_price_minor: u128,
-//     nonce: u64,
-// }
-//
-// impl TxRecordCommonParts {
-//     fn new(num: u64) -> Self {
-//         Self {
-//             hash: make_tx_hash(num as u32),
-//             receiver_address: make_wallet(&format!("wallet{}", num)).address(),
-//             amount_minor: gwei_to_wei(num * num),
-//             timestamp: to_unix_timestamp(SystemTime::now()) - (num as i64 * 60),
-//             gas_price_minor: gwei_to_wei(num),
-//             nonce: num,
-//         }
-//     }
-// }
 
 pub struct AccountantBuilder {
     config_opt: Option<BootstrapperConfig>,
@@ -410,7 +356,7 @@ impl AccountantBuilder {
     }
 
     pub fn sent_payable_dao(mut self, sent_payable_dao: SentPayableDaoMock) -> Self {
-        // TODO: GH-605: Merge Cleanup - Prefer the standard create_or_update_factory! style - as in GH-598
+        // TODO: GH-605: Bert Merge Cleanup - Prefer the standard create_or_update_factory! style - as in GH-598
         match self.sent_payable_dao_factory_opt {
             None => {
                 self.sent_payable_dao_factory_opt =
@@ -426,7 +372,7 @@ impl AccountantBuilder {
     }
 
     pub fn failed_payable_dao(mut self, failed_payable_dao: FailedPayableDaoMock) -> Self {
-        // TODO: GH-605: Merge cleanup - Prefer the standard create_or_update_factory! style - as in GH-598
+        // TODO: GH-605: Bert Merge cleanup - Prefer the standard create_or_update_factory! style - as in GH-598
 
         match self.failed_payable_dao_factory_opt {
             None => {
