@@ -133,27 +133,28 @@ pub fn make_transaction_block(num: u64) -> TxBlock {
     }
 }
 
-struct TxRecordCommonParts {
-    hash: TxHash,
-    receiver_address: Address,
-    amount_minor: u128,
-    timestamp: i64,
-    gas_price_minor: u128,
-    nonce: u64,
-}
-
-impl TxRecordCommonParts {
-    fn new(num: u64) -> Self {
-        Self {
-            hash: make_tx_hash(num as u32),
-            receiver_address: make_wallet(&format!("wallet{}", num)).address(),
-            amount_minor: gwei_to_wei(num * num),
-            timestamp: to_unix_timestamp(SystemTime::now()) - (num as i64 * 60),
-            gas_price_minor: gwei_to_wei(num),
-            nonce: num,
-        }
-    }
-}
+// TODO: GH-605: Unused code
+// struct TxRecordCommonParts {
+//     hash: TxHash,
+//     receiver_address: Address,
+//     amount_minor: u128,
+//     timestamp: i64,
+//     gas_price_minor: u128,
+//     nonce: u64,
+// }
+//
+// impl TxRecordCommonParts {
+//     fn new(num: u64) -> Self {
+//         Self {
+//             hash: make_tx_hash(num as u32),
+//             receiver_address: make_wallet(&format!("wallet{}", num)).address(),
+//             amount_minor: gwei_to_wei(num * num),
+//             timestamp: to_unix_timestamp(SystemTime::now()) - (num as i64 * 60),
+//             gas_price_minor: gwei_to_wei(num),
+//             nonce: num,
+//         }
+//     }
+// }
 
 pub struct AccountantBuilder {
     config_opt: Option<BootstrapperConfig>,

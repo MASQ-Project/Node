@@ -427,7 +427,6 @@ mod tests {
 
     #[test]
     fn sign_and_append_multiple_payments_works() {
-        let now = SystemTime::now();
         let port = find_free_port();
         let logger = Logger::new("sign_and_append_multiple_payments_works");
         let (_event_loop_handle, transport) = Http::with_max_parallel(
@@ -444,7 +443,7 @@ mod tests {
             make_signable_tx_template(5),
         ]);
 
-        let mut result = sign_and_append_multiple_payments(
+        let result = sign_and_append_multiple_payments(
             &logger,
             DEFAULT_CHAIN,
             &web3_batch,

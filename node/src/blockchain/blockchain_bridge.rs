@@ -509,12 +509,13 @@ impl BlockchainBridge {
             .submit_payables_in_batch(logger, agent, priced_templates)
     }
 
-    fn new_pending_payables_recipient(&self) -> Recipient<RegisterNewPendingPayables> {
-        self.pending_payable_confirmation
-            .register_new_pending_payables_sub_opt
-            .clone()
-            .expect("Accountant unbound")
-    }
+    // TODO: GH-605: Unused code
+    // fn new_pending_payables_recipient(&self) -> Recipient<RegisterNewPendingPayables> {
+    //     self.pending_payable_confirmation
+    //         .register_new_pending_payables_sub_opt
+    //         .clone()
+    //         .expect("Accountant unbound")
+    // }
 
     pub fn extract_max_block_count(error: BlockchainInterfaceError) -> Option<u64> {
         let regex_result =
@@ -935,9 +936,7 @@ mod tests {
             })
             .unwrap();
 
-        let time_before = SystemTime::now();
         system.run();
-        let time_after = SystemTime::now();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         // TODO: GH-701: This card is related to the commented out code in this test
         // let pending_payable_fingerprint_seeds_msg =
