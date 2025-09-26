@@ -21,13 +21,21 @@ pub enum ValidationStatus {
 
 impl PartialOrd for ValidationStatus {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        todo!()
+        Some(self.cmp(other))
     }
 }
 
 impl Ord for ValidationStatus {
     fn cmp(&self, other: &Self) -> Ordering {
-        todo!()
+        match (self, other) {
+            (ValidationStatus::Waiting, ValidationStatus::Waiting) => Ordering::Equal,
+            (ValidationStatus::Waiting, ValidationStatus::Reattempting(_)) => Ordering::Less,
+            (ValidationStatus::Reattempting(_), ValidationStatus::Waiting) => Ordering::Greater,
+            (
+                ValidationStatus::Reattempting(attempts1),
+                ValidationStatus::Reattempting(attempts2),
+            ) => attempts1.cmp(attempts2),
+        }
     }
 }
 
