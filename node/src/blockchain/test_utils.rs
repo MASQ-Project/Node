@@ -198,12 +198,15 @@ pub fn make_block_hash(base: u32) -> H256 {
 }
 
 pub fn make_address(base: u32) -> Address {
-    let value = U256::from(base);
+    let base = base % 0xfff;
+    let value = U256::from(base * 3);
+    let shifted = value << 72;
+    let value = U256::from(value) << 24;
+    let value = value | shifted;
     let mut full_bytes = [0u8; 32];
     value.to_big_endian(&mut full_bytes);
     let mut bytes = [0u8; 20];
-    bytes.copy_from_slice(&full_bytes[12..32]);
-
+    bytes.copy_from_slice(&full_bytes[12..]);
     H160(bytes)
 }
 

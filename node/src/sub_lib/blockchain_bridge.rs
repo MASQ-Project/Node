@@ -7,7 +7,10 @@ use crate::accountant::{
     PayableScanType, RequestTransactionReceipts, ResponseSkeleton, SkeletonOptHolder,
 };
 use crate::blockchain::blockchain_agent::BlockchainAgent;
-use crate::blockchain::blockchain_bridge::RetrieveTransactions;
+use crate::blockchain::blockchain_bridge::{
+    MsgInterpretableAsDetailedScanType, RetrieveTransactions,
+};
+use crate::sub_lib::accountant::DetailedScanType;
 use crate::sub_lib::peer_actors::BindMessage;
 use actix::Message;
 use actix::Recipient;
@@ -48,6 +51,15 @@ pub struct OutboundPaymentsInstructions {
     pub priced_templates: Either<PricedNewTxTemplates, PricedRetryTxTemplates>,
     pub agent: Box<dyn BlockchainAgent>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
+}
+
+impl MsgInterpretableAsDetailedScanType for OutboundPaymentsInstructions {
+    fn detailed_scan_type(&self) -> DetailedScanType {
+        match self.priced_templates {
+            Either::Left(_) => DetailedScanType::NewPayables,
+            Either::Right(_) => DetailedScanType::RetryPayables,
+        }
+    }
 }
 
 impl OutboundPaymentsInstructions {
@@ -94,12 +106,23 @@ impl ConsumingWalletBalances {
 
 #[cfg(test)]
 mod tests {
+    use crate::accountant::scanners::payable_scanner::tx_templates::priced::retry::PricedRetryTxTemplates;
+    use crate::accountant::scanners::payable_scanner::tx_templates::test_utils::{
+        make_priced_new_tx_templates, make_priced_retry_tx_template,
+    };
+    use crate::accountant::test_utils::make_payable_account;
     use crate::actor_system_factory::SubsFactory;
-    use crate::blockchain::blockchain_bridge::{BlockchainBridge, BlockchainBridgeSubsFactoryReal};
+    use crate::blockchain::blockchain_agent::test_utils::BlockchainAgentMock;
+    use crate::blockchain::blockchain_bridge::{
+        BlockchainBridge, BlockchainBridgeSubsFactoryReal, MsgInterpretableAsDetailedScanType,
+    };
     use crate::blockchain::test_utils::make_blockchain_interface_web3;
+    use crate::sub_lib::accountant::DetailedScanType;
+    use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_blockchain_bridge_subs_from_recorder, Recorder};
     use actix::{Actor, System};
+    use itertools::Either;
     use masq_lib::utils::find_free_port;
     use std::sync::{Arc, Mutex};
 
@@ -130,5 +153,25 @@ mod tests {
         System::current().stop();
         system.run();
         assert_eq!(subs, BlockchainBridge::make_subs_from(&addr))
+    }
+
+    #[test]
+    fn detailed_scan_type_is_implemented_for_outbound_payments_instructions() {
+        let msg_a = OutboundPaymentsInstructions {
+            priced_templates: Either::Left(make_priced_new_tx_templates(vec![(
+                make_payable_account(123),
+                123,
+            )])),
+            agent: Box::new(BlockchainAgentMock::default()),
+            response_skeleton_opt: None,
+        };
+        let msg_b = OutboundPaymentsInstructions {
+            priced_templates: Either::Right(PricedRetryTxTemplates(vec![])),
+            agent: Box::new(BlockchainAgentMock::default()),
+            response_skeleton_opt: None,
+        };
+
+        assert_eq!(msg_a.detailed_scan_type(), DetailedScanType::NewPayables);
+        assert_eq!(msg_b.detailed_scan_type(), DetailedScanType::RetryPayables)
     }
 }

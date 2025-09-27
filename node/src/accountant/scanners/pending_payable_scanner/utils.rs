@@ -3,7 +3,7 @@
 use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureStatus};
 use crate::accountant::db_access_objects::sent_payable_dao::{SentTx, TxStatus};
 use crate::accountant::db_access_objects::utils::TxHash;
-use crate::accountant::TxReceiptResult;
+use crate::accountant::{ResponseSkeleton, TxReceiptResult};
 use crate::blockchain::errors::rpc_errors::AppRpcError;
 use crate::blockchain::errors::validation_status::{
     PreviousAttempts, ValidationFailureClock, ValidationStatus,
@@ -300,7 +300,8 @@ impl RecheckRequiringFailures {
 #[derive(Debug, PartialEq, Eq)]
 pub enum PendingPayableScanResult {
     NoPendingPayablesLeft(Option<NodeToUiMessage>),
-    PaymentRetryRequired(Either<Retry, NodeToUiMessage>),
+    PaymentRetryRequired(Option<ResponseSkeleton>),
+    ProcedureShouldBeRepeated(Option<NodeToUiMessage>),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -720,8 +721,7 @@ mod tests {
         init_test_logging();
         let test_name = "pending_payable_cache_ensure_empty_sad_path";
         let mut subject = CurrentPendingPayables::new();
-        let sent_tx = make_sent_tx(567);
-        let tx_timestamp = sent_tx.timestamp;
+        let sent_tx = make_sent_tx(0x567);
         let records = vec![sent_tx.clone()];
         let logger = Logger::new(test_name);
         subject.load_cache(records);
@@ -736,10 +736,10 @@ mod tests {
         TestLogHandler::default().exists_log_containing(&format!(
             "DEBUG: {test_name}: \
         Cache misuse - some pending payables left unprocessed: \
-        {{0x0000000000000000000000000000000000000000000000000000000000000237: SentTx {{ hash: \
-        0x0000000000000000000000000000000000000000000000000000000000000237, receiver_address: \
-        0x000000000000000000000077616c6c6574353637, amount_minor: 321489000000000, timestamp: \
-        {tx_timestamp}, gas_price_minor: 567000000000, nonce: 567, status: Pending(Waiting) }}}}. \
+        {{0x0000000000000000000000000000000000000000000000000000000000000567: SentTx {{ hash: \
+        0x0000000000000000000000000000000000000000000000000000000000000567, receiver_address: \
+        0x0000000000000000001035000000001035000000, amount_minor: 3658379210721, timestamp: \
+        275427216, gas_price_minor: 2645248887, nonce: 1383, status: Pending(Waiting) }}}}. \
         Dumping."
         ));
     }
@@ -864,7 +864,7 @@ mod tests {
         init_test_logging();
         let test_name = "failure_cache_ensure_empty_sad_path";
         let mut subject = RecheckRequiringFailures::new();
-        let failed_tx = make_failed_tx(567);
+        let failed_tx = make_failed_tx(0x567);
         let records = vec![failed_tx.clone()];
         let logger = Logger::new(test_name);
         subject.load_cache(records);
@@ -879,10 +879,10 @@ mod tests {
         TestLogHandler::default().exists_log_containing(&format!(
             "DEBUG: {test_name}: \
         Cache misuse - some tx failures left unprocessed: \
-        {{0x000000000000000000000000000000000000000000000000000000000000046f: FailedTx {{ hash: \
-        0x000000000000000000000000000000000000000000000000000000000000046f, receiver_address: \
-        0x000000000000000000000000000000000013a821, amount_minor: 1659523650625, timestamp: \
-        39477655125, gas_price_minor: 1462135375, nonce: 1135, reason: PendingTooLong, status: \
+        {{0x0000000000000000000000000000000000000000000000000000000000000567: FailedTx {{ hash: \
+        0x0000000000000000000000000000000000000000000000000000000000000567, receiver_address: \
+        0x00000000000000000003cc0000000003cc000000, amount_minor: 3658379210721, timestamp: \
+        275427216, gas_price_minor: 2645248887, nonce: 1383, reason: PendingTooLong, status: \
         RetryRequired }}}}. Dumping."
         ));
     }

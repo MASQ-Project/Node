@@ -79,30 +79,16 @@ impl StartableScanner<ScanForPendingPayables, RequestTransactionReceipts>
         logger: &Logger,
     ) -> Result<RequestTransactionReceipts, StartScanError> {
         self.mark_as_started(timestamp);
+
         info!(logger, "Scanning for pending payable");
 
-        let pending_tx_hashes_opt = self.handle_pending_payables();
-        let failure_hashes_opt = self.handle_unproven_failures();
-
-        if pending_tx_hashes_opt.is_none() && failure_hashes_opt.is_none() {
+        let tx_hashes = self.harvest_tables(logger).map_err(|e| {
             self.mark_as_ended(logger);
-            return Err(StartScanError::NothingToProcess);
-        }
-
-        Self::log_records_found_for_receipt_check(
-            pending_tx_hashes_opt.as_ref(),
-            failure_hashes_opt.as_ref(),
-            logger,
-        );
-
-        let all_hashes = pending_tx_hashes_opt
-            .unwrap_or_default()
-            .into_iter()
-            .chain(failure_hashes_opt.unwrap_or_default())
-            .collect_vec();
+            e
+        })?;
 
         Ok(RequestTransactionReceipts {
-            tx_hashes: all_hashes,
+            tx_hashes,
             response_skeleton_opt,
         })
     }
@@ -154,40 +140,83 @@ impl PendingPayableScanner {
         }
     }
 
-    fn handle_pending_payables(&mut self) -> Option<Vec<TxHashByTable>> {
+    fn harvest_tables(&mut self, logger: &Logger) -> Result<Vec<TxHashByTable>, StartScanError> {
+        let pending_tx_hashes_opt = self.harvest_pending_payables();
+        let failure_hashes_opt = self.harvest_unproven_failures();
+        eprintln!("ph: {:?}", pending_tx_hashes_opt);
+        eprintln!("fail: {:?}", failure_hashes_opt);
+
+        if Self::is_there_nothing_to_process(
+            pending_tx_hashes_opt.as_ref(),
+            failure_hashes_opt.as_ref(),
+        ) {
+            return Err(StartScanError::NothingToProcess);
+        }
+
+        Self::log_records_for_receipt_check(
+            pending_tx_hashes_opt.as_ref(),
+            failure_hashes_opt.as_ref(),
+            logger,
+        );
+
+        Ok(Self::merge_hashes(
+            pending_tx_hashes_opt,
+            failure_hashes_opt,
+        ))
+    }
+
+    fn harvest_pending_payables(&mut self) -> Option<Vec<TxHashByTable>> {
         let pending_txs = self
             .sent_payable_dao
-            .retrieve_txs(Some(RetrieveCondition::IsPending));
+            .retrieve_txs(Some(RetrieveCondition::IsPending))
+            .into_iter()
+            .collect_vec();
 
         if pending_txs.is_empty() {
             return None;
         }
 
-        let pending_txs_vec: Vec<SentTx> = pending_txs.into_iter().collect();
-
-        let pending_tx_hashes =
-            Self::get_wrapped_hashes(&pending_txs_vec, TxHashByTable::SentPayable);
-        self.current_sent_payables.load_cache(pending_txs_vec);
+        let pending_tx_hashes = Self::wrap_hashes(&pending_txs, TxHashByTable::SentPayable);
+        self.current_sent_payables.load_cache(pending_txs);
         Some(pending_tx_hashes)
     }
 
-    fn handle_unproven_failures(&mut self) -> Option<Vec<TxHashByTable>> {
+    fn harvest_unproven_failures(&mut self) -> Option<Vec<TxHashByTable>> {
         let failures = self
             .failed_payable_dao
-            .retrieve_txs(Some(FailureRetrieveCondition::EveryRecheckRequiredRecord));
+            .retrieve_txs(Some(FailureRetrieveCondition::EveryRecheckRequiredRecord))
+            .into_iter()
+            .collect_vec();
 
         if failures.is_empty() {
             return None;
         }
 
-        let failures_vec: Vec<FailedTx> = failures.into_iter().collect();
-
-        let failure_hashes = Self::get_wrapped_hashes(&failures_vec, TxHashByTable::FailedPayable);
-        self.yet_unproven_failed_payables.load_cache(failures_vec);
+        let failure_hashes = Self::wrap_hashes(&failures, TxHashByTable::FailedPayable);
+        self.yet_unproven_failed_payables.load_cache(failures);
         Some(failure_hashes)
     }
 
-    fn get_wrapped_hashes<Record>(
+    fn is_there_nothing_to_process(
+        pending_tx_hashes_opt: Option<&Vec<TxHashByTable>>,
+        failure_hashes_opt: Option<&Vec<TxHashByTable>>,
+    ) -> bool {
+        pending_tx_hashes_opt.is_none() && failure_hashes_opt.is_none()
+    }
+
+    fn merge_hashes(
+        pending_tx_hashes_opt: Option<Vec<TxHashByTable>>,
+        failure_hashes_opt: Option<Vec<TxHashByTable>>,
+    ) -> Vec<TxHashByTable> {
+        let failures = failure_hashes_opt.unwrap_or_default();
+        pending_tx_hashes_opt
+            .unwrap_or_default()
+            .into_iter()
+            .chain(failures)
+            .collect()
+    }
+
+    fn wrap_hashes<Record>(
         records: &[Record],
         wrap_the_hash: fn(TxHash) -> TxHashByTable,
     ) -> Vec<TxHashByTable>
@@ -214,14 +243,23 @@ impl PendingPayableScanner {
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) -> PendingPayableScanResult {
         if let Some(retry) = retry_opt {
-            if let Some(response_skeleton) = response_skeleton_opt {
-                let ui_msg = NodeToUiMessage {
-                    target: MessageTarget::ClientId(response_skeleton.client_id),
-                    body: UiScanResponse {}.tmb(response_skeleton.context_id),
-                };
-                PendingPayableScanResult::PaymentRetryRequired(Either::Right(ui_msg))
-            } else {
-                PendingPayableScanResult::PaymentRetryRequired(Either::Left(retry))
+            match retry {
+                Retry::RetryPayments => {
+                    PendingPayableScanResult::PaymentRetryRequired(response_skeleton_opt)
+                }
+                Retry::RetryTxStatusCheckOnly => {
+                    if let Some(response_skeleton) = response_skeleton_opt {
+                        todo!()
+                        //     let ui_msg = NodeToUiMessage {
+                        //         target: MessageTarget::ClientId(response_skeleton.client_id),
+                        //         body: UiScanResponse {}.tmb(response_skeleton.context_id),
+                        //     };
+                        //PendingPayableScanResult::ProcedureShouldBeRepeated(Some(ui_msg))
+                    } else {
+                        todo!()
+                        //PendingPayableScanResult::ProcedureShouldBeRepeated()
+                    }
+                }
             }
         } else {
             let ui_msg_opt = response_skeleton_opt.map(|response_skeleton| NodeToUiMessage {
@@ -791,7 +829,7 @@ impl PendingPayableScanner {
         )
     }
 
-    fn log_records_found_for_receipt_check(
+    fn log_records_for_receipt_check(
         pending_tx_hashes_opt: Option<&Vec<TxHashByTable>>,
         failure_hashes_opt: Option<&Vec<TxHashByTable>>,
         logger: &Logger,
@@ -885,10 +923,10 @@ mod tests {
             result,
             Ok(RequestTransactionReceipts {
                 tx_hashes: vec![
-                    TxHashByTable::SentPayable(sent_tx_hash_1),
                     TxHashByTable::SentPayable(sent_tx_hash_2),
-                    TxHashByTable::FailedPayable(failed_tx_hash_1),
-                    TxHashByTable::FailedPayable(failed_tx_hash_2)
+                    TxHashByTable::SentPayable(sent_tx_hash_1),
+                    TxHashByTable::FailedPayable(failed_tx_hash_2),
+                    TxHashByTable::FailedPayable(failed_tx_hash_1)
                 ],
                 response_skeleton_opt: None
             })
@@ -969,10 +1007,7 @@ mod tests {
 
         let result = subject.finish_scan(msg, &logger);
 
-        assert_eq!(
-            result,
-            PendingPayableScanResult::PaymentRetryRequired(Either::Left(Retry::RetryPayments))
-        );
+        assert_eq!(result, PendingPayableScanResult::PaymentRetryRequired(None));
         let get_record_by_hash_failed_payable_cache_params =
             get_record_by_hash_failed_payable_cache_params_arc
                 .lock()
@@ -1037,8 +1072,8 @@ mod tests {
             r#" in the cache, the record could not be found. Dumping the remaining values. Pending payables: \[\]."#,
             r#" Unproven failures: \[FailedTx \{ hash:"#,
             r#" 0x0000000000000000000000000000000000000000000000000000000000000987, receiver_address:"#,
-            r#" 0x000000000000000000000077616c6c6574353637, amount_minor: 321489000000000, timestamp: \d*,"#,
-            r#" gas_price_minor: 567000000000, nonce: 567, reason: PendingTooLong, status: RetryRequired \}\]."#,
+            r#" 0x000000000000000000185d00000000185d000000, amount_minor: 103355177121, timestamp: \d*,"#,
+            r#" gas_price_minor: 182284263, nonce: 567, reason: PendingTooLong, status: RetryRequired \}\]."#,
             r#" Hashes yet not looked up: \[FailedPayable\(0x000000000000000000000000000000000000000"#,
             r#"0000000000000000000000987\)\]"#,
         ];
@@ -1962,11 +1997,11 @@ mod tests {
     #[test]
     #[should_panic(
         expected = "Unable to complete the tx confirmation by the adjustment of the payable accounts \
-        0x000000000000000000000077616c6c6574343536 due to: \
+        0x0000000000000000000558000000000558000000 due to: \
         RusqliteError(\"record change not successful\")"
     )]
     fn handle_confirmed_transactions_panics_on_unchecking_payable_table() {
-        let hash = make_tx_hash(0x315);
+        let hash = make_tx_hash(315);
         let payable_dao = PayableDaoMock::new().transactions_confirmed_result(Err(
             PayableDaoError::RusqliteError("record change not successful".to_string()),
         ));

@@ -146,7 +146,7 @@ pub fn payables_debug_summary(qualified_accounts: &[(PayableAccount, u128)], log
                     .duration_since(payable.last_paid_timestamp)
                     .expect("Payable time is corrupt");
                 format!(
-                    "{} wei owed for {} sec exceeds threshold: {} wei; creditor: {}",
+                    "{} wei owed for {} sec exceeds the threshold {} wei for creditor {}",
                     payable.balance_wei.separate_with_commas(),
                     p_age.as_secs(),
                     threshold_point.separate_with_commas(),
@@ -155,6 +155,18 @@ pub fn payables_debug_summary(qualified_accounts: &[(PayableAccount, u128)], log
             })
             .join("\n")
     })
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct PendingPayableMissingInDb {
+    pub recipient: Address,
+    pub hash: H256,
+}
+
+impl PendingPayableMissingInDb {
+    pub fn new(recipient: Address, hash: H256) -> Self {
+        PendingPayableMissingInDb { recipient, hash }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -378,10 +390,10 @@ mod tests {
         payables_debug_summary(&qualified_payables_and_threshold_points, &logger);
 
         TestLogHandler::new().exists_log_containing("Paying qualified debts:\n\
-                   10,002,000,000,000,000 wei owed for 2678400 sec exceeds threshold: \
-                   10,000,000,001,152,000 wei; creditor: 0x0000000000000000000000000077616c6c657430\n\
-                   999,999,999,000,000,000 wei owed for 86455 sec exceeds threshold: \
-                   999,978,993,055,555,580 wei; creditor: 0x0000000000000000000000000077616c6c657431");
+                   10,002,000,000,000,000 wei owed for 2678400 sec exceeds the threshold \
+                   10,000,000,001,152,000 wei for creditor 0x0000000000000000000000000077616c6c657430\n\
+                   999,999,999,000,000,000 wei owed for 86455 sec exceeds the threshold \
+                   999,978,993,055,555,580 wei for creditor 0x0000000000000000000000000077616c6c657431");
     }
 
     #[test]

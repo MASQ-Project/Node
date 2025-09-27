@@ -39,12 +39,13 @@ pub struct BlockchainAgentFutureResult {
 }
 
 fn return_sending_error(sent_txs: &[SentTx], error: &Web3Error) -> LocalPayableError {
-    LocalPayableError::Sending(
-        sent_txs
+    LocalPayableError::Sending {
+        error: format!("{}", error),
+        failed_txs: sent_txs
             .iter()
             .map(|sent_tx| FailedTx::from((sent_tx, error)))
             .collect(),
-    )
+    }
 }
 
 pub fn return_batch_results(
@@ -641,9 +642,14 @@ mod tests {
                 assert_on_sent_txs(resulted_batch.sent_txs, expected_batch.sent_txs);
             }
             Err(resulted_err) => match resulted_err {
-                LocalPayableError::Sending(resulted_failed_txs) => {
-                    if let Err(LocalPayableError::Sending(expected_failed_txs)) = expected_result {
-                        assert_on_failed_txs(resulted_failed_txs, expected_failed_txs);
+                LocalPayableError::Sending { error, failed_txs } => {
+                    if let Err(LocalPayableError::Sending {
+                        error: expected_error,
+                        failed_txs: expected_failed_txs,
+                    }) = expected_result
+                    {
+                        assert_on_failed_txs(failed_txs, expected_failed_txs);
+                        assert_eq!(error, expected_error)
                     } else {
                         panic!(
                             "Expected different error but received  {}",
@@ -768,7 +774,10 @@ mod tests {
                     .build()
             })
             .collect();
-        let expected_result = Err(Sending(failed_txs));
+        let error = "Transport error: Error(Connect, Os { code: 111, kind: ConnectionRefused, \
+        message: \"Connection refused\" })"
+            .to_string();
+        let expected_result = Err(Sending { error, failed_txs });
 
         test_send_payables_within_batch(
             "send_payables_within_batch_fails_on_submit_batch_call",

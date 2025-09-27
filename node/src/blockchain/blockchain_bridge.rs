@@ -144,16 +144,19 @@ impl Handler<RequestTransactionReceipts> for BlockchainBridge {
     }
 }
 
+pub trait MsgInterpretableAsDetailedScanType {
+    fn detailed_scan_type(&self) -> DetailedScanType;
+}
+
 impl Handler<InitialTemplatesMessage> for BlockchainBridge {
     type Result = ();
 
     fn handle(&mut self, msg: InitialTemplatesMessage, _ctx: &mut Self::Context) {
-        todo!("This needs to be decided on GH-605. Look what mode you run and set it accordingly");
-        // self.handle_scan_future(
-        //     Self::handle_initial_templates_msg,
-        //     DetailedScanType::
-        //     msg,
-        // );
+        self.handle_scan_future(
+            Self::handle_initial_templates_msg,
+            msg.detailed_scan_type(),
+            msg,
+        );
     }
 }
 
@@ -161,12 +164,11 @@ impl Handler<OutboundPaymentsInstructions> for BlockchainBridge {
     type Result = ();
 
     fn handle(&mut self, msg: OutboundPaymentsInstructions, _ctx: &mut Self::Context) {
-        todo!("This needs to be decided on GH-605. Look what mode you run and set it accordingly")
-        // self.handle_scan_future(
-        //     Self::handle_outbound_payments_instructions,
-        //     DetailedScanType::
-        //     msg,
-        // )
+        self.handle_scan_future(
+            Self::handle_outbound_payments_instructions,
+            msg.detailed_scan_type(),
+            msg,
+        )
     }
 }
 
@@ -287,7 +289,7 @@ impl BlockchainBridge {
 
     fn payment_procedure_result_from_error(e: LocalPayableError) -> Result<BatchResults, String> {
         match e {
-            LocalPayableError::Sending(failed_txs) => Ok(BatchResults {
+            LocalPayableError::Sending { failed_txs, .. } => Ok(BatchResults {
                 sent_txs: vec![],
                 failed_txs,
             }),
@@ -597,6 +599,7 @@ mod tests {
     };
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use actix::System;
+    use clap::AppSettings::DontCollapseArgsInUsage;
     use ethereum_types::U64;
     use masq_lib::constants::DEFAULT_MAX_BLOCK_COUNT;
     use masq_lib::test_utils::logging::init_test_logging;
@@ -607,10 +610,11 @@ mod tests {
     };
     use masq_lib::utils::find_free_port;
     use std::any::TypeId;
+    use std::ops::Add;
     use std::path::Path;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-    use std::time::{Duration, SystemTime};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
     use web3::types::{TransactionReceipt, H160};
 
     impl Handler<AssertionsMessage<Self>> for BlockchainBridge {
@@ -1046,27 +1050,21 @@ mod tests {
         //         amount: account.balance_wei
         //     }]
         // );
+        assert_eq!(scan_error_msg.scan_type, DetailedScanType::NewPayables);
         assert_eq!(
-            *scan_error_msg,
-            ScanError {
-                scan_type: DetailedScanType::NewPayables,
-                response_skeleton_opt: Some(ResponseSkeleton {
-                    client_id: 1234,
-                    context_id: 4321
-                }),
-                msg: format!(
-                    "ReportAccountsPayable: Sending phase: \"Transport error: Error(IncompleteMessage)\". \
-                    Signed and hashed txs: 0x81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c"
-                )
-            }
+            scan_error_msg.response_skeleton_opt,
+            Some(ResponseSkeleton {
+                client_id: 1234,
+                context_id: 4321
+            })
         );
         assert!(scan_error_msg
             .msg
-            .contains("ReportAccountsPayable: Sending error. Signed and hashed transactions:"));
+            .contains("ReportAccountsPayable: Sending error: \"Transport error: Error(IncompleteMessage)\". Signed and hashed transactions:"), "This string didn't contain the expected: {}", scan_error_msg.msg);
         assert!(scan_error_msg.msg.contains(
             "FailedTx { hash: 0x81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c,"
         ));
-        assert!(scan_error_msg.msg.contains("reason: Submission(Local(Transport(\"Error(IncompleteMessage)\"))), status: RetryRequired }"));
+        assert!(scan_error_msg.msg.contains("FailedTx { hash: 0x81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c, receiver_address: 0x00000000000000000000000000000000626c6168, amount_minor: 111420204, timestamp:"), "This string didn't contain the expected: {}", scan_error_msg.msg);
         assert_eq!(accountant_recording.len(), 2);
     }
 

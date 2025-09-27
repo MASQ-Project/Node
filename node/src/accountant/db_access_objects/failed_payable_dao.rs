@@ -769,7 +769,7 @@ mod tests {
         assert_eq!(
             FailureRetrieveCondition::ByReceiverAddresses(BTreeSet::from([make_address(1), make_address(2)]))
                 .to_string(),
-            "WHERE receiver_address IN ('0x0000000000000000000000000000000000000001', '0x0000000000000000000000000000000000000002')"
+            "WHERE receiver_address IN ('0x0000000000000000000003000000000003000000', '0x0000000000000000000006000000000006000000')"
         )
     }
 

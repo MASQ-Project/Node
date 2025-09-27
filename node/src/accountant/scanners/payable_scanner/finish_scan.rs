@@ -10,6 +10,13 @@ use std::time::SystemTime;
 
 impl Scanner<SentPayables, PayableScanResult> for PayableScanner {
     fn finish_scan(&mut self, msg: SentPayables, logger: &Logger) -> PayableScanResult {
+        // TODO as for GH-701, here there should be this check, but later on, when it comes to
+        // GH-655, the need for this check passes and it will go away. Until then it should be
+        // present, though.
+        // if !sent_payables.is_empty() {
+        //     self.check_on_missing_sent_tx_records(&sent_payables);
+        // }
+
         self.process_message(&msg, logger);
 
         self.mark_as_ended(logger);

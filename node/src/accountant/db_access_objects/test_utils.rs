@@ -165,10 +165,10 @@ impl FailedTxBuilder {
 }
 
 pub fn make_failed_tx(n: u32) -> FailedTx {
-    let n = (n * 2) + 1; // Always Odd
+    let n = n % 0xfff;
     FailedTxBuilder::default()
         .hash(make_tx_hash(n))
-        .timestamp(((3*n) as i64).pow(3))
+        .timestamp(((n * 12) as i64).pow(2))
         .receiver_address(make_address(n.pow(2)))
         .gas_price_wei((n as u128).pow(3))
         .amount((n as u128).pow(4))
@@ -177,12 +177,12 @@ pub fn make_failed_tx(n: u32) -> FailedTx {
 }
 
 pub fn make_sent_tx(n: u32) -> SentTx {
-    let n = n * 2; // Always Even
+    let n = n % 0xfff;
     TxBuilder::default()
         .hash(make_tx_hash(n))
-        .timestamp(((3*n) as i64).pow(3))
-        .template(SignableTxTemplate{
-            receiver_address: make_address(n.pow(2)),
+        .timestamp(((n * 12) as i64).pow(2))
+        .template(SignableTxTemplate {
+            receiver_address: make_address(n),
             amount_in_wei: (n as u128).pow(4),
             gas_price_wei: (n as u128).pow(3),
             nonce: n as u64,
@@ -190,24 +190,24 @@ pub fn make_sent_tx(n: u32) -> SentTx {
         .build()
 }
 
-pub fn assert_on_sent_txs(left: Vec<SentTx>, right: Vec<SentTx>) {
-    assert_eq!(left.len(), right.len());
+pub fn assert_on_sent_txs(actual: Vec<SentTx>, expected: Vec<SentTx>) {
+    assert_eq!(actual.len(), expected.len());
 
-    left.iter().zip(right).for_each(|(t1, t2)| {
-        assert_eq!(t1.hash, t2.hash);
-        assert_eq!(t1.receiver_address, t2.receiver_address);
-        assert_eq!(t1.amount_minor, t2.amount_minor);
-        assert_eq!(t1.gas_price_minor, t2.gas_price_minor);
-        assert_eq!(t1.nonce, t2.nonce);
-        assert_eq!(t1.status, t2.status);
-        assert!((t1.timestamp - t2.timestamp).abs() < 10);
+    actual.iter().zip(expected).for_each(|(st1, st2)| {
+        assert_eq!(st1.hash, st2.hash);
+        assert_eq!(st1.receiver_address, st2.receiver_address);
+        assert_eq!(st1.amount_minor, st2.amount_minor);
+        assert_eq!(st1.gas_price_minor, st2.gas_price_minor);
+        assert_eq!(st1.nonce, st2.nonce);
+        assert_eq!(st1.status, st2.status);
+        assert!((st1.timestamp - st2.timestamp).abs() < 10);
     })
 }
 
-pub fn assert_on_failed_txs(left: Vec<FailedTx>, right: Vec<FailedTx>) {
-    assert_eq!(left.len(), right.len());
+pub fn assert_on_failed_txs(actual: Vec<FailedTx>, expected: Vec<FailedTx>) {
+    assert_eq!(actual.len(), expected.len());
 
-    left.iter().zip(right).for_each(|(f1, f2)| {
+    actual.iter().zip(expected).for_each(|(f1, f2)| {
         assert_eq!(f1.hash, f2.hash);
         assert_eq!(f1.receiver_address, f2.receiver_address);
         assert_eq!(f1.amount_minor, f2.amount_minor);

@@ -260,11 +260,10 @@ const PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER: [DestinationMarker; 3] = [
     DestinationMarker::PendingPayableScanner,
 ];
 
-const FAILED_PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER: [DestinationMarker; 2] =
-    [
-        DestinationMarker::PayableScanner,
-        DestinationMarker::PendingPayableScanner
-    ];
+const FAILED_PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER: [DestinationMarker; 2] = [
+    DestinationMarker::PayableScanner,
+    DestinationMarker::PendingPayableScanner,
+];
 
 const SENT_PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER: [DestinationMarker; 3] = [
     DestinationMarker::AccountantBody,
@@ -1284,9 +1283,6 @@ pub struct SentPayableDaoFactoryMock {
 
 impl SentPayableDaoFactory for SentPayableDaoFactoryMock {
     fn make(&self) -> Box<dyn SentPayableDao> {
-        if self.make_results.borrow().len() == 0 {
-            panic!("SentPayableDao Missing.")
-        };
         self.make_params.lock().unwrap().push(());
         self.make_results.borrow_mut().remove(0)
     }

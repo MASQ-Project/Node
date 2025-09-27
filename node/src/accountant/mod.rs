@@ -340,22 +340,24 @@ impl Handler<TxReceiptsMessage> for Accountant {
                         .schedule_new_payable_scan(ctx, &self.logger)
                 }
             }
-            PendingPayableScanResult::PaymentRetryRequired(retry_either) => match retry_either {
-                Either::Left(Retry::RetryPayments) => self
-                    .scan_schedulers
-                    .payable
-                    .schedule_retry_payable_scan(ctx, &self.logger),
-                Either::Left(Retry::RetryTxStatusCheckOnly) => self
-                    .scan_schedulers
-                    .pending_payable
-                    .schedule(ctx, &self.logger),
-                Either::Right(node_to_ui_msg) => self
-                    .ui_message_sub_opt
-                    .as_ref()
-                    .expect("UIGateway is not bound")
-                    .try_send(node_to_ui_msg)
-                    .expect("UIGateway is dead"),
-            },
+            PendingPayableScanResult::PaymentRetryRequired(response_skeleton_opt) => self
+                .scan_schedulers
+                .payable
+                .schedule_retry_payable_scan(ctx, response_skeleton_opt, &self.logger),
+            PendingPayableScanResult::ProcedureShouldBeRepeated(ui_msg_opt) => {
+                if let Some(node_to_ui_msg) = ui_msg_opt {
+                    todo!()
+                    // self.ui_message_sub_opt
+                    //     .as_ref()
+                    //     .expect("UIGateway is not bound")
+                    //     .try_send(node_to_ui_msg)
+                    //     .expect("UIGateway is dead");
+                } else {
+                    self.scan_schedulers
+                        .pending_payable
+                        .schedule(ctx, &self.logger)
+                }
+            }
         };
     }
 }
@@ -375,7 +377,7 @@ impl Handler<SentPayables> for Accountant {
         let scan_result = self.scanners.finish_payable_scan(msg, &self.logger);
 
         match scan_result.ui_response_opt {
-            None => self.schedule_next_scan(scan_result.result, ctx),
+            None => self.schedule_next_automatic_scan(scan_result.result, ctx),
             Some(node_to_ui_msg) => {
                 self.ui_message_sub_opt
                     .as_ref()
@@ -384,8 +386,8 @@ impl Handler<SentPayables> for Accountant {
                     .expect("UIGateway is dead");
 
                 // Externally triggered scans are not allowed to provoke an unwinding scan sequence
-                // with intervals. The only exception is the PendingPayableScanner and retry-
-                // payable scanner, which are ever meant to run in a tight tandem.
+                // with intervals. The only exception is the PendingPayableScanner that is always
+                // followed by the retry-payable scanner in a tight tandem.
             }
         }
     }
@@ -422,7 +424,7 @@ impl Handler<ScanError> for Accountant {
                 DetailedScanType::RetryPayables => self
                     .scan_schedulers
                     .payable
-                    .schedule_retry_payable_scan(ctx, &self.logger),
+                    .schedule_retry_payable_scan(ctx, None, &self.logger),
                 DetailedScanType::PendingPayables => self
                     .scan_schedulers
                     .pending_payable
@@ -1150,7 +1152,11 @@ impl Accountant {
         }
     }
 
-    fn schedule_next_scan(&self, next_scan_to_run: NextScanToRun, ctx: &mut Context<Accountant>) {
+    fn schedule_next_automatic_scan(
+        &self,
+        next_scan_to_run: NextScanToRun,
+        ctx: &mut Context<Accountant>,
+    ) {
         match next_scan_to_run {
             NextScanToRun::PendingPayableScan => self
                 .scan_schedulers
@@ -1163,7 +1169,7 @@ impl Accountant {
             NextScanToRun::RetryPayableScan => self
                 .scan_schedulers
                 .payable
-                .schedule_retry_payable_scan(ctx, &self.logger),
+                .schedule_retry_payable_scan(ctx, None, &self.logger),
         }
     }
 
@@ -1306,7 +1312,14 @@ mod tests {
     use crate::accountant::test_utils::DaoWithDestination::{
         ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,
     };
-    use crate::accountant::test_utils::{bc_from_earning_wallet, bc_from_wallets, make_payable_account, make_qualified_and_unqualified_payables, make_transaction_block, BannedDaoFactoryMock, ConfigDaoFactoryMock, DaoWithDestination, FailedPayableDaoFactoryMock, FailedPayableDaoMock, MessageIdGeneratorMock, PayableDaoFactoryMock, PayableDaoMock, PaymentAdjusterMock, PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock, SentPayableDaoFactoryMock, SentPayableDaoMock};
+    use crate::accountant::test_utils::{
+        bc_from_earning_wallet, bc_from_wallets, make_payable_account,
+        make_qualified_and_unqualified_payables, make_transaction_block, BannedDaoFactoryMock,
+        ConfigDaoFactoryMock, DaoWithDestination, FailedPayableDaoFactoryMock,
+        FailedPayableDaoMock, MessageIdGeneratorMock, PayableDaoFactoryMock, PayableDaoMock,
+        PaymentAdjusterMock, PendingPayableScannerBuilder, ReceivableDaoFactoryMock,
+        ReceivableDaoMock, SentPayableDaoFactoryMock, SentPayableDaoMock,
+    };
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
     use crate::accountant::Accountant;
     use crate::blockchain::blockchain_agent::test_utils::BlockchainAgentMock;
@@ -1464,10 +1477,17 @@ mod tests {
                 .make_result(PayableDaoMock::new()) // For Payable Scanner
                 .make_result(PayableDaoMock::new()), // For PendingPayable Scanner
         );
-        let failed_payable_dao_factory =
-            Box::new(FailedPayableDaoFactoryMock::new().make_result(FailedPayableDaoMock::new())); // For Payable Scanner
-        let sent_payable_dao_factory =
-            Box::new(SentPayableDaoFactoryMock::new().make_result(SentPayableDaoMock::new())); // For Payable Scanner
+        let failed_payable_dao_factory = Box::new(
+            FailedPayableDaoFactoryMock::new()
+                .make_result(FailedPayableDaoMock::new()) // For Payable Scanner
+                .make_result(FailedPayableDaoMock::new()),
+        ); // For PendingPayable Scanner
+        let sent_payable_dao_factory = Box::new(
+            SentPayableDaoFactoryMock::new()
+                .make_result(SentPayableDaoMock::new()) // For Accountant
+                .make_result(SentPayableDaoMock::new()) // For Payable Scanner
+                .make_result(SentPayableDaoMock::new()),
+        ); // For PendingPayable Scanner
         let receivable_dao_factory = Box::new(
             ReceivableDaoFactoryMock::new()
                 .make_result(ReceivableDaoMock::new()) // For Accountant
@@ -1651,7 +1671,9 @@ mod tests {
         let sent_payable_dao = SentPayableDaoMock::default().insert_new_records_result(Ok(()));
         let subject = AccountantBuilder::default()
             .payable_daos(vec![ForPayableScanner(payable_dao)])
-            .sent_payable_daos(vec![DaoWithDestination::ForPayableScanner(sent_payable_dao)])
+            .sent_payable_daos(vec![DaoWithDestination::ForPayableScanner(
+                sent_payable_dao,
+            )])
             .bootstrapper_config(config)
             .build();
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
@@ -2204,30 +2226,41 @@ mod tests {
     #[test]
     fn pending_payable_scan_response_is_sent_to_ui_gateway_when_both_participating_scanners_have_completed(
     ) {
-        // TODO when we have more logic in place with the other cards taken in, we'll need to configure these
-        // accordingly
-        // TODO: GH-605: Bert - now only GH-605 logic is missing
-        let response_skeleton_opt = Some(ResponseSkeleton {
-            client_id: 4555,
-            context_id: 5566,
-        });
         let insert_new_records_params_arc = Arc::new(Mutex::new(vec![]));
         let delete_records_params_arc = Arc::new(Mutex::new(vec![]));
-        let payable_dao = PayableDaoMock::default().transactions_confirmed_result(Ok(()));
+        let payable_dao_for_payable_scanner =
+            PayableDaoMock::default().retrieve_payables_result(vec![]);
+        let payable_dao_for_pending_payable_scanner =
+            PayableDaoMock::default().transactions_confirmed_result(Ok(()));
         let sent_tx = make_sent_tx(123);
         let tx_hash = sent_tx.hash;
-        let sent_payable_dao = SentPayableDaoMock::default()
+        let sent_payable_dao_for_payable_scanner = SentPayableDaoMock::default()
+            // TODO should be removed with GH-701
+            .insert_new_records_result(Ok(()));
+        let sent_payable_dao_for_pending_payable_scanner = SentPayableDaoMock::default()
             .retrieve_txs_result(BTreeSet::from([sent_tx.clone()]))
             .delete_records_params(&delete_records_params_arc)
             .delete_records_result(Ok(()));
-        let failed_payable_dao = FailedPayableDaoMock::default()
+        let failed_tx = make_failed_tx(123);
+        let failed_payable_dao_for_payable_scanner =
+            FailedPayableDaoMock::default().retrieve_txs_result(btreeset!(failed_tx));
+        let failed_payable_dao_for_pending_payable_scanner = FailedPayableDaoMock::default()
             .insert_new_records_params(&insert_new_records_params_arc)
             .insert_new_records_result(Ok(()));
         let mut subject = AccountantBuilder::default()
             .consuming_wallet(make_wallet("consuming"))
-            .payable_daos(vec![ForPendingPayableScanner(payable_dao)])
-            .sent_payable_daos(vec![ForPendingPayableScanner(sent_payable_dao)])
-            .failed_payable_daos(vec![ForPendingPayableScanner(failed_payable_dao)])
+            .payable_daos(vec![
+                ForPayableScanner(payable_dao_for_payable_scanner),
+                ForPendingPayableScanner(payable_dao_for_pending_payable_scanner),
+            ])
+            .sent_payable_daos(vec![
+                ForPayableScanner(sent_payable_dao_for_payable_scanner),
+                ForPendingPayableScanner(sent_payable_dao_for_pending_payable_scanner),
+            ])
+            .failed_payable_daos(vec![
+                ForPayableScanner(failed_payable_dao_for_payable_scanner),
+                ForPendingPayableScanner(failed_payable_dao_for_pending_payable_scanner),
+            ])
             .build();
         subject.scan_schedulers.automatic_scans_enabled = false;
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
@@ -2853,9 +2886,7 @@ mod tests {
                 response_skeleton_opt: None,
             }))
             .finish_scan_params(&scan_params.pending_payable_finish_scan)
-            .finish_scan_result(PendingPayableScanResult::PaymentRetryRequired(
-                Either::Left(Retry::RetryPayments),
-            ));
+            .finish_scan_result(PendingPayableScanResult::PaymentRetryRequired(None));
         let receivable_scanner = ScannerMock::new()
             .scan_started_at_result(None)
             .start_scan_params(&scan_params.receivable_start_scan)
@@ -4989,14 +5020,11 @@ mod tests {
 
     #[test]
     fn accountant_finishes_processing_of_retry_payables_and_schedules_pending_payable_scanner() {
-        let get_tx_identifiers_params_arc = Arc::new(Mutex::new(vec![]));
         let pending_payable_notify_later_params_arc = Arc::new(Mutex::new(vec![]));
         let inserted_new_records_params_arc = Arc::new(Mutex::new(vec![]));
-        let expected_wallet = make_wallet("paying_you");
         let expected_hash = H256::from("transaction_hash".keccak256());
         let payable_dao = PayableDaoMock::new();
         let sent_payable_dao = SentPayableDaoMock::new()
-            .get_tx_identifiers_params(&get_tx_identifiers_params_arc)
             .insert_new_records_params(&inserted_new_records_params_arc)
             .insert_new_records_result(Ok(()));
         let failed_payble_dao = FailedPayableDaoMock::new().retrieve_txs_result(BTreeSet::new());
@@ -5040,11 +5068,6 @@ mod tests {
         assert_eq!(
             inserted_new_records_params[0],
             BTreeSet::from([expected_tx])
-        );
-        let get_tx_identifiers_params = get_tx_identifiers_params_arc.lock().unwrap();
-        assert_eq!(
-            *get_tx_identifiers_params,
-            vec![BTreeSet::from([expected_hash])]
         );
         let pending_payable_notify_later_params =
             pending_payable_notify_later_params_arc.lock().unwrap();
@@ -5114,10 +5137,11 @@ mod tests {
     }
 
     #[test]
-    fn accountant_schedule_retry_payable_scanner_because_not_all_pending_payables_completed() {
+    fn accountant_in_automatic_mode_schedules_tx_retry_as_some_pending_payables_have_not_completed()
+    {
         init_test_logging();
         let test_name =
-            "accountant_schedule_retry_payable_scanner_because_not_all_pending_payables_completed";
+            "accountant_in_automatic_mode_schedules_tx_retry_as_some_pending_payables_have_not_completed";
         let finish_scan_params_arc = Arc::new(Mutex::new(vec![]));
         let retry_payable_notify_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = AccountantBuilder::default()
@@ -5125,9 +5149,7 @@ mod tests {
             .build();
         let pending_payable_scanner = ScannerMock::new()
             .finish_scan_params(&finish_scan_params_arc)
-            .finish_scan_result(PendingPayableScanResult::PaymentRetryRequired(
-                Either::Left(Retry::RetryPayments),
-            ));
+            .finish_scan_result(PendingPayableScanResult::PaymentRetryRequired(None));
         subject
             .scanners
             .replace_scanner(ScannerReplacement::PendingPayable(ReplacementType::Mock(
@@ -5152,11 +5174,7 @@ mod tests {
                 status: StatusReadFromReceiptCheck::Reverted,
             },
         ]);
-        let response_skeleton_opt = Some(ResponseSkeleton {
-            client_id: 45,
-            context_id: 7,
-        });
-        msg.response_skeleton_opt = response_skeleton_opt;
+        msg.response_skeleton_opt = None;
         let subject_addr = subject.start();
 
         subject_addr.try_send(msg.clone()).unwrap();
@@ -5170,7 +5188,7 @@ mod tests {
         assert_eq!(
             *retry_payable_notify_params,
             vec![ScanForRetryPayables {
-                response_skeleton_opt
+                response_skeleton_opt: None
             }]
         );
         assert_using_the_same_logger(&logger, test_name, None)
@@ -5188,9 +5206,7 @@ mod tests {
             .build();
         let pending_payable_scanner = ScannerMock::new()
             .finish_scan_params(&finish_scan_params_arc)
-            .finish_scan_result(PendingPayableScanResult::PaymentRetryRequired(
-                Either::Left(Retry::RetryTxStatusCheckOnly),
-            ));
+            .finish_scan_result(PendingPayableScanResult::ProcedureShouldBeRepeated(None));
         subject
             .scanners
             .replace_scanner(ScannerReplacement::PendingPayable(ReplacementType::Mock(
@@ -5237,39 +5253,31 @@ mod tests {
     }
 
     #[test]
-    fn accountant_sends_ui_msg_for_an_external_scan_trigger_despite_the_need_of_retry_was_detected()
-    {
+    fn accountant_in_manual_mode_schedules_tx_retry_as_some_pending_payables_have_not_completed() {
         init_test_logging();
-        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
-        let ui_gateway =
-            ui_gateway.system_stop_conditions(match_lazily_every_type_id!(NodeToUiMessage));
         let test_name =
-            "accountant_sends_ui_msg_for_an_external_scan_trigger_despite_the_need_of_retry_was_detected";
+            "accountant_in_manual_mode_schedules_tx_retry_as_some_pending_payables_have_not_completed";
+        let retry_payable_notify_params_arc = Arc::new(Mutex::new(vec![]));
         let finish_scan_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = AccountantBuilder::default()
             .logger(Logger::new(test_name))
             .build();
-        subject.ui_message_sub_opt = Some(ui_gateway.start().recipient());
         let response_skeleton = ResponseSkeleton {
             client_id: 123,
             context_id: 333,
         };
-        let node_to_ui_msg = NodeToUiMessage {
-            target: MessageTarget::ClientId(123),
-            body: UiScanResponse {}.tmb(333),
-        };
         let pending_payable_scanner = ScannerMock::new()
             .finish_scan_params(&finish_scan_params_arc)
-            .finish_scan_result(PendingPayableScanResult::PaymentRetryRequired(
-                Either::Right(node_to_ui_msg.clone()),
-            ));
+            .finish_scan_result(PendingPayableScanResult::PaymentRetryRequired(Some(
+                response_skeleton,
+            )));
         subject
             .scanners
             .replace_scanner(ScannerReplacement::PendingPayable(ReplacementType::Mock(
                 pending_payable_scanner,
             )));
         subject.scan_schedulers.payable.retry_payable_notify =
-            Box::new(NotifyHandleMock::default().panic_on_schedule_attempt());
+            Box::new(NotifyHandleMock::default().notify_params(&retry_payable_notify_params_arc));
         subject.scan_schedulers.payable.new_payable_notify =
             Box::new(NotifyHandleMock::default().panic_on_schedule_attempt());
         subject.scan_schedulers.payable.new_payable_notify_later =
@@ -5277,7 +5285,6 @@ mod tests {
         subject.scan_schedulers.pending_payable.handle =
             Box::new(NotifyLaterHandleMock::default().panic_on_schedule_attempt());
         let system = System::new(test_name);
-
         let msg = TxReceiptsMessage {
             results: hashmap!(TxHashByTable::SentPayable(make_tx_hash(123)) => Err(AppRpcError::Remote(RemoteError::Unreachable))),
             response_skeleton_opt: Some(response_skeleton),
@@ -5286,13 +5293,18 @@ mod tests {
 
         subject_addr.try_send(msg.clone()).unwrap();
 
+        System::current().stop();
         system.run();
         let mut finish_scan_params = finish_scan_params_arc.lock().unwrap();
         let (msg_actual, logger) = finish_scan_params.remove(0);
         assert_eq!(msg_actual, msg);
-        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        let captured_msg = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
-        assert_eq!(captured_msg, &node_to_ui_msg);
+        let retry_payable_notify_params = retry_payable_notify_params_arc.lock().unwrap();
+        assert_eq!(
+            *retry_payable_notify_params,
+            vec![ScanForRetryPayables {
+                response_skeleton_opt: Some(response_skeleton)
+            }]
+        );
         assert_using_the_same_logger(&logger, test_name, None)
     }
 
