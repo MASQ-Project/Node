@@ -203,7 +203,7 @@ impl UpdatableValidationStatus for FailureStatus {
             FailureStatus::RecheckRequired(ValidationStatus::Reattempting(previous_attempts)) => {
                 Some(FailureStatus::RecheckRequired(
                     ValidationStatus::Reattempting(
-                        previous_attempts.clone().add_attempt(error.into(), clock),
+                        previous_attempts.clone().add_attempt(error, clock),
                     ),
                 ))
             }

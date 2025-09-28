@@ -19,6 +19,7 @@ use crate::accountant::{
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use crate::sub_lib::wallet::Wallet;
 use ethabi::Address;
+use ethereum_types::H256;
 #[cfg(test)]
 use ethereum_types::{BigEndianHash, U256};
 use itertools::Either;
@@ -29,7 +30,6 @@ use rusqlite::{Error, Row};
 use std::collections::BTreeSet;
 use std::fmt::{Debug, Display, Formatter};
 use std::time::SystemTime;
-use web3::types::H256;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum PayableDaoError {

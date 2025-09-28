@@ -14,12 +14,13 @@ use crate::accountant::scanners::payable_scanner::payment_adjuster_integration::
 use crate::accountant::scanners::payable_scanner::utils::{NextScanToRun, PayableScanResult};
 use crate::accountant::scanners::payable_scanner::{MultistageDualPayableScanner, PayableScanner};
 use crate::accountant::scanners::pending_payable_scanner::utils::PendingPayableScanResult;
-use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
+use crate::accountant::scanners::pending_payable_scanner::{
+    ExtendedPendingPayablePrivateScanner, PendingPayableScanner,
+};
 use crate::accountant::scanners::receivable_scanner::ReceivableScanner;
 use crate::accountant::{
     ReceivedPayments, RequestTransactionReceipts, ResponseSkeleton, ScanError, ScanForNewPayables,
-    ScanForPendingPayables, ScanForReceivables, ScanForRetryPayables, SentPayables,
-    TxReceiptsMessage,
+    ScanForReceivables, ScanForRetryPayables, SentPayables, TxReceiptsMessage,
 };
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::db_config::persistent_configuration::PersistentConfigurationReal;
@@ -47,14 +48,7 @@ pub struct Scanners {
     payable: Box<dyn MultistageDualPayableScanner>,
     aware_of_unresolved_pending_payable: bool,
     initial_pending_payable_scan: bool,
-    pending_payable: Box<
-        dyn PrivateScanner<
-            ScanForPendingPayables,
-            RequestTransactionReceipts,
-            TxReceiptsMessage,
-            PendingPayableScanResult,
-        >,
-    >,
+    pending_payable: Box<dyn ExtendedPendingPayablePrivateScanner>,
     receivable: Box<
         dyn PrivateScanner<
             ScanForReceivables,
@@ -239,10 +233,9 @@ impl Scanners {
 
     pub fn finish_payable_scan(&mut self, msg: SentPayables, logger: &Logger) -> PayableScanResult {
         let scan_result = self.payable.finish_scan(msg, logger);
-        match scan_result.result {
-            NextScanToRun::PendingPayableScan => self.aware_of_unresolved_pending_payable = true,
-            _ => (),
-        };
+        if scan_result.result == NextScanToRun::PendingPayableScan {
+            self.aware_of_unresolved_pending_payable = true
+        }
         scan_result
     }
 
@@ -278,17 +271,7 @@ impl Scanners {
     }
 
     fn empty_caches(&mut self, logger: &Logger) {
-        let pending_payable_scanner = self
-            .pending_payable
-            .as_any_mut()
-            .downcast_mut::<PendingPayableScanner>()
-            .expect("mismatched types");
-        pending_payable_scanner
-            .current_sent_payables
-            .ensure_empty_cache(logger);
-        pending_payable_scanner
-            .yet_unproven_failed_payables
-            .ensure_empty_cache(logger);
+        self.pending_payable.empty_caches(logger)
     }
 
     pub fn try_skipping_payable_adjustment(
@@ -403,7 +386,6 @@ where
     fn scan_started_at(&self) -> Option<SystemTime>;
     fn mark_as_started(&mut self, timestamp: SystemTime);
     fn mark_as_ended(&mut self, logger: &Logger);
-
     as_any_ref_in_trait!();
     as_any_mut_in_trait!();
 }

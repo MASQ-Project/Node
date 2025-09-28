@@ -19,7 +19,7 @@ use std::time::SystemTime;
 use thousands::Separable;
 use web3::types::{Address, H256};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct PayableScanResult {
     pub ui_response_opt: Option<NodeToUiMessage>,
     pub result: NextScanToRun,

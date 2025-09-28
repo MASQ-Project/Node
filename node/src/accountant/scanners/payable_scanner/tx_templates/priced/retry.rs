@@ -99,9 +99,9 @@ impl PricedRetryTxTemplates {
             })
             .collect();
 
-        log_builder.build().map(|log_msg| {
-            warning!(logger, "{}", log_msg);
-        });
+        if let Some(log_msg) = log_builder.build() {
+            warning!(logger, "{}", log_msg)
+        }
 
         templates
     }

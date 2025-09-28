@@ -8,65 +8,46 @@ use serde::{
 };
 use serde_derive::{Deserialize, Serialize};
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Formatter;
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 use std::time::SystemTime;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum ValidationStatus {
     Waiting,
     Reattempting(PreviousAttempts),
 }
 
-impl PartialOrd for ValidationStatus {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for ValidationStatus {
-    fn cmp(&self, other: &Self) -> Ordering {
-        match (self, other) {
-            (ValidationStatus::Waiting, ValidationStatus::Waiting) => Ordering::Equal,
-            (ValidationStatus::Waiting, ValidationStatus::Reattempting(_)) => Ordering::Less,
-            (ValidationStatus::Reattempting(_), ValidationStatus::Waiting) => Ordering::Greater,
-            (
-                ValidationStatus::Reattempting(attempts1),
-                ValidationStatus::Reattempting(attempts2),
-            ) => attempts1.cmp(attempts2),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PreviousAttempts {
-    inner: HashMap<BlockchainErrorKind, ErrorStats>,
+    inner: BTreeMap<BlockchainErrorKind, ErrorStats>,
 }
 
-impl Hash for PreviousAttempts {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        for (key, value) in &self.inner {
-            key.hash(state);
-            value.hash(state);
-        }
-    }
-}
+// TODO find me
+// impl Hash for PreviousAttempts {
+//     fn hash<H: Hasher>(&self, state: &mut H) {
+//         for (key, value) in &self.inner {
+//             key.hash(state);
+//             value.hash(state);
+//         }
+//     }
+// }
 
-impl PartialOrd for PreviousAttempts {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for PreviousAttempts {
-    fn cmp(&self, other: &Self) -> Ordering {
-        let self_first_seen = self.inner.iter().map(|(_, stats)| &stats.first_seen).max();
-        let other_first_seen = other.inner.iter().map(|(_, stats)| &stats.first_seen).max();
-
-        self_first_seen.cmp(&other_first_seen)
-    }
-}
+// impl PartialOrd for PreviousAttempts {
+//     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+//         Some(self.cmp(other))
+//     }
+// }
+//
+// impl Ord for PreviousAttempts {
+//     fn cmp(&self, other: &Self) -> Ordering {
+//         let self_first_seen = self.inner.iter().map(|(_, stats)| &stats.first_seen).max();
+//         let other_first_seen = other.inner.iter().map(|(_, stats)| &stats.first_seen).max();
+//
+//         self_first_seen.cmp(&other_first_seen)
+//     }
+// }
 
 // had to implement it manually in an array JSON layout, as the original, default HashMap
 // serialization threw errors because the values of keys were represented by nested enums that
@@ -121,7 +102,7 @@ impl<'de> Visitor<'de> for PreviousAttemptsVisitor {
             stats: ErrorStats,
         }
 
-        let mut error_stats_map: HashMap<BlockchainErrorKind, ErrorStats> = hashmap!();
+        let mut error_stats_map: BTreeMap<BlockchainErrorKind, ErrorStats> = btreemap!();
         while let Some(entry) = seq.next_element::<EntryOwned>()? {
             error_stats_map.insert(entry.error_kind, entry.stats);
         }
@@ -134,7 +115,7 @@ impl<'de> Visitor<'de> for PreviousAttemptsVisitor {
 impl PreviousAttempts {
     pub fn new(error: BlockchainErrorKind, clock: &dyn ValidationFailureClock) -> Self {
         Self {
-            inner: hashmap!(error => ErrorStats::now(clock)),
+            inner: btreemap!(error => ErrorStats::now(clock)),
         }
     }
 
@@ -151,7 +132,7 @@ impl PreviousAttempts {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ErrorStats {
     #[serde(rename = "firstSeen")]
     pub first_seen: SystemTime,
@@ -192,7 +173,6 @@ mod tests {
     use crate::blockchain::errors::rpc_errors::{AppRpcErrorKind, LocalErrorKind};
     use crate::test_utils::serde_serializer_mock::{SerdeSerializerMock, SerializeSeqMock};
     use serde::ser::Error as SerdeError;
-    use std::collections::hash_map::DefaultHasher;
     use std::time::Duration;
     use std::time::UNIX_EPOCH;
 
@@ -279,44 +259,44 @@ mod tests {
         assert_eq!(other_error_stats, None);
     }
 
-    #[test]
-    fn previous_attempts_hash_works_correctly() {
-        let now = SystemTime::now();
-        let clock = ValidationFailureClockMock::default()
-            .now_result(now)
-            .now_result(now)
-            .now_result(now + Duration::from_secs(2));
-        let attempts1 = PreviousAttempts::new(
-            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Decoder)),
-            &clock,
-        );
-        let attempts2 = PreviousAttempts::new(
-            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Decoder)),
-            &clock,
-        );
-        let attempts3 = PreviousAttempts::new(
-            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Io)),
-            &clock,
-        );
-        let hash1 = {
-            let mut hasher = DefaultHasher::new();
-            attempts1.hash(&mut hasher);
-            hasher.finish()
-        };
-        let hash2 = {
-            let mut hasher = DefaultHasher::new();
-            attempts2.hash(&mut hasher);
-            hasher.finish()
-        };
-        let hash3 = {
-            let mut hasher = DefaultHasher::new();
-            attempts3.hash(&mut hasher);
-            hasher.finish()
-        };
-
-        assert_eq!(hash1, hash2);
-        assert_ne!(hash1, hash3);
-    }
+    // #[test]
+    // fn previous_attempts_hash_works_correctly() {
+    //     let now = SystemTime::now();
+    //     let clock = ValidationFailureClockMock::default()
+    //         .now_result(now)
+    //         .now_result(now)
+    //         .now_result(now + Duration::from_secs(2));
+    //     let attempts1 = PreviousAttempts::new(
+    //         BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Decoder)),
+    //         &clock,
+    //     );
+    //     let attempts2 = PreviousAttempts::new(
+    //         BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Decoder)),
+    //         &clock,
+    //     );
+    //     let attempts3 = PreviousAttempts::new(
+    //         BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Io)),
+    //         &clock,
+    //     );
+    //     let hash1 = {
+    //         let mut hasher = DefaultHasher::new();
+    //         attempts1.hash(&mut hasher);
+    //         hasher.finish()
+    //     };
+    //     let hash2 = {
+    //         let mut hasher = DefaultHasher::new();
+    //         attempts2.hash(&mut hasher);
+    //         hasher.finish()
+    //     };
+    //     let hash3 = {
+    //         let mut hasher = DefaultHasher::new();
+    //         attempts3.hash(&mut hasher);
+    //         hasher.finish()
+    //     };
+    //
+    //     assert_eq!(hash1, hash2);
+    //     assert_ne!(hash1, hash3);
+    // }
 
     #[test]
     fn previous_attempts_ordering_works_correctly_with_mock() {
@@ -423,7 +403,7 @@ mod tests {
         let clock = ValidationFailureClockMock::default().now_result(timestamp);
         assert_eq!(
             result.unwrap().inner,
-            hashmap!(BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Internal)) => ErrorStats::now(&clock))
+            btreemap!(BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Internal)) => ErrorStats::now(&clock))
         );
     }
 

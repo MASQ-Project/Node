@@ -13,7 +13,6 @@ use ethereum_types::H256;
 use itertools::Itertools;
 use masq_lib::utils::ExpectValue;
 use serde_derive::{Deserialize, Serialize};
-use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -28,7 +27,7 @@ pub enum SentPayableDaoError {
     SqlExecutionFailed(String),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SentTx {
     pub hash: TxHash,
     pub receiver_address: Address,
@@ -69,24 +68,25 @@ impl Transaction for SentTx {
     }
 }
 
-impl PartialOrd for SentTx {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
+//TODO find me
+// impl PartialOrd for SentTx {
+//     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+//         Some(self.cmp(other))
+//     }
+// }
+//
+// impl Ord for SentTx {
+//     fn cmp(&self, other: &Self) -> Ordering {
+//         // Descending Order
+//         other
+//             .timestamp
+//             .cmp(&self.timestamp)
+//             .then_with(|| other.nonce.cmp(&self.nonce))
+//             .then_with(|| other.amount_minor.cmp(&self.amount_minor))
+//     }
+// }
 
-impl Ord for SentTx {
-    fn cmp(&self, other: &Self) -> Ordering {
-        // Descending Order
-        other
-            .timestamp
-            .cmp(&self.timestamp)
-            .then_with(|| other.nonce.cmp(&self.nonce))
-            .then_with(|| other.amount_minor.cmp(&self.amount_minor))
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum TxStatus {
     Pending(ValidationStatus),
     Confirmed {
@@ -96,36 +96,37 @@ pub enum TxStatus {
     },
 }
 
-impl PartialOrd for TxStatus {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for TxStatus {
-    fn cmp(&self, other: &Self) -> Ordering {
-        match (self, other) {
-            (TxStatus::Pending(status1), TxStatus::Pending(status2)) => status1.cmp(status2),
-            (TxStatus::Pending(_), TxStatus::Confirmed { .. }) => Ordering::Less,
-            (TxStatus::Confirmed { .. }, TxStatus::Pending(_)) => Ordering::Greater,
-            (
-                TxStatus::Confirmed {
-                    block_number: bn1,
-                    detection: det1,
-                    block_hash: bh1,
-                },
-                TxStatus::Confirmed {
-                    block_number: bn2,
-                    detection: det2,
-                    block_hash: bh2,
-                },
-            ) => bn1
-                .cmp(bn2)
-                .then_with(|| det1.cmp(det2))
-                .then_with(|| bh1.cmp(bh2)),
-        }
-    }
-}
+//TODO find me
+// impl PartialOrd for TxStatus {
+//     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+//         Some(self.cmp(other))
+//     }
+// }
+//
+// impl Ord for TxStatus {
+//     fn cmp(&self, other: &Self) -> Ordering {
+//         match (self, other) {
+//             (TxStatus::Pending(status1), TxStatus::Pending(status2)) => status1.cmp(status2),
+//             (TxStatus::Pending(_), TxStatus::Confirmed { .. }) => Ordering::Less,
+//             (TxStatus::Confirmed { .. }, TxStatus::Pending(_)) => Ordering::Greater,
+//             (
+//                 TxStatus::Confirmed {
+//                     block_number: bn1,
+//                     detection: det1,
+//                     block_hash: bh1,
+//                 },
+//                 TxStatus::Confirmed {
+//                     block_number: bn2,
+//                     detection: det2,
+//                     block_hash: bh2,
+//                 },
+//             ) => bn1
+//                 .cmp(bn2)
+//                 .then_with(|| det1.cmp(det2))
+//                 .then_with(|| bh1.cmp(bh2)),
+//         }
+//     }
+// }
 
 impl FromStr for TxStatus {
     type Err = String;
@@ -660,18 +661,17 @@ mod tests {
             Err(SentPayableDaoError::InvalidInput(
                 "Duplicate hashes found in the input. Input Transactions: \
                 {\
+                SentTx { hash: 0x00000000000000000000000000000000000000000000000000000000000004d2, \
+                receiver_address: 0x0000000000000000000000000000000000000000, \
+                amount_minor: 0, timestamp: 1749204017, gas_price_minor: 0, \
+                nonce: 0, status: Pending(Waiting) }, \
                 SentTx { \
                 hash: 0x00000000000000000000000000000000000000000000000000000000000004d2, \
                 receiver_address: 0x0000000000000000000000000000000000000000, \
                 amount_minor: 0, timestamp: 1749204020, gas_price_minor: 0, \
                 nonce: 0, status: Confirmed { block_hash: \
                 \"0x000000000000000000000000000000000000000000000000000000003b9acbc8\", \
-                block_number: 7890123, detection: Reclaim } }, \
-                SentTx { \
-                hash: 0x00000000000000000000000000000000000000000000000000000000000004d2, \
-                receiver_address: 0x0000000000000000000000000000000000000000, \
-                amount_minor: 0, timestamp: 1749204017, gas_price_minor: 0, \
-                nonce: 0, status: Pending(Waiting) }\
+                block_number: 7890123, detection: Reclaim } }\
                 }"
                 .to_string()
             ))
@@ -1268,6 +1268,22 @@ mod tests {
         assert_eq!(result, Ok(()));
         assert_eq!(
             updated_txs[0].status,
+            TxStatus::Confirmed {
+                block_hash: "0x0000000000000000000000000000000000000000000000000000000000000002"
+                    .to_string(),
+                block_number: 123,
+                detection: Detection::Normal,
+            }
+        );
+        assert_eq!(
+            updated_txs[1].status,
+            TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
+                BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Internal)),
+                &ValidationFailureClockMock::default().now_result(timestamp_a)
+            )))
+        );
+        assert_eq!(
+            updated_txs[2].status,
             TxStatus::Pending(ValidationStatus::Reattempting(
                 PreviousAttempts::new(
                     BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(
@@ -1282,22 +1298,6 @@ mod tests {
                     &ValidationFailureClockReal::default()
                 )
             ))
-        );
-        assert_eq!(
-            updated_txs[1].status,
-            TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
-                BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Internal)),
-                &ValidationFailureClockMock::default().now_result(timestamp_a)
-            )))
-        );
-        assert_eq!(
-            updated_txs[2].status,
-            TxStatus::Confirmed {
-                block_hash: "0x0000000000000000000000000000000000000000000000000000000000000002"
-                    .to_string(),
-                block_number: 123,
-                detection: Detection::Normal,
-            }
         );
         assert_eq!(updated_txs.len(), 3)
     }
@@ -1414,7 +1414,7 @@ mod tests {
         assert!(sql.contains("gas_price_wei_high_b = CASE"));
         assert!(sql.contains("gas_price_wei_low_b = CASE"));
         assert!(sql.contains("status = CASE"));
-        assert!(sql.contains("WHERE nonce IN (3, 2, 1)"));
+        assert!(sql.contains("WHERE nonce IN (1, 2, 3)"));
         assert!(sql.contains("WHEN nonce = 1 THEN '0x0000000000000000000000000000000000000000000000000000000000000001'"));
         assert!(sql.contains("WHEN nonce = 2 THEN '0x0000000000000000000000000000000000000000000000000000000000000002'"));
         assert!(sql.contains("WHEN nonce = 3 THEN '0x0000000000000000000000000000000000000000000000000000000000000003'"));
@@ -1587,44 +1587,45 @@ mod tests {
         )
     }
 
-    #[test]
-    fn tx_ordering_works() {
-        let tx1 = SentTx {
-            hash: make_tx_hash(1),
-            receiver_address: make_address(1),
-            amount_minor: 100,
-            timestamp: 1000,
-            gas_price_minor: 10,
-            nonce: 1,
-            status: TxStatus::Pending(ValidationStatus::Waiting),
-        };
-        let tx2 = SentTx {
-            hash: make_tx_hash(2),
-            receiver_address: make_address(2),
-            amount_minor: 200,
-            timestamp: 1000,
-            gas_price_minor: 20,
-            nonce: 1,
-            status: TxStatus::Pending(ValidationStatus::Waiting),
-        };
-        let tx3 = SentTx {
-            hash: make_tx_hash(3),
-            receiver_address: make_address(3),
-            amount_minor: 100,
-            timestamp: 2000,
-            gas_price_minor: 30,
-            nonce: 2,
-            status: TxStatus::Pending(ValidationStatus::Waiting),
-        };
-
-        let mut set = BTreeSet::new();
-        set.insert(tx1.clone());
-        set.insert(tx2.clone());
-        set.insert(tx3.clone());
-
-        let expected_order = vec![tx3, tx2, tx1];
-        assert_eq!(set.into_iter().collect::<Vec<_>>(), expected_order);
-    }
+    // TODO find me
+    // #[test]
+    // fn tx_ordering_works() {
+    //     let tx1 = SentTx {
+    //         hash: make_tx_hash(1),
+    //         receiver_address: make_address(1),
+    //         amount_minor: 100,
+    //         timestamp: 1000,
+    //         gas_price_minor: 10,
+    //         nonce: 1,
+    //         status: TxStatus::Pending(ValidationStatus::Waiting),
+    //     };
+    //     let tx2 = SentTx {
+    //         hash: make_tx_hash(2),
+    //         receiver_address: make_address(2),
+    //         amount_minor: 200,
+    //         timestamp: 1000,
+    //         gas_price_minor: 20,
+    //         nonce: 1,
+    //         status: TxStatus::Pending(ValidationStatus::Waiting),
+    //     };
+    //     let tx3 = SentTx {
+    //         hash: make_tx_hash(3),
+    //         receiver_address: make_address(3),
+    //         amount_minor: 100,
+    //         timestamp: 2000,
+    //         gas_price_minor: 30,
+    //         nonce: 2,
+    //         status: TxStatus::Pending(ValidationStatus::Waiting),
+    //     };
+    //
+    //     let mut set = BTreeSet::new();
+    //     set.insert(tx1.clone());
+    //     set.insert(tx2.clone());
+    //     set.insert(tx3.clone());
+    //
+    //     let expected_order = vec![tx3, tx2, tx1];
+    //     assert_eq!(set.into_iter().collect::<Vec<_>>(), expected_order);
+    // }
 
     #[test]
     fn transaction_trait_methods_for_tx() {

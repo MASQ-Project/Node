@@ -44,6 +44,14 @@ use std::rc::Rc;
 use std::time::SystemTime;
 use web3::types::Address;
 
+pub(in crate::accountant::scanners) trait MultistageDualPayableScanner:
+    StartableScanner<ScanForNewPayables, InitialTemplatesMessage>
+    + StartableScanner<ScanForRetryPayables, InitialTemplatesMessage>
+    + SolvencySensitivePaymentInstructor
+    + Scanner<SentPayables, PayableScanResult>
+{
+}
+
 pub struct PayableScanner {
     pub payable_threshold_gauge: Box<dyn PayableThresholdsGauge>,
     pub common: ScannerCommon,
@@ -51,14 +59,6 @@ pub struct PayableScanner {
     pub sent_payable_dao: Box<dyn SentPayableDao>,
     pub failed_payable_dao: Box<dyn FailedPayableDao>,
     pub payment_adjuster: Box<dyn PaymentAdjuster>,
-}
-
-pub(in crate::accountant::scanners) trait MultistageDualPayableScanner:
-    StartableScanner<ScanForNewPayables, InitialTemplatesMessage>
-    + StartableScanner<ScanForRetryPayables, InitialTemplatesMessage>
-    + SolvencySensitivePaymentInstructor
-    + Scanner<SentPayables, PayableScanResult>
-{
 }
 
 impl MultistageDualPayableScanner for PayableScanner {}
@@ -168,17 +168,15 @@ impl PayableScanner {
             .copied()
             .collect::<BTreeSet<TxHash>>();
 
-        let missing_sent_payables_hashes: Vec<TxHash> = hashset_with_hashes_to_eliminate_duplicates
+        let missing_sent_payables_hashes = hashset_with_hashes_to_eliminate_duplicates
             .difference(&hashes_from_db)
-            .copied()
-            .collect();
+            .copied();
 
         let mut sent_payables_hashmap = just_baked_sent_payables
             .iter()
             .map(|payable| (payable.hash, &payable.recipient_wallet))
             .collect::<HashMap<TxHash, &Wallet>>();
         missing_sent_payables_hashes
-            .into_iter()
             .map(|hash| {
                 let wallet_address = sent_payables_hashmap
                     .remove(&hash)
@@ -243,7 +241,7 @@ impl PayableScanner {
     }
 
     fn handle_batch_results_for_new_scan(&self, batch_results: &BatchResults, logger: &Logger) {
-        let (sent, failed) = calculate_occurences(&batch_results);
+        let (sent, failed) = calculate_occurences(batch_results);
         debug!(
             logger,
             "Processed new txs while sending to RPC: {}",
@@ -258,7 +256,7 @@ impl PayableScanner {
     }
 
     fn handle_batch_results_for_retry_scan(&self, batch_results: &BatchResults, logger: &Logger) {
-        let (sent, failed) = calculate_occurences(&batch_results);
+        let (sent, failed) = calculate_occurences(batch_results);
         debug!(
             logger,
             "Processed retried txs while sending to RPC: {}",
@@ -275,10 +273,10 @@ impl PayableScanner {
         }
     }
 
-    fn update_statuses_of_prev_txs(&self, sent_txs: &Vec<SentTx>) {
+    fn update_statuses_of_prev_txs(&self, sent_txs: &[SentTx]) {
         // TODO: We can do better here, possibly by creating a relationship between failed and sent txs
         // Also, consider the fact that some txs will be with PendingTooLong status, what should we do with them?
-        let retrieved_txs = self.retrieve_failed_txs_by_receiver_addresses(&sent_txs);
+        let retrieved_txs = self.retrieve_failed_txs_by_receiver_addresses(sent_txs);
         let (pending_too_long, other_reasons): (BTreeSet<_>, BTreeSet<_>) = retrieved_txs
             .into_iter()
             .partition(|tx| matches!(tx.reason, FailureReason::PendingTooLong));
@@ -293,10 +291,7 @@ impl PayableScanner {
         }
     }
 
-    fn retrieve_failed_txs_by_receiver_addresses(
-        &self,
-        sent_txs: &Vec<SentTx>,
-    ) -> BTreeSet<FailedTx> {
+    fn retrieve_failed_txs_by_receiver_addresses(&self, sent_txs: &[SentTx]) -> BTreeSet<FailedTx> {
         let receiver_addresses = filter_receiver_addresses_from_txs(sent_txs.iter());
         self.failed_payable_dao
             .retrieve_txs(Some(FailureRetrieveCondition::ByReceiverAddresses(
@@ -328,7 +323,7 @@ impl PayableScanner {
         )
     }
 
-    fn insert_records_in_sent_payables(&self, sent_txs: &Vec<SentTx>) {
+    fn insert_records_in_sent_payables(&self, sent_txs: &[SentTx]) {
         self.sent_payable_dao
             .insert_new_records(&sent_txs.iter().cloned().collect())
             .unwrap_or_else(|e| {
@@ -339,7 +334,7 @@ impl PayableScanner {
             });
     }
 
-    fn insert_records_in_failed_payables(&self, failed_txs: &Vec<FailedTx>) {
+    fn insert_records_in_failed_payables(&self, failed_txs: &[FailedTx]) {
         self.failed_payable_dao
             .insert_new_records(&failed_txs.iter().cloned().collect())
             .unwrap_or_else(|e| {

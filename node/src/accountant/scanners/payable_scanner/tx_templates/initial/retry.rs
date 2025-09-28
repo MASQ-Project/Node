@@ -17,8 +17,7 @@ impl RetryTxTemplate {
         let mut retry_template = RetryTxTemplate::from(failed_tx);
 
         if let Some(payable_scan_amount) = payable_scan_amount_opt {
-            retry_template.base.amount_in_wei =
-                retry_template.base.amount_in_wei + payable_scan_amount;
+            retry_template.base.amount_in_wei += payable_scan_amount;
         }
 
         retry_template

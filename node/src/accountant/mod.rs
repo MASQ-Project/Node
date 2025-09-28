@@ -153,7 +153,7 @@ pub enum PayableScanType {
     Retry,
 }
 
-#[derive(Debug, Message, PartialEq, Clone)]
+#[derive(Debug, Message, PartialEq, Eq, Clone)]
 pub struct SentPayables {
     pub payment_procedure_result: Result<BatchResults, String>,
     pub payable_scan_type: PayableScanType,

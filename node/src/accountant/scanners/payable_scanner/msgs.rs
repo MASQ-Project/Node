@@ -40,6 +40,7 @@ impl SkeletonOptHolder for InitialTemplatesMessage {
     }
 }
 
+#[cfg(test)]
 mod tests {
     use crate::accountant::scanners::payable_scanner::msgs::InitialTemplatesMessage;
     use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::NewTxTemplates;

@@ -47,6 +47,20 @@ use std::time::SystemTime;
 use thousands::Separable;
 use web3::types::H256;
 
+pub(in crate::accountant::scanners) trait ExtendedPendingPayablePrivateScanner:
+    PrivateScanner<
+        ScanForPendingPayables,
+        RequestTransactionReceipts,
+        TxReceiptsMessage,
+        PendingPayableScanResult,
+    > + CachesEmptiableScanner
+{
+}
+
+pub trait CachesEmptiableScanner {
+    fn empty_caches(&mut self, logger: &Logger);
+}
+
 pub struct PendingPayableScanner {
     pub common: ScannerCommon,
     pub payable_dao: Box<dyn PayableDao>,
@@ -57,6 +71,8 @@ pub struct PendingPayableScanner {
     pub yet_unproven_failed_payables: Box<dyn PendingPayableCache<FailedTx>>,
     pub clock: Box<dyn ValidationFailureClock>,
 }
+
+impl ExtendedPendingPayablePrivateScanner for PendingPayableScanner {}
 
 impl
     PrivateScanner<
@@ -120,6 +136,13 @@ impl Scanner<TxReceiptsMessage, PendingPayableScanResult> for PendingPayableScan
     as_any_mut_in_trait_impl!();
 }
 
+impl CachesEmptiableScanner for PendingPayableScanner {
+    fn empty_caches(&mut self, logger: &Logger) {
+        self.current_sent_payables.ensure_empty_cache(logger);
+        self.yet_unproven_failed_payables.ensure_empty_cache(logger);
+    }
+}
+
 impl PendingPayableScanner {
     pub fn new(
         payable_dao: Box<dyn PayableDao>,
@@ -143,8 +166,6 @@ impl PendingPayableScanner {
     fn harvest_tables(&mut self, logger: &Logger) -> Result<Vec<TxHashByTable>, StartScanError> {
         let pending_tx_hashes_opt = self.harvest_pending_payables();
         let failure_hashes_opt = self.harvest_unproven_failures();
-        eprintln!("ph: {:?}", pending_tx_hashes_opt);
-        eprintln!("fail: {:?}", failure_hashes_opt);
 
         if Self::is_there_nothing_to_process(
             pending_tx_hashes_opt.as_ref(),
@@ -277,7 +298,7 @@ impl PendingPayableScanner {
         let interpretable_data = self.prepare_cases_to_interpret(msg, logger);
         TxReceiptInterpreter::default().compose_receipt_scan_report(
             interpretable_data,
-            &self,
+            self,
             logger,
         )
     }
@@ -291,7 +312,7 @@ impl PendingPayableScanner {
         let either = msg
             .results
             .into_iter()
-            // This must be in for predictability in tests
+            // // This must be in for predictability in tests
             .sorted_by_key(|(hash_by_table, _)| hash_by_table.hash())
             .fold(
                 init,
@@ -468,7 +489,7 @@ impl PendingPayableScanner {
 
     fn delete_failed_tx_records(&self, hashes_and_blocks: &[(TxHash, TxBlock)], logger: &Logger) {
         let hashes = Self::isolate_hashes(hashes_and_blocks);
-        match self.failed_payable_dao.delete_records(&hashes.into()) {
+        match self.failed_payable_dao.delete_records(&hashes) {
             Ok(_) => {
                 info!(
                     logger,
@@ -667,7 +688,7 @@ impl PendingPayableScanner {
         fn prepare_hashmap(rechecks_completed: &[TxHash]) -> HashMap<TxHash, FailureStatus> {
             rechecks_completed
                 .iter()
-                .map(|tx_hash| (tx_hash.clone(), FailureStatus::Concluded))
+                .map(|tx_hash| (*tx_hash, FailureStatus::Concluded))
                 .collect()
         }
 
@@ -920,10 +941,10 @@ mod tests {
             result,
             Ok(RequestTransactionReceipts {
                 tx_hashes: vec![
-                    TxHashByTable::SentPayable(sent_tx_hash_2),
                     TxHashByTable::SentPayable(sent_tx_hash_1),
-                    TxHashByTable::FailedPayable(failed_tx_hash_2),
-                    TxHashByTable::FailedPayable(failed_tx_hash_1)
+                    TxHashByTable::SentPayable(sent_tx_hash_2),
+                    TxHashByTable::FailedPayable(failed_tx_hash_1),
+                    TxHashByTable::FailedPayable(failed_tx_hash_2)
                 ],
                 response_skeleton_opt: None
             })

@@ -14,6 +14,9 @@ use crate::accountant::scanners::payable_scanner::{MultistageDualPayableScanner,
 use crate::accountant::scanners::pending_payable_scanner::utils::{
     PendingPayableCache, PendingPayableScanResult,
 };
+use crate::accountant::scanners::pending_payable_scanner::{
+    CachesEmptiableScanner, ExtendedPendingPayablePrivateScanner,
+};
 use crate::accountant::scanners::scan_schedulers::{
     NewPayableScanDynIntervalComputer, PayableSequenceScanner, RescheduleScanOnErrorResolver,
     ScanReschedulingAfterEarlyStop,
@@ -106,6 +109,14 @@ impl SolvencySensitivePaymentInstructor for NullScanner {
         _setup: PreparedAdjustment,
         _logger: &Logger,
     ) -> OutboundPaymentsInstructions {
+        intentionally_blank!()
+    }
+}
+
+impl ExtendedPendingPayablePrivateScanner for NullScanner {}
+
+impl CachesEmptiableScanner for NullScanner {
+    fn empty_caches(&mut self, _logger: &Logger) {
         intentionally_blank!()
     }
 }
@@ -302,6 +313,19 @@ impl SolvencySensitivePaymentInstructor
         _setup: PreparedAdjustment,
         _logger: &Logger,
     ) -> OutboundPaymentsInstructions {
+        intentionally_blank!()
+    }
+}
+
+impl ExtendedPendingPayablePrivateScanner
+    for ScannerMock<RequestTransactionReceipts, TxReceiptsMessage, PendingPayableScanResult>
+{
+}
+
+impl CachesEmptiableScanner
+    for ScannerMock<RequestTransactionReceipts, TxReceiptsMessage, PendingPayableScanResult>
+{
+    fn empty_caches(&mut self, _logger: &Logger) {
         intentionally_blank!()
     }
 }
