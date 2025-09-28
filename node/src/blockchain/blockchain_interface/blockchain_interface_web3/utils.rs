@@ -752,7 +752,7 @@ mod tests {
         let os_specific_code = transport_error_code();
         let os_specific_msg = transport_error_message();
         let err_msg = format!(
-            "Error(Connect, Os {{ code: {}, kind: ConnectionRefused, message: {:?} }})",
+            "Transport error: Error(Connect, Os {{ code: {}, kind: ConnectionRefused, message: {:?} }})",
             os_specific_code, os_specific_msg
         );
         let failed_txs = signable_tx_templates
@@ -774,10 +774,7 @@ mod tests {
                     .build()
             })
             .collect();
-        let error = "Transport error: Error(Connect, Os { code: 111, kind: ConnectionRefused, \
-        message: \"Connection refused\" })"
-            .to_string();
-        let expected_result = Err(Sending { error, failed_txs });
+        let expected_result = Err(Sending { error: err_msg, failed_txs });
 
         test_send_payables_within_batch(
             "send_payables_within_batch_fails_on_submit_batch_call",

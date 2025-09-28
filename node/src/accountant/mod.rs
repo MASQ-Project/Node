@@ -346,12 +346,14 @@ impl Handler<TxReceiptsMessage> for Accountant {
                 .schedule_retry_payable_scan(ctx, response_skeleton_opt, &self.logger),
             PendingPayableScanResult::ProcedureShouldBeRepeated(ui_msg_opt) => {
                 if let Some(node_to_ui_msg) = ui_msg_opt {
-                    todo!()
-                    // self.ui_message_sub_opt
-                    //     .as_ref()
-                    //     .expect("UIGateway is not bound")
-                    //     .try_send(node_to_ui_msg)
-                    //     .expect("UIGateway is dead");
+                    info!(self.logger, "Re-running the pending payable scan is recommended, as some \
+                    parts did not finish last time.");
+                    self.ui_message_sub_opt
+                        .as_ref()
+                        .expect("UIGateway is not bound")
+                        .try_send(node_to_ui_msg)
+                        .expect("UIGateway is dead");
+                    // The repetition must be triggered by an external impulse
                 } else {
                     self.scan_schedulers
                         .pending_payable
@@ -5195,10 +5197,10 @@ mod tests {
     }
 
     #[test]
-    fn accountant_reschedules_pending_payable_scanner_as_receipt_check_efforts_alone_failed() {
+    fn accountant_reschedules_pending_p_scanner_in_automatic_mode_after_receipt_fetching_failed() {
         init_test_logging();
         let test_name =
-            "accountant_reschedules_pending_payable_scanner_as_receipt_check_efforts_alone_failed";
+            "accountant_reschedules_pending_p_scanner_in_automatic_mode_after_receipt_fetching_failed";
         let finish_scan_params_arc = Arc::new(Mutex::new(vec![]));
         let pending_payable_notify_later_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = AccountantBuilder::default()
@@ -5250,6 +5252,63 @@ mod tests {
             )]
         );
         assert_using_the_same_logger(&logger, test_name, None)
+    }
+
+    #[test]
+    fn accountant_reschedules_pending_p_scanner_in_manual_mode_after_receipt_fetching_failed() {
+        init_test_logging();
+        let test_name =
+            "accountant_reschedules_pending_p_scanner_in_manual_mode_after_receipt_fetching_failed";
+        let finish_scan_params_arc = Arc::new(Mutex::new(vec![]));
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let ui_gateway = ui_gateway.system_stop_conditions(match_lazily_every_type_id!(NodeToUiMessage));
+        let expected_node_to_ui_msg = NodeToUiMessage{ target: MessageTarget::ClientId(1234), body: UiScanResponse{}.tmb(54)};
+            let mut subject = AccountantBuilder::default()
+            .logger(Logger::new(test_name))
+            .build();
+        let pending_payable_scanner = ScannerMock::new()
+            .finish_scan_params(&finish_scan_params_arc)
+            .finish_scan_result(PendingPayableScanResult::ProcedureShouldBeRepeated(Some(expected_node_to_ui_msg.clone())));
+        subject
+            .scanners
+            .replace_scanner(ScannerReplacement::PendingPayable(ReplacementType::Mock(
+                pending_payable_scanner,
+            )));
+        subject.scan_schedulers.payable.retry_payable_notify =
+            Box::new(NotifyHandleMock::default().panic_on_schedule_attempt());
+        subject.scan_schedulers.payable.new_payable_notify =
+            Box::new(NotifyHandleMock::default().panic_on_schedule_attempt());
+        subject.scan_schedulers.payable.new_payable_notify_later =
+            Box::new(NotifyLaterHandleMock::default().panic_on_schedule_attempt());
+        let interval = Duration::from_secs(20);
+        subject.scan_schedulers.pending_payable.interval = interval;
+        subject.scan_schedulers.pending_payable.handle = Box::new(
+            NotifyLaterHandleMock::default().panic_on_schedule_attempt()
+        );
+        subject.ui_message_sub_opt = Some(ui_gateway.start().recipient());
+        let system = System::new(test_name);
+        let response_skeleton = ResponseSkeleton{ client_id: 1234, context_id: 54 };
+        let msg = TxReceiptsMessage {
+            results: hashmap!(TxHashByTable::SentPayable(make_tx_hash(123)) => Err(AppRpcError::Remote(RemoteError::Unreachable))),
+            response_skeleton_opt: Some(response_skeleton),
+        };
+        let subject_addr = subject.start();
+
+        subject_addr.try_send(msg.clone()).unwrap();
+
+        system.run();
+        let mut finish_scan_params = finish_scan_params_arc.lock().unwrap();
+        let (msg_actual, logger) = finish_scan_params.remove(0);
+        assert_eq!(msg_actual, msg);
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        let node_to_ui_msg = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
+        assert_eq!(node_to_ui_msg, &expected_node_to_ui_msg);
+        assert_eq!(ui_gateway_recording.len(), 1);
+        assert_using_the_same_logger(&logger, test_name, None);
+        TestLogHandler::new().exists_log_containing(&format!(
+            "INFO: {test_name}: Re-running the pending payable scan is recommended, as some parts \
+            did not finish last time."
+        ));
     }
 
     #[test]
