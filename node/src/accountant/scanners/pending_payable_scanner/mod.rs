@@ -248,17 +248,12 @@ impl PendingPayableScanner {
                     PendingPayableScanResult::PaymentRetryRequired(response_skeleton_opt)
                 }
                 Retry::RetryTxStatusCheckOnly => {
-                    if let Some(response_skeleton) = response_skeleton_opt {
-                        todo!()
-                        //     let ui_msg = NodeToUiMessage {
-                        //         target: MessageTarget::ClientId(response_skeleton.client_id),
-                        //         body: UiScanResponse {}.tmb(response_skeleton.context_id),
-                        //     };
-                        //PendingPayableScanResult::ProcedureShouldBeRepeated(Some(ui_msg))
-                    } else {
-                        todo!()
-                        //PendingPayableScanResult::ProcedureShouldBeRepeated()
-                    }
+                    let ui_msg_opt =
+                        response_skeleton_opt.map(|response_skeleton| NodeToUiMessage {
+                            target: MessageTarget::ClientId(response_skeleton.client_id),
+                            body: UiScanResponse {}.tmb(response_skeleton.context_id),
+                        });
+                    PendingPayableScanResult::ProcedureShouldBeRepeated(ui_msg_opt)
                 }
             }
         } else {
@@ -870,7 +865,7 @@ mod tests {
         make_transaction_block, FailedPayableDaoMock, PayableDaoMock, PendingPayableScannerBuilder,
         SentPayableDaoMock,
     };
-    use crate::accountant::{RequestTransactionReceipts, TxReceiptsMessage};
+    use crate::accountant::{RequestTransactionReceipts, ResponseSkeleton, TxReceiptsMessage};
     use crate::blockchain::blockchain_interface::data_structures::{
         StatusReadFromReceiptCheck, TxBlock,
     };
@@ -883,9 +878,11 @@ mod tests {
     use crate::blockchain::errors::BlockchainErrorKind;
     use crate::blockchain::test_utils::{make_block_hash, make_tx_hash};
     use crate::test_utils::{make_paying_wallet, make_wallet};
-    use itertools::{Either, Itertools};
+    use itertools::Itertools;
     use masq_lib::logger::Logger;
+    use masq_lib::messages::{ToMessageBody, UiScanResponse};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
+    use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
     use regex::Regex;
     use std::collections::{BTreeSet, HashMap};
     use std::ops::Sub;
@@ -1130,6 +1127,91 @@ mod tests {
             regex_str,
             panic_msg
         );
+    }
+
+    #[test]
+    fn compose_scan_result_all_payments_resolved_in_automatic_mode() {
+        let result = PendingPayableScanner::compose_scan_result(None, None);
+
+        assert_eq!(
+            result,
+            PendingPayableScanResult::NoPendingPayablesLeft(None)
+        )
+    }
+
+    #[test]
+    fn compose_scan_result_all_payments_resolved_in_manual_mode() {
+        let result = PendingPayableScanner::compose_scan_result(
+            None,
+            Some(ResponseSkeleton {
+                client_id: 2222,
+                context_id: 22,
+            }),
+        );
+
+        assert_eq!(
+            result,
+            PendingPayableScanResult::NoPendingPayablesLeft(Some(NodeToUiMessage {
+                target: MessageTarget::ClientId(2222),
+                body: UiScanResponse {}.tmb(22)
+            }))
+        )
+    }
+
+    #[test]
+    fn compose_scan_result_payments_retry_required_in_automatic_mode() {
+        let result = PendingPayableScanner::compose_scan_result(Some(Retry::RetryPayments), None);
+
+        assert_eq!(result, PendingPayableScanResult::PaymentRetryRequired(None))
+    }
+
+    #[test]
+    fn compose_scan_result_payments_retry_required_in_manual_mode() {
+        let result = PendingPayableScanner::compose_scan_result(
+            Some(Retry::RetryPayments),
+            Some(ResponseSkeleton {
+                client_id: 1234,
+                context_id: 21,
+            }),
+        );
+
+        assert_eq!(
+            result,
+            PendingPayableScanResult::PaymentRetryRequired(Some(ResponseSkeleton {
+                client_id: 1234,
+                context_id: 21
+            }))
+        )
+    }
+
+    #[test]
+    fn compose_scan_result_only_scan_procedure_should_be_repeated_in_automatic_mode() {
+        let result =
+            PendingPayableScanner::compose_scan_result(Some(Retry::RetryTxStatusCheckOnly), None);
+
+        assert_eq!(
+            result,
+            PendingPayableScanResult::ProcedureShouldBeRepeated(None)
+        )
+    }
+
+    #[test]
+    fn compose_scan_result_only_scan_procedure_should_be_repeated_in_manual_mode() {
+        let result = PendingPayableScanner::compose_scan_result(
+            Some(Retry::RetryTxStatusCheckOnly),
+            Some(ResponseSkeleton {
+                client_id: 4455,
+                context_id: 12,
+            }),
+        );
+
+        assert_eq!(
+            result,
+            PendingPayableScanResult::ProcedureShouldBeRepeated(Some(NodeToUiMessage {
+                target: MessageTarget::ClientId(4455),
+                body: UiScanResponse {}.tmb(12)
+            }))
+        )
     }
 
     #[test]

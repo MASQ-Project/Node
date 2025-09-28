@@ -107,9 +107,7 @@ impl ConsumingWalletBalances {
 #[cfg(test)]
 mod tests {
     use crate::accountant::scanners::payable_scanner::tx_templates::priced::retry::PricedRetryTxTemplates;
-    use crate::accountant::scanners::payable_scanner::tx_templates::test_utils::{
-        make_priced_new_tx_templates, make_priced_retry_tx_template,
-    };
+    use crate::accountant::scanners::payable_scanner::tx_templates::test_utils::make_priced_new_tx_templates;
     use crate::accountant::test_utils::make_payable_account;
     use crate::actor_system_factory::SubsFactory;
     use crate::blockchain::blockchain_agent::test_utils::BlockchainAgentMock;

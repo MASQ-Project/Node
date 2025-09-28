@@ -774,7 +774,10 @@ mod tests {
                     .build()
             })
             .collect();
-        let expected_result = Err(Sending { error: err_msg, failed_txs });
+        let expected_result = Err(Sending {
+            error: err_msg,
+            failed_txs,
+        });
 
         test_send_payables_within_batch(
             "send_payables_within_batch_fails_on_submit_batch_call",

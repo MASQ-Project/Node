@@ -587,10 +587,9 @@ mod tests {
     use crate::accountant::db_access_objects::failed_payable_dao::{
         FailedTx, FailureReason, FailureStatus,
     };
-    use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::db_access_objects::sent_payable_dao::{Detection, SentTx, TxStatus};
     use crate::accountant::db_access_objects::test_utils::{make_failed_tx, make_sent_tx};
-    use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp};
+    use crate::accountant::db_access_objects::utils::from_unix_timestamp;
     use crate::accountant::scanners::payable_scanner::msgs::InitialTemplatesMessage;
     use crate::accountant::scanners::payable_scanner::test_utils::PayableScannerBuilder;
     use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::NewTxTemplates;
@@ -601,8 +600,7 @@ mod tests {
     use crate::accountant::scanners::payable_scanner::PayableScanner;
     use crate::accountant::scanners::pending_payable_scanner::test_utils::ValidationFailureClockMock;
     use crate::accountant::scanners::pending_payable_scanner::utils::{
-        CurrentPendingPayables, PendingPayableScanResult, RecheckRequiringFailures, Retry,
-        TxHashByTable,
+        CurrentPendingPayables, PendingPayableScanResult, RecheckRequiringFailures, TxHashByTable,
     };
     use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
     use crate::accountant::scanners::receivable_scanner::ReceivableScanner;
@@ -615,16 +613,15 @@ mod tests {
         ManulTriggerError, Scanner, ScannerCommon, Scanners, StartScanError, StartableScanner,
     };
     use crate::accountant::test_utils::{
-        make_custom_payment_thresholds, make_payable_account,
-        make_qualified_and_unqualified_payables, make_receivable_account, BannedDaoFactoryMock,
-        BannedDaoMock, ConfigDaoFactoryMock, FailedPayableDaoFactoryMock, FailedPayableDaoMock,
-        PayableDaoFactoryMock, PayableDaoMock, PayableThresholdsGaugeMock,
+        make_custom_payment_thresholds, make_qualified_and_unqualified_payables,
+        make_receivable_account, BannedDaoFactoryMock, BannedDaoMock, ConfigDaoFactoryMock,
+        FailedPayableDaoFactoryMock, FailedPayableDaoMock, PayableDaoFactoryMock, PayableDaoMock,
         PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock,
         ReceivableScannerBuilder, SentPayableDaoFactoryMock, SentPayableDaoMock,
     };
     use crate::accountant::{
-        gwei_to_wei, PayableScanType, ReceivedPayments, RequestTransactionReceipts,
-        ResponseSkeleton, ScanError, SentPayables, TxReceiptsMessage,
+        PayableScanType, ReceivedPayments, RequestTransactionReceipts, ResponseSkeleton, ScanError,
+        SentPayables, TxReceiptsMessage,
     };
     use crate::blockchain::blockchain_bridge::{BlockMarker, RetrieveTransactions};
     use crate::blockchain::blockchain_interface::data_structures::{
@@ -642,7 +639,6 @@ mod tests {
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::sub_lib::accountant::{
         DaoFactories, DetailedScanType, FinancialStatistics, PaymentThresholds,
-        DEFAULT_PAYMENT_THRESHOLDS,
     };
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;

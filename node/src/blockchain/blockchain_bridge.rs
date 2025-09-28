@@ -599,7 +599,6 @@ mod tests {
     };
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use actix::System;
-    use clap::AppSettings::DontCollapseArgsInUsage;
     use ethereum_types::U64;
     use masq_lib::constants::DEFAULT_MAX_BLOCK_COUNT;
     use masq_lib::test_utils::logging::init_test_logging;
@@ -610,11 +609,10 @@ mod tests {
     };
     use masq_lib::utils::find_free_port;
     use std::any::TypeId;
-    use std::ops::Add;
     use std::path::Path;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+    use std::time::{Duration, SystemTime};
     use web3::types::{TransactionReceipt, H160};
 
     impl Handler<AssertionsMessage<Self>> for BlockchainBridge {

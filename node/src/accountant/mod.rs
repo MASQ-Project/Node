@@ -27,7 +27,7 @@ use crate::accountant::scanners::payable_scanner::msgs::{
 };
 use crate::accountant::scanners::payable_scanner::utils::NextScanToRun;
 use crate::accountant::scanners::pending_payable_scanner::utils::{
-    PendingPayableScanResult, Retry, TxHashByTable,
+    PendingPayableScanResult, TxHashByTable,
 };
 use crate::accountant::scanners::scan_schedulers::{
     PayableSequenceScanner, ScanReschedulingAfterEarlyStop, ScanSchedulers,
@@ -346,8 +346,11 @@ impl Handler<TxReceiptsMessage> for Accountant {
                 .schedule_retry_payable_scan(ctx, response_skeleton_opt, &self.logger),
             PendingPayableScanResult::ProcedureShouldBeRepeated(ui_msg_opt) => {
                 if let Some(node_to_ui_msg) = ui_msg_opt {
-                    info!(self.logger, "Re-running the pending payable scan is recommended, as some \
-                    parts did not finish last time.");
+                    info!(
+                        self.logger,
+                        "Re-running the pending payable scan is recommended, as some \
+                    parts did not finish last time."
+                    );
                     self.ui_message_sub_opt
                         .as_ref()
                         .expect("UIGateway is not bound")
@@ -1664,11 +1667,8 @@ mod tests {
     }
 
     #[test]
-    fn sent_payable_with_response_skeleton_sends_scan_response_to_ui_gateway() {
+    fn sent_payables_with_response_skeleton_results_in_scan_response_to_ui_gateway() {
         let config = bc_from_earning_wallet(make_wallet("earning_wallet"));
-        let tx_hash = make_tx_hash(123);
-        let sent_payable_dao =
-            SentPayableDaoMock::default().get_tx_identifiers_result(hashmap! (tx_hash => 1));
         let payable_dao = PayableDaoMock::default().mark_pending_payables_rowids_result(Ok(()));
         let sent_payable_dao = SentPayableDaoMock::default().insert_new_records_result(Ok(()));
         let subject = AccountantBuilder::default()
@@ -4963,7 +4963,6 @@ mod tests {
         // let get_tx_identifiers_params_arc = Arc::new(Mutex::new(vec![]));
         let pending_payable_notify_later_params_arc = Arc::new(Mutex::new(vec![]));
         let inserted_new_records_params_arc = Arc::new(Mutex::new(vec![]));
-        let expected_wallet = make_wallet("paying_you");
         let expected_hash = H256::from("transaction_hash".keccak256());
         let payable_dao = PayableDaoMock::new();
         let sent_payable_dao = SentPayableDaoMock::new()
@@ -5261,14 +5260,20 @@ mod tests {
             "accountant_reschedules_pending_p_scanner_in_manual_mode_after_receipt_fetching_failed";
         let finish_scan_params_arc = Arc::new(Mutex::new(vec![]));
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
-        let ui_gateway = ui_gateway.system_stop_conditions(match_lazily_every_type_id!(NodeToUiMessage));
-        let expected_node_to_ui_msg = NodeToUiMessage{ target: MessageTarget::ClientId(1234), body: UiScanResponse{}.tmb(54)};
-            let mut subject = AccountantBuilder::default()
+        let ui_gateway =
+            ui_gateway.system_stop_conditions(match_lazily_every_type_id!(NodeToUiMessage));
+        let expected_node_to_ui_msg = NodeToUiMessage {
+            target: MessageTarget::ClientId(1234),
+            body: UiScanResponse {}.tmb(54),
+        };
+        let mut subject = AccountantBuilder::default()
             .logger(Logger::new(test_name))
             .build();
         let pending_payable_scanner = ScannerMock::new()
             .finish_scan_params(&finish_scan_params_arc)
-            .finish_scan_result(PendingPayableScanResult::ProcedureShouldBeRepeated(Some(expected_node_to_ui_msg.clone())));
+            .finish_scan_result(PendingPayableScanResult::ProcedureShouldBeRepeated(Some(
+                expected_node_to_ui_msg.clone(),
+            )));
         subject
             .scanners
             .replace_scanner(ScannerReplacement::PendingPayable(ReplacementType::Mock(
@@ -5282,12 +5287,14 @@ mod tests {
             Box::new(NotifyLaterHandleMock::default().panic_on_schedule_attempt());
         let interval = Duration::from_secs(20);
         subject.scan_schedulers.pending_payable.interval = interval;
-        subject.scan_schedulers.pending_payable.handle = Box::new(
-            NotifyLaterHandleMock::default().panic_on_schedule_attempt()
-        );
+        subject.scan_schedulers.pending_payable.handle =
+            Box::new(NotifyLaterHandleMock::default().panic_on_schedule_attempt());
         subject.ui_message_sub_opt = Some(ui_gateway.start().recipient());
         let system = System::new(test_name);
-        let response_skeleton = ResponseSkeleton{ client_id: 1234, context_id: 54 };
+        let response_skeleton = ResponseSkeleton {
+            client_id: 1234,
+            context_id: 54,
+        };
         let msg = TxReceiptsMessage {
             results: hashmap!(TxHashByTable::SentPayable(make_tx_hash(123)) => Err(AppRpcError::Remote(RemoteError::Unreachable))),
             response_skeleton_opt: Some(response_skeleton),
