@@ -105,8 +105,8 @@ impl TxReceiptInterpreter {
                     .hash;
                 warning!(
                     logger,
-                    "Failed tx {:?} on a recheck was found pending on its receipt unexpectedly. \
-                    It was supposed to be replaced by {:?}",
+                    "Previously failed tx {:?} found still pending unexpectedly; should have been \
+                    replaced by {:?}",
                     failed_tx.hash,
                     replacement_tx_hash
                 );
@@ -137,10 +137,7 @@ impl TxReceiptInterpreter {
     ) -> ReceiptScanReport {
         match tx {
             TxByTable::SentPayable(sent_tx) => {
-                info!(
-                    logger,
-                    "Pending tx {:?} was confirmed on-chain", sent_tx.hash,
-                );
+                info!(logger, "Tx {:?} confirmed", sent_tx.hash,);
 
                 let completed_sent_tx = SentTx {
                     status: TxStatus::Confirmed {
@@ -155,8 +152,7 @@ impl TxReceiptInterpreter {
             TxByTable::FailedPayable(failed_tx) => {
                 info!(
                     logger,
-                    "Failed tx {:?} was later confirmed on-chain and will be reclaimed",
-                    failed_tx.hash
+                    "Previously failed tx {:?} confirmed; will be reclaimed", failed_tx.hash
                 );
 
                 let sent_tx = SentTx::from((failed_tx, tx_block));
@@ -177,7 +173,7 @@ impl TxReceiptInterpreter {
                 let failure_reason = FailureReason::Reverted;
                 let failed_tx = FailedTx::from((sent_tx, failure_reason));
 
-                warning!(logger, "Pending tx {:?} was reverted", failed_tx.hash,);
+                warning!(logger, "Tx {:?} reverted", failed_tx.hash,);
 
                 scan_report.register_new_failure(failed_tx);
             }
@@ -290,8 +286,8 @@ mod tests {
             }
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "INFO: {test_name}: Pending tx 0x0000000000000000000000000000000000000000000000000000000\
-            00000cdef was confirmed on-chain",
+            "INFO: {test_name}: Tx 0x000000000000000000000000000000000000000000000000000000000000\
+            cdef confirmed",
         ));
     }
 
@@ -338,8 +334,8 @@ mod tests {
             }
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "INFO: {test_name}: Failed tx 0x0000000000000000000000000000000000000000000000000000000\
-            00000cdef was later confirmed on-chain and will be reclaimed",
+            "INFO: {test_name}: Previously failed tx 0x00000000000000000000000000000000000000000000\
+            0000000000000000cdef confirmed; will be reclaimed",
         ));
     }
 
@@ -371,8 +367,8 @@ mod tests {
             }
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: {test_name}: Pending tx 0x0000000000000000000000000000000000000000000000000000000\
-            000000abc was reverted",
+            "WARN: {test_name}: Tx 0x0000000000000000000000000000000000000000000000000000000\
+            000000abc reverted",
         ));
     }
 
@@ -525,9 +521,9 @@ mod tests {
             vec![Some(RetrieveCondition::ByNonce(vec![failed_tx_nonce]))]
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: {test_name}: Failed tx 0x0000000000000000000000000000000000000000000000000000000\
-            000000913 on a recheck was found pending on its receipt unexpectedly. It was supposed \
-            to be replaced by 0x00000000000000000000000000000000000000000000000000000000000007c6"
+            "WARN: {test_name}: Previously failed tx 0x00000000000000000000000000000000000000000000\
+            00000000000000000913 found still pending unexpectedly; should have been replaced \
+            by 0x00000000000000000000000000000000000000000000000000000000000007c6"
         ));
     }
 

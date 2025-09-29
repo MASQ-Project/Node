@@ -1532,7 +1532,7 @@ mod tests {
         test_log_handler.exists_log_containing(&format!("WARN: {test_name}: Failed to retrieve tx receipt for FailedPayable(0x0000000000000000000000000000000000000000000000000000000000000555): Remote(InvalidResponse(\"game over\")). Will retry receipt retrieval next cycle"));
         test_log_handler.exists_log_containing(&format!("INFO: {test_name}: Reclaimed txs 0x0000000000000000000000000000000000000000000000000000000000000222 (block 2345) as confirmed on-chain"));
         test_log_handler.exists_log_containing(&format!(
-                "INFO: {test_name}: Tx 0x0000000000000000000000000000000000000000000000000000000000000111 (block 1234) was confirmed",
+                "INFO: {test_name}: Tx 0x0000000000000000000000000000000000000000000000000000000000000111 (block 1234) recorded in local ledger",
             ));
         test_log_handler.exists_log_containing(&format!("INFO: {test_name}: Failed txs 0x0000000000000000000000000000000000000000000000000000000000000333, 0x0000000000000000000000000000000000000000000000000000000000000666 were processed in the db"));
     }

@@ -536,8 +536,8 @@ impl PendingPayableScanner {
                 })
                 .join(", ");
             match tx_hashes_and_tx_blocks.len() {
-                1 => format!("Tx {} was confirmed", pretty_pairs),
-                _ => format!("Txs {} were confirmed", pretty_pairs),
+                1 => format!("Tx {} recorded in local ledger", pretty_pairs),
+                _ => format!("Txs {} recorded in local ledger", pretty_pairs),
             }
         });
     }
@@ -1931,7 +1931,7 @@ mod tests {
         log_handler.exists_log_containing(&format!(
             "INFO: {test_name}: Txs 0x0000000000000000000000000000000000000000000000000000000000000123 \
             (block 4578989878), 0x0000000000000000000000000000000000000000000000000000000000000567 \
-            (block 6789898789) were confirmed",
+            (block 6789898789) recorded in local ledger",
         ));
     }
 
@@ -2010,7 +2010,7 @@ mod tests {
         ));
         log_handler.exists_log_containing(&format!(
             "INFO: {test_name}: Tx 0x0000000000000000000000000000000000000000000000000000000000000123 \
-            (block 4578989878) was confirmed",
+            (block 4578989878) recorded in local ledger",
         ));
     }
 
@@ -2108,13 +2108,13 @@ mod tests {
 
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!(
-            "INFO: {plural_case_name}: Txs 0x0000000000000000000000000000000000000000000000000000000000000123 \
-            (block 1234501), 0x0000000000000000000000000000000000000000000000000000000000000567 \
-            (block 1234502) were confirmed",
+            "INFO: {plural_case_name}: Txs 0x0000000000000000000000000000000000000000000000000000000\
+            000000123 (block 1234501), 0x00000000000000000000000000000000000000000000000000000000000\
+            00567 (block 1234502) recorded in local ledger",
         ));
         log_handler.exists_log_containing(&format!(
-            "INFO: {singular_case_name}: Tx 0x0000000000000000000000000000000000000000000000000000000000000123 \
-            (block 1234501) was confirmed",
+            "INFO: {singular_case_name}: Tx 0x000000000000000000000000000000000000000000000000000000\
+            0000000123 (block 1234501) recorded in local ledger",
         ));
     }
 
