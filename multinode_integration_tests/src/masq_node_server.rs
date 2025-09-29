@@ -2,23 +2,24 @@
 
 use crate::masq_node_cluster::DockerHostSocketAddr;
 use crate::utils;
-use std::io;
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::time::Duration;
+use std::{io, thread};
 
 pub struct MASQNodeServer {
+    docker_host_addr: Option<DockerHostSocketAddr>,
     local_addr: SocketAddr,
-    listener: TcpListener,
     stream_opt: Option<TcpStream>,
 }
 
 impl MASQNodeServer {
     pub fn new(port: u16) -> MASQNodeServer {
-        let socket_addr = DockerHostSocketAddr::new(port);
-        let listener = TcpListener::bind(socket_addr).unwrap();
+        let dummy_listener = TcpListener::bind(DockerHostSocketAddr::new(port)).unwrap();
+        let local_addr = dummy_listener.local_addr().unwrap();
         MASQNodeServer {
-            local_addr: listener.local_addr().unwrap(),
-            listener,
+            docker_host_addr: Some(DockerHostSocketAddr::new(port)),
+            local_addr,
             stream_opt: None,
         }
     }
@@ -37,10 +38,17 @@ impl MASQNodeServer {
     pub fn wait_for_chunk(&mut self, duration: Duration) -> Result<Vec<u8>, io::Error> {
         match &mut self.stream_opt {
             None => {
-                let (stream, _) = self.listener.accept().unwrap();
-                stream
-                    .set_read_timeout(Some(Duration::from_millis(250)))
-                    .unwrap();
+                let (tx, rx): (Sender<TcpStream>, Receiver<TcpStream>) = unbounded();
+                let local_addr = self.docker_host_addr.take().unwrap();
+                let listener = TcpListener::bind(local_addr).unwrap();
+                thread::spawn(move || {
+                    let (stream, _) = listener.accept().unwrap();
+                    stream
+                        .set_read_timeout(Some(Duration::from_millis(250)))
+                        .unwrap();
+                    tx.send(stream).unwrap();
+                });
+                let stream = rx.recv_timeout(duration).unwrap();
                 self.stream_opt = Some(stream);
                 self.wait_for_chunk(duration)
             }

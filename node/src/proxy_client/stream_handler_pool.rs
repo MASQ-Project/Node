@@ -75,7 +75,7 @@ type StreamEstablisherResult =
 impl StreamHandlerPoolReal {
     pub fn new(
         resolver: Box<dyn ResolverWrapper>,
-        cryptde: &'static dyn CryptDE,
+        cryptde: &dyn CryptDE,
         accountant_sub: Recipient<ReportExitServiceProvidedMessage>,
         proxy_client_subs: ProxyClientSubs,
         exit_service_rate: u64,
@@ -86,7 +86,7 @@ impl StreamHandlerPoolReal {
         StreamHandlerPoolReal {
             inner: Arc::new(Mutex::new(StreamHandlerPoolRealInner {
                 establisher_factory: Box::new(StreamEstablisherFactoryReal {
-                    cryptde,
+                    cryptde: cryptde.dup(),
                     stream_adder_tx,
                     stream_killer_tx,
                     proxy_client_subs: proxy_client_subs.clone(),
@@ -112,6 +112,14 @@ impl StreamHandlerPoolReal {
     ) {
         let stream_key = payload.stream_key;
         let inner_arc_1 = inner_arc.clone();
+        let logger = Self::make_logger_copy(&inner_arc);
+        let data_len = payload.sequenced_packet.data.len();
+        let hostname = payload
+            .target_hostname
+            .as_ref()
+            .unwrap_or(&"<unknown>".to_string())
+            .to_string();
+        let target_port = payload.target_port;
         match Self::find_stream_with_key(&stream_key, &inner_arc) {
             Some(sender_wrapper) => {
                 let source = sender_wrapper.peer_addr();
@@ -120,6 +128,14 @@ impl StreamHandlerPoolReal {
                         .map_err(move |error| {
                             Self::clean_up_bad_stream(inner_arc_1, &stream_key, source, error)
                         });
+                debug!(
+                    logger,
+                    "Spawning future to write {} bytes over existing stream {:?} to {}:{}",
+                    data_len,
+                    stream_key,
+                    hostname,
+                    target_port
+                );
                 actix::spawn(future);
             }
             None => {
@@ -150,6 +166,14 @@ impl StreamHandlerPoolReal {
                                 error,
                             );
                         });
+                    debug!(
+                        logger,
+                        "Spawning future to write {} bytes over new stream {:?} to {}:{}",
+                        data_len,
+                        stream_key,
+                        hostname,
+                        target_port
+                    );
                     actix::spawn(future);
                 }
             }
@@ -219,8 +243,17 @@ impl StreamHandlerPoolReal {
         let stream_key = payload.stream_key;
         let last_data = payload.sequenced_packet.last_data;
         let payload_size = payload.sequenced_packet.data.len();
+        let logger = Self::make_logger_copy(&inner_arc);
 
-        Self::perform_write(payload.sequenced_packet, sender_wrapper.clone()).and_then(move |_| {
+        debug!(
+            logger,
+            "Queueing write of {} bytes{} to {} on stream {}",
+            payload_size,
+            if last_data { " (last data)" } else { "" },
+            sender_wrapper.peer_addr(),
+            stream_key,
+        );
+        Self::queue_write(payload.sequenced_packet, sender_wrapper.clone()).and_then(move |_| {
             let mut inner = inner_arc.lock().expect("Stream handler pool is poisoned");
             if payload_size > 0 {
                 match paying_wallet_opt {
@@ -246,7 +279,7 @@ impl StreamHandlerPoolReal {
                     Some(stream_senders) => {
                         debug!(
                             inner.logger,
-                            "Removing StreamWriter and Shutting down StreamReader for {:?} to {}",
+                            "Removing StreamWriter and shutting down StreamReader for {:?} to {}",
                             stream_key,
                             stream_senders.writer_data.peer_addr()
                         );
@@ -331,7 +364,7 @@ impl StreamHandlerPoolReal {
         let mut stream_establisher = StreamHandlerPoolReal::make_establisher(inner_arc);
         Box::new(
             future::lazy(move || {
-                stream_establisher.establish_stream(&payload, vec![ip_addr], target_hostname)
+                stream_establisher.establish_stream(&payload, vec![ip_addr], &target_hostname)
             })
             .map_err(|io_error| format!("Could not establish stream: {:?}", io_error)),
         )
@@ -419,7 +452,28 @@ impl StreamHandlerPoolReal {
             logger,
             "Found IP addresses for {}: {:?}", target_hostname, &filtered_ip_addrs
         );
-        establisher.establish_stream(payload, filtered_ip_addrs, target_hostname)
+        let result = establisher.establish_stream(payload, filtered_ip_addrs, &target_hostname);
+        match result {
+            Ok(sender_wrapper) => {
+                debug!(
+                    logger,
+                    "Established stream with key {:?} to {}",
+                    payload.stream_key,
+                    sender_wrapper.peer_addr()
+                );
+                Ok(sender_wrapper)
+            }
+            Err(e) => {
+                debug!(
+                    logger,
+                    "Failed to establish stream with key {:?} to {}: {}",
+                    payload.stream_key,
+                    target_hostname,
+                    e
+                );
+                Err(io::Error::new(io::ErrorKind::Other, e))
+            }
+        }
     }
 
     fn make_fqdn(target_hostname: &str) -> String {
@@ -441,7 +495,7 @@ impl StreamHandlerPoolReal {
         inner.logger.clone()
     }
 
-    fn perform_write(
+    fn queue_write(
         sequenced_packet: SequencedPacket,
         sender_wrapper: Box<dyn SenderWrapper<SequencedPacket>>,
     ) -> FutureResult<(), String> {
@@ -535,7 +589,7 @@ pub trait StreamHandlerPoolFactory {
     fn make(
         &self,
         resolver: Box<dyn ResolverWrapper>,
-        cryptde: &'static dyn CryptDE,
+        cryptde: &dyn CryptDE,
         accountant_sub: Recipient<ReportExitServiceProvidedMessage>,
         proxy_client_subs: ProxyClientSubs,
         exit_service_rate: u64,
@@ -549,7 +603,7 @@ impl StreamHandlerPoolFactory for StreamHandlerPoolFactoryReal {
     fn make(
         &self,
         resolver: Box<dyn ResolverWrapper>,
-        cryptde: &'static dyn CryptDE,
+        cryptde: &dyn CryptDE,
         accountant_sub: Recipient<ReportExitServiceProvidedMessage>,
         proxy_client_subs: ProxyClientSubs,
         exit_service_rate: u64,
@@ -569,6 +623,7 @@ impl StreamHandlerPoolFactory for StreamHandlerPoolFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bootstrapper::CryptDEPair;
     use crate::node_test_utils::check_timestamp;
     use crate::proxy_client::local_test_utils::make_send_error;
     use crate::proxy_client::local_test_utils::ResolverWrapperMock;
@@ -582,7 +637,6 @@ mod tests {
     use crate::test_utils::channel_wrapper_mocks::FuturesChannelFactoryMock;
     use crate::test_utils::channel_wrapper_mocks::ReceiverWrapperMock;
     use crate::test_utils::channel_wrapper_mocks::SenderWrapperMock;
-    use crate::test_utils::main_cryptde;
     use crate::test_utils::make_meaningless_route;
     use crate::test_utils::make_wallet;
     use crate::test_utils::recorder::make_recorder;
@@ -591,6 +645,7 @@ mod tests {
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
     use actix::System;
+    use lazy_static::lazy_static;
     use masq_lib::constants::HTTP_PORT;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
@@ -606,6 +661,10 @@ mod tests {
     use tokio;
     use tokio::prelude::Async;
     use trust_dns_resolver::error::ResolveErrorKind;
+
+    lazy_static! {
+        static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
+    }
 
     struct StreamEstablisherFactoryMock {
         make_results: RefCell<Vec<StreamEstablisher>>,
@@ -641,12 +700,12 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("dns_resolution_failure_sends_a_message_to_proxy_client");
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
-            let cryptde = main_cryptde();
+            let cryptde = CRYPTDE_PAIR.main.as_ref();
             let resolver_mock =
                 ResolverWrapperMock::new().lookup_ip_failure(ResolveErrorKind::Io.into());
             let logger = Logger::new("dns_resolution_failure_sends_a_message_to_proxy_client");
             let establisher = StreamEstablisher {
-                cryptde,
+                cryptde: cryptde.dup(),
                 stream_adder_tx: unbounded().0,
                 stream_killer_tx: unbounded().0,
                 stream_connector: Box::new(StreamConnectorMock::new()),
@@ -697,7 +756,7 @@ mod tests {
 
     #[test]
     fn non_terminal_payload_can_be_sent_over_existing_connection() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let stream_key = StreamKey::make_meaningless_stream_key();
         let client_request_payload = ClientRequestPayload_0v1 {
             stream_key: stream_key.clone(),
@@ -722,7 +781,7 @@ mod tests {
         let package = ExpiredCoresPackage::new(
             SocketAddr::from_str("1.2.3.4:1234").unwrap(),
             Some(make_wallet("consuming")),
-            make_meaningless_route(),
+            make_meaningless_route(&CRYPTDE_PAIR),
             client_request_payload.clone().into(),
             0,
         );
@@ -760,7 +819,7 @@ mod tests {
     fn write_failure_for_nonexistent_stream_generates_termination_message() {
         init_test_logging();
         let test_name = "write_failure_for_nonexistent_stream_generates_termination_message";
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let originator_key = PublicKey::new(&b"men's souls"[..]);
         let (reader_shutdown_tx, reader_shutdown_rx) = unbounded();
@@ -780,7 +839,7 @@ mod tests {
             let package = ExpiredCoresPackage::new(
                 SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("consuming")),
-                make_meaningless_route(),
+                make_meaningless_route(&CRYPTDE_PAIR),
                 client_request_payload.clone().into(),
                 0,
             );
@@ -835,7 +894,7 @@ mod tests {
 
     #[test]
     fn when_hostname_is_ip_establish_stream_without_dns_lookup() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let write_parameters = Arc::new(Mutex::new(vec![]));
         let expected_write_parameters = write_parameters.clone();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
@@ -856,7 +915,7 @@ mod tests {
             let package = ExpiredCoresPackage::new(
                 SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("consuming")),
-                make_meaningless_route(),
+                make_meaningless_route(&CRYPTDE_PAIR),
                 client_request_payload.into(),
                 0,
             );
@@ -890,7 +949,7 @@ mod tests {
             {
                 let mut inner = subject.inner.lock().unwrap();
                 let establisher = StreamEstablisher {
-                    cryptde,
+                    cryptde: cryptde.dup(),
                     stream_adder_tx,
                     stream_killer_tx,
                     stream_connector: Box::new(StreamConnectorMock::new().with_connection(
@@ -952,7 +1011,7 @@ mod tests {
             let package = ExpiredCoresPackage::new(
                 SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("consuming")),
-                make_meaningless_route(),
+                make_meaningless_route(&CRYPTDE_PAIR),
                 client_request_payload.into(),
                 0,
             );
@@ -960,7 +1019,7 @@ mod tests {
             let peer_actors = peer_actors_builder().build();
             let subject = StreamHandlerPoolReal::new(
                 Box::new(ResolverWrapperMock::new()),
-                main_cryptde(),
+                CRYPTDE_PAIR.main.as_ref(),
                 peer_actors.accountant.report_exit_service_provided.clone(),
                 peer_actors.proxy_client_opt.unwrap().clone(),
                 100,
@@ -984,7 +1043,7 @@ mod tests {
         assert_eq!(received, Ok(()));
         TestLogHandler::new().await_log_containing(
             &format!(
-                "DEBUG: {test_name}: Removing StreamWriter and Shutting down StreamReader \
+                "DEBUG: {test_name}: Removing StreamWriter and shutting down StreamReader \
             for oUHoHuDKHjeWq+BJzBIqHpPFBQw to 3.4.5.6:80"
             ),
             500,
@@ -1013,7 +1072,7 @@ mod tests {
             let package = ExpiredCoresPackage::new(
                 SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("consuming")),
-                make_meaningless_route(),
+                make_meaningless_route(&CRYPTDE_PAIR),
                 client_request_payload.into(),
                 0,
             );
@@ -1021,7 +1080,7 @@ mod tests {
             let peer_actors = peer_actors_builder().build();
             let subject = StreamHandlerPoolReal::new(
                 Box::new(ResolverWrapperMock::new()),
-                main_cryptde(),
+                CRYPTDE_PAIR.main.as_ref(),
                 peer_actors.accountant.report_exit_service_provided.clone(),
                 peer_actors.proxy_client_opt.unwrap().clone(),
                 100,
@@ -1052,7 +1111,7 @@ mod tests {
 
     #[test]
     fn ip_is_parsed_even_without_port() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
         let expected_lookup_ip_parameters = lookup_ip_parameters.clone();
         let write_parameters = Arc::new(Mutex::new(vec![]));
@@ -1075,7 +1134,7 @@ mod tests {
             let package = ExpiredCoresPackage::new(
                 SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("consuming")),
-                make_meaningless_route(),
+                make_meaningless_route(&CRYPTDE_PAIR),
                 client_request_payload.into(),
                 0,
             );
@@ -1115,7 +1174,7 @@ mod tests {
             {
                 let mut inner = subject.inner.lock().unwrap();
                 let establisher = StreamEstablisher {
-                    cryptde,
+                    cryptde: cryptde.dup(),
                     stream_adder_tx,
                     stream_killer_tx,
                     stream_connector: Box::new(StreamConnectorMock::new().with_connection(
@@ -1164,7 +1223,7 @@ mod tests {
         init_test_logging();
         let test_name =
             "missing_hostname_for_nonexistent_stream_generates_log_and_termination_message";
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let originator_key = PublicKey::new(&b"men's souls"[..]);
         let stream_key = StreamKey::make_meaningful_stream_key(test_name);
@@ -1185,7 +1244,7 @@ mod tests {
             let package = ExpiredCoresPackage::new(
                 SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("consuming")),
-                make_meaningless_route(),
+                make_meaningless_route(&CRYPTDE_PAIR),
                 client_request_payload.into(),
                 0,
             );
@@ -1226,7 +1285,7 @@ mod tests {
 
     #[test]
     fn nonexistent_connection_springs_into_being_and_is_persisted_to_handle_transaction() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
         let expected_lookup_ip_parameters = lookup_ip_parameters.clone();
         let write_parameters = Arc::new(Mutex::new(vec![]));
@@ -1254,7 +1313,7 @@ mod tests {
             let package = ExpiredCoresPackage::new(
                 SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("consuming")),
-                make_meaningless_route(),
+                make_meaningless_route(&CRYPTDE_PAIR),
                 client_request_payload.into(),
                 0,
             );
@@ -1294,7 +1353,7 @@ mod tests {
             {
                 let mut inner = subject.inner.lock().unwrap();
                 let establisher = StreamEstablisher {
-                    cryptde,
+                    cryptde: cryptde.dup(),
                     stream_adder_tx,
                     stream_killer_tx,
                     stream_connector: Box::new(StreamConnectorMock::new().with_connection(
@@ -1345,7 +1404,7 @@ mod tests {
 
     #[test]
     fn failing_to_make_a_connection_sends_an_error_response() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let stream_key = StreamKey::make_meaningless_stream_key();
         let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
@@ -1367,7 +1426,7 @@ mod tests {
             let package = ExpiredCoresPackage::new(
                 SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("consuming")),
-                make_meaningless_route(),
+                make_meaningless_route(&CRYPTDE_PAIR),
                 client_request_payload.into(),
                 0,
             );
@@ -1394,7 +1453,7 @@ mod tests {
             subject.stream_killer_rx = stream_killer_rx;
             let (stream_adder_tx, _stream_adder_rx) = unbounded();
             let establisher = StreamEstablisher {
-                cryptde,
+                cryptde: cryptde.dup(),
                 stream_adder_tx,
                 stream_killer_tx,
                 stream_connector: Box::new(
@@ -1467,7 +1526,7 @@ mod tests {
     fn wildcard_ip_resolves_in_dns_failure() {
         init_test_logging();
         let test_name = "wildcard_ip_resolves_in_dns_failure";
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let stream_key = StreamKey::make_meaningless_stream_key();
         let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
@@ -1489,7 +1548,7 @@ mod tests {
             let package = ExpiredCoresPackage::new(
                 SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("consuming")),
-                make_meaningless_route(),
+                make_meaningless_route(&CRYPTDE_PAIR),
                 client_request_payload.into(),
                 0,
             );
@@ -1516,7 +1575,7 @@ mod tests {
             }
             let (stream_adder_tx, _stream_adder_rx) = unbounded();
             let establisher = StreamEstablisher {
-                cryptde,
+                cryptde: cryptde.dup(),
                 stream_adder_tx,
                 stream_killer_tx,
                 stream_connector: Box::new(
@@ -1559,7 +1618,7 @@ mod tests {
 
     #[test]
     fn trying_to_write_to_disconnected_stream_writer_sends_an_error_response() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let stream_key = StreamKey::make_meaningless_stream_key();
         let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
         let write_parameters = Arc::new(Mutex::new(vec![]));
@@ -1587,7 +1646,7 @@ mod tests {
             let package = ExpiredCoresPackage::new(
                 SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("consuming")),
-                make_meaningless_route(),
+                make_meaningless_route(&CRYPTDE_PAIR),
                 client_request_payload.into(),
                 0,
             );
@@ -1632,7 +1691,7 @@ mod tests {
             {
                 let mut inner = subject.inner.lock().unwrap();
                 let establisher = StreamEstablisher {
-                    cryptde,
+                    cryptde: cryptde.dup(),
                     stream_adder_tx,
                     stream_killer_tx,
                     stream_connector: Box::new(
@@ -1679,7 +1738,7 @@ mod tests {
     #[test]
     fn bad_dns_lookup_produces_log_and_sends_error_response() {
         init_test_logging();
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let stream_key = StreamKey::make_meaningless_stream_key();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let originator_key = PublicKey::new(&b"men's souls"[..]);
@@ -1699,7 +1758,7 @@ mod tests {
             let package = ExpiredCoresPackage::new(
                 SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("consuming")),
-                make_meaningless_route(),
+                make_meaningless_route(&CRYPTDE_PAIR),
                 client_request_payload.into(),
                 0,
             );
@@ -1740,7 +1799,7 @@ mod tests {
     #[test]
     fn error_from_tx_to_writer_removes_stream() {
         init_test_logging();
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let stream_key = StreamKey::make_meaningless_stream_key();
         let (proxy_client, _, _) = make_recorder();
         let (hopper, _, _) = make_recorder();
@@ -1761,7 +1820,7 @@ mod tests {
         let package = ExpiredCoresPackage::new(
             SocketAddr::from_str("1.2.3.4:1234").unwrap(),
             Some(make_wallet("consuming")),
-            make_meaningless_route(),
+            make_meaningless_route(&CRYPTDE_PAIR),
             client_request_payload.into(),
             0,
         );
@@ -1808,7 +1867,7 @@ mod tests {
     ) {
         init_test_logging();
         let test_name = "process_package_does_not_create_new_connection_for_zero_length_data_with_unfamiliar_stream_key";
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let stream_key = StreamKey::make_meaningful_stream_key(test_name);
@@ -1832,7 +1891,7 @@ mod tests {
             let package = ExpiredCoresPackage::new(
                 SocketAddr::from_str("1.2.3.4:1234").unwrap(),
                 Some(make_wallet("consuming")),
-                make_meaningless_route(),
+                make_meaningless_route(&CRYPTDE_PAIR),
                 client_request_payload.into(),
                 0,
             );
@@ -1875,7 +1934,7 @@ mod tests {
         let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
         let mut subject = StreamHandlerPoolReal::new(
             Box::new(ResolverWrapperMock::new()),
-            main_cryptde(),
+            CRYPTDE_PAIR.main.as_ref(),
             peer_actors.accountant.report_exit_service_provided,
             peer_actors.proxy_client_opt.unwrap(),
             0,
@@ -1926,7 +1985,7 @@ mod tests {
         let peer_actors = peer_actors_builder().build();
         let mut subject = StreamHandlerPoolReal::new(
             Box::new(ResolverWrapperMock::new()),
-            main_cryptde(),
+            CRYPTDE_PAIR.main.as_ref(),
             peer_actors.accountant.report_exit_service_provided,
             peer_actors.proxy_client_opt.unwrap(),
             0,
@@ -1968,7 +2027,7 @@ mod tests {
         let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
         let mut subject = StreamHandlerPoolReal::new(
             Box::new(ResolverWrapperMock::new()),
-            main_cryptde(),
+            CRYPTDE_PAIR.main.as_ref(),
             peer_actors.accountant.report_exit_service_provided,
             peer_actors.proxy_client_opt.unwrap(),
             0,
@@ -1995,7 +2054,7 @@ mod tests {
         let peer_actors = peer_actors_builder().build();
         let mut subject = StreamHandlerPoolReal::new(
             Box::new(ResolverWrapperMock::new()),
-            main_cryptde(),
+            CRYPTDE_PAIR.main.as_ref(),
             peer_actors.accountant.report_exit_service_provided,
             peer_actors.proxy_client_opt.unwrap(),
             0,

@@ -12,3 +12,5 @@ pub mod migration_8_to_9;
 pub mod migration_9_to_10;
 #[rustfmt::skip]
 pub mod migration_10_to_11;
+#[rustfmt::skip]
+pub mod migration_11_to_12;

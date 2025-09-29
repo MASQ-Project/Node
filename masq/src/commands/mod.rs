@@ -17,3 +17,5 @@ pub mod setup_command;
 pub mod shutdown_command;
 pub mod start_command;
 pub mod wallet_addresses_command;
+
+pub mod neighborhood_graph_command;

@@ -7,6 +7,7 @@ use crate::constants::{
     POLYGON_AMOY_FULL_IDENTIFIER, POLYGON_MAINNET_FULL_IDENTIFIER,
 };
 use serde_derive::{Deserialize, Serialize};
+use std::fmt::{Display, Formatter};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub enum Chain {
@@ -44,6 +45,21 @@ impl From<&str> for Chain {
         } else {
             panic!("Clap let in a wrong value for chain: '{}'; if this happens we need to track down the slit", str)
         }
+    }
+}
+
+impl Display for Chain {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let chain_name = match self {
+            Chain::EthMainnet => ETH_MAINNET_FULL_IDENTIFIER,
+            Chain::EthRopsten => ETH_ROPSTEN_FULL_IDENTIFIER,
+            Chain::PolyMainnet => POLYGON_MAINNET_FULL_IDENTIFIER,
+            Chain::PolyAmoy => POLYGON_AMOY_FULL_IDENTIFIER,
+            Chain::BaseMainnet => BASE_MAINNET_FULL_IDENTIFIER,
+            Chain::BaseSepolia => BASE_SEPOLIA_FULL_IDENTIFIER,
+            Chain::Dev => DEV_CHAIN_FULL_IDENTIFIER,
+        };
+        write!(f, "{}", chain_name)
     }
 }
 
@@ -158,6 +174,37 @@ mod tests {
                 assert_eq!(chain.is_mainnet(), true)
             }
         })
+    }
+
+    #[test]
+    fn display_is_properly_implemented() {
+        let chains = [
+            Chain::EthMainnet,
+            Chain::EthRopsten,
+            Chain::PolyMainnet,
+            Chain::PolyAmoy,
+            Chain::BaseMainnet,
+            Chain::BaseSepolia,
+            Chain::Dev,
+        ];
+
+        let strings = chains
+            .iter()
+            .map(|chain| chain.to_string())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            strings,
+            vec![
+                ETH_MAINNET_FULL_IDENTIFIER.to_string(),
+                ETH_ROPSTEN_FULL_IDENTIFIER.to_string(),
+                POLYGON_MAINNET_FULL_IDENTIFIER.to_string(),
+                POLYGON_AMOY_FULL_IDENTIFIER.to_string(),
+                BASE_MAINNET_FULL_IDENTIFIER.to_string(),
+                BASE_SEPOLIA_FULL_IDENTIFIER.to_string(),
+                DEV_CHAIN_FULL_IDENTIFIER.to_string(),
+            ]
+        );
     }
 
     fn assert_mainnet_exist() {
