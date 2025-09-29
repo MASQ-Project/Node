@@ -117,25 +117,6 @@ impl Transaction for FailedTx {
     }
 }
 
-//TODO find me
-// // PartialOrd and Ord are used to create BTreeSet
-// impl PartialOrd for FailedTx {
-//     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-//         Some(self.cmp(other))
-//     }
-// }
-//
-// impl Ord for FailedTx {
-//     fn cmp(&self, other: &Self) -> Ordering {
-//         // Descending Order
-//         other
-//             .timestamp
-//             .cmp(&self.timestamp)
-//             .then_with(|| other.nonce.cmp(&self.nonce))
-//             .then_with(|| other.amount_minor.cmp(&self.amount_minor))
-//     }
-// }
-
 impl From<(&SentTx, &Web3Error)> for FailedTx {
     fn from((sent_tx, error): (&SentTx, &Web3Error)) -> Self {
         let app_rpc_error = AppRpcError::from(error.clone());
@@ -1170,44 +1151,6 @@ mod tests {
             ))
         )
     }
-
-    //TODO find me
-    // #[test]
-    // fn failed_tx_ordering_in_btree_set_works() {
-    //     let tx1 = FailedTxBuilder::default()
-    //         .hash(make_tx_hash(1))
-    //         .timestamp(1000)
-    //         .nonce(1)
-    //         .amount(100)
-    //         .build();
-    //     let tx2 = FailedTxBuilder::default()
-    //         .hash(make_tx_hash(2))
-    //         .timestamp(1000)
-    //         .nonce(1)
-    //         .amount(200)
-    //         .build();
-    //     let tx3 = FailedTxBuilder::default()
-    //         .hash(make_tx_hash(3))
-    //         .timestamp(1000)
-    //         .nonce(2)
-    //         .amount(100)
-    //         .build();
-    //     let tx4 = FailedTxBuilder::default()
-    //         .hash(make_tx_hash(4))
-    //         .timestamp(2000)
-    //         .nonce(3)
-    //         .amount(100)
-    //         .build();
-    //
-    //     let mut set = BTreeSet::new();
-    //     set.insert(tx1.clone());
-    //     set.insert(tx2.clone());
-    //     set.insert(tx3.clone());
-    //     set.insert(tx4.clone());
-    //
-    //     let expected_order = vec![tx4, tx3, tx2, tx1];
-    //     assert_eq!(set.into_iter().collect::<Vec<_>>(), expected_order);
-    // }
 
     #[test]
     fn transaction_trait_methods_for_failed_tx() {

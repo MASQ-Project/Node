@@ -16,9 +16,9 @@ use crate::accountant::db_access_objects::Transaction;
 use crate::accountant::scanners::pending_payable_scanner::tx_receipt_interpreter::TxReceiptInterpreter;
 use crate::accountant::scanners::pending_payable_scanner::utils::{
     CurrentPendingPayables, DetectedConfirmations, DetectedFailures, FailedValidation,
-    FailedValidationByTable, MismatchReport, PendingPayableCache, PendingPayableScanResult,
-    PresortedTxFailure, ReceiptScanReport, RecheckRequiringFailures, Retry, TxByTable,
-    TxCaseToBeInterpreted, TxHashByTable, UpdatableValidationStatus,
+    FailedValidationByTable, PendingPayableCache, PendingPayableScanResult, PresortedTxFailure,
+    ReceiptScanReport, RecheckRequiringFailures, Retry, TxByTable, TxCaseToBeInterpreted,
+    TxHashByTable, UpdatableValidationStatus,
 };
 use crate::accountant::scanners::{
     PrivateScanner, Scanner, ScannerCommon, StartScanError, StartableScanner,
@@ -308,28 +308,23 @@ impl PendingPayableScanner {
         msg: TxReceiptsMessage,
         logger: &Logger,
     ) -> Vec<TxCaseToBeInterpreted> {
-        let init: Either<Vec<TxCaseToBeInterpreted>, MismatchReport> = Either::Left(vec![]);
-        let either = msg
-            .results
-            .into_iter()
-            // // This must be in for predictability in tests
-            .sorted_by_key(|(hash_by_table, _)| hash_by_table.hash())
-            .fold(
-                init,
-                |acc, (tx_hash_by_table, tx_receipt_result)| match acc {
-                    Either::Left(cases) => {
-                        self.resolve_real_query(cases, tx_receipt_result, tx_hash_by_table)
-                    }
-                    Either::Right(mut mismatch_report) => {
-                        mismatch_report.remaining_hashes.push(tx_hash_by_table);
-                        Either::Right(mismatch_report)
-                    }
-                },
-            );
+        let init: Either<Vec<TxCaseToBeInterpreted>, TxHashByTable> = Either::Left(vec![]);
+        let either =
+            msg.results
+                .into_iter()
+                .fold(
+                    init,
+                    |acc, (tx_hash_by_table, tx_receipt_result)| match acc {
+                        Either::Left(cases) => {
+                            self.resolve_real_query(cases, tx_receipt_result, tx_hash_by_table)
+                        }
+                        Either::Right(missing_entry) => Either::Right(missing_entry),
+                    },
+                );
 
         let cases = match either {
             Either::Left(cases) => cases,
-            Either::Right(mismatch_report) => self.panic_dump(mismatch_report),
+            Either::Right(missing_entry) => self.panic_dump(missing_entry),
         };
 
         self.current_sent_payables.ensure_empty_cache(logger);
@@ -343,7 +338,7 @@ impl PendingPayableScanner {
         mut cases: Vec<TxCaseToBeInterpreted>,
         receipt_result: TxReceiptResult,
         looked_up_hash: TxHashByTable,
-    ) -> Either<Vec<TxCaseToBeInterpreted>, MismatchReport> {
+    ) -> Either<Vec<TxCaseToBeInterpreted>, TxHashByTable> {
         match looked_up_hash {
             TxHashByTable::SentPayable(tx_hash) => {
                 match self.current_sent_payables.get_record_by_hash(tx_hash) {
@@ -354,10 +349,7 @@ impl PendingPayableScanner {
                         ));
                         Either::Left(cases)
                     }
-                    None => Either::Right(MismatchReport {
-                        noticed_with: looked_up_hash,
-                        remaining_hashes: vec![],
-                    }),
+                    None => Either::Right(looked_up_hash),
                 }
             }
             TxHashByTable::FailedPayable(tx_hash) => {
@@ -372,16 +364,13 @@ impl PendingPayableScanner {
                         ));
                         Either::Left(cases)
                     }
-                    None => Either::Right(MismatchReport {
-                        noticed_with: looked_up_hash,
-                        remaining_hashes: vec![],
-                    }),
+                    None => Either::Right(looked_up_hash),
                 }
             }
         }
     }
 
-    fn panic_dump(&mut self, mismatch_report: MismatchReport) -> ! {
+    fn panic_dump(&mut self, missing_entry: TxHashByTable) -> ! {
         fn rearrange<Record>(hashmap: HashMap<TxHash, Record>) -> Vec<Record> {
             hashmap
                 .into_iter()
@@ -392,12 +381,10 @@ impl PendingPayableScanner {
 
         panic!(
             "Looking up '{:?}' in the cache, the record could not be found. Dumping \
-            the remaining values. Pending payables: {:?}. Unproven failures: {:?}. \
-            Hashes yet not looked up: {:?}.",
-            mismatch_report.noticed_with,
+            the remaining values. Pending payables: {:?}. Unproven failures: {:?}.",
+            missing_entry,
             rearrange(self.current_sent_payables.dump_cache()),
             rearrange(self.yet_unproven_failed_payables.dump_cache()),
-            mismatch_report.remaining_hashes
         )
     }
 
@@ -904,7 +891,6 @@ mod tests {
     use masq_lib::messages::{ToMessageBody, UiScanResponse};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
-    use regex::Regex;
     use std::collections::{BTreeSet, HashMap};
     use std::ops::Sub;
     use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -1014,7 +1000,7 @@ mod tests {
         let confirmed_tx_block_sent_tx = make_transaction_block(901);
         let confirmed_tx_block_failed_tx = make_transaction_block(902);
         let msg = TxReceiptsMessage {
-            results: hashmap![
+            results: btreemap![
                 TxHashByTable::SentPayable(sent_tx_hash_1) => Ok(StatusReadFromReceiptCheck::Pending),
                 TxHashByTable::SentPayable(sent_tx_hash_2) => Ok(StatusReadFromReceiptCheck::Succeeded(confirmed_tx_block_sent_tx)),
                 TxHashByTable::FailedPayable(failed_tx_hash_1) => Err(AppRpcError::Local(LocalError::Internal)),
@@ -1052,11 +1038,10 @@ mod tests {
 
     #[test]
     fn finish_scan_with_missing_records_inside_caches_noticed_on_missing_sent_tx() {
-        // Note: the ordering of the hashes matters in this test
-        let sent_tx_hash_1 = make_tx_hash(0x123);
+        let sent_tx_hash_1 = make_tx_hash(0x890);
         let mut sent_tx_1 = make_sent_tx(456);
         sent_tx_1.hash = sent_tx_hash_1;
-        let sent_tx_hash_2 = make_tx_hash(0x876);
+        let sent_tx_hash_2 = make_tx_hash(0x123);
         let failed_tx_hash_1 = make_tx_hash(0x987);
         let mut failed_tx_1 = make_failed_tx(567);
         failed_tx_1.hash = failed_tx_hash_1;
@@ -1072,7 +1057,7 @@ mod tests {
         subject.yet_unproven_failed_payables = Box::new(failed_payable_cache);
         let logger = Logger::new("test");
         let msg = TxReceiptsMessage {
-            results: hashmap![TxHashByTable::SentPayable(sent_tx_hash_1) => Ok(
+            results: btreemap![TxHashByTable::SentPayable(sent_tx_hash_1) => Ok(
                     StatusReadFromReceiptCheck::Pending),
                 TxHashByTable::SentPayable(sent_tx_hash_2) => Ok(StatusReadFromReceiptCheck::Succeeded(make_transaction_block(444))),
                 TxHashByTable::FailedPayable(failed_tx_hash_1) => Err(AppRpcError::Local(LocalError::Internal)),
@@ -1085,24 +1070,13 @@ mod tests {
             catch_unwind(AssertUnwindSafe(|| subject.finish_scan(msg, &logger))).unwrap_err();
 
         let panic_msg = panic.downcast_ref::<String>().unwrap();
-        let regex_str_in_pieces = vec![
-            r#"Looking up 'SentPayable\(0x0000000000000000000000000000000000000000000000000000000000000876\)'"#,
-            r#" in the cache, the record could not be found. Dumping the remaining values. Pending payables: \[\]."#,
-            r#" Unproven failures: \[FailedTx \{ hash:"#,
-            r#" 0x0000000000000000000000000000000000000000000000000000000000000987, receiver_address:"#,
-            r#" 0x000000000000000000185d00000000185d000000, amount_minor: 103355177121, timestamp: \d*,"#,
-            r#" gas_price_minor: 182284263, nonce: 567, reason: PendingTooLong, status: RetryRequired \}\]."#,
-            r#" Hashes yet not looked up: \[FailedPayable\(0x000000000000000000000000000000000000000"#,
-            r#"0000000000000000000000987\)\]"#,
-        ];
-        let regex_str = regex_str_in_pieces.join("");
-        let expected_msg_regex = Regex::new(&regex_str).unwrap();
-        assert!(
-            expected_msg_regex.is_match(panic_msg),
-            "Expected string that matches this regex '{}' but it couldn't with '{}'",
-            regex_str,
-            panic_msg
-        );
+        let expected = "Looking up 'SentPayable(0x00000000000000000000000000000000000000000000\
+        00000000000000000123)' in the cache, the record could not be found. Dumping the remaining \
+        values. Pending payables: [SentTx { hash: 0x0000000000000000000000000000000000000000000000\
+        000000000000000890, receiver_address: 0x0000000000000000000558000000000558000000, \
+        amount_minor: 43237380096, timestamp: 29942784, gas_price_minor: 94818816, nonce: 456, \
+        status: Pending(Waiting) }]. Unproven failures: [].";
+        assert_eq!(panic_msg, expected);
     }
 
     #[test]
@@ -1113,7 +1087,7 @@ mod tests {
         let sent_tx_hash_2 = sent_tx_2.hash;
         let failed_tx_1 = make_failed_tx(567);
         let failed_tx_hash_1 = failed_tx_1.hash;
-        let failed_tx_hash_2 = make_tx_hash(901);
+        let failed_tx_hash_2 = make_tx_hash(987);
         let mut pending_payable_cache = CurrentPendingPayables::default();
         pending_payable_cache.load_cache(vec![sent_tx_1, sent_tx_2]);
         let mut failed_payable_cache = RecheckRequiringFailures::default();
@@ -1123,7 +1097,7 @@ mod tests {
         subject.yet_unproven_failed_payables = Box::new(failed_payable_cache);
         let logger = Logger::new("test");
         let msg = TxReceiptsMessage {
-            results: hashmap![TxHashByTable::SentPayable(sent_tx_hash_1) => Ok(StatusReadFromReceiptCheck::Pending),
+            results: btreemap![TxHashByTable::SentPayable(sent_tx_hash_1) => Ok(StatusReadFromReceiptCheck::Pending),
                 TxHashByTable::SentPayable(sent_tx_hash_2) => Ok(StatusReadFromReceiptCheck::Succeeded(make_transaction_block(444))),
                 TxHashByTable::FailedPayable(failed_tx_hash_1) => Err(AppRpcError::Local(LocalError::Internal)),
                 TxHashByTable::FailedPayable(failed_tx_hash_2) => Ok(StatusReadFromReceiptCheck::Succeeded(make_transaction_block(555))),
@@ -1135,19 +1109,16 @@ mod tests {
             catch_unwind(AssertUnwindSafe(|| subject.finish_scan(msg, &logger))).unwrap_err();
 
         let panic_msg = panic.downcast_ref::<String>().unwrap();
-        let regex_str_in_pieces = vec![
-            r#"Looking up 'FailedPayable\(0x0000000000000000000000000000000000000000000000000000000000000385\)'"#,
-            r#" in the cache, the record could not be found. Dumping the remaining values. Pending payables: \[\]."#,
-            r#" Unproven failures: \[\]. Hashes yet not looked up: \[\]."#,
-        ];
-        let regex_str = regex_str_in_pieces.join("");
-        let expected_msg_regex = Regex::new(&regex_str).unwrap();
-        assert!(
-            expected_msg_regex.is_match(panic_msg),
-            "Expected string that matches this regex '{}' but it couldn't with '{}'",
-            regex_str,
-            panic_msg
-        );
+        let expected = "Looking up 'FailedPayable(0x000000000000000000000000000000000000000000\
+        00000000000000000003db)' in the cache, the record could not be found. Dumping the remaining \
+        values. Pending payables: [SentTx { hash: 0x000000000000000000000000000000000000000000000000\
+        00000000000001c8, receiver_address: 0x0000000000000000000558000000000558000000, amount_minor: \
+        43237380096, timestamp: 29942784, gas_price_minor: 94818816, nonce: 456, status: \
+        Pending(Waiting) }, SentTx { hash: 0x0000000000000000000000000000000000000000000000000000000\
+        000000315, receiver_address: 0x000000000000000000093f00000000093f000000, amount_minor: \
+        387532395441, timestamp: 89643024, gas_price_minor: 491169069, nonce: 789, status: \
+        Pending(Waiting) }]. Unproven failures: [].";
+        assert_eq!(panic_msg, expected);
     }
 
     #[test]

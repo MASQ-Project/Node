@@ -13,6 +13,7 @@ use ethereum_types::H256;
 use itertools::Itertools;
 use masq_lib::utils::ExpectValue;
 use serde_derive::{Deserialize, Serialize};
+use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -68,25 +69,7 @@ impl Transaction for SentTx {
     }
 }
 
-//TODO find me
-// impl PartialOrd for SentTx {
-//     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-//         Some(self.cmp(other))
-//     }
-// }
-//
-// impl Ord for SentTx {
-//     fn cmp(&self, other: &Self) -> Ordering {
-//         // Descending Order
-//         other
-//             .timestamp
-//             .cmp(&self.timestamp)
-//             .then_with(|| other.nonce.cmp(&self.nonce))
-//             .then_with(|| other.amount_minor.cmp(&self.amount_minor))
-//     }
-// }
-
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TxStatus {
     Pending(ValidationStatus),
     Confirmed {
@@ -96,37 +79,40 @@ pub enum TxStatus {
     },
 }
 
-//TODO find me
-// impl PartialOrd for TxStatus {
-//     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-//         Some(self.cmp(other))
-//     }
-// }
-//
-// impl Ord for TxStatus {
-//     fn cmp(&self, other: &Self) -> Ordering {
-//         match (self, other) {
-//             (TxStatus::Pending(status1), TxStatus::Pending(status2)) => status1.cmp(status2),
-//             (TxStatus::Pending(_), TxStatus::Confirmed { .. }) => Ordering::Less,
-//             (TxStatus::Confirmed { .. }, TxStatus::Pending(_)) => Ordering::Greater,
-//             (
-//                 TxStatus::Confirmed {
-//                     block_number: bn1,
-//                     detection: det1,
-//                     block_hash: bh1,
-//                 },
-//                 TxStatus::Confirmed {
-//                     block_number: bn2,
-//                     detection: det2,
-//                     block_hash: bh2,
-//                 },
-//             ) => bn1
-//                 .cmp(bn2)
-//                 .then_with(|| det1.cmp(det2))
-//                 .then_with(|| bh1.cmp(bh2)),
-//         }
-//     }
-// }
+impl PartialOrd for TxStatus {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+// Manual impl of Ord for enums makes sense because the derive macro determines the ordering
+// by the order of the enum variants in its declaration, not only alphabetically. Swiping
+// the position of the variants makes a difference, which is counter-intuitive. Structs are not
+// implemented the same way and are safe to be used with derive.
+impl Ord for TxStatus {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (TxStatus::Pending(status1), TxStatus::Pending(status2)) => status1.cmp(status2),
+            (TxStatus::Pending(_), TxStatus::Confirmed { .. }) => Ordering::Greater,
+            (TxStatus::Confirmed { .. }, TxStatus::Pending(_)) => Ordering::Less,
+            (
+                TxStatus::Confirmed {
+                    block_hash: block_hash1,
+                    block_number: block_num1,
+                    detection: detection1,
+                },
+                TxStatus::Confirmed {
+                    block_hash: block_hash2,
+                    block_number: block_num2,
+                    detection: detection2,
+                },
+            ) => block_hash1
+                .cmp(block_hash2)
+                .then_with(|| block_num1.cmp(block_num2))
+                .then_with(|| detection1.cmp(detection2)),
+        }
+    }
+}
 
 impl FromStr for TxStatus {
     type Err = String;
@@ -556,6 +542,7 @@ mod tests {
     use crate::accountant::db_access_objects::Transaction;
     use crate::accountant::scanners::pending_payable_scanner::test_utils::ValidationFailureClockMock;
     use crate::blockchain::blockchain_interface::data_structures::TxBlock;
+    use crate::blockchain::errors::internal_errors::InternalErrorKind;
     use crate::blockchain::errors::rpc_errors::{AppRpcErrorKind, LocalErrorKind, RemoteErrorKind};
     use crate::blockchain::errors::validation_status::{
         PreviousAttempts, ValidationFailureClockReal, ValidationStatus,
@@ -1587,45 +1574,67 @@ mod tests {
         )
     }
 
-    // TODO find me
-    // #[test]
-    // fn tx_ordering_works() {
-    //     let tx1 = SentTx {
-    //         hash: make_tx_hash(1),
-    //         receiver_address: make_address(1),
-    //         amount_minor: 100,
-    //         timestamp: 1000,
-    //         gas_price_minor: 10,
-    //         nonce: 1,
-    //         status: TxStatus::Pending(ValidationStatus::Waiting),
-    //     };
-    //     let tx2 = SentTx {
-    //         hash: make_tx_hash(2),
-    //         receiver_address: make_address(2),
-    //         amount_minor: 200,
-    //         timestamp: 1000,
-    //         gas_price_minor: 20,
-    //         nonce: 1,
-    //         status: TxStatus::Pending(ValidationStatus::Waiting),
-    //     };
-    //     let tx3 = SentTx {
-    //         hash: make_tx_hash(3),
-    //         receiver_address: make_address(3),
-    //         amount_minor: 100,
-    //         timestamp: 2000,
-    //         gas_price_minor: 30,
-    //         nonce: 2,
-    //         status: TxStatus::Pending(ValidationStatus::Waiting),
-    //     };
-    //
-    //     let mut set = BTreeSet::new();
-    //     set.insert(tx1.clone());
-    //     set.insert(tx2.clone());
-    //     set.insert(tx3.clone());
-    //
-    //     let expected_order = vec![tx3, tx2, tx1];
-    //     assert_eq!(set.into_iter().collect::<Vec<_>>(), expected_order);
-    // }
+    #[test]
+    fn tx_status_ordering_works() {
+        let tx_status_1 = TxStatus::Pending(ValidationStatus::Waiting);
+        let tx_status_2 = TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
+            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(RemoteErrorKind::InvalidResponse)),
+            &ValidationFailureClockReal::default(),
+        )));
+        let tx_status_3 = TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
+            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Decoder)),
+            &ValidationFailureClockReal::default(),
+        )));
+        let tx_status_4 = TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
+            BlockchainErrorKind::Internal(InternalErrorKind::PendingTooLongNotReplaced),
+            &ValidationFailureClockReal::default(),
+        )));
+        let tx_status_5 = TxStatus::Confirmed {
+            block_hash: format!("{:?}", make_tx_hash(1)),
+            block_number: 123456,
+            detection: Detection::Normal,
+        };
+        let tx_status_6 = TxStatus::Confirmed {
+            block_hash: format!("{:?}", make_tx_hash(2)),
+            block_number: 6543,
+            detection: Detection::Normal,
+        };
+        let tx_status_7 = TxStatus::Confirmed {
+            block_hash: format!("{:?}", make_tx_hash(1)),
+            block_number: 123456,
+            detection: Detection::Reclaim,
+        };
+        let tx_status_1_identical = tx_status_1.clone();
+        let tx_status_6_identical = tx_status_6.clone();
+
+        let mut set = BTreeSet::new();
+        vec![
+            tx_status_1.clone(),
+            tx_status_2.clone(),
+            tx_status_3.clone(),
+            tx_status_4.clone(),
+            tx_status_5.clone(),
+            tx_status_6.clone(),
+            tx_status_7.clone(),
+        ]
+        .into_iter()
+        .for_each(|tx| {
+            set.insert(tx);
+        });
+
+        let expected_order = vec![
+            tx_status_5,
+            tx_status_7,
+            tx_status_6.clone(),
+            tx_status_3,
+            tx_status_2,
+            tx_status_4,
+            tx_status_1.clone(),
+        ];
+        assert_eq!(set.into_iter().collect::<Vec<_>>(), expected_order);
+        assert_eq!(tx_status_1.cmp(&tx_status_1_identical), Ordering::Equal);
+        assert_eq!(tx_status_6.cmp(&tx_status_6_identical), Ordering::Equal);
+    }
 
     #[test]
     fn transaction_trait_methods_for_tx() {
@@ -1654,61 +1663,5 @@ mod tests {
         assert_eq!(tx.gas_price_wei(), gas_price_minor);
         assert_eq!(tx.nonce(), nonce);
         assert_eq!(tx.is_failed(), false);
-    }
-
-    #[test]
-    fn tx_status_ordering_works_correctly() {
-        let now = SystemTime::now();
-        let clock = ValidationFailureClockMock::default()
-            .now_result(now)
-            .now_result(now + Duration::from_secs(1));
-
-        let pending_waiting = TxStatus::Pending(ValidationStatus::Waiting);
-        let pending_reattempting =
-            TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
-                BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Decoder)),
-                &clock,
-            )));
-        let confirmed_early = TxStatus::Confirmed {
-            block_hash: "0x123".to_string(),
-            block_number: 100,
-            detection: Detection::Normal,
-        };
-        let confirmed_late = TxStatus::Confirmed {
-            block_hash: "0x456".to_string(),
-            block_number: 200,
-            detection: Detection::Normal,
-        };
-
-        // Pending < Confirmed
-        assert_eq!(pending_waiting.cmp(&confirmed_early), Ordering::Less);
-        assert_eq!(
-            pending_waiting.partial_cmp(&confirmed_early),
-            Some(Ordering::Less)
-        );
-
-        // Within Pending: Waiting < Reattempting
-        assert_eq!(pending_waiting.cmp(&pending_reattempting), Ordering::Less);
-        assert_eq!(
-            pending_waiting.partial_cmp(&pending_reattempting),
-            Some(Ordering::Less)
-        );
-
-        // Within Confirmed: earlier block < later block
-        assert_eq!(confirmed_early.cmp(&confirmed_late), Ordering::Less);
-        assert_eq!(
-            confirmed_early.partial_cmp(&confirmed_late),
-            Some(Ordering::Less)
-        );
-
-        // Equal comparison
-        assert_eq!(
-            pending_waiting.cmp(&TxStatus::Pending(ValidationStatus::Waiting)),
-            Ordering::Equal
-        );
-        assert_eq!(
-            pending_waiting.partial_cmp(&TxStatus::Pending(ValidationStatus::Waiting)),
-            Some(Ordering::Equal)
-        );
     }
 }

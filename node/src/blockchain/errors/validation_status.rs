@@ -8,46 +8,44 @@ use serde::{
 };
 use serde_derive::{Deserialize, Serialize};
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::time::SystemTime;
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ValidationStatus {
     Waiting,
     Reattempting(PreviousAttempts),
+}
+
+impl PartialOrd for ValidationStatus {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+// Manual impl of Ord for enums makes sense because the derive macro determines the ordering
+// by the order of the enum variants in its declaration, not only alphabetically. Swiping
+// the position of the variants makes a difference, which is counter-intuitive. Structs are not
+// implemented the same way and are safe to be used with derive.
+impl Ord for ValidationStatus {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (ValidationStatus::Reattempting(..), ValidationStatus::Waiting) => Ordering::Less,
+            (ValidationStatus::Waiting, ValidationStatus::Reattempting(..)) => Ordering::Greater,
+            (ValidationStatus::Waiting, ValidationStatus::Waiting) => Ordering::Equal,
+            (ValidationStatus::Reattempting(prev1), ValidationStatus::Reattempting(prev2)) => {
+                prev1.cmp(prev2)
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PreviousAttempts {
     inner: BTreeMap<BlockchainErrorKind, ErrorStats>,
 }
-
-// TODO find me
-// impl Hash for PreviousAttempts {
-//     fn hash<H: Hasher>(&self, state: &mut H) {
-//         for (key, value) in &self.inner {
-//             key.hash(state);
-//             value.hash(state);
-//         }
-//     }
-// }
-
-// impl PartialOrd for PreviousAttempts {
-//     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-//         Some(self.cmp(other))
-//     }
-// }
-//
-// impl Ord for PreviousAttempts {
-//     fn cmp(&self, other: &Self) -> Ordering {
-//         let self_first_seen = self.inner.iter().map(|(_, stats)| &stats.first_seen).max();
-//         let other_first_seen = other.inner.iter().map(|(_, stats)| &stats.first_seen).max();
-//
-//         self_first_seen.cmp(&other_first_seen)
-//     }
-// }
 
 // had to implement it manually in an array JSON layout, as the original, default HashMap
 // serialization threw errors because the values of keys were represented by nested enums that
@@ -436,26 +434,32 @@ mod tests {
             BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Io)),
             &clock,
         ));
+        let waiting_identical = waiting.clone();
+        let reattempting_early_identical = reattempting_early.clone();
 
-        // Waiting < Reattempting
-        assert_eq!(waiting.cmp(&reattempting_early), Ordering::Less);
-        assert_eq!(
-            waiting.partial_cmp(&reattempting_early),
-            Some(Ordering::Less)
-        );
+        let mut set = BTreeSet::new();
+        vec![
+            reattempting_early.clone(),
+            waiting.clone(),
+            reattempting_late.clone(),
+            waiting_identical.clone(),
+            reattempting_early_identical.clone(),
+        ]
+        .into_iter()
+        .for_each(|tx| {
+            set.insert(tx);
+        });
 
-        // Earlier reattempting < Later reattempting
-        assert_eq!(reattempting_early.cmp(&reattempting_late), Ordering::Less);
+        let expected_order = vec![
+            reattempting_early.clone(),
+            reattempting_late,
+            waiting.clone(),
+        ];
+        assert_eq!(set.into_iter().collect::<Vec<_>>(), expected_order);
+        assert_eq!(waiting.cmp(&waiting_identical), Ordering::Equal);
         assert_eq!(
-            reattempting_early.partial_cmp(&reattempting_late),
-            Some(Ordering::Less)
-        );
-
-        // Waiting == Waiting
-        assert_eq!(waiting.cmp(&ValidationStatus::Waiting), Ordering::Equal);
-        assert_eq!(
-            waiting.partial_cmp(&ValidationStatus::Waiting),
-            Some(Ordering::Equal)
+            reattempting_early.cmp(&reattempting_early_identical),
+            Ordering::Equal
         );
     }
 }

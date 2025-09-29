@@ -12,6 +12,7 @@ use crate::blockchain::errors::BlockchainErrorKind;
 use itertools::Either;
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeToUiMessage;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
@@ -212,11 +213,6 @@ impl UpdatableValidationStatus for FailureStatus {
     }
 }
 
-pub struct MismatchReport {
-    pub noticed_with: TxHashByTable,
-    pub remaining_hashes: Vec<TxHashByTable>,
-}
-
 pub trait PendingPayableCache<Record> {
     fn load_cache(&mut self, records: Vec<Record>);
     fn get_record_by_hash(&mut self, hash: TxHash) -> Option<Record>;
@@ -339,10 +335,35 @@ impl TxByTable {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum TxHashByTable {
     SentPayable(TxHash),
     FailedPayable(TxHash),
+}
+
+impl PartialOrd for TxHashByTable {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+// Manual impl of Ord for enums makes sense because the derive macro determines the ordering
+// by the order of the enum variants in its declaration, not only alphabetically. Swiping
+// the position of the variants makes a difference, which is counter-intuitive. Structs are not
+// implemented the same way and are safe to be used with derive.
+impl Ord for TxHashByTable {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match (self, other) {
+            (TxHashByTable::FailedPayable(..), TxHashByTable::SentPayable(..)) => Ordering::Less,
+            (TxHashByTable::SentPayable(..), TxHashByTable::FailedPayable(..)) => Ordering::Greater,
+            (TxHashByTable::SentPayable(hash_1), TxHashByTable::SentPayable(hash_2)) => {
+                hash_1.cmp(hash_2)
+            }
+            (TxHashByTable::FailedPayable(hash_1), TxHashByTable::FailedPayable(hash_2)) => {
+                hash_1.cmp(hash_2)
+            }
+        }
+    }
 }
 
 impl TxHashByTable {
@@ -382,6 +403,8 @@ mod tests {
     use crate::blockchain::test_utils::make_tx_hash;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
+    use std::cmp::Ordering;
+    use std::collections::BTreeSet;
     use std::ops::Sub;
     use std::time::{Duration, SystemTime};
     use std::vec;
@@ -1155,5 +1178,27 @@ mod tests {
 
         assert_eq!(result_a, TxHashByTable::SentPayable(expected_hash_a));
         assert_eq!(result_b, TxHashByTable::FailedPayable(expected_hash_b));
+    }
+
+    #[test]
+    fn tx_hash_by_table_ordering_works_correctly() {
+        let tx_1 = TxHashByTable::SentPayable(make_tx_hash(123));
+        let tx_2 = TxHashByTable::FailedPayable(make_tx_hash(333));
+        let tx_3 = TxHashByTable::SentPayable(make_tx_hash(654));
+        let tx_4 = TxHashByTable::FailedPayable(make_tx_hash(222));
+        let tx_1_identical = tx_1;
+        let tx_2_identical = tx_2;
+
+        let mut set = BTreeSet::new();
+        vec![tx_1.clone(), tx_2.clone(), tx_3.clone(), tx_4.clone()]
+            .into_iter()
+            .for_each(|tx| {
+                set.insert(tx);
+            });
+
+        let expected_order = vec![tx_4, tx_2, tx_1, tx_3];
+        assert_eq!(set.into_iter().collect::<Vec<_>>(), expected_order);
+        assert_eq!(tx_1.cmp(&tx_1_identical), Ordering::Equal);
+        assert_eq!(tx_2.cmp(&tx_2_identical), Ordering::Equal);
     }
 }

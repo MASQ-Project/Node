@@ -75,7 +75,7 @@ use masq_lib::ui_gateway::{MessageBody, MessagePath, MessageTarget};
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::ExpectValue;
 use std::any::type_name;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 #[cfg(test)]
 use std::default::Default;
 use std::fmt::Display;
@@ -143,7 +143,7 @@ pub type TxReceiptResult = Result<StatusReadFromReceiptCheck, AppRpcError>;
 
 #[derive(Debug, PartialEq, Eq, Message, Clone)]
 pub struct TxReceiptsMessage {
-    pub results: HashMap<TxHashByTable, TxReceiptResult>,
+    pub results: BTreeMap<TxHashByTable, TxReceiptResult>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
@@ -2041,7 +2041,7 @@ mod tests {
             block_number: 78901234.into(),
         };
         let tx_receipts_msg = TxReceiptsMessage {
-            results: hashmap![TxHashByTable::SentPayable(sent_tx.hash) => Ok(
+            results: btreemap![TxHashByTable::SentPayable(sent_tx.hash) => Ok(
                 StatusReadFromReceiptCheck::Succeeded(tx_block),
             )],
             response_skeleton_opt,
@@ -2282,7 +2282,7 @@ mod tests {
         let first_counter_msg_setup = setup_for_counter_msg_triggered_via_type_id!(
             RequestTransactionReceipts,
             TxReceiptsMessage {
-                results: hashmap![TxHashByTable::SentPayable(sent_tx.hash) => Ok(
+                results: btreemap![TxHashByTable::SentPayable(sent_tx.hash) => Ok(
                     StatusReadFromReceiptCheck::Reverted
                 ),],
                 response_skeleton_opt
@@ -2906,7 +2906,7 @@ mod tests {
         let subject_addr: Addr<Accountant> = subject.start();
         let subject_subs = Accountant::make_subs_from(&subject_addr);
         let expected_tx_receipts_msg = TxReceiptsMessage {
-            results: hashmap![TxHashByTable::SentPayable(tx_hash) => Ok(
+            results: btreemap![TxHashByTable::SentPayable(tx_hash) => Ok(
                 StatusReadFromReceiptCheck::Reverted,
             )],
             response_skeleton_opt: None,
@@ -3656,7 +3656,7 @@ mod tests {
             block_number: 4444444444u64.into(),
         });
         let counter_msg_3 = TxReceiptsMessage {
-            results: hashmap![TxHashByTable::SentPayable(tx_hash) => Ok(tx_status)],
+            results: btreemap![TxHashByTable::SentPayable(tx_hash) => Ok(tx_status)],
             response_skeleton_opt: None,
         };
         let request_transaction_receipts_msg = RequestTransactionReceipts {
@@ -5227,7 +5227,7 @@ mod tests {
         );
         let system = System::new(test_name);
         let msg = TxReceiptsMessage {
-            results: hashmap!(TxHashByTable::SentPayable(make_tx_hash(123)) => Err(AppRpcError::Remote(RemoteError::Unreachable))),
+            results: btreemap!(TxHashByTable::SentPayable(make_tx_hash(123)) => Err(AppRpcError::Remote(RemoteError::Unreachable))),
             response_skeleton_opt: None,
         };
         let subject_addr = subject.start();
@@ -5296,7 +5296,7 @@ mod tests {
             context_id: 54,
         };
         let msg = TxReceiptsMessage {
-            results: hashmap!(TxHashByTable::SentPayable(make_tx_hash(123)) => Err(AppRpcError::Remote(RemoteError::Unreachable))),
+            results: btreemap!(TxHashByTable::SentPayable(make_tx_hash(123)) => Err(AppRpcError::Remote(RemoteError::Unreachable))),
             response_skeleton_opt: Some(response_skeleton),
         };
         let subject_addr = subject.start();
@@ -5352,7 +5352,7 @@ mod tests {
             Box::new(NotifyLaterHandleMock::default().panic_on_schedule_attempt());
         let system = System::new(test_name);
         let msg = TxReceiptsMessage {
-            results: hashmap!(TxHashByTable::SentPayable(make_tx_hash(123)) => Err(AppRpcError::Remote(RemoteError::Unreachable))),
+            results: btreemap!(TxHashByTable::SentPayable(make_tx_hash(123)) => Err(AppRpcError::Remote(RemoteError::Unreachable))),
             response_skeleton_opt: Some(response_skeleton),
         };
         let subject_addr = subject.start();
@@ -5634,7 +5634,7 @@ mod tests {
         seeds: Vec<SeedsToMakeUpPayableWithStatus>,
     ) -> (TxReceiptsMessage, Vec<TxByTable>) {
         let (tx_receipt_results, tx_record_vec) = seeds.into_iter().enumerate().fold(
-            (hashmap![], vec![]),
+            (btreemap![], vec![]),
             |(mut tx_receipt_results, mut record_by_table_vec), (idx, seed_params)| {
                 let tx_hash = seed_params.tx_hash;
                 let status = seed_params.status;
