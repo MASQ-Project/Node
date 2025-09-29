@@ -1251,7 +1251,7 @@ mod tests {
             .unwrap_err();
 
         let expected = MultiConfig::make_configurator_error(Error {
-            message: "The following required arguments were not provided: --blockchain-service-url USAGE: --blockchain-service-url <blockchain-service-url>".to_string(),
+            message: "The following required argument was not provided: --blockchain-service-url USAGE: --blockchain-service-url <blockchain-service-url>".to_string(),
             kind: clap::ErrorKind::ArgumentNotFound,
             info: Some(vec!["<blockchain-service-url>".to_string()]),
         });
