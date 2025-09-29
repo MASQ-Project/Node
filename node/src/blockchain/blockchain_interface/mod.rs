@@ -4,26 +4,25 @@ pub mod blockchain_interface_web3;
 pub mod data_structures;
 pub mod lower_level_interface;
 
-use crate::accountant::scanners::payable_scanner_extension::msgs::PricedQualifiedPayables;
+use crate::accountant::scanners::payable_scanner::tx_templates::priced::new::PricedNewTxTemplates;
+use crate::accountant::scanners::payable_scanner::tx_templates::priced::retry::PricedRetryTxTemplates;
 use crate::accountant::scanners::pending_payable_scanner::utils::TxHashByTable;
 use crate::accountant::TxReceiptResult;
 use crate::blockchain::blockchain_agent::BlockchainAgent;
-use crate::blockchain::blockchain_bridge::{
-    BlockMarker, BlockScanRange, RegisterNewPendingPayables,
-};
+use crate::blockchain::blockchain_bridge::{BlockMarker, BlockScanRange};
 use crate::blockchain::blockchain_interface::data_structures::errors::{
-    BlockchainAgentBuildError, BlockchainInterfaceError, PayableTransactionError,
+    BlockchainAgentBuildError, BlockchainInterfaceError, LocalPayableError,
 };
 use crate::blockchain::blockchain_interface::data_structures::{
-    ProcessedPayableFallible, RetrievedBlockchainTransactions,
+    BatchResults, RetrievedBlockchainTransactions,
 };
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use crate::sub_lib::wallet::Wallet;
-use actix::Recipient;
 use futures::Future;
+use itertools::Either;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use web3::types::Address;
 
 pub trait BlockchainInterface {
@@ -50,7 +49,7 @@ pub trait BlockchainInterface {
         tx_hashes: Vec<TxHashByTable>,
     ) -> Box<
         dyn Future<
-            Item = HashMap<TxHashByTable, TxReceiptResult>,
+            Item = BTreeMap<TxHashByTable, TxReceiptResult>,
             Error = BlockchainInterfaceError,
         >,
     >;
@@ -59,9 +58,8 @@ pub trait BlockchainInterface {
         &self,
         logger: Logger,
         agent: Box<dyn BlockchainAgent>,
-        new_pending_payables_recipient: Recipient<RegisterNewPendingPayables>,
-        affordable_accounts: PricedQualifiedPayables,
-    ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>;
+        priced_templates: Either<PricedNewTxTemplates, PricedRetryTxTemplates>,
+    ) -> Box<dyn Future<Item = BatchResults, Error = LocalPayableError>>;
 
     as_any_ref_in_trait!();
 }

@@ -3,7 +3,7 @@
 use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureStatus};
 use crate::accountant::db_access_objects::sent_payable_dao::{SentTx, TxStatus};
 use crate::accountant::db_access_objects::utils::TxHash;
-use crate::accountant::TxReceiptResult;
+use crate::accountant::{ResponseSkeleton, TxReceiptResult};
 use crate::blockchain::errors::rpc_errors::AppRpcError;
 use crate::blockchain::errors::validation_status::{
     PreviousAttempts, ValidationFailureClock, ValidationStatus,
@@ -12,6 +12,7 @@ use crate::blockchain::errors::BlockchainErrorKind;
 use itertools::Either;
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeToUiMessage;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
@@ -203,18 +204,13 @@ impl UpdatableValidationStatus for FailureStatus {
             FailureStatus::RecheckRequired(ValidationStatus::Reattempting(previous_attempts)) => {
                 Some(FailureStatus::RecheckRequired(
                     ValidationStatus::Reattempting(
-                        previous_attempts.clone().add_attempt(error.into(), clock),
+                        previous_attempts.clone().add_attempt(error, clock),
                     ),
                 ))
             }
             FailureStatus::RetryRequired | FailureStatus::Concluded => None,
         }
     }
-}
-
-pub struct MismatchReport {
-    pub noticed_with: TxHashByTable,
-    pub remaining_hashes: Vec<TxHashByTable>,
 }
 
 pub trait PendingPayableCache<Record> {
@@ -300,7 +296,8 @@ impl RecheckRequiringFailures {
 #[derive(Debug, PartialEq, Eq)]
 pub enum PendingPayableScanResult {
     NoPendingPayablesLeft(Option<NodeToUiMessage>),
-    PaymentRetryRequired(Either<Retry, NodeToUiMessage>),
+    PaymentRetryRequired(Option<ResponseSkeleton>),
+    ProcedureShouldBeRepeated(Option<NodeToUiMessage>),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -338,10 +335,35 @@ impl TxByTable {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum TxHashByTable {
     SentPayable(TxHash),
     FailedPayable(TxHash),
+}
+
+impl PartialOrd for TxHashByTable {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+// Manual impl of Ord for enums makes sense because the derive macro determines the ordering
+// by the order of the enum variants in its declaration, not only alphabetically. Swiping
+// the position of the variants makes a difference, which is counter-intuitive. Structs are not
+// implemented the same way and are safe to be used with derive.
+impl Ord for TxHashByTable {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match (self, other) {
+            (TxHashByTable::FailedPayable(..), TxHashByTable::SentPayable(..)) => Ordering::Less,
+            (TxHashByTable::SentPayable(..), TxHashByTable::FailedPayable(..)) => Ordering::Greater,
+            (TxHashByTable::SentPayable(hash_1), TxHashByTable::SentPayable(hash_2)) => {
+                hash_1.cmp(hash_2)
+            }
+            (TxHashByTable::FailedPayable(hash_1), TxHashByTable::FailedPayable(hash_2)) => {
+                hash_1.cmp(hash_2)
+            }
+        }
+    }
 }
 
 impl TxHashByTable {
@@ -366,13 +388,13 @@ impl From<&TxByTable> for TxHashByTable {
 mod tests {
     use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus;
     use crate::accountant::db_access_objects::sent_payable_dao::{Detection, TxStatus};
+    use crate::accountant::db_access_objects::test_utils::{make_failed_tx, make_sent_tx};
     use crate::accountant::scanners::pending_payable_scanner::test_utils::ValidationFailureClockMock;
     use crate::accountant::scanners::pending_payable_scanner::utils::{
         CurrentPendingPayables, DetectedConfirmations, DetectedFailures, FailedValidation,
         FailedValidationByTable, PendingPayableCache, PresortedTxFailure, ReceiptScanReport,
         RecheckRequiringFailures, Retry, TxByTable, TxHashByTable,
     };
-    use crate::accountant::test_utils::{make_failed_tx, make_sent_tx};
     use crate::blockchain::errors::rpc_errors::{AppRpcErrorKind, LocalErrorKind, RemoteErrorKind};
     use crate::blockchain::errors::validation_status::{
         PreviousAttempts, ValidationFailureClockReal, ValidationStatus,
@@ -381,6 +403,8 @@ mod tests {
     use crate::blockchain::test_utils::make_tx_hash;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
+    use std::cmp::Ordering;
+    use std::collections::BTreeSet;
     use std::ops::Sub;
     use std::time::{Duration, SystemTime};
     use std::vec;
@@ -720,8 +744,7 @@ mod tests {
         init_test_logging();
         let test_name = "pending_payable_cache_ensure_empty_sad_path";
         let mut subject = CurrentPendingPayables::new();
-        let sent_tx = make_sent_tx(567);
-        let tx_timestamp = sent_tx.timestamp;
+        let sent_tx = make_sent_tx(0x567);
         let records = vec![sent_tx.clone()];
         let logger = Logger::new(test_name);
         subject.load_cache(records);
@@ -736,10 +759,10 @@ mod tests {
         TestLogHandler::default().exists_log_containing(&format!(
             "DEBUG: {test_name}: \
         Cache misuse - some pending payables left unprocessed: \
-        {{0x0000000000000000000000000000000000000000000000000000000000000237: SentTx {{ hash: \
-        0x0000000000000000000000000000000000000000000000000000000000000237, receiver_address: \
-        0x000000000000000000000077616c6c6574353637, amount_minor: 321489000000000, timestamp: \
-        {tx_timestamp}, gas_price_minor: 567000000000, nonce: 567, status: Pending(Waiting) }}}}. \
+        {{0x0000000000000000000000000000000000000000000000000000000000000567: SentTx {{ hash: \
+        0x0000000000000000000000000000000000000000000000000000000000000567, receiver_address: \
+        0x0000000000000000001035000000001035000000, amount_minor: 3658379210721, timestamp: \
+        275427216, gas_price_minor: 2645248887, nonce: 1383, status: Pending(Waiting) }}}}. \
         Dumping."
         ));
     }
@@ -864,8 +887,7 @@ mod tests {
         init_test_logging();
         let test_name = "failure_cache_ensure_empty_sad_path";
         let mut subject = RecheckRequiringFailures::new();
-        let failed_tx = make_failed_tx(567);
-        let tx_timestamp = failed_tx.timestamp;
+        let failed_tx = make_failed_tx(0x567);
         let records = vec![failed_tx.clone()];
         let logger = Logger::new(test_name);
         subject.load_cache(records);
@@ -880,10 +902,10 @@ mod tests {
         TestLogHandler::default().exists_log_containing(&format!(
             "DEBUG: {test_name}: \
         Cache misuse - some tx failures left unprocessed: \
-        {{0x0000000000000000000000000000000000000000000000000000000000000237: FailedTx {{ hash: \
-        0x0000000000000000000000000000000000000000000000000000000000000237, receiver_address: \
-        0x000000000000000000000077616c6c6574353637, amount_minor: 321489000000000, timestamp: \
-        {tx_timestamp}, gas_price_minor: 567000000000, nonce: 567, reason: PendingTooLong, status: \
+        {{0x0000000000000000000000000000000000000000000000000000000000000567: FailedTx {{ hash: \
+        0x0000000000000000000000000000000000000000000000000000000000000567, receiver_address: \
+        0x00000000000000000003cc0000000003cc000000, amount_minor: 3658379210721, timestamp: \
+        275427216, gas_price_minor: 2645248887, nonce: 1383, reason: PendingTooLong, status: \
         RetryRequired }}}}. Dumping."
         ));
     }
@@ -1156,5 +1178,27 @@ mod tests {
 
         assert_eq!(result_a, TxHashByTable::SentPayable(expected_hash_a));
         assert_eq!(result_b, TxHashByTable::FailedPayable(expected_hash_b));
+    }
+
+    #[test]
+    fn tx_hash_by_table_ordering_works_correctly() {
+        let tx_1 = TxHashByTable::SentPayable(make_tx_hash(123));
+        let tx_2 = TxHashByTable::FailedPayable(make_tx_hash(333));
+        let tx_3 = TxHashByTable::SentPayable(make_tx_hash(654));
+        let tx_4 = TxHashByTable::FailedPayable(make_tx_hash(222));
+        let tx_1_identical = tx_1;
+        let tx_2_identical = tx_2;
+
+        let mut set = BTreeSet::new();
+        vec![tx_1.clone(), tx_2.clone(), tx_3.clone(), tx_4.clone()]
+            .into_iter()
+            .for_each(|tx| {
+                set.insert(tx);
+            });
+
+        let expected_order = vec![tx_4, tx_2, tx_1, tx_3];
+        assert_eq!(set.into_iter().collect::<Vec<_>>(), expected_order);
+        assert_eq!(tx_1.cmp(&tx_1_identical), Ordering::Equal);
+        assert_eq!(tx_2.cmp(&tx_2_identical), Ordering::Equal);
     }
 }

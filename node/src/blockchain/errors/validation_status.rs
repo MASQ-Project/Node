@@ -7,8 +7,10 @@ use serde::{
     Deserialize as ManualDeserialize, Deserializer, Serialize as ManualSerialize, Serializer,
 };
 use serde_derive::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::cmp::Ordering;
+use std::collections::BTreeMap;
 use std::fmt::Formatter;
+use std::hash::Hash;
 use std::time::SystemTime;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -17,9 +19,32 @@ pub enum ValidationStatus {
     Reattempting(PreviousAttempts),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+impl PartialOrd for ValidationStatus {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+// Manual impl of Ord for enums makes sense because the derive macro determines the ordering
+// by the order of the enum variants in its declaration, not only alphabetically. Swiping
+// the position of the variants makes a difference, which is counter-intuitive. Structs are not
+// implemented the same way and are safe to be used with derive.
+impl Ord for ValidationStatus {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (ValidationStatus::Reattempting(..), ValidationStatus::Waiting) => Ordering::Less,
+            (ValidationStatus::Waiting, ValidationStatus::Reattempting(..)) => Ordering::Greater,
+            (ValidationStatus::Waiting, ValidationStatus::Waiting) => Ordering::Equal,
+            (ValidationStatus::Reattempting(prev1), ValidationStatus::Reattempting(prev2)) => {
+                prev1.cmp(prev2)
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PreviousAttempts {
-    inner: HashMap<BlockchainErrorKind, ErrorStats>,
+    inner: BTreeMap<BlockchainErrorKind, ErrorStats>,
 }
 
 // had to implement it manually in an array JSON layout, as the original, default HashMap
@@ -75,7 +100,7 @@ impl<'de> Visitor<'de> for PreviousAttemptsVisitor {
             stats: ErrorStats,
         }
 
-        let mut error_stats_map: HashMap<BlockchainErrorKind, ErrorStats> = hashmap!();
+        let mut error_stats_map: BTreeMap<BlockchainErrorKind, ErrorStats> = btreemap!();
         while let Some(entry) = seq.next_element::<EntryOwned>()? {
             error_stats_map.insert(entry.error_kind, entry.stats);
         }
@@ -88,7 +113,7 @@ impl<'de> Visitor<'de> for PreviousAttemptsVisitor {
 impl PreviousAttempts {
     pub fn new(error: BlockchainErrorKind, clock: &dyn ValidationFailureClock) -> Self {
         Self {
-            inner: hashmap!(error => ErrorStats::now(clock)),
+            inner: btreemap!(error => ErrorStats::now(clock)),
         }
     }
 
@@ -105,7 +130,7 @@ impl PreviousAttempts {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ErrorStats {
     #[serde(rename = "firstSeen")]
     pub first_seen: SystemTime,
@@ -141,12 +166,14 @@ impl ValidationFailureClock for ValidationFailureClockReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accountant::scanners::pending_payable_scanner::test_utils::ValidationFailureClockMock;
     use crate::blockchain::errors::internal_errors::InternalErrorKind;
     use crate::blockchain::errors::rpc_errors::{AppRpcErrorKind, LocalErrorKind};
-    use crate::blockchain::test_utils::ValidationFailureClockMock;
     use crate::test_utils::serde_serializer_mock::{SerdeSerializerMock, SerializeSeqMock};
     use serde::ser::Error as SerdeError;
-    use std::time::{Duration, UNIX_EPOCH};
+    use std::collections::BTreeSet;
+    use std::time::Duration;
+    use std::time::UNIX_EPOCH;
 
     #[test]
     fn previous_attempts_and_validation_failure_clock_work_together_fine() {
@@ -165,7 +192,7 @@ mod tests {
         );
         let timestamp_c = SystemTime::now();
         let subject = subject.add_attempt(
-            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::IO)),
+            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Io)),
             &validation_failure_clock,
         );
         let timestamp_d = SystemTime::now();
@@ -174,7 +201,7 @@ mod tests {
             &validation_failure_clock,
         );
         let subject = subject.add_attempt(
-            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::IO)),
+            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Io)),
             &validation_failure_clock,
         );
 
@@ -211,7 +238,7 @@ mod tests {
         let io_error_stats = subject
             .inner
             .get(&BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(
-                LocalErrorKind::IO,
+                LocalErrorKind::Io,
             )))
             .unwrap();
         assert!(
@@ -229,6 +256,73 @@ mod tests {
                     LocalErrorKind::Signing,
                 )));
         assert_eq!(other_error_stats, None);
+    }
+
+    // #[test]
+    // fn previous_attempts_hash_works_correctly() {
+    //     let now = SystemTime::now();
+    //     let clock = ValidationFailureClockMock::default()
+    //         .now_result(now)
+    //         .now_result(now)
+    //         .now_result(now + Duration::from_secs(2));
+    //     let attempts1 = PreviousAttempts::new(
+    //         BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Decoder)),
+    //         &clock,
+    //     );
+    //     let attempts2 = PreviousAttempts::new(
+    //         BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Decoder)),
+    //         &clock,
+    //     );
+    //     let attempts3 = PreviousAttempts::new(
+    //         BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Io)),
+    //         &clock,
+    //     );
+    //     let hash1 = {
+    //         let mut hasher = DefaultHasher::new();
+    //         attempts1.hash(&mut hasher);
+    //         hasher.finish()
+    //     };
+    //     let hash2 = {
+    //         let mut hasher = DefaultHasher::new();
+    //         attempts2.hash(&mut hasher);
+    //         hasher.finish()
+    //     };
+    //     let hash3 = {
+    //         let mut hasher = DefaultHasher::new();
+    //         attempts3.hash(&mut hasher);
+    //         hasher.finish()
+    //     };
+    //
+    //     assert_eq!(hash1, hash2);
+    //     assert_ne!(hash1, hash3);
+    // }
+
+    #[test]
+    fn previous_attempts_ordering_works_correctly_with_mock() {
+        let now = SystemTime::now();
+        let clock = ValidationFailureClockMock::default()
+            .now_result(now)
+            .now_result(now + Duration::from_secs(1))
+            .now_result(now + Duration::from_secs(2))
+            .now_result(now + Duration::from_secs(3));
+        let mut attempts1 = PreviousAttempts::new(
+            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Decoder)),
+            &clock,
+        );
+        attempts1 = attempts1.add_attempt(
+            BlockchainErrorKind::Internal(InternalErrorKind::PendingTooLongNotReplaced),
+            &clock,
+        );
+        let mut attempts2 = PreviousAttempts::new(
+            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Io)),
+            &clock,
+        );
+        attempts2 = attempts2.add_attempt(
+            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Signing)),
+            &clock,
+        );
+
+        assert_eq!(attempts2.partial_cmp(&attempts1), Some(Ordering::Greater));
     }
 
     #[test]
@@ -308,7 +402,7 @@ mod tests {
         let clock = ValidationFailureClockMock::default().now_result(timestamp);
         assert_eq!(
             result.unwrap().inner,
-            hashmap!(BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Internal)) => ErrorStats::now(&clock))
+            btreemap!(BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Internal)) => ErrorStats::now(&clock))
         );
     }
 
@@ -322,6 +416,51 @@ mod tests {
         assert_eq!(
             result.unwrap_err().to_string(),
             "invalid type: string \"Yesterday\", expected struct SystemTime at line 1 column 79"
+        );
+    }
+
+    #[test]
+    fn validation_status_ordering_works_correctly() {
+        let now = SystemTime::now();
+        let clock = ValidationFailureClockMock::default()
+            .now_result(now)
+            .now_result(now + Duration::from_secs(1));
+
+        let waiting = ValidationStatus::Waiting;
+        let reattempting_early = ValidationStatus::Reattempting(PreviousAttempts::new(
+            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Decoder)),
+            &clock,
+        ));
+        let reattempting_late = ValidationStatus::Reattempting(PreviousAttempts::new(
+            BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Io)),
+            &clock,
+        ));
+        let waiting_identical = waiting.clone();
+        let reattempting_early_identical = reattempting_early.clone();
+
+        let mut set = BTreeSet::new();
+        vec![
+            reattempting_early.clone(),
+            waiting.clone(),
+            reattempting_late.clone(),
+            waiting_identical.clone(),
+            reattempting_early_identical.clone(),
+        ]
+        .into_iter()
+        .for_each(|tx| {
+            set.insert(tx);
+        });
+
+        let expected_order = vec![
+            reattempting_early.clone(),
+            reattempting_late,
+            waiting.clone(),
+        ];
+        assert_eq!(set.into_iter().collect::<Vec<_>>(), expected_order);
+        assert_eq!(waiting.cmp(&waiting_identical), Ordering::Equal);
+        assert_eq!(
+            reattempting_early.cmp(&reattempting_early_identical),
+            Ordering::Equal
         );
     }
 }

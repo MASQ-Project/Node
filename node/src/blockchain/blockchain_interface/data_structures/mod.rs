@@ -2,9 +2,9 @@
 
 pub mod errors;
 
-use crate::accountant::db_access_objects::utils::TxHash;
+use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
+use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
 use crate::accountant::scanners::pending_payable_scanner::utils::TxHashByTable;
-use crate::accountant::PendingPayable;
 use crate::blockchain::blockchain_bridge::BlockMarker;
 use crate::sub_lib::wallet::Wallet;
 use ethereum_types::U64;
@@ -12,7 +12,6 @@ use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use web3::types::{TransactionReceipt, H256};
-use web3::Error;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BlockchainTransaction {
@@ -37,17 +36,10 @@ pub struct RetrievedBlockchainTransactions {
     pub transactions: Vec<BlockchainTransaction>,
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub struct RpcPayableFailure {
-    pub rpc_error: Error,
-    pub recipient_wallet: Wallet,
-    pub hash: TxHash,
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub enum ProcessedPayableFallible {
-    Correct(PendingPayable),
-    Failed(RpcPayableFailure),
+#[derive(Default, Debug, PartialEq, Eq, Clone)]
+pub struct BatchResults {
+    pub sent_txs: Vec<SentTx>,
+    pub failed_txs: Vec<FailedTx>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]

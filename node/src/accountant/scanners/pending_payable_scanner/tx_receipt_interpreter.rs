@@ -93,7 +93,8 @@ impl TxReceiptInterpreter {
                 let replacement_tx = sent_payable_dao
                     .retrieve_txs(Some(RetrieveCondition::ByNonce(vec![failed_tx.nonce])));
                 let replacement_tx_hash = replacement_tx
-                    .get(0)
+                    .iter()
+                    .next()
                     .unwrap_or_else(|| {
                         panic!(
                             "Attempted to display a replacement tx for {:?} but couldn't find \
@@ -228,15 +229,14 @@ mod tests {
     use crate::accountant::db_access_objects::sent_payable_dao::{
         Detection, RetrieveCondition, SentTx, TxStatus,
     };
+    use crate::accountant::db_access_objects::test_utils::{make_failed_tx, make_sent_tx};
     use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp};
     use crate::accountant::scanners::pending_payable_scanner::tx_receipt_interpreter::TxReceiptInterpreter;
     use crate::accountant::scanners::pending_payable_scanner::utils::{
         DetectedConfirmations, DetectedFailures, FailedValidation, FailedValidationByTable,
         PresortedTxFailure, ReceiptScanReport, TxByTable,
     };
-    use crate::accountant::test_utils::{
-        make_failed_tx, make_sent_tx, make_transaction_block, SentPayableDaoMock,
-    };
+    use crate::accountant::test_utils::{make_transaction_block, SentPayableDaoMock};
     use crate::blockchain::errors::internal_errors::InternalErrorKind;
     use crate::blockchain::errors::rpc_errors::{
         AppRpcError, AppRpcErrorKind, LocalError, LocalErrorKind, RemoteError,
@@ -249,6 +249,7 @@ mod tests {
     use crate::test_utils::unshared_test_utils::capture_digits_with_separators_from_str;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
+    use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
 
@@ -417,7 +418,7 @@ mod tests {
         let newer_sent_tx_for_older_failed_tx = make_sent_tx(2244);
         let sent_payable_dao = SentPayableDaoMock::new()
             .retrieve_txs_params(&retrieve_txs_params_arc)
-            .retrieve_txs_result(vec![newer_sent_tx_for_older_failed_tx]);
+            .retrieve_txs_result(BTreeSet::from([newer_sent_tx_for_older_failed_tx]));
         let hash = make_tx_hash(0x913);
         let sent_tx_timestamp = to_unix_timestamp(
             SystemTime::now()
@@ -484,7 +485,7 @@ mod tests {
         newer_sent_tx_for_older_failed_tx.hash = make_tx_hash(0x7c6);
         let sent_payable_dao = SentPayableDaoMock::new()
             .retrieve_txs_params(&retrieve_txs_params_arc)
-            .retrieve_txs_result(vec![newer_sent_tx_for_older_failed_tx]);
+            .retrieve_txs_result(BTreeSet::from([newer_sent_tx_for_older_failed_tx]));
         let tx_hash = make_tx_hash(0x913);
         let mut failed_tx = make_failed_tx(789);
         let failed_tx_nonce = failed_tx.nonce;
@@ -564,7 +565,7 @@ mod tests {
     ) {
         let scan_report = ReceiptScanReport::default();
         let still_pending_tx = make_failed_tx(456);
-        let sent_payable_dao = SentPayableDaoMock::new().retrieve_txs_result(vec![]);
+        let sent_payable_dao = SentPayableDaoMock::new().retrieve_txs_result(BTreeSet::new());
 
         let _ = TxReceiptInterpreter::handle_still_pending_tx(
             scan_report,

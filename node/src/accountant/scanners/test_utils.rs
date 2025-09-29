@@ -3,23 +3,27 @@
 #![cfg(test)]
 
 use crate::accountant::db_access_objects::utils::TxHash;
-use crate::accountant::scanners::payable_scanner_extension::msgs::{
-    BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
+use crate::accountant::scanners::payable_scanner::msgs::{
+    InitialTemplatesMessage, PricedTemplatesMessage,
 };
-use crate::accountant::scanners::payable_scanner_extension::{
-    MultistageDualPayableScanner, PreparedAdjustment, SolvencySensitivePaymentInstructor,
+use crate::accountant::scanners::payable_scanner::payment_adjuster_integration::{
+    PreparedAdjustment, SolvencySensitivePaymentInstructor,
 };
+use crate::accountant::scanners::payable_scanner::utils::PayableScanResult;
+use crate::accountant::scanners::payable_scanner::{MultistageDualPayableScanner, PayableScanner};
 use crate::accountant::scanners::pending_payable_scanner::utils::{
     PendingPayableCache, PendingPayableScanResult,
+};
+use crate::accountant::scanners::pending_payable_scanner::{
+    CachesEmptiableScanner, ExtendedPendingPayablePrivateScanner,
 };
 use crate::accountant::scanners::scan_schedulers::{
     NewPayableScanDynIntervalComputer, PayableSequenceScanner, RescheduleScanOnErrorResolver,
     ScanReschedulingAfterEarlyStop,
 };
-use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableScanResult;
 use crate::accountant::scanners::{
-    PayableScanner, PendingPayableScanner, PrivateScanner, RealScannerMarker, ReceivableScanner,
-    Scanner, StartScanError, StartableScanner,
+    PendingPayableScanner, PrivateScanner, RealScannerMarker, ReceivableScanner, Scanner,
+    StartScanError, StartableScanner,
 };
 use crate::accountant::{
     ReceivedPayments, RequestTransactionReceipts, ResponseSkeleton, SentPayables, TxReceiptsMessage,
@@ -94,7 +98,7 @@ impl MultistageDualPayableScanner for NullScanner {}
 impl SolvencySensitivePaymentInstructor for NullScanner {
     fn try_skipping_payment_adjustment(
         &self,
-        _msg: BlockchainAgentWithContextMessage,
+        _msg: PricedTemplatesMessage,
         _logger: &Logger,
     ) -> Result<Either<OutboundPaymentsInstructions, PreparedAdjustment>, String> {
         intentionally_blank!()
@@ -105,6 +109,14 @@ impl SolvencySensitivePaymentInstructor for NullScanner {
         _setup: PreparedAdjustment,
         _logger: &Logger,
     ) -> OutboundPaymentsInstructions {
+        intentionally_blank!()
+    }
+}
+
+impl ExtendedPendingPayablePrivateScanner for NullScanner {}
+
+impl CachesEmptiableScanner for NullScanner {
+    fn empty_caches(&mut self, _logger: &Logger) {
         intentionally_blank!()
     }
 }
@@ -273,16 +285,16 @@ impl<StartMessage, EndMessage, ScanResult> ScannerMock<StartMessage, EndMessage,
 }
 
 impl MultistageDualPayableScanner
-    for ScannerMock<QualifiedPayablesMessage, SentPayables, PayableScanResult>
+    for ScannerMock<InitialTemplatesMessage, SentPayables, PayableScanResult>
 {
 }
 
 impl SolvencySensitivePaymentInstructor
-    for ScannerMock<QualifiedPayablesMessage, SentPayables, PayableScanResult>
+    for ScannerMock<InitialTemplatesMessage, SentPayables, PayableScanResult>
 {
     fn try_skipping_payment_adjustment(
         &self,
-        msg: BlockchainAgentWithContextMessage,
+        msg: PricedTemplatesMessage,
         _logger: &Logger,
     ) -> Result<Either<OutboundPaymentsInstructions, PreparedAdjustment>, String> {
         // Always passes...
@@ -290,7 +302,7 @@ impl SolvencySensitivePaymentInstructor
         // mock, plus this functionality can be tested better with the other components mocked,
         // not the scanner itself.
         Ok(Either::Left(OutboundPaymentsInstructions {
-            affordable_accounts: msg.qualified_payables,
+            priced_templates: msg.priced_templates,
             agent: msg.agent,
             response_skeleton_opt: msg.response_skeleton_opt,
         }))
@@ -301,6 +313,19 @@ impl SolvencySensitivePaymentInstructor
         _setup: PreparedAdjustment,
         _logger: &Logger,
     ) -> OutboundPaymentsInstructions {
+        intentionally_blank!()
+    }
+}
+
+impl ExtendedPendingPayablePrivateScanner
+    for ScannerMock<RequestTransactionReceipts, TxReceiptsMessage, PendingPayableScanResult>
+{
+}
+
+impl CachesEmptiableScanner
+    for ScannerMock<RequestTransactionReceipts, TxReceiptsMessage, PendingPayableScanResult>
+{
+    fn empty_caches(&mut self, _logger: &Logger) {
         intentionally_blank!()
     }
 }
@@ -364,7 +389,7 @@ pub enum ScannerReplacement {
     Payable(
         ReplacementType<
             PayableScanner,
-            ScannerMock<QualifiedPayablesMessage, SentPayables, PayableScanResult>,
+            ScannerMock<InitialTemplatesMessage, SentPayables, PayableScanResult>,
         >,
     ),
     PendingPayable(
@@ -403,7 +428,7 @@ pub fn parse_system_time_from_str(examined_str: &str) -> Vec<SystemTime> {
         .collect()
 }
 
-fn trim_expected_timestamp_to_three_digits_nanos(value: SystemTime) -> SystemTime {
+pub fn trim_expected_timestamp_to_three_digits_nanos(value: SystemTime) -> SystemTime {
     let duration = value.duration_since(UNIX_EPOCH).unwrap();
     let full_nanos = duration.subsec_nanos();
     let diffuser = 10_u32.pow(6);

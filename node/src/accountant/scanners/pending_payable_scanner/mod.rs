@@ -11,20 +11,21 @@ use crate::accountant::db_access_objects::payable_dao::{PayableDao, PayableDaoEr
 use crate::accountant::db_access_objects::sent_payable_dao::{
     RetrieveCondition, SentPayableDao, SentPayableDaoError, SentTx, TxStatus,
 };
-use crate::accountant::db_access_objects::utils::{TxHash, TxRecordWithHash};
+use crate::accountant::db_access_objects::utils::TxHash;
+use crate::accountant::db_access_objects::Transaction;
 use crate::accountant::scanners::pending_payable_scanner::tx_receipt_interpreter::TxReceiptInterpreter;
 use crate::accountant::scanners::pending_payable_scanner::utils::{
     CurrentPendingPayables, DetectedConfirmations, DetectedFailures, FailedValidation,
-    FailedValidationByTable, MismatchReport, PendingPayableCache, PendingPayableScanResult,
-    PresortedTxFailure, ReceiptScanReport, RecheckRequiringFailures, Retry, TxByTable,
-    TxCaseToBeInterpreted, TxHashByTable, UpdatableValidationStatus,
+    FailedValidationByTable, PendingPayableCache, PendingPayableScanResult, PresortedTxFailure,
+    ReceiptScanReport, RecheckRequiringFailures, Retry, TxByTable, TxCaseToBeInterpreted,
+    TxHashByTable, UpdatableValidationStatus,
 };
 use crate::accountant::scanners::{
     PrivateScanner, Scanner, ScannerCommon, StartScanError, StartableScanner,
 };
 use crate::accountant::{
-    comma_joined_stringifiable, RequestTransactionReceipts, ResponseSkeleton,
-    ScanForPendingPayables, TxReceiptResult, TxReceiptsMessage,
+    join_with_commas, RequestTransactionReceipts, ResponseSkeleton, ScanForPendingPayables,
+    TxReceiptResult, TxReceiptsMessage,
 };
 use crate::blockchain::blockchain_interface::data_structures::TxBlock;
 use crate::blockchain::errors::validation_status::{
@@ -38,13 +39,27 @@ use masq_lib::logger::Logger;
 use masq_lib::messages::{ScanType, ToMessageBody, UiScanResponse};
 use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap};
 use std::fmt::Display;
 use std::rc::Rc;
 use std::str::FromStr;
 use std::time::SystemTime;
 use thousands::Separable;
 use web3::types::H256;
+
+pub(in crate::accountant::scanners) trait ExtendedPendingPayablePrivateScanner:
+    PrivateScanner<
+        ScanForPendingPayables,
+        RequestTransactionReceipts,
+        TxReceiptsMessage,
+        PendingPayableScanResult,
+    > + CachesEmptiableScanner
+{
+}
+
+pub trait CachesEmptiableScanner {
+    fn empty_caches(&mut self, logger: &Logger);
+}
 
 pub struct PendingPayableScanner {
     pub common: ScannerCommon,
@@ -56,6 +71,8 @@ pub struct PendingPayableScanner {
     pub yet_unproven_failed_payables: Box<dyn PendingPayableCache<FailedTx>>,
     pub clock: Box<dyn ValidationFailureClock>,
 }
+
+impl ExtendedPendingPayablePrivateScanner for PendingPayableScanner {}
 
 impl
     PrivateScanner<
@@ -78,30 +95,16 @@ impl StartableScanner<ScanForPendingPayables, RequestTransactionReceipts>
         logger: &Logger,
     ) -> Result<RequestTransactionReceipts, StartScanError> {
         self.mark_as_started(timestamp);
+
         info!(logger, "Scanning for pending payable");
 
-        let pending_tx_hashes_opt = self.handle_pending_payables();
-        let failure_hashes_opt = self.handle_unproven_failures();
-
-        if pending_tx_hashes_opt.is_none() && failure_hashes_opt.is_none() {
+        let tx_hashes = self.harvest_tables(logger).map_err(|e| {
             self.mark_as_ended(logger);
-            return Err(StartScanError::NothingToProcess);
-        }
-
-        Self::log_records_found_for_receipt_check(
-            pending_tx_hashes_opt.as_ref(),
-            failure_hashes_opt.as_ref(),
-            logger,
-        );
-
-        let all_hashes = pending_tx_hashes_opt
-            .unwrap_or_default()
-            .into_iter()
-            .chain(failure_hashes_opt.unwrap_or_default())
-            .collect_vec();
+            e
+        })?;
 
         Ok(RequestTransactionReceipts {
-            tx_hashes: all_hashes,
+            tx_hashes,
             response_skeleton_opt,
         })
     }
@@ -133,6 +136,13 @@ impl Scanner<TxReceiptsMessage, PendingPayableScanResult> for PendingPayableScan
     as_any_mut_in_trait_impl!();
 }
 
+impl CachesEmptiableScanner for PendingPayableScanner {
+    fn empty_caches(&mut self, logger: &Logger) {
+        self.current_sent_payables.ensure_empty_cache(logger);
+        self.yet_unproven_failed_payables.ensure_empty_cache(logger);
+    }
+}
+
 impl PendingPayableScanner {
     pub fn new(
         payable_dao: Box<dyn PayableDao>,
@@ -153,40 +163,86 @@ impl PendingPayableScanner {
         }
     }
 
-    fn handle_pending_payables(&mut self) -> Option<Vec<TxHashByTable>> {
+    fn harvest_tables(&mut self, logger: &Logger) -> Result<Vec<TxHashByTable>, StartScanError> {
+        let pending_tx_hashes_opt = self.harvest_pending_payables();
+        let failure_hashes_opt = self.harvest_unproven_failures();
+
+        if Self::is_there_nothing_to_process(
+            pending_tx_hashes_opt.as_ref(),
+            failure_hashes_opt.as_ref(),
+        ) {
+            return Err(StartScanError::NothingToProcess);
+        }
+
+        Self::log_records_for_receipt_check(
+            pending_tx_hashes_opt.as_ref(),
+            failure_hashes_opt.as_ref(),
+            logger,
+        );
+
+        Ok(Self::merge_hashes(
+            pending_tx_hashes_opt,
+            failure_hashes_opt,
+        ))
+    }
+
+    fn harvest_pending_payables(&mut self) -> Option<Vec<TxHashByTable>> {
         let pending_txs = self
             .sent_payable_dao
-            .retrieve_txs(Some(RetrieveCondition::IsPending));
+            .retrieve_txs(Some(RetrieveCondition::IsPending))
+            .into_iter()
+            .collect_vec();
 
         if pending_txs.is_empty() {
             return None;
         }
 
-        let pending_tx_hashes = Self::get_wrapped_hashes(&pending_txs, TxHashByTable::SentPayable);
+        let pending_tx_hashes = Self::wrap_hashes(&pending_txs, TxHashByTable::SentPayable);
         self.current_sent_payables.load_cache(pending_txs);
         Some(pending_tx_hashes)
     }
 
-    fn handle_unproven_failures(&mut self) -> Option<Vec<TxHashByTable>> {
+    fn harvest_unproven_failures(&mut self) -> Option<Vec<TxHashByTable>> {
         let failures = self
             .failed_payable_dao
-            .retrieve_txs(Some(FailureRetrieveCondition::EveryRecheckRequiredRecord));
+            .retrieve_txs(Some(FailureRetrieveCondition::EveryRecheckRequiredRecord))
+            .into_iter()
+            .collect_vec();
 
         if failures.is_empty() {
             return None;
         }
 
-        let failure_hashes = Self::get_wrapped_hashes(&failures, TxHashByTable::FailedPayable);
+        let failure_hashes = Self::wrap_hashes(&failures, TxHashByTable::FailedPayable);
         self.yet_unproven_failed_payables.load_cache(failures);
         Some(failure_hashes)
     }
 
-    fn get_wrapped_hashes<Record>(
+    fn is_there_nothing_to_process(
+        pending_tx_hashes_opt: Option<&Vec<TxHashByTable>>,
+        failure_hashes_opt: Option<&Vec<TxHashByTable>>,
+    ) -> bool {
+        pending_tx_hashes_opt.is_none() && failure_hashes_opt.is_none()
+    }
+
+    fn merge_hashes(
+        pending_tx_hashes_opt: Option<Vec<TxHashByTable>>,
+        failure_hashes_opt: Option<Vec<TxHashByTable>>,
+    ) -> Vec<TxHashByTable> {
+        let failures = failure_hashes_opt.unwrap_or_default();
+        pending_tx_hashes_opt
+            .unwrap_or_default()
+            .into_iter()
+            .chain(failures)
+            .collect()
+    }
+
+    fn wrap_hashes<Record>(
         records: &[Record],
         wrap_the_hash: fn(TxHash) -> TxHashByTable,
     ) -> Vec<TxHashByTable>
     where
-        Record: TxRecordWithHash,
+        Record: Transaction,
     {
         records
             .iter()
@@ -208,14 +264,18 @@ impl PendingPayableScanner {
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) -> PendingPayableScanResult {
         if let Some(retry) = retry_opt {
-            if let Some(response_skeleton) = response_skeleton_opt {
-                let ui_msg = NodeToUiMessage {
-                    target: MessageTarget::ClientId(response_skeleton.client_id),
-                    body: UiScanResponse {}.tmb(response_skeleton.context_id),
-                };
-                PendingPayableScanResult::PaymentRetryRequired(Either::Right(ui_msg))
-            } else {
-                PendingPayableScanResult::PaymentRetryRequired(Either::Left(retry))
+            match retry {
+                Retry::RetryPayments => {
+                    PendingPayableScanResult::PaymentRetryRequired(response_skeleton_opt)
+                }
+                Retry::RetryTxStatusCheckOnly => {
+                    let ui_msg_opt =
+                        response_skeleton_opt.map(|response_skeleton| NodeToUiMessage {
+                            target: MessageTarget::ClientId(response_skeleton.client_id),
+                            body: UiScanResponse {}.tmb(response_skeleton.context_id),
+                        });
+                    PendingPayableScanResult::ProcedureShouldBeRepeated(ui_msg_opt)
+                }
             }
         } else {
             let ui_msg_opt = response_skeleton_opt.map(|response_skeleton| NodeToUiMessage {
@@ -238,7 +298,7 @@ impl PendingPayableScanner {
         let interpretable_data = self.prepare_cases_to_interpret(msg, logger);
         TxReceiptInterpreter::default().compose_receipt_scan_report(
             interpretable_data,
-            &self,
+            self,
             logger,
         )
     }
@@ -248,28 +308,23 @@ impl PendingPayableScanner {
         msg: TxReceiptsMessage,
         logger: &Logger,
     ) -> Vec<TxCaseToBeInterpreted> {
-        let init: Either<Vec<TxCaseToBeInterpreted>, MismatchReport> = Either::Left(vec![]);
-        let either = msg
-            .results
-            .into_iter()
-            // This must be in for predictability in tests
-            .sorted_by_key(|(hash_by_table, _)| hash_by_table.hash())
-            .fold(
-                init,
-                |acc, (tx_hash_by_table, tx_receipt_result)| match acc {
-                    Either::Left(cases) => {
-                        self.resolve_real_query(cases, tx_receipt_result, tx_hash_by_table)
-                    }
-                    Either::Right(mut mismatch_report) => {
-                        mismatch_report.remaining_hashes.push(tx_hash_by_table);
-                        Either::Right(mismatch_report)
-                    }
-                },
-            );
+        let init: Either<Vec<TxCaseToBeInterpreted>, TxHashByTable> = Either::Left(vec![]);
+        let either =
+            msg.results
+                .into_iter()
+                .fold(
+                    init,
+                    |acc, (tx_hash_by_table, tx_receipt_result)| match acc {
+                        Either::Left(cases) => {
+                            self.resolve_real_query(cases, tx_receipt_result, tx_hash_by_table)
+                        }
+                        Either::Right(missing_entry) => Either::Right(missing_entry),
+                    },
+                );
 
         let cases = match either {
             Either::Left(cases) => cases,
-            Either::Right(mismatch_report) => self.panic_dump(mismatch_report),
+            Either::Right(missing_entry) => self.panic_dump(missing_entry),
         };
 
         self.current_sent_payables.ensure_empty_cache(logger);
@@ -283,7 +338,7 @@ impl PendingPayableScanner {
         mut cases: Vec<TxCaseToBeInterpreted>,
         receipt_result: TxReceiptResult,
         looked_up_hash: TxHashByTable,
-    ) -> Either<Vec<TxCaseToBeInterpreted>, MismatchReport> {
+    ) -> Either<Vec<TxCaseToBeInterpreted>, TxHashByTable> {
         match looked_up_hash {
             TxHashByTable::SentPayable(tx_hash) => {
                 match self.current_sent_payables.get_record_by_hash(tx_hash) {
@@ -294,10 +349,7 @@ impl PendingPayableScanner {
                         ));
                         Either::Left(cases)
                     }
-                    None => Either::Right(MismatchReport {
-                        noticed_with: looked_up_hash,
-                        remaining_hashes: vec![],
-                    }),
+                    None => Either::Right(looked_up_hash),
                 }
             }
             TxHashByTable::FailedPayable(tx_hash) => {
@@ -312,16 +364,13 @@ impl PendingPayableScanner {
                         ));
                         Either::Left(cases)
                     }
-                    None => Either::Right(MismatchReport {
-                        noticed_with: looked_up_hash,
-                        remaining_hashes: vec![],
-                    }),
+                    None => Either::Right(looked_up_hash),
                 }
             }
         }
     }
 
-    fn panic_dump(&mut self, mismatch_report: MismatchReport) -> ! {
+    fn panic_dump(&mut self, missing_entry: TxHashByTable) -> ! {
         fn rearrange<Record>(hashmap: HashMap<TxHash, Record>) -> Vec<Record> {
             hashmap
                 .into_iter()
@@ -332,12 +381,10 @@ impl PendingPayableScanner {
 
         panic!(
             "Looking up '{:?}' in the cache, the record could not be found. Dumping \
-            the remaining values. Pending payables: {:?}. Unproven failures: {:?}. \
-            Hashes yet not looked up: {:?}.",
-            mismatch_report.noticed_with,
+            the remaining values. Pending payables: {:?}. Unproven failures: {:?}.",
+            missing_entry,
             rearrange(self.current_sent_payables.dump_cache()),
             rearrange(self.yet_unproven_failed_payables.dump_cache()),
-            mismatch_report.remaining_hashes
         )
     }
 
@@ -369,7 +416,7 @@ impl PendingPayableScanner {
         self.add_to_the_total_of_paid_payable(&reclaimed, logger)
     }
 
-    fn isolate_hashes(reclaimed: &[(TxHash, TxBlock)]) -> HashSet<TxHash> {
+    fn isolate_hashes(reclaimed: &[(TxHash, TxBlock)]) -> BTreeSet<TxHash> {
         reclaimed.iter().map(|(tx_hash, _)| *tx_hash).collect()
     }
 
@@ -408,7 +455,9 @@ impl PendingPayableScanner {
         hashes_and_blocks: &[(TxHash, TxBlock)],
         logger: &Logger,
     ) {
-        match self.sent_payable_dao.replace_records(sent_txs_to_reclaim) {
+        let btreeset: BTreeSet<SentTx> = sent_txs_to_reclaim.iter().cloned().collect();
+
+        match self.sent_payable_dao.replace_records(&btreeset) {
             Ok(_) => {
                 debug!(logger, "Replaced records for txs being reclaimed")
             }
@@ -416,7 +465,7 @@ impl PendingPayableScanner {
                 panic!(
                     "Unable to proceed in a reclaim as the replacement of sent tx records \
                 {} failed due to: {:?}",
-                    comma_joined_stringifiable(hashes_and_blocks, |(tx_hash, _)| {
+                    join_with_commas(hashes_and_blocks, |(tx_hash, _)| {
                         format!("{:?}", tx_hash)
                     }),
                     e
@@ -432,7 +481,7 @@ impl PendingPayableScanner {
                 info!(
                     logger,
                     "Reclaimed txs {} as confirmed on-chain",
-                    comma_joined_stringifiable(hashes_and_blocks, |(tx_hash, tx_block)| {
+                    join_with_commas(hashes_and_blocks, |(tx_hash, tx_block)| {
                         format!("{:?} (block {})", tx_hash, tx_block.block_number)
                     })
                 )
@@ -440,7 +489,7 @@ impl PendingPayableScanner {
             Err(e) => {
                 panic!(
                     "Unable to delete failed tx records {} to finish the reclaims due to: {:?}",
-                    comma_joined_stringifiable(hashes_and_blocks, |(tx_hash, _)| {
+                    join_with_commas(hashes_and_blocks, |(tx_hash, _)| {
                         format!("{:?}", tx_hash)
                     }),
                     e
@@ -497,7 +546,7 @@ impl PendingPayableScanner {
         panic!(
             "Unable to complete the tx confirmation by the adjustment of the payable accounts \
             {} due to: {:?}",
-            comma_joined_stringifiable(
+            join_with_commas(
                 &confirmed_txs
                     .iter()
                     .map(|tx| tx.receiver_address)
@@ -513,7 +562,7 @@ impl PendingPayableScanner {
     ) -> ! {
         panic!(
             "Unable to update sent payable records {} by their tx blocks due to: {:?}",
-            comma_joined_stringifiable(
+            join_with_commas(
                 &tx_hashes_and_tx_blocks.keys().sorted().collect_vec(),
                 |tx_hash| format!("{:?}", tx_hash)
             ),
@@ -574,14 +623,14 @@ impl PendingPayableScanner {
     }
 
     fn add_new_failures(&self, new_failures: Vec<FailedTx>, logger: &Logger) {
-        fn prepare_hashset(failures: &[FailedTx]) -> HashSet<TxHash> {
+        fn prepare_btreeset(failures: &[FailedTx]) -> BTreeSet<TxHash> {
             failures.iter().map(|failure| failure.hash).collect()
         }
         fn log_procedure_finished(logger: &Logger, new_failures: &[FailedTx]) {
             info!(
                 logger,
                 "Failed txs {} were processed in the db",
-                comma_joined_stringifiable(new_failures, |failure| format!("{:?}", failure.hash))
+                join_with_commas(new_failures, |failure| format!("{:?}", failure.hash))
             )
         }
 
@@ -589,17 +638,22 @@ impl PendingPayableScanner {
             return;
         }
 
-        if let Err(e) = self.failed_payable_dao.insert_new_records(&new_failures) {
+        let new_failures_btree_set: BTreeSet<FailedTx> = new_failures.iter().cloned().collect();
+
+        if let Err(e) = self
+            .failed_payable_dao
+            .insert_new_records(&new_failures_btree_set)
+        {
             panic!(
                 "Unable to persist failed txs {} due to: {:?}",
-                comma_joined_stringifiable(&new_failures, |failure| format!("{:?}", failure.hash)),
+                join_with_commas(&new_failures, |failure| format!("{:?}", failure.hash)),
                 e
             )
         }
 
         match self
             .sent_payable_dao
-            .delete_records(&prepare_hashset(&new_failures))
+            .delete_records(&prepare_btreeset(&new_failures))
         {
             Ok(_) => {
                 log_procedure_finished(logger, &new_failures);
@@ -607,10 +661,7 @@ impl PendingPayableScanner {
             Err(e) => {
                 panic!(
                     "Unable to purge sent payable records for failed txs {} due to: {:?}",
-                    comma_joined_stringifiable(&new_failures, |failure| format!(
-                        "{:?}",
-                        failure.hash
-                    )),
+                    join_with_commas(&new_failures, |failure| format!("{:?}", failure.hash)),
                     e
                 )
             }
@@ -621,7 +672,7 @@ impl PendingPayableScanner {
         fn prepare_hashmap(rechecks_completed: &[TxHash]) -> HashMap<TxHash, FailureStatus> {
             rechecks_completed
                 .iter()
-                .map(|tx_hash| (tx_hash.clone(), FailureStatus::Concluded))
+                .map(|tx_hash| (*tx_hash, FailureStatus::Concluded))
                 .collect()
         }
 
@@ -637,19 +688,13 @@ impl PendingPayableScanner {
                 debug!(
                     logger,
                     "Concluded failures that had required rechecks: {}.",
-                    comma_joined_stringifiable(&rechecks_completed, |tx_hash| format!(
-                        "{:?}",
-                        tx_hash
-                    ))
+                    join_with_commas(&rechecks_completed, |tx_hash| format!("{:?}", tx_hash))
                 );
             }
             Err(e) => {
                 panic!(
                     "Unable to conclude rechecks for failed txs {} due to: {:?}",
-                    comma_joined_stringifiable(&rechecks_completed, |tx_hash| format!(
-                        "{:?}",
-                        tx_hash
-                    )),
+                    join_with_commas(&rechecks_completed, |tx_hash| format!("{:?}", tx_hash)),
                     e
                 )
             }
@@ -693,7 +738,7 @@ impl PendingPayableScanner {
                             logger,
                             "Pending-tx statuses were processed in the db for validation failure \
                             of txs {}",
-                            comma_joined_stringifiable(&sent_payable_failures, |failure| {
+                            join_with_commas(&sent_payable_failures, |failure| {
                                 format!("{:?}", failure.tx_hash)
                             })
                         )
@@ -728,10 +773,9 @@ impl PendingPayableScanner {
                             logger,
                             "Failed-tx statuses were processed in the db for validation failure \
                             of txs {}",
-                            comma_joined_stringifiable(
-                                &failed_txs_validation_failures,
-                                |failure| { format!("{:?}", failure.tx_hash) }
-                            )
+                            join_with_commas(&failed_txs_validation_failures, |failure| {
+                                format!("{:?}", failure.tx_hash)
+                            })
                         )
                     }
                     Err(e) => {
@@ -778,7 +822,7 @@ impl PendingPayableScanner {
         )
     }
 
-    fn log_records_found_for_receipt_check(
+    fn log_records_for_receipt_check(
         pending_tx_hashes_opt: Option<&Vec<TxHashByTable>>,
         failure_hashes_opt: Option<&Vec<TxHashByTable>>,
         logger: &Logger,
@@ -805,6 +849,7 @@ mod tests {
     use crate::accountant::db_access_objects::sent_payable_dao::{
         Detection, SentPayableDaoError, TxStatus,
     };
+    use crate::accountant::db_access_objects::test_utils::{make_failed_tx, make_sent_tx};
     use crate::accountant::scanners::pending_payable_scanner::test_utils::ValidationFailureClockMock;
     use crate::accountant::scanners::pending_payable_scanner::utils::{
         CurrentPendingPayables, DetectedConfirmations, DetectedFailures, FailedValidation,
@@ -815,10 +860,10 @@ mod tests {
     use crate::accountant::scanners::test_utils::PendingPayableCacheMock;
     use crate::accountant::scanners::{Scanner, StartScanError, StartableScanner};
     use crate::accountant::test_utils::{
-        make_failed_tx, make_sent_tx, make_transaction_block, FailedPayableDaoMock, PayableDaoMock,
-        PendingPayableScannerBuilder, SentPayableDaoMock,
+        make_transaction_block, FailedPayableDaoMock, PayableDaoMock, PendingPayableScannerBuilder,
+        SentPayableDaoMock,
     };
-    use crate::accountant::{RequestTransactionReceipts, TxReceiptsMessage};
+    use crate::accountant::{RequestTransactionReceipts, ResponseSkeleton, TxReceiptsMessage};
     use crate::blockchain::blockchain_interface::data_structures::{
         StatusReadFromReceiptCheck, TxBlock,
     };
@@ -831,11 +876,12 @@ mod tests {
     use crate::blockchain::errors::BlockchainErrorKind;
     use crate::blockchain::test_utils::{make_block_hash, make_tx_hash};
     use crate::test_utils::{make_paying_wallet, make_wallet};
-    use itertools::{Either, Itertools};
+    use itertools::Itertools;
     use masq_lib::logger::Logger;
+    use masq_lib::messages::{ToMessageBody, UiScanResponse};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use regex::Regex;
-    use std::collections::HashMap;
+    use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
+    use std::collections::{BTreeSet, HashMap};
     use std::ops::Sub;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Mutex};
@@ -852,9 +898,9 @@ mod tests {
         let failed_tx_2 = make_failed_tx(890);
         let failed_tx_hash_2 = failed_tx_2.hash;
         let sent_payable_dao = SentPayableDaoMock::new()
-            .retrieve_txs_result(vec![sent_tx_1.clone(), sent_tx_2.clone()]);
+            .retrieve_txs_result(btreeset![sent_tx_1.clone(), sent_tx_2.clone()]);
         let failed_payable_dao = FailedPayableDaoMock::new()
-            .retrieve_txs_result(vec![failed_tx_1.clone(), failed_tx_2.clone()]);
+            .retrieve_txs_result(btreeset![failed_tx_1.clone(), failed_tx_2.clone()]);
         let mut subject = PendingPayableScannerBuilder::new()
             .sent_payable_dao(sent_payable_dao)
             .failed_payable_dao(failed_payable_dao)
@@ -944,7 +990,7 @@ mod tests {
         let confirmed_tx_block_sent_tx = make_transaction_block(901);
         let confirmed_tx_block_failed_tx = make_transaction_block(902);
         let msg = TxReceiptsMessage {
-            results: hashmap![
+            results: btreemap![
                 TxHashByTable::SentPayable(sent_tx_hash_1) => Ok(StatusReadFromReceiptCheck::Pending),
                 TxHashByTable::SentPayable(sent_tx_hash_2) => Ok(StatusReadFromReceiptCheck::Succeeded(confirmed_tx_block_sent_tx)),
                 TxHashByTable::FailedPayable(failed_tx_hash_1) => Err(AppRpcError::Local(LocalError::Internal)),
@@ -955,10 +1001,7 @@ mod tests {
 
         let result = subject.finish_scan(msg, &logger);
 
-        assert_eq!(
-            result,
-            PendingPayableScanResult::PaymentRetryRequired(Either::Left(Retry::RetryPayments))
-        );
+        assert_eq!(result, PendingPayableScanResult::PaymentRetryRequired(None));
         let get_record_by_hash_failed_payable_cache_params =
             get_record_by_hash_failed_payable_cache_params_arc
                 .lock()
@@ -985,11 +1028,10 @@ mod tests {
 
     #[test]
     fn finish_scan_with_missing_records_inside_caches_noticed_on_missing_sent_tx() {
-        // Note: the ordering of the hashes matters in this test
-        let sent_tx_hash_1 = make_tx_hash(0x123);
+        let sent_tx_hash_1 = make_tx_hash(0x890);
         let mut sent_tx_1 = make_sent_tx(456);
         sent_tx_1.hash = sent_tx_hash_1;
-        let sent_tx_hash_2 = make_tx_hash(0x876);
+        let sent_tx_hash_2 = make_tx_hash(0x123);
         let failed_tx_hash_1 = make_tx_hash(0x987);
         let mut failed_tx_1 = make_failed_tx(567);
         failed_tx_1.hash = failed_tx_hash_1;
@@ -1005,7 +1047,7 @@ mod tests {
         subject.yet_unproven_failed_payables = Box::new(failed_payable_cache);
         let logger = Logger::new("test");
         let msg = TxReceiptsMessage {
-            results: hashmap![TxHashByTable::SentPayable(sent_tx_hash_1) => Ok(
+            results: btreemap![TxHashByTable::SentPayable(sent_tx_hash_1) => Ok(
                     StatusReadFromReceiptCheck::Pending),
                 TxHashByTable::SentPayable(sent_tx_hash_2) => Ok(StatusReadFromReceiptCheck::Succeeded(make_transaction_block(444))),
                 TxHashByTable::FailedPayable(failed_tx_hash_1) => Err(AppRpcError::Local(LocalError::Internal)),
@@ -1018,24 +1060,13 @@ mod tests {
             catch_unwind(AssertUnwindSafe(|| subject.finish_scan(msg, &logger))).unwrap_err();
 
         let panic_msg = panic.downcast_ref::<String>().unwrap();
-        let regex_str_in_pieces = vec![
-            r#"Looking up 'SentPayable\(0x0000000000000000000000000000000000000000000000000000000000000876\)'"#,
-            r#" in the cache, the record could not be found. Dumping the remaining values. Pending payables: \[\]."#,
-            r#" Unproven failures: \[FailedTx \{ hash:"#,
-            r#" 0x0000000000000000000000000000000000000000000000000000000000000987, receiver_address:"#,
-            r#" 0x000000000000000000000077616c6c6574353637, amount_minor: 321489000000000, timestamp: \d*,"#,
-            r#" gas_price_minor: 567000000000, nonce: 567, reason: PendingTooLong, status: RetryRequired \}\]."#,
-            r#" Hashes yet not looked up: \[FailedPayable\(0x000000000000000000000000000000000000000"#,
-            r#"0000000000000000000000987\)\]"#,
-        ];
-        let regex_str = regex_str_in_pieces.join("");
-        let expected_msg_regex = Regex::new(&regex_str).unwrap();
-        assert!(
-            expected_msg_regex.is_match(panic_msg),
-            "Expected string that matches this regex '{}' but it couldn't with '{}'",
-            regex_str,
-            panic_msg
-        );
+        let expected = "Looking up 'SentPayable(0x00000000000000000000000000000000000000000000\
+        00000000000000000123)' in the cache, the record could not be found. Dumping the remaining \
+        values. Pending payables: [SentTx { hash: 0x0000000000000000000000000000000000000000000000\
+        000000000000000890, receiver_address: 0x0000000000000000000558000000000558000000, \
+        amount_minor: 43237380096, timestamp: 29942784, gas_price_minor: 94818816, nonce: 456, \
+        status: Pending(Waiting) }]. Unproven failures: [].";
+        assert_eq!(panic_msg, expected);
     }
 
     #[test]
@@ -1046,7 +1077,7 @@ mod tests {
         let sent_tx_hash_2 = sent_tx_2.hash;
         let failed_tx_1 = make_failed_tx(567);
         let failed_tx_hash_1 = failed_tx_1.hash;
-        let failed_tx_hash_2 = make_tx_hash(901);
+        let failed_tx_hash_2 = make_tx_hash(987);
         let mut pending_payable_cache = CurrentPendingPayables::default();
         pending_payable_cache.load_cache(vec![sent_tx_1, sent_tx_2]);
         let mut failed_payable_cache = RecheckRequiringFailures::default();
@@ -1056,7 +1087,7 @@ mod tests {
         subject.yet_unproven_failed_payables = Box::new(failed_payable_cache);
         let logger = Logger::new("test");
         let msg = TxReceiptsMessage {
-            results: hashmap![TxHashByTable::SentPayable(sent_tx_hash_1) => Ok(StatusReadFromReceiptCheck::Pending),
+            results: btreemap![TxHashByTable::SentPayable(sent_tx_hash_1) => Ok(StatusReadFromReceiptCheck::Pending),
                 TxHashByTable::SentPayable(sent_tx_hash_2) => Ok(StatusReadFromReceiptCheck::Succeeded(make_transaction_block(444))),
                 TxHashByTable::FailedPayable(failed_tx_hash_1) => Err(AppRpcError::Local(LocalError::Internal)),
                 TxHashByTable::FailedPayable(failed_tx_hash_2) => Ok(StatusReadFromReceiptCheck::Succeeded(make_transaction_block(555))),
@@ -1068,27 +1099,109 @@ mod tests {
             catch_unwind(AssertUnwindSafe(|| subject.finish_scan(msg, &logger))).unwrap_err();
 
         let panic_msg = panic.downcast_ref::<String>().unwrap();
-        let regex_str_in_pieces = vec![
-            r#"Looking up 'FailedPayable\(0x0000000000000000000000000000000000000000000000000000000000000385\)'"#,
-            r#" in the cache, the record could not be found. Dumping the remaining values. Pending payables: \[\]."#,
-            r#" Unproven failures: \[\]. Hashes yet not looked up: \[\]."#,
-        ];
-        let regex_str = regex_str_in_pieces.join("");
-        let expected_msg_regex = Regex::new(&regex_str).unwrap();
-        assert!(
-            expected_msg_regex.is_match(panic_msg),
-            "Expected string that matches this regex '{}' but it couldn't with '{}'",
-            regex_str,
-            panic_msg
+        let expected = "Looking up 'FailedPayable(0x000000000000000000000000000000000000000000\
+        00000000000000000003db)' in the cache, the record could not be found. Dumping the remaining \
+        values. Pending payables: [SentTx { hash: 0x000000000000000000000000000000000000000000000000\
+        00000000000001c8, receiver_address: 0x0000000000000000000558000000000558000000, amount_minor: \
+        43237380096, timestamp: 29942784, gas_price_minor: 94818816, nonce: 456, status: \
+        Pending(Waiting) }, SentTx { hash: 0x0000000000000000000000000000000000000000000000000000000\
+        000000315, receiver_address: 0x000000000000000000093f00000000093f000000, amount_minor: \
+        387532395441, timestamp: 89643024, gas_price_minor: 491169069, nonce: 789, status: \
+        Pending(Waiting) }]. Unproven failures: [].";
+        assert_eq!(panic_msg, expected);
+    }
+
+    #[test]
+    fn compose_scan_result_all_payments_resolved_in_automatic_mode() {
+        let result = PendingPayableScanner::compose_scan_result(None, None);
+
+        assert_eq!(
+            result,
+            PendingPayableScanResult::NoPendingPayablesLeft(None)
+        )
+    }
+
+    #[test]
+    fn compose_scan_result_all_payments_resolved_in_manual_mode() {
+        let result = PendingPayableScanner::compose_scan_result(
+            None,
+            Some(ResponseSkeleton {
+                client_id: 2222,
+                context_id: 22,
+            }),
         );
+
+        assert_eq!(
+            result,
+            PendingPayableScanResult::NoPendingPayablesLeft(Some(NodeToUiMessage {
+                target: MessageTarget::ClientId(2222),
+                body: UiScanResponse {}.tmb(22)
+            }))
+        )
+    }
+
+    #[test]
+    fn compose_scan_result_payments_retry_required_in_automatic_mode() {
+        let result = PendingPayableScanner::compose_scan_result(Some(Retry::RetryPayments), None);
+
+        assert_eq!(result, PendingPayableScanResult::PaymentRetryRequired(None))
+    }
+
+    #[test]
+    fn compose_scan_result_payments_retry_required_in_manual_mode() {
+        let result = PendingPayableScanner::compose_scan_result(
+            Some(Retry::RetryPayments),
+            Some(ResponseSkeleton {
+                client_id: 1234,
+                context_id: 21,
+            }),
+        );
+
+        assert_eq!(
+            result,
+            PendingPayableScanResult::PaymentRetryRequired(Some(ResponseSkeleton {
+                client_id: 1234,
+                context_id: 21
+            }))
+        )
+    }
+
+    #[test]
+    fn compose_scan_result_only_scan_procedure_should_be_repeated_in_automatic_mode() {
+        let result =
+            PendingPayableScanner::compose_scan_result(Some(Retry::RetryTxStatusCheckOnly), None);
+
+        assert_eq!(
+            result,
+            PendingPayableScanResult::ProcedureShouldBeRepeated(None)
+        )
+    }
+
+    #[test]
+    fn compose_scan_result_only_scan_procedure_should_be_repeated_in_manual_mode() {
+        let result = PendingPayableScanner::compose_scan_result(
+            Some(Retry::RetryTxStatusCheckOnly),
+            Some(ResponseSkeleton {
+                client_id: 4455,
+                context_id: 12,
+            }),
+        );
+
+        assert_eq!(
+            result,
+            PendingPayableScanResult::ProcedureShouldBeRepeated(Some(NodeToUiMessage {
+                target: MessageTarget::ClientId(4455),
+                body: UiScanResponse {}.tmb(12)
+            }))
+        )
     }
 
     #[test]
     fn throws_an_error_when_no_records_to_process_were_found() {
         let now = SystemTime::now();
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
-        let sent_payable_dao = SentPayableDaoMock::new().retrieve_txs_result(vec![]);
-        let failed_payable_dao = FailedPayableDaoMock::new().retrieve_txs_result(vec![]);
+        let sent_payable_dao = SentPayableDaoMock::new().retrieve_txs_result(btreeset![]);
+        let failed_payable_dao = FailedPayableDaoMock::new().retrieve_txs_result(btreeset![]);
         let mut subject = PendingPayableScannerBuilder::new()
             .failed_payable_dao(failed_payable_dao)
             .sent_payable_dao(sent_payable_dao)
@@ -1150,10 +1263,10 @@ mod tests {
         let insert_new_records_params = insert_new_records_params_arc.lock().unwrap();
         assert_eq!(
             *insert_new_records_params,
-            vec![vec![failed_tx_1, failed_tx_2]]
+            vec![btreeset![failed_tx_1, failed_tx_2]]
         );
         let delete_records_params = delete_records_params_arc.lock().unwrap();
-        assert_eq!(*delete_records_params, vec![hashset![hash_1, hash_2]]);
+        assert_eq!(*delete_records_params, vec![btreeset![hash_1, hash_2]]);
         TestLogHandler::new().exists_log_containing(&format!(
             "INFO: {test_name}: Failed txs 0x0000000000000000000000000000000000000000000000000000000000000321, \
             0x0000000000000000000000000000000000000000000000000000000000000654 were processed in the db"
@@ -1187,7 +1300,7 @@ mod tests {
             )));
         let failed_payable_dao = FailedPayableDaoMock::default()
             .retrieve_txs_params(&retrieve_failed_txs_params_arc)
-            .retrieve_txs_result(vec![failed_tx_1, failed_tx_2])
+            .retrieve_txs_result(btreeset![failed_tx_1, failed_tx_2])
             .update_statuses_params(&update_statuses_failed_tx_params_arc)
             .update_statuses_result(Ok(()));
         let mut sent_tx = make_sent_tx(789);
@@ -1195,7 +1308,7 @@ mod tests {
         sent_tx.status = TxStatus::Pending(ValidationStatus::Waiting);
         let sent_payable_dao = SentPayableDaoMock::default()
             .retrieve_txs_params(&retrieve_sent_txs_params_arc)
-            .retrieve_txs_result(vec![sent_tx.clone()])
+            .retrieve_txs_result(btreeset![sent_tx.clone()])
             .update_statuses_params(&update_statuses_sent_tx_params_arc)
             .update_statuses_result(Ok(()));
         let validation_failure_clock = ValidationFailureClockMock::default()
@@ -1427,9 +1540,12 @@ mod tests {
         subject.handle_failed_transactions(detected_failures, &Logger::new("test"));
 
         let insert_new_records_params = insert_new_records_params_arc.lock().unwrap();
-        assert_eq!(*insert_new_records_params, vec![vec![failed_tx_1]]);
+        assert_eq!(
+            *insert_new_records_params,
+            vec![BTreeSet::from([failed_tx_1])]
+        );
         let delete_records_params = delete_records_params_arc.lock().unwrap();
-        assert_eq!(*delete_records_params, vec![hashset![tx_hash_1]]);
+        assert_eq!(*delete_records_params, vec![btreeset![tx_hash_1]]);
         let update_statuses_params = update_status_params_arc.lock().unwrap();
         assert_eq!(
             *update_statuses_params,
@@ -1617,9 +1733,16 @@ mod tests {
         );
 
         let replace_records_params = replace_records_params_arc.lock().unwrap();
-        assert_eq!(*replace_records_params, vec![vec![sent_tx_1, sent_tx_2]]);
+        assert_eq!(
+            *replace_records_params,
+            vec![btreeset![sent_tx_1, sent_tx_2]]
+        );
         let delete_records_params = delete_records_params_arc.lock().unwrap();
-        assert_eq!(*delete_records_params, vec![hashset![tx_hash_1, tx_hash_2]]);
+        // assert_eq!(*delete_records_params, vec![hashset![tx_hash_1, tx_hash_2]]);
+        assert_eq!(
+            *delete_records_params,
+            vec![BTreeSet::from([tx_hash_1, tx_hash_2])]
+        );
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!(
             "INFO: {test_name}: Reclaimed txs 0x0000000000000000000000000000000000000000000000000000000000000123 \
@@ -1875,9 +1998,10 @@ mod tests {
         let confirm_tx_params = confirm_tx_params_arc.lock().unwrap();
         assert_eq!(*confirm_tx_params, vec![hashmap![tx_hash_1 => tx_block_1]]);
         let replace_records_params = replace_records_params_arc.lock().unwrap();
-        assert_eq!(*replace_records_params, vec![vec![sent_tx_2]]);
+        assert_eq!(*replace_records_params, vec![btreeset![sent_tx_2]]);
         let delete_records_params = delete_records_params_arc.lock().unwrap();
-        assert_eq!(*delete_records_params, vec![hashset![tx_hash_2]]);
+        // assert_eq!(*delete_records_params, vec![hashset![tx_hash_2]]);
+        assert_eq!(*delete_records_params, vec![BTreeSet::from([tx_hash_2])]);
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!(
             "INFO: {test_name}: Reclaimed txs \
@@ -1937,11 +2061,11 @@ mod tests {
     #[test]
     #[should_panic(
         expected = "Unable to complete the tx confirmation by the adjustment of the payable accounts \
-        0x000000000000000000000077616c6c6574343536 due to: \
+        0x0000000000000000000558000000000558000000 due to: \
         RusqliteError(\"record change not successful\")"
     )]
     fn handle_confirmed_transactions_panics_on_unchecking_payable_table() {
-        let hash = make_tx_hash(0x315);
+        let hash = make_tx_hash(315);
         let payable_dao = PayableDaoMock::new().transactions_confirmed_result(Err(
             PayableDaoError::RusqliteError("record change not successful".to_string()),
         ));

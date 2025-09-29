@@ -7,7 +7,7 @@ pub enum InternalError {
     PendingTooLongNotReplaced,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub enum InternalErrorKind {
     PendingTooLongNotReplaced,
 }

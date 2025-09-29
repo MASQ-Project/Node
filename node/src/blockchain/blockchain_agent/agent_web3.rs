@@ -1,19 +1,15 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::comma_joined_stringifiable;
-use crate::accountant::scanners::payable_scanner_extension::msgs::{
-    PricedQualifiedPayables, QualifiedPayableWithGasPrice, UnpricedQualifiedPayables,
-};
+use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::NewTxTemplates;
+use crate::accountant::scanners::payable_scanner::tx_templates::initial::retry::RetryTxTemplates;
+use crate::accountant::scanners::payable_scanner::tx_templates::priced::new::PricedNewTxTemplates;
+use crate::accountant::scanners::payable_scanner::tx_templates::priced::retry::PricedRetryTxTemplates;
 use crate::blockchain::blockchain_agent::BlockchainAgent;
-use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
-use itertools::{Either, Itertools};
+use itertools::Either;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
-use masq_lib::utils::ExpectValue;
-use thousands::Separable;
-use web3::types::Address;
 
 #[derive(Debug, Clone)]
 pub struct BlockchainAgentWeb3 {
@@ -28,79 +24,40 @@ pub struct BlockchainAgentWeb3 {
 impl BlockchainAgent for BlockchainAgentWeb3 {
     fn price_qualified_payables(
         &self,
-        qualified_payables: UnpricedQualifiedPayables,
-    ) -> PricedQualifiedPayables {
-        let warning_data_collector_opt =
-            self.set_up_warning_data_collector_opt(&qualified_payables);
+        unpriced_tx_templates: Either<NewTxTemplates, RetryTxTemplates>,
+    ) -> Either<PricedNewTxTemplates, PricedRetryTxTemplates> {
+        match unpriced_tx_templates {
+            Either::Left(new_tx_templates) => {
+                let priced_new_templates = PricedNewTxTemplates::from_initial_with_logging(
+                    new_tx_templates,
+                    self.latest_gas_price_wei,
+                    self.chain.rec().gas_price_safe_ceiling_minor,
+                    &self.logger,
+                );
 
-        let init: (
-            Vec<QualifiedPayableWithGasPrice>,
-            Option<GasPriceAboveLimitWarningReporter>,
-        ) = (vec![], warning_data_collector_opt);
-        let (priced_qualified_payables, warning_data_collector_opt) =
-            qualified_payables.payables.into_iter().fold(
-                init,
-                |(mut priced_payables, mut warning_data_collector_opt), unpriced_payable| {
-                    let selected_gas_price_wei =
-                        match unpriced_payable.previous_attempt_gas_price_minor_opt {
-                            None => self.latest_gas_price_wei,
-                            Some(previous_price) if self.latest_gas_price_wei < previous_price => {
-                                previous_price
-                            }
-                            Some(_) => self.latest_gas_price_wei,
-                        };
+                Either::Left(priced_new_templates)
+            }
+            Either::Right(retry_tx_templates) => {
+                let priced_retry_templates = PricedRetryTxTemplates::from_initial_with_logging(
+                    retry_tx_templates,
+                    self.latest_gas_price_wei,
+                    self.chain.rec().gas_price_safe_ceiling_minor,
+                    &self.logger,
+                );
 
-                    let gas_price_increased_by_margin_wei =
-                        increase_gas_price_by_margin(selected_gas_price_wei);
-
-                    let price_ceiling_wei = self.chain.rec().gas_price_safe_ceiling_minor;
-                    let checked_gas_price_wei =
-                        if gas_price_increased_by_margin_wei > price_ceiling_wei {
-                            warning_data_collector_opt.as_mut().map(|collector| {
-                                match collector.data.as_mut() {
-                                    Either::Left(new_payable_data) => {
-                                        new_payable_data
-                                            .addresses
-                                            .push(unpriced_payable.payable.wallet.address());
-                                        new_payable_data.gas_price_above_limit_wei =
-                                            gas_price_increased_by_margin_wei
-                                    }
-                                    Either::Right(retry_payable_data) => retry_payable_data
-                                        .addresses_and_gas_price_value_above_limit_wei
-                                        .push((
-                                            unpriced_payable.payable.wallet.address(),
-                                            gas_price_increased_by_margin_wei,
-                                        )),
-                                }
-                            });
-                            price_ceiling_wei
-                        } else {
-                            gas_price_increased_by_margin_wei
-                        };
-
-                    priced_payables.push(QualifiedPayableWithGasPrice::new(
-                        unpriced_payable.payable,
-                        checked_gas_price_wei,
-                    ));
-
-                    (priced_payables, warning_data_collector_opt)
-                },
-            );
-
-        warning_data_collector_opt
-            .map(|collector| collector.log_warning_if_some_reason(&self.logger, self.chain));
-
-        PricedQualifiedPayables {
-            payables: priced_qualified_payables,
+                Either::Right(priced_retry_templates)
+            }
         }
     }
 
-    fn estimate_transaction_fee_total(&self, qualified_payables: &PricedQualifiedPayables) -> u128 {
-        let prices_sum: u128 = qualified_payables
-            .payables
-            .iter()
-            .map(|priced_payable| priced_payable.gas_price_minor)
-            .sum();
+    fn estimate_transaction_fee_total(
+        &self,
+        priced_tx_templates: &Either<PricedNewTxTemplates, PricedRetryTxTemplates>,
+    ) -> u128 {
+        let prices_sum = match priced_tx_templates {
+            Either::Left(new_tx_templates) => new_tx_templates.total_gas_price(),
+            Either::Right(retry_tx_templates) => retry_tx_templates.total_gas_price(),
+        };
         (self.gas_limit_const_part + WEB3_MAXIMAL_GAS_LIMIT_MARGIN) * prices_sum
     }
 
@@ -115,89 +72,6 @@ impl BlockchainAgent for BlockchainAgentWeb3 {
     fn get_chain(&self) -> Chain {
         self.chain
     }
-}
-
-struct GasPriceAboveLimitWarningReporter {
-    data: Either<NewPayableWarningData, RetryPayableWarningData>,
-}
-
-impl GasPriceAboveLimitWarningReporter {
-    fn log_warning_if_some_reason(self, logger: &Logger, chain: Chain) {
-        let ceiling_value_wei = chain.rec().gas_price_safe_ceiling_minor;
-        match self.data {
-            Either::Left(new_payable_data) => {
-                if !new_payable_data.addresses.is_empty() {
-                    warning!(
-                        logger,
-                        "{}",
-                        Self::new_payables_warning_msg(new_payable_data, ceiling_value_wei)
-                    )
-                }
-            }
-            Either::Right(retry_payable_data) => {
-                if !retry_payable_data
-                    .addresses_and_gas_price_value_above_limit_wei
-                    .is_empty()
-                {
-                    warning!(
-                        logger,
-                        "{}",
-                        Self::retry_payable_warning_msg(retry_payable_data, ceiling_value_wei)
-                    )
-                }
-            }
-        }
-    }
-
-    fn new_payables_warning_msg(
-        new_payable_warning_data: NewPayableWarningData,
-        ceiling_value_wei: u128,
-    ) -> String {
-        let accounts = comma_joined_stringifiable(&new_payable_warning_data.addresses, |address| {
-            format!("{:?}", address)
-        });
-        format!(
-            "Calculated gas price {} wei for txs to {} is over the spend limit {} wei.",
-            new_payable_warning_data
-                .gas_price_above_limit_wei
-                .separate_with_commas(),
-            accounts,
-            ceiling_value_wei.separate_with_commas()
-        )
-    }
-
-    fn retry_payable_warning_msg(
-        retry_payable_warning_data: RetryPayableWarningData,
-        ceiling_value_wei: u128,
-    ) -> String {
-        let accounts = retry_payable_warning_data
-            .addresses_and_gas_price_value_above_limit_wei
-            .into_iter()
-            .map(|(address, calculated_price_wei)| {
-                format!(
-                    "{} wei for tx to {:?}",
-                    calculated_price_wei.separate_with_commas(),
-                    address
-                )
-            })
-            .join(", ");
-        format!(
-            "Calculated gas price {} surplussed the spend limit {} wei.",
-            accounts,
-            ceiling_value_wei.separate_with_commas()
-        )
-    }
-}
-
-#[derive(Default)]
-struct NewPayableWarningData {
-    addresses: Vec<Address>,
-    gas_price_above_limit_wei: u128,
-}
-
-#[derive(Default)]
-struct RetryPayableWarningData {
-    addresses_and_gas_price_value_above_limit_wei: Vec<(Address, u128)>,
 }
 
 // 64 * (64 - 12) ... std transaction has data of 64 bytes and 12 bytes are never used with us;
@@ -221,51 +95,32 @@ impl BlockchainAgentWeb3 {
             chain,
         }
     }
-
-    fn set_up_warning_data_collector_opt(
-        &self,
-        qualified_payables: &UnpricedQualifiedPayables,
-    ) -> Option<GasPriceAboveLimitWarningReporter> {
-        self.logger.warning_enabled().then(|| {
-            let is_retry = Self::is_retry(qualified_payables);
-            GasPriceAboveLimitWarningReporter {
-                data: if !is_retry {
-                    Either::Left(NewPayableWarningData::default())
-                } else {
-                    Either::Right(RetryPayableWarningData::default())
-                },
-            }
-        })
-    }
-
-    fn is_retry(qualified_payables: &UnpricedQualifiedPayables) -> bool {
-        qualified_payables
-            .payables
-            .first()
-            .expectv("payable")
-            .previous_attempt_gas_price_minor_opt
-            .is_some()
-    }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::scanners::payable_scanner_extension::msgs::{
-        PricedQualifiedPayables, QualifiedPayableWithGasPrice,
-        QualifiedPayablesBeforeGasPriceSelection, UnpricedQualifiedPayables,
+    use crate::accountant::join_with_separator;
+    use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::NewTxTemplates;
+    use crate::accountant::scanners::payable_scanner::tx_templates::initial::retry::{
+        RetryTxTemplate, RetryTxTemplates,
     };
+    use crate::accountant::scanners::payable_scanner::tx_templates::priced::new::{
+        PricedNewTxTemplate, PricedNewTxTemplates,
+    };
+    use crate::accountant::scanners::payable_scanner::tx_templates::priced::retry::{
+        PricedRetryTxTemplate, PricedRetryTxTemplates,
+    };
+    use crate::accountant::scanners::payable_scanner::tx_templates::test_utils::RetryTxTemplateBuilder;
+    use crate::accountant::scanners::payable_scanner::tx_templates::BaseTxTemplate;
     use crate::accountant::scanners::test_utils::make_zeroed_consuming_wallet_balances;
-    use crate::accountant::test_utils::{
-        make_payable_account, make_unpriced_qualified_payables_for_retry_mode,
-    };
+    use crate::accountant::test_utils::make_payable_account;
     use crate::blockchain::blockchain_agent::agent_web3::{
-        BlockchainAgentWeb3, GasPriceAboveLimitWarningReporter, NewPayableWarningData,
-        RetryPayableWarningData, WEB3_MAXIMAL_GAS_LIMIT_MARGIN,
+        BlockchainAgentWeb3, WEB3_MAXIMAL_GAS_LIMIT_MARGIN,
     };
     use crate::blockchain::blockchain_agent::BlockchainAgent;
     use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
     use crate::test_utils::make_wallet;
-    use itertools::Itertools;
+    use itertools::{Either, Itertools};
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::DEFAULT_GAS_PRICE_MARGIN;
     use masq_lib::logger::Logger;
@@ -286,10 +141,7 @@ mod tests {
         let consuming_wallet_balances = make_zeroed_consuming_wallet_balances();
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
-        let address_1 = account_1.wallet.address();
-        let address_2 = account_2.wallet.address();
-        let unpriced_qualified_payables =
-            UnpricedQualifiedPayables::from(vec![account_1.clone(), account_2.clone()]);
+        let new_tx_templates = NewTxTemplates::from(&vec![account_1.clone(), account_2.clone()]);
         let rpc_gas_price_wei = 555_666_777;
         let chain = TEST_DEFAULT_CHAIN;
         let mut subject = BlockchainAgentWeb3::new(
@@ -301,28 +153,15 @@ mod tests {
         );
         subject.logger = Logger::new(test_name);
 
-        let priced_qualified_payables =
-            subject.price_qualified_payables(unpriced_qualified_payables);
+        let result = subject.price_qualified_payables(Either::Left(new_tx_templates.clone()));
 
         let gas_price_with_margin_wei = increase_gas_price_by_margin(rpc_gas_price_wei);
-        let expected_result = PricedQualifiedPayables {
-            payables: vec![
-                QualifiedPayableWithGasPrice::new(account_1, gas_price_with_margin_wei),
-                QualifiedPayableWithGasPrice::new(account_2, gas_price_with_margin_wei),
-            ],
-        };
-        assert_eq!(priced_qualified_payables, expected_result);
-        let msg_that_should_not_occur = {
-            let mut new_payable_data = NewPayableWarningData::default();
-            new_payable_data.addresses = vec![address_1, address_2];
-
-            GasPriceAboveLimitWarningReporter::new_payables_warning_msg(
-                new_payable_data,
-                chain.rec().gas_price_safe_ceiling_minor,
-            )
-        };
-        TestLogHandler::new()
-            .exists_no_log_containing(&format!("WARN: {test_name}: {msg_that_should_not_occur}"));
+        let expected_result = Either::Left(PricedNewTxTemplates::new(
+            new_tx_templates,
+            gas_price_with_margin_wei,
+        ));
+        assert_eq!(result, expected_result);
+        TestLogHandler::new().exists_no_log_containing(test_name);
     }
 
     #[test]
@@ -333,8 +172,8 @@ mod tests {
         let consuming_wallet_balances = make_zeroed_consuming_wallet_balances();
         let rpc_gas_price_wei = 444_555_666;
         let chain = TEST_DEFAULT_CHAIN;
-        let unpriced_qualified_payables = {
-            let payables = vec![
+        let retry_tx_templates: Vec<RetryTxTemplate> = {
+            vec![
                 rpc_gas_price_wei - 1,
                 rpc_gas_price_wei,
                 rpc_gas_price_wei + 1,
@@ -343,21 +182,16 @@ mod tests {
             ]
             .into_iter()
             .enumerate()
-            .map(|(idx, previous_attempt_gas_price_wei)| {
+            .map(|(idx, prev_gas_price_wei)| {
                 let account = make_payable_account((idx as u64 + 1) * 3_000);
-                QualifiedPayablesBeforeGasPriceSelection::new(
-                    account,
-                    Some(previous_attempt_gas_price_wei),
-                )
+                RetryTxTemplate {
+                    base: BaseTxTemplate::from(&account),
+                    prev_gas_price_wei,
+                    prev_nonce: idx as u64,
+                }
             })
-            .collect_vec();
-            UnpricedQualifiedPayables { payables }
+            .collect_vec()
         };
-        let accounts_from_1_to_5 = unpriced_qualified_payables
-            .payables
-            .iter()
-            .map(|unpriced_payable| unpriced_payable.payable.clone())
-            .collect_vec();
         let mut subject = BlockchainAgentWeb3::new(
             rpc_gas_price_wei,
             77_777,
@@ -367,8 +201,8 @@ mod tests {
         );
         subject.logger = Logger::new(test_name);
 
-        let priced_qualified_payables =
-            subject.price_qualified_payables(unpriced_qualified_payables);
+        let result = subject
+            .price_qualified_payables(Either::Right(RetryTxTemplates(retry_tx_templates.clone())));
 
         let expected_result = {
             let price_wei_for_accounts_from_1_to_5 = vec![
@@ -378,39 +212,22 @@ mod tests {
                 increase_gas_price_by_margin(rpc_gas_price_wei),
                 increase_gas_price_by_margin(rpc_gas_price_wei + 456_789),
             ];
-            if price_wei_for_accounts_from_1_to_5.len() != accounts_from_1_to_5.len() {
+            if price_wei_for_accounts_from_1_to_5.len() != retry_tx_templates.len() {
                 panic!("Corrupted test")
             }
-            PricedQualifiedPayables {
-                payables: accounts_from_1_to_5
-                    .into_iter()
+
+            Either::Right(PricedRetryTxTemplates(
+                retry_tx_templates
+                    .iter()
                     .zip(price_wei_for_accounts_from_1_to_5.into_iter())
-                    .map(|(account, previous_attempt_price_wei)| {
-                        QualifiedPayableWithGasPrice::new(account, previous_attempt_price_wei)
+                    .map(|(retry_tx_template, increased_gas_price)| {
+                        PricedRetryTxTemplate::new(retry_tx_template.clone(), increased_gas_price)
                     })
                     .collect_vec(),
-            }
+            ))
         };
-        assert_eq!(priced_qualified_payables, expected_result);
-        let msg_that_should_not_occur = {
-            let mut retry_payable_data = RetryPayableWarningData::default();
-            retry_payable_data.addresses_and_gas_price_value_above_limit_wei = expected_result
-                .payables
-                .into_iter()
-                .map(|payable_with_gas_price| {
-                    (
-                        payable_with_gas_price.payable.wallet.address(),
-                        payable_with_gas_price.gas_price_minor,
-                    )
-                })
-                .collect();
-            GasPriceAboveLimitWarningReporter::retry_payable_warning_msg(
-                retry_payable_data,
-                chain.rec().gas_price_safe_ceiling_minor,
-            )
-        };
-        TestLogHandler::new()
-            .exists_no_log_containing(&format!("WARN: {test_name}: {}", msg_that_should_not_occur));
+        assert_eq!(result, expected_result);
+        TestLogHandler::new().exists_no_log_containing(test_name);
     }
 
     #[test]
@@ -480,8 +297,7 @@ mod tests {
         let consuming_wallet_balances = make_zeroed_consuming_wallet_balances();
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
-        let qualified_payables =
-            UnpricedQualifiedPayables::from(vec![account_1.clone(), account_2.clone()]);
+        let tx_templates = NewTxTemplates::from(&vec![account_1.clone(), account_2.clone()]);
         let mut subject = BlockchainAgentWeb3::new(
             rpc_gas_price_wei,
             77_777,
@@ -491,25 +307,25 @@ mod tests {
         );
         subject.logger = Logger::new(test_name);
 
-        let priced_qualified_payables = subject.price_qualified_payables(qualified_payables);
+        let result = subject.price_qualified_payables(Either::Left(tx_templates.clone()));
 
-        let expected_result = PricedQualifiedPayables {
-            payables: vec![
-                QualifiedPayableWithGasPrice::new(account_1.clone(), ceiling_gas_price_wei),
-                QualifiedPayableWithGasPrice::new(account_2.clone(), ceiling_gas_price_wei),
-            ],
-        };
-        assert_eq!(priced_qualified_payables, expected_result);
+        let expected_result = Either::Left(PricedNewTxTemplates::new(
+            tx_templates,
+            ceiling_gas_price_wei,
+        ));
+        assert_eq!(result, expected_result);
+        let addresses_str = join_with_separator(
+            &vec![account_1.wallet, account_2.wallet],
+            |wallet| format!("{}", wallet),
+            "\n",
+        );
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: {test_name}: Calculated gas price {} wei for txs to {}, {} is over the spend \
-            limit {} wei.",
+            "WARN: {test_name}: The computed gas price {} wei is above the ceil value of {} wei computed by this Node.\n\
+            Transaction(s) to following receivers are affected:\n\
+            {}",
             expected_calculated_surplus_value_wei.separate_with_commas(),
-            account_1.wallet,
-            account_2.wallet,
-            chain
-                .rec()
-                .gas_price_safe_ceiling_minor
-                .separate_with_commas()
+            ceiling_gas_price_wei.separate_with_commas(),
+            addresses_str
         ));
     }
 
@@ -526,20 +342,28 @@ mod tests {
         let rpc_gas_price_wei =
             (ceiling_gas_price_wei * 100) / (DEFAULT_GAS_PRICE_MARGIN as u128 + 100) + 2;
         let check_value_wei = increase_gas_price_by_margin(rpc_gas_price_wei);
-        let unpriced_qualified_payables = make_unpriced_qualified_payables_for_retry_mode(vec![
-            (account_1.clone(), rpc_gas_price_wei - 1),
-            (account_2.clone(), rpc_gas_price_wei - 2),
-        ]);
-        let expected_surpluses_wallet_and_wei_as_text = "\
-        50,000,000,001 wei for tx to 0x00000000000000000000000077616c6c65743132, 50,000,000,001 \
-        wei for tx to 0x00000000000000000000000077616c6c65743334";
+        let template_1 = RetryTxTemplateBuilder::new()
+            .payable_account(&account_1)
+            .prev_gas_price_wei(rpc_gas_price_wei - 1)
+            .build();
+        let template_2 = RetryTxTemplateBuilder::new()
+            .payable_account(&account_2)
+            .prev_gas_price_wei(rpc_gas_price_wei - 2)
+            .build();
+        let retry_tx_templates = vec![template_1, template_2];
+        let expected_log_msg = format!(
+            "The computed gas price(s) in wei is above the ceil value of 50,000,000,000 wei computed by this Node.\n\
+             Transaction(s) to following receivers are affected:\n\
+             0x00000000000000000000000077616c6c65743132 with gas price 50,000,000,001\n\
+             0x00000000000000000000000077616c6c65743334 with gas price 50,000,000,001"
+        );
 
         test_gas_price_must_not_break_through_ceiling_value_in_the_retry_payable_mode(
             test_name,
             chain,
             rpc_gas_price_wei,
-            unpriced_qualified_payables,
-            expected_surpluses_wallet_and_wei_as_text,
+            Either::Right(RetryTxTemplates(retry_tx_templates)),
+            &expected_log_msg,
         );
 
         assert!(
@@ -563,20 +387,28 @@ mod tests {
             (ceiling_gas_price_wei * 100) / (DEFAULT_GAS_PRICE_MARGIN as u128 + 100) + 2;
         let rpc_gas_price_wei = border_gas_price_wei - 1;
         let check_value_wei = increase_gas_price_by_margin(border_gas_price_wei);
-        let unpriced_qualified_payables = make_unpriced_qualified_payables_for_retry_mode(vec![
-            (account_1.clone(), border_gas_price_wei),
-            (account_2.clone(), border_gas_price_wei),
-        ]);
-        let expected_surpluses_wallet_and_wei_as_text = "50,000,000,001 wei for tx to \
-        0x00000000000000000000000077616c6c65743132, 50,000,000,001 wei for tx to \
-        0x00000000000000000000000077616c6c65743334";
+        let template_1 = RetryTxTemplateBuilder::new()
+            .payable_account(&account_1)
+            .prev_gas_price_wei(border_gas_price_wei)
+            .build();
+        let template_2 = RetryTxTemplateBuilder::new()
+            .payable_account(&account_2)
+            .prev_gas_price_wei(border_gas_price_wei)
+            .build();
+        let retry_tx_templates = vec![template_1, template_2];
+        let expected_log_msg = format!(
+            "The computed gas price(s) in wei is above the ceil value of 50,000,000,000 wei computed by this Node.\n\
+             Transaction(s) to following receivers are affected:\n\
+             0x00000000000000000000000077616c6c65743132 with gas price 50,000,000,001\n\
+             0x00000000000000000000000077616c6c65743334 with gas price 50,000,000,001"
+        );
 
         test_gas_price_must_not_break_through_ceiling_value_in_the_retry_payable_mode(
             test_name,
             chain,
             rpc_gas_price_wei,
-            unpriced_qualified_payables,
-            expected_surpluses_wallet_and_wei_as_text,
+            Either::Right(RetryTxTemplates(retry_tx_templates)),
+            &expected_log_msg,
         );
         assert!(check_value_wei > ceiling_gas_price_wei);
     }
@@ -590,20 +422,28 @@ mod tests {
         let fetched_gas_price_wei = ceiling_gas_price_wei - 1;
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
-        let unpriced_qualified_payables = make_unpriced_qualified_payables_for_retry_mode(vec![
-            (account_1.clone(), fetched_gas_price_wei - 2),
-            (account_2.clone(), fetched_gas_price_wei - 3),
-        ]);
-        let expected_surpluses_wallet_and_wei_as_text = "64,999,999,998 wei for tx to \
-        0x00000000000000000000000077616c6c65743132, 64,999,999,998 wei for tx to \
-        0x00000000000000000000000077616c6c65743334";
+        let template_1 = RetryTxTemplateBuilder::new()
+            .payable_account(&account_1)
+            .prev_gas_price_wei(fetched_gas_price_wei - 2)
+            .build();
+        let template_2 = RetryTxTemplateBuilder::new()
+            .payable_account(&account_2)
+            .prev_gas_price_wei(fetched_gas_price_wei - 3)
+            .build();
+        let retry_tx_templates = vec![template_1, template_2];
+        let expected_log_msg = format!(
+            "The computed gas price(s) in wei is above the ceil value of 50,000,000,000 wei computed by this Node.\n\
+             Transaction(s) to following receivers are affected:\n\
+             0x00000000000000000000000077616c6c65743132 with gas price 64,999,999,998\n\
+             0x00000000000000000000000077616c6c65743334 with gas price 64,999,999,998"
+        );
 
         test_gas_price_must_not_break_through_ceiling_value_in_the_retry_payable_mode(
             test_name,
             chain,
             fetched_gas_price_wei,
-            unpriced_qualified_payables,
-            expected_surpluses_wallet_and_wei_as_text,
+            Either::Right(RetryTxTemplates(retry_tx_templates)),
+            &expected_log_msg,
         );
     }
 
@@ -614,20 +454,28 @@ mod tests {
         let ceiling_gas_price_wei = chain.rec().gas_price_safe_ceiling_minor;
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
-        let unpriced_qualified_payables = make_unpriced_qualified_payables_for_retry_mode(vec![
-            (account_1.clone(), ceiling_gas_price_wei - 1),
-            (account_2.clone(), ceiling_gas_price_wei - 2),
-        ]);
-        let expected_surpluses_wallet_and_wei_as_text = "64,999,999,998 wei for tx to \
-        0x00000000000000000000000077616c6c65743132, 64,999,999,997 wei for tx to \
-        0x00000000000000000000000077616c6c65743334";
+        let template_1 = RetryTxTemplateBuilder::new()
+            .payable_account(&account_1)
+            .prev_gas_price_wei(ceiling_gas_price_wei - 1)
+            .build();
+        let template_2 = RetryTxTemplateBuilder::new()
+            .payable_account(&account_2)
+            .prev_gas_price_wei(ceiling_gas_price_wei - 2)
+            .build();
+        let retry_tx_templates = vec![template_1, template_2];
+        let expected_log_msg = format!(
+            "The computed gas price(s) in wei is above the ceil value of 50,000,000,000 wei computed by this Node.\n\
+             Transaction(s) to following receivers are affected:\n\
+             0x00000000000000000000000077616c6c65743132 with gas price 64,999,999,998\n\
+             0x00000000000000000000000077616c6c65743334 with gas price 64,999,999,997"
+        );
 
         test_gas_price_must_not_break_through_ceiling_value_in_the_retry_payable_mode(
             test_name,
             chain,
             ceiling_gas_price_wei - 3,
-            unpriced_qualified_payables,
-            expected_surpluses_wallet_and_wei_as_text,
+            Either::Right(RetryTxTemplates(retry_tx_templates)),
+            &expected_log_msg,
         );
     }
 
@@ -641,20 +489,28 @@ mod tests {
         let account_2 = make_payable_account(34);
         // The values can never go above the ceiling, therefore, we can assume only values even or
         // smaller than that in the previous attempts
-        let unpriced_qualified_payables = make_unpriced_qualified_payables_for_retry_mode(vec![
-            (account_1.clone(), ceiling_gas_price_wei),
-            (account_2.clone(), ceiling_gas_price_wei),
-        ]);
-        let expected_surpluses_wallet_and_wei_as_text =
-            "650,000,000,000 wei for tx to 0x00000000000000000000\
-            000077616c6c65743132, 650,000,000,000 wei for tx to 0x00000000000000000000000077616c6c65743334";
+        let template_1 = RetryTxTemplateBuilder::new()
+            .payable_account(&account_1)
+            .prev_gas_price_wei(ceiling_gas_price_wei)
+            .build();
+        let template_2 = RetryTxTemplateBuilder::new()
+            .payable_account(&account_2)
+            .prev_gas_price_wei(ceiling_gas_price_wei)
+            .build();
+        let retry_tx_templates = vec![template_1, template_2];
+        let expected_log_msg = format!(
+            "The computed gas price(s) in wei is above the ceil value of 50,000,000,000 wei computed by this Node.\n\
+             Transaction(s) to following receivers are affected:\n\
+             0x00000000000000000000000077616c6c65743132 with gas price 650,000,000,000\n\
+             0x00000000000000000000000077616c6c65743334 with gas price 650,000,000,000"
+        );
 
         test_gas_price_must_not_break_through_ceiling_value_in_the_retry_payable_mode(
             test_name,
             chain,
             fetched_gas_price_wei,
-            unpriced_qualified_payables,
-            expected_surpluses_wallet_and_wei_as_text,
+            Either::Right(RetryTxTemplates(retry_tx_templates)),
+            &expected_log_msg,
         );
     }
 
@@ -662,22 +518,30 @@ mod tests {
         test_name: &str,
         chain: Chain,
         rpc_gas_price_wei: u128,
-        qualified_payables: UnpricedQualifiedPayables,
-        expected_surpluses_wallet_and_wei_as_text: &str,
+        tx_templates: Either<NewTxTemplates, RetryTxTemplates>,
+        expected_log_msg: &str,
     ) {
         init_test_logging();
         let consuming_wallet = make_wallet("efg");
         let consuming_wallet_balances = make_zeroed_consuming_wallet_balances();
         let ceiling_gas_price_wei = chain.rec().gas_price_safe_ceiling_minor;
-        let expected_priced_payables = PricedQualifiedPayables {
-            payables: qualified_payables
-                .payables
-                .clone()
-                .into_iter()
-                .map(|payable| {
-                    QualifiedPayableWithGasPrice::new(payable.payable, ceiling_gas_price_wei)
-                })
-                .collect(),
+        let expected_result = match &tx_templates {
+            Either::Left(new_tx_templates) => Either::Left(PricedNewTxTemplates(
+                new_tx_templates
+                    .iter()
+                    .map(|tx_template| {
+                        PricedNewTxTemplate::new(tx_template.clone(), ceiling_gas_price_wei)
+                    })
+                    .collect(),
+            )),
+            Either::Right(retry_tx_templates) => Either::Right(PricedRetryTxTemplates(
+                retry_tx_templates
+                    .iter()
+                    .map(|tx_template| {
+                        PricedRetryTxTemplate::new(tx_template.clone(), ceiling_gas_price_wei)
+                    })
+                    .collect(),
+            )),
         };
         let mut subject = BlockchainAgentWeb3::new(
             rpc_gas_price_wei,
@@ -688,14 +552,11 @@ mod tests {
         );
         subject.logger = Logger::new(test_name);
 
-        let priced_qualified_payables = subject.price_qualified_payables(qualified_payables);
+        let result = subject.price_qualified_payables(tx_templates);
 
-        assert_eq!(priced_qualified_payables, expected_priced_payables);
-        TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: {test_name}: Calculated gas price {expected_surpluses_wallet_and_wei_as_text} \
-                    surplussed the spend limit {} wei.",
-            ceiling_gas_price_wei.separate_with_commas()
-        ));
+        assert_eq!(result, expected_result);
+        TestLogHandler::new()
+            .exists_log_containing(&format!("WARN: {test_name}: {expected_log_msg}"));
     }
 
     #[test]
@@ -727,7 +588,7 @@ mod tests {
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
         let chain = TEST_DEFAULT_CHAIN;
-        let qualified_payables = UnpricedQualifiedPayables::from(vec![account_1, account_2]);
+        let tx_templates = NewTxTemplates::from(&vec![account_1, account_2]);
         let subject = BlockchainAgentWeb3::new(
             444_555_666,
             77_777,
@@ -735,9 +596,9 @@ mod tests {
             consuming_wallet_balances,
             chain,
         );
-        let priced_qualified_payables = subject.price_qualified_payables(qualified_payables);
+        let new_tx_templates = subject.price_qualified_payables(Either::Left(tx_templates));
 
-        let result = subject.estimate_transaction_fee_total(&priced_qualified_payables);
+        let result = subject.estimate_transaction_fee_total(&new_tx_templates);
 
         assert_eq!(
             result,
@@ -747,13 +608,13 @@ mod tests {
     }
 
     #[test]
-    fn estimate_transaction_fee_total_works_for_retry_payable() {
+    fn estimate_transaction_fee_total_works_for_retry_txs() {
         let consuming_wallet = make_wallet("efg");
         let consuming_wallet_balances = make_zeroed_consuming_wallet_balances();
         let rpc_gas_price_wei = 444_555_666;
         let chain = TEST_DEFAULT_CHAIN;
-        let unpriced_qualified_payables = {
-            let payables = vec![
+        let retry_tx_templates: Vec<RetryTxTemplate> = {
+            vec![
                 rpc_gas_price_wei - 1,
                 rpc_gas_price_wei,
                 rpc_gas_price_wei + 1,
@@ -762,15 +623,15 @@ mod tests {
             ]
             .into_iter()
             .enumerate()
-            .map(|(idx, previous_attempt_gas_price_wei)| {
+            .map(|(idx, prev_gas_price_wei)| {
                 let account = make_payable_account((idx as u64 + 1) * 3_000);
-                QualifiedPayablesBeforeGasPriceSelection::new(
-                    account,
-                    Some(previous_attempt_gas_price_wei),
-                )
+                RetryTxTemplate {
+                    base: BaseTxTemplate::from(&account),
+                    prev_gas_price_wei,
+                    prev_nonce: idx as u64,
+                }
             })
-            .collect_vec();
-            UnpricedQualifiedPayables { payables }
+            .collect()
         };
         let subject = BlockchainAgentWeb3::new(
             rpc_gas_price_wei,
@@ -780,7 +641,7 @@ mod tests {
             chain,
         );
         let priced_qualified_payables =
-            subject.price_qualified_payables(unpriced_qualified_payables);
+            subject.price_qualified_payables(Either::Right(RetryTxTemplates(retry_tx_templates)));
 
         let result = subject.estimate_transaction_fee_total(&priced_qualified_payables);
 
