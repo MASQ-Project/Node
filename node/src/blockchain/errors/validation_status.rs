@@ -8,7 +8,7 @@ use serde::{
 };
 use serde_derive::{Deserialize, Serialize};
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::time::SystemTime;
@@ -171,6 +171,7 @@ mod tests {
     use crate::blockchain::errors::rpc_errors::{AppRpcErrorKind, LocalErrorKind};
     use crate::test_utils::serde_serializer_mock::{SerdeSerializerMock, SerializeSeqMock};
     use serde::ser::Error as SerdeError;
+    use std::collections::BTreeSet;
     use std::time::Duration;
     use std::time::UNIX_EPOCH;
 

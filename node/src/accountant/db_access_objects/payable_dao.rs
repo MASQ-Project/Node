@@ -19,9 +19,8 @@ use crate::accountant::{
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use crate::sub_lib::wallet::Wallet;
 use ethabi::Address;
-use ethereum_types::H256;
 #[cfg(test)]
-use ethereum_types::{BigEndianHash, U256};
+use ethereum_types::{BigEndianHash, H256, U256};
 use itertools::Either;
 use masq_lib::utils::ExpectValue;
 #[cfg(test)]
