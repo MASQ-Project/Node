@@ -3478,13 +3478,28 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
+    #[should_panic(
+        expected = "internal error: entered unreachable code: ScanAlreadyRunning { \
+        cross_scan_cause_opt: None, started_at: SystemTime { intervals: 116444736000000000 } } \
+        should be impossible with PendingPayableScanner in automatic mode"
+    )]
+    fn initial_pending_payable_scan_hits_unexpected_error() {
+        test_initial_pending_payable_scan_hits_unexpected_error()
+    }
+
+    #[test]
+    #[cfg(not(windows))]
     #[should_panic(
         expected = "internal error: entered unreachable code: ScanAlreadyRunning { \
         cross_scan_cause_opt: None, started_at: SystemTime { tv_sec: 0, tv_nsec: 0 } } \
         should be impossible with PendingPayableScanner in automatic mode"
     )]
     fn initial_pending_payable_scan_hits_unexpected_error() {
-        init_test_logging();
+        test_initial_pending_payable_scan_hits_unexpected_error()
+    }
+
+    fn test_initial_pending_payable_scan_hits_unexpected_error() {
         let mut subject = AccountantBuilder::default()
             .consuming_wallet(make_wallet("abc"))
             .build();

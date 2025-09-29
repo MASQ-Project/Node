@@ -187,7 +187,7 @@ impl NewPayableScanDynIntervalComputer for NewPayableScanDynIntervalComputerReal
             .duration_since(last_new_payable_scan_timestamp)
             .unwrap_or_else(|_| {
                 panic!(
-                    "Unexpected now ({:?}) earlier than past timestamp ({:?})",
+                    "Now ({:?}) earlier than past timestamp ({:?})",
                     now, last_new_payable_scan_timestamp
                 )
             });
@@ -515,11 +515,26 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
     #[should_panic(
-        expected = "Unexpected now (SystemTime { tv_sec: 999999, tv_nsec: 0 }) earlier than past \
-        timestamp (SystemTime { tv_sec: 1000000, tv_nsec: 0 })"
+        expected = "Now (SystemTime { intervals: 116454735990000000 }) earlier than past timestamp \
+        (SystemTime { intervals: 116454736000000000 })"
     )]
     fn scan_dyn_interval_computer_panics() {
+        test_scan_dyn_interval_computer_panics()
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    #[should_panic(
+        expected = "Now (SystemTime { tv_sec: 999999, tv_nsec: 0 }) earlier than past timestamp \
+        (SystemTime { tv_sec: 1000000, tv_nsec: 0 })"
+    )]
+    fn scan_dyn_interval_computer_panics() {
+        test_scan_dyn_interval_computer_panics()
+    }
+
+    fn test_scan_dyn_interval_computer_panics() {
         let now = UNIX_EPOCH
             .checked_add(Duration::from_secs(1_000_000))
             .unwrap();
