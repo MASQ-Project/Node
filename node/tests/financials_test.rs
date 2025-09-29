@@ -73,11 +73,7 @@ fn financials_command_retrieves_payable_and_receivable_records_integration() {
         .unwrap();
     let mut node = MASQNode::start_standard(
         test_name,
-        Some(
-            CommandConfig::new()
-                .pair("--blockchain-service-url", "https://booga.com")
-                .pair("--ui-port", &port.to_string()),
-        ),
+        Some(CommandConfig::new().pair("--ui-port", &port.to_string())),
         false,
         true,
         false,

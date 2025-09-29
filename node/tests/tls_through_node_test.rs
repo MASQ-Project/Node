@@ -2,7 +2,6 @@
 
 pub mod utils;
 
-use crate::utils::CommandConfig;
 use native_tls::TlsConnector;
 use native_tls::{HandshakeError, MidHandshakeTlsStream, TlsStream};
 use node_lib::test_utils::*;
@@ -17,7 +16,7 @@ use std::time::Duration;
 fn tls_through_node_integration() {
     let _node = utils::MASQNode::start_standard(
         "tls_through_node_integration",
-        Some(CommandConfig::new().pair("--blockchain-service-url", "https://booga.com")),
+        None,
         true,
         true,
         false,

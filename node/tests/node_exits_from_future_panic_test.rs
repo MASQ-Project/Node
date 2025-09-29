@@ -41,7 +41,6 @@ fn node_logs_panic_integration() {
         "Could not create chain directory inside node_logs_panic_integration home/MASQ directory",
     );
     let panic_config = CommandConfig::new()
-        .pair("--blockchain-service-url", "https://booga.com")
         .pair("--crash-point", "panic")
         .pair("--chain", "polygon-mainnet")
         .pair("--data-directory", data_directory.to_str().unwrap());
@@ -68,11 +67,7 @@ const STAT_FORMAT_PARAM_NAME: &str = "-f";
 fn node_logfile_does_not_belong_to_root_integration() {
     let mut node = MASQNode::start_standard(
         "node_logfile_does_not_belong_to_root_integration",
-        Some(
-            CommandConfig::new()
-                .pair("--blockchain-service-url", "https://booga.com")
-                .pair("--chain", "polygon-amoy"),
-        ),
+        Some(CommandConfig::new().pair("--chain", "polygon-amoy")),
         true,
         true,
         false,
