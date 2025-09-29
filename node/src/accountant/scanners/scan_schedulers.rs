@@ -44,7 +44,7 @@ pub enum PayableScanSchedulerError {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum ScanRescheduleAfterEarlyStop {
+pub enum ScanReschedulingAfterEarlyStop {
     Schedule(ScanType),
     DoNotSchedule,
 }
@@ -135,12 +135,17 @@ impl PayableScanScheduler {
     // This message ships into the Accountant's mailbox with no delay.
     // Can also be triggered by command, following up after the PendingPayableScanner
     // that requests it. That's why the response skeleton is possible to be used.
-    pub fn schedule_retry_payable_scan(&self, ctx: &mut Context<Accountant>, logger: &Logger) {
+    pub fn schedule_retry_payable_scan(
+        &self,
+        ctx: &mut Context<Accountant>,
+        response_skeleton_opt: Option<ResponseSkeleton>,
+        logger: &Logger,
+    ) {
         debug!(logger, "Scheduling a retry-payable scan asap");
 
         self.retry_payable_notify.notify(
             ScanForRetryPayables {
-                response_skeleton_opt: None,
+                response_skeleton_opt,
             },
             ctx,
         )
@@ -240,7 +245,7 @@ pub trait RescheduleScanOnErrorResolver {
         error: &StartScanError,
         is_externally_triggered: bool,
         logger: &Logger,
-    ) -> ScanRescheduleAfterEarlyStop;
+    ) -> ScanReschedulingAfterEarlyStop;
 }
 
 #[derive(Default)]
@@ -253,7 +258,7 @@ impl RescheduleScanOnErrorResolver for RescheduleScanOnErrorResolverReal {
         error: &StartScanError,
         is_externally_triggered: bool,
         logger: &Logger,
-    ) -> ScanRescheduleAfterEarlyStop {
+    ) -> ScanReschedulingAfterEarlyStop {
         let reschedule_hint = match scanner {
             PayableSequenceScanner::NewPayables => {
                 Self::resolve_new_payables(error, is_externally_triggered)
@@ -280,16 +285,16 @@ impl RescheduleScanOnErrorResolverReal {
     fn resolve_new_payables(
         err: &StartScanError,
         is_externally_triggered: bool,
-    ) -> ScanRescheduleAfterEarlyStop {
+    ) -> ScanReschedulingAfterEarlyStop {
         if is_externally_triggered {
-            ScanRescheduleAfterEarlyStop::DoNotSchedule
+            ScanReschedulingAfterEarlyStop::DoNotSchedule
         } else if matches!(err, StartScanError::ScanAlreadyRunning { .. }) {
             unreachable!(
                 "an automatic scan of NewPayableScanner should never interfere with itself {:?}",
                 err
             )
         } else {
-            ScanRescheduleAfterEarlyStop::Schedule(ScanType::Payables)
+            ScanReschedulingAfterEarlyStop::Schedule(ScanType::Payables)
         }
     }
 
@@ -299,9 +304,9 @@ impl RescheduleScanOnErrorResolverReal {
     fn resolve_retry_payables(
         err: &StartScanError,
         is_externally_triggered: bool,
-    ) -> ScanRescheduleAfterEarlyStop {
+    ) -> ScanReschedulingAfterEarlyStop {
         if is_externally_triggered {
-            ScanRescheduleAfterEarlyStop::DoNotSchedule
+            ScanReschedulingAfterEarlyStop::DoNotSchedule
         } else {
             unreachable!(
                 "{:?} should be impossible with RetryPayableScanner in automatic mode",
@@ -314,12 +319,12 @@ impl RescheduleScanOnErrorResolverReal {
         err: &StartScanError,
         initial_pending_payable_scan: bool,
         is_externally_triggered: bool,
-    ) -> ScanRescheduleAfterEarlyStop {
+    ) -> ScanReschedulingAfterEarlyStop {
         if is_externally_triggered {
-            ScanRescheduleAfterEarlyStop::DoNotSchedule
+            ScanReschedulingAfterEarlyStop::DoNotSchedule
         } else if err == &StartScanError::NothingToProcess {
             if initial_pending_payable_scan {
-                ScanRescheduleAfterEarlyStop::Schedule(ScanType::Payables)
+                ScanReschedulingAfterEarlyStop::Schedule(ScanType::Payables)
             } else {
                 unreachable!(
                     "the automatic pending payable scan should always be requested only in need, \
@@ -335,7 +340,7 @@ impl RescheduleScanOnErrorResolverReal {
                 // the user.
                 // TODO Correctly, a check-point during the bootstrap that wouldn't allow to come
                 // this far should be the solution. Part of the issue mentioned in GH-799
-                ScanRescheduleAfterEarlyStop::Schedule(ScanType::PendingPayables)
+                ScanReschedulingAfterEarlyStop::Schedule(ScanType::PendingPayables)
             } else {
                 unreachable!(
                     "PendingPayableScanner called later than the initial attempt, but \
@@ -354,7 +359,7 @@ impl RescheduleScanOnErrorResolverReal {
         scanner: PayableSequenceScanner,
         is_externally_triggered: bool,
         logger: &Logger,
-        reschedule_hint: &ScanRescheduleAfterEarlyStop,
+        reschedule_hint: &ScanReschedulingAfterEarlyStop,
     ) {
         let scan_mode = if is_externally_triggered {
             "Manual"
@@ -376,10 +381,11 @@ impl RescheduleScanOnErrorResolverReal {
 mod tests {
     use crate::accountant::scanners::scan_schedulers::{
         NewPayableScanDynIntervalComputer, NewPayableScanDynIntervalComputerReal,
-        PayableSequenceScanner, ScanRescheduleAfterEarlyStop, ScanSchedulers,
+        PayableSequenceScanner, ScanReschedulingAfterEarlyStop, ScanSchedulers,
     };
     use crate::accountant::scanners::{ManulTriggerError, StartScanError};
     use crate::sub_lib::accountant::ScanIntervals;
+    use crate::test_utils::unshared_test_utils::TEST_SCAN_INTERVALS;
     use itertools::Itertools;
     use lazy_static::lazy_static;
     use masq_lib::logger::Logger;
@@ -591,7 +597,7 @@ mod tests {
 
     #[test]
     fn resolve_rescheduling_on_error_works_for_pending_payables_if_externally_triggered() {
-        let subject = ScanSchedulers::new(ScanIntervals::default(), true);
+        let subject = ScanSchedulers::new(*TEST_SCAN_INTERVALS, true);
         let test_name =
             "resolve_rescheduling_on_error_works_for_pending_payables_if_externally_triggered";
 
@@ -629,7 +635,7 @@ mod tests {
 
                 assert_eq!(
                     result,
-                    ScanRescheduleAfterEarlyStop::DoNotSchedule,
+                    ScanReschedulingAfterEarlyStop::DoNotSchedule,
                     "We expected DoNotSchedule but got {:?} at idx {} for {:?}",
                     result,
                     idx,
@@ -647,7 +653,7 @@ mod tests {
     fn resolve_error_for_pending_payables_if_nothing_to_process_and_initial_pending_payable_scan_true(
     ) {
         init_test_logging();
-        let subject = ScanSchedulers::new(ScanIntervals::default(), true);
+        let subject = ScanSchedulers::new(*TEST_SCAN_INTERVALS, true);
         let test_name = "resolve_error_for_pending_payables_if_nothing_to_process_and_initial_pending_payable_scan_true";
         let logger = Logger::new(test_name);
 
@@ -664,7 +670,7 @@ mod tests {
 
         assert_eq!(
             result,
-            ScanRescheduleAfterEarlyStop::Schedule(ScanType::Payables),
+            ScanReschedulingAfterEarlyStop::Schedule(ScanType::Payables),
             "We expected Schedule(Payables) but got {:?}",
             result,
         );
@@ -682,7 +688,7 @@ mod tests {
     )]
     fn resolve_error_for_pending_payables_if_nothing_to_process_and_initial_pending_payable_scan_false(
     ) {
-        let subject = ScanSchedulers::new(ScanIntervals::default(), true);
+        let subject = ScanSchedulers::new(*TEST_SCAN_INTERVALS, true);
 
         let _ = subject
             .reschedule_on_error_resolver
@@ -701,7 +707,7 @@ mod tests {
         init_test_logging();
         let test_name = "resolve_error_for_pending_p_if_no_consuming_wallet_found_in_initial_pending_payable_scan";
         let logger = Logger::new(test_name);
-        let subject = ScanSchedulers::new(ScanIntervals::default(), true);
+        let subject = ScanSchedulers::new(*TEST_SCAN_INTERVALS, true);
         let scanner = PayableSequenceScanner::PendingPayables {
             initial_pending_payable_scan: true,
         };
@@ -717,7 +723,7 @@ mod tests {
 
         assert_eq!(
             result,
-            ScanRescheduleAfterEarlyStop::Schedule(ScanType::PendingPayables),
+            ScanReschedulingAfterEarlyStop::Schedule(ScanType::PendingPayables),
             "We expected Schedule(PendingPayables) but got {:?} for {:?}",
             result,
             scanner
@@ -735,7 +741,7 @@ mod tests {
         possible"
     )]
     fn pending_p_scan_attempt_if_no_consuming_wallet_found_mustnt_happen_if_not_initial_scan() {
-        let subject = ScanSchedulers::new(ScanIntervals::default(), true);
+        let subject = ScanSchedulers::new(*TEST_SCAN_INTERVALS, true);
         let scanner = PayableSequenceScanner::PendingPayables {
             initial_pending_payable_scan: false,
         };
@@ -790,7 +796,7 @@ mod tests {
             StartScanError::NothingToProcess,
             StartScanError::NoConsumingWalletFound,
         ]);
-        let subject = ScanSchedulers::new(ScanIntervals::default(), true);
+        let subject = ScanSchedulers::new(*TEST_SCAN_INTERVALS, true);
 
         test_forbidden_states(&subject, &inputs, false);
         test_forbidden_states(&subject, &inputs, true);
@@ -800,7 +806,7 @@ mod tests {
     fn resolve_rescheduling_on_error_works_for_retry_payables_if_externally_triggered() {
         let test_name =
             "resolve_rescheduling_on_error_works_for_retry_payables_if_externally_triggered";
-        let subject = ScanSchedulers::new(ScanIntervals::default(), false);
+        let subject = ScanSchedulers::new(*TEST_SCAN_INTERVALS, false);
 
         test_what_if_externally_triggered(
             test_name,
@@ -811,7 +817,7 @@ mod tests {
 
     #[test]
     fn any_automatic_scan_with_start_scan_error_is_fatal_for_retry_payables() {
-        let subject = ScanSchedulers::new(ScanIntervals::default(), true);
+        let subject = ScanSchedulers::new(*TEST_SCAN_INTERVALS, true);
 
         ALL_START_SCAN_ERRORS.iter().for_each(|error| {
             let panic = catch_unwind(AssertUnwindSafe(|| {
@@ -844,7 +850,7 @@ mod tests {
     fn resolve_rescheduling_on_error_works_for_new_payables_if_externally_triggered() {
         let test_name =
             "resolve_rescheduling_on_error_works_for_new_payables_if_externally_triggered";
-        let subject = ScanSchedulers::new(ScanIntervals::default(), true);
+        let subject = ScanSchedulers::new(*TEST_SCAN_INTERVALS, true);
 
         test_what_if_externally_triggered(
             test_name,
@@ -859,7 +865,7 @@ mod tests {
         should never interfere with itself ScanAlreadyRunning { cross_scan_cause_opt: None, started_at:"
     )]
     fn resolve_hint_for_new_payables_if_scan_is_already_running_error_and_is_automatic_scan() {
-        let subject = ScanSchedulers::new(ScanIntervals::default(), true);
+        let subject = ScanSchedulers::new(*TEST_SCAN_INTERVALS, true);
 
         let _ = subject
             .reschedule_on_error_resolver
@@ -885,7 +891,7 @@ mod tests {
         ]);
         let logger = Logger::new(test_name);
         let test_log_handler = TestLogHandler::new();
-        let subject = ScanSchedulers::new(ScanIntervals::default(), true);
+        let subject = ScanSchedulers::new(*TEST_SCAN_INTERVALS, true);
 
         inputs.errors.iter().for_each(|error| {
             let result = subject
@@ -899,7 +905,7 @@ mod tests {
 
             assert_eq!(
                 result,
-                ScanRescheduleAfterEarlyStop::Schedule(ScanType::Payables),
+                ScanReschedulingAfterEarlyStop::Schedule(ScanType::Payables),
                 "We expected Schedule(Payables) but got '{:?}'",
                 result,
             );

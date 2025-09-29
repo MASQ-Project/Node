@@ -56,6 +56,7 @@ impl PricedRetryTxTemplate {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PricedRetryTxTemplates(pub Vec<PricedRetryTxTemplate>);
 
+// TODO: GH-703: Consider design changes here
 impl Deref for PricedRetryTxTemplates {
     type Target = Vec<PricedRetryTxTemplate>;
 
@@ -64,6 +65,7 @@ impl Deref for PricedRetryTxTemplates {
     }
 }
 
+// TODO: GH-703: Consider design changes here
 impl DerefMut for PricedRetryTxTemplates {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
@@ -97,9 +99,9 @@ impl PricedRetryTxTemplates {
             })
             .collect();
 
-        log_builder.build().map(|log_msg| {
-            warning!(logger, "{}", log_msg);
-        });
+        if let Some(log_msg) = log_builder.build() {
+            warning!(logger, "{}", log_msg)
+        }
 
         templates
     }
@@ -148,7 +150,7 @@ impl RetryLogBuilder {
         } else {
             Some(format!(
                 "The computed gas price(s) in wei is \
-                 above the ceil value of {} wei set by the Node.\n\
+                 above the ceil value of {} wei computed by this Node.\n\
                  Transaction(s) to following receivers are affected:\n\
                  {}",
                 self.ceil.separate_with_commas(),

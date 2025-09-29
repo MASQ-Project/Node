@@ -142,6 +142,7 @@ mod tests {
             self_id: Chain::PolyMainnet,
             literal_identifier: "",
             gas_price_safe_ceiling_minor: 0,
+            default_pending_payable_interval_sec: 0,
             contract: Default::default(),
             contract_creation_block: 0,
         }

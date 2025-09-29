@@ -10,13 +10,20 @@ use std::time::SystemTime;
 
 impl Scanner<SentPayables, PayableScanResult> for PayableScanner {
     fn finish_scan(&mut self, msg: SentPayables, logger: &Logger) -> PayableScanResult {
+        // TODO as for GH-701, here there should be this check, but later on, when it comes to
+        // GH-655, the need for this check passes and it will go away. Until then it should be
+        // present, though.
+        // if !sent_payables.is_empty() {
+        //     self.check_on_missing_sent_tx_records(&sent_payables);
+        // }
+
         self.process_message(&msg, logger);
 
         self.mark_as_ended(logger);
 
         PayableScanResult {
             ui_response_opt: Self::generate_ui_response(msg.response_skeleton_opt),
-            result: Self::detect_outcome(&msg),
+            result: Self::determine_next_scan_to_run(&msg),
         }
     }
 
@@ -27,7 +34,6 @@ impl Scanner<SentPayables, PayableScanResult> for PayableScanner {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::db_access_objects::failed_payable_dao::ValidationStatus::Waiting;
     use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureStatus};
     use crate::accountant::db_access_objects::test_utils::{
         make_failed_tx, make_sent_tx, FailedTxBuilder,
@@ -38,6 +44,7 @@ mod tests {
     use crate::accountant::test_utils::{FailedPayableDaoMock, SentPayableDaoMock};
     use crate::accountant::{join_with_separator, PayableScanType, ResponseSkeleton, SentPayables};
     use crate::blockchain::blockchain_interface::data_structures::BatchResults;
+    use crate::blockchain::errors::validation_status::ValidationStatus::Waiting;
     use crate::blockchain::test_utils::make_tx_hash;
     use masq_lib::logger::Logger;
     use masq_lib::messages::{ToMessageBody, UiScanResponse};
@@ -114,10 +121,6 @@ mod tests {
 
     #[test]
     fn retry_payable_scan_finishes_as_expected() {
-        // filter receivers from sent txs
-        // insert sent txs in sent payables
-        // mark txs in failed tx by receiver as concluded
-        // For failed txs in this case, should only be logged
         init_test_logging();
         let test_name = "retry_payable_scan_finishes_as_expected";
         let sent_payable_insert_new_records_params_arc = Arc::new(Mutex::new(vec![]));
@@ -195,7 +198,7 @@ mod tests {
             }
         );
         let tlh = TestLogHandler::new();
-        tlh.exists_log_matching(&format!(
+        tlh.exists_log_containing(&format!(
             "WARN: {test_name}: While retrying, 2 transactions with hashes: {} have failed.",
             join_with_separator(failed_txs, |failed_tx| format!("{:?}", failed_tx.hash), ",")
         ));
@@ -206,13 +209,16 @@ mod tests {
 
     #[test]
     fn payable_scanner_with_error_works_as_expected() {
-        execute_payable_scanner_finish_scan_with_an_error(PayableScanType::New);
-        execute_payable_scanner_finish_scan_with_an_error(PayableScanType::Retry);
+        test_execute_payable_scanner_finish_scan_with_an_error(PayableScanType::New, "new");
+        test_execute_payable_scanner_finish_scan_with_an_error(PayableScanType::Retry, "retry");
     }
 
-    fn execute_payable_scanner_finish_scan_with_an_error(payable_scan_type: PayableScanType) {
+    fn test_execute_payable_scanner_finish_scan_with_an_error(
+        payable_scan_type: PayableScanType,
+        suffix: &str,
+    ) {
         init_test_logging();
-        let test_name = "payable_scanner_with_error_works_as_expected";
+        let test_name = &format!("test_execute_payable_scanner_finish_scan_with_an_error_{suffix}");
         let response_skeleton = ResponseSkeleton {
             client_id: 1234,
             context_id: 5678,
@@ -221,7 +227,7 @@ mod tests {
         subject.mark_as_started(SystemTime::now());
         let sent_payables = SentPayables {
             payment_procedure_result: Err("Any error".to_string()),
-            payable_scan_type: PayableScanType::New,
+            payable_scan_type,
             response_skeleton_opt: Some(response_skeleton),
         };
         let logger = Logger::new(test_name);
@@ -235,11 +241,14 @@ mod tests {
                     target: MessageTarget::ClientId(response_skeleton.client_id),
                     body: UiScanResponse {}.tmb(response_skeleton.context_id),
                 }),
-                result: NextScanToRun::NewPayableScan,
+                result: match payable_scan_type {
+                    PayableScanType::New => NextScanToRun::NewPayableScan,
+                    PayableScanType::Retry => NextScanToRun::RetryPayableScan,
+                },
             }
         );
         let tlh = TestLogHandler::new();
-        tlh.exists_log_matching(&format!(
+        tlh.exists_log_containing(&format!(
             "WARN: {test_name}: Local error occurred before transaction signing. Error: Any error"
         ));
         tlh.exists_log_matching(&format!(

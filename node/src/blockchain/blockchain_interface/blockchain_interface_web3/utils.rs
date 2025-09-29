@@ -1,28 +1,23 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::db_access_objects::failed_payable_dao::{
-    FailedTx, FailureReason, FailureStatus, ValidationStatus,
-};
-use crate::accountant::db_access_objects::sent_payable_dao::{Tx, TxStatus};
+use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
+use crate::accountant::db_access_objects::sent_payable_dao::{SentTx, TxStatus};
 use crate::accountant::db_access_objects::utils::to_unix_timestamp;
 use crate::accountant::scanners::payable_scanner::tx_templates::signable::{
     SignableTxTemplate, SignableTxTemplates,
 };
-use crate::accountant::wei_to_gwei;
 use crate::blockchain::blockchain_agent::agent_web3::BlockchainAgentWeb3;
 use crate::blockchain::blockchain_agent::BlockchainAgent;
-use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
-    BlockchainInterfaceWeb3, HashAndAmount, TRANSFER_METHOD_ID,
+    BlockchainInterfaceWeb3, TRANSFER_METHOD_ID,
 };
 use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError;
 use crate::blockchain::blockchain_interface::data_structures::BatchResults;
+use crate::blockchain::errors::validation_status::ValidationStatus;
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
-use actix::Recipient;
 use ethabi::Address;
 use futures::Future;
-use itertools::Either;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::WALLET_ADDRESS_LENGTH;
 use masq_lib::logger::Logger;
@@ -38,50 +33,53 @@ use web3::Web3;
 
 #[derive(Debug)]
 pub struct BlockchainAgentFutureResult {
-    pub gas_price_wei: U256,
+    pub gas_price_minor: U256,
     pub transaction_fee_balance: U256,
     pub masq_token_balance: U256,
 }
 
-fn return_sending_error(sent_txs: &Vec<Tx>, error: &Web3Error) -> LocalPayableError {
-    LocalPayableError::Sending(
-        sent_txs
+fn return_sending_error(sent_txs: &[SentTx], error: &Web3Error) -> LocalPayableError {
+    LocalPayableError::Sending {
+        error: format!("{}", error),
+        failed_txs: sent_txs
             .iter()
-            .map(|sent_tx| FailedTx::from_sent_tx_and_web3_err(sent_tx, error))
+            .map(|sent_tx| FailedTx::from((sent_tx, error)))
             .collect(),
-    )
+    }
 }
 
 pub fn return_batch_results(
-    txs: Vec<Tx>,
+    txs: Vec<SentTx>,
     responses: Vec<web3::transports::Result<Value>>,
 ) -> BatchResults {
     txs.into_iter().zip(responses).fold(
         BatchResults::default(),
         |mut batch_results, (sent_tx, response)| {
             match response {
-                Ok(_) => batch_results.sent_txs.push(sent_tx), // TODO: Validate the JSON output
+                Ok(_) => batch_results.sent_txs.push(sent_tx), // TODO: GH-547: Validate the JSON output
                 Err(rpc_error) => batch_results
                     .failed_txs
-                    .push(FailedTx::from_sent_tx_and_web3_err(&sent_tx, &rpc_error)),
+                    .push(FailedTx::from((&sent_tx, &rpc_error))),
             }
             batch_results
         },
     )
 }
 
+fn calculate_payments_column_width(signable_tx_templates: &SignableTxTemplates) -> usize {
+    let label_length = "[payment wei]".len();
+    let largest_amount_length = signable_tx_templates
+        .largest_amount()
+        .separate_with_commas()
+        .len();
+
+    label_length.max(largest_amount_length)
+}
+
 pub fn transmission_log(chain: Chain, signable_tx_templates: &SignableTxTemplates) -> String {
     let chain_name = chain.rec().literal_identifier;
     let (first_nonce, last_nonce) = signable_tx_templates.nonce_range();
-    let payment_column_width = {
-        let label_length = "[payment wei]".len();
-        let largest_amount_length = signable_tx_templates
-            .largest_amount()
-            .separate_with_commas()
-            .len();
-
-        label_length.max(largest_amount_length)
-    };
+    let payment_column_width = calculate_payments_column_width(signable_tx_templates);
 
     let introduction = once(format!(
         "\n\
@@ -117,11 +115,11 @@ pub fn transmission_log(chain: Chain, signable_tx_templates: &SignableTxTemplate
     introduction.chain(body).collect()
 }
 
-pub fn sign_transaction_data(amount: u128, receiver_address: Address) -> [u8; 68] {
+pub fn sign_transaction_data(amount_minor: u128, receiver_address: Address) -> [u8; 68] {
     let mut data = [0u8; 4 + 32 + 32];
     data[0..4].copy_from_slice(&TRANSFER_METHOD_ID);
     data[16..36].copy_from_slice(&receiver_address.0[..]);
-    U256::from(amount).to_big_endian(&mut data[36..68]);
+    U256::from(amount_minor).to_big_endian(&mut data[36..68]);
     data
 }
 
@@ -193,7 +191,7 @@ pub fn sign_and_append_payment(
     signable_tx_template: &SignableTxTemplate,
     consuming_wallet: &Wallet,
     logger: &Logger,
-) -> Tx {
+) -> SentTx {
     let &SignableTxTemplate {
         receiver_address,
         amount_in_wei,
@@ -208,20 +206,20 @@ pub fn sign_and_append_payment(
     let hash = signed_tx.transaction_hash;
     debug!(
         logger,
-        "Appending transaction with hash {:?}, amount: {} wei, to {:?}, nonce: {}, gas price: {} gwei",
+        "Appending transaction with hash {:?}, amount: {} wei, to {:?}, nonce: {}, gas price: {} wei",
         hash,
         amount_in_wei.separate_with_commas(),
         receiver_address,
         nonce,
-        wei_to_gwei::<u128, u128>(gas_price_wei).separate_with_commas()
+        gas_price_wei.separate_with_commas()
     );
 
-    Tx {
+    SentTx {
         hash,
         receiver_address,
-        amount: amount_in_wei,
+        amount_minor: amount_in_wei,
         timestamp: to_unix_timestamp(SystemTime::now()),
-        gas_price_wei,
+        gas_price_minor: gas_price_wei,
         nonce,
         status: TxStatus::Pending(ValidationStatus::Waiting),
     }
@@ -238,7 +236,7 @@ pub fn sign_and_append_multiple_payments(
     web3_batch: &Web3<Batch<Http>>,
     signable_tx_templates: &SignableTxTemplates,
     consuming_wallet: Wallet,
-) -> Vec<Tx> {
+) -> Vec<SentTx> {
     signable_tx_templates
         .iter()
         .map(|signable_tx_template| {
@@ -253,14 +251,12 @@ pub fn sign_and_append_multiple_payments(
         .collect()
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn send_payables_within_batch(
     logger: &Logger,
     chain: Chain,
     web3_batch: &Web3<Batch<Http>>,
     signable_tx_templates: SignableTxTemplates,
     consuming_wallet: Wallet,
-    new_fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
 ) -> Box<dyn Future<Item = BatchResults, Error = LocalPayableError> + 'static> {
     debug!(
             logger,
@@ -278,18 +274,7 @@ pub fn send_payables_within_batch(
         consuming_wallet,
     );
     let sent_txs_for_err = sent_txs.clone();
-
-    let hashes_and_paid_amounts: Vec<HashAndAmount> =
-        sent_txs.iter().map(|tx| HashAndAmount::from(tx)).collect();
-
-    let timestamp = SystemTime::now();
-
-    new_fingerprints_recipient
-        .try_send(PendingPayableFingerprintSeeds {
-            batch_wide_timestamp: timestamp,
-            hashes_and_balances: hashes_and_paid_amounts,
-        })
-        .expect("Accountant is dead");
+    // TODO: GH-701: We were sending a message here to register txs at an initial stage (refer commit - 2fd4bcc72)
 
     info!(
         logger,
@@ -320,7 +305,7 @@ pub fn create_blockchain_agent_web3(
         masq_token_balance_in_minor_units,
     );
     Box::new(BlockchainAgentWeb3::new(
-        blockchain_agent_future_result.gas_price_wei.as_u128(),
+        blockchain_agent_future_result.gas_price_minor.as_u128(),
         gas_limit_const_part,
         wallet,
         cons_wallet_balances,
@@ -331,8 +316,9 @@ pub fn create_blockchain_agent_web3(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accountant::db_access_objects::failed_payable_dao::{FailureReason, FailureStatus};
     use crate::accountant::db_access_objects::test_utils::{
-        assert_on_failed_txs, assert_on_sent_txs, FailedTxBuilder,
+        assert_on_failed_txs, assert_on_sent_txs, FailedTxBuilder, TxBuilder,
     };
     use crate::accountant::gwei_to_wei;
     use crate::accountant::scanners::payable_scanner::tx_templates::priced::new::{
@@ -346,23 +332,18 @@ mod tests {
         BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
     };
     use crate::blockchain::blockchain_interface::data_structures::errors::LocalPayableError::Sending;
-    use crate::blockchain::errors::rpc_errors::AppRpcError;
-    use crate::blockchain::errors::rpc_errors::LocalError::Transport;
-    use crate::blockchain::errors::rpc_errors::RemoteError::Web3RpcError;
+    use crate::blockchain::errors::rpc_errors::{AppRpcErrorKind, LocalErrorKind, RemoteErrorKind};
     use crate::blockchain::test_utils::{
-        make_address, make_blockchain_interface_web3, make_tx_hash, transport_error_code,
-        transport_error_message,
+        make_address, transport_error_code, transport_error_message,
     };
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_paying_wallet;
     use crate::test_utils::make_wallet;
-    use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::unshared_test_utils::decode_hex;
-    use actix::{Actor, System};
+    use actix::System;
     use ethabi::Address;
     use ethereum_types::H256;
-    use jsonrpc_core::ErrorCode::ServerError;
-    use jsonrpc_core::{Error, ErrorCode};
+    use itertools::Either;
     use masq_lib::constants::{DEFAULT_CHAIN, DEFAULT_GAS_PRICE};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
@@ -411,18 +392,15 @@ mod tests {
         );
 
         let mut batch_result = web3_batch.eth().transport().submit_batch().wait().unwrap();
-        let expected_tx = Tx {
-            hash: H256::from_str(
-                "94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2",
-            )
-            .unwrap(),
-            receiver_address: signable_tx_template.receiver_address,
-            amount: signable_tx_template.amount_in_wei,
-            timestamp: to_unix_timestamp(SystemTime::now()),
-            gas_price_wei: signable_tx_template.gas_price_wei,
-            nonce: signable_tx_template.nonce,
-            status: TxStatus::Pending(ValidationStatus::Waiting),
-        };
+        let hash =
+            H256::from_str("94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2")
+                .unwrap();
+        let expected_tx = TxBuilder::default()
+            .hash(hash)
+            .template(signable_tx_template)
+            .timestamp(to_unix_timestamp(SystemTime::now()))
+            .status(TxStatus::Pending(ValidationStatus::Waiting))
+            .build();
         assert_on_sent_txs(vec![result], vec![expected_tx]);
         assert_eq!(
             batch_result.pop().unwrap().unwrap(),
@@ -436,14 +414,14 @@ mod tests {
             amount: 1,000,000,000 wei, \
             to 0x0000000000000000000000000077616c6c657431, \
             nonce: 1, \
-            gas price: 1 gwei"
+            gas price: 1,000,000,000 wei"
         ));
     }
 
     #[test]
-    fn send_and_append_multiple_payments_works() {
+    fn sign_and_append_multiple_payments_works() {
         let port = find_free_port();
-        let logger = Logger::new("send_and_append_multiple_payments_works");
+        let logger = Logger::new("sign_and_append_multiple_payments_works");
         let (_event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
@@ -469,13 +447,35 @@ mod tests {
         result
             .iter()
             .zip(signable_tx_templates.iter())
-            .for_each(|(sent_tx, template)| {
-                assert_eq!(sent_tx.receiver_address, template.receiver_address);
-                assert_eq!(sent_tx.amount, template.amount_in_wei);
-                assert_eq!(sent_tx.gas_price_wei, template.gas_price_wei);
-                assert_eq!(sent_tx.nonce, template.nonce);
-                assert_eq!(sent_tx.status, TxStatus::Pending(ValidationStatus::Waiting))
-            })
+            .enumerate()
+            .for_each(|(index, (sent_tx, template))| {
+                assert_eq!(
+                    sent_tx.receiver_address, template.receiver_address,
+                    "Transaction {} receiver_address mismatch",
+                    index
+                );
+                assert_eq!(
+                    sent_tx.amount_minor, template.amount_in_wei,
+                    "Transaction {} amount mismatch",
+                    index
+                );
+                assert_eq!(
+                    sent_tx.gas_price_minor, template.gas_price_wei,
+                    "Transaction {} gas_price_wei mismatch",
+                    index
+                );
+                assert_eq!(
+                    sent_tx.nonce, template.nonce,
+                    "Transaction {} nonce mismatch",
+                    index
+                );
+                assert_eq!(
+                    sent_tx.status,
+                    TxStatus::Pending(ValidationStatus::Waiting),
+                    "Transaction {} status mismatch",
+                    index
+                )
+            });
     }
 
     #[test]
@@ -601,6 +601,7 @@ mod tests {
         expected_result: Result<BatchResults, LocalPayableError>,
         port: u16,
     ) {
+        // TODO: GH-701: Add assertions for the new_fingerprints_message here, since it existed earlier
         init_test_logging();
         let (_event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
@@ -608,13 +609,10 @@ mod tests {
         )
         .unwrap();
         let web3_batch = Web3::new(Batch::new(transport));
-        let (accountant, _, accountant_recording) = make_recorder();
         let logger = Logger::new(test_name);
         let chain = DEFAULT_CHAIN;
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
-        let new_fingerprints_recipient = accountant.start().recipient();
         let system = System::new(test_name);
-        let timestamp_before = SystemTime::now();
         let expected_transmission_log = transmission_log(chain, &signable_tx_templates);
 
         let result = send_payables_within_batch(
@@ -623,19 +621,11 @@ mod tests {
             &web3_batch,
             signable_tx_templates,
             consuming_wallet.clone(),
-            new_fingerprints_recipient,
         )
         .wait();
 
         System::current().stop();
         system.run();
-        let timestamp_after = SystemTime::now();
-        let accountant_recording_result = accountant_recording.lock().unwrap();
-        let ppfs_message =
-            accountant_recording_result.get_record::<PendingPayableFingerprintSeeds>(0);
-        assert_eq!(accountant_recording_result.len(), 1);
-        assert!(timestamp_before <= ppfs_message.batch_wide_timestamp);
-        assert!(timestamp_after >= ppfs_message.batch_wide_timestamp);
         let tlh = TestLogHandler::new();
         tlh.exists_log_containing(
             &format!("DEBUG: {test_name}: Common attributes of payables to be transacted: sender wallet: {}, contract: {:?}, chain_id: {}",
@@ -652,9 +642,14 @@ mod tests {
                 assert_on_sent_txs(resulted_batch.sent_txs, expected_batch.sent_txs);
             }
             Err(resulted_err) => match resulted_err {
-                LocalPayableError::Sending(resulted_failed_txs) => {
-                    if let Err(LocalPayableError::Sending(expected_failed_txs)) = expected_result {
-                        assert_on_failed_txs(resulted_failed_txs, expected_failed_txs);
+                LocalPayableError::Sending { error, failed_txs } => {
+                    if let Err(LocalPayableError::Sending {
+                        error: expected_error,
+                        failed_txs: expected_failed_txs,
+                    }) = expected_result
+                    {
+                        assert_on_failed_txs(failed_txs, expected_failed_txs);
+                        assert_eq!(error, expected_error)
                     } else {
                         panic!(
                             "Expected different error but received  {}",
@@ -663,7 +658,7 @@ mod tests {
                     }
                 }
                 other_err => {
-                    panic!("Only LocalPayableError::Sending is returned by send_payables_within_batch nut received: {} ", other_err)
+                    panic!("Only LocalPayableError::Sending is returned by send_payables_within_batch but received something else: {} ", other_err)
                 }
             },
         }
@@ -703,26 +698,18 @@ mod tests {
         let batch_results = {
             let signed_tx_1 =
                 sign_transaction(DEFAULT_CHAIN, &web3_batch, &template_1, &consuming_wallet);
-            let sent_tx_1 = Tx {
-                hash: signed_tx_1.transaction_hash,
-                receiver_address: template_1.receiver_address,
-                amount: template_1.amount_in_wei,
-                timestamp: to_unix_timestamp(SystemTime::now()),
-                gas_price_wei: template_1.gas_price_wei,
-                nonce: template_1.nonce,
-                status: TxStatus::Pending(ValidationStatus::Waiting),
-            };
+            let sent_tx_1 = TxBuilder::default()
+                .hash(signed_tx_1.transaction_hash)
+                .template(template_1)
+                .status(TxStatus::Pending(ValidationStatus::Waiting))
+                .build();
             let signed_tx_2 =
                 sign_transaction(DEFAULT_CHAIN, &web3_batch, &template_2, &consuming_wallet);
-            let sent_tx_2 = Tx {
-                hash: signed_tx_2.transaction_hash,
-                receiver_address: template_2.receiver_address,
-                amount: template_2.amount_in_wei,
-                timestamp: to_unix_timestamp(SystemTime::now()),
-                gas_price_wei: template_2.gas_price_wei,
-                nonce: template_2.nonce,
-                status: TxStatus::Pending(ValidationStatus::Waiting),
-            };
+            let sent_tx_2 = TxBuilder::default()
+                .hash(signed_tx_2.transaction_hash)
+                .template(template_2)
+                .status(TxStatus::Pending(ValidationStatus::Waiting))
+                .build();
 
             BatchResults {
                 sent_txs: vec![sent_tx_1, sent_tx_2],
@@ -765,7 +752,7 @@ mod tests {
         let os_specific_code = transport_error_code();
         let os_specific_msg = transport_error_message();
         let err_msg = format!(
-            "Error(Connect, Os {{ code: {}, kind: ConnectionRefused, message: {:?} }})",
+            "Transport error: Error(Connect, Os {{ code: {}, kind: ConnectionRefused, message: {:?} }})",
             os_specific_code, os_specific_msg
         );
         let failed_txs = signable_tx_templates
@@ -780,14 +767,17 @@ mod tests {
                     .timestamp(to_unix_timestamp(SystemTime::now()) - 5)
                     .gas_price_wei(template.gas_price_wei)
                     .nonce(template.nonce)
-                    .reason(FailureReason::Submission(AppRpcError::Local(Transport(
-                        err_msg.clone(),
-                    ))))
+                    .reason(FailureReason::Submission(AppRpcErrorKind::Local(
+                        LocalErrorKind::Transport,
+                    )))
                     .status(FailureStatus::RetryRequired)
                     .build()
             })
             .collect();
-        let expected_result = Err(Sending(failed_txs));
+        let expected_result = Err(Sending {
+            error: err_msg,
+            failed_txs,
+        });
 
         test_send_payables_within_batch(
             "send_payables_within_batch_fails_on_submit_batch_call",
@@ -849,7 +839,9 @@ mod tests {
                     .timestamp(to_unix_timestamp(SystemTime::now()) - 5)
                     .gas_price_wei(template.gas_price_wei)
                     .nonce(template.nonce)
-                    .reason(FailureReason::Submission(AppRpcError::Remote(Web3RpcError { code: 429, message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string() })))
+                    .reason(FailureReason::Submission(AppRpcErrorKind::Remote(
+                        RemoteErrorKind::Web3RpcError(429),
+                    )))
                     .status(FailureStatus::RetryRequired)
                     .build()
             })
@@ -904,30 +896,23 @@ mod tests {
         let batch_results = {
             let signed_tx_1 =
                 sign_transaction(DEFAULT_CHAIN, &web3_batch, &template_1, &consuming_wallet);
-            let sent_tx = Tx {
-                hash: signed_tx_1.transaction_hash,
-                receiver_address: template_1.receiver_address,
-                amount: template_1.amount_in_wei,
-                timestamp: to_unix_timestamp(SystemTime::now()),
-                gas_price_wei: template_1.gas_price_wei,
-                nonce: template_1.nonce,
-                status: TxStatus::Pending(ValidationStatus::Waiting),
-            };
+            let sent_tx = TxBuilder::default()
+                .hash(signed_tx_1.transaction_hash)
+                .template(template_1)
+                .timestamp(to_unix_timestamp(SystemTime::now()))
+                .status(TxStatus::Pending(ValidationStatus::Waiting))
+                .build();
             let signed_tx_2 =
                 sign_transaction(DEFAULT_CHAIN, &web3_batch, &template_2, &consuming_wallet);
-            let failed_tx = FailedTx {
-                hash: signed_tx_2.transaction_hash,
-                receiver_address: template_2.receiver_address,
-                amount: template_2.amount_in_wei,
-                timestamp: to_unix_timestamp(SystemTime::now()),
-                gas_price_wei: template_2.gas_price_wei,
-                nonce: template_2.nonce,
-                reason: FailureReason::Submission(AppRpcError::Remote(Web3RpcError {
-                    code: 429,
-                    message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string(),
-                })),
-                status: FailureStatus::RetryRequired,
-            };
+            let failed_tx = FailedTxBuilder::default()
+                .hash(signed_tx_2.transaction_hash)
+                .template(template_2)
+                .timestamp(to_unix_timestamp(SystemTime::now()))
+                .reason(FailureReason::Submission(AppRpcErrorKind::Remote(
+                    RemoteErrorKind::Web3RpcError(429),
+                )))
+                .status(FailureStatus::RetryRequired)
+                .build();
 
             BatchResults {
                 sent_txs: vec![sent_tx],

@@ -13,9 +13,12 @@ pub struct RetryTxTemplate {
 }
 
 impl RetryTxTemplate {
-    pub fn new(failed_tx: &FailedTx, payable_scan_amount: u128) -> Self {
+    pub fn new(failed_tx: &FailedTx, payable_scan_amount_opt: Option<u128>) -> Self {
         let mut retry_template = RetryTxTemplate::from(failed_tx);
-        retry_template.base.amount_in_wei = retry_template.base.amount_in_wei + payable_scan_amount;
+
+        if let Some(payable_scan_amount) = payable_scan_amount_opt {
+            retry_template.base.amount_in_wei += payable_scan_amount;
+        }
 
         retry_template
     }
@@ -26,9 +29,9 @@ impl From<&FailedTx> for RetryTxTemplate {
         RetryTxTemplate {
             base: BaseTxTemplate {
                 receiver_address: failed_tx.receiver_address,
-                amount_in_wei: failed_tx.amount,
+                amount_in_wei: failed_tx.amount_minor,
             },
-            prev_gas_price_wei: failed_tx.gas_price_wei,
+            prev_gas_price_wei: failed_tx.gas_price_minor,
             prev_nonce: failed_tx.nonce,
         }
     }
@@ -46,11 +49,10 @@ impl RetryTxTemplates {
             txs_to_retry
                 .iter()
                 .map(|tx_to_retry| {
-                    let payable_scan_amount = amounts_from_payables
+                    let payable_scan_amount_opt = amounts_from_payables
                         .get(&tx_to_retry.receiver_address)
-                        .copied()
-                        .unwrap_or(0);
-                    RetryTxTemplate::new(tx_to_retry, payable_scan_amount)
+                        .copied();
+                    RetryTxTemplate::new(tx_to_retry, payable_scan_amount_opt)
                 })
                 .collect(),
         )
@@ -107,8 +109,8 @@ mod tests {
         let failed_tx = FailedTx {
             hash: tx_hash,
             receiver_address,
-            amount: amount_in_wei,
-            gas_price_wei: gas_price,
+            amount_minor: amount_in_wei,
+            gas_price_minor: gas_price,
             nonce,
             timestamp: 1234567,
             reason: FailureReason::PendingTooLong,

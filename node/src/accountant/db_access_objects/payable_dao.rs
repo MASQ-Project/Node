@@ -1,32 +1,32 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::collections::{BTreeSet};
-use crate::accountant::db_big_integer::big_int_db_processor::KeyVariants::{
-    PendingPayableRowid, WalletAddress,
-};
-use crate::accountant::db_big_integer::big_int_db_processor::{BigIntDbProcessor, BigIntDbProcessorReal, BigIntSqlConfig, DisplayableRusqliteParamPair, ParamByUse, SQLParamsBuilder, TableNameDAO, WeiChange, WeiChangeDirection};
-use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
+use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
+use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
 use crate::accountant::db_access_objects::utils;
-use crate::accountant::db_access_objects::utils::{from_unix_timestamp, sum_i128_values_from_table, to_unix_timestamp, AssemblerFeeder, CustomQuery, DaoFactoryReal, RangeStmConfig, TopStmConfig, VigilantRusqliteFlatten};
-use crate::accountant::db_access_objects::payable_dao::mark_pending_payable_associated_functions::{
-    compose_case_expression, execute_command, serialize_wallets,
+use crate::accountant::db_access_objects::utils::{
+    from_unix_timestamp, sum_i128_values_from_table, to_unix_timestamp, AssemblerFeeder,
+    CustomQuery, DaoFactoryReal, RangeStmConfig, RowId, TopStmConfig, VigilantRusqliteFlatten,
 };
-use crate::accountant::{checked_conversion, join_with_separator, sign_conversion, PendingPayableId};
-use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
+use crate::accountant::db_big_integer::big_int_db_processor::KeyVariants::WalletAddress;
+use crate::accountant::db_big_integer::big_int_db_processor::{
+    BigIntDbProcessor, BigIntDbProcessorReal, BigIntSqlConfig, DisplayableRusqliteParamPair,
+    ParamByUse, SQLParamsBuilder, TableNameDAO, WeiChange, WeiChangeDirection,
+};
+use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
+use crate::accountant::{checked_conversion, join_with_commas, sign_conversion, PendingPayableId};
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use crate::sub_lib::wallet::Wallet;
+use ethabi::Address;
 #[cfg(test)]
-use ethereum_types::{BigEndianHash, U256};
+use ethereum_types::{BigEndianHash, H256, U256};
+use itertools::Either;
 use masq_lib::utils::ExpectValue;
 #[cfg(test)]
 use rusqlite::OptionalExtension;
 use rusqlite::{Error, Row};
+use std::collections::BTreeSet;
 use std::fmt::{Debug, Display, Formatter};
-use std::str::FromStr;
 use std::time::SystemTime;
-use itertools::Either;
-use web3::types::{Address, H256};
-use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum PayableDaoError {
@@ -46,7 +46,7 @@ impl From<&FailedTx> for PayableAccount {
     fn from(failed_tx: &FailedTx) -> Self {
         PayableAccount {
             wallet: Wallet::from(failed_tx.receiver_address),
-            balance_wei: failed_tx.amount,
+            balance_wei: failed_tx.amount_minor,
             last_paid_timestamp: from_unix_timestamp(failed_tx.timestamp),
             pending_payable_opt: None,
         }
@@ -64,7 +64,7 @@ impl Display for PayableRetrieveCondition {
             PayableRetrieveCondition::ByAddresses(addresses) => write!(
                 f,
                 "AND wallet_address IN ({})",
-                join_with_separator(addresses, |hash| format!("'{:?}'", hash), ", ")
+                join_with_commas(addresses, |hash| format!("'{:?}'", hash))
             ),
         }
     }
@@ -75,18 +75,15 @@ pub trait PayableDao: Debug + Send {
         &self,
         now: SystemTime,
         wallet: &Wallet,
-        amount: u128,
+        amount_minor: u128,
     ) -> Result<(), PayableDaoError>;
 
     fn mark_pending_payables_rowids(
         &self,
-        wallets_and_rowids: &[(&Wallet, u64)],
+        mark_instructions: &[MarkPendingPayableID],
     ) -> Result<(), PayableDaoError>;
 
-    fn transactions_confirmed(
-        &self,
-        confirmed_payables: &[PendingPayableFingerprint],
-    ) -> Result<(), PayableDaoError>;
+    fn transactions_confirmed(&self, confirmed_payables: &[SentTx]) -> Result<(), PayableDaoError>;
 
     fn retrieve_payables(
         &self,
@@ -111,6 +108,11 @@ impl PayableDaoFactory for DaoFactoryReal {
     }
 }
 
+pub struct MarkPendingPayableID {
+    pub receiver_wallet: Address,
+    pub rowid: RowId,
+}
+
 #[derive(Debug)]
 pub struct PayableDaoReal {
     conn: Box<dyn ConnectionWrapper>,
@@ -122,7 +124,7 @@ impl PayableDao for PayableDaoReal {
         &self,
         timestamp: SystemTime,
         wallet: &Wallet,
-        amount: u128,
+        amount_minor: u128,
     ) -> Result<(), PayableDaoError> {
         let main_sql = "insert into payable (wallet_address, balance_high_b, balance_low_b, last_paid_timestamp, pending_payable_rowid) \
                 values (:wallet, :balance_high_b, :balance_low_b, :last_paid_timestamp, null) on conflict (wallet_address) do update set \
@@ -135,7 +137,7 @@ impl PayableDao for PayableDaoReal {
             .key(WalletAddress(wallet))
             .wei_change(WeiChange::new(
                 "balance",
-                amount,
+                amount_minor,
                 WeiChangeDirection::Addition,
             ))
             .other_params(vec![ParamByUse::BeforeOverflowOnly(
@@ -153,46 +155,42 @@ impl PayableDao for PayableDaoReal {
 
     fn mark_pending_payables_rowids(
         &self,
-        wallets_and_rowids: &[(&Wallet, u64)],
+        _mark_instructions: &[MarkPendingPayableID],
     ) -> Result<(), PayableDaoError> {
-        if wallets_and_rowids.is_empty() {
-            panic!("broken code: empty input is not permit to enter this method")
-        }
-
-        let case_expr = compose_case_expression(wallets_and_rowids);
-        let wallets = serialize_wallets(wallets_and_rowids, Some('\''));
-        //the Wallet type is secure against SQL injections
-        let sql = format!(
-            "update payable set \
-                pending_payable_rowid = {} \
-             where
-                pending_payable_rowid is null and wallet_address in ({})
-             returning
-                pending_payable_rowid",
-            case_expr, wallets,
-        );
-        execute_command(&*self.conn, wallets_and_rowids, &sql)
+        todo!("Will be an object of removal in GH-662")
+        // if wallets_and_rowids.is_empty() {
+        //     panic!("broken code: empty input is not permit to enter this method")
+        // }
+        //
+        // let case_expr = compose_case_expression(wallets_and_rowids);
+        // let wallets = serialize_wallets(wallets_and_rowids, Some('\''));
+        // //the Wallet type is secure against SQL injections
+        // let sql = format!(
+        //     "update payable set \
+        //         pending_payable_rowid = {} \
+        //      where
+        //         pending_payable_rowid is null and wallet_address in ({})
+        //      returning
+        //         pending_payable_rowid",
+        //     case_expr, wallets,
+        // );
+        // execute_command(&*self.conn, wallets_and_rowids, &sql)
     }
 
-    fn transactions_confirmed(
-        &self,
-        confirmed_payables: &[PendingPayableFingerprint],
-    ) -> Result<(), PayableDaoError> {
-        confirmed_payables.iter().try_for_each(|pending_payable_fingerprint| {
-
+    fn transactions_confirmed(&self, confirmed_payables: &[SentTx]) -> Result<(), PayableDaoError> {
+        confirmed_payables.iter().try_for_each(|confirmed_payable| {
             let main_sql = "update payable set \
                     balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b, \
-                    last_paid_timestamp = :last_paid, pending_payable_rowid = null where pending_payable_rowid = :rowid";
+                    last_paid_timestamp = :last_paid, pending_payable_rowid = null where wallet_address = :wallet";
             let update_clause_with_compensated_overflow = "update payable set \
                     balance_high_b = :balance_high_b, balance_low_b = :balance_low_b, last_paid_timestamp = :last_paid, \
-                    pending_payable_rowid = null where pending_payable_rowid = :rowid";
+                    pending_payable_rowid = null where wallet_address = :wallet";
 
-            let i64_rowid = checked_conversion::<u64, i64>(pending_payable_fingerprint.rowid);
-            let last_paid = to_unix_timestamp(pending_payable_fingerprint.timestamp);
+            let wallet = format!("{:?}", confirmed_payable.receiver_address);
             let params = SQLParamsBuilder::default()
-                .key( PendingPayableRowid(&i64_rowid))
-                .wei_change(WeiChange::new( "balance", pending_payable_fingerprint.amount, WeiChangeDirection::Subtraction))
-                .other_params(vec![ParamByUse::BeforeAndAfterOverflow(DisplayableRusqliteParamPair::new(":last_paid", &last_paid))])
+                .key( WalletAddress(&wallet))
+                .wei_change(WeiChange::new("balance", confirmed_payable.amount_minor, WeiChangeDirection::Subtraction))
+                .other_params(vec![ParamByUse::BeforeAndAfterOverflow(DisplayableRusqliteParamPair::new(":last_paid", &confirmed_payable.timestamp))])
                 .build();
 
             self.big_int_db_processor.execute(Either::Left(self.conn.as_ref()), BigIntSqlConfig::new(
@@ -354,39 +352,22 @@ impl PayableDaoReal {
         let balance_high_bytes_result = row.get(1);
         let balance_low_bytes_result = row.get(2);
         let last_paid_timestamp_result = row.get(3);
-        let pending_payable_rowid_result: Result<Option<i64>, Error> = row.get(4);
-        let pending_payable_hash_result: Result<Option<String>, Error> = row.get(5);
         match (
             wallet_result,
             balance_high_bytes_result,
             balance_low_bytes_result,
             last_paid_timestamp_result,
-            pending_payable_rowid_result,
-            pending_payable_hash_result,
         ) {
-            (
-                Ok(wallet),
-                Ok(high_bytes),
-                Ok(low_bytes),
-                Ok(last_paid_timestamp),
-                Ok(rowid_opt),
-                Ok(hash_opt),
-            ) => Ok(PayableAccount {
-                wallet,
-                balance_wei: checked_conversion::<i128, u128>(BigIntDivider::reconstitute(
-                    high_bytes, low_bytes,
-                )),
-                last_paid_timestamp: utils::from_unix_timestamp(last_paid_timestamp),
-                pending_payable_opt: rowid_opt.map(|rowid| {
-                    let hash_str =
-                        hash_opt.expect("database corrupt; missing hash but existing rowid");
-                    PendingPayableId::new(
-                        u64::try_from(rowid).unwrap(),
-                        H256::from_str(&hash_str[2..])
-                            .unwrap_or_else(|_| panic!("wrong form of tx hash {}", hash_str)),
-                    )
-                }),
-            }),
+            (Ok(wallet), Ok(high_bytes), Ok(low_bytes), Ok(last_paid_timestamp)) => {
+                Ok(PayableAccount {
+                    wallet,
+                    balance_wei: checked_conversion::<i128, u128>(BigIntDivider::reconstitute(
+                        high_bytes, low_bytes,
+                    )),
+                    last_paid_timestamp: utils::from_unix_timestamp(last_paid_timestamp),
+                    pending_payable_opt: None,
+                })
+            }
             e => panic!(
                 "Database is corrupt: PAYABLE table columns and/or types: {:?}",
                 e
@@ -400,13 +381,9 @@ impl PayableDaoReal {
                wallet_address,
                balance_high_b,
                balance_low_b,
-               last_paid_timestamp,
-               pending_payable_rowid,
-               pending_payable.transaction_hash
+               last_paid_timestamp
            from
                payable
-           left join pending_payable on
-               pending_payable.rowid = payable.pending_payable_rowid
            {} {}
            order by
                {},
@@ -427,176 +404,183 @@ impl TableNameDAO for PayableDaoReal {
     }
 }
 
-mod mark_pending_payable_associated_functions {
-    use crate::accountant::comma_joined_stringifiable;
-    use crate::accountant::db_access_objects::payable_dao::PayableDaoError;
-    use crate::accountant::db_access_objects::utils::{
-        update_rows_and_return_valid_count, VigilantRusqliteFlatten,
-    };
-    use crate::database::rusqlite_wrappers::ConnectionWrapper;
-    use crate::sub_lib::wallet::Wallet;
-    use itertools::Itertools;
-    use rusqlite::Row;
-    use std::fmt::Display;
-
-    pub fn execute_command(
-        conn: &dyn ConnectionWrapper,
-        wallets_and_rowids: &[(&Wallet, u64)],
-        sql: &str,
-    ) -> Result<(), PayableDaoError> {
-        let mut stm = conn.prepare(sql).expect("Internal Error");
-        let validator = validate_row_updated;
-        let rows_affected_res = update_rows_and_return_valid_count(&mut stm, validator);
-
-        match rows_affected_res {
-            Ok(rows_affected) => match rows_affected {
-                num if num == wallets_and_rowids.len() => Ok(()),
-                num => mismatched_row_count_panic(conn, wallets_and_rowids, num),
-            },
-            Err(errs) => {
-                let err_msg = format!(
-                    "Multi-row update to mark pending payable hit these errors: {:?}",
-                    errs
-                );
-                Err(PayableDaoError::RusqliteError(err_msg))
-            }
-        }
-    }
-
-    pub fn compose_case_expression(wallets_and_rowids: &[(&Wallet, u64)]) -> String {
-        //the Wallet type is secure against SQL injections
-        fn when_clause((wallet, rowid): &(&Wallet, u64)) -> String {
-            format!("when wallet_address = '{wallet}' then {rowid}")
-        }
-
-        format!(
-            "case {} end",
-            wallets_and_rowids.iter().map(when_clause).join("\n")
-        )
-    }
-
-    pub fn serialize_wallets(
-        wallets_and_rowids: &[(&Wallet, u64)],
-        quotes_opt: Option<char>,
-    ) -> String {
-        wallets_and_rowids
-            .iter()
-            .map(|(wallet, _)| match quotes_opt {
-                Some(char) => format!("{}{}{}", char, wallet, char),
-                None => wallet.to_string(),
-            })
-            .join(", ")
-    }
-
-    fn validate_row_updated(row: &Row) -> Result<bool, rusqlite::Error> {
-        row.get::<usize, Option<u64>>(0).map(|opt| opt.is_some())
-    }
-
-    fn mismatched_row_count_panic(
-        conn: &dyn ConnectionWrapper,
-        wallets_and_rowids: &[(&Wallet, u64)],
-        actual_count: usize,
-    ) -> ! {
-        let serialized_wallets = serialize_wallets(wallets_and_rowids, None);
-        let expected_count = wallets_and_rowids.len();
-        let extension = explanatory_extension(conn, wallets_and_rowids);
-        panic!(
-            "Marking pending payable rowid for wallets {serialized_wallets} affected \
-            {actual_count} rows but expected {expected_count}. {extension}"
-        )
-    }
-
-    pub(super) fn explanatory_extension(
-        conn: &dyn ConnectionWrapper,
-        wallets_and_rowids: &[(&Wallet, u64)],
-    ) -> String {
-        let resulting_pairs_collection =
-            query_resulting_pairs_of_wallets_and_rowids(conn, wallets_and_rowids);
-        let resulting_pairs_summary = if resulting_pairs_collection.is_empty() {
-            "<Failing again: accounts with such wallets not found>".to_string()
-        } else {
-            pairs_in_pretty_string(&resulting_pairs_collection, |rowid_opt: &Option<u64>| {
-                match rowid_opt {
-                    Some(rowid) => Box::new(*rowid),
-                    None => Box::new("N/A"),
-                }
-            })
-        };
-        let wallets_and_non_optional_rowids =
-            pairs_in_pretty_string(wallets_and_rowids, |rowid: &u64| Box::new(*rowid));
-        format!(
-            "\
-                The demanded data according to {} looks different from the resulting state {}!. Operation failed.\n\
-                Notes:\n\
-                a) if row ids have stayed non-populated it points out that writing failed but without the double payment threat,\n\
-                b) if some accounts on the resulting side are missing, other kind of serious issues should be suspected but see other\n\
-                points to figure out if you were put in danger of double payment,\n\
-                c) seeing ids different from those demanded might be a sign of some payments having been doubled.\n\
-                The operation which is supposed to clear out the ids of the payments previously requested for this account\n\
-                probably had not managed to complete successfully before another payment was requested: preventive measures failed.\n",
-            wallets_and_non_optional_rowids, resulting_pairs_summary)
-    }
-
-    fn query_resulting_pairs_of_wallets_and_rowids(
-        conn: &dyn ConnectionWrapper,
-        wallets_and_rowids: &[(&Wallet, u64)],
-    ) -> Vec<(Wallet, Option<u64>)> {
-        let select_dealt_accounts =
-            format!(
-                "select wallet_address, pending_payable_rowid from payable where wallet_address in ({})",
-                serialize_wallets(wallets_and_rowids, Some('\''))
-            );
-        let row_processor = |row: &Row| {
-            Ok((
-                row.get::<usize, Wallet>(0)
-                    .expect("database corrupt: wallet addresses found in bad format"),
-                row.get::<usize, Option<u64>>(1)
-                    .expect("database_corrupt: rowid found in bad format"),
-            ))
-        };
-        conn.prepare(&select_dealt_accounts)
-            .expect("select failed")
-            .query_map([], row_processor)
-            .expect("no args yet binding failed")
-            .vigilant_flatten()
-            .collect()
-    }
-
-    fn pairs_in_pretty_string<W: Display, R>(
-        pairs: &[(W, R)],
-        rowid_pretty_writer: fn(&R) -> Box<dyn Display>,
-    ) -> String {
-        comma_joined_stringifiable(pairs, |(wallet, rowid)| {
-            format!(
-                "( Wallet: {}, Rowid: {} )",
-                wallet,
-                rowid_pretty_writer(rowid)
-            )
-        })
-    }
-}
+// TODO Will be an object of removal in GH-662
+// mod mark_pending_payable_associated_functions {
+//     use crate::accountant::join_with_commas;
+//     use crate::accountant::db_access_objects::payable_dao::{MarkPendingPayableID, PayableDaoError};
+//     use crate::accountant::db_access_objects::utils::{
+//         update_rows_and_return_valid_count, VigilantRusqliteFlatten,
+//     };
+//     use crate::database::rusqlite_wrappers::ConnectionWrapper;
+//     use crate::sub_lib::wallet::Wallet;
+//     use itertools::Itertools;
+//     use rusqlite::Row;
+//     use std::fmt::Display;
+//
+//     pub fn execute_command(
+//         conn: &dyn ConnectionWrapper,
+//         wallets_and_rowids: &[(&Wallet, u64)],
+//         sql: &str,
+//     ) -> Result<(), PayableDaoError> {
+//         let mut stm = conn.prepare(sql).expect("Internal Error");
+//         let validator = validate_row_updated;
+//         let rows_affected_res = update_rows_and_return_valid_count(&mut stm, validator);
+//
+//         match rows_affected_res {
+//             Ok(rows_affected) => match rows_affected {
+//                 num if num == wallets_and_rowids.len() => Ok(()),
+//                 num => mismatched_row_count_panic(conn, wallets_and_rowids, num),
+//             },
+//             Err(errs) => {
+//                 let err_msg = format!(
+//                     "Multi-row update to mark pending payable hit these errors: {:?}",
+//                     errs
+//                 );
+//                 Err(PayableDaoError::RusqliteError(err_msg))
+//             }
+//         }
+//     }
+//
+//     pub fn compose_case_expression(wallets_and_rowids: &[(&Wallet, u64)]) -> String {
+//         //the Wallet type is secure against SQL injections
+//         fn when_clause((wallet, rowid): &(&Wallet, u64)) -> String {
+//             format!("when wallet_address = '{wallet}' then {rowid}")
+//         }
+//
+//         format!(
+//             "case {} end",
+//             wallets_and_rowids.iter().map(when_clause).join("\n")
+//         )
+//     }
+//
+//     pub fn serialize_wallets(
+//         wallets_and_rowids: &[MarkPendingPayableID],
+//         quotes_opt: Option<char>,
+//     ) -> String {
+//         wallets_and_rowids
+//             .iter()
+//             .map(|(wallet, _)| match quotes_opt {
+//                 Some(char) => format!("{}{}{}", char, wallet, char),
+//                 None => wallet.to_string(),
+//             })
+//             .join(", ")
+//     }
+//
+//     fn validate_row_updated(row: &Row) -> Result<bool, rusqlite::Error> {
+//         row.get::<usize, Option<u64>>(0).map(|opt| opt.is_some())
+//     }
+//
+//     fn mismatched_row_count_panic(
+//         conn: &dyn ConnectionWrapper,
+//         wallets_and_rowids: &[(&Wallet, u64)],
+//         actual_count: usize,
+//     ) -> ! {
+//         let serialized_wallets = serialize_wallets(wallets_and_rowids, None);
+//         let expected_count = wallets_and_rowids.len();
+//         let extension = explanatory_extension(conn, wallets_and_rowids);
+//         panic!(
+//             "Marking pending payable rowid for wallets {serialized_wallets} affected \
+//             {actual_count} rows but expected {expected_count}. {extension}"
+//         )
+//     }
+//
+//     pub(super) fn explanatory_extension(
+//         conn: &dyn ConnectionWrapper,
+//         wallets_and_rowids: &[(&Wallet, u64)],
+//     ) -> String {
+//         let resulting_pairs_collection =
+//             query_resulting_pairs_of_wallets_and_rowids(conn, wallets_and_rowids);
+//         let resulting_pairs_summary = if resulting_pairs_collection.is_empty() {
+//             "<Failing again: accounts with such wallets not found>".to_string()
+//         } else {
+//             pairs_in_pretty_string(&resulting_pairs_collection, |rowid_opt: &Option<u64>| {
+//                 match rowid_opt {
+//                     Some(rowid) => Box::new(*rowid),
+//                     None => Box::new("N/A"),
+//                 }
+//             })
+//         };
+//         let wallets_and_non_optional_rowids =
+//             pairs_in_pretty_string(wallets_and_rowids, |rowid: &u64| Box::new(*rowid));
+//         format!(
+//             "\
+//                 The demanded data according to {} looks different from the resulting state {}!. Operation failed.\n\
+//                 Notes:\n\
+//                 a) if row ids have stayed non-populated it points out that writing failed but without the double payment threat,\n\
+//                 b) if some accounts on the resulting side are missing, other kind of serious issues should be suspected but see other\n\
+//                 points to figure out if you were put in danger of double payment,\n\
+//                 c) seeing ids different from those demanded might be a sign of some payments having been doubled.\n\
+//                 The operation which is supposed to clear out the ids of the payments previously requested for this account\n\
+//                 probably had not managed to complete successfully before another payment was requested: preventive measures failed.\n",
+//             wallets_and_non_optional_rowids, resulting_pairs_summary)
+//     }
+//
+//     fn query_resulting_pairs_of_wallets_and_rowids(
+//         conn: &dyn ConnectionWrapper,
+//         wallets_and_rowids: &[(&Wallet, u64)],
+//     ) -> Vec<(Wallet, Option<u64>)> {
+//         let select_dealt_accounts =
+//             format!(
+//                 "select wallet_address, pending_payable_rowid from payable where wallet_address in ({})",
+//                 serialize_wallets(wallets_and_rowids, Some('\''))
+//             );
+//         let row_processor = |row: &Row| {
+//             Ok((
+//                 row.get::<usize, Wallet>(0)
+//                     .expect("database corrupt: wallet addresses found in bad format"),
+//                 row.get::<usize, Option<u64>>(1)
+//                     .expect("database_corrupt: rowid found in bad format"),
+//             ))
+//         };
+//         conn.prepare(&select_dealt_accounts)
+//             .expect("select failed")
+//             .query_map([], row_processor)
+//             .expect("no args yet binding failed")
+//             .vigilant_flatten()
+//             .collect()
+//     }
+//
+//     fn pairs_in_pretty_string<W: Display, R>(
+//         pairs: &[(W, R)],
+//         rowid_pretty_writer: fn(&R) -> Box<dyn Display>,
+//     ) -> String {
+//         join_with_commas(pairs, |(wallet, rowid)| {
+//             format!(
+//                 "( Wallet: {}, Rowid: {} )",
+//                 wallet,
+//                 rowid_pretty_writer(rowid)
+//             )
+//         })
+//     }
+// }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::db_access_objects::utils::{from_unix_timestamp, current_unix_timestamp, to_unix_timestamp};
+    use crate::accountant::db_access_objects::payable_dao::PayableRetrieveCondition::ByAddresses;
+    use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
+    use crate::accountant::db_access_objects::test_utils::make_sent_tx;
+    use crate::accountant::db_access_objects::utils::{
+        current_unix_timestamp, from_unix_timestamp, to_unix_timestamp, TxHash,
+    };
     use crate::accountant::gwei_to_wei;
-    use crate::accountant::db_access_objects::payable_dao::mark_pending_payable_associated_functions::explanatory_extension;
-    use crate::accountant::test_utils::{assert_account_creation_fn_fails_on_finding_wrong_columns_and_value_types, make_pending_payable_fingerprint, trick_rusqlite_with_read_only_conn};
+    use crate::accountant::test_utils::{
+        assert_account_creation_fn_fails_on_finding_wrong_columns_and_value_types,
+        trick_rusqlite_with_read_only_conn,
+    };
     use crate::blockchain::test_utils::make_tx_hash;
-    use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
     };
+    use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::test_utils::make_wallet;
+    use itertools::Itertools;
     use masq_lib::messages::TopRecordsOrdering::{Age, Balance};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
+    use rusqlite::ToSql;
     use rusqlite::{Connection, OpenFlags};
-    use rusqlite::{ToSql};
     use std::path::Path;
-    use std::str::FromStr;
-    use crate::accountant::db_access_objects::payable_dao::PayableRetrieveCondition::ByAddresses;
-    use crate::database::test_utils::ConnectionWrapperMock;
+    use std::time::Duration;
 
     #[test]
     fn more_money_payable_works_for_new_address() {
@@ -743,260 +727,271 @@ mod tests {
     fn mark_pending_payables_marks_pending_transactions_for_new_addresses() {
         //the extra unchanged record checks the safety of right count of changed rows;
         //experienced serious troubles in the past
-        let home_dir = ensure_node_home_directory_exists(
-            "payable_dao",
-            "mark_pending_payables_marks_pending_transactions_for_new_addresses",
-        );
-        let wallet_0 = make_wallet("wallet");
-        let wallet_1 = make_wallet("booga");
-        let pending_payable_rowid_1 = 656;
-        let wallet_2 = make_wallet("bagaboo");
-        let pending_payable_rowid_2 = 657;
-        let boxed_conn = DbInitializerReal::default()
-            .initialize(&home_dir, DbInitializationConfig::test_default())
-            .unwrap();
-        {
-            let insert = "insert into payable (wallet_address, balance_high_b, balance_low_b, \
-             last_paid_timestamp) values (?, ?, ?, ?), (?, ?, ?, ?), (?, ?, ?, ?)";
-            let mut stm = boxed_conn.prepare(insert).unwrap();
-            let params = [
-                [&wallet_0 as &dyn ToSql, &12345, &1, &45678],
-                [&wallet_1, &0, &i64::MAX, &150_000_000],
-                [&wallet_2, &3, &0, &151_000_000],
-            ]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<&dyn ToSql>>();
-            stm.execute(params.as_slice()).unwrap();
-        }
-        let subject = PayableDaoReal::new(boxed_conn);
-
-        subject
-            .mark_pending_payables_rowids(&[
-                (&wallet_1, pending_payable_rowid_1),
-                (&wallet_2, pending_payable_rowid_2),
-            ])
-            .unwrap();
-
-        let account_statuses = [&wallet_0, &wallet_1, &wallet_2]
-            .iter()
-            .map(|wallet| subject.account_status(wallet).unwrap())
-            .collect::<Vec<PayableAccount>>();
-        assert_eq!(
-            account_statuses,
-            vec![
-                PayableAccount {
-                    wallet: wallet_0,
-                    balance_wei: u128::try_from(BigIntDivider::reconstitute(12345, 1)).unwrap(),
-                    last_paid_timestamp: from_unix_timestamp(45678),
-                    pending_payable_opt: None,
-                },
-                PayableAccount {
-                    wallet: wallet_1,
-                    balance_wei: u128::try_from(BigIntDivider::reconstitute(0, i64::MAX)).unwrap(),
-                    last_paid_timestamp: from_unix_timestamp(150_000_000),
-                    pending_payable_opt: Some(PendingPayableId::new(
-                        pending_payable_rowid_1,
-                        make_tx_hash(0)
-                    )),
-                },
-                //notice the hashes are garbage generated by a test method not knowing doing better
-                PayableAccount {
-                    wallet: wallet_2,
-                    balance_wei: u128::try_from(BigIntDivider::reconstitute(3, 0)).unwrap(),
-                    last_paid_timestamp: from_unix_timestamp(151_000_000),
-                    pending_payable_opt: Some(PendingPayableId::new(
-                        pending_payable_rowid_2,
-                        make_tx_hash(0)
-                    ))
-                }
-            ]
-        )
+        // TODO Will be an object of removal in GH-662
+        // let home_dir = ensure_node_home_directory_exists(
+        //     "payable_dao",
+        //     "mark_pending_payables_marks_pending_transactions_for_new_addresses",
+        // );
+        // let wallet_0 = make_wallet("wallet");
+        // let wallet_1 = make_wallet("booga");
+        // let pending_payable_rowid_1 = 656;
+        // let wallet_2 = make_wallet("bagaboo");
+        // let pending_payable_rowid_2 = 657;
+        // let boxed_conn = DbInitializerReal::default()
+        //     .initialize(&home_dir, DbInitializationConfig::test_default())
+        //     .unwrap();
+        // {
+        //     let insert = "insert into payable (wallet_address, balance_high_b, balance_low_b, \
+        //      last_paid_timestamp) values (?, ?, ?, ?), (?, ?, ?, ?), (?, ?, ?, ?)";
+        //     let mut stm = boxed_conn.prepare(insert).unwrap();
+        //     let params = [
+        //         [&wallet_0 as &dyn ToSql, &12345, &1, &45678],
+        //         [&wallet_1, &0, &i64::MAX, &150_000_000],
+        //         [&wallet_2, &3, &0, &151_000_000],
+        //     ]
+        //     .into_iter()
+        //     .flatten()
+        //     .collect::<Vec<&dyn ToSql>>();
+        //     stm.execute(params.as_slice()).unwrap();
+        // }
+        // let subject = PayableDaoReal::new(boxed_conn);
+        //
+        // subject
+        //     .mark_pending_payables_rowids(&[
+        //         (&wallet_1, pending_payable_rowid_1),
+        //         (&wallet_2, pending_payable_rowid_2),
+        //     ])
+        //     .unwrap();
+        //
+        // let account_statuses = [&wallet_0, &wallet_1, &wallet_2]
+        //     .iter()
+        //     .map(|wallet| subject.account_status(wallet).unwrap())
+        //     .collect::<Vec<PayableAccount>>();
+        // assert_eq!(
+        //     account_statuses,
+        //     vec![
+        //         PayableAccount {
+        //             wallet: wallet_0,
+        //             balance_wei: u128::try_from(BigIntDivider::reconstitute(12345, 1)).unwrap(),
+        //             last_paid_timestamp: from_unix_timestamp(45678),
+        //             pending_payable_opt: None,
+        //         },
+        //         PayableAccount {
+        //             wallet: wallet_1,
+        //             balance_wei: u128::try_from(BigIntDivider::reconstitute(0, i64::MAX)).unwrap(),
+        //             last_paid_timestamp: from_unix_timestamp(150_000_000),
+        //             pending_payable_opt: Some(PendingPayableId::new(
+        //                 pending_payable_rowid_1,
+        //                 make_tx_hash(0)
+        //             )),
+        //         },
+        //         //notice the hashes are garbage generated by a test method not knowing doing better
+        //         PayableAccount {
+        //             wallet: wallet_2,
+        //             balance_wei: u128::try_from(BigIntDivider::reconstitute(3, 0)).unwrap(),
+        //             last_paid_timestamp: from_unix_timestamp(151_000_000),
+        //             pending_payable_opt: Some(PendingPayableId::new(
+        //                 pending_payable_rowid_2,
+        //                 make_tx_hash(0)
+        //             ))
+        //         }
+        //     ]
+        // )
     }
 
     #[test]
-    #[should_panic(expected = "\
-        Marking pending payable rowid for wallets 0x000000000000000000000000000000626f6f6761, \
-        0x0000000000000000000000000000007961686f6f affected 0 rows but expected 2. \
-        The demanded data according to ( Wallet: 0x000000000000000000000000000000626f6f6761, Rowid: 456 ), \
-        ( Wallet: 0x0000000000000000000000000000007961686f6f, Rowid: 789 ) looks different from \
-        the resulting state ( Wallet: 0x000000000000000000000000000000626f6f6761, Rowid: 456 )!. Operation failed.\n\
-        Notes:\n\
-        a) if row ids have stayed non-populated it points out that writing failed but without the double payment threat,\n\
-        b) if some accounts on the resulting side are missing, other kind of serious issues should be suspected but see other\n\
-        points to figure out if you were put in danger of double payment,\n\
-        c) seeing ids different from those demanded might be a sign of some payments having been doubled.\n\
-        The operation which is supposed to clear out the ids of the payments previously requested for this account\n\
-        probably had not managed to complete successfully before another payment was requested: preventive measures failed.")]
+    // #[should_panic(expected = "\
+    //     Marking pending payable rowid for wallets 0x000000000000000000000000000000626f6f6761, \
+    //     0x0000000000000000000000000000007961686f6f affected 0 rows but expected 2. \
+    //     The demanded data according to ( Wallet: 0x000000000000000000000000000000626f6f6761, Rowid: 456 ), \
+    //     ( Wallet: 0x0000000000000000000000000000007961686f6f, Rowid: 789 ) looks different from \
+    //     the resulting state ( Wallet: 0x000000000000000000000000000000626f6f6761, Rowid: 456 )!. Operation failed.\n\
+    //     Notes:\n\
+    //     a) if row ids have stayed non-populated it points out that writing failed but without the double payment threat,\n\
+    //     b) if some accounts on the resulting side are missing, other kind of serious issues should be suspected but see other\n\
+    //     points to figure out if you were put in danger of double payment,\n\
+    //     c) seeing ids different from those demanded might be a sign of some payments having been doubled.\n\
+    //     The operation which is supposed to clear out the ids of the payments previously requested for this account\n\
+    //     probably had not managed to complete successfully before another payment was requested: preventive measures failed.")]
     fn mark_pending_payables_rowids_returned_different_row_count_than_expected_with_one_account_missing_and_one_unmodified(
     ) {
-        let home_dir = ensure_node_home_directory_exists(
-            "payable_dao",
-            "mark_pending_payables_rowids_returned_different_row_count_than_expected_with_one_account_missing_and_one_unmodified",
-        );
-        let conn = DbInitializerReal::default()
-            .initialize(&home_dir, DbInitializationConfig::test_default())
-            .unwrap();
-        let first_wallet = make_wallet("booga");
-        let first_rowid = 456;
-        insert_payable_record_fn(
-            &*conn,
-            &first_wallet.to_string(),
-            123456,
-            789789,
-            Some(first_rowid),
-        );
-        let subject = PayableDaoReal::new(conn);
-
-        let _ = subject.mark_pending_payables_rowids(&[
-            (&first_wallet, first_rowid as u64),
-            (&make_wallet("yahoo"), 789),
-        ]);
+        // TODO Will be an object of removal in GH-662
+        // let home_dir = ensure_node_home_directory_exists(
+        //     "payable_dao",
+        //     "mark_pending_payables_rowids_returned_different_row_count_than_expected_with_one_account_missing_and_one_unmodified",
+        // );
+        // let conn = DbInitializerReal::default()
+        //     .initialize(&home_dir, DbInitializationConfig::test_default())
+        //     .unwrap();
+        // let first_wallet = make_wallet("booga");
+        // let first_rowid = 456;
+        // insert_payable_record_fn(
+        //     &*conn,
+        //     &first_wallet.to_string(),
+        //     123456,
+        //     789789,
+        //     Some(first_rowid),
+        // );
+        // let subject = PayableDaoReal::new(conn);
+        //
+        // let _ = subject.mark_pending_payables_rowids(&[
+        //     (&first_wallet, first_rowid as u64),
+        //     (&make_wallet("yahoo"), 789),
+        // ]);
     }
 
     #[test]
     fn explanatory_extension_shows_resulting_account_with_unpopulated_rowid() {
-        let home_dir = ensure_node_home_directory_exists(
-            "payable_dao",
-            "explanatory_extension_shows_resulting_account_with_unpopulated_rowid",
-        );
-        let wallet_1 = make_wallet("hooga");
-        let rowid_1 = 550;
-        let wallet_2 = make_wallet("booga");
-        let rowid_2 = 555;
-        let conn = DbInitializerReal::default()
-            .initialize(&home_dir, DbInitializationConfig::test_default())
-            .unwrap();
-        let record_seeds = [
-            (&wallet_1.to_string(), 12345, 1_000_000_000, None),
-            (&wallet_2.to_string(), 23456, 1_000_000_111, Some(540)),
-        ];
-        record_seeds
-            .into_iter()
-            .for_each(|(wallet, balance, timestamp, rowid_opt)| {
-                insert_payable_record_fn(&*conn, wallet, balance, timestamp, rowid_opt)
-            });
-
-        let result = explanatory_extension(&*conn, &[(&wallet_1, rowid_1), (&wallet_2, rowid_2)]);
-
-        assert_eq!(result, "\
-        The demanded data according to ( Wallet: 0x000000000000000000000000000000686f6f6761, Rowid: 550 ), \
-        ( Wallet: 0x000000000000000000000000000000626f6f6761, Rowid: 555 ) looks different from \
-        the resulting state ( Wallet: 0x000000000000000000000000000000626f6f6761, Rowid: 540 ), \
-        ( Wallet: 0x000000000000000000000000000000686f6f6761, Rowid: N/A )!. \
-        Operation failed.\n\
-        Notes:\n\
-        a) if row ids have stayed non-populated it points out that writing failed but without the double \
-        payment threat,\n\
-        b) if some accounts on the resulting side are missing, other kind of serious issues should be \
-        suspected but see other\npoints to figure out if you were put in danger of double payment,\n\
-        c) seeing ids different from those demanded might be a sign of some payments having been doubled.\n\
-        The operation which is supposed to clear out the ids of the payments previously requested for \
-        this account\nprobably had not managed to complete successfully before another payment was \
-        requested: preventive measures failed.\n".to_string())
+        // TODO Will be an object of removal in GH-662
+        // let home_dir = ensure_node_home_directory_exists(
+        //     "payable_dao",
+        //     "explanatory_extension_shows_resulting_account_with_unpopulated_rowid",
+        // );
+        // let wallet_1 = make_wallet("hooga");
+        // let rowid_1 = 550;
+        // let wallet_2 = make_wallet("booga");
+        // let rowid_2 = 555;
+        // let conn = DbInitializerReal::default()
+        //     .initialize(&home_dir, DbInitializationConfig::test_default())
+        //     .unwrap();
+        // let record_seeds = [
+        //     (&wallet_1.to_string(), 12345, 1_000_000_000, None),
+        //     (&wallet_2.to_string(), 23456, 1_000_000_111, Some(540)),
+        // ];
+        // record_seeds
+        //     .into_iter()
+        //     .for_each(|(wallet, balance, timestamp, rowid_opt)| {
+        //         insert_payable_record_fn(&*conn, wallet, balance, timestamp, rowid_opt)
+        //     });
+        //
+        // let result = explanatory_extension(&*conn, &[(&wallet_1, rowid_1), (&wallet_2, rowid_2)]);
+        //
+        // assert_eq!(result, "\
+        // The demanded data according to ( Wallet: 0x000000000000000000000000000000686f6f6761, Rowid: 550 ), \
+        // ( Wallet: 0x000000000000000000000000000000626f6f6761, Rowid: 555 ) looks different from \
+        // the resulting state ( Wallet: 0x000000000000000000000000000000626f6f6761, Rowid: 540 ), \
+        // ( Wallet: 0x000000000000000000000000000000686f6f6761, Rowid: N/A )!. \
+        // Operation failed.\n\
+        // Notes:\n\
+        // a) if row ids have stayed non-populated it points out that writing failed but without the double \
+        // payment threat,\n\
+        // b) if some accounts on the resulting side are missing, other kind of serious issues should be \
+        // suspected but see other\npoints to figure out if you were put in danger of double payment,\n\
+        // c) seeing ids different from those demanded might be a sign of some payments having been doubled.\n\
+        // The operation which is supposed to clear out the ids of the payments previously requested for \
+        // this account\nprobably had not managed to complete successfully before another payment was \
+        // requested: preventive measures failed.\n".to_string())
     }
 
     #[test]
     fn mark_pending_payables_rowids_handles_general_sql_error() {
-        let home_dir = ensure_node_home_directory_exists(
-            "payable_dao",
-            "mark_pending_payables_rowids_handles_general_sql_error",
-        );
-        let wallet = make_wallet("booga");
-        let rowid = 656;
-        let conn = payable_read_only_conn(&home_dir);
-        let conn_wrapped = ConnectionWrapperReal::new(conn);
-        let subject = PayableDaoReal::new(Box::new(conn_wrapped));
-
-        let result = subject.mark_pending_payables_rowids(&[(&wallet, rowid)]);
-
-        assert_eq!(
-            result,
-            Err(PayableDaoError::RusqliteError(
-                "Multi-row update to mark pending payable hit these errors: [SqliteFailure(\
-                Error { code: ReadOnly, extended_code: 8 }, Some(\"attempt to write a readonly \
-                database\"))]"
-                    .to_string()
-            ))
-        )
+        // TODO Will be an object of removal in GH-662
+        // let home_dir = ensure_node_home_directory_exists(
+        //     "payable_dao",
+        //     "mark_pending_payables_rowids_handles_general_sql_error",
+        // );
+        // let wallet = make_wallet("booga");
+        // let rowid = 656;
+        // let single_mark_instruction = MarkPendingPayableID::new(wallet.address(), rowid);
+        // let conn = payable_read_only_conn(&home_dir);
+        // let conn_wrapped = ConnectionWrapperReal::new(conn);
+        // let subject = PayableDaoReal::new(Box::new(conn_wrapped));
+        //
+        // let result = subject.mark_pending_payables_rowids(&[single_mark_instruction]);
+        //
+        // assert_eq!(
+        //     result,
+        //     Err(PayableDaoError::RusqliteError(
+        //         "Multi-row update to mark pending payable hit these errors: [SqliteFailure(\
+        //         Error { code: ReadOnly, extended_code: 8 }, Some(\"attempt to write a readonly \
+        //         database\"))]"
+        //             .to_string()
+        //     ))
+        // )
     }
 
     #[test]
-    #[should_panic(expected = "broken code: empty input is not permit to enter this method")]
+    //#[should_panic(expected = "broken code: empty input is not permit to enter this method")]
     fn mark_pending_payables_rowids_is_strict_about_empty_input() {
-        let wrapped_conn = ConnectionWrapperMock::default();
-        let subject = PayableDaoReal::new(Box::new(wrapped_conn));
-
-        let _ = subject.mark_pending_payables_rowids(&[]);
+        // TODO Will be an object of removal in GH-662
+        // let wrapped_conn = ConnectionWrapperMock::default();
+        // let subject = PayableDaoReal::new(Box::new(wrapped_conn));
+        //
+        // let _ = subject.mark_pending_payables_rowids(&[]);
     }
 
     struct TestSetupValuesHolder {
-        fingerprint_1: PendingPayableFingerprint,
-        fingerprint_2: PendingPayableFingerprint,
-        wallet_1: Wallet,
-        wallet_2: Wallet,
-        previous_timestamp_1: SystemTime,
-        previous_timestamp_2: SystemTime,
+        account_1: TxWalletAndTimestamp,
+        account_2: TxWalletAndTimestamp,
     }
 
-    fn make_fingerprint_pair_and_insert_initial_payable_records(
+    struct TxWalletAndTimestamp {
+        pending_payable: SentTx,
+        previous_timestamp: SystemTime,
+    }
+
+    struct TestInputs {
+        hash: TxHash,
+        previous_timestamp: SystemTime,
+        new_payable_timestamp: SystemTime,
+        receiver_wallet: Address,
+        initial_amount_wei: u128,
+        balance_change: u128,
+    }
+
+    fn insert_initial_payable_records_and_return_sent_txs(
         conn: &dyn ConnectionWrapper,
-        initial_amount_1: u128,
-        initial_amount_2: u128,
-        balance_change_1: u128,
-        balance_change_2: u128,
+        (initial_amount_1, balance_change_1): (u128, u128),
+        (initial_amount_2, balance_change_2): (u128, u128),
     ) -> TestSetupValuesHolder {
-        let hash_1 = make_tx_hash(12345);
-        let rowid_1 = 789;
-        let previous_timestamp_1_s = 190_000_000;
-        let new_payable_timestamp_1 = from_unix_timestamp(199_000_000);
-        let wallet_1 = make_wallet("bobble");
-        let hash_2 = make_tx_hash(54321);
-        let rowid_2 = 792;
-        let previous_timestamp_2_s = 187_100_000;
-        let new_payable_timestamp_2 = from_unix_timestamp(191_333_000);
-        let wallet_2 = make_wallet("booble bobble");
-        {
+        let now = SystemTime::now();
+        let (account_1, account_2) = [
+            TestInputs {
+                hash: make_tx_hash(12345),
+                previous_timestamp: now.checked_sub(Duration::from_secs(45_000)).unwrap(),
+                new_payable_timestamp: now.checked_sub(Duration::from_secs(2)).unwrap(),
+                receiver_wallet: make_wallet("bobbles").address(),
+                initial_amount_wei: initial_amount_1,
+                balance_change: balance_change_1,
+            },
+            TestInputs {
+                hash: make_tx_hash(54321),
+                previous_timestamp: now.checked_sub(Duration::from_secs(22_000)).unwrap(),
+                new_payable_timestamp: now.checked_sub(Duration::from_secs(2)).unwrap(),
+                receiver_wallet: make_wallet("yet more bobbles").address(),
+                initial_amount_wei: initial_amount_2,
+                balance_change: balance_change_2,
+            },
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(idx, test_inputs)| {
             insert_payable_record_fn(
                 conn,
-                &wallet_1.to_string(),
-                i128::try_from(initial_amount_1).unwrap(),
-                previous_timestamp_1_s,
-                Some(rowid_1 as i64),
+                &format!("{:?}", test_inputs.receiver_wallet),
+                i128::try_from(test_inputs.initial_amount_wei).unwrap(),
+                to_unix_timestamp(test_inputs.previous_timestamp),
+                // TODO argument will be eliminated in GH-662
+                None,
             );
-            insert_payable_record_fn(
-                conn,
-                &wallet_2.to_string(),
-                i128::try_from(initial_amount_2).unwrap(),
-                previous_timestamp_2_s,
-                Some(rowid_2 as i64),
-            )
-        }
-        let fingerprint_1 = PendingPayableFingerprint {
-            rowid: rowid_1,
-            timestamp: new_payable_timestamp_1,
-            hash: hash_1,
-            attempt: 1,
-            amount: balance_change_1,
-            process_error: None,
-        };
-        let fingerprint_2 = PendingPayableFingerprint {
-            rowid: rowid_2,
-            timestamp: new_payable_timestamp_2,
-            hash: hash_2,
-            attempt: 1,
-            amount: balance_change_2,
-            process_error: None,
-        };
-        let previous_timestamp_1 = from_unix_timestamp(previous_timestamp_1_s);
-        let previous_timestamp_2 = from_unix_timestamp(previous_timestamp_2_s);
+            let mut sent_tx = make_sent_tx((idx as u32 + 1) * 1234);
+            sent_tx.hash = test_inputs.hash;
+            sent_tx.amount_minor = test_inputs.balance_change;
+            sent_tx.receiver_address = test_inputs.receiver_wallet;
+            sent_tx.timestamp = to_unix_timestamp(test_inputs.new_payable_timestamp);
+            sent_tx.amount_minor = test_inputs.balance_change;
+
+            TxWalletAndTimestamp {
+                pending_payable: sent_tx,
+                previous_timestamp: test_inputs.previous_timestamp,
+            }
+        })
+        .collect_tuple()
+        .unwrap();
+
         TestSetupValuesHolder {
-            fingerprint_1,
-            fingerprint_2,
-            wallet_1,
-            wallet_2,
-            previous_timestamp_1,
-            previous_timestamp_2,
+            account_1,
+            account_2,
         }
     }
 
@@ -1007,7 +1002,7 @@ mod tests {
         //initial (1, 9999)
         let initial_changing_end_resulting_values = (initial, 11111, initial as u128 - 11111);
         //change (-1, abs(i64::MIN) - 11111)
-        transaction_confirmed_works(
+        test_transaction_confirmed_works(
             "transaction_confirmed_works_without_overflow",
             initial_changing_end_resulting_values,
         )
@@ -1020,77 +1015,80 @@ mod tests {
         //initial (0, 10000)
         //change (-1, abs(i64::MIN) - 111)
         //10000 + (abs(i64::MIN) - 111) > i64::MAX -> overflow
-        transaction_confirmed_works(
+        test_transaction_confirmed_works(
             "transaction_confirmed_works_hitting_overflow",
             initial_changing_end_resulting_values,
         )
     }
 
-    fn transaction_confirmed_works(
+    fn test_transaction_confirmed_works(
         test_name: &str,
         (initial_amount_1, balance_change_1, expected_balance_after_1): (u128, u128, u128),
     ) {
         let home_dir = ensure_node_home_directory_exists("payable_dao", test_name);
-        //a hardcoded set that just makes a complement to the crucial, supplied one; this points to the ability of
-        //handling multiple transactions together
+        // A hardcoded set that just makes a complement to the crucial, supplied first one; this
+        // shows the ability to handle multiple transactions together
         let initial_amount_2 = 5_678_901;
         let balance_change_2 = 678_902;
         let expected_balance_after_2 = 4_999_999;
         let boxed_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let setup_holder = make_fingerprint_pair_and_insert_initial_payable_records(
+        let setup_holder = insert_initial_payable_records_and_return_sent_txs(
             boxed_conn.as_ref(),
-            initial_amount_1,
-            initial_amount_2,
-            balance_change_1,
-            balance_change_2,
+            (initial_amount_1, balance_change_1),
+            (initial_amount_2, balance_change_2),
         );
         let subject = PayableDaoReal::new(boxed_conn);
-        let status_1_before_opt = subject.account_status(&setup_holder.wallet_1);
-        let status_2_before_opt = subject.account_status(&setup_holder.wallet_2);
+        let wallet_1 = Wallet::from(setup_holder.account_1.pending_payable.receiver_address);
+        let wallet_2 = Wallet::from(setup_holder.account_2.pending_payable.receiver_address);
+        let status_1_before_opt = subject.account_status(&wallet_1);
+        let status_2_before_opt = subject.account_status(&wallet_2);
 
         let result = subject.transactions_confirmed(&[
-            setup_holder.fingerprint_1.clone(),
-            setup_holder.fingerprint_2.clone(),
+            setup_holder.account_1.pending_payable.clone(),
+            setup_holder.account_2.pending_payable.clone(),
         ]);
 
         assert_eq!(result, Ok(()));
+        let expected_last_paid_timestamp_1 =
+            from_unix_timestamp(to_unix_timestamp(setup_holder.account_1.previous_timestamp));
+        let expected_last_paid_timestamp_2 =
+            from_unix_timestamp(to_unix_timestamp(setup_holder.account_2.previous_timestamp));
+        // TODO yes these pending_payable_opt values are unsensible now but it will eventually be all cleaned up with GH-662
         let expected_status_before_1 = PayableAccount {
-            wallet: setup_holder.wallet_1.clone(),
+            wallet: wallet_1.clone(),
             balance_wei: initial_amount_1,
-            last_paid_timestamp: setup_holder.previous_timestamp_1,
-            pending_payable_opt: Some(PendingPayableId::new(
-                setup_holder.fingerprint_1.rowid,
-                H256::from_uint(&U256::from(0)),
-            )), //hash is just garbage
+            last_paid_timestamp: expected_last_paid_timestamp_1,
+            pending_payable_opt: None,
         };
         let expected_status_before_2 = PayableAccount {
-            wallet: setup_holder.wallet_2.clone(),
+            wallet: wallet_2.clone(),
             balance_wei: initial_amount_2,
-            last_paid_timestamp: setup_holder.previous_timestamp_2,
-            pending_payable_opt: Some(PendingPayableId::new(
-                setup_holder.fingerprint_2.rowid,
-                H256::from_uint(&U256::from(0)),
-            )), //hash is just garbage
+            last_paid_timestamp: expected_last_paid_timestamp_2,
+            pending_payable_opt: None,
         };
         let expected_resulting_status_1 = PayableAccount {
-            wallet: setup_holder.wallet_1.clone(),
+            wallet: wallet_1.clone(),
             balance_wei: expected_balance_after_1,
-            last_paid_timestamp: setup_holder.fingerprint_1.timestamp,
+            last_paid_timestamp: from_unix_timestamp(
+                setup_holder.account_1.pending_payable.timestamp,
+            ),
             pending_payable_opt: None,
         };
         let expected_resulting_status_2 = PayableAccount {
-            wallet: setup_holder.wallet_2.clone(),
+            wallet: wallet_2.clone(),
             balance_wei: expected_balance_after_2,
-            last_paid_timestamp: setup_holder.fingerprint_2.timestamp,
+            last_paid_timestamp: from_unix_timestamp(
+                setup_holder.account_2.pending_payable.timestamp,
+            ),
             pending_payable_opt: None,
         };
         assert_eq!(status_1_before_opt, Some(expected_status_before_1));
         assert_eq!(status_2_before_opt, Some(expected_status_before_2));
-        let resulting_account_1_opt = subject.account_status(&setup_holder.wallet_1);
+        let resulting_account_1_opt = subject.account_status(&wallet_1);
         assert_eq!(resulting_account_1_opt, Some(expected_resulting_status_1));
-        let resulting_account_2_opt = subject.account_status(&setup_holder.wallet_2);
+        let resulting_account_2_opt = subject.account_status(&wallet_2);
         assert_eq!(resulting_account_2_opt, Some(expected_resulting_status_2))
     }
 
@@ -1102,22 +1100,20 @@ mod tests {
         );
         let conn = payable_read_only_conn(&home_dir);
         let conn_wrapped = Box::new(ConnectionWrapperReal::new(conn));
-        let mut pending_payable_fingerprint = make_pending_payable_fingerprint();
-        let hash = make_tx_hash(12345);
-        let rowid = 789;
-        pending_payable_fingerprint.hash = hash;
-        pending_payable_fingerprint.rowid = rowid;
+        let mut confirmed_transaction = make_sent_tx(5);
+        confirmed_transaction.amount_minor = 12345;
+        let wallet_address = confirmed_transaction.receiver_address;
         let subject = PayableDaoReal::new(conn_wrapped);
 
-        let result = subject.transactions_confirmed(&[pending_payable_fingerprint]);
+        let result = subject.transactions_confirmed(&[confirmed_transaction]);
 
         assert_eq!(
             result,
-            Err(PayableDaoError::RusqliteError(
+            Err(PayableDaoError::RusqliteError(format!(
                 "Error from invalid update command for payable table and change of -12345 wei to \
-                 'pending_payable_rowid = 789' with error 'attempt to write a readonly database'"
-                    .to_string()
-            ))
+                 'wallet_address = {:?}' with error 'attempt to write a readonly database'",
+                wallet_address
+            )))
         )
     }
 
@@ -1125,26 +1121,21 @@ mod tests {
     #[should_panic(
         expected = "Overflow detected with 340282366920938463463374607431768211455: cannot be converted from u128 to i128"
     )]
-    fn transaction_confirmed_works_for_overflow_from_amount_stored_in_pending_payable_fingerprint()
-    {
+    fn transaction_confirmed_works_for_overflow_from_sent_tx_record() {
         let home_dir = ensure_node_home_directory_exists(
             "payable_dao",
-            "transaction_confirmed_works_for_overflow_from_amount_stored_in_pending_payable_fingerprint",
+            "transaction_confirmed_works_for_overflow_from_sent_tx_record",
         );
         let subject = PayableDaoReal::new(
             DbInitializerReal::default()
                 .initialize(&home_dir, DbInitializationConfig::test_default())
                 .unwrap(),
         );
-        let mut pending_payable_fingerprint = make_pending_payable_fingerprint();
-        let hash = make_tx_hash(12345);
-        let rowid = 789;
-        pending_payable_fingerprint.hash = hash;
-        pending_payable_fingerprint.rowid = rowid;
-        pending_payable_fingerprint.amount = u128::MAX;
+        let mut sent_tx = make_sent_tx(456);
+        sent_tx.amount_minor = u128::MAX;
         //The overflow occurs before we start modifying the payable account so we can have the database empty
 
-        let _ = subject.transactions_confirmed(&[pending_payable_fingerprint]);
+        let _ = subject.transactions_confirmed(&[sent_tx]);
     }
 
     #[test]
@@ -1156,38 +1147,37 @@ mod tests {
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let setup_holder = make_fingerprint_pair_and_insert_initial_payable_records(
+        let setup_holder = insert_initial_payable_records_and_return_sent_txs(
             conn.as_ref(),
-            1_111_111,
-            2_222_222,
-            111_111,
-            222_222,
+            (1_111_111, 111_111),
+            (2_222_222, 222_222),
         );
+        let wallet_1 = Wallet::from(setup_holder.account_1.pending_payable.receiver_address);
+        let wallet_2 = Wallet::from(setup_holder.account_2.pending_payable.receiver_address);
         conn.prepare("delete from payable where wallet_address = ?")
             .unwrap()
-            .execute(&[&setup_holder.wallet_2])
+            .execute(&[&wallet_2.to_string()])
             .unwrap();
         let subject = PayableDaoReal::new(conn);
-        let expected_account = PayableAccount {
-            wallet: setup_holder.wallet_1.clone(),
-            balance_wei: 1_111_111 - setup_holder.fingerprint_1.amount,
-            last_paid_timestamp: setup_holder.fingerprint_1.timestamp,
-            pending_payable_opt: None,
-        };
 
-        let result = subject
-            .transactions_confirmed(&[setup_holder.fingerprint_1, setup_holder.fingerprint_2]);
+        let result = subject.transactions_confirmed(&[
+            setup_holder.account_1.pending_payable,
+            setup_holder.account_2.pending_payable,
+        ]);
 
+        let expected_err_msg = format!(
+            "Expected 1 row to be changed for the unique key \
+                {} but got this count: 0",
+            wallet_2
+        );
         assert_eq!(
             result,
-            Err(PayableDaoError::RusqliteError(
-                "Expected 1 row to be changed for the unique key 792 but got this count: 0"
-                    .to_string()
-            ))
+            Err(PayableDaoError::RusqliteError(expected_err_msg))
         );
-        let account_1_opt = subject.account_status(&setup_holder.wallet_1);
-        assert_eq!(account_1_opt, Some(expected_account));
-        let account_2_opt = subject.account_status(&setup_holder.wallet_2);
+        let expected_resulting_balance_1 = 1_111_111 - 111_111;
+        let account_1 = subject.account_status(&wallet_1).unwrap();
+        assert_eq!(account_1.balance_wei, expected_resulting_balance_1);
+        let account_2_opt = subject.account_status(&wallet_2);
         assert_eq!(account_2_opt, None);
     }
 
@@ -1259,10 +1249,10 @@ mod tests {
     }
 
     #[test]
-    fn retrieve_payables_should_return_payables_with_no_pending_transaction_by_addresses() {
+    fn retrieve_payables_should_return_payables_by_addresses() {
         let home_dir = ensure_node_home_directory_exists(
             "payable_dao",
-            "retrieve_payables_should_return_payables_with_no_pending_transaction_by_addresses",
+            "retrieve_payables_should_return_payables_by_addresses",
         );
         let subject = PayableDaoReal::new(
             DbInitializerReal::default()
@@ -1396,9 +1386,9 @@ mod tests {
 
     #[test]
     fn custom_query_in_top_records_mode_with_default_ordering() {
-        //Accounts of balances smaller than one gwei don't qualify.
-        //Two accounts differ only in debt's age but not balance which allows to check doubled ordering,
-        //here by balance and then by age.
+        // Accounts of balances smaller than one gwei don't qualify.
+        // Two accounts differ only in the debt age but not the balance which allows to check double
+        // ordering, primarily by balance and then age.
         let now = current_unix_timestamp();
         let main_test_setup = accounts_for_tests_of_top_records(now);
         let subject = custom_query_test_body_for_payable(
@@ -1426,13 +1416,7 @@ mod tests {
                     wallet: Wallet::new("0x5555555555555555555555555555555555555555"),
                     balance_wei: 10_000_000_100,
                     last_paid_timestamp: from_unix_timestamp(now - 86_401),
-                    pending_payable_opt: Some(PendingPayableId::new(
-                        1,
-                        H256::from_str(
-                            "abc4546cce78230a2312e12f3acb78747340456fe5237896666100143abcd223"
-                        )
-                        .unwrap()
-                    ))
+                    pending_payable_opt: None
                 },
                 PayableAccount {
                     wallet: Wallet::new("0x4444444444444444444444444444444444444444"),
@@ -1446,9 +1430,9 @@ mod tests {
 
     #[test]
     fn custom_query_in_top_records_mode_ordered_by_age() {
-        //Accounts of balances smaller than one gwei don't qualify.
-        //Two accounts differ only in balance but not in the debt's age which allows to check doubled ordering,
-        //here by age and then by balance.
+        // Accounts of balances smaller than one gwei don't qualify.
+        // Two accounts differ only in the debt age but not the balance which allows to check double
+        // ordering, primarily by balance and then age.
         let now = current_unix_timestamp();
         let main_test_setup = accounts_for_tests_of_top_records(now);
         let subject = custom_query_test_body_for_payable(
@@ -1470,13 +1454,7 @@ mod tests {
                     wallet: Wallet::new("0x5555555555555555555555555555555555555555"),
                     balance_wei: 10_000_000_100,
                     last_paid_timestamp: from_unix_timestamp(now - 86_401),
-                    pending_payable_opt: Some(PendingPayableId::new(
-                        1,
-                        H256::from_str(
-                            "abc4546cce78230a2312e12f3acb78747340456fe5237896666100143abcd223"
-                        )
-                        .unwrap()
-                    ))
+                    pending_payable_opt: None
                 },
                 PayableAccount {
                     wallet: Wallet::new("0x1111111111111111111111111111111111111111"),
@@ -1515,8 +1493,8 @@ mod tests {
 
     #[test]
     fn custom_query_in_range_mode() {
-        //Two accounts differ only in debt's age but not balance which allows to check doubled ordering,
-        //by balance and then by age.
+        // Two accounts differ only in the debt age but not the balance which allows to check double
+        // ordering, primarily by balance and then age.
         let now = current_unix_timestamp();
         let main_setup = |conn: &dyn ConnectionWrapper, insert: InsertPayableHelperFn| {
             insert(
@@ -1600,13 +1578,7 @@ mod tests {
                     wallet: Wallet::new("0x2222222222222222222222222222222222222222"),
                     balance_wei: gwei_to_wei(1_800_456_000_u32),
                     last_paid_timestamp: from_unix_timestamp(now - 55_120),
-                    pending_payable_opt: Some(PendingPayableId::new(
-                        1,
-                        H256::from_str(
-                            "abc4546cce78230a2312e12f3acb78747340456fe5237896666100143abcd223"
-                        )
-                        .unwrap()
-                    ))
+                    pending_payable_opt: None
                 }
             ]
         );
@@ -1772,19 +1744,6 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         main_setup_fn(conn.as_ref(), &insert_payable_record_fn);
-
-        let pending_payable_account: &[&dyn ToSql] = &[
-            &String::from("0xabc4546cce78230a2312e12f3acb78747340456fe5237896666100143abcd223"),
-            &40,
-            &478945,
-            &177777777,
-            &1,
-        ];
-        conn
-            .prepare("insert into pending_payable (transaction_hash, amount_high_b, amount_low_b, payable_timestamp, attempt) values (?,?,?,?,?)")
-            .unwrap()
-            .execute(pending_payable_account)
-            .unwrap();
         PayableDaoReal::new(conn)
     }
 

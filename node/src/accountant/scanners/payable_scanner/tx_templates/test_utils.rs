@@ -30,28 +30,28 @@ pub fn make_priced_new_tx_template(n: u64) -> PricedNewTxTemplate {
     }
 }
 
-pub fn make_priced_retry_tx_template(n: u64) -> PricedRetryTxTemplate {
+pub fn make_priced_retry_tx_template(prev_nonce: u64) -> PricedRetryTxTemplate {
     PricedRetryTxTemplate {
-        base: BaseTxTemplate::from(&make_payable_account(n)),
-        prev_nonce: n,
+        base: BaseTxTemplate::from(&make_payable_account(prev_nonce)),
+        prev_nonce,
         computed_gas_price_wei: DEFAULT_GAS_PRICE as u128,
     }
 }
 
-pub fn make_signable_tx_template(n: u64) -> SignableTxTemplate {
+pub fn make_signable_tx_template(nonce: u64) -> SignableTxTemplate {
     SignableTxTemplate {
         receiver_address: make_address(1),
-        amount_in_wei: n as u128 * 1000,
-        gas_price_wei: n as u128 * 100,
-        nonce: n,
+        amount_in_wei: nonce as u128 * 1_000,
+        gas_price_wei: nonce as u128 * 1_000_000,
+        nonce,
     }
 }
 
 pub fn make_retry_tx_template(n: u32) -> RetryTxTemplate {
     RetryTxTemplateBuilder::new()
         .receiver_address(make_address(n))
-        .amount_in_wei(n as u128 * 1000)
-        .prev_gas_price_wei(n as u128 * 100)
+        .amount_in_wei(n as u128 * 1_000)
+        .prev_gas_price_wei(n as u128 * 1_000_000)
         .prev_nonce(n as u64)
         .build()
 }

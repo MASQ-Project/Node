@@ -1,19 +1,14 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::comma_joined_stringifiable;
 use crate::accountant::db_access_objects::failed_payable_dao::{FailedTx, FailureStatus};
 use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDaoError};
-use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
-use crate::accountant::db_access_objects::sent_payable_dao::Tx;
 use crate::accountant::db_access_objects::utils::{ThresholdUtils, TxHash};
 use crate::accountant::db_access_objects::Transaction;
 use crate::accountant::scanners::payable_scanner::msgs::InitialTemplatesMessage;
-use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::NewTxTemplates;
-use crate::accountant::scanners::payable_scanner::tx_templates::initial::retry::RetryTxTemplates;
+use crate::accountant::{join_with_commas, PendingPayable};
 use crate::blockchain::blockchain_interface::data_structures::BatchResults;
 use crate::sub_lib::accountant::PaymentThresholds;
 use crate::sub_lib::wallet::Wallet;
-use bytes::Buf;
 use itertools::{Either, Itertools};
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeToUiMessage;
@@ -24,7 +19,7 @@ use std::time::SystemTime;
 use thousands::Separable;
 use web3::types::{Address, H256};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct PayableScanResult {
     pub ui_response_opt: Option<NodeToUiMessage>,
     pub result: NextScanToRun,
@@ -55,7 +50,7 @@ pub fn generate_status_updates(
         .collect()
 }
 
-pub fn calculate_lengths(batch_results: &BatchResults) -> (usize, usize) {
+pub fn calculate_occurences(batch_results: &BatchResults) -> (usize, usize) {
     (batch_results.sent_txs.len(), batch_results.failed_txs.len())
 }
 
@@ -78,7 +73,7 @@ pub fn initial_templates_msg_stats(msg: &InitialTemplatesMessage) -> String {
 //debugging purposes only
 pub fn investigate_debt_extremes(
     timestamp: SystemTime,
-    all_retrieved_payables: &[PayableAccount],
+    retrieved_payables: &[PayableAccount],
 ) -> String {
     #[derive(Clone, Copy, Default)]
     struct PayableInfo {
@@ -112,10 +107,10 @@ pub fn investigate_debt_extremes(
         }
     }
 
-    if all_retrieved_payables.is_empty() {
+    if retrieved_payables.is_empty() {
         return "Payable scan found no debts".to_string();
     }
-    let (biggest, oldest) = all_retrieved_payables
+    let (biggest, oldest) = retrieved_payables
         .iter()
         .map(|payable| PayableInfo {
             balance_wei: payable.balance_wei,
@@ -134,7 +129,7 @@ pub fn investigate_debt_extremes(
             },
         );
     format!("Payable scan found {} debts; the biggest is {} owed for {}sec, the oldest is {} owed for {}sec",
-                all_retrieved_payables.len(), biggest.balance_wei, biggest.age,
+                retrieved_payables.len(), biggest.balance_wei, biggest.age,
                 oldest.balance_wei, oldest.age)
 }
 
@@ -151,7 +146,7 @@ pub fn payables_debug_summary(qualified_accounts: &[(PayableAccount, u128)], log
                     .duration_since(payable.last_paid_timestamp)
                     .expect("Payable time is corrupt");
                 format!(
-                    "{} wei owed for {} sec exceeds threshold: {} wei; creditor: {}",
+                    "{} wei owed for {} sec exceeds the threshold {} wei for creditor {}",
                     payable.balance_wei.separate_with_commas(),
                     p_age.as_secs(),
                     threshold_point.separate_with_commas(),
@@ -160,6 +155,18 @@ pub fn payables_debug_summary(qualified_accounts: &[(PayableAccount, u128)], log
             })
             .join("\n")
     })
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct PendingPayableMissingInDb {
+    pub recipient: Address,
+    pub hash: H256,
+}
+
+impl PendingPayableMissingInDb {
+    pub fn new(recipient: Address, hash: H256) -> Self {
+        PendingPayableMissingInDb { recipient, hash }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -195,7 +202,7 @@ pub fn mark_pending_payable_fatal_error(
     };
     panic!(
         "Unable to create a mark in the payable table for wallets {} due to {:?}",
-        comma_joined_stringifiable(sent_payments, |pending_p| pending_p
+        join_with_commas(sent_payments, |pending_p| pending_p
             .recipient_wallet
             .to_string()),
         error
@@ -383,10 +390,10 @@ mod tests {
         payables_debug_summary(&qualified_payables_and_threshold_points, &logger);
 
         TestLogHandler::new().exists_log_containing("Paying qualified debts:\n\
-                   10,002,000,000,000,000 wei owed for 2678400 sec exceeds threshold: \
-                   10,000,000,001,152,000 wei; creditor: 0x0000000000000000000000000077616c6c657430\n\
-                   999,999,999,000,000,000 wei owed for 86455 sec exceeds threshold: \
-                   999,978,993,055,555,580 wei; creditor: 0x0000000000000000000000000077616c6c657431");
+                   10,002,000,000,000,000 wei owed for 2678400 sec exceeds the threshold \
+                   10,000,000,001,152,000 wei for creditor 0x0000000000000000000000000077616c6c657430\n\
+                   999,999,999,000,000,000 wei owed for 86455 sec exceeds the threshold \
+                   999,978,993,055,555,580 wei for creditor 0x0000000000000000000000000077616c6c657431");
     }
 
     #[test]
@@ -501,65 +508,5 @@ mod tests {
             PayableThresholdsGaugeReal::default().is_innocent_balance(payable_balance, 1000);
 
         assert_eq!(result, false)
-    }
-
-    #[test]
-    fn requires_payments_retry_says_yes() {
-        todo!("complete this test with GH-604")
-        // let cases = vec![
-        //     PendingPayableScanReport {
-        //         still_pending: vec![PendingPayableId::new(12, make_tx_hash(456))],
-        //         failures: vec![],
-        //         confirmed: vec![],
-        //     },
-        //     PendingPayableScanReport {
-        //         still_pending: vec![],
-        //         failures: vec![PendingPayableId::new(456, make_tx_hash(1234))],
-        //         confirmed: vec![],
-        //     },
-        //     PendingPayableScanReport {
-        //         still_pending: vec![PendingPayableId::new(12, make_tx_hash(456))],
-        //         failures: vec![PendingPayableId::new(456, make_tx_hash(1234))],
-        //         confirmed: vec![],
-        //     },
-        //     PendingPayableScanReport {
-        //         still_pending: vec![PendingPayableId::new(12, make_tx_hash(456))],
-        //         failures: vec![PendingPayableId::new(456, make_tx_hash(1234))],
-        //         confirmed: vec![make_pending_payable_fingerprint()],
-        //     },
-        //     PendingPayableScanReport {
-        //         still_pending: vec![PendingPayableId::new(12, make_tx_hash(456))],
-        //         failures: vec![],
-        //         confirmed: vec![make_pending_payable_fingerprint()],
-        //     },
-        //     PendingPayableScanReport {
-        //         still_pending: vec![],
-        //         failures: vec![PendingPayableId::new(456, make_tx_hash(1234))],
-        //         confirmed: vec![make_pending_payable_fingerprint()],
-        //     },
-        // ];
-        //
-        // cases.into_iter().enumerate().for_each(|(idx, case)| {
-        //     let result = case.requires_payments_retry();
-        //     assert_eq!(
-        //         result, true,
-        //         "We expected true, but got false for case of idx {}",
-        //         idx
-        //     )
-        // })
-    }
-
-    #[test]
-    fn requires_payments_retry_says_no() {
-        todo!("complete this test with GH-604")
-        // let report = PendingPayableScanReport {
-        //     still_pending: vec![],
-        //     failures: vec![],
-        //     confirmed: vec![make_pending_payable_fingerprint()],
-        // };
-        //
-        // let result = report.requires_payments_retry();
-        //
-        // assert_eq!(result, false)
     }
 }

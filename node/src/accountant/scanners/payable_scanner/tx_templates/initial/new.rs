@@ -56,12 +56,7 @@ impl FromIterator<NewTxTemplate> for NewTxTemplates {
 
 impl From<&Vec<PayableAccount>> for NewTxTemplates {
     fn from(payable_accounts: &Vec<PayableAccount>) -> Self {
-        Self(
-            payable_accounts
-                .iter()
-                .map(|payable_account| NewTxTemplate::from(payable_account))
-                .collect(),
-        )
+        Self(payable_accounts.iter().map(NewTxTemplate::from).collect())
     }
 }
 
@@ -213,8 +208,7 @@ mod tests {
             },
         };
 
-        let templates_vec = vec![template1.clone(), template2.clone()];
-        let templates = NewTxTemplates::from_iter(templates_vec.into_iter());
+        let templates = NewTxTemplates::from_iter(vec![template1.clone(), template2.clone()]);
 
         assert_eq!(templates.len(), 2);
         assert_eq!(templates[0], template1);

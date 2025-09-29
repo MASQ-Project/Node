@@ -2,11 +2,13 @@
 #![cfg(test)]
 
 use crate::accountant::db_access_objects::failed_payable_dao::{
-    FailedTx, FailureReason, FailureStatus, ValidationStatus,
+    FailedTx, FailureReason, FailureStatus,
 };
-use crate::accountant::db_access_objects::sent_payable_dao::{Tx, TxStatus};
+use crate::accountant::db_access_objects::sent_payable_dao::{SentTx, TxStatus};
 use crate::accountant::db_access_objects::utils::{current_unix_timestamp, TxHash};
-use crate::blockchain::test_utils::make_tx_hash;
+use crate::accountant::scanners::payable_scanner::tx_templates::signable::SignableTxTemplate;
+use crate::blockchain::errors::validation_status::ValidationStatus;
+use crate::blockchain::test_utils::{make_address, make_tx_hash};
 use crate::database::db_initializer::{
     DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
 };
@@ -51,18 +53,26 @@ impl TxBuilder {
         self
     }
 
+    pub fn template(mut self, signable_tx_template: SignableTxTemplate) -> Self {
+        self.receiver_address_opt = Some(signable_tx_template.receiver_address);
+        self.amount_opt = Some(signable_tx_template.amount_in_wei);
+        self.gas_price_wei_opt = Some(signable_tx_template.gas_price_wei);
+        self.nonce_opt = Some(signable_tx_template.nonce);
+        self
+    }
+
     pub fn status(mut self, status: TxStatus) -> Self {
         self.status_opt = Some(status);
         self
     }
 
-    pub fn build(self) -> Tx {
-        Tx {
+    pub fn build(self) -> SentTx {
+        SentTx {
             hash: self.hash_opt.unwrap_or_default(),
             receiver_address: self.receiver_address_opt.unwrap_or_default(),
-            amount: self.amount_opt.unwrap_or_default(),
+            amount_minor: self.amount_opt.unwrap_or_default(),
             timestamp: self.timestamp_opt.unwrap_or_else(current_unix_timestamp),
-            gas_price_wei: self.gas_price_wei_opt.unwrap_or_default(),
+            gas_price_minor: self.gas_price_wei_opt.unwrap_or_default(),
             nonce: self.nonce_opt.unwrap_or_default(),
             status: self
                 .status_opt
@@ -123,6 +133,14 @@ impl FailedTxBuilder {
         self
     }
 
+    pub fn template(mut self, signable_tx_template: SignableTxTemplate) -> Self {
+        self.receiver_address_opt = Some(signable_tx_template.receiver_address);
+        self.amount_opt = Some(signable_tx_template.amount_in_wei);
+        self.gas_price_wei_opt = Some(signable_tx_template.gas_price_wei);
+        self.nonce_opt = Some(signable_tx_template.nonce);
+        self
+    }
+
     pub fn status(mut self, failure_status: FailureStatus) -> Self {
         self.status_opt = Some(failure_status);
         self
@@ -132,9 +150,9 @@ impl FailedTxBuilder {
         FailedTx {
             hash: self.hash_opt.unwrap_or_default(),
             receiver_address: self.receiver_address_opt.unwrap_or_default(),
-            amount: self.amount_opt.unwrap_or_default(),
+            amount_minor: self.amount_opt.unwrap_or_default(),
             timestamp: self.timestamp_opt.unwrap_or_else(|| 1719990000),
-            gas_price_wei: self.gas_price_wei_opt.unwrap_or_default(),
+            gas_price_minor: self.gas_price_wei_opt.unwrap_or_default(),
             nonce: self.nonce_opt.unwrap_or_default(),
             reason: self
                 .reason_opt
@@ -147,39 +165,53 @@ impl FailedTxBuilder {
 }
 
 pub fn make_failed_tx(n: u32) -> FailedTx {
-    let n = (n * 2) + 1; // Always Odd
+    let n = n % 0xfff;
     FailedTxBuilder::default()
         .hash(make_tx_hash(n))
+        .timestamp(((n * 12) as i64).pow(2))
+        .receiver_address(make_address(n.pow(2)))
+        .gas_price_wei((n as u128).pow(3))
+        .amount((n as u128).pow(4))
         .nonce(n as u64)
         .build()
 }
 
-pub fn make_sent_tx(n: u32) -> Tx {
-    let n = n * 2; // Always Even
+pub fn make_sent_tx(n: u32) -> SentTx {
+    let n = n % 0xfff;
     TxBuilder::default()
         .hash(make_tx_hash(n))
-        .nonce(n as u64)
+        .timestamp(((n * 12) as i64).pow(2))
+        .template(SignableTxTemplate {
+            receiver_address: make_address(n),
+            amount_in_wei: (n as u128).pow(4),
+            gas_price_wei: (n as u128).pow(3),
+            nonce: n as u64,
+        })
         .build()
 }
 
-pub fn assert_on_sent_txs(left: Vec<Tx>, right: Vec<Tx>) {
-    left.iter().zip(right).for_each(|(t1, t2)| {
-        assert_eq!(t1.hash, t2.hash);
-        assert_eq!(t1.receiver_address, t2.receiver_address);
-        assert_eq!(t1.amount, t2.amount);
-        assert_eq!(t1.gas_price_wei, t2.gas_price_wei);
-        assert_eq!(t1.nonce, t2.nonce);
-        assert_eq!(t1.status, t2.status);
-        assert!((t1.timestamp - t2.timestamp).abs() < 10);
+pub fn assert_on_sent_txs(actual: Vec<SentTx>, expected: Vec<SentTx>) {
+    assert_eq!(actual.len(), expected.len());
+
+    actual.iter().zip(expected).for_each(|(st1, st2)| {
+        assert_eq!(st1.hash, st2.hash);
+        assert_eq!(st1.receiver_address, st2.receiver_address);
+        assert_eq!(st1.amount_minor, st2.amount_minor);
+        assert_eq!(st1.gas_price_minor, st2.gas_price_minor);
+        assert_eq!(st1.nonce, st2.nonce);
+        assert_eq!(st1.status, st2.status);
+        assert!((st1.timestamp - st2.timestamp).abs() < 10);
     })
 }
 
-pub fn assert_on_failed_txs(left: Vec<FailedTx>, right: Vec<FailedTx>) {
-    left.iter().zip(right).for_each(|(f1, f2)| {
+pub fn assert_on_failed_txs(actual: Vec<FailedTx>, expected: Vec<FailedTx>) {
+    assert_eq!(actual.len(), expected.len());
+
+    actual.iter().zip(expected).for_each(|(f1, f2)| {
         assert_eq!(f1.hash, f2.hash);
         assert_eq!(f1.receiver_address, f2.receiver_address);
-        assert_eq!(f1.amount, f2.amount);
-        assert_eq!(f1.gas_price_wei, f2.gas_price_wei);
+        assert_eq!(f1.amount_minor, f2.amount_minor);
+        assert_eq!(f1.gas_price_minor, f2.gas_price_minor);
         assert_eq!(f1.nonce, f2.nonce);
         assert_eq!(f1.reason, f2.reason);
         assert_eq!(f1.status, f2.status);

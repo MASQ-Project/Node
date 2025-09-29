@@ -4,7 +4,9 @@ use crate::blockchains::chains::Chain;
 use crate::constants::{
     BASE_GAS_PRICE_CEILING_WEI, BASE_MAINNET_CHAIN_ID, BASE_MAINNET_CONTRACT_CREATION_BLOCK,
     BASE_MAINNET_FULL_IDENTIFIER, BASE_SEPOLIA_CHAIN_ID, BASE_SEPOLIA_CONTRACT_CREATION_BLOCK,
-    BASE_SEPOLIA_FULL_IDENTIFIER, DEV_CHAIN_FULL_IDENTIFIER, DEV_CHAIN_ID,
+    BASE_SEPOLIA_FULL_IDENTIFIER, DEFAULT_PENDING_PAYABLE_INTERVAL_BASE_SEC,
+    DEFAULT_PENDING_PAYABLE_INTERVAL_DEV_SEC, DEFAULT_PENDING_PAYABLE_INTERVAL_ETH_SEC,
+    DEFAULT_PENDING_PAYABLE_INTERVAL_POLYGON_SEC, DEV_CHAIN_FULL_IDENTIFIER, DEV_CHAIN_ID,
     DEV_GAS_PRICE_CEILING_WEI, ETH_GAS_PRICE_CEILING_WEI, ETH_MAINNET_CHAIN_ID,
     ETH_MAINNET_CONTRACT_CREATION_BLOCK, ETH_MAINNET_FULL_IDENTIFIER, ETH_ROPSTEN_CHAIN_ID,
     ETH_ROPSTEN_CONTRACT_CREATION_BLOCK, ETH_ROPSTEN_FULL_IDENTIFIER,
@@ -15,14 +17,13 @@ use crate::constants::{
 };
 use ethereum_types::{Address, H160};
 
-// TODO these should probably be a static (it's a shame that we construct the data every time anew
-// when we ask for the chain specs), and dynamic initialization should be allowed as well
-pub const CHAINS: [BlockchainRecord; 7] = [
+pub static CHAINS: [BlockchainRecord; 7] = [
     BlockchainRecord {
         self_id: Chain::PolyMainnet,
         num_chain_id: POLYGON_MAINNET_CHAIN_ID,
         literal_identifier: POLYGON_MAINNET_FULL_IDENTIFIER,
         gas_price_safe_ceiling_minor: POLYGON_GAS_PRICE_CEILING_WEI,
+        default_pending_payable_interval_sec: DEFAULT_PENDING_PAYABLE_INTERVAL_POLYGON_SEC,
         contract: POLYGON_MAINNET_CONTRACT_ADDRESS,
         contract_creation_block: POLYGON_MAINNET_CONTRACT_CREATION_BLOCK,
     },
@@ -31,6 +32,7 @@ pub const CHAINS: [BlockchainRecord; 7] = [
         num_chain_id: ETH_MAINNET_CHAIN_ID,
         literal_identifier: ETH_MAINNET_FULL_IDENTIFIER,
         gas_price_safe_ceiling_minor: ETH_GAS_PRICE_CEILING_WEI,
+        default_pending_payable_interval_sec: DEFAULT_PENDING_PAYABLE_INTERVAL_ETH_SEC,
         contract: ETH_MAINNET_CONTRACT_ADDRESS,
         contract_creation_block: ETH_MAINNET_CONTRACT_CREATION_BLOCK,
     },
@@ -39,6 +41,7 @@ pub const CHAINS: [BlockchainRecord; 7] = [
         num_chain_id: BASE_MAINNET_CHAIN_ID,
         literal_identifier: BASE_MAINNET_FULL_IDENTIFIER,
         gas_price_safe_ceiling_minor: BASE_GAS_PRICE_CEILING_WEI,
+        default_pending_payable_interval_sec: DEFAULT_PENDING_PAYABLE_INTERVAL_BASE_SEC,
         contract: BASE_MAINNET_CONTRACT_ADDRESS,
         contract_creation_block: BASE_MAINNET_CONTRACT_CREATION_BLOCK,
     },
@@ -47,6 +50,7 @@ pub const CHAINS: [BlockchainRecord; 7] = [
         num_chain_id: BASE_SEPOLIA_CHAIN_ID,
         literal_identifier: BASE_SEPOLIA_FULL_IDENTIFIER,
         gas_price_safe_ceiling_minor: BASE_GAS_PRICE_CEILING_WEI,
+        default_pending_payable_interval_sec: DEFAULT_PENDING_PAYABLE_INTERVAL_BASE_SEC,
         contract: BASE_SEPOLIA_TESTNET_CONTRACT_ADDRESS,
         contract_creation_block: BASE_SEPOLIA_CONTRACT_CREATION_BLOCK,
     },
@@ -55,6 +59,7 @@ pub const CHAINS: [BlockchainRecord; 7] = [
         num_chain_id: POLYGON_AMOY_CHAIN_ID,
         literal_identifier: POLYGON_AMOY_FULL_IDENTIFIER,
         gas_price_safe_ceiling_minor: POLYGON_GAS_PRICE_CEILING_WEI,
+        default_pending_payable_interval_sec: DEFAULT_PENDING_PAYABLE_INTERVAL_POLYGON_SEC,
         contract: POLYGON_AMOY_TESTNET_CONTRACT_ADDRESS,
         contract_creation_block: POLYGON_AMOY_CONTRACT_CREATION_BLOCK,
     },
@@ -63,6 +68,7 @@ pub const CHAINS: [BlockchainRecord; 7] = [
         num_chain_id: ETH_ROPSTEN_CHAIN_ID,
         literal_identifier: ETH_ROPSTEN_FULL_IDENTIFIER,
         gas_price_safe_ceiling_minor: ETH_GAS_PRICE_CEILING_WEI,
+        default_pending_payable_interval_sec: DEFAULT_PENDING_PAYABLE_INTERVAL_ETH_SEC,
         contract: ETH_ROPSTEN_TESTNET_CONTRACT_ADDRESS,
         contract_creation_block: ETH_ROPSTEN_CONTRACT_CREATION_BLOCK,
     },
@@ -71,6 +77,7 @@ pub const CHAINS: [BlockchainRecord; 7] = [
         num_chain_id: DEV_CHAIN_ID,
         literal_identifier: DEV_CHAIN_FULL_IDENTIFIER,
         gas_price_safe_ceiling_minor: DEV_GAS_PRICE_CEILING_WEI,
+        default_pending_payable_interval_sec: DEFAULT_PENDING_PAYABLE_INTERVAL_DEV_SEC,
         contract: MULTINODE_TESTNET_CONTRACT_ADDRESS,
         contract_creation_block: MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK,
     },
@@ -82,6 +89,7 @@ pub struct BlockchainRecord {
     pub num_chain_id: u64,
     pub literal_identifier: &'static str,
     pub gas_price_safe_ceiling_minor: u128,
+    pub default_pending_payable_interval_sec: u64,
     pub contract: Address,
     pub contract_creation_block: u64,
 }
@@ -128,7 +136,11 @@ const POLYGON_MAINNET_CONTRACT_ADDRESS: Address = H160([
 mod tests {
     use super::*;
     use crate::blockchains::chains::chain_from_chain_identifier_opt;
-    use crate::constants::{BASE_MAINNET_CONTRACT_CREATION_BLOCK, WEIS_IN_GWEI};
+    use crate::constants::{
+        BASE_MAINNET_CONTRACT_CREATION_BLOCK, DEFAULT_PENDING_PAYABLE_INTERVAL_BASE_SEC,
+        DEFAULT_PENDING_PAYABLE_INTERVAL_DEV_SEC, DEFAULT_PENDING_PAYABLE_INTERVAL_ETH_SEC,
+        DEFAULT_PENDING_PAYABLE_INTERVAL_POLYGON_SEC, WEIS_IN_GWEI,
+    };
     use std::collections::HashSet;
     use std::iter::FromIterator;
 
@@ -209,6 +221,7 @@ mod tests {
                 self_id: examined_chain,
                 literal_identifier: "eth-mainnet",
                 gas_price_safe_ceiling_minor: 100 * WEIS_IN_GWEI as u128,
+                default_pending_payable_interval_sec: DEFAULT_PENDING_PAYABLE_INTERVAL_ETH_SEC,
                 contract: ETH_MAINNET_CONTRACT_ADDRESS,
                 contract_creation_block: ETH_MAINNET_CONTRACT_CREATION_BLOCK,
             }
@@ -226,6 +239,7 @@ mod tests {
                 self_id: examined_chain,
                 literal_identifier: "eth-ropsten",
                 gas_price_safe_ceiling_minor: 100 * WEIS_IN_GWEI as u128,
+                default_pending_payable_interval_sec: DEFAULT_PENDING_PAYABLE_INTERVAL_ETH_SEC,
                 contract: ETH_ROPSTEN_TESTNET_CONTRACT_ADDRESS,
                 contract_creation_block: ETH_ROPSTEN_CONTRACT_CREATION_BLOCK,
             }
@@ -243,6 +257,7 @@ mod tests {
                 self_id: examined_chain,
                 literal_identifier: "polygon-mainnet",
                 gas_price_safe_ceiling_minor: 200 * WEIS_IN_GWEI as u128,
+                default_pending_payable_interval_sec: DEFAULT_PENDING_PAYABLE_INTERVAL_POLYGON_SEC,
                 contract: POLYGON_MAINNET_CONTRACT_ADDRESS,
                 contract_creation_block: POLYGON_MAINNET_CONTRACT_CREATION_BLOCK,
             }
@@ -260,6 +275,7 @@ mod tests {
                 self_id: examined_chain,
                 literal_identifier: "polygon-amoy",
                 gas_price_safe_ceiling_minor: 200 * WEIS_IN_GWEI as u128,
+                default_pending_payable_interval_sec: DEFAULT_PENDING_PAYABLE_INTERVAL_POLYGON_SEC,
                 contract: POLYGON_AMOY_TESTNET_CONTRACT_ADDRESS,
                 contract_creation_block: POLYGON_AMOY_CONTRACT_CREATION_BLOCK,
             }
@@ -277,6 +293,7 @@ mod tests {
                 self_id: examined_chain,
                 literal_identifier: "base-mainnet",
                 gas_price_safe_ceiling_minor: 50 * WEIS_IN_GWEI as u128,
+                default_pending_payable_interval_sec: DEFAULT_PENDING_PAYABLE_INTERVAL_BASE_SEC,
                 contract: BASE_MAINNET_CONTRACT_ADDRESS,
                 contract_creation_block: BASE_MAINNET_CONTRACT_CREATION_BLOCK,
             }
@@ -294,6 +311,7 @@ mod tests {
                 self_id: examined_chain,
                 literal_identifier: "base-sepolia",
                 gas_price_safe_ceiling_minor: 50 * WEIS_IN_GWEI as u128,
+                default_pending_payable_interval_sec: DEFAULT_PENDING_PAYABLE_INTERVAL_BASE_SEC,
                 contract: BASE_SEPOLIA_TESTNET_CONTRACT_ADDRESS,
                 contract_creation_block: BASE_SEPOLIA_CONTRACT_CREATION_BLOCK,
             }
@@ -311,6 +329,7 @@ mod tests {
                 self_id: examined_chain,
                 literal_identifier: "dev",
                 gas_price_safe_ceiling_minor: 200 * WEIS_IN_GWEI as u128,
+                default_pending_payable_interval_sec: DEFAULT_PENDING_PAYABLE_INTERVAL_DEV_SEC,
                 contract: MULTINODE_TESTNET_CONTRACT_ADDRESS,
                 contract_creation_block: MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK,
             }

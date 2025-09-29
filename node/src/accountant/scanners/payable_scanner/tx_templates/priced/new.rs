@@ -27,6 +27,7 @@ impl PricedNewTxTemplate {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PricedNewTxTemplates(pub Vec<PricedNewTxTemplate>);
 
+// TODO: GH-703: Consider design changes here
 impl Deref for PricedNewTxTemplates {
     type Target = Vec<PricedNewTxTemplate>;
 
@@ -85,7 +86,7 @@ impl PricedNewTxTemplates {
         ceil: u128,
     ) -> String {
         format!(
-            "The computed gas price {} wei is above the ceil value of {} wei set by the Node.\n\
+            "The computed gas price {} wei is above the ceil value of {} wei computed by this Node.\n\
              Transaction(s) to following receivers are affected:\n\
              {}",
             computed_gas_price_wei.separate_with_commas(),

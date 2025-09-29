@@ -7,11 +7,9 @@ use crate::accountant::scanners::payable_scanner::tx_templates::priced::retry::P
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
-use itertools::{Either, Itertools};
+use itertools::Either;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
-use masq_lib::utils::ExpectValue;
-use thousands::Separable;
 
 #[derive(Debug, Clone)]
 pub struct BlockchainAgentWeb3 {
@@ -322,7 +320,7 @@ mod tests {
             "\n",
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: {test_name}: The computed gas price {} wei is above the ceil value of {} wei set by the Node.\n\
+            "WARN: {test_name}: The computed gas price {} wei is above the ceil value of {} wei computed by this Node.\n\
             Transaction(s) to following receivers are affected:\n\
             {}",
             expected_calculated_surplus_value_wei.separate_with_commas(),
@@ -345,18 +343,16 @@ mod tests {
             (ceiling_gas_price_wei * 100) / (DEFAULT_GAS_PRICE_MARGIN as u128 + 100) + 2;
         let check_value_wei = increase_gas_price_by_margin(rpc_gas_price_wei);
         let template_1 = RetryTxTemplateBuilder::new()
-            .receiver_address(account_1.wallet.address())
-            .amount_in_wei(account_1.balance_wei)
+            .payable_account(&account_1)
             .prev_gas_price_wei(rpc_gas_price_wei - 1)
             .build();
         let template_2 = RetryTxTemplateBuilder::new()
-            .receiver_address(account_2.wallet.address())
-            .amount_in_wei(account_2.balance_wei)
+            .payable_account(&account_2)
             .prev_gas_price_wei(rpc_gas_price_wei - 2)
             .build();
         let retry_tx_templates = vec![template_1, template_2];
         let expected_log_msg = format!(
-            "The computed gas price(s) in wei is above the ceil value of 50,000,000,000 wei set by the Node.\n\
+            "The computed gas price(s) in wei is above the ceil value of 50,000,000,000 wei computed by this Node.\n\
              Transaction(s) to following receivers are affected:\n\
              0x00000000000000000000000077616c6c65743132 with gas price 50,000,000,001\n\
              0x00000000000000000000000077616c6c65743334 with gas price 50,000,000,001"
@@ -392,18 +388,16 @@ mod tests {
         let rpc_gas_price_wei = border_gas_price_wei - 1;
         let check_value_wei = increase_gas_price_by_margin(border_gas_price_wei);
         let template_1 = RetryTxTemplateBuilder::new()
-            .receiver_address(account_1.wallet.address())
-            .amount_in_wei(account_1.balance_wei)
+            .payable_account(&account_1)
             .prev_gas_price_wei(border_gas_price_wei)
             .build();
         let template_2 = RetryTxTemplateBuilder::new()
-            .receiver_address(account_2.wallet.address())
-            .amount_in_wei(account_2.balance_wei)
+            .payable_account(&account_2)
             .prev_gas_price_wei(border_gas_price_wei)
             .build();
         let retry_tx_templates = vec![template_1, template_2];
         let expected_log_msg = format!(
-            "The computed gas price(s) in wei is above the ceil value of 50,000,000,000 wei set by the Node.\n\
+            "The computed gas price(s) in wei is above the ceil value of 50,000,000,000 wei computed by this Node.\n\
              Transaction(s) to following receivers are affected:\n\
              0x00000000000000000000000077616c6c65743132 with gas price 50,000,000,001\n\
              0x00000000000000000000000077616c6c65743334 with gas price 50,000,000,001"
@@ -429,18 +423,16 @@ mod tests {
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
         let template_1 = RetryTxTemplateBuilder::new()
-            .receiver_address(account_1.wallet.address())
-            .amount_in_wei(account_1.balance_wei)
+            .payable_account(&account_1)
             .prev_gas_price_wei(fetched_gas_price_wei - 2)
             .build();
         let template_2 = RetryTxTemplateBuilder::new()
-            .receiver_address(account_2.wallet.address())
-            .amount_in_wei(account_2.balance_wei)
+            .payable_account(&account_2)
             .prev_gas_price_wei(fetched_gas_price_wei - 3)
             .build();
         let retry_tx_templates = vec![template_1, template_2];
         let expected_log_msg = format!(
-            "The computed gas price(s) in wei is above the ceil value of 50,000,000,000 wei set by the Node.\n\
+            "The computed gas price(s) in wei is above the ceil value of 50,000,000,000 wei computed by this Node.\n\
              Transaction(s) to following receivers are affected:\n\
              0x00000000000000000000000077616c6c65743132 with gas price 64,999,999,998\n\
              0x00000000000000000000000077616c6c65743334 with gas price 64,999,999,998"
@@ -463,18 +455,16 @@ mod tests {
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
         let template_1 = RetryTxTemplateBuilder::new()
-            .receiver_address(account_1.wallet.address())
-            .amount_in_wei(account_1.balance_wei)
+            .payable_account(&account_1)
             .prev_gas_price_wei(ceiling_gas_price_wei - 1)
             .build();
         let template_2 = RetryTxTemplateBuilder::new()
-            .receiver_address(account_2.wallet.address())
-            .amount_in_wei(account_2.balance_wei)
+            .payable_account(&account_2)
             .prev_gas_price_wei(ceiling_gas_price_wei - 2)
             .build();
         let retry_tx_templates = vec![template_1, template_2];
         let expected_log_msg = format!(
-            "The computed gas price(s) in wei is above the ceil value of 50,000,000,000 wei set by the Node.\n\
+            "The computed gas price(s) in wei is above the ceil value of 50,000,000,000 wei computed by this Node.\n\
              Transaction(s) to following receivers are affected:\n\
              0x00000000000000000000000077616c6c65743132 with gas price 64,999,999,998\n\
              0x00000000000000000000000077616c6c65743334 with gas price 64,999,999,997"
@@ -500,18 +490,16 @@ mod tests {
         // The values can never go above the ceiling, therefore, we can assume only values even or
         // smaller than that in the previous attempts
         let template_1 = RetryTxTemplateBuilder::new()
-            .receiver_address(account_1.wallet.address())
-            .amount_in_wei(account_1.balance_wei)
+            .payable_account(&account_1)
             .prev_gas_price_wei(ceiling_gas_price_wei)
             .build();
         let template_2 = RetryTxTemplateBuilder::new()
-            .receiver_address(account_2.wallet.address())
-            .amount_in_wei(account_2.balance_wei)
+            .payable_account(&account_2)
             .prev_gas_price_wei(ceiling_gas_price_wei)
             .build();
         let retry_tx_templates = vec![template_1, template_2];
         let expected_log_msg = format!(
-            "The computed gas price(s) in wei is above the ceil value of 50,000,000,000 wei set by the Node.\n\
+            "The computed gas price(s) in wei is above the ceil value of 50,000,000,000 wei computed by this Node.\n\
              Transaction(s) to following receivers are affected:\n\
              0x00000000000000000000000077616c6c65743132 with gas price 650,000,000,000\n\
              0x00000000000000000000000077616c6c65743334 with gas price 650,000,000,000"
@@ -537,7 +525,7 @@ mod tests {
         let consuming_wallet = make_wallet("efg");
         let consuming_wallet_balances = make_zeroed_consuming_wallet_balances();
         let ceiling_gas_price_wei = chain.rec().gas_price_safe_ceiling_minor;
-        let expected_result = match tx_templates.clone() {
+        let expected_result = match &tx_templates {
             Either::Left(new_tx_templates) => Either::Left(PricedNewTxTemplates(
                 new_tx_templates
                     .iter()
