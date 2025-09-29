@@ -86,7 +86,7 @@ impl PricedNewTxTemplates {
         ceil: u128,
     ) -> String {
         format!(
-            "The computed gas price {} wei is above the ceil value of {} wei set by the Node.\n\
+            "The computed gas price {} wei is above the ceil value of {} wei computed by this Node.\n\
              Transaction(s) to following receivers are affected:\n\
              {}",
             computed_gas_price_wei.separate_with_commas(),

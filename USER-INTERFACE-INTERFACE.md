@@ -358,8 +358,8 @@ Another reason the secrets might be missing is that there are not yet any secret
         "exitServiceRate: <number>"
     },
     "scanIntervals": {
-        "pendingPayableSec": <number>,
         "payableSec": <number>,
+        "pendingPayableSec": <number>,
         "receivableSec": <number>
     },
 }
@@ -453,19 +453,20 @@ database password. If you want to know whether the password you have is the corr
 
 * `scanIntervals`: These three intervals describe the length of three different scan cycles running automatically in the
   background since the Node has connected to a qualified neighborhood that consists of neighbors enabling a complete
-  3-hop route. Each parameter can be set independently, but by default are all the same which currently is most desirable
-  for the consistency of service payments to and from your Node. Technically, there doesn't have to be any lower limit 
-  for the minimum of time you can set; two scans of the same sort would never run at the same time but the next one is
+  3-hop route. Each parameter can be set independently. Technically, there doesn't have to be any lower limit for 
+* the minimum of time you can set; two scans of the same sort would never run at the same time but the next one is
   always scheduled not earlier than the end of the previous one. These are ever present values, no matter if the user's
   set any value, because defaults are prepared.
 
-* `pendingPayableSec`: Amount of seconds between two sequential cycles of scanning for payments that are marked as currently
-  pending; the payments were sent to pay our debts, the payable. The purpose of this process is to confirm the status of
-  the pending payment; either the payment transaction was written on blockchain as successful or failed.
-
-* `payableSec`: Amount of seconds between two sequential cycles of scanning aimed to find payable accounts of that meet
+* `payableSec`: Amount of seconds between two sequential cycles of scanning aimed to find payable accounts that meet
   the criteria set by the Payment Thresholds; these accounts are tracked on behalf of our creditors. If they meet the 
   Payment Threshold criteria, our Node will send a debt payment transaction to the creditor in question.
+
+* `pendingPayableSec`: The time elapsed since the last payable transaction was processed. This scan operates 
+  on an irregular schedule and is triggered after new transactions are sent or when failed transactions need  
+  to be replaced. The scanner monitors pending transactions and verifies their blockchain status, determining whether 
+  each payment was successfully recorded or failed. Any failed transaction is automatically resubmitted as soon 
+  as the failure is detected.
 
 * `receivableSec`: Amount of seconds between two sequential cycles of scanning for payments on the blockchain that have
   been sent by our creditors to us, which are credited against receivables recorded for services provided.

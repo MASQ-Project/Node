@@ -1,12 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
-use crate::accountant::{comma_joined_stringifiable, join_with_separator};
+use crate::accountant::join_with_separator;
 use itertools::Either;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use variant_count::VariantCount;
-use web3::types::{Address, H256};
+use web3::types::Address;
 
 const BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED: &str = "Uninitialized blockchain interface. To avoid \
 being delinquency-banned, you should restart the Node with a value for blockchain-service-url";
@@ -38,9 +38,10 @@ pub enum LocalPayableError {
     MissingConsumingWallet,
     GasPriceQueryFailed(BlockchainInterfaceError),
     TransactionID(BlockchainInterfaceError),
-    UnusableWallet(String),
-    Signing(String),
-    Sending(Vec<FailedTx>),
+    Sending {
+        error: String,
+        failed_txs: Vec<FailedTx>,
+    },
     UninitializedInterface,
 }
 
@@ -56,16 +57,11 @@ impl Display for LocalPayableError {
             Self::TransactionID(blockchain_err) => {
                 write!(f, "Transaction id fetching failed: {}", blockchain_err)
             }
-            Self::UnusableWallet(msg) => write!(
+            Self::Sending { error, failed_txs } => write!(
                 f,
-                "Unusable wallet for signing payable transactions: \"{}\"",
-                msg
-            ),
-            Self::Signing(msg) => write!(f, "Signing phase: \"{}\"", msg),
-            Self::Sending(failed_txs) => write!(
-                f,
-                "Sending error. Signed and hashed transactions:\n{}",
-                join_with_separator(failed_txs, |failed_tx| format!("{:?}", failed_tx), "\n")
+                "Sending error: \"{}\". Signed and hashed transactions: \"{}\"",
+                error,
+                join_with_separator(failed_txs, |failed_tx| format!("{:?}", failed_tx), ",")
             ),
             Self::UninitializedInterface => {
                 write!(f, "{}", BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED)
@@ -114,13 +110,13 @@ impl Display for BlockchainAgentBuildError {
 
 #[cfg(test)]
 mod tests {
+    use crate::accountant::db_access_objects::test_utils::make_failed_tx;
     use crate::blockchain::blockchain_interface::data_structures::errors::{
         LocalPayableError, BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED,
     };
     use crate::blockchain::blockchain_interface::{
         BlockchainAgentBuildError, BlockchainInterfaceError,
     };
-    use crate::blockchain::test_utils::make_tx_hash;
     use crate::test_utils::make_wallet;
     use masq_lib::utils::{slice_of_strs_to_vec_of_strings, to_string};
 
@@ -172,13 +168,10 @@ mod tests {
                 "Gas halves shut, no drop left".to_string(),
             )),
             LocalPayableError::TransactionID(BlockchainInterfaceError::InvalidResponse),
-            LocalPayableError::UnusableWallet(
-                "This is a LEATHER wallet, not LEDGER wallet, stupid.".to_string(),
-            ),
-            LocalPayableError::Signing(
-                "You cannot sign with just three crosses here, clever boy".to_string(),
-            ),
-            LocalPayableError::Sending(vec![]),
+            LocalPayableError::Sending {
+                error: "Terrible error!!".to_string(),
+                failed_txs: vec![make_failed_tx(456)],
+            },
             LocalPayableError::UninitializedInterface,
         ];
 
@@ -195,12 +188,10 @@ mod tests {
                 "Missing consuming wallet to pay payable from",
                 "Unsuccessful gas price query: \"Blockchain error: Query failed: Gas halves shut, no drop left\"",
                 "Transaction id fetching failed: Blockchain error: Invalid response",
-                "Unusable wallet for signing payable transactions: \"This is a LEATHER wallet, not \
-                LEDGER wallet, stupid.\"",
-                "Signing phase: \"You cannot sign with just three crosses here, clever boy\"",
-                "Sending phase: \"Sending to cosmos belongs elsewhere\". Signed and hashed \
-                transactions: 0x000000000000000000000000000000000000000000000000000000000000006f, \
-                0x00000000000000000000000000000000000000000000000000000000000000de",
+                "Sending error: \"Terrible error!!\". Signed and hashed transactions: \"FailedTx { hash: 0x00000000000000\
+                000000000000000000000000000000000000000000000001c8, receiver_address: 0x00000000000\
+                00000002556000000002556000000, amount_minor: 43237380096, timestamp: 29942784, gas_\
+                price_minor: 94818816, nonce: 456, reason: PendingTooLong, status: RetryRequired }\"",
                 BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED
             ])
         )

@@ -1,17 +1,16 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::db_access_objects::sent_payable_dao::Tx;
+use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
 use crate::accountant::db_access_objects::utils::{
     sql_values_of_failed_tx, DaoFactoryReal, TxHash, TxIdentifiers, VigilantRusqliteFlatten,
 };
 use crate::accountant::db_access_objects::Transaction;
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
-use crate::accountant::{checked_conversion, join_with_separator};
+use crate::accountant::{join_with_commas, join_with_separator};
 use crate::blockchain::errors::rpc_errors::{AppRpcError, AppRpcErrorKind};
-use crate::blockchain::errors::validation_status::PreviousAttempts;
+use crate::blockchain::errors::validation_status::ValidationStatus;
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use masq_lib::utils::ExpectValue;
 use serde_derive::{Deserialize, Serialize};
-use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -27,9 +26,9 @@ pub enum FailedPayableDaoError {
     SqlExecutionFailed(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum FailureReason {
-    Submission(AppRpcError),
+    Submission(AppRpcErrorKind),
     Reverted,
     PendingTooLong,
 }
@@ -52,7 +51,7 @@ impl FromStr for FailureReason {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord)]
 pub enum FailureStatus {
     RetryRequired,
     RecheckRequired(ValidationStatus),
@@ -76,19 +75,13 @@ impl FromStr for FailureStatus {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
-pub enum ValidationStatus {
-    Waiting,
-    Reattempting(PreviousAttempts),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FailedTx {
     pub hash: TxHash,
     pub receiver_address: Address,
-    pub amount: u128,
+    pub amount_minor: u128,
     pub timestamp: i64,
-    pub gas_price_wei: u128,
+    pub gas_price_minor: u128,
     pub nonce: u64,
     pub reason: FailureReason,
     pub status: FailureStatus,
@@ -104,7 +97,7 @@ impl Transaction for FailedTx {
     }
 
     fn amount(&self) -> u128 {
-        self.amount
+        self.amount_minor
     }
 
     fn timestamp(&self) -> i64 {
@@ -112,7 +105,7 @@ impl Transaction for FailedTx {
     }
 
     fn gas_price_wei(&self) -> u128 {
-        self.gas_price_wei
+        self.gas_price_minor
     }
 
     fn nonce(&self) -> u64 {
@@ -124,34 +117,18 @@ impl Transaction for FailedTx {
     }
 }
 
-// PartialOrd and Ord are used to create BTreeSet
-impl PartialOrd for FailedTx {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for FailedTx {
-    fn cmp(&self, other: &Self) -> Ordering {
-        // Descending Order
-        other
-            .timestamp
-            .cmp(&self.timestamp)
-            .then_with(|| other.nonce.cmp(&self.nonce))
-            .then_with(|| other.amount.cmp(&self.amount))
-    }
-}
-
-impl From<(&Tx, &Web3Error)> for FailedTx {
-    fn from((sent_tx, error): (&Tx, &Web3Error)) -> Self {
+impl From<(&SentTx, &Web3Error)> for FailedTx {
+    fn from((sent_tx, error): (&SentTx, &Web3Error)) -> Self {
+        let app_rpc_error = AppRpcError::from(error.clone());
+        let error_kind = AppRpcErrorKind::from(&app_rpc_error);
         Self {
             hash: sent_tx.hash,
             receiver_address: sent_tx.receiver_address,
-            amount: sent_tx.amount,
+            amount_minor: sent_tx.amount_minor,
             timestamp: sent_tx.timestamp,
-            gas_price_wei: sent_tx.gas_price_wei,
+            gas_price_minor: sent_tx.gas_price_minor,
             nonce: sent_tx.nonce,
-            reason: FailureReason::Submission(error.clone().into()),
+            reason: FailureReason::Submission(error_kind),
             status: FailureStatus::RetryRequired,
         }
     }
@@ -159,13 +136,22 @@ impl From<(&Tx, &Web3Error)> for FailedTx {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FailureRetrieveCondition {
+    ByTxHash(Vec<TxHash>),
     ByStatus(FailureStatus),
     ByReceiverAddresses(BTreeSet<Address>),
+    EveryRecheckRequiredRecord,
 }
 
 impl Display for FailureRetrieveCondition {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            FailureRetrieveCondition::ByTxHash(hashes) => {
+                write!(
+                    f,
+                    "WHERE tx_hash IN ({})",
+                    join_with_commas(hashes, |hash| format!("'{:?}'", hash))
+                )
+            }
             FailureRetrieveCondition::ByStatus(status) => {
                 write!(f, "WHERE status = '{}'", status)
             }
@@ -173,8 +159,11 @@ impl Display for FailureRetrieveCondition {
                 write!(
                     f,
                     "WHERE receiver_address IN ({})",
-                    join_with_separator(addresses, |address| format!("'{:?}'", address), ", ")
+                    join_with_commas(addresses, |address| format!("'{:?}'", address))
                 )
+            }
+            FailureRetrieveCondition::EveryRecheckRequiredRecord => {
+                write!(f, "WHERE status LIKE 'RecheckRequired%'")
             }
         }
     }
@@ -182,12 +171,14 @@ impl Display for FailureRetrieveCondition {
 
 pub trait FailedPayableDao {
     fn get_tx_identifiers(&self, hashes: &BTreeSet<TxHash>) -> TxIdentifiers;
+    //TODO potentially atomically
     fn insert_new_records(&self, txs: &BTreeSet<FailedTx>) -> Result<(), FailedPayableDaoError>;
     fn retrieve_txs(&self, condition: Option<FailureRetrieveCondition>) -> BTreeSet<FailedTx>;
     fn update_statuses(
         &self,
-        status_updates: HashMap<TxHash, FailureStatus>,
+        status_updates: &HashMap<TxHash, FailureStatus>,
     ) -> Result<(), FailedPayableDaoError>;
+    //TODO potentially atomically
     fn delete_records(&self, hashes: &BTreeSet<TxHash>) -> Result<(), FailedPayableDaoError>;
 }
 
@@ -206,7 +197,7 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
     fn get_tx_identifiers(&self, hashes: &BTreeSet<TxHash>) -> TxIdentifiers {
         let sql = format!(
             "SELECT tx_hash, rowid FROM failed_payable WHERE tx_hash IN ({})",
-            join_with_separator(hashes, |hash| format!("'{:?}'", hash), ", ")
+            join_with_commas(hashes, |hash| format!("'{:?}'", hash))
         );
 
         let mut stmt = self
@@ -260,7 +251,7 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
              reason, \
              status
              ) VALUES {}",
-            join_with_separator(txs, |tx| sql_values_of_failed_tx(tx), ", ")
+            join_with_commas(txs, |tx| sql_values_of_failed_tx(tx))
         );
 
         match self.conn.prepare(&sql).expect("Internal error").execute([]) {
@@ -310,11 +301,11 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
                 Address::from_str(&receiver_address_str[2..]).expect("Failed to parse Address");
             let amount_high_b = row.get(2).expectv("amount_high_b");
             let amount_low_b = row.get(3).expectv("amount_low_b");
-            let amount = BigIntDivider::reconstitute(amount_high_b, amount_low_b) as u128;
+            let amount_minor = BigIntDivider::reconstitute(amount_high_b, amount_low_b) as u128;
             let timestamp = row.get(4).expectv("timestamp");
             let gas_price_wei_high_b = row.get(5).expectv("gas_price_wei_high_b");
             let gas_price_wei_low_b = row.get(6).expectv("gas_price_wei_low_b");
-            let gas_price_wei =
+            let gas_price_minor =
                 BigIntDivider::reconstitute(gas_price_wei_high_b, gas_price_wei_low_b) as u128;
             let nonce = row.get(7).expectv("nonce");
             let reason_str: String = row.get(8).expectv("reason");
@@ -327,9 +318,9 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
             Ok(FailedTx {
                 hash,
                 receiver_address,
-                amount,
+                amount_minor,
                 timestamp,
-                gas_price_wei,
+                gas_price_minor,
                 nonce,
                 reason,
                 status,
@@ -342,19 +333,18 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
 
     fn update_statuses(
         &self,
-        status_updates: HashMap<TxHash, FailureStatus>,
+        status_updates: &HashMap<TxHash, FailureStatus>,
     ) -> Result<(), FailedPayableDaoError> {
         if status_updates.is_empty() {
             return Err(FailedPayableDaoError::EmptyInput);
         }
 
         let case_statements = join_with_separator(
-            &status_updates,
+            status_updates,
             |(hash, status)| format!("WHEN tx_hash = '{:?}' THEN '{}'", hash, status),
             " ",
         );
-        let tx_hashes =
-            join_with_separator(status_updates.keys(), |hash| format!("'{:?}'", hash), ", ");
+        let tx_hashes = join_with_commas(status_updates.keys(), |hash| format!("'{:?}'", hash));
 
         let sql = format!(
             "UPDATE failed_payable \
@@ -388,7 +378,7 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
 
         let sql = format!(
             "DELETE FROM failed_payable WHERE tx_hash IN ({})",
-            join_with_separator(hashes, |hash| { format!("'{:?}'", hash) }, ", ")
+            join_with_commas(hashes, |hash| { format!("'{:?}'", hash) })
         );
 
         match self.conn.prepare(&sql).expect("Internal error").execute([]) {
@@ -430,20 +420,20 @@ mod tests {
     };
     use crate::accountant::db_access_objects::failed_payable_dao::{
         FailedPayableDao, FailedPayableDaoError, FailedPayableDaoReal, FailedTx, FailureReason,
-        FailureRetrieveCondition, FailureStatus, ValidationStatus,
+        FailureRetrieveCondition, FailureStatus,
     };
     use crate::accountant::db_access_objects::test_utils::{
         make_read_only_db_connection, FailedTxBuilder,
     };
     use crate::accountant::db_access_objects::utils::current_unix_timestamp;
     use crate::accountant::db_access_objects::Transaction;
-    use crate::blockchain::errors::rpc_errors::LocalError::Decoder;
-    use crate::blockchain::errors::rpc_errors::{AppRpcError, AppRpcErrorKind};
+    use crate::accountant::scanners::pending_payable_scanner::test_utils::ValidationFailureClockMock;
+    use crate::blockchain::errors::rpc_errors::{AppRpcErrorKind, LocalErrorKind, RemoteErrorKind};
     use crate::blockchain::errors::validation_status::{
-        PreviousAttempts, ValidationFailureClockReal,
+        PreviousAttempts, ValidationFailureClockReal, ValidationStatus,
     };
     use crate::blockchain::errors::BlockchainErrorKind;
-    use crate::blockchain::test_utils::{make_address, make_tx_hash, ValidationFailureClockMock};
+    use crate::blockchain::test_utils::{make_address, make_tx_hash};
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal,
     };
@@ -530,13 +520,13 @@ mod tests {
                 {FailedTx { \
                 hash: 0x000000000000000000000000000000000000000000000000000000000000007b, \
                 receiver_address: 0x0000000000000000000000000000000000000000, \
-                amount: 0, timestamp: 1719990000, gas_price_wei: 0, \
-                nonce: 2, reason: PendingTooLong, status: RecheckRequired(Waiting) }, \
+                amount_minor: 0, timestamp: 1719990000, gas_price_minor: 0, \
+                nonce: 1, reason: PendingTooLong, status: RetryRequired }, \
                 FailedTx { \
                 hash: 0x000000000000000000000000000000000000000000000000000000000000007b, \
                 receiver_address: 0x0000000000000000000000000000000000000000, \
-                amount: 0, timestamp: 1719990000, gas_price_wei: 0, \
-                nonce: 1, reason: PendingTooLong, status: RetryRequired }}"
+                amount_minor: 0, timestamp: 1719990000, gas_price_minor: 0, \
+                nonce: 2, reason: PendingTooLong, status: RecheckRequired(Waiting) }}"
                     .to_string()
             ))
         );
@@ -646,18 +636,40 @@ mod tests {
 
         let result = subject.get_tx_identifiers(&hashset);
 
-        assert_eq!(result.get(&present_hash), Some(&2u64));
+        assert_eq!(result.get(&present_hash), Some(&1u64));
         assert_eq!(result.get(&absent_hash), None);
-        assert_eq!(result.get(&another_present_hash), Some(&1u64));
+        assert_eq!(result.get(&another_present_hash), Some(&2u64));
+    }
+
+    #[test]
+    fn display_for_failure_retrieve_condition_works() {
+        let tx_hash_1 = make_tx_hash(123);
+        let tx_hash_2 = make_tx_hash(456);
+        assert_eq!(FailureRetrieveCondition::ByTxHash(vec![tx_hash_1, tx_hash_2]).to_string(),
+                   "WHERE tx_hash IN ('0x000000000000000000000000000000000000000000000000000000000000007b', \
+                   '0x00000000000000000000000000000000000000000000000000000000000001c8')"
+        );
+        assert_eq!(
+            FailureRetrieveCondition::ByStatus(RetryRequired).to_string(),
+            "WHERE status = '\"RetryRequired\"'"
+        );
+        assert_eq!(
+            FailureRetrieveCondition::ByStatus(RecheckRequired(ValidationStatus::Waiting))
+                .to_string(),
+            "WHERE status = '{\"RecheckRequired\":\"Waiting\"}'"
+        );
+        assert_eq!(
+            FailureRetrieveCondition::EveryRecheckRequiredRecord.to_string(),
+            "WHERE status LIKE 'RecheckRequired%'"
+        );
     }
 
     #[test]
     fn failure_reason_from_str_works() {
         // Submission error
         assert_eq!(
-            FailureReason::from_str(r#"{"Submission":{"Local":{"Decoder":"am i alive?"}}}"#)
-                .unwrap(),
-            FailureReason::Submission(AppRpcError::Local(Decoder("am i alive?".to_string())))
+            FailureReason::from_str(r#"{"Submission":{"Local":"Decoder"}}"#).unwrap(),
+            FailureReason::Submission(AppRpcErrorKind::Local(LocalErrorKind::Decoder))
         );
 
         // Reverted
@@ -705,8 +717,8 @@ mod tests {
         );
 
         assert_eq!(
-            FailureStatus::from_str(r#"{"RecheckRequired":{"Reattempting":{"AppRpc":{"Unreachable":{"firstSeen":{"secs_since_epoch":1755080031,"nanos_since_epoch":612180914},"attempts":1}}}}}"#).unwrap(),
-            FailureStatus::RecheckRequired(ValidationStatus::Reattempting( PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::Unreachable), &validation_failure_clock)))
+            FailureStatus::from_str(r#"{"RecheckRequired":{"Reattempting":[{"error":{"AppRpc":{"Remote":"Unreachable"}},"firstSeen":{"secs_since_epoch":1755080031,"nanos_since_epoch":612180914},"attempts":1}]}}"#).unwrap(),
+            FailureStatus::RecheckRequired(ValidationStatus::Reattempting( PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(RemoteErrorKind::Unreachable)), &validation_failure_clock)))
         );
 
         assert_eq!(
@@ -717,9 +729,8 @@ mod tests {
         // Invalid Variant
         assert_eq!(
             FailureStatus::from_str("\"UnknownStatus\"").unwrap_err(),
-            "unknown variant `UnknownStatus`, \
-            expected one of `RetryRequired`, `RecheckRequired`, `Concluded` \
-            at line 1 column 15 in '\"UnknownStatus\"'"
+            "unknown variant `UnknownStatus`, expected one of `RetryRequired`, `RecheckRequired`, \
+            `Concluded` at line 1 column 15 in '\"UnknownStatus\"'"
         );
 
         // Invalid Input
@@ -738,7 +749,7 @@ mod tests {
         assert_eq!(
             FailureRetrieveCondition::ByReceiverAddresses(BTreeSet::from([make_address(1), make_address(2)]))
                 .to_string(),
-            "WHERE receiver_address IN ('0x0000000000000000000000000000000000000001', '0x0000000000000000000000000000000000000002')"
+            "WHERE receiver_address IN ('0x0000000000000000000003000000000003000000', '0x0000000000000000000006000000000006000000')"
         )
     }
 
@@ -817,7 +828,9 @@ mod tests {
             .reason(PendingTooLong)
             .status(RecheckRequired(ValidationStatus::Reattempting(
                 PreviousAttempts::new(
-                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::Unreachable),
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(
+                        RemoteErrorKind::Unreachable,
+                    )),
                     &ValidationFailureClockReal::default(),
                 ),
             )))
@@ -936,19 +949,25 @@ mod tests {
                 tx4.clone(),
             ]))
             .unwrap();
+        let timestamp = SystemTime::now();
+        let clock = ValidationFailureClockMock::default()
+            .now_result(timestamp)
+            .now_result(timestamp);
         let hashmap = HashMap::from([
             (tx1.hash, Concluded),
             (
                 tx2.hash,
                 RecheckRequired(ValidationStatus::Reattempting(PreviousAttempts::new(
-                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::Unreachable),
-                    &ValidationFailureClockReal::default(),
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(
+                        RemoteErrorKind::Unreachable,
+                    )),
+                    &clock,
                 ))),
             ),
             (tx3.hash, Concluded),
         ]);
 
-        let result = subject.update_statuses(hashmap);
+        let result = subject.update_statuses(&hashmap);
         let updated_txs = subject.retrieve_txs(None);
         let find_tx = |tx_hash| updated_txs.iter().find(|tx| tx.hash == tx_hash).unwrap();
         let updated_tx1 = find_tx(hash1);
@@ -962,8 +981,8 @@ mod tests {
         assert_eq!(
             updated_tx2.status,
             RecheckRequired(ValidationStatus::Reattempting(PreviousAttempts::new(
-                BlockchainErrorKind::AppRpc(AppRpcErrorKind::Unreachable),
-                &ValidationFailureClockReal::default()
+                BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(RemoteErrorKind::Unreachable)),
+                &clock
             )))
         );
         assert_eq!(tx3.status, RetryRequired);
@@ -973,6 +992,7 @@ mod tests {
             updated_tx4.status,
             RecheckRequired(ValidationStatus::Waiting)
         );
+        assert_eq!(updated_txs.len(), 4);
     }
 
     #[test]
@@ -986,7 +1006,7 @@ mod tests {
             .unwrap();
         let subject = FailedPayableDaoReal::new(wrapped_conn);
 
-        let result = subject.update_statuses(HashMap::new());
+        let result = subject.update_statuses(&HashMap::new());
 
         assert_eq!(result, Err(FailedPayableDaoError::EmptyInput));
     }
@@ -1000,7 +1020,7 @@ mod tests {
         let wrapped_conn = make_read_only_db_connection(home_dir);
         let subject = FailedPayableDaoReal::new(Box::new(wrapped_conn));
 
-        let result = subject.update_statuses(HashMap::from([(make_tx_hash(1), Concluded)]));
+        let result = subject.update_statuses(&HashMap::from([(make_tx_hash(1), Concluded)]));
 
         assert_eq!(
             result,
@@ -1132,43 +1152,6 @@ mod tests {
     }
 
     #[test]
-    fn failed_tx_ordering_in_btree_set_works() {
-        let tx1 = FailedTxBuilder::default()
-            .hash(make_tx_hash(1))
-            .timestamp(1000)
-            .nonce(1)
-            .amount(100)
-            .build();
-        let tx2 = FailedTxBuilder::default()
-            .hash(make_tx_hash(2))
-            .timestamp(1000)
-            .nonce(1)
-            .amount(200)
-            .build();
-        let tx3 = FailedTxBuilder::default()
-            .hash(make_tx_hash(3))
-            .timestamp(1000)
-            .nonce(2)
-            .amount(100)
-            .build();
-        let tx4 = FailedTxBuilder::default()
-            .hash(make_tx_hash(4))
-            .timestamp(2000)
-            .nonce(3)
-            .amount(100)
-            .build();
-
-        let mut set = BTreeSet::new();
-        set.insert(tx1.clone());
-        set.insert(tx2.clone());
-        set.insert(tx3.clone());
-        set.insert(tx4.clone());
-
-        let expected_order = vec![tx4, tx3, tx2, tx1];
-        assert_eq!(set.into_iter().collect::<Vec<_>>(), expected_order);
-    }
-
-    #[test]
     fn transaction_trait_methods_for_failed_tx() {
         let hash = make_tx_hash(1);
         let receiver_address = make_address(1);
@@ -1182,9 +1165,9 @@ mod tests {
         let failed_tx = FailedTx {
             hash,
             receiver_address,
-            amount,
+            amount_minor: amount,
             timestamp,
-            gas_price_wei,
+            gas_price_minor: gas_price_wei,
             nonce,
             reason,
             status,

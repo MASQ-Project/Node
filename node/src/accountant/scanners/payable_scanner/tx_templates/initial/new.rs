@@ -56,12 +56,7 @@ impl FromIterator<NewTxTemplate> for NewTxTemplates {
 
 impl From<&Vec<PayableAccount>> for NewTxTemplates {
     fn from(payable_accounts: &Vec<PayableAccount>) -> Self {
-        Self(
-            payable_accounts
-                .iter()
-                .map(|payable_account| NewTxTemplate::from(payable_account))
-                .collect(),
-        )
+        Self(payable_accounts.iter().map(NewTxTemplate::from).collect())
     }
 }
 

@@ -81,7 +81,7 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
 
 fn retrieve_payables(node: &MASQRealNode) -> Vec<PayableAccount> {
     let payable_dao = payable_dao(node.name());
-    payable_dao.retrieve_payables()
+    payable_dao.retrieve_payables(None)
 }
 
 fn receivables(node: &MASQRealNode) -> Vec<ReceivableAccount> {

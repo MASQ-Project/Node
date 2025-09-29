@@ -36,9 +36,12 @@ impl DatabaseMigration for Migrate_10_to_11 {
                 status text not null
             )";
 
+         let sql_statement_for_pending_payable = "drop table pending_payable";
+
         declaration_utils.execute_upon_transaction(&[
             &sql_statement_for_sent_payable,
             &sql_statement_for_failed_payable,
+            &sql_statement_for_pending_payable,
         ])
     }
 
@@ -55,10 +58,7 @@ mod tests {
     use crate::database::test_utils::{
         SQL_ATTRIBUTES_FOR_CREATING_FAILED_PAYABLE, SQL_ATTRIBUTES_FOR_CREATING_SENT_PAYABLE,
     };
-    use crate::test_utils::database_utils::{
-        assert_create_table_stm_contains_all_parts, assert_table_exists,
-        bring_db_0_back_to_life_and_return_connection, make_external_data,
-    };
+    use crate::test_utils::database_utils::{assert_create_table_stm_contains_all_parts, assert_table_does_not_exist, assert_table_exists, bring_db_0_back_to_life_and_return_connection, make_external_data};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use std::fs::create_dir_all;
@@ -103,6 +103,7 @@ mod tests {
             "failed_payable",
             SQL_ATTRIBUTES_FOR_CREATING_FAILED_PAYABLE,
         );
+        assert_table_does_not_exist(connection.as_ref(), "pending_payable");
         TestLogHandler::new().assert_logs_contain_in_order(vec![
             "DbMigrator: Database successfully migrated from version 10 to 11",
         ]);

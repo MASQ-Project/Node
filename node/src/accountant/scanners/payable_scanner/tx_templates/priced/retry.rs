@@ -99,9 +99,9 @@ impl PricedRetryTxTemplates {
             })
             .collect();
 
-        log_builder.build().map(|log_msg| {
-            warning!(logger, "{}", log_msg);
-        });
+        if let Some(log_msg) = log_builder.build() {
+            warning!(logger, "{}", log_msg)
+        }
 
         templates
     }
@@ -150,7 +150,7 @@ impl RetryLogBuilder {
         } else {
             Some(format!(
                 "The computed gas price(s) in wei is \
-                 above the ceil value of {} wei set by the Node.\n\
+                 above the ceil value of {} wei computed by this Node.\n\
                  Transaction(s) to following receivers are affected:\n\
                  {}",
                 self.ceil.separate_with_commas(),

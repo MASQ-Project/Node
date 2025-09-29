@@ -12,34 +12,45 @@ use crate::accountant::db_access_objects::failed_payable_dao::FailureRetrieveCon
 use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::RetryRequired;
 use crate::accountant::db_access_objects::failed_payable_dao::{
     FailedPayableDao, FailedTx, FailureReason, FailureRetrieveCondition, FailureStatus,
-    ValidationStatus,
 };
 use crate::accountant::db_access_objects::payable_dao::PayableRetrieveCondition::ByAddresses;
 use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableDao};
-use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDao, Tx};
+use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDao, SentTx};
+use crate::accountant::db_access_objects::utils::TxHash;
 use crate::accountant::payment_adjuster::PaymentAdjuster;
 use crate::accountant::scanners::payable_scanner::msgs::InitialTemplatesMessage;
 use crate::accountant::scanners::payable_scanner::payment_adjuster_integration::SolvencySensitivePaymentInstructor;
 use crate::accountant::scanners::payable_scanner::utils::{
-    batch_stats, calculate_lengths, filter_receiver_addresses_from_txs, generate_status_updates,
+    batch_stats, calculate_occurences, filter_receiver_addresses_from_txs, generate_status_updates,
     payables_debug_summary, NextScanToRun, PayableScanResult, PayableThresholdsGauge,
-    PayableThresholdsGaugeReal,
+    PayableThresholdsGaugeReal, PendingPayableMissingInDb,
 };
 use crate::accountant::scanners::{Scanner, ScannerCommon, StartableScanner};
 use crate::accountant::{
-    gwei_to_wei, join_with_separator, PayableScanType, ResponseSkeleton, ScanForNewPayables,
-    ScanForRetryPayables, SentPayables,
+    gwei_to_wei, join_with_commas, join_with_separator, PayableScanType, PendingPayable,
+    ResponseSkeleton, ScanForNewPayables, ScanForRetryPayables, SentPayables,
 };
 use crate::blockchain::blockchain_interface::data_structures::BatchResults;
+use crate::blockchain::errors::validation_status::ValidationStatus;
 use crate::sub_lib::accountant::PaymentThresholds;
+use crate::sub_lib::wallet::Wallet;
 use itertools::Itertools;
 use masq_lib::logger::Logger;
 use masq_lib::messages::{ToMessageBody, UiScanResponse};
 use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
+use masq_lib::utils::ExpectValue;
 use std::collections::{BTreeSet, HashMap};
 use std::rc::Rc;
 use std::time::SystemTime;
 use web3::types::Address;
+
+pub(in crate::accountant::scanners) trait MultistageDualPayableScanner:
+    StartableScanner<ScanForNewPayables, InitialTemplatesMessage>
+    + StartableScanner<ScanForRetryPayables, InitialTemplatesMessage>
+    + SolvencySensitivePaymentInstructor
+    + Scanner<SentPayables, PayableScanResult>
+{
+}
 
 pub struct PayableScanner {
     pub payable_threshold_gauge: Box<dyn PayableThresholdsGauge>,
@@ -48,14 +59,6 @@ pub struct PayableScanner {
     pub sent_payable_dao: Box<dyn SentPayableDao>,
     pub failed_payable_dao: Box<dyn FailedPayableDao>,
     pub payment_adjuster: Box<dyn PaymentAdjuster>,
-}
-
-pub(in crate::accountant::scanners) trait MultistageDualPayableScanner:
-    StartableScanner<ScanForNewPayables, InitialTemplatesMessage>
-    + StartableScanner<ScanForRetryPayables, InitialTemplatesMessage>
-    + SolvencySensitivePaymentInstructor
-    + Scanner<SentPayables, PayableScanResult>
-{
 }
 
 impl MultistageDualPayableScanner for PayableScanner {}
@@ -106,7 +109,7 @@ impl PayableScanner {
         }
     }
 
-    pub fn payable_exceeded_threshold(
+    fn payable_exceeded_threshold(
         &self,
         payable: &PayableAccount,
         now: SystemTime,
@@ -140,6 +143,69 @@ impl PayableScanner {
         }
     }
 
+    fn check_for_missing_records(
+        &self,
+        just_baked_sent_payables: &[&PendingPayable],
+    ) -> Vec<PendingPayableMissingInDb> {
+        let actual_sent_payables_len = just_baked_sent_payables.len();
+        let hashset_with_hashes_to_eliminate_duplicates = just_baked_sent_payables
+            .iter()
+            .map(|pending_payable| pending_payable.hash)
+            .collect::<BTreeSet<TxHash>>();
+
+        if hashset_with_hashes_to_eliminate_duplicates.len() != actual_sent_payables_len {
+            panic!(
+                "Found duplicates in the recent sent txs: {:?}",
+                just_baked_sent_payables
+            );
+        }
+
+        let transaction_hashes_and_rowids_from_db = self
+            .sent_payable_dao
+            .get_tx_identifiers(&hashset_with_hashes_to_eliminate_duplicates);
+        let hashes_from_db = transaction_hashes_and_rowids_from_db
+            .keys()
+            .copied()
+            .collect::<BTreeSet<TxHash>>();
+
+        let missing_sent_payables_hashes = hashset_with_hashes_to_eliminate_duplicates
+            .difference(&hashes_from_db)
+            .copied();
+
+        let mut sent_payables_hashmap = just_baked_sent_payables
+            .iter()
+            .map(|payable| (payable.hash, &payable.recipient_wallet))
+            .collect::<HashMap<TxHash, &Wallet>>();
+        missing_sent_payables_hashes
+            .map(|hash| {
+                let wallet_address = sent_payables_hashmap
+                    .remove(&hash)
+                    .expectv("wallet")
+                    .address();
+                PendingPayableMissingInDb::new(wallet_address, hash)
+            })
+            .collect()
+    }
+
+    // TODO this should be used when Utkarsh picks the card GH-701 where he postponed the fix of saving the SentTxs
+    #[allow(dead_code)]
+    fn check_on_missing_sent_tx_records(&self, sent_payments: &[&PendingPayable]) {
+        fn missing_record_msg(nonexistent: &[PendingPayableMissingInDb]) -> String {
+            format!(
+                "Expected sent-payable records for {} were not found. The system has become unreliable",
+                join_with_commas(nonexistent, |missing_sent_tx_ids| format!(
+                    "(tx: {:?}, to wallet: {:?})",
+                    missing_sent_tx_ids.hash, missing_sent_tx_ids.recipient
+                ))
+            )
+        }
+
+        let missing_sent_tx_records = self.check_for_missing_records(sent_payments);
+        if !missing_sent_tx_records.is_empty() {
+            panic!("{}", missing_record_msg(&missing_sent_tx_records))
+        }
+    }
+
     fn determine_next_scan_to_run(msg: &SentPayables) -> NextScanToRun {
         match &msg.payment_procedure_result {
             Ok(batch_results) => {
@@ -163,15 +229,19 @@ impl PayableScanner {
     fn process_message(&self, msg: &SentPayables, logger: &Logger) {
         match &msg.payment_procedure_result {
             Ok(batch_results) => match msg.payable_scan_type {
-                PayableScanType::New => self.handle_new(batch_results, logger),
-                PayableScanType::Retry => self.handle_retry(batch_results, logger),
+                PayableScanType::New => {
+                    self.handle_batch_results_for_new_scan(batch_results, logger)
+                }
+                PayableScanType::Retry => {
+                    self.handle_batch_results_for_retry_scan(batch_results, logger)
+                }
             },
             Err(local_error) => Self::log_local_error(local_error, logger),
         }
     }
 
-    fn handle_new(&self, batch_results: &BatchResults, logger: &Logger) {
-        let (sent, failed) = calculate_lengths(&batch_results);
+    fn handle_batch_results_for_new_scan(&self, batch_results: &BatchResults, logger: &Logger) {
+        let (sent, failed) = calculate_occurences(batch_results);
         debug!(
             logger,
             "Processed new txs while sending to RPC: {}",
@@ -185,8 +255,8 @@ impl PayableScanner {
         }
     }
 
-    fn handle_retry(&self, batch_results: &BatchResults, logger: &Logger) {
-        let (sent, failed) = calculate_lengths(&batch_results);
+    fn handle_batch_results_for_retry_scan(&self, batch_results: &BatchResults, logger: &Logger) {
+        let (sent, failed) = calculate_occurences(batch_results);
         debug!(
             logger,
             "Processed retried txs while sending to RPC: {}",
@@ -203,10 +273,10 @@ impl PayableScanner {
         }
     }
 
-    fn update_statuses_of_prev_txs(&self, sent_txs: &Vec<Tx>) {
+    fn update_statuses_of_prev_txs(&self, sent_txs: &[SentTx]) {
         // TODO: We can do better here, possibly by creating a relationship between failed and sent txs
         // Also, consider the fact that some txs will be with PendingTooLong status, what should we do with them?
-        let retrieved_txs = self.retrieve_failed_txs_by_receiver_addresses(&sent_txs);
+        let retrieved_txs = self.retrieve_failed_txs_by_receiver_addresses(sent_txs);
         let (pending_too_long, other_reasons): (BTreeSet<_>, BTreeSet<_>) = retrieved_txs
             .into_iter()
             .partition(|tx| matches!(tx.reason, FailureReason::PendingTooLong));
@@ -221,7 +291,7 @@ impl PayableScanner {
         }
     }
 
-    fn retrieve_failed_txs_by_receiver_addresses(&self, sent_txs: &Vec<Tx>) -> BTreeSet<FailedTx> {
+    fn retrieve_failed_txs_by_receiver_addresses(&self, sent_txs: &[SentTx]) -> BTreeSet<FailedTx> {
         let receiver_addresses = filter_receiver_addresses_from_txs(sent_txs.iter());
         self.failed_payable_dao
             .retrieve_txs(Some(FailureRetrieveCondition::ByReceiverAddresses(
@@ -232,7 +302,7 @@ impl PayableScanner {
     fn update_failed_txs(&self, failed_txs: &BTreeSet<FailedTx>, status: FailureStatus) {
         let status_updates = generate_status_updates(failed_txs, status);
         self.failed_payable_dao
-            .update_statuses(status_updates)
+            .update_statuses(&status_updates)
             .unwrap_or_else(|e| panic!("Failed to conclude txs in database: {:?}", e));
     }
 
@@ -253,7 +323,7 @@ impl PayableScanner {
         )
     }
 
-    fn insert_records_in_sent_payables(&self, sent_txs: &Vec<Tx>) {
+    fn insert_records_in_sent_payables(&self, sent_txs: &[SentTx]) {
         self.sent_payable_dao
             .insert_new_records(&sent_txs.iter().cloned().collect())
             .unwrap_or_else(|e| {
@@ -264,7 +334,7 @@ impl PayableScanner {
             });
     }
 
-    fn insert_records_in_failed_payables(&self, failed_txs: &Vec<FailedTx>) {
+    fn insert_records_in_failed_payables(&self, failed_txs: &[FailedTx]) {
         self.failed_payable_dao
             .insert_new_records(&failed_txs.iter().cloned().collect())
             .unwrap_or_else(|e| {
@@ -310,12 +380,18 @@ mod tests {
     use crate::accountant::db_access_objects::test_utils::{
         make_failed_tx, make_sent_tx, FailedTxBuilder, TxBuilder,
     };
+    use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp};
     use crate::accountant::scanners::payable_scanner::test_utils::PayableScannerBuilder;
-    use crate::accountant::test_utils::{FailedPayableDaoMock, SentPayableDaoMock};
+    use crate::accountant::test_utils::{
+        make_payable_account, FailedPayableDaoMock, PayableThresholdsGaugeMock, SentPayableDaoMock,
+    };
     use crate::blockchain::test_utils::make_tx_hash;
+    use crate::sub_lib::accountant::DEFAULT_PAYMENT_THRESHOLDS;
+    use crate::test_utils::make_wallet;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Mutex};
+    use std::time::Duration;
 
     #[test]
     fn generate_ui_response_works_correctly() {
@@ -490,6 +566,294 @@ mod tests {
     }
 
     #[test]
+    fn no_missing_records() {
+        let wallet_1 = make_wallet("abc");
+        let hash_1 = make_tx_hash(123);
+        let wallet_2 = make_wallet("def");
+        let hash_2 = make_tx_hash(345);
+        let wallet_3 = make_wallet("ghi");
+        let hash_3 = make_tx_hash(546);
+        let wallet_4 = make_wallet("jkl");
+        let hash_4 = make_tx_hash(678);
+        let pending_payables_owned = vec![
+            PendingPayable::new(wallet_1.clone(), hash_1),
+            PendingPayable::new(wallet_2.clone(), hash_2),
+            PendingPayable::new(wallet_3.clone(), hash_3),
+            PendingPayable::new(wallet_4.clone(), hash_4),
+        ];
+        let pending_payables_ref = pending_payables_owned
+            .iter()
+            .collect::<Vec<&PendingPayable>>();
+        let sent_payable_dao = SentPayableDaoMock::new().get_tx_identifiers_result(
+            hashmap!(hash_4 => 4, hash_1 => 1, hash_3 => 3, hash_2 => 2),
+        );
+        let subject = PayableScannerBuilder::new()
+            .sent_payable_dao(sent_payable_dao)
+            .build();
+
+        let missing_records = subject.check_for_missing_records(&pending_payables_ref);
+
+        assert!(
+            missing_records.is_empty(),
+            "We thought the vec would be empty but contained: {:?}",
+            missing_records
+        );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Found duplicates in the recent sent txs: [PendingPayable { recipient_wallet: \
+        Wallet { kind: Address(0x0000000000000000000000000000000000616263) }, hash: \
+        0x000000000000000000000000000000000000000000000000000000000000007b }, PendingPayable { \
+        recipient_wallet: Wallet { kind: Address(0x0000000000000000000000000000000000646566) }, \
+        hash: 0x00000000000000000000000000000000000000000000000000000000000001c8 }, \
+        PendingPayable { recipient_wallet: Wallet { kind: \
+        Address(0x0000000000000000000000000000000000676869) }, hash: \
+        0x00000000000000000000000000000000000000000000000000000000000001c8 }, PendingPayable { \
+        recipient_wallet: Wallet { kind: Address(0x00000000000000000000000000000000006a6b6c) }, \
+        hash: 0x0000000000000000000000000000000000000000000000000000000000000315 }]"
+    )]
+    fn just_baked_pending_payables_contain_duplicates() {
+        let hash_1 = make_tx_hash(123);
+        let hash_2 = make_tx_hash(456);
+        let hash_3 = make_tx_hash(789);
+        let pending_payables = vec![
+            PendingPayable::new(make_wallet("abc"), hash_1),
+            PendingPayable::new(make_wallet("def"), hash_2),
+            PendingPayable::new(make_wallet("ghi"), hash_2),
+            PendingPayable::new(make_wallet("jkl"), hash_3),
+        ];
+        let pending_payables_ref = pending_payables.iter().collect::<Vec<&PendingPayable>>();
+        let sent_payable_dao = SentPayableDaoMock::new()
+            .get_tx_identifiers_result(hashmap!(hash_1 => 1, hash_2 => 3, hash_3 => 5));
+        let subject = PayableScannerBuilder::new()
+            .sent_payable_dao(sent_payable_dao)
+            .build();
+
+        subject.check_for_missing_records(&pending_payables_ref);
+    }
+
+    #[test]
+    fn payable_is_found_innocent_by_age_and_returns() {
+        let is_innocent_age_params_arc = Arc::new(Mutex::new(vec![]));
+        let payable_thresholds_gauge = PayableThresholdsGaugeMock::default()
+            .is_innocent_age_params(&is_innocent_age_params_arc)
+            .is_innocent_age_result(true);
+        let mut subject = PayableScannerBuilder::new().build();
+        subject.payable_threshold_gauge = Box::new(payable_thresholds_gauge);
+        let now = SystemTime::now();
+        let debt_age_s = 111_222;
+        let last_paid_timestamp = now.checked_sub(Duration::from_secs(debt_age_s)).unwrap();
+        let mut payable = make_payable_account(111);
+        payable.last_paid_timestamp = last_paid_timestamp;
+
+        let result = subject.payable_exceeded_threshold(&payable, now);
+
+        assert_eq!(result, None);
+        let mut is_innocent_age_params = is_innocent_age_params_arc.lock().unwrap();
+        let (debt_age_returned, threshold_value) = is_innocent_age_params.remove(0);
+        assert!(is_innocent_age_params.is_empty());
+        assert_eq!(debt_age_returned, debt_age_s);
+        assert_eq!(
+            threshold_value,
+            DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec
+        )
+        // No panic and so no other method was called, which means an early return
+    }
+
+    #[test]
+    fn payable_is_found_innocent_by_balance_and_returns() {
+        let is_innocent_age_params_arc = Arc::new(Mutex::new(vec![]));
+        let is_innocent_balance_params_arc = Arc::new(Mutex::new(vec![]));
+        let payable_thresholds_gauge = PayableThresholdsGaugeMock::default()
+            .is_innocent_age_params(&is_innocent_age_params_arc)
+            .is_innocent_age_result(false)
+            .is_innocent_balance_params(&is_innocent_balance_params_arc)
+            .is_innocent_balance_result(true);
+        let mut subject = PayableScannerBuilder::new().build();
+        subject.payable_threshold_gauge = Box::new(payable_thresholds_gauge);
+        let now = SystemTime::now();
+        let debt_age_s = 3_456;
+        let last_paid_timestamp = now.checked_sub(Duration::from_secs(debt_age_s)).unwrap();
+        let mut payable = make_payable_account(222);
+        payable.last_paid_timestamp = last_paid_timestamp;
+        payable.balance_wei = 123456;
+
+        let result = subject.payable_exceeded_threshold(&payable, now);
+
+        assert_eq!(result, None);
+        let mut is_innocent_age_params = is_innocent_age_params_arc.lock().unwrap();
+        let (debt_age_returned, _) = is_innocent_age_params.remove(0);
+        assert!(is_innocent_age_params.is_empty());
+        assert_eq!(debt_age_returned, debt_age_s);
+        let is_innocent_balance_params = is_innocent_balance_params_arc.lock().unwrap();
+        assert_eq!(
+            *is_innocent_balance_params,
+            vec![(
+                123456_u128,
+                gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.permanent_debt_allowed_gwei)
+            )]
+        )
+        //no other method was called (absence of panic), and that means we returned early
+    }
+
+    #[test]
+    fn threshold_calculation_depends_on_user_defined_payment_thresholds() {
+        let is_innocent_age_params_arc = Arc::new(Mutex::new(vec![]));
+        let is_innocent_balance_params_arc = Arc::new(Mutex::new(vec![]));
+        let calculate_payable_threshold_params_arc = Arc::new(Mutex::new(vec![]));
+        let balance = gwei_to_wei(5555_u64);
+        let now = SystemTime::now();
+        let debt_age_s = 1111 + 1;
+        let last_paid_timestamp = now.checked_sub(Duration::from_secs(debt_age_s)).unwrap();
+        let payable_account = PayableAccount {
+            wallet: make_wallet("hi"),
+            balance_wei: balance,
+            last_paid_timestamp,
+            pending_payable_opt: None,
+        };
+        let custom_payment_thresholds = PaymentThresholds {
+            maturity_threshold_sec: 1111,
+            payment_grace_period_sec: 2222,
+            permanent_debt_allowed_gwei: 3333,
+            debt_threshold_gwei: 4444,
+            threshold_interval_sec: 5555,
+            unban_below_gwei: 5555,
+        };
+        let payable_thresholds_gauge = PayableThresholdsGaugeMock::default()
+            .is_innocent_age_params(&is_innocent_age_params_arc)
+            .is_innocent_age_result(
+                debt_age_s <= custom_payment_thresholds.maturity_threshold_sec as u64,
+            )
+            .is_innocent_balance_params(&is_innocent_balance_params_arc)
+            .is_innocent_balance_result(
+                balance <= gwei_to_wei(custom_payment_thresholds.permanent_debt_allowed_gwei),
+            )
+            .calculate_payout_threshold_in_gwei_params(&calculate_payable_threshold_params_arc)
+            .calculate_payout_threshold_in_gwei_result(4567898); //made up value
+        let mut subject = PayableScannerBuilder::new()
+            .payment_thresholds(custom_payment_thresholds)
+            .build();
+        subject.payable_threshold_gauge = Box::new(payable_thresholds_gauge);
+
+        let result = subject.payable_exceeded_threshold(&payable_account, now);
+
+        assert_eq!(result, Some(4567898));
+        let mut is_innocent_age_params = is_innocent_age_params_arc.lock().unwrap();
+        let (debt_age_returned_innocent, curve_derived_time) = is_innocent_age_params.remove(0);
+        assert_eq!(*is_innocent_age_params, vec![]);
+        assert_eq!(debt_age_returned_innocent, debt_age_s);
+        assert_eq!(
+            curve_derived_time,
+            custom_payment_thresholds.maturity_threshold_sec as u64
+        );
+        let is_innocent_balance_params = is_innocent_balance_params_arc.lock().unwrap();
+        assert_eq!(
+            *is_innocent_balance_params,
+            vec![(
+                payable_account.balance_wei,
+                gwei_to_wei(custom_payment_thresholds.permanent_debt_allowed_gwei)
+            )]
+        );
+        let mut calculate_payable_curves_params =
+            calculate_payable_threshold_params_arc.lock().unwrap();
+        let (payment_thresholds, debt_age_returned_curves) =
+            calculate_payable_curves_params.remove(0);
+        assert_eq!(*calculate_payable_curves_params, vec![]);
+        assert_eq!(debt_age_returned_curves, debt_age_s);
+        assert_eq!(payment_thresholds, custom_payment_thresholds)
+    }
+
+    #[test]
+    fn payable_with_debt_under_the_slope_is_marked_unqualified() {
+        init_test_logging();
+        let now = SystemTime::now();
+        let payment_thresholds = PaymentThresholds::default();
+        let debt = gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei + 1);
+        let time = to_unix_timestamp(now) - payment_thresholds.maturity_threshold_sec as i64 - 1;
+        let unqualified_payable_account = vec![PayableAccount {
+            wallet: make_wallet("wallet0"),
+            balance_wei: debt,
+            last_paid_timestamp: from_unix_timestamp(time),
+            pending_payable_opt: None,
+        }];
+        let subject = PayableScannerBuilder::new()
+            .payment_thresholds(payment_thresholds)
+            .build();
+        let test_name =
+            "payable_with_debt_above_the_slope_is_qualified_and_the_threshold_value_is_returned";
+        let logger = Logger::new(test_name);
+
+        let result = subject
+            .sniff_out_alarming_payables_and_maybe_log_them(unqualified_payable_account, &logger);
+
+        assert_eq!(result, vec![]);
+        TestLogHandler::new()
+            .exists_no_log_containing(&format!("DEBUG: {}: Paying qualified debts", test_name));
+    }
+
+    #[test]
+    fn payable_with_debt_above_the_slope_is_qualified() {
+        init_test_logging();
+        let payment_thresholds = PaymentThresholds::default();
+        let debt = gwei_to_wei(payment_thresholds.debt_threshold_gwei - 1);
+        let time = (payment_thresholds.maturity_threshold_sec
+            + payment_thresholds.threshold_interval_sec
+            - 1) as i64;
+        let qualified_payable = PayableAccount {
+            wallet: make_wallet("wallet0"),
+            balance_wei: debt,
+            last_paid_timestamp: from_unix_timestamp(time),
+            pending_payable_opt: None,
+        };
+        let subject = PayableScannerBuilder::new()
+            .payment_thresholds(payment_thresholds)
+            .build();
+        let test_name = "payable_with_debt_above_the_slope_is_qualified";
+        let logger = Logger::new(test_name);
+
+        let result = subject.sniff_out_alarming_payables_and_maybe_log_them(
+            vec![qualified_payable.clone()],
+            &logger,
+        );
+
+        assert_eq!(result, vec![qualified_payable]);
+        TestLogHandler::new().exists_log_matching(&format!(
+            "DEBUG: {}: Paying qualified debts:\n\
+            999,999,999,000,000,000 wei owed for \\d+ sec exceeds the threshold \
+            500,000,000,000,000,000 wei for creditor 0x0000000000000000000000000077616c6c657430",
+            test_name
+        ));
+    }
+
+    #[test]
+    fn retrieved_payables_turn_into_an_empty_vector_if_all_unqualified() {
+        init_test_logging();
+        let test_name = "retrieved_payables_turn_into_an_empty_vector_if_all_unqualified";
+        let now = SystemTime::now();
+        let payment_thresholds = PaymentThresholds::default();
+        let unqualified_payable_account = vec![PayableAccount {
+            wallet: make_wallet("wallet1"),
+            balance_wei: gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei + 1),
+            last_paid_timestamp: from_unix_timestamp(
+                to_unix_timestamp(now) - payment_thresholds.maturity_threshold_sec as i64 + 1,
+            ),
+            pending_payable_opt: None,
+        }];
+        let subject = PayableScannerBuilder::new()
+            .payment_thresholds(payment_thresholds)
+            .build();
+        let logger = Logger::new(test_name);
+
+        let result = subject
+            .sniff_out_alarming_payables_and_maybe_log_them(unqualified_payable_account, &logger);
+
+        assert_eq!(result, vec![]);
+        TestLogHandler::new()
+            .exists_no_log_containing(&format!("DEBUG: {test_name}: Paying qualified debts"));
+    }
+
+    #[test]
     fn insert_records_in_sent_payables_inserts_records_successfully() {
         let insert_new_records_params = Arc::new(Mutex::new(vec![]));
         let sent_payable_dao = SentPayableDaoMock::default()
@@ -572,11 +936,14 @@ mod tests {
     }
 
     #[test]
-    fn handle_new_does_not_perform_any_operation_when_sent_txs_is_empty() {
-        let insert_new_records_params_sent = Arc::new(Mutex::new(vec![]));
+    fn handle_batch_results_for_new_scan_does_not_perform_any_operation_when_sent_txs_is_empty() {
+        let insert_new_records_sent_tx_params_arc = Arc::new(Mutex::new(vec![]));
+        let insert_new_records_failed_tx_params_arc = Arc::new(Mutex::new(vec![]));
         let sent_payable_dao = SentPayableDaoMock::default()
-            .insert_new_records_params(&insert_new_records_params_sent);
-        let failed_payable_dao = FailedPayableDaoMock::default().insert_new_records_result(Ok(()));
+            .insert_new_records_params(&insert_new_records_sent_tx_params_arc);
+        let failed_payable_dao = FailedPayableDaoMock::default()
+            .insert_new_records_params(&insert_new_records_failed_tx_params_arc)
+            .insert_new_records_result(Ok(()));
         let subject = PayableScannerBuilder::new()
             .sent_payable_dao(sent_payable_dao)
             .failed_payable_dao(failed_payable_dao)
@@ -586,13 +953,23 @@ mod tests {
             failed_txs: vec![make_failed_tx(1)],
         };
 
-        subject.handle_new(&batch_results, &Logger::new("test"));
+        subject.handle_batch_results_for_new_scan(&batch_results, &Logger::new("test"));
 
-        assert!(insert_new_records_params_sent.lock().unwrap().is_empty());
+        assert_eq!(
+            insert_new_records_failed_tx_params_arc
+                .lock()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(insert_new_records_sent_tx_params_arc
+            .lock()
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
-    fn handle_new_does_not_perform_any_operation_when_failed_txs_is_empty() {
+    fn handle_batch_results_for_new_scan_does_not_perform_any_operation_when_failed_txs_is_empty() {
         let insert_new_records_params_failed = Arc::new(Mutex::new(vec![]));
         let sent_payable_dao = SentPayableDaoMock::default().insert_new_records_result(Ok(()));
         let failed_payable_dao = FailedPayableDaoMock::default()
@@ -606,18 +983,18 @@ mod tests {
             failed_txs: vec![],
         };
 
-        subject.handle_new(&batch_results, &Logger::new("test"));
+        subject.handle_batch_results_for_new_scan(&batch_results, &Logger::new("test"));
 
         assert!(insert_new_records_params_failed.lock().unwrap().is_empty());
     }
 
     #[test]
-    fn handle_retry_does_not_perform_any_operation_when_sent_txs_is_empty() {
-        let insert_new_records_params_sent = Arc::new(Mutex::new(vec![]));
+    fn handle_batch_results_for_retry_scan_does_not_perform_any_operation_when_sent_txs_is_empty() {
+        let insert_new_records_sent_tx_params_arc = Arc::new(Mutex::new(vec![]));
         let retrieve_txs_params = Arc::new(Mutex::new(vec![]));
         let update_statuses_params = Arc::new(Mutex::new(vec![]));
         let sent_payable_dao = SentPayableDaoMock::default()
-            .insert_new_records_params(&insert_new_records_params_sent);
+            .insert_new_records_params(&insert_new_records_sent_tx_params_arc);
         let failed_payable_dao = FailedPayableDaoMock::default()
             .retrieve_txs_params(&retrieve_txs_params)
             .update_statuses_params(&update_statuses_params);
@@ -630,9 +1007,12 @@ mod tests {
             failed_txs: vec![make_failed_tx(1)],
         };
 
-        subject.handle_retry(&batch_results, &Logger::new("test"));
+        subject.handle_batch_results_for_retry_scan(&batch_results, &Logger::new("test"));
 
-        assert!(insert_new_records_params_sent.lock().unwrap().is_empty());
+        assert!(insert_new_records_sent_tx_params_arc
+            .lock()
+            .unwrap()
+            .is_empty());
         assert!(retrieve_txs_params.lock().unwrap().is_empty());
         assert!(update_statuses_params.lock().unwrap().is_empty());
     }
@@ -655,7 +1035,7 @@ mod tests {
             failed_txs: vec![],
         };
 
-        subject.handle_retry(&batch_results, &Logger::new(test_name));
+        subject.handle_batch_results_for_retry_scan(&batch_results, &Logger::new(test_name));
 
         let tlh = TestLogHandler::new();
         tlh.exists_no_log_containing(&format!("WARN: {test_name}"));

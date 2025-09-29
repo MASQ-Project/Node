@@ -3,6 +3,7 @@
 use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::db_access_objects::receivable_dao::ReceivableAccount;
+use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::{checked_conversion, gwei_to_wei, sign_conversion};
 use crate::database::db_initializer::{
@@ -23,7 +24,6 @@ use std::path::{Path, PathBuf};
 use std::string::ToString;
 use std::time::Duration;
 use std::time::SystemTime;
-use crate::accountant::db_access_objects::sent_payable_dao::Tx;
 
 pub type TxHash = H256;
 pub type RowId = u64;
@@ -49,8 +49,8 @@ pub fn from_unix_timestamp(unix_timestamp: i64) -> SystemTime {
 }
 
 pub fn sql_values_of_failed_tx(failed_tx: &FailedTx) -> String {
-    let amount_checked = checked_conversion::<u128, i128>(failed_tx.amount);
-    let gas_price_wei_checked = checked_conversion::<u128, i128>(failed_tx.gas_price_wei);
+    let amount_checked = checked_conversion::<u128, i128>(failed_tx.amount_minor);
+    let gas_price_wei_checked = checked_conversion::<u128, i128>(failed_tx.gas_price_minor);
     let (amount_high_b, amount_low_b) = BigIntDivider::deconstruct(amount_checked);
     let (gas_price_wei_high_b, gas_price_wei_low_b) =
         BigIntDivider::deconstruct(gas_price_wei_checked);
@@ -69,9 +69,9 @@ pub fn sql_values_of_failed_tx(failed_tx: &FailedTx) -> String {
     )
 }
 
-pub fn sql_values_of_sent_tx(sent_tx: &Tx) -> String {
-    let amount_checked = checked_conversion::<u128, i128>(sent_tx.amount);
-    let gas_price_wei_checked = checked_conversion::<u128, i128>(sent_tx.gas_price_wei);
+pub fn sql_values_of_sent_tx(sent_tx: &SentTx) -> String {
+    let amount_checked = checked_conversion::<u128, i128>(sent_tx.amount_minor);
+    let gas_price_wei_checked = checked_conversion::<u128, i128>(sent_tx.gas_price_minor);
     let (amount_high_b, amount_low_b) = BigIntDivider::deconstruct(amount_checked);
     let (gas_price_wei_high_b, gas_price_wei_low_b) =
         BigIntDivider::deconstruct(gas_price_wei_checked);

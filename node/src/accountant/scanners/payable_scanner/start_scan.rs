@@ -1,6 +1,4 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::db_access_objects::failed_payable_dao::FailureRetrieveCondition::ByStatus;
-use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::RetryRequired;
 use crate::accountant::scanners::payable_scanner::msgs::InitialTemplatesMessage;
 use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::NewTxTemplates;
 use crate::accountant::scanners::payable_scanner::tx_templates::initial::retry::RetryTxTemplates;
@@ -82,7 +80,9 @@ impl StartableScanner<ScanForRetryPayables, InitialTemplatesMessage> for Payable
 mod tests {
     use super::*;
     use crate::accountant::db_access_objects::failed_payable_dao::FailureReason::PendingTooLong;
+    use crate::accountant::db_access_objects::failed_payable_dao::FailureRetrieveCondition::ByStatus;
     use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus;
+    use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus::RetryRequired;
     use crate::accountant::db_access_objects::payable_dao::PayableRetrieveCondition;
     use crate::accountant::db_access_objects::test_utils::FailedTxBuilder;
     use crate::accountant::scanners::payable_scanner::test_utils::PayableScannerBuilder;
@@ -162,7 +162,7 @@ mod tests {
 
             let tx_template_2 = RetryTxTemplate::from(&failed_tx_2);
 
-            RetryTxTemplates(vec![tx_template_2, tx_template_1])
+            RetryTxTemplates(vec![tx_template_1, tx_template_2])
         };
         assert_eq!(
             result,

@@ -184,9 +184,9 @@ macro_rules! match_lazily_every_type_id{
 mod tests {
     use crate::accountant::{ResponseSkeleton, ScanError, ScanForNewPayables};
     use crate::daemon::crash_notification::CrashNotification;
+    use crate::sub_lib::accountant::DetailedScanType;
     use crate::sub_lib::peer_actors::{NewPublicIp, StartMessage};
     use crate::test_utils::recorder_stop_conditions::{MsgIdentification, StopConditions};
-    use masq_lib::messages::ScanType;
     use std::any::TypeId;
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
     use std::vec;
@@ -249,16 +249,16 @@ mod tests {
         let mut cond_set = StopConditions::AllGreedily(vec![MsgIdentification::ByPredicate {
             predicate: Box::new(|msg| {
                 let scan_err_msg: &ScanError = msg.downcast_ref().unwrap();
-                scan_err_msg.scan_type == ScanType::PendingPayables
+                scan_err_msg.scan_type == DetailedScanType::PendingPayables
             }),
         }]);
         let wrong_msg = ScanError {
-            scan_type: ScanType::Payables,
+            scan_type: DetailedScanType::NewPayables,
             response_skeleton_opt: None,
             msg: "booga".to_string(),
         };
         let good_msg = ScanError {
-            scan_type: ScanType::PendingPayables,
+            scan_type: DetailedScanType::PendingPayables,
             response_skeleton_opt: None,
             msg: "blah".to_string(),
         };
