@@ -5,7 +5,7 @@ use crate::accountant::db_access_objects::utils::{
 };
 use crate::accountant::db_access_objects::Transaction;
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
-use crate::accountant::{comma_joined_stringifiable, join_with_separator};
+use crate::accountant::{join_with_commas, join_with_separator};
 use crate::blockchain::errors::rpc_errors::{AppRpcError, AppRpcErrorKind};
 use crate::blockchain::errors::validation_status::ValidationStatus;
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
@@ -149,7 +149,7 @@ impl Display for FailureRetrieveCondition {
                 write!(
                     f,
                     "WHERE tx_hash IN ({})",
-                    comma_joined_stringifiable(hashes, |hash| format!("'{:?}'", hash))
+                    join_with_commas(hashes, |hash| format!("'{:?}'", hash))
                 )
             }
             FailureRetrieveCondition::ByStatus(status) => {
@@ -159,7 +159,7 @@ impl Display for FailureRetrieveCondition {
                 write!(
                     f,
                     "WHERE receiver_address IN ({})",
-                    join_with_separator(addresses, |address| format!("'{:?}'", address), ", ")
+                    join_with_commas(addresses, |address| format!("'{:?}'", address))
                 )
             }
             FailureRetrieveCondition::EveryRecheckRequiredRecord => {
@@ -197,7 +197,7 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
     fn get_tx_identifiers(&self, hashes: &BTreeSet<TxHash>) -> TxIdentifiers {
         let sql = format!(
             "SELECT tx_hash, rowid FROM failed_payable WHERE tx_hash IN ({})",
-            join_with_separator(hashes, |hash| format!("'{:?}'", hash), ", ")
+            join_with_commas(hashes, |hash| format!("'{:?}'", hash))
         );
 
         let mut stmt = self
@@ -251,7 +251,7 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
              reason, \
              status
              ) VALUES {}",
-            join_with_separator(txs, |tx| sql_values_of_failed_tx(tx), ", ")
+            join_with_commas(txs, |tx| sql_values_of_failed_tx(tx))
         );
 
         match self.conn.prepare(&sql).expect("Internal error").execute([]) {
@@ -344,8 +344,7 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
             |(hash, status)| format!("WHEN tx_hash = '{:?}' THEN '{}'", hash, status),
             " ",
         );
-        let tx_hashes =
-            join_with_separator(status_updates.keys(), |hash| format!("'{:?}'", hash), ", ");
+        let tx_hashes = join_with_commas(status_updates.keys(), |hash| format!("'{:?}'", hash));
 
         let sql = format!(
             "UPDATE failed_payable \
@@ -379,7 +378,7 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
 
         let sql = format!(
             "DELETE FROM failed_payable WHERE tx_hash IN ({})",
-            join_with_separator(hashes, |hash| { format!("'{:?}'", hash) }, ", ")
+            join_with_commas(hashes, |hash| { format!("'{:?}'", hash) })
         );
 
         match self.conn.prepare(&sql).expect("Internal error").execute([]) {

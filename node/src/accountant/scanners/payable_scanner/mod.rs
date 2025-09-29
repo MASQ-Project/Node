@@ -27,7 +27,7 @@ use crate::accountant::scanners::payable_scanner::utils::{
 };
 use crate::accountant::scanners::{Scanner, ScannerCommon, StartableScanner};
 use crate::accountant::{
-    comma_joined_stringifiable, gwei_to_wei, join_with_separator, PayableScanType, PendingPayable,
+    gwei_to_wei, join_with_commas, join_with_separator, PayableScanType, PendingPayable,
     ResponseSkeleton, ScanForNewPayables, ScanForRetryPayables, SentPayables,
 };
 use crate::blockchain::blockchain_interface::data_structures::BatchResults;
@@ -193,7 +193,7 @@ impl PayableScanner {
         fn missing_record_msg(nonexistent: &[PendingPayableMissingInDb]) -> String {
             format!(
                 "Expected sent-payable records for {} were not found. The system has become unreliable",
-                comma_joined_stringifiable(nonexistent, |missing_sent_tx_ids| format!(
+                join_with_commas(nonexistent, |missing_sent_tx_ids| format!(
                     "(tx: {:?}, to wallet: {:?})",
                     missing_sent_tx_ids.hash, missing_sent_tx_ids.recipient
                 ))

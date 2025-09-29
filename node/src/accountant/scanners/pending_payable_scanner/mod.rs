@@ -24,8 +24,8 @@ use crate::accountant::scanners::{
     PrivateScanner, Scanner, ScannerCommon, StartScanError, StartableScanner,
 };
 use crate::accountant::{
-    comma_joined_stringifiable, RequestTransactionReceipts, ResponseSkeleton,
-    ScanForPendingPayables, TxReceiptResult, TxReceiptsMessage,
+    join_with_commas, RequestTransactionReceipts, ResponseSkeleton, ScanForPendingPayables,
+    TxReceiptResult, TxReceiptsMessage,
 };
 use crate::blockchain::blockchain_interface::data_structures::TxBlock;
 use crate::blockchain::errors::validation_status::{
@@ -465,7 +465,7 @@ impl PendingPayableScanner {
                 panic!(
                     "Unable to proceed in a reclaim as the replacement of sent tx records \
                 {} failed due to: {:?}",
-                    comma_joined_stringifiable(hashes_and_blocks, |(tx_hash, _)| {
+                    join_with_commas(hashes_and_blocks, |(tx_hash, _)| {
                         format!("{:?}", tx_hash)
                     }),
                     e
@@ -481,7 +481,7 @@ impl PendingPayableScanner {
                 info!(
                     logger,
                     "Reclaimed txs {} as confirmed on-chain",
-                    comma_joined_stringifiable(hashes_and_blocks, |(tx_hash, tx_block)| {
+                    join_with_commas(hashes_and_blocks, |(tx_hash, tx_block)| {
                         format!("{:?} (block {})", tx_hash, tx_block.block_number)
                     })
                 )
@@ -489,7 +489,7 @@ impl PendingPayableScanner {
             Err(e) => {
                 panic!(
                     "Unable to delete failed tx records {} to finish the reclaims due to: {:?}",
-                    comma_joined_stringifiable(hashes_and_blocks, |(tx_hash, _)| {
+                    join_with_commas(hashes_and_blocks, |(tx_hash, _)| {
                         format!("{:?}", tx_hash)
                     }),
                     e
@@ -546,7 +546,7 @@ impl PendingPayableScanner {
         panic!(
             "Unable to complete the tx confirmation by the adjustment of the payable accounts \
             {} due to: {:?}",
-            comma_joined_stringifiable(
+            join_with_commas(
                 &confirmed_txs
                     .iter()
                     .map(|tx| tx.receiver_address)
@@ -562,7 +562,7 @@ impl PendingPayableScanner {
     ) -> ! {
         panic!(
             "Unable to update sent payable records {} by their tx blocks due to: {:?}",
-            comma_joined_stringifiable(
+            join_with_commas(
                 &tx_hashes_and_tx_blocks.keys().sorted().collect_vec(),
                 |tx_hash| format!("{:?}", tx_hash)
             ),
@@ -630,7 +630,7 @@ impl PendingPayableScanner {
             info!(
                 logger,
                 "Failed txs {} were processed in the db",
-                comma_joined_stringifiable(new_failures, |failure| format!("{:?}", failure.hash))
+                join_with_commas(new_failures, |failure| format!("{:?}", failure.hash))
             )
         }
 
@@ -646,7 +646,7 @@ impl PendingPayableScanner {
         {
             panic!(
                 "Unable to persist failed txs {} due to: {:?}",
-                comma_joined_stringifiable(&new_failures, |failure| format!("{:?}", failure.hash)),
+                join_with_commas(&new_failures, |failure| format!("{:?}", failure.hash)),
                 e
             )
         }
@@ -661,10 +661,7 @@ impl PendingPayableScanner {
             Err(e) => {
                 panic!(
                     "Unable to purge sent payable records for failed txs {} due to: {:?}",
-                    comma_joined_stringifiable(&new_failures, |failure| format!(
-                        "{:?}",
-                        failure.hash
-                    )),
+                    join_with_commas(&new_failures, |failure| format!("{:?}", failure.hash)),
                     e
                 )
             }
@@ -691,19 +688,13 @@ impl PendingPayableScanner {
                 debug!(
                     logger,
                     "Concluded failures that had required rechecks: {}.",
-                    comma_joined_stringifiable(&rechecks_completed, |tx_hash| format!(
-                        "{:?}",
-                        tx_hash
-                    ))
+                    join_with_commas(&rechecks_completed, |tx_hash| format!("{:?}", tx_hash))
                 );
             }
             Err(e) => {
                 panic!(
                     "Unable to conclude rechecks for failed txs {} due to: {:?}",
-                    comma_joined_stringifiable(&rechecks_completed, |tx_hash| format!(
-                        "{:?}",
-                        tx_hash
-                    )),
+                    join_with_commas(&rechecks_completed, |tx_hash| format!("{:?}", tx_hash)),
                     e
                 )
             }
@@ -747,7 +738,7 @@ impl PendingPayableScanner {
                             logger,
                             "Pending-tx statuses were processed in the db for validation failure \
                             of txs {}",
-                            comma_joined_stringifiable(&sent_payable_failures, |failure| {
+                            join_with_commas(&sent_payable_failures, |failure| {
                                 format!("{:?}", failure.tx_hash)
                             })
                         )
@@ -782,10 +773,9 @@ impl PendingPayableScanner {
                             logger,
                             "Failed-tx statuses were processed in the db for validation failure \
                             of txs {}",
-                            comma_joined_stringifiable(
-                                &failed_txs_validation_failures,
-                                |failure| { format!("{:?}", failure.tx_hash) }
-                            )
+                            join_with_commas(&failed_txs_validation_failures, |failure| {
+                                format!("{:?}", failure.tx_hash)
+                            })
                         )
                     }
                     Err(e) => {

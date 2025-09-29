@@ -5,7 +5,7 @@ use crate::accountant::db_access_objects::utils::{
 };
 use crate::accountant::db_access_objects::Transaction;
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
-use crate::accountant::{checked_conversion, comma_joined_stringifiable, join_with_separator};
+use crate::accountant::{checked_conversion, join_with_commas, join_with_separator};
 use crate::blockchain::blockchain_interface::data_structures::TxBlock;
 use crate::blockchain::errors::validation_status::ValidationStatus;
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
@@ -165,14 +165,14 @@ impl Display for RetrieveCondition {
                 write!(
                     f,
                     "WHERE tx_hash IN ({})",
-                    join_with_separator(tx_hashes, |hash| format!("'{:?}'", hash), ", ")
+                    join_with_commas(tx_hashes, |hash| format!("'{:?}'", hash))
                 )
             }
             RetrieveCondition::ByNonce(nonces) => {
                 write!(
                     f,
                     "WHERE nonce IN ({})",
-                    comma_joined_stringifiable(nonces, |nonce| nonce.to_string())
+                    join_with_commas(nonces, |nonce| nonce.to_string())
                 )
             }
         }
@@ -209,7 +209,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
     fn get_tx_identifiers(&self, hashes: &BTreeSet<TxHash>) -> TxIdentifiers {
         let sql = format!(
             "SELECT tx_hash, rowid FROM sent_payable WHERE tx_hash IN ({})",
-            join_with_separator(hashes, |hash| format!("'{:?}'", hash), ", ")
+            join_with_commas(hashes, |hash| format!("'{:?}'", hash))
         );
 
         let mut stmt = self
@@ -262,7 +262,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
              nonce, \
              status \
              ) VALUES {}",
-            join_with_separator(txs, |tx| sql_values_of_sent_tx(tx), ", ")
+            join_with_commas(txs, |tx| sql_values_of_sent_tx(tx))
         );
 
         match self.conn.prepare(&sql).expect("Internal error").execute([]) {
@@ -398,7 +398,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
         });
         let status_cases = build_case(|tx| format!("'{}'", tx.status));
 
-        let nonces = join_with_separator(new_txs, |tx| tx.nonce.to_string(), ", ");
+        let nonces = join_with_commas(new_txs, |tx| tx.nonce.to_string());
 
         let sql = format!(
             "UPDATE sent_payable \
@@ -456,7 +456,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
             .iter()
             .map(|(hash, status)| format!("WHEN tx_hash = '{:?}' THEN '{}'", hash, status))
             .join(" ");
-        let tx_hashes = comma_joined_stringifiable(&status_updates.keys().collect_vec(), |hash| {
+        let tx_hashes = join_with_commas(&status_updates.keys().collect_vec(), |hash| {
             format!("'{:?}'", hash)
         });
 
@@ -492,7 +492,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
 
         let sql = format!(
             "DELETE FROM sent_payable WHERE tx_hash IN ({})",
-            join_with_separator(hashes, |hash| { format!("'{:?}'", hash) }, ", ")
+            join_with_commas(hashes, |hash| { format!("'{:?}'", hash) })
         );
 
         match self.conn.prepare(&sql).expect("Internal error").execute([]) {

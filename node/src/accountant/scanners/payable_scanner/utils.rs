@@ -5,7 +5,7 @@ use crate::accountant::db_access_objects::payable_dao::{PayableAccount, PayableD
 use crate::accountant::db_access_objects::utils::{ThresholdUtils, TxHash};
 use crate::accountant::db_access_objects::Transaction;
 use crate::accountant::scanners::payable_scanner::msgs::InitialTemplatesMessage;
-use crate::accountant::{comma_joined_stringifiable, PendingPayable};
+use crate::accountant::{join_with_commas, PendingPayable};
 use crate::blockchain::blockchain_interface::data_structures::BatchResults;
 use crate::sub_lib::accountant::PaymentThresholds;
 use crate::sub_lib::wallet::Wallet;
@@ -202,7 +202,7 @@ pub fn mark_pending_payable_fatal_error(
     };
     panic!(
         "Unable to create a mark in the payable table for wallets {} due to {:?}",
-        comma_joined_stringifiable(sent_payments, |pending_p| pending_p
+        join_with_commas(sent_payments, |pending_p| pending_p
             .recipient_wallet
             .to_string()),
         error

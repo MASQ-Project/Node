@@ -13,9 +13,7 @@ use crate::accountant::db_big_integer::big_int_db_processor::{
     ParamByUse, SQLParamsBuilder, TableNameDAO, WeiChange, WeiChangeDirection,
 };
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
-use crate::accountant::{
-    checked_conversion, join_with_separator, sign_conversion, PendingPayableId,
-};
+use crate::accountant::{checked_conversion, join_with_commas, sign_conversion, PendingPayableId};
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use crate::sub_lib::wallet::Wallet;
 use ethabi::Address;
@@ -66,7 +64,7 @@ impl Display for PayableRetrieveCondition {
             PayableRetrieveCondition::ByAddresses(addresses) => write!(
                 f,
                 "AND wallet_address IN ({})",
-                join_with_separator(addresses, |hash| format!("'{:?}'", hash), ", ")
+                join_with_commas(addresses, |hash| format!("'{:?}'", hash))
             ),
         }
     }
@@ -408,7 +406,7 @@ impl TableNameDAO for PayableDaoReal {
 
 // TODO Will be an object of removal in GH-662
 // mod mark_pending_payable_associated_functions {
-//     use crate::accountant::comma_joined_stringifiable;
+//     use crate::accountant::join_with_commas;
 //     use crate::accountant::db_access_objects::payable_dao::{MarkPendingPayableID, PayableDaoError};
 //     use crate::accountant::db_access_objects::utils::{
 //         update_rows_and_return_valid_count, VigilantRusqliteFlatten,
@@ -546,7 +544,7 @@ impl TableNameDAO for PayableDaoReal {
 //         pairs: &[(W, R)],
 //         rowid_pretty_writer: fn(&R) -> Box<dyn Display>,
 //     ) -> String {
-//         comma_joined_stringifiable(pairs, |(wallet, rowid)| {
+//         join_with_commas(pairs, |(wallet, rowid)| {
 //             format!(
 //                 "( Wallet: {}, Rowid: {} )",
 //                 wallet,

@@ -1180,7 +1180,7 @@ impl Accountant {
 
     fn register_new_pending_sent_tx(&self, msg: RegisterNewPendingPayables) {
         fn serialize_hashes(tx_hashes: &[SentTx]) -> String {
-            comma_joined_stringifiable(tx_hashes, |sent_tx| format!("{:?}", sent_tx.hash))
+            join_with_commas(tx_hashes, |sent_tx| format!("{:?}", sent_tx.hash))
         }
 
         let sent_txs: BTreeSet<SentTx> = msg.new_sent_txs.iter().cloned().collect();
@@ -1233,14 +1233,6 @@ impl PendingPayableId {
     }
 }
 
-// TODO: Keep either comma_joined_stringifiable or join_with_separator after merge
-pub fn comma_joined_stringifiable<T, F>(collection: &[T], stringify: F) -> String
-where
-    F: FnMut(&T) -> String,
-{
-    collection.iter().map(stringify).join(", ")
-}
-
 pub fn join_with_separator<T, F, I>(collection: I, stringify: F, separator: &str) -> String
 where
     F: Fn(&T) -> String,
@@ -1250,6 +1242,14 @@ where
         .into_iter()
         .map(|item| stringify(&item))
         .join(separator)
+}
+
+pub fn join_with_commas<T, F, I>(collection: I, stringify: F) -> String
+where
+    F: Fn(&T) -> String,
+    I: IntoIterator<Item = T>,
+{
+    join_with_separator(collection, stringify, ", ")
 }
 
 pub fn sign_conversion<T: Copy, S: TryFrom<T>>(num: T) -> Result<S, T> {
