@@ -17,6 +17,9 @@ use multinode_integration_tests_lib::utils::{
 };
 use node_lib::accountant::db_access_objects::payable_dao::{PayableDao, PayableDaoReal};
 use node_lib::accountant::db_access_objects::receivable_dao::{ReceivableDao, ReceivableDaoReal};
+use node_lib::accountant::db_access_objects::sent_payable_dao::{
+    RetrieveCondition, SentPayableDao, SentPayableDaoReal,
+};
 use node_lib::blockchain::bip32::Bip32EncryptionKeyProvider;
 use node_lib::blockchain::blockchain_interface::blockchain_interface_web3::{
     BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
@@ -234,7 +237,7 @@ fn verify_bill_payment() {
     assert_balances(
         &contract_owner_wallet,
         &blockchain_interface,
-        "99995231980000000000",
+        "99994287232000000000",
         "471999999700000000000000000",
     );
 
@@ -355,17 +358,23 @@ fn verify_pending_payables() {
             "{}",
             node_wallet.clone()
         )))
+        // Important
+        .scans(false)
         .ui_port(ui_port)
         .build();
     let (consuming_node_name, consuming_node_index) = cluster.prepare_real_node(&consuming_config);
     let consuming_node_path = node_chain_specific_data_directory(&consuming_node_name);
-    let consuming_node_connection = DbInitializerReal::default()
-        .initialize(
-            Path::new(&consuming_node_path),
-            make_init_config(cluster.chain),
-        )
-        .unwrap();
-    let consuming_payable_dao = PayableDaoReal::new(consuming_node_connection);
+    let connect_to_consuming_node_db = || {
+        DbInitializerReal::default()
+            .initialize(
+                Path::new(&consuming_node_path),
+                make_init_config(cluster.chain),
+            )
+            .unwrap()
+    };
+    let consuming_payable_dao = PayableDaoReal::new(connect_to_consuming_node_db());
+    let consuming_sent_payable_dao = SentPayableDaoReal::new(connect_to_consuming_node_db());
+
     open_all_file_permissions(consuming_node_path.clone().into());
     assert_eq!(
         format!("{}", &contract_owner_wallet),
@@ -400,7 +409,9 @@ fn verify_pending_payables() {
     );
 
     let now = Instant::now();
-    while !consuming_payable_dao.retrieve_payables(None).is_empty()
+    while consuming_sent_payable_dao
+        .retrieve_txs(Some(RetrieveCondition::IsPending))
+        .is_empty()
         && now.elapsed() < Duration::from_secs(10)
     {
         thread::sleep(Duration::from_millis(400));
@@ -409,7 +420,7 @@ fn verify_pending_payables() {
     assert_balances(
         &contract_owner_wallet,
         &blockchain_interface,
-        "99995231980000000000",
+        "99994287232000000000",
         "471999999700000000000000000",
     );
     assert_balances(
@@ -437,10 +448,24 @@ fn verify_pending_payables() {
         .tmb(0),
     );
 
-    assert!(consuming_payable_dao.retrieve_payables(None).is_empty());
+    let now = Instant::now();
+    loop {
+        if !consuming_sent_payable_dao
+            .retrieve_txs(Some(RetrieveCondition::IsPending))
+            .is_empty()
+        {
+            if now.elapsed() < Duration::from_secs(5) {
+                thread::sleep(Duration::from_millis(400))
+            } else {
+                panic!("Pending payables still aren't resolved even after 5 seconds")
+            }
+        } else {
+            break;
+        }
+    }
     MASQNodeUtils::assert_node_wrote_log_containing(
         real_consuming_node.name(),
-        "Found 3 pending payables to process",
+        "Found 3 pending payables and 0 unfinalized failures to process",
         Duration::from_secs(5),
     );
     MASQNodeUtils::assert_node_wrote_log_containing(
@@ -450,17 +475,17 @@ fn verify_pending_payables() {
     );
     MASQNodeUtils::assert_node_wrote_log_containing(
         real_consuming_node.name(),
-        "Transaction 0x75a8f185b7fb3ac0c4d1ee6b402a46940c9ae0477c0c7378a1308fb4bf539c5c has been added to the blockchain;",
+        "Pending tx 0x89acc46da0df6ef8c6f5574307ae237a812bd28af524a62131013b5e19ca3e26 was confirmed on-chain",
         Duration::from_secs(5),
     );
     MASQNodeUtils::assert_node_wrote_log_containing(
         real_consuming_node.name(),
-        "Transaction 0x384a3bb5bbd9718a97322be2878fa88c7cacacb2ac3416f521a621ca1946ddfc has been added to the blockchain;",
+        "Pending tx 0xae0bf6400f0b9950a1d456e488549414d118714b81a39233b811b629cf41399b was confirmed on-chain",
         Duration::from_secs(5),
     );
     MASQNodeUtils::assert_node_wrote_log_containing(
         real_consuming_node.name(),
-        "Transaction 0x6bc98d5db61ddd7676de1f25cb537156b3d9e066cec414fef8dbe9c695908215 has been added to the blockchain;",
+        "Pending tx 0xecab1c73ca90ebcb073526e28f1f8d4678704b74d1e0209779ddeefc8fb861f5 was confirmed on-chain",
         Duration::from_secs(5),
     );
 }
