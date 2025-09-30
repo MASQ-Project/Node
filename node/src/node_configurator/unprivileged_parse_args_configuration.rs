@@ -48,7 +48,7 @@ pub trait UnprivilegedParseArgsConfiguration {
                 Ok(None) => {
                     if self.blockchain_service_url_error(multi_config) {
                         return Err(MultiConfig::make_configurator_error(Error {
-                                message: "The following required arguments were not provided: --blockchain-service-url USAGE: --blockchain-service-url <blockchain-service-url>".to_string(),
+                                message: "The following required argument was not provided: --blockchain-service-url USAGE: --blockchain-service-url <blockchain-service-url>".to_string(),
                                 kind: clap::ErrorKind::ArgumentNotFound,
                                 info: Some(vec!["<blockchain-service-url>".to_string()]),
                             }));
@@ -56,7 +56,7 @@ pub trait UnprivilegedParseArgsConfiguration {
                         None
                     }
                 }
-                Err(pce) => return Err(pce.into_configurator_error("gas-price")),
+                Err(pce) => return Err(pce.into_configurator_error("blockchain-service-url")),
             }
         };
         unprivileged_config.clandestine_port_opt = value_m!(multi_config, "clandestine-port", u16);
@@ -82,11 +82,11 @@ pub trait UnprivilegedParseArgsConfiguration {
     }
 
     fn blockchain_service_url_error(&self, multi_config: &MultiConfig) -> bool {
-        let zerohop =
+        let no_zerohop =
             value_m!(multi_config, "neighborhood-mode", String) != Some("zero-hop".to_string());
-        let fake_public_key = value_m!(multi_config, "fake-public-key", String) == None;
-        let crash_point = value_m!(multi_config, "crash-point", String) == None;
-        zerohop && fake_public_key && crash_point
+        let no_fake_public_key = value_m!(multi_config, "fake-public-key", String) == None;
+        let no_crash_point = value_m!(multi_config, "crash-point", String) == None;
+        no_zerohop && no_fake_public_key && no_crash_point
     }
 
     fn get_past_neighbors(
@@ -1251,7 +1251,7 @@ mod tests {
             .unwrap_err();
 
         let expected = MultiConfig::make_configurator_error(Error {
-            message: "The following required arguments were not provided: --blockchain-service-url USAGE: --blockchain-service-url <blockchain-service-url>".to_string(),
+            message: "The following required argument was not provided: --blockchain-service-url USAGE: --blockchain-service-url <blockchain-service-url>".to_string(),
             kind: clap::ErrorKind::ArgumentNotFound,
             info: Some(vec!["<blockchain-service-url>".to_string()]),
         });
@@ -1263,12 +1263,33 @@ mod tests {
     fn unprivileged_parse_args_without_blockchain_service_url_but_not_bsu_error_returns_ok() {
         running_test();
         let set_past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut config = BootstrapperConfig::new();
-        let mut persistent_config = configure_default_persistent_config(
+        let config = BootstrapperConfig::new();
+        let persistent_config = configure_default_persistent_config(
             RATE_PACK | ACCOUNTANT_CONFIG_PARAMS | MAPPING_PROTOCOL,
         )
         .set_past_neighbors_params(&set_past_neighbors_params_arc)
         .set_past_neighbors_result(Ok(()));
+        let exeption_params = vec![
+            ("--fake-public-key", "booga"),
+            ("--crash-point", "Error"),
+            ("--neighborhood-mode", "zero-hop"),
+        ];
+
+        for exeption_param in exeption_params {
+            create_and_assert_multiconfig(
+                config.clone(),
+                persistent_config.clone(),
+                exeption_param,
+            );
+        }
+    }
+
+    fn create_and_assert_multiconfig(
+        mut config: BootstrapperConfig,
+        mut persistent_config: PersistentConfigurationMock,
+        exeption_param: (&str, &str),
+    ) {
+        let subject = UnprivilegedParseArgsConfigurationDaoReal {};
         let multi_config = make_simplified_multi_config([
             "--chain",
             "eth-ropsten",
@@ -1276,11 +1297,9 @@ mod tests {
             "masq://eth-ropsten:UJNoZW5p-PDVqEjpr3b_8jZ_93yPG8i5dOAgE1bhK_A@2.3.4.5:2345",
             "--db-password",
             "password",
-            "--fake-public-key",
-            "booga",
+            exeption_param.0,
+            exeption_param.1,
         ]);
-        let subject = UnprivilegedParseArgsConfigurationDaoReal {};
-
         let result = subject.unprivileged_parse_args(
             &multi_config,
             &mut config,

@@ -21,11 +21,7 @@ fn proxy_client_stream_reader_dies_when_client_stream_is_killed_integration() {
     let ui_port = find_free_port();
     let _node = utils::MASQNode::start_standard(
         "proxy_client_stream_reader_dies_when_client_stream_is_killed_integration",
-        Some(
-            CommandConfig::new()
-                .pair("--blockchain-service-url", "https://booga.com")
-                .pair("--ui-port", &ui_port.to_string()),
-        ),
+        Some(CommandConfig::new().pair("--ui-port", &ui_port.to_string())),
         true,
         true,
         false,

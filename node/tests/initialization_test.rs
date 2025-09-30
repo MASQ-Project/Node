@@ -152,12 +152,11 @@ fn wait_for_process_end(process_id: u32) {
 
 #[test]
 fn incomplete_node_descriptor_is_refused_integration() {
-    let chain_identifier = "base-mainnet";
+    let chain_identifier = DEFAULT_CHAIN.rec().literal_identifier;
     let mut node = utils::MASQNode::start_standard(
         "incomplete_node_descriptor_is_refused_integration",
         Some(
             CommandConfig::new()
-                .pair("--blockchain-service-url", "https://booga.com")
                 .pair(
                     "--neighbors",
                     &format!("masq://{chain_identifier}:12345vhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@12.23.34.45:5678,masq://{chain_identifier}:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@:")
@@ -225,7 +224,6 @@ fn requested_chain_meets_different_db_chain_and_panics_integration() {
             test_name,
             Some(
                 CommandConfig::new()
-                    .pair("--blockchain-service-url", "https://booga.com")
                     .pair("--ui-port", &port.to_string())
                     .pair("--chain", &chain_literal),
             ),
@@ -271,7 +269,6 @@ fn requested_chain_meets_different_db_chain_and_panics_integration() {
 #[test]
 fn node_creates_log_file_with_heading_integration() {
     let config = CommandConfig::new()
-        .pair("--blockchain-service-url", "https://booga.com")
         .pair("--neighborhood-mode", "standard")
         .pair("--ip", "1.0.0.1")
         .pair(

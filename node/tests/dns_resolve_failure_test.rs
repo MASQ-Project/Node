@@ -2,7 +2,6 @@
 
 pub mod utils;
 
-use crate::utils::CommandConfig;
 use node_lib::test_utils::{assert_string_contains, read_until_timeout};
 use std::io::Write;
 use std::net::{SocketAddr, TcpStream};
@@ -13,7 +12,7 @@ use std::time::Duration;
 fn dns_resolve_failure_http_response_integration() {
     let _node_to_test_against = utils::MASQNode::start_standard(
         "dns_resolve_failure_http_response_integration",
-        Some(CommandConfig::new().pair("--blockchain-service-url", "https://booga.com")),
+        None,
         true,
         true,
         false,
@@ -36,7 +35,7 @@ fn dns_resolve_failure_http_response_integration() {
 fn dns_resolve_failure_tls_response_integration() {
     let _node_to_test_against = utils::MASQNode::start_standard(
         "dns_resolve_failure_tls_response_integration",
-        Some(CommandConfig::new().pair("--blockchain-service-url", "https://booga.com")),
+        None,
         true,
         true,
         false,

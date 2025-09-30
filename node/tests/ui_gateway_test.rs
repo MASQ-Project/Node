@@ -29,7 +29,6 @@ fn ui_requests_something_and_gets_corresponding_response_integration() {
         test_name,
         Some(
             CommandConfig::new()
-                .pair("--blockchain-service-url", "https://booga.com")
                 .pair("--ui-port", &port.to_string())
                 .pair(
                     "--data-directory",
@@ -64,7 +63,6 @@ fn log_broadcasts_are_correctly_received_integration() {
         "log_broadcasts_are_correctly_received",
         Some(
             CommandConfig::new()
-                .pair("--blockchain-service-url", "https://booga.com")
                 .pair("--ui-port", &port.to_string())
                 .pair("--chain", "polygon-mainnet"),
         ),
@@ -210,7 +208,6 @@ fn cleanup_after_deceased_clients_integration() {
         test_name,
         Some(
             CommandConfig::new()
-                .pair("--blockchain-service-url", "https://booga.com")
                 .pair("--chain", DEFAULT_CHAIN.rec().literal_identifier)
                 .pair("--ui-port", &port.to_string()),
         ),
