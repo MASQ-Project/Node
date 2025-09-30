@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use multinode_integration_tests_lib::command::Command;
 use multinode_integration_tests_lib::main::CONTROL_STREAM_PORT;
 use multinode_integration_tests_lib::masq_cores_client::MASQCoresClient;
@@ -10,11 +11,12 @@ use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::NodeStartupConfigBuilder;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::sub_lib::cryptde::PublicKey;
+use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::dispatcher::Component;
 use node_lib::sub_lib::hopper::IncipientCoresPackage;
 use node_lib::sub_lib::route::Route;
 use node_lib::sub_lib::route::RouteSegment;
-use node_lib::test_utils::{main_cryptde, make_meaningless_message_type, make_paying_wallet};
+use node_lib::test_utils::{make_meaningless_message_type, make_paying_wallet};
 use std::collections::HashSet;
 use std::io::ErrorKind;
 use std::net::IpAddr;
@@ -108,7 +110,7 @@ fn one_mock_node_talks_to_another() {
     cluster.start_mock_node_with_public_key(vec![5551], &PublicKey::new(&[2, 3, 4, 5]));
     let mock_node_1 = cluster.get_mock_node_by_name("mock_node_1").unwrap();
     let mock_node_2 = cluster.get_mock_node_by_name("mock_node_2").unwrap();
-    let cryptde = main_cryptde();
+    let cryptde = CryptDENull::new(TEST_DEFAULT_CHAIN);
     let route = Route::one_way(
         RouteSegment::new(
             vec![
@@ -117,13 +119,13 @@ fn one_mock_node_talks_to_another() {
             ],
             Component::Hopper,
         ),
-        cryptde,
+        &cryptde,
         Some(make_paying_wallet(b"consuming")),
         Some(cluster.chain.rec().contract),
     )
     .unwrap();
     let incipient_cores_package = IncipientCoresPackage::new(
-        cryptde,
+        &cryptde,
         route,
         make_meaningless_message_type(),
         &mock_node_2.main_public_key(),

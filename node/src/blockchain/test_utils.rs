@@ -5,7 +5,6 @@
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
     BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
 };
-use crate::blockchain::errors::validation_status::ValidationFailureClock;
 use bip39::{Language, Mnemonic, Seed};
 use ethabi::Hash;
 use ethereum_types::{BigEndianHash, H160, H256, U64};
@@ -14,12 +13,10 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::utils::to_string;
 use serde::Serialize;
 use serde_derive::Deserialize;
-use std::cell::RefCell;
 use std::fmt::Debug;
 use std::net::Ipv4Addr;
-use std::time::SystemTime;
 use web3::transports::{EventLoopHandle, Http};
-use web3::types::{Index, Log, SignedTransaction, TransactionReceipt, H2048, U256};
+use web3::types::{Address, Index, Log, SignedTransaction, TransactionReceipt, H2048, U256};
 
 lazy_static! {
     static ref BIG_MEANINGLESS_PHRASE: Vec<&'static str> = vec![
@@ -188,7 +185,7 @@ pub fn make_default_signed_transaction() -> SignedTransaction {
     }
 }
 
-pub fn make_hash(base: u32) -> Hash {
+fn make_hash(base: u32) -> H256 {
     H256::from_uint(&U256::from(base))
 }
 
@@ -198,6 +195,19 @@ pub fn make_tx_hash(base: u32) -> H256 {
 
 pub fn make_block_hash(base: u32) -> H256 {
     make_hash(base + 1000000000)
+}
+
+pub fn make_address(base: u32) -> Address {
+    let base = base % 0xfff;
+    let value = U256::from(base * 3);
+    let shifted = value << 72;
+    let value = U256::from(value) << 24;
+    let value = value | shifted;
+    let mut full_bytes = [0u8; 32];
+    value.to_big_endian(&mut full_bytes);
+    let mut bytes = [0u8; 20];
+    bytes.copy_from_slice(&full_bytes[12..]);
+    H160(bytes)
 }
 
 pub fn all_chains() -> [Chain; 4] {
@@ -275,23 +285,5 @@ impl TransactionReceiptBuilder {
             logs: vec![],
             logs_bloom: Default::default(),
         }
-    }
-}
-
-#[derive(Default)]
-pub struct ValidationFailureClockMock {
-    now_results: RefCell<Vec<SystemTime>>,
-}
-
-impl ValidationFailureClock for ValidationFailureClockMock {
-    fn now(&self) -> SystemTime {
-        self.now_results.borrow_mut().remove(0)
-    }
-}
-
-impl ValidationFailureClockMock {
-    pub fn now_result(self, result: SystemTime) -> Self {
-        self.now_results.borrow_mut().push(result);
-        self
     }
 }

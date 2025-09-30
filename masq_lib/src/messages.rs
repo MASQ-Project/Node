@@ -918,6 +918,18 @@ pub struct UiSetExitLocationResponse {
 }
 conversation_message!(UiSetExitLocationResponse, "exitLocation");
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct UiGetNeighborhoodGraphRequest {}
+
+conversation_message!(UiGetNeighborhoodGraphRequest, "neighborhoodGraph");
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct UiGetNeighborhoodGraphResponse {
+    pub graph: String,
+}
+
+conversation_message!(UiGetNeighborhoodGraphResponse, "neighborhoodGraph");
+
 #[cfg(test)]
 mod tests {
     use super::*;

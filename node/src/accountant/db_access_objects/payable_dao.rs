@@ -1,10 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
 use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
 use crate::accountant::db_access_objects::utils;
 use crate::accountant::db_access_objects::utils::{
-    sum_i128_values_from_table, to_unix_timestamp, AssemblerFeeder, CustomQuery, DaoFactoryReal,
-    PayableAccountWithTxInfo, RangeStmConfig, RowId, TopStmConfig, VigilantRusqliteFlatten,
+    from_unix_timestamp, sum_i128_values_from_table, to_unix_timestamp, AssemblerFeeder,
+    CustomQuery, DaoFactoryReal, PayableAccountWithTxInfo, RangeStmConfig, RowId, TopStmConfig,
+    VigilantRusqliteFlatten,
 };
 use crate::accountant::db_big_integer::big_int_db_processor::KeyVariants::WalletAddress;
 use crate::accountant::db_big_integer::big_int_db_processor::{
@@ -12,18 +14,18 @@ use crate::accountant::db_big_integer::big_int_db_processor::{
     ParamByUse, SQLParamsBuilder, TableNameDAO, WeiChange, WeiChangeDirection,
 };
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
-use crate::accountant::{checked_conversion, sign_conversion};
+use crate::accountant::{checked_conversion, join_with_commas, sign_conversion};
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use crate::sub_lib::wallet::Wallet;
 use ethabi::Address;
-#[cfg(test)]
 use itertools::Either;
 use masq_lib::messages::TxProcessingInfo;
 use masq_lib::utils::ExpectValue;
 #[cfg(test)]
 use rusqlite::OptionalExtension;
 use rusqlite::{Error, Row};
-use std::fmt::Debug;
+use std::collections::BTreeSet;
+use std::fmt::{Debug, Display, Formatter};
 use std::time::SystemTime;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -39,6 +41,33 @@ pub struct PayableAccount {
     pub last_paid_timestamp: SystemTime,
 }
 
+impl From<&FailedTx> for PayableAccount {
+    fn from(failed_tx: &FailedTx) -> Self {
+        PayableAccount {
+            wallet: Wallet::from(failed_tx.receiver_address),
+            balance_wei: failed_tx.amount_minor,
+            last_paid_timestamp: from_unix_timestamp(failed_tx.timestamp),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PayableRetrieveCondition {
+    ByAddresses(BTreeSet<Address>),
+}
+
+impl Display for PayableRetrieveCondition {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PayableRetrieveCondition::ByAddresses(addresses) => write!(
+                f,
+                "WHERE wallet_address IN ({})",
+                join_with_commas(addresses, |hash| format!("'{:?}'", hash))
+            ),
+        }
+    }
+}
+
 pub trait PayableDao: Debug + Send {
     fn more_money_payable(
         &self,
@@ -49,7 +78,10 @@ pub trait PayableDao: Debug + Send {
 
     fn transactions_confirmed(&self, confirmed_payables: &[SentTx]) -> Result<(), PayableDaoError>;
 
-    fn non_pending_payables(&self) -> Vec<PayableAccount>;
+    fn retrieve_payables(
+        &self,
+        condition_opt: Option<PayableRetrieveCondition>,
+    ) -> Vec<PayableAccount>;
 
     fn custom_query(&self, custom_query: CustomQuery<u64>)
         -> Option<Vec<PayableAccountWithTxInfo>>;
@@ -140,11 +172,18 @@ impl PayableDao for PayableDaoReal {
         })
     }
 
-    fn non_pending_payables(&self) -> Vec<PayableAccount> {
-        let sql = "\
-        select wallet_address, balance_high_b, balance_low_b, last_paid_timestamp from \
-        payable where pending_payable_rowid is null";
-        let mut stmt = self.conn.prepare(sql).expect("Internal error");
+    fn retrieve_payables(
+        &self,
+        condition_opt: Option<PayableRetrieveCondition>,
+    ) -> Vec<PayableAccount> {
+        let raw_sql = "\
+        select wallet_address, balance_high_b, balance_low_b, last_paid_timestamp from payable"
+            .to_string();
+        let sql = match condition_opt {
+            None => raw_sql,
+            Some(condition) => format!("{} {}", raw_sql, condition),
+        };
+        let mut stmt = self.conn.prepare(&sql).expect("Internal error");
         stmt.query_map([], |row| {
             let wallet_result: Result<Wallet, Error> = row.get(0);
             let high_b_result: Result<i64, Error> = row.get(1);
@@ -387,21 +426,23 @@ mod tests {
     use crate::accountant::db_access_objects::failed_payable_dao::{
         FailedPayableDao, FailedPayableDaoReal, FailureStatus,
     };
+    use crate::accountant::db_access_objects::payable_dao::PayableRetrieveCondition::ByAddresses;
     use crate::accountant::db_access_objects::sent_payable_dao::{
         SentPayableDao, SentPayableDaoReal, SentTx, TxStatus,
     };
+    use crate::accountant::db_access_objects::test_utils::{make_failed_tx, make_sent_tx};
     use crate::accountant::db_access_objects::utils::{
         current_unix_timestamp, from_unix_timestamp, to_unix_timestamp, TxHash,
     };
     use crate::accountant::gwei_to_wei;
     use crate::accountant::test_utils::{
-        assert_account_creation_fn_fails_on_finding_wrong_columns_and_value_types, make_failed_tx,
-        make_sent_tx, trick_rusqlite_with_read_only_conn,
+        assert_account_creation_fn_fails_on_finding_wrong_columns_and_value_types,
+        trick_rusqlite_with_read_only_conn,
     };
     use crate::blockchain::errors::validation_status::ValidationStatus;
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::database::db_initializer::{
-        DbInitializationConfig, DbInitializer, DbInitializerReal,
+        DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
     };
     use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::test_utils::make_wallet;
@@ -409,8 +450,8 @@ mod tests {
     use masq_lib::messages::TopRecordsOrdering::{Age, Balance};
     use masq_lib::messages::TxProcessingInfo;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use rusqlite::Connection;
     use rusqlite::ToSql;
+    use rusqlite::{Connection, OpenFlags};
     use std::path::Path;
     use std::time::Duration;
 
@@ -607,7 +648,7 @@ mod tests {
                 i128::try_from(test_inputs.initial_amount_wei).unwrap(),
                 to_unix_timestamp(test_inputs.previous_timestamp),
             );
-            let mut sent_tx = make_sent_tx((idx as u64 + 1) * 1234);
+            let mut sent_tx = make_sent_tx((idx as u32 + 1) * 1234);
             sent_tx.hash = test_inputs.hash;
             sent_tx.amount_minor = test_inputs.balance_change;
             sent_tx.receiver_address = test_inputs.receiver_wallet;
@@ -810,10 +851,10 @@ mod tests {
     }
 
     #[test]
-    fn non_pending_payables_should_return_an_empty_vec_when_the_database_is_empty() {
+    fn retrieve_payables_should_return_an_empty_vec_when_the_database_is_empty() {
         let home_dir = ensure_node_home_directory_exists(
             "payable_dao",
-            "non_pending_payables_should_return_an_empty_vec_when_the_database_is_empty",
+            "retrieve_payables_should_return_an_empty_vec_when_the_database_is_empty",
         );
         let subject = PayableDaoReal::new(
             DbInitializerReal::default()
@@ -821,58 +862,100 @@ mod tests {
                 .unwrap(),
         );
 
-        let result = subject.non_pending_payables();
+        let result = subject.retrieve_payables(None);
 
         assert_eq!(result, vec![]);
     }
 
     #[test]
-    fn non_pending_payables_should_return_payables_with_no_pending_transaction() {
-        // TODO waits for the merge from GH-605
-        // let home_dir = ensure_node_home_directory_exists(
-        //     "payable_dao",
-        //     "non_pending_payables_should_return_payables_with_no_pending_transaction",
-        // );
-        // let subject = PayableDaoReal::new(
-        //     DbInitializerReal::default()
-        //         .initialize(&home_dir, DbInitializationConfig::test_default())
-        //         .unwrap(),
-        // );
-        // let mut flags = OpenFlags::empty();
-        // flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
-        // let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
-        // let conn = ConnectionWrapperReal::new(conn);
-        // let insert = |wallet: &str, pending_payable_rowid: Option<i64>| {
-        //     insert_payable_record_fn(
-        //         &conn,
-        //         wallet,
-        //         1234567890123456,
-        //         111_111_111,
-        //         pending_payable_rowid,
-        //     );
-        // };
-        // insert("0x0000000000000000000000000000000000666f6f", Some(15));
-        // insert(&make_wallet("foobar").to_string(), None);
-        // insert("0x0000000000000000000000000000000000626172", Some(16));
-        // insert(&make_wallet("barfoo").to_string(), None);
-        //
-        // let result = subject.non_pending_payables();
-        //
-        // assert_eq!(
-        //     result,
-        //     vec![
-        //         PayableAccount {
-        //             wallet: make_wallet("foobar"),
-        //             balance_wei: 1234567890123456 as u128,
-        //             last_paid_timestamp: from_unix_timestamp(111_111_111),
-        //         },
-        //         PayableAccount {
-        //             wallet: make_wallet("barfoo"),
-        //             balance_wei: 1234567890123456 as u128,
-        //             last_paid_timestamp: from_unix_timestamp(111_111_111),
-        //         },
-        //     ]
-        // );
+    fn retrieve_payables_should_return_every_payable() {
+        let home_dir = ensure_node_home_directory_exists(
+            "payable_dao",
+            "retrieve_payables_should_return_every_payable",
+        );
+        let subject = PayableDaoReal::new(
+            DbInitializerReal::default()
+                .initialize(&home_dir, DbInitializationConfig::test_default())
+                .unwrap(),
+        );
+        let mut flags = OpenFlags::empty();
+        flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
+        let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
+        let conn = ConnectionWrapperReal::new(conn);
+        let insert = |wallet: &str, num: i128| {
+            insert_payable_record_fn(&conn, wallet, num * 111_111_111, num as i64 * 222_222_222);
+        };
+        insert("0x0000000000000000000000000000000000666f6f", 1);
+        insert(&make_wallet("foobar").to_string(), 2);
+        insert("0x0000000000000000000000000000000000626172", 3);
+
+        let result = subject.retrieve_payables(None);
+
+        assert_eq!(
+            result,
+            vec![
+                PayableAccount {
+                    wallet: Wallet::new("0x0000000000000000000000000000000000666f6f"),
+                    balance_wei: 111_111_111,
+                    last_paid_timestamp: from_unix_timestamp(222_222_222),
+                },
+                PayableAccount {
+                    wallet: make_wallet("foobar"),
+                    balance_wei: 222_222_222,
+                    last_paid_timestamp: from_unix_timestamp(444_444_444),
+                },
+                PayableAccount {
+                    wallet: Wallet::new("0x0000000000000000000000000000000000626172"),
+                    balance_wei: 333_333_333,
+                    last_paid_timestamp: from_unix_timestamp(666_666_666),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn retrieve_payables_should_return_payables_by_addresses() {
+        let home_dir = ensure_node_home_directory_exists(
+            "payable_dao",
+            "retrieve_payables_should_return_payables_by_addresses",
+        );
+        let subject = PayableDaoReal::new(
+            DbInitializerReal::default()
+                .initialize(&home_dir, DbInitializationConfig::test_default())
+                .unwrap(),
+        );
+        let mut flags = OpenFlags::empty();
+        flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
+        let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
+        let conn = ConnectionWrapperReal::new(conn);
+        let insert = |wallet: &str| {
+            insert_payable_record_fn(&conn, wallet, 1234567890123456, 111_111_111);
+        };
+        let wallet1 = make_wallet("foobar");
+        let wallet2 = make_wallet("barfoo");
+        insert("0x0000000000000000000000000000000000666f6f");
+        insert(&wallet1.to_string());
+        insert("0x0000000000000000000000000000000000626172");
+        insert(&wallet2.to_string());
+        let set = BTreeSet::from([wallet1.address(), wallet2.address()]);
+
+        let result = subject.retrieve_payables(Some(ByAddresses(set)));
+
+        assert_eq!(
+            result,
+            vec![
+                PayableAccount {
+                    wallet: wallet2,
+                    balance_wei: 1234567890123456 as u128,
+                    last_paid_timestamp: from_unix_timestamp(111_111_111),
+                },
+                PayableAccount {
+                    wallet: wallet1,
+                    balance_wei: 1234567890123456 as u128,
+                    last_paid_timestamp: from_unix_timestamp(111_111_111),
+                },
+            ]
+        );
     }
 
     #[test]
@@ -1121,10 +1204,15 @@ mod tests {
                     1_000_000_000,
                 );
                 failed_payable_dao_real
-                    .insert_new_records(&vec![failed_tx_1, failed_tx_2, failed_tx_3, failed_tx_4])
+                    .insert_new_records(&btreeset![
+                        failed_tx_1,
+                        failed_tx_2,
+                        failed_tx_3,
+                        failed_tx_4
+                    ])
                     .unwrap();
                 sent_payable_dao_real
-                    .insert_new_records(&vec![sent_tx_1, sent_tx_2])
+                    .insert_new_records(&btreeset![sent_tx_1, sent_tx_2])
                     .unwrap();
                 payable_dao_real
             },
@@ -1247,10 +1335,15 @@ mod tests {
                     1_000_000_000,
                 );
                 failed_payable_dao_real
-                    .insert_new_records(&vec![failed_tx_1, failed_tx_2, failed_tx_3, failed_tx_4])
+                    .insert_new_records(&btreeset![
+                        failed_tx_1,
+                        failed_tx_2,
+                        failed_tx_3,
+                        failed_tx_4
+                    ])
                     .unwrap();
                 sent_payable_dao_real
-                    .insert_new_records(&vec![sent_tx_1, sent_tx_2])
+                    .insert_new_records(&btreeset![sent_tx_1, sent_tx_2])
                     .unwrap();
                 payable_dao_real
             },
@@ -1395,7 +1488,7 @@ mod tests {
                 2_500_647_000,
             );
             sent_payable_dao
-                .insert_new_records(&vec![SentTx {
+                .insert_new_records(&btreeset![SentTx {
                     hash: make_tx_hash(0xABC),
                     receiver_address: Wallet::new("0x6666666666666666666666666666666666666666")
                         .address(),
@@ -1671,5 +1764,16 @@ mod tests {
         let result = PayableDaoReal::maybe_construct_tx_info(None, 0);
 
         assert_eq!(result, None);
+    }
+
+    #[test]
+    fn payable_retrieve_condition_to_str_works() {
+        let address_1 = make_wallet("first").address();
+        let address_2 = make_wallet("second").address();
+        assert_eq!(
+            PayableRetrieveCondition::ByAddresses(BTreeSet::from([address_1, address_2]))
+                .to_string(),
+            "WHERE wallet_address IN ('0x0000000000000000000000000000006669727374', '0x00000000000000000000000000007365636f6e64')"
+        );
     }
 }

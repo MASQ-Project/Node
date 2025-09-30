@@ -4,9 +4,9 @@ pub mod lower_level_interface_web3;
 mod utils;
 
 use std::cmp::PartialEq;
-use std::collections::{HashMap};
-use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainInterfaceError, PayableTransactionError};
-use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, ProcessedPayableFallible, StatusReadFromReceiptCheck};
+use std::collections::{BTreeMap};
+use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainInterfaceError, LocalPayableError};
+use crate::blockchain::blockchain_interface::data_structures::{BatchResults, BlockchainTransaction, StatusReadFromReceiptCheck};
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use crate::blockchain::blockchain_interface::RetrievedBlockchainTransactions;
 use crate::blockchain::blockchain_interface::{BlockchainAgentBuildError, BlockchainInterface};
@@ -17,16 +17,19 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
 use std::convert::{From, TryInto};
 use std::fmt::Debug;
-use actix::Recipient;
 use ethereum_types::U64;
+use itertools::Either;
 use web3::transports::{EventLoopHandle, Http};
 use web3::types::{Address, Log, H256, U256, FilterBuilder, TransactionReceipt, BlockNumber};
-use crate::accountant::scanners::payable_scanner_extension::msgs::{PricedQualifiedPayables};
+use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::accountant::db_access_objects::utils::TxHash;
+use crate::accountant::scanners::payable_scanner::tx_templates::priced::new::PricedNewTxTemplates;
+use crate::accountant::scanners::payable_scanner::tx_templates::priced::retry::PricedRetryTxTemplates;
+use crate::accountant::scanners::payable_scanner::tx_templates::signable::SignableTxTemplates;
 use crate::accountant::scanners::pending_payable_scanner::utils::TxHashByTable;
 use crate::accountant::TxReceiptResult;
-use crate::blockchain::blockchain_bridge::{BlockMarker, BlockScanRange, RegisterNewPendingPayables};
+use crate::blockchain::blockchain_bridge::{BlockMarker, BlockScanRange};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::LowBlockchainIntWeb3;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::utils::{create_blockchain_agent_web3, send_payables_within_batch, BlockchainAgentFutureResult};
 use crate::blockchain::errors::rpc_errors::{AppRpcError, RemoteError};
@@ -220,7 +223,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         tx_hashes: Vec<TxHashByTable>,
     ) -> Box<
         dyn Future<
-            Item = HashMap<TxHashByTable, TxReceiptResult>,
+            Item = BTreeMap<TxHashByTable, TxReceiptResult>,
             Error = BlockchainInterfaceError,
         >,
     > {
@@ -254,7 +257,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                             }
                             Err(e) => (tx_hash, Err(AppRpcError::from(e))),
                         })
-                        .collect::<HashMap<TxHashByTable, TxReceiptResult>>())
+                        .collect::<BTreeMap<TxHashByTable, TxReceiptResult>>())
                 }),
         )
     }
@@ -263,10 +266,8 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         &self,
         logger: Logger,
         agent: Box<dyn BlockchainAgent>,
-        new_pending_payables_recipient: Recipient<RegisterNewPendingPayables>,
-        affordable_accounts: PricedQualifiedPayables,
-    ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>
-    {
+        priced_templates: Either<PricedNewTxTemplates, PricedRetryTxTemplates>,
+    ) -> Box<dyn Future<Item = BatchResults, Error = LocalPayableError>> {
         let consuming_wallet = agent.consuming_wallet().clone();
         let web3_batch = self.lower_interface().get_web3_batch();
         let get_transaction_id = self
@@ -276,16 +277,17 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
 
         Box::new(
             get_transaction_id
-                .map_err(PayableTransactionError::TransactionID)
-                .and_then(move |pending_nonce| {
+                .map_err(LocalPayableError::TransactionID)
+                .and_then(move |latest_nonce| {
+                    let templates =
+                        SignableTxTemplates::new(priced_templates, latest_nonce.as_u64());
+
                     send_payables_within_batch(
                         &logger,
                         chain,
                         &web3_batch,
+                        templates,
                         consuming_wallet,
-                        pending_nonce,
-                        new_pending_payables_recipient,
-                        affordable_accounts,
                     )
                 }),
         )
@@ -296,6 +298,15 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
 pub struct HashAndAmount {
     pub hash: H256,
     pub amount_minor: u128,
+}
+
+impl From<&SentTx> for HashAndAmount {
+    fn from(tx: &SentTx) -> Self {
+        HashAndAmount {
+            hash: tx.hash,
+            amount_minor: tx.amount_minor,
+        }
+    }
 }
 
 impl BlockchainInterfaceWeb3 {
@@ -456,10 +467,6 @@ impl BlockchainInterfaceWeb3 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::scanners::payable_scanner_extension::msgs::{
-        QualifiedPayableWithGasPrice, QualifiedPayablesBeforeGasPriceSelection,
-        UnpricedQualifiedPayables,
-    };
     use crate::accountant::scanners::pending_payable_scanner::utils::TxHashByTable;
     use crate::accountant::test_utils::make_payable_account;
     use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
@@ -491,9 +498,13 @@ mod tests {
     use masq_lib::utils::find_free_port;
     use std::net::Ipv4Addr;
     use std::str::FromStr;
+    use itertools::Either;
     use web3::transports::Http;
     use web3::types::{H256, U256};
-    use crate::blockchain::errors::rpc_errors::{AppRpcError, RemoteError};
+    use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::NewTxTemplates;
+    use crate::accountant::scanners::payable_scanner::tx_templates::initial::retry::RetryTxTemplates;
+    use crate::accountant::scanners::payable_scanner::tx_templates::priced::retry::PricedRetryTxTemplate;
+    use crate::accountant::scanners::payable_scanner::tx_templates::test_utils::RetryTxTemplateBuilder;
 
     #[test]
     fn constants_are_correct() {
@@ -868,87 +879,68 @@ mod tests {
     fn blockchain_interface_web3_can_introduce_blockchain_agent_in_the_new_payables_mode() {
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
-        let unpriced_qualified_payables =
-            UnpricedQualifiedPayables::from(vec![account_1.clone(), account_2.clone()]);
+        let tx_templates = NewTxTemplates::from(&vec![account_1.clone(), account_2.clone()]);
         let gas_price_wei_from_rpc_hex = "0x3B9ACA00"; // 1000000000
         let gas_price_wei_from_rpc_u128_wei =
             u128::from_str_radix(&gas_price_wei_from_rpc_hex[2..], 16).unwrap();
         let gas_price_wei_from_rpc_u128_wei_with_margin =
             increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei);
-        let expected_priced_qualified_payables = PricedQualifiedPayables {
-            payables: vec![
-                QualifiedPayableWithGasPrice::new(
-                    account_1,
-                    gas_price_wei_from_rpc_u128_wei_with_margin,
-                ),
-                QualifiedPayableWithGasPrice::new(
-                    account_2,
-                    gas_price_wei_from_rpc_u128_wei_with_margin,
-                ),
-            ],
-        };
+        let expected_result = Either::Left(PricedNewTxTemplates::new(
+            tx_templates.clone(),
+            gas_price_wei_from_rpc_u128_wei_with_margin,
+        ));
         let expected_estimated_transaction_fee_total = 190_652_800_000_000;
 
         test_blockchain_interface_web3_can_introduce_blockchain_agent(
-            unpriced_qualified_payables,
+            Either::Left(tx_templates),
             gas_price_wei_from_rpc_hex,
-            expected_priced_qualified_payables,
+            expected_result,
             expected_estimated_transaction_fee_total,
         );
     }
 
     #[test]
     fn blockchain_interface_web3_can_introduce_blockchain_agent_in_the_retry_payables_mode() {
-        let gas_price_wei_from_rpc_hex = "0x3B9ACA00"; // 1000000000
-        let gas_price_wei_from_rpc_u128_wei =
-            u128::from_str_radix(&gas_price_wei_from_rpc_hex[2..], 16).unwrap();
-        let account_1 = make_payable_account(12);
-        let account_2 = make_payable_account(34);
-        let account_3 = make_payable_account(56);
-        let unpriced_qualified_payables = UnpricedQualifiedPayables {
-            payables: vec![
-                QualifiedPayablesBeforeGasPriceSelection::new(
-                    account_1.clone(),
-                    Some(gas_price_wei_from_rpc_u128_wei - 1),
-                ),
-                QualifiedPayablesBeforeGasPriceSelection::new(
-                    account_2.clone(),
-                    Some(gas_price_wei_from_rpc_u128_wei),
-                ),
-                QualifiedPayablesBeforeGasPriceSelection::new(
-                    account_3.clone(),
-                    Some(gas_price_wei_from_rpc_u128_wei + 1),
-                ),
-            ],
-        };
+        let gas_price_wei = "0x3B9ACA00"; // 1000000000
+        let gas_price_from_rpc = u128::from_str_radix(&gas_price_wei[2..], 16).unwrap();
+        let retry_1 = RetryTxTemplateBuilder::default()
+            .payable_account(&make_payable_account(12))
+            .prev_gas_price_wei(gas_price_from_rpc - 1)
+            .build();
+        let retry_2 = RetryTxTemplateBuilder::default()
+            .payable_account(&make_payable_account(34))
+            .prev_gas_price_wei(gas_price_from_rpc)
+            .build();
+        let retry_3 = RetryTxTemplateBuilder::default()
+            .payable_account(&make_payable_account(56))
+            .prev_gas_price_wei(gas_price_from_rpc + 1)
+            .build();
 
-        let expected_priced_qualified_payables = {
-            let gas_price_account_1 = increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei);
-            let gas_price_account_2 = increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei);
-            let gas_price_account_3 =
-                increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei + 1);
-            PricedQualifiedPayables {
-                payables: vec![
-                    QualifiedPayableWithGasPrice::new(account_1, gas_price_account_1),
-                    QualifiedPayableWithGasPrice::new(account_2, gas_price_account_2),
-                    QualifiedPayableWithGasPrice::new(account_3, gas_price_account_3),
-                ],
-            }
-        };
+        let retry_tx_templates =
+            RetryTxTemplates(vec![retry_1.clone(), retry_2.clone(), retry_3.clone()]);
+        let expected_retry_tx_templates = PricedRetryTxTemplates(vec![
+            PricedRetryTxTemplate::new(retry_1, increase_gas_price_by_margin(gas_price_from_rpc)),
+            PricedRetryTxTemplate::new(retry_2, increase_gas_price_by_margin(gas_price_from_rpc)),
+            PricedRetryTxTemplate::new(
+                retry_3,
+                increase_gas_price_by_margin(gas_price_from_rpc + 1),
+            ),
+        ]);
+
         let expected_estimated_transaction_fee_total = 285_979_200_073_328;
 
         test_blockchain_interface_web3_can_introduce_blockchain_agent(
-            unpriced_qualified_payables,
-            gas_price_wei_from_rpc_hex,
-            expected_priced_qualified_payables,
+            Either::Right(retry_tx_templates),
+            gas_price_wei,
+            Either::Right(expected_retry_tx_templates),
             expected_estimated_transaction_fee_total,
         );
     }
 
     fn test_blockchain_interface_web3_can_introduce_blockchain_agent(
-        unpriced_qualified_payables: UnpricedQualifiedPayables,
+        tx_templates: Either<NewTxTemplates, RetryTxTemplates>,
         gas_price_wei_from_rpc_hex: &str,
-        expected_priced_qualified_payables: PricedQualifiedPayables,
+        expected_tx_templates: Either<PricedNewTxTemplates, PricedRetryTxTemplates>,
         expected_estimated_transaction_fee_total: u128,
     ) {
         let port = find_free_port();
@@ -981,14 +973,10 @@ mod tests {
                 masq_token_balance_in_minor_units: expected_masq_balance
             }
         );
-        let priced_qualified_payables =
-            result.price_qualified_payables(unpriced_qualified_payables);
+        let computed_tx_templates = result.price_qualified_payables(tx_templates);
+        assert_eq!(computed_tx_templates, expected_tx_templates);
         assert_eq!(
-            priced_qualified_payables,
-            expected_priced_qualified_payables
-        );
-        assert_eq!(
-            result.estimate_transaction_fee_total(&priced_qualified_payables),
+            result.estimate_transaction_fee_total(&computed_tx_templates),
             expected_estimated_transaction_fee_total
         )
     }

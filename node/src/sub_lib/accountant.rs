@@ -4,7 +4,7 @@ use crate::accountant::db_access_objects::failed_payable_dao::FailedPayableDaoFa
 use crate::accountant::db_access_objects::payable_dao::PayableDaoFactory;
 use crate::accountant::db_access_objects::receivable_dao::ReceivableDaoFactory;
 use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDaoFactory;
-use crate::accountant::scanners::payable_scanner_extension::msgs::BlockchainAgentWithContextMessage;
+use crate::accountant::scanners::payable_scanner::msgs::PricedTemplatesMessage;
 use crate::accountant::{
     checked_conversion, Accountant, ReceivedPayments, ScanError, SentPayables, TxReceiptsMessage,
 };
@@ -101,7 +101,7 @@ pub struct AccountantSubs {
     pub report_routing_service_provided: Recipient<ReportRoutingServiceProvidedMessage>,
     pub report_exit_service_provided: Recipient<ReportExitServiceProvidedMessage>,
     pub report_services_consumed: Recipient<ReportServicesConsumedMessage>,
-    pub report_payable_payments_setup: Recipient<BlockchainAgentWithContextMessage>,
+    pub report_payable_payments_setup: Recipient<PricedTemplatesMessage>,
     pub report_inbound_payments: Recipient<ReceivedPayments>,
     pub register_new_pending_payables: Recipient<RegisterNewPendingPayables>,
     pub report_transaction_status: Recipient<TxReceiptsMessage>,

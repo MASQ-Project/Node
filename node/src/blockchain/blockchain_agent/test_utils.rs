@@ -1,15 +1,15 @@
-// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-
 #![cfg(test)]
 
-use crate::accountant::scanners::payable_scanner_extension::msgs::{
-    PricedQualifiedPayables, UnpricedQualifiedPayables,
-};
+use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::NewTxTemplates;
+use crate::accountant::scanners::payable_scanner::tx_templates::initial::retry::RetryTxTemplates;
+use crate::accountant::scanners::payable_scanner::tx_templates::priced::new::PricedNewTxTemplates;
+use crate::accountant::scanners::payable_scanner::tx_templates::priced::retry::PricedRetryTxTemplates;
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use crate::{arbitrary_id_stamp_in_trait_impl, set_arbitrary_id_stamp_in_mock_impl};
+use itertools::Either;
 use masq_lib::blockchains::chains::Chain;
 use std::cell::RefCell;
 
@@ -36,14 +36,14 @@ impl Default for BlockchainAgentMock {
 impl BlockchainAgent for BlockchainAgentMock {
     fn price_qualified_payables(
         &self,
-        _qualified_payables: UnpricedQualifiedPayables,
-    ) -> PricedQualifiedPayables {
+        _tx_templates: Either<NewTxTemplates, RetryTxTemplates>,
+    ) -> Either<PricedNewTxTemplates, PricedRetryTxTemplates> {
         unimplemented!("not needed yet")
     }
 
     fn estimate_transaction_fee_total(
         &self,
-        _qualified_payables: &PricedQualifiedPayables,
+        _priced_tx_templates: &Either<PricedNewTxTemplates, PricedRetryTxTemplates>,
     ) -> u128 {
         todo!("to be implemented by GH-711")
     }

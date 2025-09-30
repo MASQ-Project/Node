@@ -93,7 +93,8 @@ impl TxReceiptInterpreter {
                 let replacement_tx = sent_payable_dao
                     .retrieve_txs(Some(RetrieveCondition::ByNonce(vec![failed_tx.nonce])));
                 let replacement_tx_hash = replacement_tx
-                    .get(0)
+                    .iter()
+                    .next()
                     .unwrap_or_else(|| {
                         panic!(
                             "Attempted to display a replacement tx for {:?} but couldn't find \
@@ -104,8 +105,8 @@ impl TxReceiptInterpreter {
                     .hash;
                 warning!(
                     logger,
-                    "Failed tx {:?} on a recheck was found pending on its receipt unexpectedly. \
-                    It was supposed to be replaced by {:?}",
+                    "Previously failed tx {:?} found still pending unexpectedly; should have been \
+                    replaced by {:?}",
                     failed_tx.hash,
                     replacement_tx_hash
                 );
@@ -136,10 +137,7 @@ impl TxReceiptInterpreter {
     ) -> ReceiptScanReport {
         match tx {
             TxByTable::SentPayable(sent_tx) => {
-                info!(
-                    logger,
-                    "Pending tx {:?} was confirmed on-chain", sent_tx.hash,
-                );
+                info!(logger, "Tx {:?} confirmed", sent_tx.hash,);
 
                 let completed_sent_tx = SentTx {
                     status: TxStatus::Confirmed {
@@ -154,8 +152,7 @@ impl TxReceiptInterpreter {
             TxByTable::FailedPayable(failed_tx) => {
                 info!(
                     logger,
-                    "Failed tx {:?} was later confirmed on-chain and will be reclaimed",
-                    failed_tx.hash
+                    "Previously failed tx {:?} confirmed; will be reclaimed", failed_tx.hash
                 );
 
                 let sent_tx = SentTx::from((failed_tx, tx_block));
@@ -176,7 +173,7 @@ impl TxReceiptInterpreter {
                 let failure_reason = FailureReason::Reverted;
                 let failed_tx = FailedTx::from((sent_tx, failure_reason));
 
-                warning!(logger, "Pending tx {:?} was reverted", failed_tx.hash,);
+                warning!(logger, "Tx {:?} reverted", failed_tx.hash,);
 
                 scan_report.register_new_failure(failed_tx);
             }
@@ -228,15 +225,14 @@ mod tests {
     use crate::accountant::db_access_objects::sent_payable_dao::{
         Detection, RetrieveCondition, SentTx, TxStatus,
     };
+    use crate::accountant::db_access_objects::test_utils::{make_failed_tx, make_sent_tx};
     use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp};
     use crate::accountant::scanners::pending_payable_scanner::tx_receipt_interpreter::TxReceiptInterpreter;
     use crate::accountant::scanners::pending_payable_scanner::utils::{
         DetectedConfirmations, DetectedFailures, FailedValidation, FailedValidationByTable,
         PresortedTxFailure, ReceiptScanReport, TxByTable,
     };
-    use crate::accountant::test_utils::{
-        make_failed_tx, make_sent_tx, make_transaction_block, SentPayableDaoMock,
-    };
+    use crate::accountant::test_utils::{make_transaction_block, SentPayableDaoMock};
     use crate::blockchain::errors::internal_errors::InternalErrorKind;
     use crate::blockchain::errors::rpc_errors::{
         AppRpcError, AppRpcErrorKind, LocalError, LocalErrorKind, RemoteError,
@@ -249,6 +245,7 @@ mod tests {
     use crate::test_utils::unshared_test_utils::capture_digits_with_separators_from_str;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
+    use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
 
@@ -289,8 +286,8 @@ mod tests {
             }
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "INFO: {test_name}: Pending tx 0x0000000000000000000000000000000000000000000000000000000\
-            00000cdef was confirmed on-chain",
+            "INFO: {test_name}: Tx 0x000000000000000000000000000000000000000000000000000000000000\
+            cdef confirmed",
         ));
     }
 
@@ -337,8 +334,8 @@ mod tests {
             }
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "INFO: {test_name}: Failed tx 0x0000000000000000000000000000000000000000000000000000000\
-            00000cdef was later confirmed on-chain and will be reclaimed",
+            "INFO: {test_name}: Previously failed tx 0x00000000000000000000000000000000000000000000\
+            0000000000000000cdef confirmed; will be reclaimed",
         ));
     }
 
@@ -370,8 +367,8 @@ mod tests {
             }
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: {test_name}: Pending tx 0x0000000000000000000000000000000000000000000000000000000\
-            000000abc was reverted",
+            "WARN: {test_name}: Tx 0x0000000000000000000000000000000000000000000000000000000\
+            000000abc reverted",
         ));
     }
 
@@ -417,7 +414,7 @@ mod tests {
         let newer_sent_tx_for_older_failed_tx = make_sent_tx(2244);
         let sent_payable_dao = SentPayableDaoMock::new()
             .retrieve_txs_params(&retrieve_txs_params_arc)
-            .retrieve_txs_result(vec![newer_sent_tx_for_older_failed_tx]);
+            .retrieve_txs_result(BTreeSet::from([newer_sent_tx_for_older_failed_tx]));
         let hash = make_tx_hash(0x913);
         let sent_tx_timestamp = to_unix_timestamp(
             SystemTime::now()
@@ -484,7 +481,7 @@ mod tests {
         newer_sent_tx_for_older_failed_tx.hash = make_tx_hash(0x7c6);
         let sent_payable_dao = SentPayableDaoMock::new()
             .retrieve_txs_params(&retrieve_txs_params_arc)
-            .retrieve_txs_result(vec![newer_sent_tx_for_older_failed_tx]);
+            .retrieve_txs_result(BTreeSet::from([newer_sent_tx_for_older_failed_tx]));
         let tx_hash = make_tx_hash(0x913);
         let mut failed_tx = make_failed_tx(789);
         let failed_tx_nonce = failed_tx.nonce;
@@ -524,9 +521,9 @@ mod tests {
             vec![Some(RetrieveCondition::ByNonce(vec![failed_tx_nonce]))]
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: {test_name}: Failed tx 0x0000000000000000000000000000000000000000000000000000000\
-            000000913 on a recheck was found pending on its receipt unexpectedly. It was supposed \
-            to be replaced by 0x00000000000000000000000000000000000000000000000000000000000007c6"
+            "WARN: {test_name}: Previously failed tx 0x00000000000000000000000000000000000000000000\
+            00000000000000000913 found still pending unexpectedly; should have been replaced \
+            by 0x00000000000000000000000000000000000000000000000000000000000007c6"
         ));
     }
 
@@ -564,7 +561,7 @@ mod tests {
     ) {
         let scan_report = ReceiptScanReport::default();
         let still_pending_tx = make_failed_tx(456);
-        let sent_payable_dao = SentPayableDaoMock::new().retrieve_txs_result(vec![]);
+        let sent_payable_dao = SentPayableDaoMock::new().retrieve_txs_result(BTreeSet::new());
 
         let _ = TxReceiptInterpreter::handle_still_pending_tx(
             scan_report,

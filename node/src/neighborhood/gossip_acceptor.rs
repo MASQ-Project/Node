@@ -731,13 +731,13 @@ impl GossipHandler for IntroductionHandler {
                     ));
                 }
             }
-            let connection_progess_message = ConnectionProgressMessage {
+            let connection_progress_message = ConnectionProgressMessage {
                 peer_addr: introducer_ip_addr,
                 event: ConnectionProgressEvent::IntroductionGossipReceived(introducee_ip_addr),
             };
             neighborhood_metadata
                 .cpm_recipient
-                .try_send(connection_progess_message)
+                .try_send(connection_progress_message)
                 .expect("Neighborhood is dead");
             let (debut, target_key, target_node_addr) =
                 GossipAcceptorReal::make_debut_triple(database, &introducee)
@@ -1322,13 +1322,13 @@ pub trait GossipAcceptor: Send /* Send because lazily-written tests require it *
     ) -> GossipAcceptanceResult;
 }
 
-pub struct GossipAcceptorReal<'a> {
-    cryptde: &'a dyn CryptDE,
+pub struct GossipAcceptorReal {
+    cryptde: Box<dyn CryptDE>,
     gossip_handlers: Vec<Box<dyn GossipHandler>>,
     logger: Logger,
 }
 
-impl<'a> GossipAcceptor for GossipAcceptorReal<'a> {
+impl GossipAcceptor for GossipAcceptorReal {
     fn handle(
         &self,
         database: &mut NeighborhoodDatabase,
@@ -1350,7 +1350,7 @@ impl<'a> GossipAcceptor for GossipAcceptorReal<'a> {
                     handler_ref.type_name()
                 );
                 handler_ref.handle(
-                    self.cryptde,
+                    self.cryptde.as_ref(),
                     database,
                     agrs,
                     gossip_source,
@@ -1365,8 +1365,8 @@ impl<'a> GossipAcceptor for GossipAcceptorReal<'a> {
     }
 }
 
-impl<'a> GossipAcceptorReal<'a> {
-    pub fn new(cryptde: &'a dyn CryptDE) -> GossipAcceptorReal {
+impl GossipAcceptorReal {
+    pub fn new(cryptde: Box<dyn CryptDE>) -> GossipAcceptorReal {
         let logger = Logger::new("GossipAcceptor");
         GossipAcceptorReal {
             gossip_handlers: vec![
@@ -1417,6 +1417,7 @@ impl<'a> GossipAcceptorReal<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bootstrapper::CryptDEPair;
     use crate::neighborhood::gossip_producer::GossipProducer;
     use crate::neighborhood::gossip_producer::GossipProducerReal;
     use crate::neighborhood::node_record::NodeRecord;
@@ -1433,10 +1434,11 @@ mod tests {
         make_node_records, public_keys_from_node_records, DB_PATCH_SIZE_FOR_TEST,
     };
     use crate::test_utils::unshared_test_utils::make_cpm_recipient;
-    use crate::test_utils::{assert_contains, main_cryptde, vec_to_set};
+    use crate::test_utils::{assert_contains, vec_to_set};
     use actix::System;
     use ip_country_lib::dbip_country::COUNTRIES;
     use itertools::Itertools;
+    use lazy_static::lazy_static;
     use masq_lib::messages::ExitLocation;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
@@ -1445,6 +1447,10 @@ mod tests {
     use std::ops::{Add, Sub};
     use std::str::FromStr;
     use std::time::Duration;
+
+    lazy_static! {
+        static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
+    }
 
     #[test]
     fn constants_have_correct_values() {
@@ -1635,7 +1641,7 @@ mod tests {
         assert_eq!(
             result,
             Qualification::Malformed(
-                format! ("Debut from 200.200.200.200:2000 for AgMEBQ does not accept connections, yet contained NodeAddr")
+                "Debut from 200.200.200.200:2000 for AgMEBQ does not accept connections, yet contained NodeAddr".to_string()
             ),
         );
     }
@@ -2344,9 +2350,10 @@ mod tests {
 
         assert_eq!(
             result,
-            Qualification::Malformed(format!(
+            Qualification::Malformed(
                 "Standard Gossip from 1.2.3.4:1234 contains a record with this Node's public key"
-            )),
+                    .to_string()
+            ),
         );
     }
 
@@ -2416,9 +2423,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Qualification::Malformed(format!(
-                "Standard Gossip from 1.2.3.4:1234 contains multiple records claiming to be from 3.4.5.6"
-            )),
+            Qualification::Malformed(
+                "Standard Gossip from 1.2.3.4:1234 contains multiple records claiming to be from 3.4.5.6".to_string()
+            ),
         );
     }
 
@@ -2536,8 +2543,7 @@ mod tests {
         /*
             Over here, root node is A and patch contains [A, B, C, D].
                                   A---B---C---D---E
-            What does this test proves:
-            The distance of A and E is more than 3 hops, hence E is being excluded.
+            This test proves that E is excluded, because the distance of A and E is more than 3 hops.
         */
 
         let subject = StandardGossipHandler::new(Logger::new("test"));
@@ -2697,7 +2703,7 @@ mod tests {
 
         */
 
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let subject = StandardGossipHandler::new(Logger::new("test"));
         let node_a = make_node_record(1111, true);
         let node_b = make_node_record(2222, true);
@@ -2780,7 +2786,7 @@ mod tests {
         // instead of the GossipAcceptor (which would identify it as a Debut),
         // so the test is unrealistic. Also that the Gossip is ignored because
         // Node B isn't in Node A's patch, which matters to a StandardGossipHandler.
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let root_node = make_node_record(1111, true);
         let mut root_db = db_from_node(&root_node);
         let src_node = make_node_record(2222, true);
@@ -2814,7 +2820,7 @@ mod tests {
     #[test]
     fn cpm_is_sent_in_case_full_neighborship_doesn_t_exist_and_is_created() {
         // Received Reply for Acceptance of Debut Gossip - (false, true)
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let root_node = make_node_record(1111, true);
         let mut root_db = db_from_node(&root_node);
         let src_node = make_node_record(2222, true);
@@ -2862,7 +2868,7 @@ mod tests {
     #[test]
     fn cpm_is_not_sent_in_case_full_neighborship_exists_and_is_destroyed() {
         // Somebody banned us. (true, false)
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let root_node = make_node_record(1111, true);
         let mut root_db = db_from_node(&root_node);
         let src_node = make_node_record(2222, true);
@@ -2901,7 +2907,7 @@ mod tests {
     #[test]
     fn cpm_is_not_sent_in_case_full_neighborship_exists_and_continues() {
         // Standard Gossips received after Neighborship is established (true, true)
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let root_node = make_node_record(1111, true);
         let mut root_db = db_from_node(&root_node);
         let src_node = make_node_record(2222, true);
@@ -2980,7 +2986,7 @@ mod tests {
 
     #[test]
     fn last_gossip_handler_rejects_everything() {
-        let subject = make_subject(main_cryptde());
+        let subject = make_subject(CRYPTDE_PAIR.main.as_ref());
         let reject_handler = subject.gossip_handlers.last().unwrap();
         let db = make_meaningless_db();
         let (debut, _, debut_gossip_source) = make_debut(1234, Mode::Standard);
@@ -3050,7 +3056,7 @@ mod tests {
             .node(node_a.public_key(), false)
             .node(node_b.public_key(), false)
             .build();
-        let subject = make_subject(main_cryptde());
+        let subject = make_subject(CRYPTDE_PAIR.main.as_ref());
 
         let result = subject.handle(
             &mut dest_db,
@@ -3446,7 +3452,7 @@ mod tests {
             .node(src_node.public_key(), true)
             .build();
         let gossip_source: SocketAddr = src_node.node_addr_opt().unwrap().into();
-        let subject = make_subject(main_cryptde());
+        let subject = make_subject(CRYPTDE_PAIR.main.as_ref());
 
         let result = subject.handle(
             &mut dest_db,
@@ -3484,7 +3490,7 @@ mod tests {
             .build();
         let debut_agrs = debut.try_into().unwrap();
         let gossip_source: SocketAddr = src_node.node_addr_opt().unwrap().into();
-        let subject = make_subject(main_cryptde());
+        let subject = make_subject(CRYPTDE_PAIR.main.as_ref());
 
         let begin_at = time_t_timestamp();
         let result = subject.handle(
@@ -3518,7 +3524,7 @@ mod tests {
             .build();
         let debut_agrs = debut.try_into().unwrap();
         let gossip_source = src_node.node_addr_opt().unwrap().into();
-        let subject = make_subject(main_cryptde());
+        let subject = make_subject(CRYPTDE_PAIR.main.as_ref());
 
         let result = subject.handle(
             &mut dest_db,
@@ -3535,7 +3541,7 @@ mod tests {
         let gnr = GossipNodeRecord::from((
             root_node.inner.clone(),
             root_node.node_addr_opt(),
-            main_cryptde(),
+            CRYPTDE_PAIR.main.as_ref(),
         ));
         let debut_gossip = Gossip_0v1 {
             node_records: vec![gnr],
@@ -3567,7 +3573,7 @@ mod tests {
             .build();
         let debut_agrs = debut.try_into().unwrap();
         let gossip_source = src_node.node_addr_opt().unwrap().into();
-        let subject = make_subject(main_cryptde());
+        let subject = make_subject(CRYPTDE_PAIR.main.as_ref());
 
         let result = subject.handle(
             &mut dest_db,
@@ -3584,7 +3590,7 @@ mod tests {
         let gnr = GossipNodeRecord::from((
             root_node.inner.clone(),
             root_node.node_addr_opt(),
-            main_cryptde(),
+            CRYPTDE_PAIR.main.as_ref(),
         ));
         let debut_gossip = Gossip_0v1 {
             node_records: vec![gnr],
@@ -3613,7 +3619,7 @@ mod tests {
 
     #[test]
     fn introduction_gossip_handler_sends_cpm_for_neighborship_established() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let root_node = make_node_record(1234, true);
         let mut db = db_from_node(&root_node);
         let subject = IntroductionHandler::new(Logger::new("test"));
@@ -3661,7 +3667,7 @@ mod tests {
         let root_node = make_node_record(1234, true);
         let mut db = db_from_node(&root_node);
         let (gossip, pass_target, gossip_source) = make_pass(2345);
-        let subject = make_subject(main_cryptde());
+        let subject = make_subject(CRYPTDE_PAIR.main.as_ref());
 
         let result = subject.handle(
             &mut db,
@@ -3686,7 +3692,7 @@ mod tests {
 
     #[test]
     fn handles_a_new_pass_target() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let root_node = make_node_record(1234, true);
         let mut db = db_from_node(&root_node);
         let subject = PassHandler::new();
@@ -3733,7 +3739,7 @@ mod tests {
 
     #[test]
     fn handles_pass_target_that_is_not_yet_expired() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let root_node = make_node_record(1234, true);
         let mut db = db_from_node(&root_node);
         let subject = PassHandler::new();
@@ -3780,7 +3786,7 @@ mod tests {
 
     #[test]
     fn handles_pass_target_that_is_a_part_of_a_different_connection_progress() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let root_node = make_node_record(1234, true);
         let mut db = db_from_node(&root_node);
         let subject = PassHandler::new();
@@ -3817,7 +3823,7 @@ mod tests {
 
     #[test]
     fn handles_pass_target_that_has_expired() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let root_node = make_node_record(1234, true);
         let mut db = db_from_node(&root_node);
         let subject = PassHandler::new();
@@ -3938,7 +3944,7 @@ mod tests {
             .node(node_e.public_key(), true)
             .node(node_f.public_key(), true)
             .build();
-        let subject = make_subject(main_cryptde());
+        let subject = make_subject(CRYPTDE_PAIR.main.as_ref());
         let before = time_t_timestamp();
 
         let result = subject.handle(
@@ -4170,7 +4176,7 @@ mod tests {
             .node(current_node.public_key(), false)
             .node(obsolete_node.public_key(), false)
             .build();
-        let subject = make_subject(main_cryptde());
+        let subject = make_subject(CRYPTDE_PAIR.main.as_ref());
         let original_dest_db = dest_db.clone();
         let before = time_t_timestamp();
 
@@ -4536,7 +4542,7 @@ mod tests {
     }
 
     fn make_subject(crypt_de: &dyn CryptDE) -> GossipAcceptorReal {
-        GossipAcceptorReal::new(crypt_de)
+        GossipAcceptorReal::new(crypt_de.dup())
     }
 
     fn assert_node_records_eq(actual: &NodeRecord, expected: &NodeRecord, before: u32, after: u32) {

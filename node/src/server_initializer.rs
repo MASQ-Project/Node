@@ -387,7 +387,6 @@ pub mod test_utils {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::bootstrapper::BootstrapperConfig;
     use crate::crash_test_dummy::CrashTestDummy;
     use crate::node_test_utils::DirsWrapperMock;
     use crate::server_initializer::test_utils::PrivilegeDropperMock;
@@ -405,7 +404,7 @@ pub mod tests {
     use std::sync::{Arc, Mutex};
     use test_utilities::byte_array_reader_writer::{ByteArrayReader, ByteArrayWriter};
 
-    impl<C: Send + 'static> ConfiguredByPrivilege for CrashTestDummy<C> {
+    impl ConfiguredByPrivilege for CrashTestDummy {
         fn initialize_as_privileged(
             &mut self,
             _multi_config: &MultiConfig,
@@ -683,8 +682,8 @@ pub mod tests {
     #[test]
     fn exits_after_all_socket_servers_exit() {
         let _ = LogfileNameGuard::new(&PathBuf::from("uninitialized"));
-        let dns_socket_server = CrashTestDummy::new(CrashPoint::Error, ());
-        let bootstrapper = CrashTestDummy::new(CrashPoint::Error, BootstrapperConfig::new());
+        let dns_socket_server = CrashTestDummy::new(CrashPoint::Error);
+        let bootstrapper = CrashTestDummy::new(CrashPoint::Error);
         let dirs_wrapper = make_pre_populated_mocked_directory_wrapper();
         let privilege_dropper = PrivilegeDropperMock::new();
         let mut subject = ServerInitializerReal {
@@ -711,8 +710,8 @@ pub mod tests {
 
     #[test]
     fn server_initializer_as_a_future() {
-        let dns_socket_server = CrashTestDummy::new(CrashPoint::None, ());
-        let bootstrapper = CrashTestDummy::new(CrashPoint::None, BootstrapperConfig::new());
+        let dns_socket_server = CrashTestDummy::new(CrashPoint::None);
+        let bootstrapper = CrashTestDummy::new(CrashPoint::None);
         let privilege_dropper = PrivilegeDropperMock::new();
         let dirs_wrapper = DirsWrapperMock::new();
 
@@ -731,14 +730,13 @@ pub mod tests {
     // TODO: GH-525: It should panic
     // #[should_panic(expected = "EntryDnsServerMock was instructed to panic")]
     fn server_initializer_dns_socket_server_panics() {
-        let bootstrapper = CrashTestDummy::new(CrashPoint::None, BootstrapperConfig::new());
+        let bootstrapper = CrashTestDummy::new(CrashPoint::None);
         let privilege_dropper = PrivilegeDropperMock::new();
         let dirs_wrapper = DirsWrapperMock::new();
 
         let mut subject = ServerInitializerReal {
             dns_socket_server: Box::new(CrashTestDummy::panic(
                 "EntryDnsServerMock was instructed to panic".to_string(),
-                (),
             )),
             bootstrapper: Box::new(bootstrapper),
             privilege_dropper: Box::new(privilege_dropper),
@@ -751,14 +749,13 @@ pub mod tests {
     #[test]
     #[should_panic(expected = "BootstrapperMock was instructed to panic")]
     fn server_initializer_bootstrapper_panics() {
-        let dns_socket_server = CrashTestDummy::new(CrashPoint::None, ());
+        let dns_socket_server = CrashTestDummy::new(CrashPoint::None);
         let privilege_dropper = PrivilegeDropperMock::new();
         let dirs_wrapper = DirsWrapperMock::new();
         let mut subject = ServerInitializerReal {
             dns_socket_server: Box::new(dns_socket_server),
             bootstrapper: Box::new(CrashTestDummy::panic(
                 "BootstrapperMock was instructed to panic".to_string(),
-                BootstrapperConfig::new(),
             )),
             privilege_dropper: Box::new(privilege_dropper),
             dirs_wrapper: Box::new(dirs_wrapper),

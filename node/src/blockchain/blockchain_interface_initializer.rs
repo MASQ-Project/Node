@@ -44,14 +44,14 @@ impl BlockchainInterfaceInitializer {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::scanners::payable_scanner_extension::msgs::{
-        PricedQualifiedPayables, QualifiedPayableWithGasPrice, UnpricedQualifiedPayables,
-    };
+    use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::NewTxTemplates;
+    use crate::accountant::scanners::payable_scanner::tx_templates::priced::new::PricedNewTxTemplates;
     use crate::accountant::test_utils::make_payable_account;
     use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
     use crate::blockchain::blockchain_interface_initializer::BlockchainInterfaceInitializer;
     use crate::test_utils::make_wallet;
     use futures::Future;
+    use itertools::Either;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
@@ -80,29 +80,22 @@ mod tests {
 
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
-        let unpriced_qualified_payables =
-            UnpricedQualifiedPayables::from(vec![account_1.clone(), account_2.clone()]);
+        let tx_templates = NewTxTemplates::from(&vec![account_1.clone(), account_2.clone()]);
         let payable_wallet = make_wallet("payable");
         let blockchain_agent = result
             .introduce_blockchain_agent(payable_wallet.clone())
             .wait()
             .unwrap();
         assert_eq!(blockchain_agent.consuming_wallet(), &payable_wallet);
-        let priced_qualified_payables =
-            blockchain_agent.price_qualified_payables(unpriced_qualified_payables);
+        let result = blockchain_agent.price_qualified_payables(Either::Left(tx_templates.clone()));
         let gas_price_with_margin = increase_gas_price_by_margin(1_000_000_000);
-        let expected_priced_qualified_payables = PricedQualifiedPayables {
-            payables: vec![
-                QualifiedPayableWithGasPrice::new(account_1, gas_price_with_margin),
-                QualifiedPayableWithGasPrice::new(account_2, gas_price_with_margin),
-            ],
-        };
+        let expected_result = Either::Left(PricedNewTxTemplates::new(
+            tx_templates,
+            gas_price_with_margin,
+        ));
+        assert_eq!(result, expected_result);
         assert_eq!(
-            priced_qualified_payables,
-            expected_priced_qualified_payables
-        );
-        assert_eq!(
-            blockchain_agent.estimate_transaction_fee_total(&priced_qualified_payables),
+            blockchain_agent.estimate_transaction_fee_total(&result),
             190_652_800_000_000
         );
     }

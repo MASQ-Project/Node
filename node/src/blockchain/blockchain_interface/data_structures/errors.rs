@@ -1,9 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::comma_joined_stringifiable;
-use crate::accountant::db_access_objects::utils::TxHash;
-use itertools::{Either, Itertools};
-use std::collections::HashSet;
+use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
+use crate::accountant::join_with_separator;
+use itertools::Either;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use variant_count::VariantCount;
@@ -35,20 +34,18 @@ impl Display for BlockchainInterfaceError {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, VariantCount)]
-pub enum PayableTransactionError {
+pub enum LocalPayableError {
     MissingConsumingWallet,
     GasPriceQueryFailed(BlockchainInterfaceError),
     TransactionID(BlockchainInterfaceError),
-    UnusableWallet(String),
-    Signing(String),
     Sending {
-        msg: String,
-        hashes: HashSet<TxHash>,
+        error: String,
+        failed_txs: Vec<FailedTx>,
     },
     UninitializedInterface,
 }
 
-impl Display for PayableTransactionError {
+impl Display for LocalPayableError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::MissingConsumingWallet => {
@@ -60,21 +57,12 @@ impl Display for PayableTransactionError {
             Self::TransactionID(blockchain_err) => {
                 write!(f, "Transaction id fetching failed: {}", blockchain_err)
             }
-            Self::UnusableWallet(msg) => write!(
+            Self::Sending { error, failed_txs } => write!(
                 f,
-                "Unusable wallet for signing payable transactions: \"{}\"",
-                msg
+                "Sending error: \"{}\". Signed and hashed transactions: \"{}\"",
+                error,
+                join_with_separator(failed_txs, |failed_tx| format!("{:?}", failed_tx), ",")
             ),
-            Self::Signing(msg) => write!(f, "Signing phase: \"{}\"", msg),
-            Self::Sending { msg, hashes } => {
-                let hashes = hashes.iter().map(|hash| *hash).sorted().collect_vec();
-                write!(
-                    f,
-                    "Sending phase: \"{}\". Signed and hashed txs: {}",
-                    msg,
-                    comma_joined_stringifiable(&hashes, |hash| format!("{:?}", hash))
-                )
-            }
             Self::UninitializedInterface => {
                 write!(f, "{}", BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED)
             }
@@ -122,13 +110,13 @@ impl Display for BlockchainAgentBuildError {
 
 #[cfg(test)]
 mod tests {
+    use crate::accountant::db_access_objects::test_utils::make_failed_tx;
     use crate::blockchain::blockchain_interface::data_structures::errors::{
-        PayableTransactionError, BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED,
+        LocalPayableError, BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED,
     };
     use crate::blockchain::blockchain_interface::{
         BlockchainAgentBuildError, BlockchainInterfaceError,
     };
-    use crate::blockchain::test_utils::make_tx_hash;
     use crate::test_utils::make_wallet;
     use masq_lib::utils::{slice_of_strs_to_vec_of_strings, to_string};
 
@@ -175,29 +163,23 @@ mod tests {
     #[test]
     fn payable_payment_error_implements_display() {
         let original_errors = [
-            PayableTransactionError::MissingConsumingWallet,
-            PayableTransactionError::GasPriceQueryFailed(BlockchainInterfaceError::QueryFailed(
+            LocalPayableError::MissingConsumingWallet,
+            LocalPayableError::GasPriceQueryFailed(BlockchainInterfaceError::QueryFailed(
                 "Gas halves shut, no drop left".to_string(),
             )),
-            PayableTransactionError::TransactionID(BlockchainInterfaceError::InvalidResponse),
-            PayableTransactionError::UnusableWallet(
-                "This is a LEATHER wallet, not LEDGER wallet, stupid.".to_string(),
-            ),
-            PayableTransactionError::Signing(
-                "You cannot sign with just three crosses here, clever boy".to_string(),
-            ),
-            PayableTransactionError::Sending {
-                msg: "Sending to cosmos belongs elsewhere".to_string(),
-                hashes: hashset![make_tx_hash(0x6f), make_tx_hash(0xde)],
+            LocalPayableError::TransactionID(BlockchainInterfaceError::InvalidResponse),
+            LocalPayableError::Sending {
+                error: "Terrible error!!".to_string(),
+                failed_txs: vec![make_failed_tx(456)],
             },
-            PayableTransactionError::UninitializedInterface,
+            LocalPayableError::UninitializedInterface,
         ];
 
         let actual_error_msgs = original_errors.iter().map(to_string).collect::<Vec<_>>();
 
         assert_eq!(
             original_errors.len(),
-            PayableTransactionError::VARIANT_COUNT,
+            LocalPayableError::VARIANT_COUNT,
             "you forgot to add all variants in this test"
         );
         assert_eq!(
@@ -206,12 +188,10 @@ mod tests {
                 "Missing consuming wallet to pay payable from",
                 "Unsuccessful gas price query: \"Blockchain error: Query failed: Gas halves shut, no drop left\"",
                 "Transaction id fetching failed: Blockchain error: Invalid response",
-                "Unusable wallet for signing payable transactions: \"This is a LEATHER wallet, not \
-                LEDGER wallet, stupid.\"",
-                "Signing phase: \"You cannot sign with just three crosses here, clever boy\"",
-                "Sending phase: \"Sending to cosmos belongs elsewhere\". Signed and hashed \
-                txs: 0x000000000000000000000000000000000000000000000000000000000000006f, \
-                0x00000000000000000000000000000000000000000000000000000000000000de",
+                "Sending error: \"Terrible error!!\". Signed and hashed transactions: \"FailedTx { hash: 0x00000000000000\
+                000000000000000000000000000000000000000000000001c8, receiver_address: 0x00000000000\
+                00000002556000000002556000000, amount_minor: 43237380096, timestamp: 29942784, gas_\
+                price_minor: 94818816, nonce: 456, reason: PendingTooLong, status: RetryRequired }\"",
                 BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED
             ])
         )

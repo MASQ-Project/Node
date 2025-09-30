@@ -244,11 +244,23 @@ pub fn determine_user_specific_data(
 pub fn initialize_database(
     data_directory: &Path,
     migrator_config: DbInitializationConfig,
+    db_password_opt: &Option<String>,
 ) -> Box<dyn PersistentConfiguration> {
     let conn = DbInitializerReal::default()
         .initialize(data_directory, migrator_config)
         .unwrap_or_else(|e| db_connection_launch_panic(e, data_directory));
-    Box::new(PersistentConfigurationReal::from(conn))
+    let mut persistent_config = Box::new(PersistentConfigurationReal::from(conn));
+    if let Some(password) = db_password_opt {
+        if persistent_config
+            .check_password(None)
+            .expect("Failed to check password")
+        {
+            persistent_config
+                .change_password(None, password)
+                .expect("Failed to establish password")
+        }
+    }
+    persistent_config
 }
 
 pub fn real_user_from_multi_config_or_populate(
@@ -391,6 +403,7 @@ mod tests {
             .param("--config-file", "booga.toml");
         let args_vec: Vec<String> = args.into();
         let app = determine_config_file_path_app();
+
         let user_specific_data =
             determine_user_specific_data(&DirsWrapperReal::default(), &app, args_vec.as_slice())
                 .unwrap();
@@ -433,6 +446,7 @@ mod tests {
         );
         std::env::set_var("MASQ_CONFIG_FILE", "booga.toml");
         let app = determine_config_file_path_app();
+
         let user_specific_data =
             determine_user_specific_data(&DirsWrapperReal::default(), &app, args_vec.as_slice())
                 .unwrap();
@@ -574,6 +588,65 @@ mod tests {
             &format!("{}", user_specific_data.config_file.item.display())
         );
         assert_eq!(user_specific_data.real_user.user_specified, false);
+    }
+
+    #[test]
+    fn initialize_database_handles_preexisting_database_with_existing_password() {
+        let data_directory = ensure_node_home_directory_exists(
+            "node_configurator",
+            "initialize_database_handles_preexisting_database_with_existing_password",
+        );
+        {
+            let conn = DbInitializerReal::default()
+                .initialize(&data_directory, DbInitializationConfig::test_default())
+                .unwrap();
+            let mut persistent_config = Box::new(PersistentConfigurationReal::from(conn));
+            persistent_config
+                .change_password(None, "existing password")
+                .unwrap();
+        }
+        let db_password = Some("command-line password".to_string());
+
+        let persistent_config = initialize_database(
+            &data_directory,
+            DbInitializationConfig::test_default(),
+            &db_password,
+        );
+
+        assert_eq!(
+            persistent_config.check_password(Some("existing password".to_string())),
+            Ok(true)
+        );
+    }
+
+    #[test]
+    fn initialize_database_handles_preexisting_database_with_existing_password_but_nothing_on_the_command_line(
+    ) {
+        let data_directory = ensure_node_home_directory_exists(
+            "node_configurator",
+            "initialize_database_handles_preexisting_database_with_existing_password_but_nothing_on_the_command_line",
+        );
+        {
+            let conn = DbInitializerReal::default()
+                .initialize(&data_directory, DbInitializationConfig::test_default())
+                .unwrap();
+            let mut persistent_config = Box::new(PersistentConfigurationReal::from(conn));
+            persistent_config
+                .change_password(None, "existing password")
+                .unwrap();
+        }
+        let db_password = None;
+
+        let persistent_config = initialize_database(
+            &data_directory,
+            DbInitializationConfig::test_default(),
+            &db_password,
+        );
+
+        assert_eq!(
+            persistent_config.check_password(Some("existing password".to_string())),
+            Ok(true)
+        );
     }
 
     #[test]

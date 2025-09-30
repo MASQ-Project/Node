@@ -1,8 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 #![cfg(test)]
 
-use crate::accountant::scanners::payable_scanner_extension::msgs::BlockchainAgentWithContextMessage;
-use crate::accountant::scanners::payable_scanner_extension::msgs::QualifiedPayablesMessage;
+use crate::accountant::scanners::payable_scanner::msgs::{
+    InitialTemplatesMessage, PricedTemplatesMessage,
+};
 use crate::accountant::{
     ReceivedPayments, RequestTransactionReceipts, ScanError, ScanForNewPayables,
     ScanForReceivables, SentPayables,
@@ -20,20 +21,19 @@ use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportServicesConsumedMessage;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
+use crate::sub_lib::configurator::ConfiguratorSubs;
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
 use crate::sub_lib::hopper::IncipientCoresPackage;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{HopperSubs, MessageType};
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
-use crate::sub_lib::neighborhood::{ConfigChangeMsg, ConnectionProgressMessage};
-
-use crate::sub_lib::configurator::ConfiguratorSubs;
 use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
 use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
 use crate::sub_lib::neighborhood::UpdateNodeRecordMetadataMessage;
+use crate::sub_lib::neighborhood::{ConfigChangeMsg, ConnectionProgressMessage};
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
 use crate::sub_lib::peer_actors::PeerActors;
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp, StartMessage};
@@ -131,7 +131,7 @@ recorder_message_handler_t_m_p!(AddReturnRouteMessage);
 recorder_message_handler_t_m_p!(AddRouteResultMessage);
 recorder_message_handler_t_p!(AddStreamMsg);
 recorder_message_handler_t_m_p!(BindMessage);
-recorder_message_handler_t_p!(BlockchainAgentWithContextMessage);
+recorder_message_handler_t_p!(PricedTemplatesMessage);
 recorder_message_handler_t_m_p!(ConfigChangeMsg);
 recorder_message_handler_t_m_p!(ConnectionProgressMessage);
 recorder_message_handler_t_m_p!(CrashNotification);
@@ -155,7 +155,7 @@ recorder_message_handler_t_m_p!(NoLookupIncipientCoresPackage);
 recorder_message_handler_t_p!(OutboundPaymentsInstructions);
 recorder_message_handler_t_m_p!(RegisterNewPendingPayables);
 recorder_message_handler_t_m_p!(PoolBindMessage);
-recorder_message_handler_t_m_p!(QualifiedPayablesMessage);
+recorder_message_handler_t_m_p!(InitialTemplatesMessage);
 recorder_message_handler_t_m_p!(ReceivedPayments);
 recorder_message_handler_t_m_p!(RemoveNeighborMessage);
 recorder_message_handler_t_m_p!(RemoveStreamMsg);
@@ -527,7 +527,7 @@ pub fn make_accountant_subs_from_recorder(addr: &Addr<Recorder>) -> AccountantSu
         report_routing_service_provided: recipient!(addr, ReportRoutingServiceProvidedMessage),
         report_exit_service_provided: recipient!(addr, ReportExitServiceProvidedMessage),
         report_services_consumed: recipient!(addr, ReportServicesConsumedMessage),
-        report_payable_payments_setup: recipient!(addr, BlockchainAgentWithContextMessage),
+        report_payable_payments_setup: recipient!(addr, PricedTemplatesMessage),
         report_inbound_payments: recipient!(addr, ReceivedPayments),
         register_new_pending_payables: recipient!(addr, RegisterNewPendingPayables),
         report_transaction_status: recipient!(addr, TxReceiptsMessage),
@@ -549,7 +549,7 @@ pub fn make_blockchain_bridge_subs_from_recorder(addr: &Addr<Recorder>) -> Block
     BlockchainBridgeSubs {
         bind: recipient!(addr, BindMessage),
         outbound_payments_instructions: recipient!(addr, OutboundPaymentsInstructions),
-        qualified_payables: recipient!(addr, QualifiedPayablesMessage),
+        qualified_payables: recipient!(addr, InitialTemplatesMessage),
         retrieve_transactions: recipient!(addr, RetrieveTransactions),
         ui_sub: recipient!(addr, NodeFromUiMessage),
         request_transaction_receipts: recipient!(addr, RequestTransactionReceipts),
