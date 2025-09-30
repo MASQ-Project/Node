@@ -1260,7 +1260,7 @@ mod tests {
     }
 
     #[test]
-    fn unprivileged_parse_args_without_blockchain_service_url_but_not_bsu_error_returns_ok() {
+    fn unprivileged_parse_args_does_not_require_blockchain_service_url_under_these_circumstances() {
         running_test();
         let set_past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
         let config = BootstrapperConfig::new();
@@ -1269,17 +1269,17 @@ mod tests {
         )
         .set_past_neighbors_params(&set_past_neighbors_params_arc)
         .set_past_neighbors_result(Ok(()));
-        let exeption_params = vec![
+        let exception_params = vec![
             ("--fake-public-key", "booga"),
             ("--crash-point", "Error"),
             ("--neighborhood-mode", "zero-hop"),
         ];
 
-        for exeption_param in exeption_params {
+        for exception_param in exception_params {
             create_and_assert_multiconfig(
                 config.clone(),
                 persistent_config.clone(),
-                exeption_param,
+                exception_param,
             );
         }
     }
@@ -1287,7 +1287,7 @@ mod tests {
     fn create_and_assert_multiconfig(
         mut config: BootstrapperConfig,
         mut persistent_config: PersistentConfigurationMock,
-        exeption_param: (&str, &str),
+        exception_param: (&str, &str),
     ) {
         let subject = UnprivilegedParseArgsConfigurationDaoReal {};
         let multi_config = make_simplified_multi_config([
@@ -1297,8 +1297,8 @@ mod tests {
             "masq://eth-ropsten:UJNoZW5p-PDVqEjpr3b_8jZ_93yPG8i5dOAgE1bhK_A@2.3.4.5:2345",
             "--db-password",
             "password",
-            exeption_param.0,
-            exeption_param.1,
+            exception_param.0,
+            exception_param.1,
         ]);
         let result = subject.unprivileged_parse_args(
             &multi_config,
