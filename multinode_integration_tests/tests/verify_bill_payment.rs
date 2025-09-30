@@ -475,17 +475,17 @@ fn verify_pending_payables() {
     );
     MASQNodeUtils::assert_node_wrote_log_containing(
         real_consuming_node.name(),
-        "Pending tx 0x89acc46da0df6ef8c6f5574307ae237a812bd28af524a62131013b5e19ca3e26 was confirmed on-chain",
+        "Tx 0x89acc46da0df6ef8c6f5574307ae237a812bd28af524a62131013b5e19ca3e26 confirmed",
         Duration::from_secs(5),
     );
     MASQNodeUtils::assert_node_wrote_log_containing(
         real_consuming_node.name(),
-        "Pending tx 0xae0bf6400f0b9950a1d456e488549414d118714b81a39233b811b629cf41399b was confirmed on-chain",
+        "Tx 0xae0bf6400f0b9950a1d456e488549414d118714b81a39233b811b629cf41399b confirmed",
         Duration::from_secs(5),
     );
     MASQNodeUtils::assert_node_wrote_log_containing(
         real_consuming_node.name(),
-        "Pending tx 0xecab1c73ca90ebcb073526e28f1f8d4678704b74d1e0209779ddeefc8fb861f5 was confirmed on-chain",
+        "Tx 0xecab1c73ca90ebcb073526e28f1f8d4678704b74d1e0209779ddeefc8fb861f5 confirmed",
         Duration::from_secs(5),
     );
 }
