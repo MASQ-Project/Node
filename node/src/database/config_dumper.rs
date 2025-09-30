@@ -268,7 +268,7 @@ mod tests {
                 .initialize(
                     &database_path,
                     DbInitializationConfig::create_or_migrate(ExternalData::new(
-                        Chain::PolyMainnet,
+                        DEFAULT_CHAIN,
                         NeighborhoodModeLight::ZeroHop,
                         None,
                     )),
@@ -307,7 +307,7 @@ mod tests {
         }
         let mut args_builder = ArgsBuilder::new()
             .param("--real-user", "123::")
-            .param("--chain", Chain::PolyMainnet.rec().literal_identifier)
+            .param("--chain", DEFAULT_CHAIN.rec().literal_identifier)
             .opt("--dump-config");
         if let Some(data_dir) = non_default_data_directory_opt {
             args_builder = args_builder.param("--data-directory", data_dir.to_str().unwrap());
@@ -344,11 +344,7 @@ mod tests {
             "0x0123456789012345678901234567890123456789",
             &map,
         );
-        assert_value(
-            "chainName",
-            Chain::PolyMainnet.rec().literal_identifier,
-            &map,
-        );
+        assert_value("chainName", DEFAULT_CHAIN.rec().literal_identifier, &map);
         assert_value("gasPrice", "1", &map);
         assert_value(
             "pastNeighbors",

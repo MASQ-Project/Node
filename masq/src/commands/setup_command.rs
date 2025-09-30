@@ -227,7 +227,7 @@ mod tests {
                 "zero-hop".to_string(),
                 "--log-level".to_string(),
                 "--chain".to_string(),
-                "polygon-mainnet".to_string(),
+                DEFAULT_CHAIN.rec().literal_identifier.to_string(),
                 "--scan-intervals".to_string(),
                 "123|111|228".to_string(),
                 "--scans".to_string(),
