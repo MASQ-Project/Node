@@ -304,7 +304,7 @@ impl<T: Copy> From<&RangeQuery<T>> for CustomQuery<T> {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct PayableAccountWithTxInfo {
     pub account: PayableAccount,
     pub tx_opt: Option<TxProcessingInfo>,
