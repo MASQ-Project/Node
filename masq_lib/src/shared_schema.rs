@@ -7,7 +7,7 @@ use crate::constants::{
     POLYGON_MAINNET_FULL_IDENTIFIER,
 };
 use crate::crash_point::CrashPoint;
-use clap::{App, Arg};
+use clap::{arg_enum, App, Arg};
 use lazy_static::lazy_static;
 
 pub const BLOCKCHAIN_SERVICE_HELP: &str =
@@ -81,6 +81,17 @@ pub const NEIGHBORS_HELP: &str = "One or more Node descriptors for running Nodes
      if you don't specify a neighbor, your Node will start without being connected to any MASQ \
      Network, although other Nodes will be able to connect to yours if they know your Node's descriptor. \
      --neighbors is meaningless in --neighborhood-mode zero-hop.";
+pub const NEW_PUBLIC_KEY_HELP: &str = "Whenever you start it, the Node will try to use the same public key \
+     it used last time. That's '--new-public-key off'. If you want it to select a new public key when it \
+     starts, then specify '--new-public-key on', and you'll get a different one this time...which it will \
+     reuse next time unless you specify '--new-public-key on' again.\n\n\
+     You should be careful about restarting your Node with the same public key too quickly. If your new \
+     Node tries to join the Network before the Network has forgotten your old Node, every Node you try \
+     to connect to will ignore you.\n\n\
+     There are some conditions under which the Node cannot use the same public key it used last time: \
+     for example, if there was no last time, or if you don't specify a `--db-password`. Normally, in \
+     these situations, the Node will select a new public key and store it for future use; but if you \
+     explicitly demand the old public key with `--new-public-key off`, the Node will refuse to start.";
 
 // generated valid encoded keys for future needs
 // UJNoZW5p/PDVqEjpr3b+8jZ/93yPG8i5dOAgE1bhK+A
@@ -224,6 +235,14 @@ lazy_static! {
        "The Gas Price is the amount of gwei you will pay per unit of gas used in a transaction. \
        If left unspecified, MASQ Node will use the previously stored value (Default {}).",
        DEFAULT_GAS_PRICE);
+}
+
+arg_enum! {
+    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+    pub enum OnOff {
+        On,
+        Off,
+    }
 }
 
 // These Args are needed in more than one clap schema. To avoid code duplication, they're defined here and referred
@@ -467,13 +486,23 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .min_values(0)
             .help(NEIGHBORS_HELP),
     )
+    .arg(
+        Arg::with_name("new-public-key")
+            .long("new-public-key")
+            .value_name("NEW-PUBLIC-KEY")
+            .takes_value(true)
+            .possible_values(&OnOff::variants())
+            .case_insensitive(true)
+            .help(NEW_PUBLIC_KEY_HELP),
+    )
     .arg(real_user_arg())
     .arg(
         Arg::with_name("scans")
             .long("scans")
             .value_name("SCANS")
             .takes_value(true)
-            .possible_values(&["on", "off"])
+            .possible_values(&OnOff::variants())
+            .case_insensitive(true)
             .help(SCANS_HELP),
     )
     .arg(common_parameter_with_separate_u64_values(
