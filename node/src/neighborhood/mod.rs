@@ -497,7 +497,7 @@ impl Neighborhood {
     fn handle_route_query_message(&mut self, msg: RouteQueryMessage) -> Option<RouteQueryResponse> {
         let debug_msg_opt = self.logger.debug_enabled().then(|| format!("{:?}", msg));
         let route_result = if self.mode == NeighborhoodModeLight::ZeroHop {
-            Ok(self.zero_hop_route_response())
+            Ok(self.zero_hop_route_response(msg.hostname_opt))
         } else {
             self.make_round_trip_route(msg)
         };
@@ -977,7 +977,7 @@ impl Neighborhood {
         .expect("route creation error")
     }
 
-    fn zero_hop_route_response(&mut self) -> RouteQueryResponse {
+    fn zero_hop_route_response(&mut self, hostname_opt: Option<String>) -> RouteQueryResponse {
         let route = Route::round_trip(
             RouteSegment::new(
                 vec![self.cryptde.public_key(), self.cryptde.public_key()],
@@ -998,7 +998,7 @@ impl Neighborhood {
                 vec![ExpectedService::Nothing, ExpectedService::Nothing],
                 vec![ExpectedService::Nothing, ExpectedService::Nothing],
             ),
-            hostname_opt: None,
+            hostname_opt,
         }
     }
 
@@ -2174,6 +2174,15 @@ mod tests {
     use actix::Recipient;
     use actix::System;
     use itertools::Itertools;
+    use masq_lib::constants::{DEFAULT_CHAIN, TLS_PORT};
+    use masq_lib::messages::{
+        CountryGroups, ToMessageBody, UiConnectionChangeBroadcast, UiConnectionStage,
+    };
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
+    use masq_lib::ui_gateway::MessageBody;
+    use masq_lib::ui_gateway::MessagePath::Conversation;
+    use masq_lib::ui_gateway::MessageTarget;
+    use masq_lib::utils::running_test;
     use serde_cbor;
     use std::any::TypeId;
     use std::cell::RefCell;
@@ -2187,16 +2196,7 @@ mod tests {
     use std::time::Duration;
     use std::time::Instant;
     use tokio::prelude::Future;
-
-    use masq_lib::constants::{DEFAULT_CHAIN, TLS_PORT};
-    use masq_lib::messages::{
-        CountryGroups, ToMessageBody, UiConnectionChangeBroadcast, UiConnectionStage,
-    };
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
-    use masq_lib::ui_gateway::MessageBody;
-    use masq_lib::ui_gateway::MessagePath::Conversation;
-    use masq_lib::ui_gateway::MessageTarget;
-    use masq_lib::utils::running_test;
+    use ExpectedService::Exit;
 
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::neighborhood::gossip::Gossip_0v1;
@@ -2248,6 +2248,8 @@ mod tests {
     use crate::neighborhood::overall_connection_status::{
         ConnectionProgress, ConnectionStage, OverallConnectionStage,
     };
+    use crate::sub_lib::neighborhood::ExpectedService::{Nothing, Routing};
+    use crate::sub_lib::neighborhood::ExpectedServices::RoundTrip;
     use crate::test_utils::unshared_test_utils::notify_handlers::NotifyLaterHandleMock;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
@@ -3378,14 +3380,14 @@ mod tests {
             expected_services: ExpectedServices::RoundTrip(
                 vec![
                     ExpectedService::Nothing,
-                    ExpectedService::Exit(
+                    Exit(
                         desirable_exit_node.public_key().clone(),
                         desirable_exit_node.earning_wallet(),
                         rate_pack(2345),
                     ),
                 ],
                 vec![
-                    ExpectedService::Exit(
+                    Exit(
                         desirable_exit_node.public_key().clone(),
                         desirable_exit_node.earning_wallet(),
                         rate_pack(2345),
@@ -3426,7 +3428,8 @@ mod tests {
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
         let future = sub.send(RouteQueryMessage::data_indefinite_route_request(
-            None, 12345,
+            Some("google.com".to_string()),
+            12345,
         ));
 
         System::current().stop_with_code(0);
@@ -3451,7 +3454,7 @@ mod tests {
                 vec![ExpectedService::Nothing, ExpectedService::Nothing],
                 vec![ExpectedService::Nothing, ExpectedService::Nothing],
             ),
-            hostname_opt: None,
+            hostname_opt: Some("google.com".to_string()),
         };
         assert_eq!(result, expected_response);
     }
@@ -3525,18 +3528,10 @@ mod tests {
                         q.earning_wallet(),
                         rate_pack(3456),
                     ),
-                    ExpectedService::Exit(
-                        r.public_key().clone(),
-                        r.earning_wallet(),
-                        rate_pack(4567),
-                    ),
+                    Exit(r.public_key().clone(), r.earning_wallet(), rate_pack(4567)),
                 ],
                 vec![
-                    ExpectedService::Exit(
-                        r.public_key().clone(),
-                        r.earning_wallet(),
-                        rate_pack(4567),
-                    ),
+                    Exit(r.public_key().clone(), r.earning_wallet(), rate_pack(4567)),
                     ExpectedService::Routing(
                         q.public_key().clone(),
                         q.earning_wallet(),
@@ -6934,14 +6929,14 @@ mod tests {
             target_component: Component::ProxyClient,
             return_component_opt: Some(Component::ProxyServer),
             payload_size: 10000,
-            hostname_opt: None,
+            hostname_opt: Some("host.name".to_string()),
         });
 
         let next_door_neighbor_cryptde =
             CryptDENull::from(&next_door_neighbor.public_key(), TEST_DEFAULT_CHAIN);
         let exit_node_cryptde = CryptDENull::from(&exit_node.public_key(), TEST_DEFAULT_CHAIN);
-
-        let hops = result.clone().unwrap().route.hops;
+        let response = result.clone().unwrap();
+        let hops = &response.route.hops;
         let actual_keys: Vec<PublicKey> = match hops.as_slice() {
             [hop, exit, hop_back, origin, empty] => vec![
                 decodex::<LiveHop>(main_cryptde(), hop)
@@ -6974,6 +6969,38 @@ mod tests {
             PublicKey::new(b""),
         ];
         assert_eq!(expected_public_keys, actual_keys);
+        assert_eq!(
+            response.expected_services,
+            RoundTrip(
+                vec![
+                    Nothing,
+                    Routing(
+                        next_door_neighbor.public_key().clone(),
+                        next_door_neighbor.earning_wallet(),
+                        next_door_neighbor.rate_pack().clone()
+                    ),
+                    Exit(
+                        exit_node.public_key().clone(),
+                        exit_node.earning_wallet(),
+                        exit_node.rate_pack().clone()
+                    ),
+                ],
+                vec![
+                    Exit(
+                        exit_node.public_key().clone(),
+                        exit_node.earning_wallet(),
+                        exit_node.rate_pack().clone()
+                    ),
+                    Routing(
+                        next_door_neighbor.public_key().clone(),
+                        next_door_neighbor.earning_wallet(),
+                        next_door_neighbor.rate_pack().clone()
+                    ),
+                    Nothing,
+                ]
+            )
+        );
+        assert_eq!(response.hostname_opt, Some("host.name".to_string()));
     }
 
     fn assert_route_query_message(min_hops: Hops) {

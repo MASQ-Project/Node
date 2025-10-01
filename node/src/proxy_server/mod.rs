@@ -59,8 +59,8 @@ use tokio::prelude::Future;
 pub const CRASH_KEY: &str = "PROXYSERVER";
 pub const RETURN_ROUTE_TTL_FIRST_CHANCE: Duration = Duration::from_secs(120);
 pub const RETURN_ROUTE_TTL_STRAGGLERS: Duration = Duration::from_secs(5);
-
 pub const STREAM_KEY_PURGE_DELAY: Duration = Duration::from_secs(30);
+pub const DNS_FAILURE_RETRIES: usize = 3;
 
 struct ProxyServerOutSubs {
     dispatcher: Recipient<TransmitDataMsg>,
@@ -73,7 +73,7 @@ struct ProxyServerOutSubs {
     schedule_stream_key_purge: Recipient<MessageScheduler<StreamKeyPurge>>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct StreamInfo {
     tunneled_host_opt: Option<String>,
     dns_failure_retry_opt: Option<DNSFailureRetry>,
@@ -148,56 +148,7 @@ impl Handler<AddRouteResultMessage> for ProxyServer {
     type Result = ();
 
     fn handle(&mut self, msg: AddRouteResultMessage, _ctx: &mut Self::Context) -> Self::Result {
-        let mut delayed_log: Box<dyn FnOnce(&Logger)> = Box::new(|_: &Logger| {});
-        if let Some(stream_info) = self.stream_info_mut(&msg.stream_key) {
-            match &stream_info.dns_failure_retry_opt {
-                Some(dns_failure) => match msg.result {
-                    Ok(route_query_response) => {
-                        let target_hostname =
-                            dns_failure.unsuccessful_request.target_hostname.clone();
-                        let retries_left = dns_failure.retries_left;
-                        let stream_key = msg.stream_key;
-                        delayed_log = Box::new(move |logger: &Logger| {
-                            debug!(
-                                    logger,
-                                    "Found a new route for hostname: {:?} - stream key: {}  retries left: {}",
-                                    target_hostname,
-                                    stream_key,
-                                    retries_left
-                                );
-                        });
-                        stream_info.route_opt = Some(route_query_response);
-                    }
-                    Err(e) => {
-                        let target_hostname =
-                            dns_failure.unsuccessful_request.target_hostname.clone();
-                        let retries_left = dns_failure.retries_left;
-                        let stream_key = msg.stream_key;
-                        delayed_log = Box::new(move |logger: &Logger| {
-                            warning!(
-                                    logger,
-                                    "No route found for hostname: {:?} - stream key {} - retries left: {} - AddRouteResultMessage Error: {}",
-                                    target_hostname,
-                                    stream_key,
-                                    retries_left,
-                                    e
-                                );
-                        });
-                    }
-                },
-                None => {
-                    let stream_key = msg.stream_key;
-                    delayed_log = Box::new(move |logger: &Logger| {
-                        error!(
-                            logger,
-                            "No dns_failure_retry found for stream key {} while handling AddRouteResultMessage",
-                            stream_key
-                        );
-                    });
-                }
-            };
-        }
-        delayed_log(&self.logger);
+        self.handle_add_route_result_message(msg)
     }
 }
 
@@ -396,6 +347,82 @@ impl ProxyServer {
             Some(ExpectedService::Exit(pk, _, _)) => Some(pk.clone()),
             _ => None,
         }
+    }
+
+    fn handle_add_route_result_message(&mut self, msg: AddRouteResultMessage) {
+        type DelayedLogArgs = Box<dyn FnOnce(&Logger, Option<String>, StreamKey, usize, String)>;
+        #[allow(unused_assignments)]
+        let mut delayed_log: DelayedLogArgs = Box::new(|_, _, _, _, _| {});
+        let (target_hostname_opt, stream_key, retries_left, message) = {
+            let mut stream_info = self.stream_info_mut(&msg.stream_key).unwrap_or_else(|| {
+                panic!(
+                    "AddRouteResultMessage Handler: stream key: {} not found",
+                    msg.stream_key
+                )
+            });
+            let dns_failure_retry = stream_info
+                .dns_failure_retry_opt
+                .as_ref()
+                .unwrap_or_else(||
+                    panic!("AddRouteResultMessage Handler: dns_failure_retry_opt is None for stream key {}", msg.stream_key)
+                );
+            let mut message = String::new();
+            match msg.result {
+                Ok(route_query_response) => {
+                    delayed_log = Box::new(
+                        move |logger: &Logger,
+                              target_hostname_opt: Option<String>,
+                              stream_key: StreamKey,
+                              retries_left: usize,
+                              _: String| {
+                            debug!(
+                            logger,
+                            "Found a new route for hostname: {:?} - stream key: {}  retries left: {}",
+                            target_hostname_opt,
+                            stream_key,
+                            retries_left
+                        );
+                        },
+                    );
+                    stream_info.route_opt = Some(route_query_response);
+                }
+                Err(e) => {
+                    message = e;
+                    delayed_log = Box::new(
+                        move |logger: &Logger,
+                              target_hostname_opt: Option<String>,
+                              stream_key: StreamKey,
+                              retries_left: usize,
+                              message: String| {
+                            warning!(
+                            logger,
+                            "No route found for hostname: {:?} - stream key {} - retries left: {} - AddRouteResultMessage Error: {}",
+                            target_hostname_opt,
+                            stream_key,
+                            retries_left,
+                            message
+                        );
+                        },
+                    );
+                }
+            }
+            (
+                dns_failure_retry
+                    .unsuccessful_request
+                    .target_hostname
+                    .clone(),
+                msg.stream_key,
+                dns_failure_retry.retries_left,
+                message,
+            )
+        };
+        delayed_log(
+            &self.logger,
+            target_hostname_opt,
+            stream_key,
+            retries_left,
+            message,
+        );
     }
 
     fn handle_dns_resolve_failure(&mut self, msg: &ExpiredCoresPackage<DnsResolveFailure_0v1>) {
@@ -1259,7 +1286,11 @@ impl IBCDHelper for IBCDHelperReal {
             if stream_info.dns_failure_retry_opt.is_none() {
                 let dns_failure_retry = DNSFailureRetry {
                     unsuccessful_request: payload.clone(),
-                    retries_left: if is_decentralized { 3 } else { 0 },
+                    retries_left: if is_decentralized {
+                        DNS_FAILURE_RETRIES
+                    } else {
+                        0
+                    },
                 };
                 stream_info.dns_failure_retry_opt = Some(dns_failure_retry);
                 stream_info.protocol_opt = Some(payload.protocol);
@@ -3352,10 +3383,12 @@ mod tests {
     }
 
     #[test]
-    fn route_result_message_handler_logs_error_when_no_dns_retries_exist() {
+    #[should_panic(
+        expected = "AddRouteResultMessage Handler: dns_failure_retry_opt is None for stream key"
+    )]
+    fn route_result_message_handler_panics_when_no_dns_retries_exist() {
         init_test_logging();
-        let system =
-            System::new("route_result_message_handler_logs_error_when_no_dns_retries_exist");
+        let system = System::new("route_result_message_handler_panics_when_no_dns_retries_exist");
         let mut subject = ProxyServer::new(
             main_cryptde(),
             alias_cryptde(),
