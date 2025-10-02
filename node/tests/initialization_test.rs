@@ -152,7 +152,7 @@ fn wait_for_process_end(process_id: u32) {
 
 #[test]
 fn incomplete_node_descriptor_is_refused_integration() {
-    let chain_identifier = "polygon-mainnet";
+    let chain_identifier = DEFAULT_CHAIN.rec().literal_identifier;
     let mut node = utils::MASQNode::start_standard(
         "incomplete_node_descriptor_is_refused_integration",
         Some(
@@ -188,6 +188,7 @@ fn started_without_explicit_chain_parameter_runs_fine_integration() {
     //defaulted chain - chosen on the lack of user specified chain - corresponds with descriptors
     //believed to be for the default chain
     let config = CommandConfig::new()
+        .pair("--blockchain-service-url", "https://booga.com")
         .pair("--neighborhood-mode", "standard")
         .pair("--ip", "1.0.0.1")
         .pair("--log-level", "trace")

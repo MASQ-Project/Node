@@ -362,7 +362,7 @@ mod tests {
         let _blockchain_client_server = MBCSBuilder::new(port)
             .begin_batch()
             .ok_response(
-                "0x94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2".to_string(),
+                "0x1931f78f7ce5b43ffae11a2c22f18765508a2b2d4810e84744f53b10f7072c7f".to_string(),
                 7,
             )
             .end_batch()
@@ -393,7 +393,7 @@ mod tests {
 
         let mut batch_result = web3_batch.eth().transport().submit_batch().wait().unwrap();
         let hash =
-            H256::from_str("94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2")
+            H256::from_str("1931f78f7ce5b43ffae11a2c22f18765508a2b2d4810e84744f53b10f7072c7f")
                 .unwrap();
         let expected_tx = TxBuilder::default()
             .hash(hash)
@@ -405,12 +405,12 @@ mod tests {
         assert_eq!(
             batch_result.pop().unwrap().unwrap(),
             Value::String(
-                "0x94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2".to_string()
+                "0x1931f78f7ce5b43ffae11a2c22f18765508a2b2d4810e84744f53b10f7072c7f".to_string()
             )
         );
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: Appending transaction with hash \
-            0x94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2, \
+            0x1931f78f7ce5b43ffae11a2c22f18765508a2b2d4810e84744f53b10f7072c7f, \
             amount: 1,000,000,000 wei, \
             to 0x0000000000000000000000000077616c6c657431, \
             nonce: 1, \

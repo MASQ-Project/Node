@@ -35,10 +35,10 @@ use std::time::Duration;
 const ASK_ABOUT_GOSSIP_INTERVAL: Duration = Duration::from_secs(10);
 
 pub const DEFAULT_RATE_PACK: RatePack = RatePack {
-    routing_byte_rate: 172_300_000,
-    routing_service_rate: 1_723_000_000,
-    exit_byte_rate: 344_600_000,
-    exit_service_rate: 3_446_000_000,
+    routing_byte_rate: 53_844,
+    routing_service_rate: 53_844,
+    exit_byte_rate: 107_688,
+    exit_service_rate: 107_688,
 };
 
 pub const ZERO_RATE_PACK: RatePack = RatePack {
@@ -638,10 +638,10 @@ mod tests {
         assert_eq!(
             DEFAULT_RATE_PACK,
             RatePack {
-                routing_byte_rate: 172_300_000,
-                routing_service_rate: 1_723_000_000,
-                exit_byte_rate: 344_600_000,
-                exit_service_rate: 3_446_000_000,
+                routing_byte_rate: 53_844,
+                routing_service_rate: 53_844,
+                exit_byte_rate: 107_688,
+                exit_service_rate: 107_688,
             }
         );
         assert_eq!(

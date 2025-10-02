@@ -102,7 +102,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "Invalid blockchain service URL \"http://λ:8545\". \
-    Error: Transport(\"InvalidUri(InvalidUriChar)\"). Chain: polygon-mainnet")]
+    Error: Transport(\"InvalidUri(InvalidUriChar)\"). Chain: base-mainnet")]
     fn invalid_blockchain_url_for_produces_panic_for_web3_interface() {
         let blockchain_service_url = "http://λ:8545";
         let subject = BlockchainInterfaceInitializer {};

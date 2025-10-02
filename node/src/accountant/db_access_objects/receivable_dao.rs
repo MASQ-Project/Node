@@ -253,9 +253,10 @@ impl ReceivableDao for ReceivableDaoReal {
     }
 
     fn custom_query(&self, custom_query: CustomQuery<i64>) -> Option<Vec<ReceivableAccount>> {
-        let variant_top = TopStmConfig{
+        let variant_top = TopStmConfig {
             limit_clause: "limit :limit_count",
-            gwei_min_resolution_clause: "where (balance_high_b > 0) or ((balance_high_b = 0) and (balance_low_b >= 1000000000))",
+            gwei_min_resolution_clause:
+                "where (balance_high_b > 0) or ((balance_high_b = 0) and (balance_low_b >= 1000000000))",
             age_ordering_clause: "last_received_timestamp asc",
         };
         let variant_range = RangeStmConfig {
