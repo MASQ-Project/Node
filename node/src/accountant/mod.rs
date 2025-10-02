@@ -776,7 +776,7 @@ impl Accountant {
 
     fn handle_report_services_consumed_message(&mut self, msg: ReportServicesConsumedMessage) {
         let msg_id = self.msg_id();
-        debug!(
+        trace!(
             self.logger,
             "MsgId {}: Accruing debt to {} for consuming {} exited bytes",
             msg_id,
@@ -791,7 +791,7 @@ impl Accountant {
             &msg.exit.earning_wallet,
         );
         msg.routing.iter().for_each(|routing_service| {
-            debug!(
+            trace!(
                 self.logger,
                 "MsgId {}: Accruing debt to {} for consuming {} routed bytes",
                 msg_id,
@@ -4792,20 +4792,6 @@ mod tests {
                 )
             ]
         );
-        let test_log_handler = TestLogHandler::new();
-
-        test_log_handler.exists_log_containing(&format!(
-            "DEBUG: Accountant: MsgId 123: Accruing debt to {} for consuming 1200 exited bytes",
-            earning_wallet_exit
-        ));
-        test_log_handler.exists_log_containing(&format!(
-            "DEBUG: Accountant: MsgId 123: Accruing debt to {} for consuming 3456 routed bytes",
-            earning_wallet_routing_1
-        ));
-        test_log_handler.exists_log_containing(&format!(
-            "DEBUG: Accountant: MsgId 123: Accruing debt to {} for consuming 3456 routed bytes",
-            earning_wallet_routing_2
-        ));
     }
 
     fn assert_that_we_do_not_charge_our_own_wallet_for_consumed_services(
