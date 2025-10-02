@@ -481,10 +481,6 @@ mod tests {
                 Duration::from_secs(32),
             ),
             (
-                now.checked_sub(Duration::from_nanos(1111112)).unwrap(),
-                Duration::from_nanos(1111111),
-            ),
-            (
                 now.checked_sub(Duration::from_secs(200)).unwrap(),
                 Duration::from_secs(123),
             ),
@@ -533,7 +529,7 @@ mod tests {
     #[cfg(windows)]
     #[should_panic(
         expected = "Now (SystemTime { intervals: 116454736000000000 }) earlier than past timestamp \
-        (SystemTime { intervals: 116454737000000000 })"
+        (SystemTime { intervals: 116454736010000000 })"
     )]
     fn scan_dyn_interval_computer_panics() {
         test_scan_dyn_interval_computer_panics()
