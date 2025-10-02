@@ -660,8 +660,8 @@ impl Configurator {
             },
             start_block_opt,
             scan_intervals: UiScanIntervals {
-                pending_payable_sec,
                 payable_sec,
+                pending_payable_sec,
                 receivable_sec,
             },
         };
@@ -2606,8 +2606,8 @@ mod tests {
                 },
                 start_block_opt: Some(3456),
                 scan_intervals: UiScanIntervals {
-                    pending_payable_sec: 122,
                     payable_sec: 125,
+                    pending_payable_sec: 122,
                     receivable_sec: 128
                 }
             }
@@ -2625,8 +2625,8 @@ mod tests {
                 exit_service_rate: 13,
             }))
             .scan_intervals_result(Ok(ScanIntervals {
-                pending_payable_scan_interval: Duration::from_secs(122),
                 payable_scan_interval: Duration::from_secs(125),
+                pending_payable_scan_interval: Duration::from_secs(122),
                 receivable_scan_interval: Duration::from_secs(128),
             }))
             .payment_thresholds_result(Ok(PaymentThresholds {
@@ -2738,8 +2738,8 @@ mod tests {
                 },
                 start_block_opt: Some(3456),
                 scan_intervals: UiScanIntervals {
-                    pending_payable_sec: 122,
                     payable_sec: 125,
+                    pending_payable_sec: 122,
                     receivable_sec: 128
                 }
             }
@@ -2776,8 +2776,8 @@ mod tests {
                 exit_service_rate: 0,
             }))
             .scan_intervals_result(Ok(ScanIntervals {
-                pending_payable_scan_interval: Default::default(),
                 payable_scan_interval: Default::default(),
+                pending_payable_scan_interval: Default::default(),
                 receivable_scan_interval: Default::default(),
             }))
             .payment_thresholds_result(Ok(PaymentThresholds {
@@ -2831,8 +2831,8 @@ mod tests {
                 },
                 start_block_opt: Some(3456),
                 scan_intervals: UiScanIntervals {
-                    pending_payable_sec: 0,
                     payable_sec: 0,
+                    pending_payable_sec: 0,
                     receivable_sec: 0
                 }
             }
