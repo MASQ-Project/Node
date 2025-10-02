@@ -12,8 +12,8 @@ use crate::sub_lib::utils::{
 use actix::{Actor, Context, Handler};
 use masq_lib::logger::Logger;
 use masq_lib::messages::ScanType;
+use masq_lib::simple_clock::{SimpleClock, SimpleClockReal};
 use std::fmt::{Debug, Display, Formatter};
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub struct ScanSchedulers {
@@ -79,8 +79,8 @@ impl From<PayableSequenceScanner> for ScanType {
 pub struct PayableScanScheduler {
     pub new_payable_notify_later: Box<dyn NotifyLaterHandle<ScanForNewPayables, Accountant>>,
     pub dyn_interval_computer: Box<dyn NewPayableScanDynIntervalComputer>,
-    pub inner: Arc<Mutex<PayableScanSchedulerInner>>,
-    pub new_payable_interval: Duration,
+    // pub inner: Arc<Mutex<PayableScanSchedulerInner>>,
+    // pub new_payable_interval: Duration,
     pub new_payable_notify: Box<dyn NotifyHandle<ScanForNewPayables, Accountant>>,
     pub retry_payable_notify: Box<dyn NotifyHandle<ScanForRetryPayables, Accountant>>,
 }
@@ -89,24 +89,18 @@ impl PayableScanScheduler {
     fn new(new_payable_interval: Duration) -> Self {
         Self {
             new_payable_notify_later: Box::new(NotifyLaterHandleReal::default()),
-            dyn_interval_computer: Box::new(NewPayableScanDynIntervalComputerReal::default()),
-            inner: Arc::new(Mutex::new(PayableScanSchedulerInner::default())),
-            new_payable_interval,
+            dyn_interval_computer: Box::new(NewPayableScanDynIntervalComputerReal::new(
+                new_payable_interval,
+            )),
+            // inner: Arc::new(Mutex::new(PayableScanSchedulerInner::default())),
+            // new_payable_interval,
             new_payable_notify: Box::new(NotifyHandleReal::default()),
             retry_payable_notify: Box::new(NotifyHandleReal::default()),
         }
     }
 
     pub fn schedule_new_payable_scan(&self, ctx: &mut Context<Accountant>, logger: &Logger) {
-        let inner = self.inner.lock().expect("couldn't acquire inner");
-        let last_new_payable_scan_timestamp = inner.last_new_payable_scan_timestamp;
-        let new_payable_interval = self.new_payable_interval;
-        let now = SystemTime::now();
-        if let Some(interval) = self.dyn_interval_computer.compute_interval(
-            now,
-            last_new_payable_scan_timestamp,
-            new_payable_interval,
-        ) {
+        if let Some(interval) = self.dyn_interval_computer.compute_interval() {
             debug!(
                 logger,
                 "Scheduling a new-payable scan in {}ms",
@@ -132,6 +126,10 @@ impl PayableScanScheduler {
         }
     }
 
+    pub fn update_last_new_payable_scan_timestamp(&mut self) {
+        self.dyn_interval_computer.zero_out();
+    }
+
     // This message ships into the Accountant's mailbox with no delay.
     // Can also be triggered by command, following up after the PendingPayableScanner
     // that requests it. That's why the response skeleton is possible to be used.
@@ -152,49 +150,51 @@ impl PayableScanScheduler {
     }
 }
 
-pub struct PayableScanSchedulerInner {
-    pub last_new_payable_scan_timestamp: SystemTime,
-}
-
-impl Default for PayableScanSchedulerInner {
-    fn default() -> Self {
-        Self {
-            last_new_payable_scan_timestamp: UNIX_EPOCH,
-        }
-    }
-}
-
 pub trait NewPayableScanDynIntervalComputer {
-    fn compute_interval(
-        &self,
-        now: SystemTime,
-        last_new_payable_scan_timestamp: SystemTime,
-        interval: Duration,
-    ) -> Option<Duration>;
+    fn compute_interval(&self) -> Option<Duration>;
+
+    fn zero_out(&mut self);
+
+    as_any_ref_in_trait!();
 }
 
-#[derive(Default)]
-pub struct NewPayableScanDynIntervalComputerReal {}
+pub struct NewPayableScanDynIntervalComputerReal {
+    scan_interval: Duration,
+    last_scan_timestamp: SystemTime,
+    clock: Box<dyn SimpleClock>,
+}
 
 impl NewPayableScanDynIntervalComputer for NewPayableScanDynIntervalComputerReal {
-    fn compute_interval(
-        &self,
-        now: SystemTime,
-        last_new_payable_scan_timestamp: SystemTime,
-        interval: Duration,
-    ) -> Option<Duration> {
+    fn compute_interval(&self) -> Option<Duration> {
+        let now = self.clock.now();
         let elapsed = now
-            .duration_since(last_new_payable_scan_timestamp)
+            .duration_since(self.last_scan_timestamp)
             .unwrap_or_else(|_| {
                 panic!(
                     "Now ({:?}) earlier than past timestamp ({:?})",
-                    now, last_new_payable_scan_timestamp
+                    now, self.last_scan_timestamp
                 )
             });
-        if elapsed >= interval {
+        if elapsed >= self.scan_interval {
             None
         } else {
-            Some(interval - elapsed)
+            Some(self.scan_interval - elapsed)
+        }
+    }
+
+    fn zero_out(&mut self) {
+        self.last_scan_timestamp = SystemTime::now();
+    }
+
+    as_any_ref_in_trait_impl!();
+}
+
+impl NewPayableScanDynIntervalComputerReal {
+    pub fn new(scan_interval: Duration) -> Self {
+        Self {
+            scan_interval,
+            last_scan_timestamp: UNIX_EPOCH,
+            clock: Box::new(SimpleClockReal::default()),
         }
     }
 }
@@ -338,8 +338,8 @@ impl RescheduleScanOnErrorResolverReal {
                 // StartScanError::NothingToProcess can be evaluated); but may be cautious and
                 // prevent starting the NewPayableScanner. Repeating this scan endlessly may alarm
                 // the user.
-                // TODO Correctly, a check-point during the bootstrap that wouldn't allow to come
-                // this far should be the solution. Part of the issue mentioned in GH-799
+                // TODO Correctly, a check-point during the bootstrap, not allowing to come
+                // this far, should be the solution. Part of the issue mentioned in GH-799
                 ScanReschedulingAfterEarlyStop::Schedule(ScanType::PendingPayables)
             } else {
                 unreachable!(
@@ -383,6 +383,7 @@ mod tests {
         NewPayableScanDynIntervalComputer, NewPayableScanDynIntervalComputerReal,
         PayableSequenceScanner, ScanReschedulingAfterEarlyStop, ScanSchedulers,
     };
+    use crate::accountant::scanners::test_utils::NewPayableScanDynIntervalComputerMock;
     use crate::accountant::scanners::{ManulTriggerError, StartScanError};
     use crate::sub_lib::accountant::ScanIntervals;
     use crate::test_utils::unshared_test_utils::TEST_SCAN_INTERVALS;
@@ -391,7 +392,10 @@ mod tests {
     use masq_lib::logger::Logger;
     use masq_lib::messages::ScanType;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
+    use masq_lib::test_utils::simple_clock::SimpleClockMock;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::panic::{catch_unwind, AssertUnwindSafe};
+    use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     #[test]
@@ -405,15 +409,17 @@ mod tests {
 
         let schedulers = ScanSchedulers::new(scan_intervals, automatic_scans_enabled);
 
+        let payable_interval_computer = schedulers
+            .payable
+            .dyn_interval_computer
+            .as_any()
+            .downcast_ref::<NewPayableScanDynIntervalComputerReal>()
+            .unwrap();
         assert_eq!(
-            schedulers.payable.new_payable_interval,
+            payable_interval_computer.scan_interval,
             scan_intervals.payable_scan_interval
         );
-        let payable_scheduler_inner = schedulers.payable.inner.lock().unwrap();
-        assert_eq!(
-            payable_scheduler_inner.last_new_payable_scan_timestamp,
-            UNIX_EPOCH
-        );
+        assert_eq!(payable_interval_computer.last_scan_timestamp, UNIX_EPOCH);
         assert_eq!(
             schedulers.pending_payable.interval,
             scan_intervals.pending_payable_scan_interval
@@ -427,7 +433,7 @@ mod tests {
 
     #[test]
     fn scan_dyn_interval_computer_computes_remaining_time_to_standard_interval_correctly() {
-        let now = SystemTime::now();
+        let (clock, now) = fill_simple_clock_mock_and_return_now();
         let inputs = vec![
             (
                 now.checked_sub(Duration::from_secs(32)).unwrap(),
@@ -445,12 +451,17 @@ mod tests {
                 Duration::from_secs(4),
             ),
         ];
-        let subject = NewPayableScanDynIntervalComputerReal::default();
+        let mut subject = make_subject();
+        subject.clock = Box::new(clock);
 
         inputs
             .into_iter()
             .for_each(|(past_instant, standard_interval, expected_result)| {
-                let result = subject.compute_interval(now, past_instant, standard_interval);
+                subject.scan_interval = standard_interval;
+                subject.last_scan_timestamp = past_instant;
+
+                let result = subject.compute_interval();
+
                 assert_eq!(
                     result,
                     Some(expected_result),
@@ -463,28 +474,33 @@ mod tests {
 
     #[test]
     fn scan_dyn_interval_computer_realizes_the_standard_interval_has_been_exceeded() {
-        let now = SystemTime::now();
+        let (clock, now) = fill_simple_clock_mock_and_return_now();
         let inputs = vec![
             (
                 now.checked_sub(Duration::from_millis(32001)).unwrap(),
                 Duration::from_secs(32),
             ),
             (
-                now.checked_sub(Duration::from_millis(1112)).unwrap(),
-                Duration::from_millis(1111),
+                now.checked_sub(Duration::from_nanos(1111112)).unwrap(),
+                Duration::from_nanos(1111111),
             ),
             (
                 now.checked_sub(Duration::from_secs(200)).unwrap(),
                 Duration::from_secs(123),
             ),
         ];
-        let subject = NewPayableScanDynIntervalComputerReal::default();
+        let mut subject = make_subject();
+        subject.clock = Box::new(clock);
 
         inputs
             .into_iter()
             .enumerate()
             .for_each(|(idx, (past_instant, standard_interval))| {
-                let result = subject.compute_interval(now, past_instant, standard_interval);
+                subject.scan_interval = standard_interval;
+                subject.last_scan_timestamp = past_instant;
+
+                let result = subject.compute_interval();
+
                 assert_eq!(
                     result,
                     None,
@@ -498,13 +514,12 @@ mod tests {
     #[test]
     fn scan_dyn_interval_computer_realizes_standard_interval_just_met() {
         let now = SystemTime::now();
-        let subject = NewPayableScanDynIntervalComputerReal::default();
+        let mut subject = make_subject();
+        subject.last_scan_timestamp = now.checked_sub(Duration::from_secs(180)).unwrap();
+        subject.scan_interval = Duration::from_secs(180);
+        subject.clock = Box::new(SimpleClockMock::default().now_result(now));
 
-        let result = subject.compute_interval(
-            now,
-            now.checked_sub(Duration::from_secs(32)).unwrap(),
-            Duration::from_secs(32),
-        );
+        let result = subject.compute_interval();
 
         assert_eq!(
             result,
@@ -517,8 +532,8 @@ mod tests {
     #[test]
     #[cfg(windows)]
     #[should_panic(
-        expected = "Now (SystemTime { intervals: 116454735990000000 }) earlier than past timestamp \
-        (SystemTime { intervals: 116454736000000000 })"
+        expected = "Now (SystemTime { intervals: 116454736000000000 }) earlier than past timestamp \
+        (SystemTime { intervals: 116454737000000000 })"
     )]
     fn scan_dyn_interval_computer_panics() {
         test_scan_dyn_interval_computer_panics()
@@ -527,8 +542,8 @@ mod tests {
     #[test]
     #[cfg(not(windows))]
     #[should_panic(
-        expected = "Now (SystemTime { tv_sec: 999999, tv_nsec: 0 }) earlier than past timestamp \
-        (SystemTime { tv_sec: 1000000, tv_nsec: 0 })"
+        expected = "Now (SystemTime { tv_sec: 1000000, tv_nsec: 0 }) earlier than past timestamp \
+        (SystemTime { tv_sec: 1000001, tv_nsec: 0 })"
     )]
     fn scan_dyn_interval_computer_panics() {
         test_scan_dyn_interval_computer_panics()
@@ -538,13 +553,74 @@ mod tests {
         let now = UNIX_EPOCH
             .checked_add(Duration::from_secs(1_000_000))
             .unwrap();
-        let subject = NewPayableScanDynIntervalComputerReal::default();
+        let mut subject = make_subject();
+        subject.clock = Box::new(SimpleClockMock::default().now_result(now));
+        subject.last_scan_timestamp = now.checked_add(Duration::from_secs(1)).unwrap();
 
-        let _ = subject.compute_interval(
-            now.checked_sub(Duration::from_secs(1)).unwrap(),
-            now,
-            Duration::from_secs(32),
+        let _ = subject.compute_interval();
+    }
+
+    #[test]
+    fn zero_out_works_for_default_subject() {
+        let mut subject = make_subject();
+        let last_scan_timestamp_before = subject.last_scan_timestamp;
+        let before_act = SystemTime::now();
+
+        subject.zero_out();
+
+        let after_act = SystemTime::now();
+        let last_scan_timestamp_after = subject.last_scan_timestamp;
+        assert_eq!(last_scan_timestamp_before, UNIX_EPOCH);
+        assert!(
+            before_act <= last_scan_timestamp_after && last_scan_timestamp_after <= after_act,
+            "we expected the last_scan_timestamp to be reset to now, but it was not"
         );
+    }
+
+    #[test]
+    fn zero_out_works_for_general_subject() {
+        let mut subject = make_subject();
+        subject.last_scan_timestamp = SystemTime::now()
+            .checked_sub(Duration::from_secs(100))
+            .unwrap();
+        let before_act = SystemTime::now();
+
+        subject.zero_out();
+
+        let after_act = SystemTime::now();
+        let last_scan_timestamp_after = subject.last_scan_timestamp;
+        assert!(
+            before_act <= last_scan_timestamp_after && last_scan_timestamp_after <= after_act,
+            "we expected the last_scan_timestamp to be reset to now, but it was not"
+        );
+    }
+
+    #[test]
+    fn update_last_new_payable_scan_timestamp_works() {
+        let zero_out_params_arc = Arc::new(Mutex::new(vec![]));
+        let scan_intervals = ScanIntervals::compute_default(TEST_DEFAULT_CHAIN);
+        let mut subject = ScanSchedulers::new(scan_intervals, true);
+        subject.payable.dyn_interval_computer = Box::new(
+            NewPayableScanDynIntervalComputerMock::default().zero_out_params(&zero_out_params_arc),
+        );
+
+        subject.payable.update_last_new_payable_scan_timestamp();
+
+        let zero_out_params = zero_out_params_arc.lock().unwrap();
+        assert_eq!(*zero_out_params, vec![()])
+    }
+
+    fn make_subject() -> NewPayableScanDynIntervalComputerReal {
+        // The interval is just a garbage value, we reset it in the tests by injection if needed
+        NewPayableScanDynIntervalComputerReal::new(Duration::from_secs(100))
+    }
+
+    fn fill_simple_clock_mock_and_return_now() -> (SimpleClockMock, SystemTime) {
+        let now = SystemTime::now();
+        (
+            (0..3).fold(SimpleClockMock::default(), |clock, _| clock.now_result(now)),
+            now,
+        )
     }
 
     lazy_static! {

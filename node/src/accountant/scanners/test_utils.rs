@@ -336,37 +336,37 @@ impl<StartMsg, EndMsg, ScanResult> ScannerMockMarker for ScannerMock<StartMsg, E
 
 #[derive(Default)]
 pub struct NewPayableScanDynIntervalComputerMock {
-    compute_interval_params: Arc<Mutex<Vec<(SystemTime, SystemTime, Duration)>>>,
+    compute_interval_params: Arc<Mutex<Vec<()>>>,
     compute_interval_results: RefCell<Vec<Option<Duration>>>,
+    zero_out_params: Arc<Mutex<Vec<()>>>,
 }
 
 impl NewPayableScanDynIntervalComputer for NewPayableScanDynIntervalComputerMock {
-    fn compute_interval(
-        &self,
-        now: SystemTime,
-        last_new_payable_scan_timestamp: SystemTime,
-        interval: Duration,
-    ) -> Option<Duration> {
-        self.compute_interval_params.lock().unwrap().push((
-            now,
-            last_new_payable_scan_timestamp,
-            interval,
-        ));
+    fn compute_interval(&self) -> Option<Duration> {
+        self.compute_interval_params.lock().unwrap().push(());
         self.compute_interval_results.borrow_mut().remove(0)
     }
+
+    fn zero_out(&mut self) {
+        self.zero_out_params.lock().unwrap().push(());
+    }
+
+    as_any_ref_in_trait_impl!();
 }
 
 impl NewPayableScanDynIntervalComputerMock {
-    pub fn compute_interval_params(
-        mut self,
-        params: &Arc<Mutex<Vec<(SystemTime, SystemTime, Duration)>>>,
-    ) -> Self {
+    pub fn compute_interval_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
         self.compute_interval_params = params.clone();
         self
     }
 
     pub fn compute_interval_result(self, result: Option<Duration>) -> Self {
         self.compute_interval_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn zero_out_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+        self.zero_out_params = params.clone();
         self
     }
 }

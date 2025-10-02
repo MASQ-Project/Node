@@ -1,6 +1,7 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::blockchain::errors::BlockchainErrorKind;
+use masq_lib::simple_clock::SimpleClock;
 use serde::de::{SeqAccess, Visitor};
 use serde::ser::SerializeSeq;
 use serde::{
@@ -111,17 +112,13 @@ impl<'de> Visitor<'de> for PreviousAttemptsVisitor {
 }
 
 impl PreviousAttempts {
-    pub fn new(error: BlockchainErrorKind, clock: &dyn ValidationFailureClock) -> Self {
+    pub fn new(error: BlockchainErrorKind, clock: &dyn SimpleClock) -> Self {
         Self {
             inner: btreemap!(error => ErrorStats::now(clock)),
         }
     }
 
-    pub fn add_attempt(
-        mut self,
-        error: BlockchainErrorKind,
-        clock: &dyn ValidationFailureClock,
-    ) -> Self {
+    pub fn add_attempt(mut self, error: BlockchainErrorKind, clock: &dyn SimpleClock) -> Self {
         self.inner
             .entry(error)
             .and_modify(|stats| stats.increment())
@@ -138,7 +135,7 @@ pub struct ErrorStats {
 }
 
 impl ErrorStats {
-    pub fn now(clock: &dyn ValidationFailureClock) -> Self {
+    pub fn now(clock: &dyn SimpleClock) -> Self {
         Self {
             first_seen: clock.now(),
             attempts: 1,
@@ -150,26 +147,14 @@ impl ErrorStats {
     }
 }
 
-pub trait ValidationFailureClock {
-    fn now(&self) -> SystemTime;
-}
-
-#[derive(Default)]
-pub struct ValidationFailureClockReal {}
-
-impl ValidationFailureClock for ValidationFailureClockReal {
-    fn now(&self) -> SystemTime {
-        SystemTime::now()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::scanners::pending_payable_scanner::test_utils::ValidationFailureClockMock;
     use crate::blockchain::errors::internal_errors::InternalErrorKind;
     use crate::blockchain::errors::rpc_errors::{AppRpcErrorKind, LocalErrorKind};
     use crate::test_utils::serde_serializer_mock::{SerdeSerializerMock, SerializeSeqMock};
+    use masq_lib::simple_clock::SimpleClockReal;
+    use masq_lib::test_utils::simple_clock::SimpleClockMock;
     use serde::ser::Error as SerdeError;
     use std::collections::BTreeSet;
     use std::time::Duration;
@@ -177,7 +162,7 @@ mod tests {
 
     #[test]
     fn previous_attempts_and_validation_failure_clock_work_together_fine() {
-        let validation_failure_clock = ValidationFailureClockReal::default();
+        let validation_failure_clock = SimpleClockReal::default();
         // new()
         let timestamp_a = SystemTime::now();
         let subject = PreviousAttempts::new(
@@ -261,7 +246,7 @@ mod tests {
     // #[test]
     // fn previous_attempts_hash_works_correctly() {
     //     let now = SystemTime::now();
-    //     let clock = ValidationFailureClockMock::default()
+    //     let clock = SimpleClockMock::default()
     //         .now_result(now)
     //         .now_result(now)
     //         .now_result(now + Duration::from_secs(2));
@@ -300,7 +285,7 @@ mod tests {
     #[test]
     fn previous_attempts_ordering_works_correctly_with_mock() {
         let now = SystemTime::now();
-        let clock = ValidationFailureClockMock::default()
+        let clock = SimpleClockMock::default()
             .now_result(now)
             .now_result(now + Duration::from_secs(1))
             .now_result(now + Duration::from_secs(2))
@@ -331,7 +316,7 @@ mod tests {
         let timestamp = UNIX_EPOCH
             .checked_add(Duration::from_secs(1234567890))
             .unwrap();
-        let clock = ValidationFailureClockMock::default().now_result(timestamp);
+        let clock = SimpleClockMock::default().now_result(timestamp);
 
         let result = serde_json::to_string(&PreviousAttempts::new(err, &clock)).unwrap();
 
@@ -349,7 +334,7 @@ mod tests {
         let timestamp = UNIX_EPOCH
             .checked_add(Duration::from_secs(1234567890))
             .unwrap();
-        let clock = ValidationFailureClockMock::default().now_result(timestamp);
+        let clock = SimpleClockMock::default().now_result(timestamp);
 
         let result = PreviousAttempts::new(err, &clock).serialize(mock);
 
@@ -366,7 +351,7 @@ mod tests {
         let timestamp = UNIX_EPOCH
             .checked_add(Duration::from_secs(1234567890))
             .unwrap();
-        let clock = ValidationFailureClockMock::default().now_result(timestamp);
+        let clock = SimpleClockMock::default().now_result(timestamp);
 
         let result = PreviousAttempts::new(err, &clock).serialize(mock);
 
@@ -383,7 +368,7 @@ mod tests {
         let timestamp = UNIX_EPOCH
             .checked_add(Duration::from_secs(1234567890))
             .unwrap();
-        let clock = ValidationFailureClockMock::default().now_result(timestamp);
+        let clock = SimpleClockMock::default().now_result(timestamp);
 
         let result = PreviousAttempts::new(err, &clock).serialize(mock);
 
@@ -399,7 +384,7 @@ mod tests {
         let timestamp = UNIX_EPOCH
             .checked_add(Duration::from_secs(1234567890))
             .unwrap();
-        let clock = ValidationFailureClockMock::default().now_result(timestamp);
+        let clock = SimpleClockMock::default().now_result(timestamp);
         assert_eq!(
             result.unwrap().inner,
             btreemap!(BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Internal)) => ErrorStats::now(&clock))
@@ -422,7 +407,7 @@ mod tests {
     #[test]
     fn validation_status_ordering_works_correctly() {
         let now = SystemTime::now();
-        let clock = ValidationFailureClockMock::default()
+        let clock = SimpleClockMock::default()
             .now_result(now)
             .now_result(now + Duration::from_secs(1));
 

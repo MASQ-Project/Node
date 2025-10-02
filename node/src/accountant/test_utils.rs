@@ -25,14 +25,12 @@ use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdju
 use crate::accountant::scanners::payable_scanner::msgs::PricedTemplatesMessage;
 use crate::accountant::scanners::payable_scanner::payment_adjuster_integration::PreparedAdjustment;
 use crate::accountant::scanners::payable_scanner::utils::PayableThresholdsGauge;
-use crate::accountant::scanners::pending_payable_scanner::test_utils::ValidationFailureClockMock;
 use crate::accountant::scanners::pending_payable_scanner::utils::PendingPayableCache;
 use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
 use crate::accountant::scanners::receivable_scanner::ReceivableScanner;
 use crate::accountant::scanners::test_utils::PendingPayableCacheMock;
 use crate::accountant::{gwei_to_wei, Accountant};
 use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, TxBlock};
-use crate::blockchain::errors::validation_status::ValidationFailureClock;
 use crate::blockchain::test_utils::make_block_hash;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
@@ -47,6 +45,8 @@ use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMoc
 use crate::test_utils::unshared_test_utils::make_bc_with_defaults;
 use ethereum_types::U64;
 use masq_lib::logger::Logger;
+use masq_lib::simple_clock::SimpleClock;
+use masq_lib::test_utils::simple_clock::SimpleClockMock;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use rusqlite::{Connection, OpenFlags, Row};
 use std::any::type_name;
@@ -98,34 +98,6 @@ pub fn make_transaction_block(num: u64) -> TxBlock {
     TxBlock {
         block_hash: make_block_hash(num as u32),
         block_number: U64::from(num * num * num),
-    }
-}
-
-pub struct AccountantBuilder {
-    config_opt: Option<BootstrapperConfig>,
-    consuming_wallet_opt: Option<Wallet>,
-    logger_opt: Option<Logger>,
-    payable_dao_factory_opt: Option<PayableDaoFactoryMock>,
-    receivable_dao_factory_opt: Option<ReceivableDaoFactoryMock>,
-    sent_payable_dao_factory_opt: Option<SentPayableDaoFactoryMock>,
-    failed_payable_dao_factory_opt: Option<FailedPayableDaoFactoryMock>,
-    banned_dao_factory_opt: Option<BannedDaoFactoryMock>,
-    config_dao_factory_opt: Option<ConfigDaoFactoryMock>,
-}
-
-impl Default for AccountantBuilder {
-    fn default() -> Self {
-        Self {
-            config_opt: None,
-            consuming_wallet_opt: None,
-            logger_opt: None,
-            payable_dao_factory_opt: None,
-            receivable_dao_factory_opt: None,
-            sent_payable_dao_factory_opt: None,
-            failed_payable_dao_factory_opt: None,
-            banned_dao_factory_opt: None,
-            config_dao_factory_opt: None,
-        }
     }
 }
 
@@ -276,6 +248,34 @@ const RECEIVABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER: [DestinationMarker; 2] = 
     DestinationMarker::ReceivableScanner,
 ];
 
+pub struct AccountantBuilder {
+    config_opt: Option<BootstrapperConfig>,
+    consuming_wallet_opt: Option<Wallet>,
+    logger_opt: Option<Logger>,
+    payable_dao_factory_opt: Option<PayableDaoFactoryMock>,
+    receivable_dao_factory_opt: Option<ReceivableDaoFactoryMock>,
+    sent_payable_dao_factory_opt: Option<SentPayableDaoFactoryMock>,
+    failed_payable_dao_factory_opt: Option<FailedPayableDaoFactoryMock>,
+    banned_dao_factory_opt: Option<BannedDaoFactoryMock>,
+    config_dao_factory_opt: Option<ConfigDaoFactoryMock>,
+}
+
+impl Default for AccountantBuilder {
+    fn default() -> Self {
+        Self {
+            config_opt: None,
+            consuming_wallet_opt: None,
+            logger_opt: None,
+            payable_dao_factory_opt: None,
+            receivable_dao_factory_opt: None,
+            sent_payable_dao_factory_opt: None,
+            failed_payable_dao_factory_opt: None,
+            banned_dao_factory_opt: None,
+            config_dao_factory_opt: None,
+        }
+    }
+}
+
 impl AccountantBuilder {
     pub fn bootstrapper_config(mut self, config: BootstrapperConfig) -> Self {
         self.config_opt = Some(config);
@@ -354,39 +354,6 @@ impl AccountantBuilder {
             self
         )
     }
-
-    // pub fn sent_payable_dao(mut self, sent_payable_dao: SentPayableDaoMock) -> Self {
-    //     // TODO: GH-605: Bert Merge Cleanup - Prefer the standard create_or_update_factory! style - as in GH-598
-    //     match self.sent_payable_dao_factory_opt {
-    //         None => {
-    //             self.sent_payable_dao_factory_opt =
-    //                 Some(SentPayableDaoFactoryMock::new().make_result(sent_payable_dao))
-    //         }
-    //         Some(sent_payable_dao_factory) => {
-    //             self.sent_payable_dao_factory_opt =
-    //                 Some(sent_payable_dao_factory.make_result(sent_payable_dao))
-    //         }
-    //     }
-    //
-    //     self
-    // }
-    //
-    // pub fn failed_payable_dao(mut self, failed_payable_dao: FailedPayableDaoMock) -> Self {
-    //     // TODO: GH-605: Bert Merge cleanup - Prefer the standard create_or_update_factory! style - as in GH-598
-    //
-    //     match self.failed_payable_dao_factory_opt {
-    //         None => {
-    //             self.failed_payable_dao_factory_opt =
-    //                 Some(FailedPayableDaoFactoryMock::new().make_result(failed_payable_dao))
-    //         }
-    //         Some(failed_payable_dao_factory) => {
-    //             self.failed_payable_dao_factory_opt =
-    //                 Some(failed_payable_dao_factory.make_result(failed_payable_dao))
-    //         }
-    //     }
-    //
-    //     self
-    // }
 
     //TODO this method seems to be never used?
     pub fn banned_dao(mut self, banned_dao: BannedDaoMock) -> Self {
@@ -1315,7 +1282,7 @@ pub struct PendingPayableScannerBuilder {
     financial_statistics: FinancialStatistics,
     current_sent_payables: Box<dyn PendingPayableCache<SentTx>>,
     yet_unproven_failed_payables: Box<dyn PendingPayableCache<FailedTx>>,
-    clock: Box<dyn ValidationFailureClock>,
+    clock: Box<dyn SimpleClock>,
 }
 
 impl PendingPayableScannerBuilder {
@@ -1328,7 +1295,7 @@ impl PendingPayableScannerBuilder {
             financial_statistics: FinancialStatistics::default(),
             current_sent_payables: Box::new(PendingPayableCacheMock::default()),
             yet_unproven_failed_payables: Box::new(PendingPayableCacheMock::default()),
-            clock: Box::new(ValidationFailureClockMock::default()),
+            clock: Box::new(SimpleClockMock::default()),
         }
     }
 
@@ -1360,7 +1327,7 @@ impl PendingPayableScannerBuilder {
         self
     }
 
-    pub fn validation_failure_clock(mut self, clock: Box<dyn ValidationFailureClock>) -> Self {
+    pub fn validation_failure_clock(mut self, clock: Box<dyn SimpleClock>) -> Self {
         self.clock = clock;
         self
     }

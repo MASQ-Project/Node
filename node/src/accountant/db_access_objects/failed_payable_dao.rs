@@ -427,17 +427,16 @@ mod tests {
     };
     use crate::accountant::db_access_objects::utils::current_unix_timestamp;
     use crate::accountant::db_access_objects::Transaction;
-    use crate::accountant::scanners::pending_payable_scanner::test_utils::ValidationFailureClockMock;
     use crate::blockchain::errors::rpc_errors::{AppRpcErrorKind, LocalErrorKind, RemoteErrorKind};
-    use crate::blockchain::errors::validation_status::{
-        PreviousAttempts, ValidationFailureClockReal, ValidationStatus,
-    };
+    use crate::blockchain::errors::validation_status::{PreviousAttempts, ValidationStatus};
     use crate::blockchain::errors::BlockchainErrorKind;
     use crate::blockchain::test_utils::{make_address, make_tx_hash};
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal,
     };
     use crate::database::test_utils::ConnectionWrapperMock;
+    use masq_lib::simple_clock::SimpleClockReal;
+    use masq_lib::test_utils::simple_clock::SimpleClockMock;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::Connection;
     use std::collections::{BTreeSet, HashMap};
@@ -701,7 +700,7 @@ mod tests {
 
     #[test]
     fn failure_status_from_str_works() {
-        let validation_failure_clock = ValidationFailureClockMock::default().now_result(
+        let validation_failure_clock = SimpleClockMock::default().now_result(
             SystemTime::UNIX_EPOCH
                 .add(Duration::from_secs(1755080031))
                 .add(Duration::from_nanos(612180914)),
@@ -831,7 +830,7 @@ mod tests {
                     BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(
                         RemoteErrorKind::Unreachable,
                     )),
-                    &ValidationFailureClockReal::default(),
+                    &SimpleClockReal::default(),
                 ),
             )))
             .build();
@@ -950,7 +949,7 @@ mod tests {
             ]))
             .unwrap();
         let timestamp = SystemTime::now();
-        let clock = ValidationFailureClockMock::default()
+        let clock = SimpleClockMock::default()
             .now_result(timestamp)
             .now_result(timestamp);
         let hashmap = HashMap::from([
