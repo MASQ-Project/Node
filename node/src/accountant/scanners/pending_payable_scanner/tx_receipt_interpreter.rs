@@ -237,13 +237,12 @@ mod tests {
     use crate::blockchain::errors::rpc_errors::{
         AppRpcError, AppRpcErrorKind, LocalError, LocalErrorKind, RemoteError,
     };
-    use crate::blockchain::errors::validation_status::{
-        PreviousAttempts, ValidationFailureClockReal, ValidationStatus,
-    };
+    use crate::blockchain::errors::validation_status::{PreviousAttempts, ValidationStatus};
     use crate::blockchain::errors::BlockchainErrorKind;
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::test_utils::unshared_test_utils::capture_digits_with_separators_from_str;
     use masq_lib::logger::Logger;
+    use masq_lib::simple_clock::SimpleClockReal;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex};
@@ -590,7 +589,7 @@ mod tests {
             test_name,
             TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
                 BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Internal)),
-                &ValidationFailureClockReal::default(),
+                &SimpleClockReal::default(),
             ))),
         );
     }
@@ -654,7 +653,7 @@ mod tests {
             test_name,
             FailureStatus::RecheckRequired(ValidationStatus::Reattempting(PreviousAttempts::new(
                 BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Internal)),
-                &ValidationFailureClockReal::default(),
+                &SimpleClockReal::default(),
             ))),
         );
     }

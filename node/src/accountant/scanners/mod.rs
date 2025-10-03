@@ -580,7 +580,6 @@ mod tests {
     };
     use crate::accountant::scanners::payable_scanner::utils::PayableScanResult;
     use crate::accountant::scanners::payable_scanner::PayableScanner;
-    use crate::accountant::scanners::pending_payable_scanner::test_utils::ValidationFailureClockMock;
     use crate::accountant::scanners::pending_payable_scanner::utils::{
         CurrentPendingPayables, PendingPayableScanResult, RecheckRequiringFailures, TxHashByTable,
     };
@@ -631,6 +630,7 @@ mod tests {
     use masq_lib::logger::Logger;
     use masq_lib::messages::ScanType;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
+    use masq_lib::test_utils::simple_clock::SimpleClockMock;
     use masq_lib::ui_gateway::NodeToUiMessage;
     use regex::Regex;
     use rusqlite::{ffi, ErrorCode};
@@ -1440,7 +1440,7 @@ mod tests {
         failed_tx_5.status =
             FailureStatus::RecheckRequired(ValidationStatus::Reattempting(PreviousAttempts::new(
                 BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(RemoteErrorKind::Unreachable)),
-                &ValidationFailureClockMock::default().now_result(timestamp_c),
+                &SimpleClockMock::default().now_result(timestamp_c),
             )));
         let tx_receipt_rpc_error_5 =
             AppRpcError::Remote(RemoteError::InvalidResponse("game over".to_string()));
@@ -1456,7 +1456,7 @@ mod tests {
         let failed_payable_cache = PendingPayableCacheMock::default()
             .get_record_by_hash_result(Some(failed_tx_2.clone()))
             .get_record_by_hash_result(Some(failed_tx_5));
-        let validation_failure_clock = ValidationFailureClockMock::default()
+        let validation_failure_clock = SimpleClockMock::default()
             .now_result(timestamp_a)
             .now_result(timestamp_b);
         let mut pending_payable_scanner = PendingPayableScannerBuilder::new()
@@ -1512,7 +1512,7 @@ mod tests {
         assert_eq!(
             *update_statuses_pending_payable_params,
             vec![
-                hashmap!(tx_hash_4 => TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(RemoteErrorKind::Unreachable)), &ValidationFailureClockMock::default().now_result(timestamp_a)))))
+                hashmap!(tx_hash_4 => TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(RemoteErrorKind::Unreachable)), &SimpleClockMock::default().now_result(timestamp_a)))))
             ]
         );
         let update_statuses_failed_payable_params =
@@ -1520,7 +1520,7 @@ mod tests {
         assert_eq!(
             *update_statuses_failed_payable_params,
             vec![
-                hashmap!(tx_hash_5 => FailureStatus::RecheckRequired(ValidationStatus::Reattempting(PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(RemoteErrorKind::Unreachable)), &ValidationFailureClockMock::default().now_result(timestamp_c)).add_attempt(BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(RemoteErrorKind::InvalidResponse)), &ValidationFailureClockMock::default().now_result(timestamp_b)))))
+                hashmap!(tx_hash_5 => FailureStatus::RecheckRequired(ValidationStatus::Reattempting(PreviousAttempts::new(BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(RemoteErrorKind::Unreachable)), &SimpleClockMock::default().now_result(timestamp_c)).add_attempt(BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(RemoteErrorKind::InvalidResponse)), &SimpleClockMock::default().now_result(timestamp_b)))))
             ]
         );
         assert_eq!(subject.scan_started_at(ScanType::PendingPayables), None);

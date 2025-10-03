@@ -5,12 +5,11 @@ use crate::accountant::db_access_objects::sent_payable_dao::{SentTx, TxStatus};
 use crate::accountant::db_access_objects::utils::TxHash;
 use crate::accountant::{ResponseSkeleton, TxReceiptResult};
 use crate::blockchain::errors::rpc_errors::AppRpcError;
-use crate::blockchain::errors::validation_status::{
-    PreviousAttempts, ValidationFailureClock, ValidationStatus,
-};
+use crate::blockchain::errors::validation_status::{PreviousAttempts, ValidationStatus};
 use crate::blockchain::errors::BlockchainErrorKind;
 use itertools::Either;
 use masq_lib::logger::Logger;
+use masq_lib::simple_clock::SimpleClock;
 use masq_lib::ui_gateway::NodeToUiMessage;
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -153,7 +152,7 @@ where
         }
     }
 
-    pub fn new_status(&self, clock: &dyn ValidationFailureClock) -> Option<RecordStatus> {
+    pub fn new_status(&self, clock: &dyn SimpleClock) -> Option<RecordStatus> {
         self.current_status
             .update_after_failure(self.validation_failure, clock)
     }
@@ -163,7 +162,7 @@ pub trait UpdatableValidationStatus {
     fn update_after_failure(
         &self,
         error: BlockchainErrorKind,
-        clock: &dyn ValidationFailureClock,
+        clock: &dyn SimpleClock,
     ) -> Option<Self>
     where
         Self: Sized;
@@ -173,7 +172,7 @@ impl UpdatableValidationStatus for TxStatus {
     fn update_after_failure(
         &self,
         error: BlockchainErrorKind,
-        clock: &dyn ValidationFailureClock,
+        clock: &dyn SimpleClock,
     ) -> Option<Self> {
         match self {
             TxStatus::Pending(ValidationStatus::Waiting) => Some(TxStatus::Pending(
@@ -193,7 +192,7 @@ impl UpdatableValidationStatus for FailureStatus {
     fn update_after_failure(
         &self,
         error: BlockchainErrorKind,
-        clock: &dyn ValidationFailureClock,
+        clock: &dyn SimpleClock,
     ) -> Option<Self> {
         match self {
             FailureStatus::RecheckRequired(ValidationStatus::Waiting) => {
@@ -389,20 +388,19 @@ mod tests {
     use crate::accountant::db_access_objects::failed_payable_dao::FailureStatus;
     use crate::accountant::db_access_objects::sent_payable_dao::{Detection, TxStatus};
     use crate::accountant::db_access_objects::test_utils::{make_failed_tx, make_sent_tx};
-    use crate::accountant::scanners::pending_payable_scanner::test_utils::ValidationFailureClockMock;
     use crate::accountant::scanners::pending_payable_scanner::utils::{
         CurrentPendingPayables, DetectedConfirmations, DetectedFailures, FailedValidation,
         FailedValidationByTable, PendingPayableCache, PresortedTxFailure, ReceiptScanReport,
         RecheckRequiringFailures, Retry, TxByTable, TxHashByTable,
     };
     use crate::blockchain::errors::rpc_errors::{AppRpcErrorKind, LocalErrorKind, RemoteErrorKind};
-    use crate::blockchain::errors::validation_status::{
-        PreviousAttempts, ValidationFailureClockReal, ValidationStatus,
-    };
+    use crate::blockchain::errors::validation_status::{PreviousAttempts, ValidationStatus};
     use crate::blockchain::errors::BlockchainErrorKind;
     use crate::blockchain::test_utils::make_tx_hash;
     use masq_lib::logger::Logger;
+    use masq_lib::simple_clock::SimpleClockReal;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
+    use masq_lib::test_utils::simple_clock::SimpleClockMock;
     use std::cmp::Ordering;
     use std::collections::BTreeSet;
     use std::ops::Sub;
@@ -456,7 +454,7 @@ mod tests {
                             BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(
                                 LocalErrorKind::Internal,
                             )),
-                            &ValidationFailureClockReal::default(),
+                            &SimpleClockReal::default(),
                         ),
                     )),
                 ),
@@ -531,7 +529,7 @@ mod tests {
                         BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(
                             LocalErrorKind::Internal,
                         )),
-                        &ValidationFailureClockReal::default(),
+                        &SimpleClockReal::default(),
                     ))),
                 )),
                 FailedValidationByTable::FailedPayable(FailedValidation::new(
@@ -544,7 +542,7 @@ mod tests {
                             BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(
                                 LocalErrorKind::Internal,
                             )),
-                            &ValidationFailureClockReal::default(),
+                            &SimpleClockReal::default(),
                         ),
                     )),
                 )),
@@ -943,7 +941,7 @@ mod tests {
         let timestamp_a = SystemTime::now();
         let timestamp_b = SystemTime::now().sub(Duration::from_secs(11));
         let timestamp_c = SystemTime::now().sub(Duration::from_secs(22));
-        let clock = ValidationFailureClockMock::default()
+        let clock = SimpleClockMock::default()
             .now_result(timestamp_a)
             .now_result(timestamp_c);
         let cases = vec![
@@ -958,7 +956,7 @@ mod tests {
                         BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(
                             LocalErrorKind::Internal,
                         )),
-                        &ValidationFailureClockMock::default().now_result(timestamp_a),
+                        &SimpleClockMock::default().now_result(timestamp_a),
                     ),
                 ))),
             ),
@@ -973,13 +971,13 @@ mod tests {
                             BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(
                                 LocalErrorKind::Internal,
                             )),
-                            &ValidationFailureClockMock::default().now_result(timestamp_b),
+                            &SimpleClockMock::default().now_result(timestamp_b),
                         )
                         .add_attempt(
                             BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(
                                 LocalErrorKind::Internal,
                             )),
-                            &ValidationFailureClockReal::default(),
+                            &SimpleClockReal::default(),
                         ),
                     )),
                 ),
@@ -988,19 +986,19 @@ mod tests {
                         BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(
                             RemoteErrorKind::Unreachable,
                         )),
-                        &ValidationFailureClockMock::default().now_result(timestamp_c),
+                        &SimpleClockMock::default().now_result(timestamp_c),
                     )
                     .add_attempt(
                         BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(
                             LocalErrorKind::Internal,
                         )),
-                        &ValidationFailureClockMock::default().now_result(timestamp_b),
+                        &SimpleClockMock::default().now_result(timestamp_b),
                     )
                     .add_attempt(
                         BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(
                             LocalErrorKind::Internal,
                         )),
-                        &ValidationFailureClockReal::default(),
+                        &SimpleClockReal::default(),
                     ),
                 ))),
             ),
@@ -1016,7 +1014,7 @@ mod tests {
         let timestamp_a = SystemTime::now().sub(Duration::from_secs(222));
         let timestamp_b = SystemTime::now().sub(Duration::from_secs(3333));
         let timestamp_c = SystemTime::now().sub(Duration::from_secs(44444));
-        let clock = ValidationFailureClockMock::default()
+        let clock = SimpleClockMock::default()
             .now_result(timestamp_a)
             .now_result(timestamp_b);
         let cases = vec![
@@ -1031,7 +1029,7 @@ mod tests {
                         BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(
                             LocalErrorKind::Internal,
                         )),
-                        &ValidationFailureClockMock::default().now_result(timestamp_a),
+                        &SimpleClockMock::default().now_result(timestamp_a),
                     )),
                 )),
             ),
@@ -1046,13 +1044,13 @@ mod tests {
                             BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(
                                 RemoteErrorKind::Unreachable,
                             )),
-                            &ValidationFailureClockMock::default().now_result(timestamp_b),
+                            &SimpleClockMock::default().now_result(timestamp_b),
                         )
                         .add_attempt(
                             BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(
                                 RemoteErrorKind::InvalidResponse,
                             )),
-                            &ValidationFailureClockMock::default().now_result(timestamp_c),
+                            &SimpleClockMock::default().now_result(timestamp_c),
                         ),
                     )),
                 ),
@@ -1062,19 +1060,19 @@ mod tests {
                             BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(
                                 RemoteErrorKind::Unreachable,
                             )),
-                            &ValidationFailureClockMock::default().now_result(timestamp_b),
+                            &SimpleClockMock::default().now_result(timestamp_b),
                         )
                         .add_attempt(
                             BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(
                                 RemoteErrorKind::InvalidResponse,
                             )),
-                            &ValidationFailureClockMock::default().now_result(timestamp_c),
+                            &SimpleClockMock::default().now_result(timestamp_c),
                         )
                         .add_attempt(
                             BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(
                                 RemoteErrorKind::Unreachable,
                             )),
-                            &ValidationFailureClockReal::default(),
+                            &SimpleClockReal::default(),
                         ),
                     ),
                 )),
@@ -1088,7 +1086,7 @@ mod tests {
 
     #[test]
     fn failed_validation_new_status_has_no_effect_on_unexpected_tx_status() {
-        let validation_failure_clock = ValidationFailureClockMock::default();
+        let validation_failure_clock = SimpleClockMock::default();
         let mal_validated_tx_status = FailedValidation::new(
             make_tx_hash(123),
             BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Internal)),
@@ -1107,7 +1105,7 @@ mod tests {
 
     #[test]
     fn failed_validation_new_status_has_no_effect_on_unexpected_failure_status() {
-        let validation_failure_clock = ValidationFailureClockMock::default();
+        let validation_failure_clock = SimpleClockMock::default();
         let mal_validated_failure_statuses = vec![
             FailedValidation::new(
                 make_tx_hash(456),

@@ -540,13 +540,10 @@ mod tests {
         make_read_only_db_connection, make_sent_tx, TxBuilder,
     };
     use crate::accountant::db_access_objects::Transaction;
-    use crate::accountant::scanners::pending_payable_scanner::test_utils::ValidationFailureClockMock;
     use crate::blockchain::blockchain_interface::data_structures::TxBlock;
     use crate::blockchain::errors::internal_errors::InternalErrorKind;
     use crate::blockchain::errors::rpc_errors::{AppRpcErrorKind, LocalErrorKind, RemoteErrorKind};
-    use crate::blockchain::errors::validation_status::{
-        PreviousAttempts, ValidationFailureClockReal, ValidationStatus,
-    };
+    use crate::blockchain::errors::validation_status::{PreviousAttempts, ValidationStatus};
     use crate::blockchain::errors::BlockchainErrorKind;
     use crate::blockchain::test_utils::{make_address, make_block_hash, make_tx_hash};
     use crate::database::db_initializer::{
@@ -554,6 +551,8 @@ mod tests {
     };
     use crate::database::test_utils::ConnectionWrapperMock;
     use ethereum_types::{H256, U64};
+    use masq_lib::simple_clock::SimpleClockReal;
+    use masq_lib::test_utils::simple_clock::SimpleClockMock;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::Connection;
     use std::cmp::Ordering;
@@ -578,13 +577,13 @@ mod tests {
                     BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(
                         RemoteErrorKind::Unreachable,
                     )),
-                    &ValidationFailureClockReal::default(),
+                    &SimpleClockReal::default(),
                 )
                 .add_attempt(
                     BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(
                         RemoteErrorKind::Unreachable,
                     )),
-                    &ValidationFailureClockReal::default(),
+                    &SimpleClockReal::default(),
                 ),
             )))
             .build();
@@ -822,7 +821,7 @@ mod tests {
                     BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(
                         RemoteErrorKind::Unreachable,
                     )),
-                    &ValidationFailureClockReal::default(),
+                    &SimpleClockReal::default(),
                 ),
             )))
             .build();
@@ -1205,7 +1204,7 @@ mod tests {
         let mut tx2 = make_sent_tx(789);
         tx2.status = TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
             BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(RemoteErrorKind::Unreachable)),
-            &ValidationFailureClockMock::default().now_result(timestamp_b),
+            &SimpleClockMock::default().now_result(timestamp_b),
         )));
         let mut tx3 = make_sent_tx(123);
         tx3.status = TxStatus::Pending(ValidationStatus::Waiting);
@@ -1217,7 +1216,7 @@ mod tests {
                 tx1.hash,
                 TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
                     BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Internal)),
-                    &ValidationFailureClockMock::default().now_result(timestamp_a),
+                    &SimpleClockMock::default().now_result(timestamp_a),
                 ))),
             ),
             (
@@ -1227,13 +1226,13 @@ mod tests {
                         BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(
                             RemoteErrorKind::Unreachable,
                         )),
-                        &ValidationFailureClockMock::default().now_result(timestamp_b),
+                        &SimpleClockMock::default().now_result(timestamp_b),
                     )
                     .add_attempt(
                         BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(
                             RemoteErrorKind::Unreachable,
                         )),
-                        &ValidationFailureClockReal::default(),
+                        &SimpleClockReal::default(),
                     ),
                 )),
             ),
@@ -1266,7 +1265,7 @@ mod tests {
             updated_txs[1].status,
             TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
                 BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Internal)),
-                &ValidationFailureClockMock::default().now_result(timestamp_a)
+                &SimpleClockMock::default().now_result(timestamp_a)
             )))
         );
         assert_eq!(
@@ -1276,13 +1275,13 @@ mod tests {
                     BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(
                         RemoteErrorKind::Unreachable
                     )),
-                    &ValidationFailureClockMock::default().now_result(timestamp_b)
+                    &SimpleClockMock::default().now_result(timestamp_b)
                 )
                 .add_attempt(
                     BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(
                         RemoteErrorKind::Unreachable
                     )),
-                    &ValidationFailureClockReal::default()
+                    &SimpleClockReal::default()
                 )
             ))
         );
@@ -1318,7 +1317,7 @@ mod tests {
             make_tx_hash(1),
             TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
                 BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(RemoteErrorKind::Unreachable)),
-                &ValidationFailureClockReal::default(),
+                &SimpleClockReal::default(),
             ))),
         )]));
 
@@ -1512,8 +1511,8 @@ mod tests {
 
     #[test]
     fn tx_status_from_str_works() {
-        let validation_failure_clock = ValidationFailureClockMock::default()
-            .now_result(UNIX_EPOCH.add(Duration::from_secs(12456)));
+        let validation_failure_clock =
+            SimpleClockMock::default().now_result(UNIX_EPOCH.add(Duration::from_secs(12456)));
 
         assert_eq!(
             TxStatus::from_str(r#"{"Pending":"Waiting"}"#).unwrap(),
@@ -1579,15 +1578,15 @@ mod tests {
         let tx_status_1 = TxStatus::Pending(ValidationStatus::Waiting);
         let tx_status_2 = TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
             BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(RemoteErrorKind::InvalidResponse)),
-            &ValidationFailureClockReal::default(),
+            &SimpleClockReal::default(),
         )));
         let tx_status_3 = TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
             BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Decoder)),
-            &ValidationFailureClockReal::default(),
+            &SimpleClockReal::default(),
         )));
         let tx_status_4 = TxStatus::Pending(ValidationStatus::Reattempting(PreviousAttempts::new(
             BlockchainErrorKind::Internal(InternalErrorKind::PendingTooLongNotReplaced),
-            &ValidationFailureClockReal::default(),
+            &SimpleClockReal::default(),
         )));
         let tx_status_5 = TxStatus::Confirmed {
             block_hash: format!("{:?}", make_tx_hash(1)),
