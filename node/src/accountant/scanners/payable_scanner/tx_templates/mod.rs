@@ -37,7 +37,6 @@ mod tests {
             wallet: wallet.clone(),
             balance_wei,
             last_paid_timestamp: SystemTime::now(),
-            pending_payable_opt: None,
         };
 
         let base_tx_template = BaseTxTemplate::from(&payable_account);

@@ -79,7 +79,6 @@ mod tests {
             wallet: wallet.clone(),
             balance_wei,
             last_paid_timestamp: SystemTime::now(),
-            pending_payable_opt: None,
         };
 
         let new_tx_template = NewTxTemplate::from(&payable_account);
@@ -174,13 +173,11 @@ mod tests {
                 wallet: wallet1.clone(),
                 balance_wei: 1000,
                 last_paid_timestamp: SystemTime::now(),
-                pending_payable_opt: None,
             },
             PayableAccount {
                 wallet: wallet2.clone(),
                 balance_wei: 2000,
                 last_paid_timestamp: SystemTime::now(),
-                pending_payable_opt: None,
             },
         ];
 
