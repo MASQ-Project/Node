@@ -973,9 +973,7 @@ impl Accountant {
                 None => Err(StartScanError::NoConsumingWalletFound),
             };
 
-        self.scan_schedulers
-            .payable
-            .update_last_new_payable_scan_timestamp();
+        self.scan_schedulers.payable.reset_scan_timer();
 
         match result {
             Ok(scan_message) => {
@@ -1311,11 +1309,11 @@ mod tests {
     use crate::accountant::scanners::payable_scanner::utils::PayableScanResult;
     use crate::accountant::scanners::pending_payable_scanner::utils::TxByTable;
     use crate::accountant::scanners::scan_schedulers::{
-        NewPayableScanDynIntervalComputer, NewPayableScanDynIntervalComputerReal,
+        NewPayableScanIntervalComputer, NewPayableScanIntervalComputerReal, ScanTiming,
     };
     use crate::accountant::scanners::test_utils::{
-        MarkScanner, NewPayableScanDynIntervalComputerMock, PendingPayableCacheMock,
-        ReplacementType, RescheduleScanOnErrorResolverMock, ScannerMock, ScannerReplacement,
+        MarkScanner, NewPayableScanIntervalComputerMock, PendingPayableCacheMock, ReplacementType,
+        RescheduleScanOnErrorResolverMock, ScannerMock, ScannerReplacement,
     };
     use crate::accountant::scanners::StartScanError;
     use crate::accountant::test_utils::DaoWithDestination::{
@@ -1524,9 +1522,9 @@ mod tests {
         result
             .scan_schedulers
             .payable
-            .dyn_interval_computer
+            .interval_computer
             .as_any()
-            .downcast_ref::<NewPayableScanDynIntervalComputerReal>()
+            .downcast_ref::<NewPayableScanIntervalComputerReal>()
             .unwrap();
         assert_eq!(
             result.scan_schedulers.pending_payable.interval,
@@ -2374,13 +2372,13 @@ mod tests {
     fn accountant_sends_qualified_payable_msg_when_qualified_payable_found<ActorMessage>(
         act_msg: ActorMessage,
         initial_templates: Either<NewTxTemplates, RetryTxTemplates>,
-        zero_out_params_expected: Vec<()>,
+        reset_last_scan_timestamp_params_expected: Vec<()>,
     ) where
         ActorMessage: Message + Send + 'static,
         ActorMessage::Result: Send,
         Accountant: Handler<ActorMessage>,
     {
-        let zero_out_params_arc = Arc::new(Mutex::new(vec![]));
+        let reset_last_scan_timestamp_params_arc = Arc::new(Mutex::new(vec![]));
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let system =
             System::new("accountant_sends_qualified_payable_msg_when_qualified_payable_found");
@@ -2408,8 +2406,9 @@ mod tests {
         subject
             .scanners
             .replace_scanner(ScannerReplacement::Receivable(ReplacementType::Null));
-        subject.scan_schedulers.payable.dyn_interval_computer = Box::new(
-            NewPayableScanDynIntervalComputerMock::default().zero_out_params(&zero_out_params_arc),
+        subject.scan_schedulers.payable.interval_computer = Box::new(
+            NewPayableScanIntervalComputerMock::default()
+                .reset_last_scan_timestamp_params(&reset_last_scan_timestamp_params_arc),
         );
         let accountant_addr = subject.start();
         let accountant_subs = Accountant::make_subs_from(&accountant_addr);
@@ -2426,8 +2425,11 @@ mod tests {
         assert_eq!(blockchain_bridge_recorder.len(), 1);
         let message = blockchain_bridge_recorder.get_record::<InitialTemplatesMessage>(0);
         assert_eq!(message, &initial_template_msg);
-        let zero_out_params = zero_out_params_arc.lock().unwrap();
-        assert_eq!(*zero_out_params, zero_out_params_expected)
+        let reset_last_scan_timestamp_params = reset_last_scan_timestamp_params_arc.lock().unwrap();
+        assert_eq!(
+            *reset_last_scan_timestamp_params,
+            reset_last_scan_timestamp_params_expected
+        )
     }
 
     #[test]
@@ -2831,7 +2833,7 @@ mod tests {
         let test_name = "accountant_scans_after_startup_and_does_not_detect_any_pending_payables";
         let scan_params = ScanParams::default();
         let notify_and_notify_later_params = NotifyAndNotifyLaterParams::default();
-        let compute_interval_params_arc = Arc::new(Mutex::new(vec![]));
+        let time_until_next_scan_params_arc = Arc::new(Mutex::new(vec![]));
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = make_wallet("consuming");
         let system = System::new(test_name);
@@ -2853,7 +2855,7 @@ mod tests {
             set_up_subject_for_no_p_p_found_startup_test(
                 test_name,
                 &notify_and_notify_later_params,
-                &compute_interval_params_arc,
+                &time_until_next_scan_params_arc,
                 config,
                 pending_payable_scanner,
                 receivable_scanner,
@@ -2881,7 +2883,7 @@ mod tests {
         assert_payable_scanner_for_no_p_p_found(
             &scan_params.payable_start_scan,
             &notify_and_notify_later_params,
-            compute_interval_params_arc,
+            time_until_next_scan_params_arc,
             new_payable_expected_computed_interval,
         );
         assert_receivable_scanner(
@@ -3056,7 +3058,7 @@ mod tests {
     fn set_up_subject_for_no_p_p_found_startup_test(
         test_name: &str,
         notify_and_notify_later_params: &NotifyAndNotifyLaterParams,
-        compute_interval_params_arc: &Arc<Mutex<Vec<()>>>,
+        time_until_next_scan_params_arc: &Arc<Mutex<Vec<()>>>,
         config: BootstrapperConfig,
         pending_payable_scanner: ScannerMock<
             RequestTransactionReceipts,
@@ -3101,10 +3103,12 @@ mod tests {
             .stop_system_on_count_received(1);
         subject.scan_schedulers.receivable.handle = Box::new(receivable_notify_later_handle_mock);
         subject.scan_schedulers.receivable.interval = receivable_scan_interval;
-        let dyn_interval_computer = NewPayableScanDynIntervalComputerMock::default()
-            .compute_interval_params(&compute_interval_params_arc)
-            .compute_interval_result(Some(new_payable_expected_computed_interval));
-        subject.scan_schedulers.payable.dyn_interval_computer = Box::new(dyn_interval_computer);
+        let interval_computer = NewPayableScanIntervalComputerMock::default()
+            .time_until_next_scan_params(&time_until_next_scan_params_arc)
+            .time_until_next_scan_result(ScanTiming::WaitFor(
+                new_payable_expected_computed_interval,
+            ));
+        subject.scan_schedulers.payable.interval_computer = Box::new(interval_computer);
         (
             subject,
             new_payable_expected_computed_interval,
@@ -3324,7 +3328,7 @@ mod tests {
             Mutex<Vec<(Wallet, SystemTime, Option<ResponseSkeleton>, Logger, String)>>,
         >,
         notify_and_notify_later_params: &NotifyAndNotifyLaterParams,
-        compute_interval_until_next_new_payable_scan_params_arc: Arc<Mutex<Vec<()>>>,
+        time_until_next_scan_until_next_new_payable_scan_params_arc: Arc<Mutex<Vec<()>>>,
         new_payable_expected_computed_interval: Duration,
     ) {
         // Note that there is no functionality from the payable scanner actually running.
@@ -3342,12 +3346,12 @@ mod tests {
                 new_payable_expected_computed_interval
             )]
         );
-        let compute_interval_until_next_new_payable_scan_params =
-            compute_interval_until_next_new_payable_scan_params_arc
+        let time_until_next_scan_until_next_new_payable_scan_params =
+            time_until_next_scan_until_next_new_payable_scan_params_arc
                 .lock()
                 .unwrap();
         assert_eq!(
-            *compute_interval_until_next_new_payable_scan_params,
+            *time_until_next_scan_until_next_new_payable_scan_params,
             vec![()]
         );
         let payable_scanner_start_scan = payable_scanner_start_scan_arc.lock().unwrap();
@@ -5480,7 +5484,7 @@ mod tests {
         let test_name =
             "accountant_confirms_all_pending_txs_and_schedules_new_payable_scanner_timely";
         let finish_scan_params_arc = Arc::new(Mutex::new(vec![]));
-        let compute_interval_params_arc = Arc::new(Mutex::new(vec![]));
+        let time_until_next_scan_params_arc = Arc::new(Mutex::new(vec![]));
         let new_payable_notify_later_arc = Arc::new(Mutex::new(vec![]));
         let new_payable_notify_arc = Arc::new(Mutex::new(vec![]));
         let system = System::new("new_payable_scanner_timely");
@@ -5496,11 +5500,11 @@ mod tests {
                 pending_payable_scanner,
             )));
         let expected_computed_interval = Duration::from_secs(3);
-        let dyn_interval_computer = NewPayableScanDynIntervalComputerMock::default()
-            .compute_interval_params(&compute_interval_params_arc)
+        let interval_computer = NewPayableScanIntervalComputerMock::default()
+            .time_until_next_scan_params(&time_until_next_scan_params_arc)
             // This determines the test
-            .compute_interval_result(Some(expected_computed_interval));
-        subject.scan_schedulers.payable.dyn_interval_computer = Box::new(dyn_interval_computer);
+            .time_until_next_scan_result(ScanTiming::WaitFor(expected_computed_interval));
+        subject.scan_schedulers.payable.interval_computer = Box::new(interval_computer);
         subject.scan_schedulers.payable.new_payable_notify_later = Box::new(
             NotifyLaterHandleMock::default().notify_later_params(&new_payable_notify_later_arc),
         );
@@ -5557,7 +5561,7 @@ mod tests {
         let test_name =
             "accountant_confirms_payable_txs_and_schedules_the_delayed_new_payable_scanner_asap";
         let finish_scan_params_arc = Arc::new(Mutex::new(vec![]));
-        let compute_interval_params_arc = Arc::new(Mutex::new(vec![]));
+        let time_until_next_scan_params_arc = Arc::new(Mutex::new(vec![]));
         let new_payable_notify_later_arc = Arc::new(Mutex::new(vec![]));
         let new_payable_notify_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = AccountantBuilder::default()
@@ -5571,11 +5575,11 @@ mod tests {
             .replace_scanner(ScannerReplacement::PendingPayable(ReplacementType::Mock(
                 pending_payable_scanner,
             )));
-        let dyn_interval_computer = NewPayableScanDynIntervalComputerMock::default()
-            .compute_interval_params(&compute_interval_params_arc)
+        let interval_computer = NewPayableScanIntervalComputerMock::default()
+            .time_until_next_scan_params(&time_until_next_scan_params_arc)
             // This determines the test
-            .compute_interval_result(None);
-        subject.scan_schedulers.payable.dyn_interval_computer = Box::new(dyn_interval_computer);
+            .time_until_next_scan_result(ScanTiming::ReadyNow);
+        subject.scan_schedulers.payable.interval_computer = Box::new(interval_computer);
         subject.scan_schedulers.payable.new_payable_notify_later = Box::new(
             NotifyLaterHandleMock::default().notify_later_params(&new_payable_notify_later_arc),
         );
@@ -5609,8 +5613,8 @@ mod tests {
             "Should be empty but {:?}",
             finish_scan_params
         );
-        let compute_interval_params = compute_interval_params_arc.lock().unwrap();
-        assert_eq!(*compute_interval_params, vec![()]);
+        let time_until_next_scan_params = time_until_next_scan_params_arc.lock().unwrap();
+        assert_eq!(*time_until_next_scan_params, vec![()]);
         let new_payable_notify_later = new_payable_notify_later_arc.lock().unwrap();
         assert!(
             new_payable_notify_later.is_empty(),
@@ -5641,16 +5645,15 @@ mod tests {
             NotifyLaterHandleMock::default().notify_later_params(&new_payable_notify_later_arc),
         );
         let default_scan_intervals = ScanIntervals::compute_default(TEST_DEFAULT_CHAIN);
-        let mut assertion_interval_computer = NewPayableScanDynIntervalComputerReal::new(
-            default_scan_intervals.payable_scan_interval,
-        );
+        let mut assertion_interval_computer =
+            NewPayableScanIntervalComputerReal::new(default_scan_intervals.payable_scan_interval);
         {
             subject
                 .scan_schedulers
                 .payable
-                .dyn_interval_computer
-                .zero_out();
-            assertion_interval_computer.zero_out();
+                .interval_computer
+                .reset_last_scan_timestamp();
+            assertion_interval_computer.reset_last_scan_timestamp();
         }
         let system = System::new(test_name);
         let subject_addr = subject.start();
@@ -5661,7 +5664,13 @@ mod tests {
                 block_number: U64::from(100),
             }),
         }]);
-        let left_side_bound = assertion_interval_computer.compute_interval().unwrap();
+        let left_side_bound = if let ScanTiming::WaitFor(interval) =
+            assertion_interval_computer.time_until_next_scan()
+        {
+            interval
+        } else {
+            panic!("expected an interval")
+        };
 
         subject_addr.try_send(msg).unwrap();
 
@@ -5669,7 +5678,13 @@ mod tests {
         system.run();
         let new_payable_notify_later = new_payable_notify_later_arc.lock().unwrap();
         let (_, actual_interval) = new_payable_notify_later[0];
-        let right_side_bound = assertion_interval_computer.compute_interval().unwrap();
+        let right_side_bound = if let ScanTiming::WaitFor(interval) =
+            assertion_interval_computer.time_until_next_scan()
+        {
+            interval
+        } else {
+            panic!("expected an interval")
+        };
         assert!(
             left_side_bound >= actual_interval && actual_interval >= right_side_bound,
             "expected actual {:?} to be between {:?} and {:?}",
@@ -5841,9 +5856,9 @@ mod tests {
             |_scanners: &mut Scanners, scan_schedulers: &mut ScanSchedulers| {
                 // Setup
                 let notify_later_params_arc = Arc::new(Mutex::new(vec![]));
-                scan_schedulers.payable.dyn_interval_computer = Box::new(
-                    NewPayableScanDynIntervalComputerMock::default()
-                        .compute_interval_result(Some(Duration::from_secs(152))),
+                scan_schedulers.payable.interval_computer = Box::new(
+                    NewPayableScanIntervalComputerMock::default()
+                        .time_until_next_scan_result(ScanTiming::WaitFor(Duration::from_secs(152))),
                 );
                 scan_schedulers.payable.new_payable_notify_later = Box::new(
                     NotifyLaterHandleMock::default().notify_later_params(&notify_later_params_arc),

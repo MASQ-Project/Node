@@ -18,8 +18,8 @@ use crate::accountant::scanners::pending_payable_scanner::{
     CachesEmptiableScanner, ExtendedPendingPayablePrivateScanner,
 };
 use crate::accountant::scanners::scan_schedulers::{
-    NewPayableScanDynIntervalComputer, PayableSequenceScanner, RescheduleScanOnErrorResolver,
-    ScanReschedulingAfterEarlyStop,
+    NewPayableScanIntervalComputer, PayableSequenceScanner, RescheduleScanOnErrorResolver,
+    ScanReschedulingAfterEarlyStop, ScanTiming,
 };
 use crate::accountant::scanners::{
     PendingPayableScanner, PrivateScanner, RealScannerMarker, ReceivableScanner, Scanner,
@@ -335,38 +335,41 @@ pub trait ScannerMockMarker {}
 impl<StartMsg, EndMsg, ScanResult> ScannerMockMarker for ScannerMock<StartMsg, EndMsg, ScanResult> {}
 
 #[derive(Default)]
-pub struct NewPayableScanDynIntervalComputerMock {
-    compute_interval_params: Arc<Mutex<Vec<()>>>,
-    compute_interval_results: RefCell<Vec<Option<Duration>>>,
-    zero_out_params: Arc<Mutex<Vec<()>>>,
+pub struct NewPayableScanIntervalComputerMock {
+    time_until_next_scan_params: Arc<Mutex<Vec<()>>>,
+    time_until_next_scan_results: RefCell<Vec<ScanTiming>>,
+    reset_last_scan_timestamp_params: Arc<Mutex<Vec<()>>>,
 }
 
-impl NewPayableScanDynIntervalComputer for NewPayableScanDynIntervalComputerMock {
-    fn compute_interval(&self) -> Option<Duration> {
-        self.compute_interval_params.lock().unwrap().push(());
-        self.compute_interval_results.borrow_mut().remove(0)
+impl NewPayableScanIntervalComputer for NewPayableScanIntervalComputerMock {
+    fn time_until_next_scan(&self) -> ScanTiming {
+        self.time_until_next_scan_params.lock().unwrap().push(());
+        self.time_until_next_scan_results.borrow_mut().remove(0)
     }
 
-    fn zero_out(&mut self) {
-        self.zero_out_params.lock().unwrap().push(());
+    fn reset_last_scan_timestamp(&mut self) {
+        self.reset_last_scan_timestamp_params
+            .lock()
+            .unwrap()
+            .push(());
     }
 
     as_any_ref_in_trait_impl!();
 }
 
-impl NewPayableScanDynIntervalComputerMock {
-    pub fn compute_interval_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
-        self.compute_interval_params = params.clone();
+impl NewPayableScanIntervalComputerMock {
+    pub fn time_until_next_scan_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+        self.time_until_next_scan_params = params.clone();
         self
     }
 
-    pub fn compute_interval_result(self, result: Option<Duration>) -> Self {
-        self.compute_interval_results.borrow_mut().push(result);
+    pub fn time_until_next_scan_result(self, result: ScanTiming) -> Self {
+        self.time_until_next_scan_results.borrow_mut().push(result);
         self
     }
 
-    pub fn zero_out_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
-        self.zero_out_params = params.clone();
+    pub fn reset_last_scan_timestamp_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+        self.reset_last_scan_timestamp_params = params.clone();
         self
     }
 }

@@ -243,45 +243,6 @@ mod tests {
         assert_eq!(other_error_stats, None);
     }
 
-    // #[test]
-    // fn previous_attempts_hash_works_correctly() {
-    //     let now = SystemTime::now();
-    //     let clock = SimpleClockMock::default()
-    //         .now_result(now)
-    //         .now_result(now)
-    //         .now_result(now + Duration::from_secs(2));
-    //     let attempts1 = PreviousAttempts::new(
-    //         BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Decoder)),
-    //         &clock,
-    //     );
-    //     let attempts2 = PreviousAttempts::new(
-    //         BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Decoder)),
-    //         &clock,
-    //     );
-    //     let attempts3 = PreviousAttempts::new(
-    //         BlockchainErrorKind::AppRpc(AppRpcErrorKind::Local(LocalErrorKind::Io)),
-    //         &clock,
-    //     );
-    //     let hash1 = {
-    //         let mut hasher = DefaultHasher::new();
-    //         attempts1.hash(&mut hasher);
-    //         hasher.finish()
-    //     };
-    //     let hash2 = {
-    //         let mut hasher = DefaultHasher::new();
-    //         attempts2.hash(&mut hasher);
-    //         hasher.finish()
-    //     };
-    //     let hash3 = {
-    //         let mut hasher = DefaultHasher::new();
-    //         attempts3.hash(&mut hasher);
-    //         hasher.finish()
-    //     };
-    //
-    //     assert_eq!(hash1, hash2);
-    //     assert_ne!(hash1, hash3);
-    // }
-
     #[test]
     fn previous_attempts_ordering_works_correctly_with_mock() {
         let now = SystemTime::now();
