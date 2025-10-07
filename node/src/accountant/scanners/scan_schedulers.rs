@@ -78,9 +78,7 @@ impl From<PayableSequenceScanner> for ScanType {
 
 pub struct PayableScanScheduler {
     pub new_payable_notify_later: Box<dyn NotifyLaterHandle<ScanForNewPayables, Accountant>>,
-    pub dyn_interval_computer: Box<dyn NewPayableScanDynIntervalComputer>,
-    // pub inner: Arc<Mutex<PayableScanSchedulerInner>>,
-    // pub new_payable_interval: Duration,
+    pub interval_computer: Box<dyn NewPayableScanIntervalComputer>,
     pub new_payable_notify: Box<dyn NotifyHandle<ScanForNewPayables, Accountant>>,
     pub retry_payable_notify: Box<dyn NotifyHandle<ScanForRetryPayables, Accountant>>,
 }
@@ -89,18 +87,16 @@ impl PayableScanScheduler {
     fn new(new_payable_interval: Duration) -> Self {
         Self {
             new_payable_notify_later: Box::new(NotifyLaterHandleReal::default()),
-            dyn_interval_computer: Box::new(NewPayableScanDynIntervalComputerReal::new(
+            interval_computer: Box::new(NewPayableScanIntervalComputerReal::new(
                 new_payable_interval,
             )),
-            // inner: Arc::new(Mutex::new(PayableScanSchedulerInner::default())),
-            // new_payable_interval,
             new_payable_notify: Box::new(NotifyHandleReal::default()),
             retry_payable_notify: Box::new(NotifyHandleReal::default()),
         }
     }
 
     pub fn schedule_new_payable_scan(&self, ctx: &mut Context<Accountant>, logger: &Logger) {
-        if let Some(interval) = self.dyn_interval_computer.compute_interval() {
+        if let ScanTiming::WaitFor(interval) = self.interval_computer.time_until_next_scan() {
             debug!(
                 logger,
                 "Scheduling a new-payable scan in {}ms",
@@ -126,8 +122,8 @@ impl PayableScanScheduler {
         }
     }
 
-    pub fn update_last_new_payable_scan_timestamp(&mut self) {
-        self.dyn_interval_computer.zero_out();
+    pub fn reset_scan_timer(&mut self) {
+        self.interval_computer.reset_last_scan_timestamp();
     }
 
     // This message ships into the Accountant's mailbox with no delay.
@@ -150,46 +146,47 @@ impl PayableScanScheduler {
     }
 }
 
-pub trait NewPayableScanDynIntervalComputer {
-    fn compute_interval(&self) -> Option<Duration>;
+pub trait NewPayableScanIntervalComputer {
+    fn time_until_next_scan(&self) -> ScanTiming;
 
-    fn zero_out(&mut self);
+    fn reset_last_scan_timestamp(&mut self);
 
     as_any_ref_in_trait!();
 }
 
-pub struct NewPayableScanDynIntervalComputerReal {
+pub struct NewPayableScanIntervalComputerReal {
     scan_interval: Duration,
     last_scan_timestamp: SystemTime,
     clock: Box<dyn SimpleClock>,
 }
 
-impl NewPayableScanDynIntervalComputer for NewPayableScanDynIntervalComputerReal {
-    fn compute_interval(&self) -> Option<Duration> {
-        let now = self.clock.now();
-        let elapsed = now
+impl NewPayableScanIntervalComputer for NewPayableScanIntervalComputerReal {
+    fn time_until_next_scan(&self) -> ScanTiming {
+        let current_time = self.clock.now();
+        let time_since_last_scan = current_time
             .duration_since(self.last_scan_timestamp)
             .unwrap_or_else(|_| {
                 panic!(
-                    "Now ({:?}) earlier than past timestamp ({:?})",
-                    now, self.last_scan_timestamp
+                    "Current time ({:?}) is earlier than last scan timestamp ({:?})",
+                    current_time, self.last_scan_timestamp
                 )
             });
-        if elapsed >= self.scan_interval {
-            None
+
+        if time_since_last_scan >= self.scan_interval {
+            ScanTiming::ReadyNow
         } else {
-            Some(self.scan_interval - elapsed)
+            ScanTiming::WaitFor(self.scan_interval - time_since_last_scan)
         }
     }
 
-    fn zero_out(&mut self) {
+    fn reset_last_scan_timestamp(&mut self) {
         self.last_scan_timestamp = SystemTime::now();
     }
 
     as_any_ref_in_trait_impl!();
 }
 
-impl NewPayableScanDynIntervalComputerReal {
+impl NewPayableScanIntervalComputerReal {
     pub fn new(scan_interval: Duration) -> Self {
         Self {
             scan_interval,
@@ -197,6 +194,12 @@ impl NewPayableScanDynIntervalComputerReal {
             clock: Box::new(SimpleClockReal::default()),
         }
     }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum ScanTiming {
+    ReadyNow,
+    WaitFor(Duration),
 }
 
 pub struct SimplePeriodicalScanScheduler<Message: Default> {
@@ -231,13 +234,13 @@ where
     }
 }
 
-// Scanners that take part in a scan sequence composed of different scanners must handle
-// StartScanErrors delicately to maintain the continuity and periodicity of this process. Where
-// possible, either the same, some other, but traditional, or even a totally unrelated scan chosen
-// just in the event of emergency, may be scheduled. The intention is to prevent a full panic while
-// ensuring no harmful, toxic issues are left behind for the future scans. Following that philosophy,
-// panic is justified only if the error was thought to be impossible by design and contextual
-// things but still happened.
+// In a scan sequence incorporating different scanners, one makes another dependent on the previous
+// one. Such scanners must be handling StartScanErrors delicately with the regard to ensuring
+// further continuity and periodicity of this process. Where possible, either the same one, some
+// tightly related, or even a totally unrelated scan, just for the event of emergency, should be
+// scheduled. The intention is to prevent panics while not creating any harmful conditions for
+// the scans running in the future. Following this philosophy, panics should be restricted just
+// to so-believed unreachable conditions (by the intended design).
 pub trait RescheduleScanOnErrorResolver {
     fn resolve_rescheduling_on_error(
         &self,
@@ -380,10 +383,10 @@ impl RescheduleScanOnErrorResolverReal {
 #[cfg(test)]
 mod tests {
     use crate::accountant::scanners::scan_schedulers::{
-        NewPayableScanDynIntervalComputer, NewPayableScanDynIntervalComputerReal,
-        PayableSequenceScanner, ScanReschedulingAfterEarlyStop, ScanSchedulers,
+        NewPayableScanIntervalComputer, NewPayableScanIntervalComputerReal, PayableSequenceScanner,
+        ScanReschedulingAfterEarlyStop, ScanSchedulers, ScanTiming,
     };
-    use crate::accountant::scanners::test_utils::NewPayableScanDynIntervalComputerMock;
+    use crate::accountant::scanners::test_utils::NewPayableScanIntervalComputerMock;
     use crate::accountant::scanners::{ManulTriggerError, StartScanError};
     use crate::sub_lib::accountant::ScanIntervals;
     use crate::test_utils::unshared_test_utils::TEST_SCAN_INTERVALS;
@@ -411,9 +414,9 @@ mod tests {
 
         let payable_interval_computer = schedulers
             .payable
-            .dyn_interval_computer
+            .interval_computer
             .as_any()
-            .downcast_ref::<NewPayableScanDynIntervalComputerReal>()
+            .downcast_ref::<NewPayableScanIntervalComputerReal>()
             .unwrap();
         assert_eq!(
             payable_interval_computer.scan_interval,
@@ -432,8 +435,8 @@ mod tests {
     }
 
     #[test]
-    fn scan_dyn_interval_computer_computes_remaining_time_to_standard_interval_correctly() {
-        let (clock, now) = fill_simple_clock_mock_and_return_now();
+    fn scan_interval_computer_computes_remaining_time_to_standard_interval_correctly() {
+        let (clock, now) = set_up_mocked_clock();
         let inputs = vec![
             (
                 now.checked_sub(Duration::from_secs(32)).unwrap(),
@@ -451,7 +454,7 @@ mod tests {
                 Duration::from_secs(4),
             ),
         ];
-        let mut subject = make_subject();
+        let mut subject = initialize_scan_interval_computer();
         subject.clock = Box::new(clock);
 
         inputs
@@ -460,21 +463,21 @@ mod tests {
                 subject.scan_interval = standard_interval;
                 subject.last_scan_timestamp = past_instant;
 
-                let result = subject.compute_interval();
+                let result = subject.time_until_next_scan();
 
                 assert_eq!(
                     result,
-                    Some(expected_result),
+                    ScanTiming::WaitFor(expected_result),
                     "We expected Some({}) ms, but got {:?} ms",
                     expected_result.as_millis(),
-                    result.map(|duration| duration.as_millis())
+                    from_scan_timing_to_millis(result)
                 )
             })
     }
 
     #[test]
-    fn scan_dyn_interval_computer_realizes_the_standard_interval_has_been_exceeded() {
-        let (clock, now) = fill_simple_clock_mock_and_return_now();
+    fn scan_interval_computer_realizes_the_standard_interval_has_been_exceeded() {
+        let (clock, now) = set_up_mocked_clock();
         let inputs = vec![
             (
                 now.checked_sub(Duration::from_millis(32001)).unwrap(),
@@ -485,7 +488,7 @@ mod tests {
                 Duration::from_secs(123),
             ),
         ];
-        let mut subject = make_subject();
+        let mut subject = initialize_scan_interval_computer();
         subject.clock = Box::new(clock);
 
         inputs
@@ -495,74 +498,82 @@ mod tests {
                 subject.scan_interval = standard_interval;
                 subject.last_scan_timestamp = past_instant;
 
-                let result = subject.compute_interval();
+                let result = subject.time_until_next_scan();
 
                 assert_eq!(
                     result,
-                    None,
+                    ScanTiming::ReadyNow,
                     "We expected None ms, but got {:?} ms at idx {}",
-                    result.map(|duration| duration.as_millis()),
+                    from_scan_timing_to_millis(result),
                     idx
                 )
             })
     }
 
     #[test]
-    fn scan_dyn_interval_computer_realizes_standard_interval_just_met() {
+    fn scan_interval_computer_realizes_standard_interval_just_met() {
         let now = SystemTime::now();
-        let mut subject = make_subject();
+        let mut subject = initialize_scan_interval_computer();
         subject.last_scan_timestamp = now.checked_sub(Duration::from_secs(180)).unwrap();
         subject.scan_interval = Duration::from_secs(180);
         subject.clock = Box::new(SimpleClockMock::default().now_result(now));
 
-        let result = subject.compute_interval();
+        let result = subject.time_until_next_scan();
 
         assert_eq!(
             result,
-            None,
+            ScanTiming::ReadyNow,
             "We expected None ms, but got {:?} ms",
-            result.map(|duration| duration.as_millis())
+            from_scan_timing_to_millis(result)
         )
+    }
+
+    fn from_scan_timing_to_millis(scan_timing: ScanTiming) -> u128 {
+        if let ScanTiming::WaitFor(interval) = scan_timing {
+            interval.as_millis()
+        } else {
+            panic!("expected an interval")
+        }
     }
 
     #[test]
     #[cfg(windows)]
     #[should_panic(
-        expected = "Now (SystemTime { intervals: 116454736000000000 }) earlier than past timestamp \
-        (SystemTime { intervals: 116454736010000000 })"
+        expected = "Current time (SystemTime { intervals: 116454736000000000 }) is earlier than last \
+        scan timestamp (SystemTime { intervals: 116454736010000000 })"
     )]
-    fn scan_dyn_interval_computer_panics() {
-        test_scan_dyn_interval_computer_panics()
+    fn scan_interval_computer_panics() {
+        test_scan_interval_computer_panics()
     }
 
     #[test]
     #[cfg(not(windows))]
     #[should_panic(
-        expected = "Now (SystemTime { tv_sec: 1000000, tv_nsec: 0 }) earlier than past timestamp \
-        (SystemTime { tv_sec: 1000001, tv_nsec: 0 })"
+        expected = "Current time (SystemTime { tv_sec: 1000000, tv_nsec: 0 }) is earlier than last \
+        scan timestamp (SystemTime { tv_sec: 1000001, tv_nsec: 0 })"
     )]
-    fn scan_dyn_interval_computer_panics() {
-        test_scan_dyn_interval_computer_panics()
+    fn scan_interval_computer_panics() {
+        test_scan_interval_computer_panics()
     }
 
-    fn test_scan_dyn_interval_computer_panics() {
+    fn test_scan_interval_computer_panics() {
         let now = UNIX_EPOCH
             .checked_add(Duration::from_secs(1_000_000))
             .unwrap();
-        let mut subject = make_subject();
+        let mut subject = initialize_scan_interval_computer();
         subject.clock = Box::new(SimpleClockMock::default().now_result(now));
         subject.last_scan_timestamp = now.checked_add(Duration::from_secs(1)).unwrap();
 
-        let _ = subject.compute_interval();
+        let _ = subject.time_until_next_scan();
     }
 
     #[test]
-    fn zero_out_works_for_default_subject() {
-        let mut subject = make_subject();
+    fn reset_last_scan_timestamp_works_for_default_subject() {
+        let mut subject = initialize_scan_interval_computer();
         let last_scan_timestamp_before = subject.last_scan_timestamp;
         let before_act = SystemTime::now();
 
-        subject.zero_out();
+        subject.reset_last_scan_timestamp();
 
         let after_act = SystemTime::now();
         let last_scan_timestamp_after = subject.last_scan_timestamp;
@@ -574,14 +585,14 @@ mod tests {
     }
 
     #[test]
-    fn zero_out_works_for_general_subject() {
-        let mut subject = make_subject();
+    fn reset_last_scan_timestamp_works_for_general_subject() {
+        let mut subject = initialize_scan_interval_computer();
         subject.last_scan_timestamp = SystemTime::now()
             .checked_sub(Duration::from_secs(100))
             .unwrap();
         let before_act = SystemTime::now();
 
-        subject.zero_out();
+        subject.reset_last_scan_timestamp();
 
         let after_act = SystemTime::now();
         let last_scan_timestamp_after = subject.last_scan_timestamp;
@@ -592,26 +603,27 @@ mod tests {
     }
 
     #[test]
-    fn update_last_new_payable_scan_timestamp_works() {
-        let zero_out_params_arc = Arc::new(Mutex::new(vec![]));
+    fn reset_scan_timer_works() {
+        let reset_last_scan_timestamp_params_arc = Arc::new(Mutex::new(vec![]));
         let scan_intervals = ScanIntervals::compute_default(TEST_DEFAULT_CHAIN);
         let mut subject = ScanSchedulers::new(scan_intervals, true);
-        subject.payable.dyn_interval_computer = Box::new(
-            NewPayableScanDynIntervalComputerMock::default().zero_out_params(&zero_out_params_arc),
+        subject.payable.interval_computer = Box::new(
+            NewPayableScanIntervalComputerMock::default()
+                .reset_last_scan_timestamp_params(&reset_last_scan_timestamp_params_arc),
         );
 
-        subject.payable.update_last_new_payable_scan_timestamp();
+        subject.payable.reset_scan_timer();
 
-        let zero_out_params = zero_out_params_arc.lock().unwrap();
-        assert_eq!(*zero_out_params, vec![()])
+        let reset_last_scan_timestamp_params = reset_last_scan_timestamp_params_arc.lock().unwrap();
+        assert_eq!(*reset_last_scan_timestamp_params, vec![()])
     }
 
-    fn make_subject() -> NewPayableScanDynIntervalComputerReal {
+    fn initialize_scan_interval_computer() -> NewPayableScanIntervalComputerReal {
         // The interval is just a garbage value, we reset it in the tests by injection if needed
-        NewPayableScanDynIntervalComputerReal::new(Duration::from_secs(100))
+        NewPayableScanIntervalComputerReal::new(Duration::from_secs(100))
     }
 
-    fn fill_simple_clock_mock_and_return_now() -> (SimpleClockMock, SystemTime) {
+    fn set_up_mocked_clock() -> (SimpleClockMock, SystemTime) {
         let now = SystemTime::now();
         (
             (0..3).fold(SimpleClockMock::default(), |clock, _| clock.now_result(now)),
