@@ -13,11 +13,11 @@ pub struct RetryTxTemplate {
 }
 
 impl RetryTxTemplate {
-    pub fn new(failed_tx: &FailedTx, payable_scan_amount_opt: Option<u128>) -> Self {
+    pub fn new(failed_tx: &FailedTx, updated_payable_balance_opt: Option<u128>) -> Self {
         let mut retry_template = RetryTxTemplate::from(failed_tx);
 
-        if let Some(payable_scan_amount) = payable_scan_amount_opt {
-            retry_template.base.amount_in_wei += payable_scan_amount;
+        if let Some(updated_payable_balance) = updated_payable_balance_opt {
+            retry_template.base.amount_in_wei = updated_payable_balance;
         }
 
         retry_template
@@ -98,6 +98,39 @@ mod tests {
     };
     use crate::accountant::scanners::payable_scanner::tx_templates::BaseTxTemplate;
     use crate::blockchain::test_utils::{make_address, make_tx_hash};
+
+    #[test]
+    fn retry_tx_template_constructor_works() {
+        let receiver_address = make_address(42);
+        let amount_in_wei = 1_000_000;
+        let gas_price = 20_000_000_000;
+        let nonce = 123;
+        let tx_hash = make_tx_hash(789);
+        let failed_tx = FailedTx {
+            hash: tx_hash,
+            receiver_address,
+            amount_minor: amount_in_wei,
+            gas_price_minor: gas_price,
+            nonce,
+            timestamp: 1234567,
+            reason: FailureReason::PendingTooLong,
+            status: FailureStatus::RetryRequired,
+        };
+        let fetched_balance_from_payable_table_opt_1 = None;
+        let fetched_balance_from_payable_table_opt_2 = Some(1_234_567);
+
+        let result_1 = RetryTxTemplate::new(&failed_tx, fetched_balance_from_payable_table_opt_1);
+        let result_2  = RetryTxTemplate::new(&failed_tx, fetched_balance_from_payable_table_opt_2);
+
+        let assert = |result: RetryTxTemplate, expected_amount_in_wei: u128| {
+            assert_eq!(result.base.receiver_address, receiver_address);
+            assert_eq!(result.base.amount_in_wei, expected_amount_in_wei);
+            assert_eq!(result.prev_gas_price_wei, gas_price);
+            assert_eq!(result.prev_nonce, nonce);
+        };
+        assert(result_1, amount_in_wei);
+        assert(result_2, fetched_balance_from_payable_table_opt_2.unwrap());
+    }
 
     #[test]
     fn retry_tx_template_can_be_created_from_failed_tx() {

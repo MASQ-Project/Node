@@ -157,11 +157,8 @@ mod tests {
         let retrieve_payables_params = retrieve_payables_params_arc.lock().unwrap();
         let expected_tx_templates = {
             let mut tx_template_1 = RetryTxTemplate::from(&failed_tx_1);
-            tx_template_1.base.amount_in_wei =
-                tx_template_1.base.amount_in_wei + payable_account_1.balance_wei;
-
+            tx_template_1.base.amount_in_wei = payable_account_1.balance_wei;
             let tx_template_2 = RetryTxTemplate::from(&failed_tx_2);
-
             RetryTxTemplates(vec![tx_template_1, tx_template_2])
         };
         assert_eq!(
