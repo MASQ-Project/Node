@@ -732,9 +732,11 @@ impl Accountant {
         &mut self,
         msg: ReportRoutingServiceProvidedMessage,
     ) {
-        debug!(
+        trace!(
             self.logger,
-            "Charging routing of {} bytes to wallet {}", msg.payload_size, msg.paying_wallet
+            "Charging routing of {} bytes to wallet {}",
+            msg.payload_size,
+            msg.paying_wallet
         );
         self.record_service_provided(
             msg.service_rate,
@@ -749,7 +751,7 @@ impl Accountant {
         &mut self,
         msg: ReportExitServiceProvidedMessage,
     ) {
-        debug!(
+        trace!(
             self.logger,
             "Charging exit service for {} bytes to wallet {} at {} per service and {} per byte",
             msg.payload_size,
@@ -2482,21 +2484,24 @@ mod tests {
                 response_skeleton_opt: None
             }
         );
-        let default_scan_intervals = ScanIntervals::compute_default(TEST_DEFAULT_CHAIN);
-        // The previous last_new_payable_scan_timestamp is UNIX_EPOCH, if the interval was derived
-        // from that timestamp, it would result in an immediate-scan command. This implies that
-        // the last_new_payable_scan_timestamp was reset to zero, which is how it is meant to be.
-        let left_bound = default_scan_intervals
-            .payable_scan_interval
-            .checked_sub(Duration::from_secs(5))
-            .unwrap();
-        let right_bound = default_scan_intervals
-            .payable_scan_interval
-            .checked_add(Duration::from_secs(5))
-            .unwrap();
+        // The initial last_new_payable_scan_timestamp is UNIX_EPOCH by this design. Such a value
+        // would've driven an immediate scan without an interval. Therefore, the performed interval
+        // implies that the last_new_payable_scan_timestamp must have been updated to the current
+        // time. (As the result of running into StartScanError::NothingToProcess)
+        let default_interval =
+            ScanIntervals::compute_default(TEST_DEFAULT_CHAIN).payable_scan_interval;
+        let tolerance = Duration::from_secs(5);
+        let min_interval = default_interval.checked_sub(tolerance).unwrap();
+        let max_interval = default_interval.checked_add(tolerance).unwrap();
         // The divergence should be only a few milliseconds, definitely not seconds; the tested
         // interval should be safe for slower machines too.
-        assert!(left_bound <= actual_interval && actual_interval <= right_bound);
+        assert!(
+            min_interval <= actual_interval && actual_interval <= max_interval,
+            "Expected interval between {:?} and {:?}, got {:?}",
+            min_interval,
+            max_interval,
+            actual_interval
+        );
         assert_eq!(notify_later_params.len(), 0);
         // Accountant is unbound; therefore, it is guaranteed that sending a message to
         // the BlockchainBridge wasn't attempted. It would've panicked otherwise.
@@ -2852,7 +2857,7 @@ mod tests {
             .start_scan_params(&scan_params.receivable_start_scan)
             .start_scan_result(Err(StartScanError::NothingToProcess));
         let (subject, new_payable_expected_computed_interval, receivable_scan_interval) =
-            set_up_subject_for_no_p_p_found_startup_test(
+            configure_accountant_for_startup_with_preexisting_pending_payables(
                 test_name,
                 &notify_and_notify_later_params,
                 &time_until_next_scan_params_arc,
@@ -2872,7 +2877,7 @@ mod tests {
         let before = SystemTime::now();
         system.run();
         let after = SystemTime::now();
-        assert_pending_payable_scanner_for_no_p_p_found(
+        assert_pending_payable_scanner_for_no_pending_payable_found(
             test_name,
             consuming_wallet,
             &scan_params.pending_payable_start_scan,
@@ -2880,7 +2885,7 @@ mod tests {
             before,
             after,
         );
-        assert_payable_scanner_for_no_p_p_found(
+        assert_payable_scanner_for_no_pending_payable_found(
             &scan_params.payable_start_scan,
             &notify_and_notify_later_params,
             time_until_next_scan_params_arc,
@@ -2951,7 +2956,7 @@ mod tests {
             .start_scan_params(&scan_params.receivable_start_scan)
             .start_scan_result(Err(StartScanError::NothingToProcess));
         let (subject, expected_pending_payable_notify_later_interval, receivable_scan_interval) =
-            set_up_subject_for_some_p_p_found_startup_test(
+            configure_accountant_for_startup_with_no_preexisting_pending_payables(
                 test_name,
                 &notify_and_notify_later_params,
                 config,
@@ -3005,7 +3010,7 @@ mod tests {
         let before = SystemTime::now();
         system.run();
         let after = SystemTime::now();
-        assert_pending_payable_scanner_for_some_p_p_found(
+        assert_pending_payable_scanner_for_some_pending_payable_found(
             test_name,
             consuming_wallet.clone(),
             &scan_params,
@@ -3015,7 +3020,7 @@ mod tests {
             before,
             after,
         );
-        assert_payable_scanner_for_some_p_p_found(
+        assert_payable_scanner_for_some_pending_payable_found(
             test_name,
             consuming_wallet,
             &scan_params,
@@ -3055,7 +3060,7 @@ mod tests {
         receivables_notify_later: Arc<Mutex<Vec<(ScanForReceivables, Duration)>>>,
     }
 
-    fn set_up_subject_for_no_p_p_found_startup_test(
+    fn configure_accountant_for_startup_with_preexisting_pending_payables(
         test_name: &str,
         notify_and_notify_later_params: &NotifyAndNotifyLaterParams,
         time_until_next_scan_params_arc: &Arc<Mutex<Vec<()>>>,
@@ -3116,7 +3121,7 @@ mod tests {
         )
     }
 
-    fn set_up_subject_for_some_p_p_found_startup_test(
+    fn configure_accountant_for_startup_with_no_preexisting_pending_payables(
         test_name: &str,
         notify_and_notify_later_params: &NotifyAndNotifyLaterParams,
         config: BootstrapperConfig,
@@ -3209,7 +3214,7 @@ mod tests {
         subject
     }
 
-    fn assert_pending_payable_scanner_for_no_p_p_found(
+    fn assert_pending_payable_scanner_for_no_pending_payable_found(
         test_name: &str,
         consuming_wallet: Wallet,
         pending_payable_start_scan_params_arc: &Arc<
@@ -3242,7 +3247,7 @@ mod tests {
         assert_using_the_same_logger(&pp_logger, test_name, Some("pp"));
     }
 
-    fn assert_pending_payable_scanner_for_some_p_p_found(
+    fn assert_pending_payable_scanner_for_some_pending_payable_found(
         test_name: &str,
         consuming_wallet: Wallet,
         scan_params: &ScanParams,
@@ -3323,7 +3328,7 @@ mod tests {
         pp_logger
     }
 
-    fn assert_payable_scanner_for_no_p_p_found(
+    fn assert_payable_scanner_for_no_pending_payable_found(
         payable_scanner_start_scan_arc: &Arc<
             Mutex<Vec<(Wallet, SystemTime, Option<ResponseSkeleton>, Logger, String)>>,
         >,
@@ -3379,23 +3384,23 @@ mod tests {
         );
     }
 
-    fn assert_payable_scanner_for_some_p_p_found(
+    fn assert_payable_scanner_for_some_pending_payable_found(
         test_name: &str,
         consuming_wallet: Wallet,
         scan_params: &ScanParams,
         notify_and_notify_later_params: &NotifyAndNotifyLaterParams,
         expected_sent_payables: SentPayables,
     ) {
-        assert_payable_scanner_ran_for_some_p_p_found(
+        assert_payable_scanner_ran_for_some_pending_payable_found(
             test_name,
             consuming_wallet,
             scan_params,
             expected_sent_payables,
         );
-        assert_scan_scheduling_for_some_p_p_found(notify_and_notify_later_params);
+        assert_scan_scheduling_for_some_pending_payable_found(notify_and_notify_later_params);
     }
 
-    fn assert_payable_scanner_ran_for_some_p_p_found(
+    fn assert_payable_scanner_ran_for_some_pending_payable_found(
         test_name: &str,
         consuming_wallet: Wallet,
         scan_params: &ScanParams,
@@ -3433,7 +3438,7 @@ mod tests {
         );
     }
 
-    fn assert_scan_scheduling_for_some_p_p_found(
+    fn assert_scan_scheduling_for_some_pending_payable_found(
         notify_and_notify_later_params: &NotifyAndNotifyLaterParams,
     ) {
         let scan_for_new_payables_notify_later_params = notify_and_notify_later_params
@@ -4489,10 +4494,6 @@ mod tests {
             more_money_receivable_parameters[0],
             (now, make_wallet("booga"), (1 * 42) + (1234 * 24))
         );
-        TestLogHandler::new().exists_log_containing(&format!(
-            "DEBUG: Accountant: Charging routing of 1234 bytes to wallet {}",
-            paying_wallet
-        ));
     }
 
     #[test]
@@ -4626,10 +4627,6 @@ mod tests {
             more_money_receivable_parameters[0],
             (now, make_wallet("booga"), (1 * 42) + (1234 * 24))
         );
-        TestLogHandler::new().exists_log_containing(&format!(
-            "DEBUG: Accountant: Charging exit service for 1234 bytes to wallet {}",
-            paying_wallet
-        ));
     }
 
     #[test]
