@@ -3340,7 +3340,7 @@ mod tests {
             Mutex<Vec<(Wallet, SystemTime, Option<ResponseSkeleton>, Logger, String)>>,
         >,
         notify_and_notify_later_params: &NotifyAndNotifyLaterParams,
-        time_until_next_scan_until_next_new_payable_scan_params_arc: Arc<Mutex<Vec<()>>>,
+        time_until_next_new_payable_scan_params_arc: Arc<Mutex<Vec<()>>>,
         new_payable_expected_computed_interval: Duration,
     ) {
         // Note that there is no functionality from the payable scanner actually running.
@@ -3358,14 +3358,9 @@ mod tests {
                 new_payable_expected_computed_interval
             )]
         );
-        let time_until_next_scan_until_next_new_payable_scan_params =
-            time_until_next_scan_until_next_new_payable_scan_params_arc
-                .lock()
-                .unwrap();
-        assert_eq!(
-            *time_until_next_scan_until_next_new_payable_scan_params,
-            vec![()]
-        );
+        let time_until_next_new_payable_scan_params =
+            time_until_next_new_payable_scan_params_arc.lock().unwrap();
+        assert_eq!(*time_until_next_new_payable_scan_params, vec![()]);
         let payable_scanner_start_scan = payable_scanner_start_scan_arc.lock().unwrap();
         assert!(
             payable_scanner_start_scan.is_empty(),
