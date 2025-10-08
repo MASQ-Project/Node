@@ -795,11 +795,11 @@ mod tests {
             false
         );
         let dumped_records = pending_payable_scanner
-            .yet_unproven_failed_payables
+            .suspected_failed_payables
             .dump_cache();
         assert!(
             dumped_records.is_empty(),
-            "There should be no yet unproven failures but found {:?}.",
+            "There should be no suspected failures but found {:?}.",
             dumped_records
         );
         assert_eq!(
@@ -1200,7 +1200,9 @@ mod tests {
         );
         TestLogHandler::new().assert_logs_match_in_order(vec![
             &format!("INFO: {test_name}: Scanning for pending payable"),
-            &format!("DEBUG: {test_name}: Found 1 pending payables and 1 unfinalized failures to process"),
+            &format!(
+                "DEBUG: {test_name}: Found 1 pending payables and 1 suspected failures to process"
+            ),
         ])
     }
 

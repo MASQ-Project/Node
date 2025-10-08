@@ -65,7 +65,7 @@ pub struct PendingPayableScanner {
     pub failed_payable_dao: Box<dyn FailedPayableDao>,
     pub financial_statistics: Rc<RefCell<FinancialStatistics>>,
     pub current_sent_payables: Box<dyn PendingPayableCache<SentTx>>,
-    pub yet_unproven_failed_payables: Box<dyn PendingPayableCache<FailedTx>>,
+    pub suspected_failed_payables: Box<dyn PendingPayableCache<FailedTx>>,
     pub clock: Box<dyn SimpleClock>,
 }
 
@@ -138,7 +138,7 @@ impl Scanner<TxReceiptsMessage, PendingPayableScanResult> for PendingPayableScan
 impl CachesEmptiableScanner for PendingPayableScanner {
     fn empty_caches(&mut self, logger: &Logger) {
         self.current_sent_payables.ensure_empty_cache(logger);
-        self.yet_unproven_failed_payables.ensure_empty_cache(logger);
+        self.suspected_failed_payables.ensure_empty_cache(logger);
     }
 }
 
@@ -157,7 +157,7 @@ impl PendingPayableScanner {
             failed_payable_dao,
             financial_statistics,
             current_sent_payables: Box::new(CurrentPendingPayables::default()),
-            yet_unproven_failed_payables: Box::new(RecheckRequiringFailures::default()),
+            suspected_failed_payables: Box::new(RecheckRequiringFailures::default()),
             clock: Box::new(SimpleClockReal::default()),
         }
     }
@@ -166,7 +166,7 @@ impl PendingPayableScanner {
         debug!(logger, "Harvesting sent_payable and failed_payable tables");
 
         let pending_tx_hashes_opt = self.harvest_pending_payables();
-        let failure_hashes_opt = self.harvest_unproven_failures();
+        let failure_hashes_opt = self.harvest_suspected_failures();
 
         if Self::is_there_nothing_to_process(
             pending_tx_hashes_opt.as_ref(),
@@ -203,7 +203,7 @@ impl PendingPayableScanner {
         Some(pending_tx_hashes)
     }
 
-    fn harvest_unproven_failures(&mut self) -> Option<Vec<TxHashByTable>> {
+    fn harvest_suspected_failures(&mut self) -> Option<Vec<TxHashByTable>> {
         let failures = self
             .failed_payable_dao
             .retrieve_txs(Some(FailureRetrieveCondition::EveryRecheckRequiredRecord))
@@ -215,7 +215,7 @@ impl PendingPayableScanner {
         }
 
         let failure_hashes = Self::wrap_hashes(&failures, TxHashByTable::FailedPayable);
-        self.yet_unproven_failed_payables.load_cache(failures);
+        self.suspected_failed_payables.load_cache(failures);
         Some(failure_hashes)
     }
 
@@ -329,7 +329,7 @@ impl PendingPayableScanner {
         };
 
         self.current_sent_payables.ensure_empty_cache(logger);
-        self.yet_unproven_failed_payables.ensure_empty_cache(logger);
+        self.suspected_failed_payables.ensure_empty_cache(logger);
 
         cases
     }
@@ -354,10 +354,7 @@ impl PendingPayableScanner {
                 }
             }
             TxHashByTable::FailedPayable(tx_hash) => {
-                match self
-                    .yet_unproven_failed_payables
-                    .get_record_by_hash(tx_hash)
-                {
+                match self.suspected_failed_payables.get_record_by_hash(tx_hash) {
                     Some(failed_tx) => {
                         cases.push(TxCaseToBeInterpreted::new(
                             TxByTable::FailedPayable(failed_tx),
@@ -382,10 +379,10 @@ impl PendingPayableScanner {
 
         panic!(
             "Looking up '{:?}' in the cache, the record could not be found. Dumping \
-            the remaining values. Pending payables: {:?}. Unproven failures: {:?}.",
+            the remaining values. Pending payables: {:?}. Suspected failures: {:?}.",
             missing_entry,
             rearrange(self.current_sent_payables.dump_cache()),
-            rearrange(self.yet_unproven_failed_payables.dump_cache()),
+            rearrange(self.suspected_failed_payables.dump_cache()),
         )
     }
 
@@ -632,7 +629,7 @@ impl PendingPayableScanner {
                 });
 
         self.add_new_failures(grouped_failures.new_failures, logger);
-        self.finalize_unproven_failures(grouped_failures.rechecks_completed, logger);
+        self.finalize_suspected_failures(grouped_failures.rechecks_completed, logger);
     }
 
     fn add_new_failures(&self, new_failures: Vec<FailedTx>, logger: &Logger) {
@@ -684,7 +681,7 @@ impl PendingPayableScanner {
         }
     }
 
-    fn finalize_unproven_failures(&self, rechecks_completed: Vec<TxHash>, logger: &Logger) {
+    fn finalize_suspected_failures(&self, rechecks_completed: Vec<TxHash>, logger: &Logger) {
         fn prepare_hashmap(rechecks_completed: &[TxHash]) -> HashMap<TxHash, FailureStatus> {
             rechecks_completed
                 .iter()
@@ -857,7 +854,7 @@ impl PendingPayableScanner {
 
         debug!(
             logger,
-            "Found {} pending payables and {} unproven failures to process",
+            "Found {} pending payables and {} suspected failures to process",
             resolve_optional_vec(pending_tx_hashes_opt),
             resolve_optional_vec(failure_hashes_opt)
         );
@@ -932,7 +929,7 @@ mod tests {
             .build();
         let logger = Logger::new("start_scan_fills_in_caches_and_returns_msg");
         let pending_payable_cache_before = subject.current_sent_payables.dump_cache();
-        let failed_payable_cache_before = subject.yet_unproven_failed_payables.dump_cache();
+        let failed_payable_cache_before = subject.suspected_failed_payables.dump_cache();
 
         let result = subject.start_scan(&make_wallet("blah"), SystemTime::now(), None, &logger);
 
@@ -959,7 +956,7 @@ mod tests {
             failed_payable_cache_before
         );
         let pending_payable_cache_after = subject.current_sent_payables.dump_cache();
-        let failed_payable_cache_after = subject.yet_unproven_failed_payables.dump_cache();
+        let failed_payable_cache_after = subject.suspected_failed_payables.dump_cache();
         assert_eq!(
             pending_payable_cache_after,
             hashmap!(sent_tx_hash_1 => sent_tx_1, sent_tx_hash_2 => sent_tx_2)
@@ -1067,7 +1064,7 @@ mod tests {
         failed_payable_cache.load_cache(vec![failed_tx_1, failed_tx_2]);
         let mut subject = PendingPayableScannerBuilder::new().build();
         subject.current_sent_payables = Box::new(pending_payable_cache);
-        subject.yet_unproven_failed_payables = Box::new(failed_payable_cache);
+        subject.suspected_failed_payables = Box::new(failed_payable_cache);
         let logger = Logger::new("test");
         let msg = TxReceiptsMessage {
             results: btreemap![TxHashByTable::SentPayable(sent_tx_hash_1) => Ok(
@@ -1088,7 +1085,7 @@ mod tests {
         values. Pending payables: [SentTx { hash: 0x0000000000000000000000000000000000000000000000\
         000000000000000890, receiver_address: 0x0000000000000000000558000000000558000000, \
         amount_minor: 43237380096, timestamp: 29942784, gas_price_minor: 94818816, nonce: 456, \
-        status: Pending(Waiting) }]. Unproven failures: [].";
+        status: Pending(Waiting) }]. Suspected failures: [].";
         assert_eq!(panic_msg, expected);
     }
 
@@ -1107,7 +1104,7 @@ mod tests {
         failed_payable_cache.load_cache(vec![failed_tx_1]);
         let mut subject = PendingPayableScannerBuilder::new().build();
         subject.current_sent_payables = Box::new(pending_payable_cache);
-        subject.yet_unproven_failed_payables = Box::new(failed_payable_cache);
+        subject.suspected_failed_payables = Box::new(failed_payable_cache);
         let logger = Logger::new("test");
         let msg = TxReceiptsMessage {
             results: btreemap![TxHashByTable::SentPayable(sent_tx_hash_1) => Ok(StatusReadFromReceiptCheck::Pending),
@@ -1130,7 +1127,7 @@ mod tests {
         Pending(Waiting) }, SentTx { hash: 0x0000000000000000000000000000000000000000000000000000000\
         000000315, receiver_address: 0x000000000000000000093f00000000093f000000, amount_minor: \
         387532395441, timestamp: 89643024, gas_price_minor: 491169069, nonce: 789, status: \
-        Pending(Waiting) }]. Unproven failures: [].";
+        Pending(Waiting) }]. Suspected failures: [].";
         assert_eq!(panic_msg, expected);
     }
 
