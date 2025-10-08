@@ -348,8 +348,8 @@ impl Handler<TxReceiptsMessage> for Accountant {
                 if let Some(node_to_ui_msg) = ui_msg_opt {
                     info!(
                         self.logger,
-                        "Re-running the pending payable scan is recommended, as some \
-                    parts did not finish last time."
+                        "Re-running the pending payable scan is recommended, as some parts \
+                        did not finish last time."
                     );
                     self.ui_message_sub_opt
                         .as_ref()
@@ -417,11 +417,14 @@ impl Handler<ScanError> for Accountant {
 
     fn handle(&mut self, scan_error: ScanError, ctx: &mut Self::Context) -> Self::Result {
         error!(self.logger, "Received ScanError: {:?}", scan_error);
+        
         self.scanners
             .acknowledge_scan_error(&scan_error, &self.logger);
 
         match scan_error.response_skeleton_opt {
-            None => match scan_error.scan_type {
+            None => { 
+              debug!(self.logger, "Trying to restore continuity after a scan crash");  
+                match scan_error.scan_type {
                 DetailedScanType::NewPayables => self
                     .scan_schedulers
                     .payable
@@ -437,7 +440,7 @@ impl Handler<ScanError> for Accountant {
                 DetailedScanType::Receivables => {
                     self.scan_schedulers.receivable.schedule(ctx, &self.logger)
                 }
-            },
+            }},
             Some(response_skeleton) => {
                 let error_msg = NodeToUiMessage {
                     target: ClientId(response_skeleton.client_id),
@@ -975,7 +978,7 @@ impl Accountant {
                 None => Err(StartScanError::NoConsumingWalletFound),
             };
 
-        self.scan_schedulers.payable.reset_scan_timer();
+        self.scan_schedulers.payable.reset_scan_timer(&self.logger);
 
         match result {
             Ok(scan_message) => {

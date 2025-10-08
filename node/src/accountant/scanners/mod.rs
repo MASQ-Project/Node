@@ -256,6 +256,7 @@ impl Scanners {
     }
 
     pub fn acknowledge_scan_error(&mut self, error: &ScanError, logger: &Logger) {
+        debug!(logger, "Acknowledging a scan that couldn't finish");
         match error.scan_type {
             DetailedScanType::NewPayables | DetailedScanType::RetryPayables => {
                 self.payable.mark_as_ended(logger)

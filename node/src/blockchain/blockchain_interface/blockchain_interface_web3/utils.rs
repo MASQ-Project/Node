@@ -282,11 +282,16 @@ pub fn send_payables_within_batch(
         transmission_log(chain, &signable_tx_templates)
     );
 
+    let logger_clone = logger.clone();
+
     Box::new(
         web3_batch
             .transport()
             .submit_batch()
-            .map_err(move |e| return_sending_error(&sent_txs_for_err, &e))
+            .map_err(move |e| {
+                warning!(logger_clone, "Failed to submit batch to Web3 client: {}", e);
+                return_sending_error(&sent_txs_for_err, &e)
+            })
             .and_then(move |batch_responses| Ok(return_batch_results(sent_txs, batch_responses))),
     )
 }
@@ -727,6 +732,7 @@ mod tests {
 
     #[test]
     fn send_payables_within_batch_fails_on_submit_batch_call() {
+        let test_name = "send_payables_within_batch_fails_on_submit_batch_call";
         let port = find_free_port();
         let (_event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
@@ -780,11 +786,15 @@ mod tests {
         });
 
         test_send_payables_within_batch(
-            "send_payables_within_batch_fails_on_submit_batch_call",
+            test_name,
             signable_tx_templates,
             expected_result,
             port,
         );
+
+        TestLogHandler::new().exists_log_containing(&format!("WARN: {test_name}: \
+        Failed to submit batch to Web3 client: Transport error: Error(Connect, Os {{ code: 111, \
+        kind: ConnectionRefused, message: \"Connection refused\" }}"));
     }
 
     #[test]

@@ -4,6 +4,7 @@ use crate::accountant::scanners::payable_scanner::tx_templates::BaseTxTemplate;
 use std::collections::{BTreeSet, HashMap};
 use std::ops::{Deref, DerefMut};
 use web3::types::Address;
+use masq_lib::logger::Logger;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RetryTxTemplate {
@@ -13,10 +14,14 @@ pub struct RetryTxTemplate {
 }
 
 impl RetryTxTemplate {
-    pub fn new(failed_tx: &FailedTx, updated_payable_balance_opt: Option<u128>) -> Self {
+    pub fn new(failed_tx: &FailedTx, updated_payable_balance_opt: Option<u128>, logger: &Logger) -> Self {
         let mut retry_template = RetryTxTemplate::from(failed_tx);
 
+        debug!(logger, "Tx to retry {:?}", failed_tx);
+
         if let Some(updated_payable_balance) = updated_payable_balance_opt {
+            debug!(logger, "Updating the pay for {:?} from former {} to latest accounted balance {} of minor", failed_tx.receiver_address, failed_tx.amount_minor, updated_payable_balance);
+
             retry_template.base.amount_in_wei = updated_payable_balance;
         }
 
@@ -44,6 +49,7 @@ impl RetryTxTemplates {
     pub fn new(
         txs_to_retry: &BTreeSet<FailedTx>,
         amounts_from_payables: &HashMap<Address, u128>,
+        logger: &Logger,
     ) -> Self {
         Self(
             txs_to_retry
@@ -52,7 +58,7 @@ impl RetryTxTemplates {
                     let payable_scan_amount_opt = amounts_from_payables
                         .get(&tx_to_retry.receiver_address)
                         .copied();
-                    RetryTxTemplate::new(tx_to_retry, payable_scan_amount_opt)
+                    RetryTxTemplate::new(tx_to_retry, payable_scan_amount_opt, logger)
                 })
                 .collect(),
         )
@@ -90,6 +96,7 @@ impl IntoIterator for RetryTxTemplates {
 
 #[cfg(test)]
 mod tests {
+    use masq_lib::logger::Logger;
     use crate::accountant::db_access_objects::failed_payable_dao::{
         FailedTx, FailureReason, FailureStatus,
     };
@@ -116,11 +123,12 @@ mod tests {
             reason: FailureReason::PendingTooLong,
             status: FailureStatus::RetryRequired,
         };
+        let logger = Logger::new("test");
         let fetched_balance_from_payable_table_opt_1 = None;
         let fetched_balance_from_payable_table_opt_2 = Some(1_234_567);
 
-        let result_1 = RetryTxTemplate::new(&failed_tx, fetched_balance_from_payable_table_opt_1);
-        let result_2  = RetryTxTemplate::new(&failed_tx, fetched_balance_from_payable_table_opt_2);
+        let result_1 = RetryTxTemplate::new(&failed_tx, fetched_balance_from_payable_table_opt_1, &logger);
+        let result_2  = RetryTxTemplate::new(&failed_tx, fetched_balance_from_payable_table_opt_2, &logger);
 
         let assert = |result: RetryTxTemplate, expected_amount_in_wei: u128| {
             assert_eq!(result.base.receiver_address, receiver_address);

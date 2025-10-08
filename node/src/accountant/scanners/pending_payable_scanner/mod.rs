@@ -119,6 +119,8 @@ impl Scanner<TxReceiptsMessage, PendingPayableScanResult> for PendingPayableScan
 
         let retry_opt = scan_report.requires_payments_retry();
 
+        debug!(logger, "Payment retry requirement: {:?}", retry_opt);
+
         self.process_txs_by_state(scan_report, logger);
 
         self.mark_as_ended(logger);
@@ -161,6 +163,8 @@ impl PendingPayableScanner {
     }
 
     fn harvest_tables(&mut self, logger: &Logger) -> Result<Vec<TxHashByTable>, StartScanError> {
+        debug!(logger,"Harvesting sent_payable and failed_payable tables");
+
         let pending_tx_hashes_opt = self.harvest_pending_payables();
         let failure_hashes_opt = self.harvest_unproven_failures();
 
@@ -250,8 +254,8 @@ impl PendingPayableScanner {
     fn emptiness_check(&self, msg: &TxReceiptsMessage) {
         if msg.results.is_empty() {
             panic!(
-                "We should never receive an empty list of results. \
-                Even receipts that could not be retrieved can be interpreted"
+                "We should never receive an empty list of results. Even receipts that could \
+                not be retrieved can be interpreted"
             )
         }
     }
@@ -396,13 +400,17 @@ impl PendingPayableScanner {
         logger: &Logger,
     ) {
         self.handle_tx_failure_reclaims(confirmed_txs.reclaims, logger);
-        self.handle_normal_confirmations(confirmed_txs.normal_confirmations, logger);
+        self.handle_standard_confirmations(confirmed_txs.standard_confirmations, logger);
     }
 
     fn handle_tx_failure_reclaims(&mut self, reclaimed: Vec<SentTx>, logger: &Logger) {
         if reclaimed.is_empty() {
+            debug!(logger, "No failure reclaim to process");
+
             return;
         }
+
+        debug!(logger, "Processing failure reclaims: {:?}", reclaimed);
 
         let hashes_and_blocks = Self::collect_and_sort_hashes_and_blocks(&reclaimed);
 
@@ -495,10 +503,14 @@ impl PendingPayableScanner {
         }
     }
 
-    fn handle_normal_confirmations(&mut self, confirmed_txs: Vec<SentTx>, logger: &Logger) {
+    fn handle_standard_confirmations(&mut self, confirmed_txs: Vec<SentTx>, logger: &Logger) {
         if confirmed_txs.is_empty() {
+            debug!(logger, "No standard tx confirmations to process");
             return;
         }
+
+        debug!(logger, "Processing {} standard tx confirmations", confirmed_txs.len());
+        trace!(logger, "{:?}", confirmed_txs);
 
         self.confirm_transactions(&confirmed_txs);
 
@@ -632,9 +644,12 @@ impl PendingPayableScanner {
         }
 
         if new_failures.is_empty() {
+            debug!(logger, "No reverted txs to process");
             return;
         }
 
+        debug!(logger, "Processing reverted txs {:?}", new_failures);
+        
         let new_failures_btree_set: BTreeSet<FailedTx> = new_failures.iter().cloned().collect();
 
         if let Err(e) = self
@@ -674,9 +689,13 @@ impl PendingPayableScanner {
         }
 
         if rechecks_completed.is_empty() {
+            debug!(logger, "No recheck-requiring failures to finalize");
             return;
         }
 
+        debug!(logger, "Finalizing {} double-checked failures", rechecks_completed.len());
+        trace!(logger, "{:?}", rechecks_completed);
+        
         match self
             .failed_payable_dao
             .update_statuses(&prepare_hashmap(&rechecks_completed))
@@ -830,7 +849,7 @@ impl PendingPayableScanner {
 
         debug!(
             logger,
-            "Found {} pending payables and {} unfinalized failures to process",
+            "Found {} pending payables and {} unproven failures to process",
             resolve_optional_vec(pending_tx_hashes_opt),
             resolve_optional_vec(failure_hashes_opt)
         );
@@ -1720,7 +1739,7 @@ mod tests {
 
         subject.handle_confirmed_transactions(
             DetectedConfirmations {
-                normal_confirmations: vec![],
+                standard_confirmations: vec![],
                 reclaims: vec![sent_tx_1.clone(), sent_tx_2.clone()],
             },
             &logger,
@@ -1785,7 +1804,7 @@ mod tests {
 
         subject.handle_confirmed_transactions(
             DetectedConfirmations {
-                normal_confirmations: vec![],
+                standard_confirmations: vec![],
                 reclaims: vec![sent_tx_1.clone(), sent_tx_2.clone()],
             },
             &Logger::new("test"),
@@ -1832,7 +1851,7 @@ mod tests {
 
         subject.handle_confirmed_transactions(
             DetectedConfirmations {
-                normal_confirmations: vec![],
+                standard_confirmations: vec![],
                 reclaims: vec![sent_tx_1.clone(), sent_tx_2.clone()],
             },
             &Logger::new("test"),
@@ -1854,7 +1873,7 @@ mod tests {
 
         subject.handle_confirmed_transactions(
             DetectedConfirmations {
-                normal_confirmations: vec![],
+                standard_confirmations: vec![],
                 reclaims: vec![sent_tx.clone()],
             },
             &Logger::new("test"),
@@ -1862,9 +1881,9 @@ mod tests {
     }
 
     #[test]
-    fn handles_normal_confirmations_alone() {
+    fn handles_standard_confirmations_alone() {
         init_test_logging();
-        let test_name = "handles_normal_confirmations_alone";
+        let test_name = "handles_standard_confirmations_alone";
         let transactions_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
         let confirm_tx_params_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao = PayableDaoMock::default()
@@ -1905,7 +1924,7 @@ mod tests {
 
         subject.handle_confirmed_transactions(
             DetectedConfirmations {
-                normal_confirmations: vec![sent_tx_1.clone(), sent_tx_2.clone()],
+                standard_confirmations: vec![sent_tx_1.clone(), sent_tx_2.clone()],
                 reclaims: vec![],
             },
             &logger,
@@ -1981,7 +2000,7 @@ mod tests {
 
         subject.handle_confirmed_transactions(
             DetectedConfirmations {
-                normal_confirmations: vec![sent_tx_1.clone()],
+                standard_confirmations: vec![sent_tx_1.clone()],
                 reclaims: vec![sent_tx_2.clone()],
             },
             &logger,
@@ -2045,7 +2064,7 @@ mod tests {
 
         subject.handle_confirmed_transactions(
             DetectedConfirmations {
-                normal_confirmations: vec![sent_tx_1, sent_tx_2],
+                standard_confirmations: vec![sent_tx_1, sent_tx_2],
                 reclaims: vec![],
             },
             &Logger::new("test"),
@@ -2071,7 +2090,7 @@ mod tests {
 
         subject.handle_confirmed_transactions(
             DetectedConfirmations {
-                normal_confirmations: vec![sent_tx],
+                standard_confirmations: vec![sent_tx],
                 reclaims: vec![],
             },
             &Logger::new("test"),
@@ -2153,7 +2172,7 @@ mod tests {
 
         subject.handle_confirmed_transactions(
             DetectedConfirmations {
-                normal_confirmations: vec![sent_tx_1, sent_tx_2],
+                standard_confirmations: vec![sent_tx_1, sent_tx_2],
                 reclaims: vec![sent_tx_3],
             },
             &Logger::new(test_name),

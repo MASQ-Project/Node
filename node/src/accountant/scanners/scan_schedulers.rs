@@ -122,7 +122,8 @@ impl PayableScanScheduler {
         }
     }
 
-    pub fn reset_scan_timer(&mut self) {
+    pub fn reset_scan_timer(&mut self, logger: &Logger) {
+        debug!(logger, "NewPayableScanIntervalComputer timer reset");
         self.interval_computer.reset_last_scan_timestamp();
     }
 
@@ -612,7 +613,7 @@ mod tests {
                 .reset_last_scan_timestamp_params(&reset_last_scan_timestamp_params_arc),
         );
 
-        subject.payable.reset_scan_timer();
+        subject.payable.reset_scan_timer(&Logger::new("test"));
 
         let reset_last_scan_timestamp_params = reset_last_scan_timestamp_params_arc.lock().unwrap();
         assert_eq!(*reset_last_scan_timestamp_params, vec![()])

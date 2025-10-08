@@ -31,6 +31,7 @@ impl TxReceiptInterpreter {
         pending_payable_scanner: &PendingPayableScanner,
         logger: &Logger,
     ) -> ReceiptScanReport {
+        debug!(logger, "Composing receipt scan report");
         let scan_report = ReceiptScanReport::default();
         tx_cases
             .into_iter()
@@ -162,7 +163,7 @@ impl TxReceiptInterpreter {
         scan_report
     }
 
-    //TODO: failures handling might need enhancement suggested by GH-693
+    //TODO: if wanted, address GH-693 for more detailed failures
     fn handle_reverted_tx(
         mut scan_report: ReceiptScanReport,
         tx: TxByTable,
@@ -279,7 +280,7 @@ mod tests {
             ReceiptScanReport {
                 failures: DetectedFailures::default(),
                 confirmations: DetectedConfirmations {
-                    normal_confirmations: vec![updated_tx],
+                    standard_confirmations: vec![updated_tx],
                     reclaims: vec![]
                 }
             }
@@ -327,7 +328,7 @@ mod tests {
             ReceiptScanReport {
                 failures: DetectedFailures::default(),
                 confirmations: DetectedConfirmations {
-                    normal_confirmations: vec![],
+                    standard_confirmations: vec![],
                     reclaims: vec![sent_tx]
                 }
             }
