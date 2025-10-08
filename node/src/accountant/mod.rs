@@ -417,30 +417,34 @@ impl Handler<ScanError> for Accountant {
 
     fn handle(&mut self, scan_error: ScanError, ctx: &mut Self::Context) -> Self::Result {
         error!(self.logger, "Received ScanError: {:?}", scan_error);
-        
+
         self.scanners
             .acknowledge_scan_error(&scan_error, &self.logger);
 
         match scan_error.response_skeleton_opt {
-            None => { 
-              debug!(self.logger, "Trying to restore continuity after a scan crash");  
+            None => {
+                debug!(
+                    self.logger,
+                    "Trying to restore the scan train after a crash"
+                );
                 match scan_error.scan_type {
-                DetailedScanType::NewPayables => self
-                    .scan_schedulers
-                    .payable
-                    .schedule_new_payable_scan(ctx, &self.logger),
-                DetailedScanType::RetryPayables => self
-                    .scan_schedulers
-                    .payable
-                    .schedule_retry_payable_scan(ctx, None, &self.logger),
-                DetailedScanType::PendingPayables => self
-                    .scan_schedulers
-                    .pending_payable
-                    .schedule(ctx, &self.logger),
-                DetailedScanType::Receivables => {
-                    self.scan_schedulers.receivable.schedule(ctx, &self.logger)
+                    DetailedScanType::NewPayables => self
+                        .scan_schedulers
+                        .payable
+                        .schedule_new_payable_scan(ctx, &self.logger),
+                    DetailedScanType::RetryPayables => self
+                        .scan_schedulers
+                        .payable
+                        .schedule_retry_payable_scan(ctx, None, &self.logger),
+                    DetailedScanType::PendingPayables => self
+                        .scan_schedulers
+                        .pending_payable
+                        .schedule(ctx, &self.logger),
+                    DetailedScanType::Receivables => {
+                        self.scan_schedulers.receivable.schedule(ctx, &self.logger)
+                    }
                 }
-            }},
+            }
             Some(response_skeleton) => {
                 let error_msg = NodeToUiMessage {
                     target: ClientId(response_skeleton.client_id),

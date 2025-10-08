@@ -251,7 +251,10 @@ impl PayableScanner {
             self.insert_records_in_sent_payables(&batch_results.sent_txs);
         }
         if failed > 0 {
-            debug!(logger, "Recording failed txs: {:?}", batch_results.failed_txs);
+            debug!(
+                logger,
+                "Recording failed txs: {:?}", batch_results.failed_txs
+            );
             self.insert_records_in_failed_payables(&batch_results.failed_txs);
         }
     }

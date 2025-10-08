@@ -38,7 +38,9 @@ impl ReceiptScanReport {
         confirmation_type: ConfirmationType,
     ) {
         match confirmation_type {
-            ConfirmationType::Normal => self.confirmations.standard_confirmations.push(confirmed_tx),
+            ConfirmationType::Normal => {
+                self.confirmations.standard_confirmations.push(confirmed_tx)
+            }
             ConfirmationType::Reclaim => self.confirmations.reclaims.push(confirmed_tx),
         }
     }

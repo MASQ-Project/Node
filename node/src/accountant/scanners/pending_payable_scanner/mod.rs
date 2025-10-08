@@ -163,7 +163,7 @@ impl PendingPayableScanner {
     }
 
     fn harvest_tables(&mut self, logger: &Logger) -> Result<Vec<TxHashByTable>, StartScanError> {
-        debug!(logger,"Harvesting sent_payable and failed_payable tables");
+        debug!(logger, "Harvesting sent_payable and failed_payable tables");
 
         let pending_tx_hashes_opt = self.harvest_pending_payables();
         let failure_hashes_opt = self.harvest_unproven_failures();
@@ -509,7 +509,11 @@ impl PendingPayableScanner {
             return;
         }
 
-        debug!(logger, "Processing {} standard tx confirmations", confirmed_txs.len());
+        debug!(
+            logger,
+            "Processing {} standard tx confirmations",
+            confirmed_txs.len()
+        );
         trace!(logger, "{:?}", confirmed_txs);
 
         self.confirm_transactions(&confirmed_txs);
@@ -649,7 +653,7 @@ impl PendingPayableScanner {
         }
 
         debug!(logger, "Processing reverted txs {:?}", new_failures);
-        
+
         let new_failures_btree_set: BTreeSet<FailedTx> = new_failures.iter().cloned().collect();
 
         if let Err(e) = self
@@ -693,9 +697,13 @@ impl PendingPayableScanner {
             return;
         }
 
-        debug!(logger, "Finalizing {} double-checked failures", rechecks_completed.len());
+        debug!(
+            logger,
+            "Finalizing {} double-checked failures",
+            rechecks_completed.len()
+        );
         trace!(logger, "{:?}", rechecks_completed);
-        
+
         match self
             .failed_payable_dao
             .update_statuses(&prepare_hashmap(&rechecks_completed))
