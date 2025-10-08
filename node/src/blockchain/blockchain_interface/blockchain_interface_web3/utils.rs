@@ -787,10 +787,12 @@ mod tests {
 
         test_send_payables_within_batch(test_name, signable_tx_templates, expected_result, port);
 
+        let os_specific_code = transport_error_code();
+        let os_specific_msg = transport_error_message();
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: {test_name}: \
-        Failed to submit batch to Web3 client: Transport error: Error(Connect, Os {{ code: 111, \
-        kind: ConnectionRefused, message: \"Connection refused\" }}"
+            "WARN: {test_name}: Failed to submit batch to Web3 client: Transport error: \
+            Error(Connect, Os {{ code: {}, kind: ConnectionRefused, message: \"{}\" }}",
+            os_specific_code, os_specific_msg
         ));
     }
 
