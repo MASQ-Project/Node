@@ -34,7 +34,7 @@ pub enum ProxyProtocol {
 pub struct ClientRequestPayload_0v1 {
     pub stream_key: StreamKey,
     pub sequenced_packet: SequencedPacket,
-    pub target_hostname: Option<String>,
+    pub target_hostname: String,
     pub target_port: u16,
     pub protocol: ProxyProtocol,
     pub originator_public_key: PublicKey,

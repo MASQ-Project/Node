@@ -116,7 +116,7 @@ pub enum DispatcherError {
 pub struct InboundClientData {
     pub timestamp: SystemTime,
     pub client_addr: SocketAddr,
-    pub reception_port: Option<u16>,
+    pub reception_port_opt: Option<u16>,
     pub last_data: bool,
     pub is_clandestine: bool,
     pub sequence_number: Option<u64>,
@@ -130,7 +130,7 @@ impl Debug for InboundClientData {
             Err(_) => self.data.hex_dump().to_string(),
         };
         write!(f, "InboundClientData {{ peer_addr: {:?}, reception_port: {:?}, last_data: {}, sequence_number: {:?}, {} bytes of data: {} }}",
-               self.client_addr, self.reception_port, self.last_data, self.sequence_number, self.data.len(), data_string)
+               self.client_addr, self.reception_port_opt, self.last_data, self.sequence_number, self.data.len(), data_string)
     }
 }
 
@@ -139,7 +139,7 @@ impl InboundClientData {
         InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: self.client_addr,
-            reception_port: self.reception_port,
+            reception_port_opt: self.reception_port_opt,
             last_data: self.last_data,
             is_clandestine: self.is_clandestine,
             sequence_number: self.sequence_number,
@@ -274,7 +274,7 @@ mod tests {
         let subject = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.4.3.2:9999").unwrap(),
-            reception_port: None,
+            reception_port_opt: None,
             last_data: false,
             is_clandestine: false,
             sequence_number: None,
@@ -289,7 +289,7 @@ mod tests {
         let subject = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.4.3.2:9999").unwrap(),
-            reception_port: None,
+            reception_port_opt: None,
             last_data: false,
             is_clandestine: false,
             sequence_number: None,
@@ -304,7 +304,7 @@ mod tests {
         let subject = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.4.3.2:9999").unwrap(),
-            reception_port: None,
+            reception_port_opt: None,
             last_data: false,
             is_clandestine: false,
             sequence_number: None,

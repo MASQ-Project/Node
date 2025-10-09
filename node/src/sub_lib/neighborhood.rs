@@ -31,6 +31,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::net::IpAddr;
 use std::str::FromStr;
 use std::time::Duration;
+use crate::sub_lib::host::Host;
 
 const ASK_ABOUT_GOSSIP_INTERVAL: Duration = Duration::from_secs(10);
 
@@ -473,7 +474,7 @@ pub struct RouteQueryMessage {
     pub target_component: Component,
     pub return_component_opt: Option<Component>,
     pub payload_size: usize,
-    pub hostname_opt: Option<String>,
+    pub host: Host,
 }
 
 impl Message for RouteQueryMessage {
@@ -482,7 +483,7 @@ impl Message for RouteQueryMessage {
 
 impl RouteQueryMessage {
     pub fn data_indefinite_route_request(
-        hostname_opt: Option<String>,
+        host: Host,
         payload_size: usize,
     ) -> RouteQueryMessage {
         RouteQueryMessage {
@@ -490,7 +491,7 @@ impl RouteQueryMessage {
             target_component: Component::ProxyClient,
             return_component_opt: Some(Component::ProxyServer),
             payload_size,
-            hostname_opt,
+            host,
         }
     }
 }
@@ -548,7 +549,7 @@ pub enum ExpectedServices {
 pub struct RouteQueryResponse {
     pub route: Route,
     pub expected_services: ExpectedServices,
-    pub hostname_opt: Option<String>,
+    pub host: Host,
 }
 
 #[derive(Clone, Debug, Message, PartialEq, Eq)]
@@ -1089,7 +1090,7 @@ mod tests {
 
     #[test]
     fn data_indefinite_route_request() {
-        let result = RouteQueryMessage::data_indefinite_route_request(None, 7500);
+        let result = RouteQueryMessage::data_indefinite_route_request(Host::new("booga.com", 1234), 7500);
 
         assert_eq!(
             result,
@@ -1098,7 +1099,7 @@ mod tests {
                 target_component: Component::ProxyClient,
                 return_component_opt: Some(Component::ProxyServer),
                 payload_size: 7500,
-                hostname_opt: None,
+                host: Host::new("booga.com", 1234),
             }
         );
     }

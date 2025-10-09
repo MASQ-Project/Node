@@ -5,21 +5,7 @@ use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::proxy_server::ProxyProtocol;
 use masq_lib::constants::{HTTP_PORT, TLS_PORT};
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Host {
-    pub name: String,
-    pub port: u16,
-}
-
-impl Host {
-    pub fn new(name: &str, port: u16) -> Host {
-        Host {
-            name: name.to_string(),
-            port,
-        }
-    }
-}
+use crate::sub_lib::host::Host;
 
 pub trait ProtocolPack: Send + Sync {
     fn proxy_protocol(&self) -> ProxyProtocol;
@@ -44,7 +30,7 @@ pub fn from_standard_port(standard_port: u16) -> Option<Box<dyn ProtocolPack>> {
 }
 
 pub fn from_ibcd(ibcd: &InboundClientData) -> Result<Box<dyn ProtocolPack>, String> {
-    let origin_port = match ibcd.reception_port {
+    let origin_port = match ibcd.reception_port_opt {
         None => {
             return Err(format!(
                 "No origin port specified with {}-byte non-clandestine packet: {:?}",
@@ -67,6 +53,6 @@ pub fn from_ibcd(ibcd: &InboundClientData) -> Result<Box<dyn ProtocolPack>, Stri
 
 pub trait ServerImpersonator {
     fn route_query_failure_response(&self, server_name: &str) -> Vec<u8>;
-    fn dns_resolution_failure_response(&self, server_name_opt: Option<String>) -> Vec<u8>;
+    fn dns_resolution_failure_response(&self, server_name: String) -> Vec<u8>;
     fn consuming_wallet_absent(&self) -> Vec<u8>;
 }

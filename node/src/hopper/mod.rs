@@ -173,7 +173,7 @@ mod tests {
         let main_cryptde = main_cryptde();
         let alias_cryptde = alias_cryptde();
         let client_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let route = route_to_proxy_client(&main_cryptde.public_key(), main_cryptde);
+        let route = route_to_proxy_client(&main_cryptde.public_key(), main_cryptde, false);
         let stream_key = StreamKey::make_meaningless_stream_key();
         let serialized_payload =
             serde_cbor::ser::to_vec(&make_meaningless_message_type(stream_key)).unwrap();
@@ -193,7 +193,7 @@ mod tests {
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr,
-            reception_port: None,
+            reception_port_opt: None,
             last_data: false,
             is_clandestine: false,
             sequence_number: None,

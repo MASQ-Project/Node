@@ -196,7 +196,7 @@ mod tests {
                         sequence_number: 0,
                         last_data: false,
                     },
-                    target_hostname: Some("blah".to_string()),
+                    target_hostname: "blah".to_string(),
                     target_port: 0,
                     protocol: ProxyProtocol::HTTP,
                     originator_public_key: subject.cryptde.public_key().clone(),

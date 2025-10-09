@@ -282,27 +282,14 @@ impl StreamHandlerPoolReal {
             "No stream to {:?} exists; resolving host", &payload.target_hostname
         );
 
-        match payload.target_hostname {
-            Some(ref target_hostname) => match Self::parse_ip(target_hostname) {
-                Ok(socket_addr) => Self::handle_ip(
-                    payload.clone(),
-                    socket_addr,
-                    inner_arc,
-                    target_hostname.to_string(),
-                ),
-                Err(_) => Self::lookup_dns(inner_arc, target_hostname.to_string(), payload.clone()),
-            },
-            None => {
-                error!(
-                    logger,
-                    "Cannot open new stream with key {:?}: no hostname supplied",
-                    payload.stream_key
-                );
-                Box::new(err::<
-                    Box<dyn SenderWrapper<SequencedPacket> + 'static>,
-                    String,
-                >("No hostname provided".to_string()))
-            }
+        match Self::parse_ip(&payload.target_hostname) {
+            Ok(socket_addr) => Self::handle_ip(
+                payload.clone(),
+                socket_addr,
+                inner_arc,
+                payload.target_hostname.clone(),
+            ),
+            Err(_) => Self::lookup_dns(inner_arc, payload.target_hostname.clone(), payload.clone()),
         }
     }
 
@@ -673,7 +660,7 @@ mod tests {
             let payload = ClientRequestPayload_0v1 {
                 stream_key,
                 sequenced_packet: SequencedPacket::new(b"booga".to_vec(), 0, false),
-                target_hostname: Some("www.example.com".to_string()),
+                target_hostname: "www.example.com".to_string(),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: cryptde.public_key().clone(),
@@ -706,7 +693,7 @@ mod tests {
                 sequence_number: 0,
                 last_data: false,
             },
-            target_hostname: None,
+            target_hostname: "booga.com".to_string(),
             target_port: HTTP_PORT,
             protocol: ProxyProtocol::HTTP,
             originator_public_key: PublicKey::new(&b"men's souls"[..]),
@@ -774,7 +761,7 @@ mod tests {
                     sequence_number: 0,
                     last_data: false,
                 },
-                target_hostname: Some(String::from("that.try")),
+                target_hostname: String::from("that.try"),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: originator_key,
@@ -853,7 +840,7 @@ mod tests {
                     sequence_number: 0,
                     last_data: false,
                 },
-                target_hostname: Some(String::from("3.4.5.6:80")),
+                target_hostname: String::from("3.4.5.6:80"),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: PublicKey::new(&b"men's souls"[..]),
@@ -949,7 +936,7 @@ mod tests {
                     sequence_number: 0,
                     last_data: true,
                 },
-                target_hostname: Some(String::from("3.4.5.6:80")),
+                target_hostname: String::from("3.4.5.6:80"),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: PublicKey::new(&b"brutal death"[..]),
@@ -1010,7 +997,7 @@ mod tests {
                     sequence_number: 0,
                     last_data: true,
                 },
-                target_hostname: Some(String::from("3.4.5.6:80")),
+                target_hostname: String::from("3.4.5.6:80"),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: PublicKey::new(&b"brutal death"[..]),
@@ -1074,7 +1061,7 @@ mod tests {
                     sequence_number: 0,
                     last_data: false,
                 },
-                target_hostname: Some(String::from("3.4.5.6")),
+                target_hostname: String::from("3.4.5.6"),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: PublicKey::new(&b"men's souls"[..]),
@@ -1184,7 +1171,7 @@ mod tests {
                     sequence_number: 0,
                     last_data: false,
                 },
-                target_hostname: None,
+                target_hostname: "booga.com".to_string(),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: originator_key,
@@ -1255,7 +1242,7 @@ mod tests {
                     sequence_number: 0,
                     last_data: false,
                 },
-                target_hostname: Some(String::from("that.try")),
+                target_hostname: String::from("that.try"),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: PublicKey::new(&b"men's souls"[..]),
@@ -1368,7 +1355,7 @@ mod tests {
                     sequence_number: 0,
                     last_data: false,
                 },
-                target_hostname: Some(String::from("that.try")),
+                target_hostname: String::from("that.try"),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: originator_key,
@@ -1490,7 +1477,7 @@ mod tests {
                     sequence_number: 0,
                     last_data: false,
                 },
-                target_hostname: Some(String::from("blockedwebsite.com")),
+                target_hostname: String::from("blockedwebsite.com"),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: originator_key,
@@ -1587,7 +1574,7 @@ mod tests {
             let client_request_payload = ClientRequestPayload_0v1 {
                 stream_key,
                 sequenced_packet: sequenced_packet.clone(),
-                target_hostname: Some(String::from("that.try")),
+                target_hostname: String::from("that.try"),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: PublicKey::new(&b"men's souls"[..]),
@@ -1700,7 +1687,7 @@ mod tests {
                     sequence_number: 0,
                     last_data: true,
                 },
-                target_hostname: Some(String::from("that.try")),
+                target_hostname: String::from("that.try"),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: originator_key,
@@ -1762,7 +1749,7 @@ mod tests {
         let client_request_payload = ClientRequestPayload_0v1 {
             stream_key: stream_key.clone(),
             sequenced_packet: sequenced_packet.clone(),
-            target_hostname: Some(String::from("that.try")),
+            target_hostname: String::from("that.try"),
             target_port: HTTP_PORT,
             protocol: ProxyProtocol::HTTP,
             originator_public_key: PublicKey::new(&b"men's souls"[..]),
@@ -1833,7 +1820,7 @@ mod tests {
                     sequence_number: 0,
                     last_data: false,
                 },
-                target_hostname: None,
+                target_hostname: "booga.com".to_string(),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: PublicKey::new(&b"booga"[..]),

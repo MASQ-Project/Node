@@ -96,7 +96,7 @@ impl ConsumingService {
         let ibcd = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0),
-            reception_port: None,
+            reception_port_opt: None,
             last_data: false,
             is_clandestine: true,
             sequence_number: None,
@@ -304,7 +304,7 @@ mod tests {
             InboundClientData {
                 timestamp: record.timestamp,
                 client_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0),
-                reception_port: None,
+                reception_port_opt: None,
                 last_data: false,
                 is_clandestine: true,
                 sequence_number: None,
