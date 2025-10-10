@@ -306,7 +306,7 @@ mod tests {
         let encrypted_payload = encodex(cryptde, &first_stop_key, &payload).unwrap();
         let paying_wallet = make_paying_wallet(b"wallet");
         let contract_address = TEST_DEFAULT_CHAIN.rec().contract;
-        let route = Route::round_trip(
+        let mut route = Route::round_trip(
             RouteSegment::new(vec![&relay_key, &first_stop_key], Component::Neighborhood),
             RouteSegment::new(
                 vec![&first_stop_key, &relay_key, &second_stop_key],
@@ -317,7 +317,6 @@ mod tests {
             Some(contract_address),
         )
         .unwrap();
-        let mut route = route.set_return_route_id(cryptde, 1234);
         route.shift(&relay_cryptde).unwrap();
         let subject = LiveCoresPackage::new(route.clone(), encrypted_payload.clone());
 
@@ -373,11 +372,6 @@ mod tests {
                 Component::ProxyServer,
             )
         );
-        assert_eq!(
-            route.hops[0],
-            crate::test_utils::encrypt_return_route_id(1234, cryptde),
-        );
-        route.hops.remove(0);
         assert_eq!(
             &route.hops[0].as_slice()[..8],
             &[52, 52, 52, 52, 52, 52, 52, 52]

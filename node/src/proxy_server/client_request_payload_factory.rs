@@ -92,7 +92,7 @@ mod tests {
     use super::*;
     use crate::sub_lib::proxy_server::ProxyProtocol;
     use crate::test_utils::main_cryptde;
-    use masq_lib::constants::HTTP_PORT;
+    use masq_lib::constants::{HTTP_PORT, TLS_PORT};
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
     use std::net::SocketAddr;
@@ -292,7 +292,7 @@ mod tests {
                     last_data: false
                 },
                 target_hostname: String::from("server.com"),
-                target_port: 443,
+                target_port: TLS_PORT,
                 protocol: ProxyProtocol::TLS,
                 originator_public_key: cryptde.public_key().clone(),
             })

@@ -21,7 +21,6 @@ use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
 use crate::blockchain::payer::Payer;
 use crate::bootstrapper::CryptDEPair;
 use crate::sub_lib::cryptde::CryptDE;
-use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde_null::CryptDENull;
@@ -245,8 +244,7 @@ pub fn zero_hop_route_response(
             None,
             None,
         )
-        .unwrap()
-        .set_return_route_id(cryptde, 0),
+        .unwrap(),
         expected_services: ExpectedServices::RoundTrip(
             vec![ExpectedService::Nothing, ExpectedService::Nothing],
             vec![ExpectedService::Nothing, ExpectedService::Nothing],
@@ -258,13 +256,6 @@ pub fn zero_hop_route_response(
 fn shift_one_hop(mut route: Route, cryptde: &dyn CryptDE) -> Route {
     route.shift(cryptde).unwrap();
     route
-}
-
-pub fn encrypt_return_route_id(return_route_id: u32, cryptde: &dyn CryptDE) -> CryptData {
-    let return_route_id_ser = serde_cbor::ser::to_vec(&return_route_id).unwrap();
-    cryptde
-        .encode(cryptde.public_key(), &PlainData::from(return_route_id_ser))
-        .unwrap()
 }
 
 pub fn make_garbage_data(bytes: usize) -> Vec<u8> {
@@ -1263,7 +1254,6 @@ mod tests {
                 LiveHop::new(&PublicKey::new(b""), None, Component::ProxyServer)
                     .encode(&key, cryptde)
                     .unwrap(),
-                encrypt_return_route_id(0, cryptde),
             )
         );
         assert_eq!(
@@ -1293,7 +1283,6 @@ mod tests {
                 LiveHop::new(&PublicKey::new(b""), None, Component::ProxyServer)
                     .encode(&key, cryptde)
                     .unwrap(),
-                encrypt_return_route_id(0, cryptde),
                 CryptData::new(&garbage_can[..])
             )
         );
@@ -1317,7 +1306,6 @@ mod tests {
                 LiveHop::new(&PublicKey::new(b""), None, Component::ProxyServer)
                     .encode(&key, cryptde)
                     .unwrap(),
-                encrypt_return_route_id(0, cryptde),
                 CryptData::new(&garbage_can[..])
             )
         );
@@ -1340,7 +1328,6 @@ mod tests {
                 LiveHop::new(&PublicKey::new(b""), None, Component::ProxyServer)
                     .encode(&key, cryptde)
                     .unwrap(),
-                encrypt_return_route_id(0, cryptde),
                 CryptData::new(&first_garbage_can[..]),
                 CryptData::new(&second_garbage_can[..]),
             )

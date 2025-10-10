@@ -34,6 +34,7 @@ use std::io;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::Duration;
+use masq_lib::constants::HTTP_PORT;
 
 const HTTP_REQUEST: &[u8] = b"GET / HTTP/1.1\r\nHost: booga.com\r\n\r\n";
 const HTTP_RESPONSE: &[u8] =
@@ -361,14 +362,13 @@ fn create_request_icp(
             originating_node.consuming_wallet(),
             Some(chain.rec().contract),
         )
-        .unwrap()
-        .set_return_route_id(originating_main_cryptde, 0),
+        .unwrap(),
         MessageType::ClientRequest(VersionedData::new(
             &node_lib::sub_lib::migrations::client_request_payload::MIGRATIONS,
             &ClientRequestPayload_0v1 {
                 stream_key,
                 sequenced_packet: SequencedPacket::new(Vec::from(HTTP_REQUEST), index, false),
-                target_hostname: Some(format!("{}", server.local_addr().ip())),
+                target_hostname: format!("{}", server.local_addr().ip()),
                 target_port: server.local_addr().port(),
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: originating_node.main_public_key().clone(),
@@ -414,7 +414,7 @@ fn create_meaningless_icp(
             &ClientRequestPayload_0v1 {
                 stream_key,
                 sequenced_packet: SequencedPacket::new(Vec::from(HTTP_REQUEST), 0, false),
-                target_hostname: Some("nowhere.com".to_string()),
+                target_hostname: "nowhere.com".to_string(),
                 target_port: socket_addr.port(),
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: originating_node.main_public_key().clone(),
@@ -451,8 +451,7 @@ fn create_server_drop_report(
         originating_node.consuming_wallet(),
         Some(TEST_DEFAULT_MULTINODE_CHAIN.rec().contract),
     )
-    .unwrap()
-    .set_return_route_id(originating_main_cryptde, 0);
+    .unwrap();
     route.shift(originating_main_cryptde).unwrap();
     let payload = MessageType::ClientResponse(VersionedData::new(
         &node_lib::sub_lib::migrations::client_response_payload::MIGRATIONS,
@@ -496,15 +495,14 @@ fn create_client_drop_report(
         originating_node.consuming_wallet(),
         Some(TEST_DEFAULT_MULTINODE_CHAIN.rec().contract),
     )
-    .unwrap()
-    .set_return_route_id(originating_main_cryptde, 0);
+    .unwrap();
     let payload = MessageType::ClientRequest(VersionedData::new(
         &node_lib::sub_lib::migrations::client_request_payload::MIGRATIONS,
         &ClientRequestPayload_0v1 {
             stream_key,
             sequenced_packet: SequencedPacket::new(vec![], 1, true),
-            target_hostname: Some(String::from("doesnt.matter.com")),
-            target_port: 80,
+            target_hostname: String::from("doesnt.matter.com"),
+            target_port: HTTP_PORT,
             protocol: ProxyProtocol::HTTP,
             originator_public_key: originating_node.main_public_key().clone(),
         },

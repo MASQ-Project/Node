@@ -957,14 +957,9 @@ impl ProxyServer {
                 let payload = args.payload;
                 let payload_size = payload.sequenced_packet.data.len();
                 let stream_key = payload.stream_key;
-                // TODO: This return route ID is completely unnecessary, except that unenlightened
-                // Nodes are expecting it, so we have to put it in. We should make it random garbage
-                // instead of 0.
-                let route_with_return_route_id =
-                    route.set_return_route_id(args.main_cryptde, 0);
                 let pkg = IncipientCoresPackage::new(
                     args.main_cryptde,
-                    route_with_return_route_id,
+                    route,
                     payload.into(),
                     &payload_destination_key,
                 )
@@ -1879,7 +1874,7 @@ mod tests {
         };
         let expected_pkg = IncipientCoresPackage::new(
             main_cryptde,
-            route.clone().set_return_route_id(main_cryptde, 0),
+            route.clone(),
             expected_payload.into(),
             &destination_key,
         )
@@ -1999,13 +1994,13 @@ mod tests {
                 last_data: false,
             },
             target_hostname: String::from("realdomain.nu"),
-            target_port: 443,
+            target_port: TLS_PORT,
             protocol: ProxyProtocol::TLS,
             originator_public_key: alias_cryptde.public_key().clone(),
         };
         let expected_pkg = IncipientCoresPackage::new(
             main_cryptde,
-            route.clone().set_return_route_id(main_cryptde, 0),
+            route.clone(),
             expected_payload.into(),
             &destination_key,
         )
@@ -2486,7 +2481,7 @@ mod tests {
             hopper_recording.get_record::<IncipientCoresPackage>(0),
             &IncipientCoresPackage::new(
                 main_cryptde,
-                expected_route.route.set_return_route_id(main_cryptde, 0),
+                expected_route.route,
                 MessageType::ClientRequest(VersionedData::new(
                     &crate::sub_lib::migrations::client_request_payload::MIGRATIONS,
                     &ClientRequestPayload_0v1 {
@@ -2562,7 +2557,7 @@ mod tests {
             hopper_recording.get_record::<IncipientCoresPackage>(0),
             &IncipientCoresPackage::new(
                 main_cryptde,
-                expected_route.route.set_return_route_id(main_cryptde, 0),
+                expected_route.route,
                 MessageType::ClientRequest(VersionedData::new(
                     &crate::sub_lib::migrations::client_request_payload::MIGRATIONS,
                     &ClientRequestPayload_0v1 {
@@ -2626,7 +2621,7 @@ mod tests {
         };
         let expected_pkg = IncipientCoresPackage::new(
             main_cryptde,
-            route.clone().set_return_route_id(main_cryptde, 0),
+            route.clone(),
             expected_payload.into(),
             &destination_key,
         )
@@ -2700,8 +2695,7 @@ mod tests {
             Some(consuming_wallet),
             Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
-        .unwrap()
-        .set_return_route_id(main_cryptde, 0);
+        .unwrap();
         let (neighborhood_mock, _, neighborhood_recording_arc) = make_recorder();
         let neighborhood_mock = neighborhood_mock.route_query_response(Some(RouteQueryResponse {
             route: route.clone(),
@@ -2748,7 +2742,7 @@ mod tests {
         };
         let expected_pkg = IncipientCoresPackage::new(
             main_cryptde,
-            route.clone().set_return_route_id(main_cryptde, 0),
+            route.clone(),
             expected_payload.into(),
             &payload_destination_key,
         )
@@ -2969,7 +2963,7 @@ mod tests {
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
         let destination_key = PublicKey::from(&b"our destination"[..]);
         let route = Route { hops: vec![] };
-        let route_with_rrid = route.clone().set_return_route_id(main_cryptde, 0);
+        let route_with_rrid = route.clone();
         let route_query_response = RouteQueryResponse {
             route,
             expected_services: ExpectedServices::RoundTrip(
@@ -3195,7 +3189,6 @@ mod tests {
             TEST_DEFAULT_CHAIN,
         ));
         let _ = record.route.shift(cryptde);
-        assert_eq!(record.route.return_route_id(cryptde).unwrap(), 0);
         let recording = accountant_recording_arc.lock().unwrap();
         let record = recording.get_record::<ReportServicesConsumedMessage>(0);
         assert_eq!(recording.len(), 1);
@@ -3605,8 +3598,7 @@ mod tests {
                 None,
                 None,
             )
-            .unwrap()
-            .set_return_route_id(cryptde, 0),
+            .unwrap(),
             expected_services: ExpectedServices::RoundTrip(vec![], vec![]),
             host: Host::new("booga.com", HTTP_PORT),
         };
@@ -3703,7 +3695,7 @@ mod tests {
             data: expected_data.clone(),
         };
         let expected_tls_request = PlainData::new(tls_request.as_slice());
-        let route = Route { hops: vec![] }.set_return_route_id(main_cryptde, 0);
+        let route = Route { hops: vec![] };
         let expected_payload = ClientRequestPayload_0v1 {
             stream_key: stream_key.clone(),
             sequenced_packet: SequencedPacket {
@@ -3804,7 +3796,7 @@ mod tests {
         };
         let expected_pkg = IncipientCoresPackage::new(
             main_cryptde,
-            route.clone().set_return_route_id(main_cryptde, 0),
+            route.clone(),
             expected_payload.into(),
             &destination_key,
         )
@@ -3902,7 +3894,7 @@ mod tests {
         };
         let expected_pkg = IncipientCoresPackage::new(
             main_cryptde,
-            route.clone().set_return_route_id(main_cryptde, 0),
+            route.clone(),
             expected_payload.into(),
             &destination_key,
         )
@@ -5940,7 +5932,7 @@ mod tests {
         let record = recording.get_record::<IncipientCoresPackage>(0);
         assert_eq!(
             record.route,
-            affected_route.set_return_route_id(main_cryptde(), 0)
+            affected_route
         );
         let payload = decodex::<MessageType>(&affected_cryptde, &record.payload).unwrap();
         match payload {
@@ -6067,7 +6059,7 @@ mod tests {
         let record = recording.get_record::<IncipientCoresPackage>(0);
         assert_eq!(
             record.route,
-            affected_route.set_return_route_id(main_cryptde(), 0)
+            affected_route
         );
         let payload = decodex::<MessageType>(&affected_cryptde, &record.payload).unwrap();
         match payload {
