@@ -4,8 +4,8 @@ use crate::blockchains::chains::Chain;
 use crate::data_version::DataVersion;
 use const_format::concatcp;
 
-pub const DEFAULT_CHAIN: Chain = Chain::PolyMainnet;
-pub const CURRENT_SCHEMA_VERSION: usize = 10;
+pub const DEFAULT_CHAIN: Chain = Chain::BaseMainnet;
+pub const CURRENT_SCHEMA_VERSION: usize = 11;
 
 pub const HIGHEST_RANDOM_CLANDESTINE_PORT: u16 = 9999;
 pub const HTTP_PORT: u16 = 80;
@@ -113,7 +113,7 @@ mod tests {
 
     #[test]
     fn constants_have_correct_values() {
-        assert_eq!(DEFAULT_CHAIN, Chain::PolyMainnet);
+        assert_eq!(DEFAULT_CHAIN, Chain::BaseMainnet);
         assert_eq!(HIGHEST_RANDOM_CLANDESTINE_PORT, 9999);
         assert_eq!(HTTP_PORT, 80);
         assert_eq!(TLS_PORT, 443);

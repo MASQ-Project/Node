@@ -182,10 +182,76 @@ impl CryptDE for CryptDEReal {
         self.digest
     }
 
+    fn make_from_str(&self, value: &str, chain: Chain) -> Result<Box<dyn CryptDE>, String> {
+        let parts = value.split(',').collect::<Vec<_>>();
+        if parts.len() != 2 {
+            return Err(format!(
+                "Serialized CryptDE must have 2 comma-separated parts, not {}",
+                parts.len()
+            ));
+        }
+        let convert = |s: &str| -> Result<Vec<u8>, String> {
+            match base64::decode_config(s, base64::URL_SAFE_NO_PAD) {
+                Ok(v) => Ok(v),
+                Err(_) => Err(format!(
+                    "Serialized CryptDE must have valid Base64, not '{}'",
+                    s
+                )),
+            }
+        };
+        let encryption_secret_key = match convert(parts[0]) {
+            Ok(v) => encryption::SecretKey(match v.clone().try_into() {
+                Ok(vi) => vi,
+                Err(_) => {
+                    return Err(format!(
+                        "Serialized CryptDE must have {}-byte encryption key, not {}",
+                        cxsp::SECRETKEYBYTES,
+                        v.len()
+                    ))
+                }
+            }),
+            Err(e) => return Err(e),
+        };
+        let signing_secret_key = match convert(parts[1]) {
+            Ok(v) => signing::SecretKey(match v.clone().try_into() {
+                Ok(vi) => vi,
+                Err(_) => {
+                    return Err(format!(
+                        "Serialized CryptDE must have {}-byte signing key, not {}",
+                        signing::SECRETKEYBYTES,
+                        v.len()
+                    ))
+                }
+            }),
+            Err(e) => return Err(e),
+        };
+        let public_key = Self::local_public_key_from(
+            &encryption_secret_key.public_key(),
+            &signing_secret_key.public_key(),
+        );
+        let digest = cryptde::create_digest(&public_key, &chain.rec().contract);
+        let pre_shared_data = chain.rec().contract.0;
+        Ok(Box::new(CryptDEReal {
+            public_key,
+            encryption_secret_key,
+            signing_secret_key,
+            digest,
+            pre_shared_data,
+        }))
+    }
+
+    fn to_string(&self) -> String {
+        let encryption_secret_data = self.encryption_secret_key.as_ref().to_vec();
+        let signing_secret_data = self.signing_secret_key.as_ref().to_vec();
+        format!(
+            "{},{}",
+            base64::encode_config(&encryption_secret_data, base64::URL_SAFE_NO_PAD),
+            base64::encode_config(&signing_secret_data, base64::URL_SAFE_NO_PAD)
+        )
+    }
+
     fn as_any(&self) -> &dyn Any {
-        //I don't know about a use of this for cryptDEReal anywhere;
-        //created for a special case of manipulation with cryptDENull where I know I'm not going to meet cryptDEReal there
-        unimplemented!()
+        self
     }
 }
 
@@ -203,6 +269,16 @@ impl CryptDEReal {
             signing_secret_key: s_secret,
             digest,
             pre_shared_data,
+        }
+    }
+
+    pub fn disabled() -> Self {
+        Self {
+            public_key: PublicKey::new(&[0u8; cxsp::PUBLICKEYBYTES + signing::PUBLICKEYBYTES]),
+            encryption_secret_key: encryption::SecretKey([0u8; cxsp::SECRETKEYBYTES]),
+            signing_secret_key: signing::SecretKey([0u8; signing::SECRETKEYBYTES]),
+            digest: [0u8; 32],
+            pre_shared_data: [0u8; 20],
         }
     }
 
@@ -242,6 +318,162 @@ mod tests {
         fn default() -> Self {
             Self::new(TEST_DEFAULT_CHAIN)
         }
+    }
+
+    #[test]
+    fn disabled_works() {
+        let subject = CryptDEReal::disabled();
+
+        assert_eq!(
+            subject.public_key().as_slice(),
+            &[0u8; cxsp::PUBLICKEYBYTES + signing::PUBLICKEYBYTES]
+        );
+        assert_eq!(
+            subject.encryption_secret_key.as_ref(),
+            &[0u8; cxsp::SECRETKEYBYTES]
+        );
+        assert_eq!(
+            subject.signing_secret_key.as_ref(),
+            &[0u8; signing::SECRETKEYBYTES]
+        );
+        assert_eq!(subject.digest, [0u8; 32]);
+        assert_eq!(subject.pre_shared_data, [0u8; 20]);
+    }
+
+    #[test]
+    fn to_string_works() {
+        let subject = CryptDEReal::default();
+        let encryption_secret_data = subject.encryption_secret_key.as_ref().to_vec();
+        let signing_secret_data = subject.signing_secret_key.as_ref().to_vec();
+
+        let actual_string: String = subject.to_string();
+
+        let expected_string = format!(
+            "{},{}",
+            base64::encode_config(&encryption_secret_data, base64::URL_SAFE_NO_PAD),
+            base64::encode_config(&signing_secret_data, base64::URL_SAFE_NO_PAD)
+        );
+        assert_eq!(actual_string, expected_string);
+    }
+
+    #[test]
+    fn make_from_str_can_fail_on_delimiters() {
+        let subject = CryptDEReal::default();
+        let string = ",,,,,"; // invalid
+
+        let result = subject.make_from_str(string, Chain::Dev);
+
+        assert_eq!(
+            result.err().unwrap(),
+            "Serialized CryptDE must have 2 comma-separated parts, not 6".to_string()
+        );
+    }
+
+    const ENCRYPTION_SECRET_KEY_DATA: [u8; 32] = [
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+        25, 26, 27, 28, 29, 30, 31,
+    ];
+    const SIGNING_SECRET_KEY_DATA: [u8; 64] = [
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+        25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47,
+        48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63,
+    ];
+
+    #[test]
+    fn make_from_str_can_fail_on_key_length_for_encryption() {
+        let subject = CryptDEReal::default();
+        let encryption_string = "AgMEBQ"; // invalid
+        let signing_string =
+            base64::encode_config(&SIGNING_SECRET_KEY_DATA, base64::URL_SAFE_NO_PAD);
+        let string = format!("{},{}", encryption_string, signing_string);
+
+        let result = subject.make_from_str(string.as_str(), Chain::Dev);
+
+        assert_eq!(
+            result.err().unwrap(),
+            "Serialized CryptDE must have 32-byte encryption key, not 4".to_string()
+        );
+    }
+
+    #[test]
+    fn make_from_str_can_fail_on_key_length_for_signing() {
+        let subject = CryptDEReal::default();
+        let encryption_string =
+            base64::encode_config(&ENCRYPTION_SECRET_KEY_DATA, base64::URL_SAFE_NO_PAD);
+        let signing_string = "AgMEBQ"; // invalid
+        let string = format!("{},{}", encryption_string, signing_string);
+
+        let result = subject.make_from_str(string.as_str(), Chain::Dev);
+
+        assert_eq!(
+            result.err().unwrap(),
+            "Serialized CryptDE must have 64-byte signing key, not 4".to_string()
+        );
+    }
+
+    #[test]
+    fn make_from_str_can_fail_on_base64_syntax_for_encryption() {
+        let subject = CryptDEReal::default();
+        let signing_string =
+            base64::encode_config(&SIGNING_SECRET_KEY_DATA, base64::URL_SAFE_NO_PAD);
+        let string = format!("{},{}", "/ / / /", signing_string); // invalid
+
+        let result = subject.make_from_str(string.as_str(), Chain::Dev);
+
+        assert_eq!(
+            result.err().unwrap(),
+            "Serialized CryptDE must have valid Base64, not '/ / / /'".to_string()
+        );
+    }
+
+    #[test]
+    fn make_from_str_can_fail_on_base64_syntax_for_signing() {
+        let subject = CryptDEReal::default();
+        let encryption_string =
+            base64::encode_config(&ENCRYPTION_SECRET_KEY_DATA, base64::URL_SAFE_NO_PAD);
+        let string = format!("{},{}", encryption_string, "/ / / /"); // invalid
+
+        let result = subject.make_from_str(string.as_str(), Chain::Dev);
+
+        assert_eq!(
+            result.err().unwrap(),
+            "Serialized CryptDE must have valid Base64, not '/ / / /'".to_string()
+        );
+    }
+
+    #[test]
+    fn make_from_str_can_succeed() {
+        let subject = CryptDEReal::default();
+        let encryption_string =
+            base64::encode_config(&ENCRYPTION_SECRET_KEY_DATA, base64::URL_SAFE_NO_PAD);
+        let signing_string =
+            base64::encode_config(&SIGNING_SECRET_KEY_DATA, base64::URL_SAFE_NO_PAD);
+        let string = format!("{},{}", encryption_string, signing_string);
+
+        let boxed_result = subject
+            .make_from_str(string.as_str(), Chain::BaseSepolia)
+            .unwrap();
+
+        let result = boxed_result
+            .as_ref()
+            .as_any()
+            .downcast_ref::<CryptDEReal>()
+            .unwrap();
+        let expected_encryption_secret_key = encryption::SecretKey(ENCRYPTION_SECRET_KEY_DATA);
+        let expected_signing_secret_key = signing::SecretKey(SIGNING_SECRET_KEY_DATA);
+        let expected_public_key = CryptDEReal::local_public_key_from(
+            &expected_encryption_secret_key.public_key(),
+            &expected_signing_secret_key.public_key(),
+        );
+        let expected_digest =
+            cryptde::create_digest(&expected_public_key, &Chain::BaseSepolia.rec().contract);
+        let expected_pre_shared_data = Chain::BaseSepolia.rec().contract.0;
+
+        assert_eq!(result.encryption_secret_key, expected_encryption_secret_key);
+        assert_eq!(result.signing_secret_key, expected_signing_secret_key);
+        assert_eq!(result.public_key, expected_public_key);
+        assert_eq!(result.digest, expected_digest);
+        assert_eq!(result.pre_shared_data, expected_pre_shared_data);
     }
 
     #[test]

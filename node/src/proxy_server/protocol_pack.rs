@@ -3,9 +3,9 @@ use crate::proxy_server::http_protocol_pack::HttpProtocolPack;
 use crate::proxy_server::tls_protocol_pack::TlsProtocolPack;
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::dispatcher::InboundClientData;
+use crate::sub_lib::host::Host;
 use crate::sub_lib::proxy_server::ProxyProtocol;
 use masq_lib::constants::{HTTP_PORT, TLS_PORT};
-use crate::sub_lib::host::Host;
 
 pub trait ProtocolPack: Send + Sync {
     fn proxy_protocol(&self) -> ProxyProtocol;

@@ -20,7 +20,8 @@ impl ServerImpersonator for ServerImpersonatorHttp {
     }
 
     fn dns_resolution_failure_response(&self, server_name: String) -> Vec<u8> {
-        let (server_name, quoted_server_name) = (server_name.clone(), format!("\"{}\"", server_name));
+        let (server_name, quoted_server_name) =
+            (server_name.clone(), format!("\"{}\"", server_name));
         ServerImpersonatorHttp::make_error_response(
             503,
             "DNS Resolution Problem",

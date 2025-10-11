@@ -3,11 +3,11 @@ use crate::proxy_server::protocol_pack::from_ibcd;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::dispatcher::InboundClientData;
+use crate::sub_lib::host::Host;
 use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use masq_lib::logger::Logger;
-use crate::sub_lib::host::Host;
 
 pub trait ClientRequestPayloadFactory {
     fn make(
@@ -33,7 +33,7 @@ impl ClientRequestPayloadFactory for ClientRequestPayloadFactoryReal {
         logger: &Logger,
     ) -> Option<ClientRequestPayload_0v1> {
         let protocol_pack = from_ibcd(ibcd).map_err(|e| error!(logger, "{}", e)).ok()?;
-        let host_from_ibcd = Box::new (|| {
+        let host_from_ibcd = Box::new(|| {
             let data = PlainData::new(&ibcd.data);
             match protocol_pack.find_host(&data) {
                 Some(host) => Ok(host),
@@ -53,7 +53,7 @@ impl ClientRequestPayloadFactory for ClientRequestPayloadFactoryReal {
                     error!(logger, "{}", e);
                     return None;
                 }
-            }
+            },
         };
         let sequence_number = match ibcd.sequence_number {
             Some(sequence_number) => sequence_number,
@@ -90,14 +90,19 @@ impl ClientRequestPayloadFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bootstrapper::CryptDEPair;
     use crate::sub_lib::proxy_server::ProxyProtocol;
-    use crate::test_utils::main_cryptde;
+    use lazy_static::lazy_static;
     use masq_lib::constants::{HTTP_PORT, TLS_PORT};
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::time::SystemTime;
+
+    lazy_static! {
+        static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
+    }
 
     #[test]
     fn ibcd_hostname_overrides_supplied_hostname() {
@@ -111,12 +116,20 @@ mod tests {
             is_clandestine: false,
             data: data.clone().into(),
         };
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.dup();
         let stream_key = StreamKey::make_meaningless_stream_key();
         let logger = Logger::new("ibcd_hostname_overrides_supplied_hostname");
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
-        let result = subject.make(&ibcd, stream_key, Some(Host::new("ignored.com", 4321)), cryptde, &logger).unwrap();
+        let result = subject
+            .make(
+                &ibcd,
+                stream_key,
+                Some(Host::new("ignored.com", 4321)),
+                cryptde.as_ref(),
+                &logger,
+            )
+            .unwrap();
 
         assert_eq!(result.target_hostname, String::from("borkoed.com"));
         assert_eq!(result.target_port, 1234);
@@ -135,13 +148,21 @@ mod tests {
             is_clandestine: false,
             data: data.into(),
         };
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.dup();
         let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         let logger = Logger::new(test_name);
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
         let supplied_host = Host::new("supplied.com", 4321);
 
-        let result = subject.make(&ibcd, stream_key, Some(supplied_host.clone()), cryptde, &logger).unwrap();
+        let result = subject
+            .make(
+                &ibcd,
+                stream_key,
+                Some(supplied_host.clone()),
+                cryptde.as_ref(),
+                &logger,
+            )
+            .unwrap();
 
         assert_eq!(result.target_hostname, supplied_host.name);
     }
@@ -160,12 +181,12 @@ mod tests {
             is_clandestine: false,
             data: data.into(),
         };
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.dup();
         let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         let logger = Logger::new(test_name);
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
-        let result = subject.make(&ibcd, stream_key, None, cryptde, &logger);
+        let result = subject.make(&ibcd, stream_key, None, cryptde.as_ref(), &logger);
 
         assert_eq!(result, None);
         TestLogHandler::new().exists_log_containing(&format!("ERROR: {test_name}: No hostname information found in either client packet or ProxyServer for protocol HTTP"));
@@ -183,7 +204,7 @@ mod tests {
             is_clandestine: false,
             data: data.clone().into(),
         };
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let stream_key = StreamKey::make_meaningless_stream_key();
         let logger = Logger::new("test");
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
@@ -220,7 +241,7 @@ mod tests {
             is_clandestine: false,
             data: data.clone().into(),
         };
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let logger = Logger::new(test_name);
         let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
@@ -276,7 +297,7 @@ mod tests {
             data: data.clone().into(),
         };
         let stream_key = StreamKey::make_meaningless_stream_key();
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let logger = Logger::new("test");
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
@@ -326,7 +347,7 @@ mod tests {
             sequence_number: Some(0),
             data: data.clone().into(),
         };
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let logger = Logger::new(test_name);
         let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
@@ -350,7 +371,7 @@ mod tests {
             is_clandestine: false,
             data: vec![0x10, 0x11, 0x12],
         };
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let logger = Logger::new(test_name);
         let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
@@ -376,7 +397,7 @@ mod tests {
             is_clandestine: true,
             data: vec![0x10, 0x11, 0x12],
         };
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let logger = Logger::new(test_name);
         let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
@@ -399,7 +420,7 @@ mod tests {
             data: data.into(),
             is_clandestine: false,
         };
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let logger = Logger::new("test");
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
@@ -430,7 +451,7 @@ mod tests {
             sequence_number: None,
             data: data.into(),
         };
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let logger = Logger::new(test_name);
         let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());

@@ -145,7 +145,7 @@ impl<T> ExpiredCoresPackage<T> {
 
 #[derive(Clone)]
 pub struct HopperConfig {
-    pub cryptdes: CryptDEPair,
+    pub cryptde_pair: CryptDEPair,
     pub per_routing_service: u64,
     pub per_routing_byte: u64,
     pub is_decentralized: bool,
@@ -175,11 +175,16 @@ mod tests {
     use crate::sub_lib::route::RouteSegment;
     use crate::sub_lib::stream_key::StreamKey;
     use crate::test_utils::recorder::Recorder;
-    use crate::test_utils::{main_cryptde, make_meaningless_message_type, make_paying_wallet};
+    use crate::test_utils::{make_meaningless_message_type, make_paying_wallet};
     use actix::Actor;
+    use lazy_static::lazy_static;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::net::IpAddr;
     use std::str::FromStr;
+
+    lazy_static! {
+        static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
+    }
 
     #[test]
     fn hopper_subs_debug() {
@@ -198,7 +203,7 @@ mod tests {
 
     #[test]
     fn no_lookup_incipient_cores_package_is_created_correctly() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let public_key = PublicKey::new(&[1, 2]);
         let node_addr = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1, 2, 3, 4]);
         let payload = make_meaningless_message_type(StreamKey::make_meaningless_stream_key());
@@ -222,7 +227,7 @@ mod tests {
 
     #[test]
     fn no_lookup_incipient_cores_package_new_complains_about_problems_encrypting_payload() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let result = NoLookupIncipientCoresPackage::new(
             cryptde,
             &PublicKey::new(&[]),
@@ -239,7 +244,7 @@ mod tests {
 
     #[test]
     fn incipient_cores_package_is_created_correctly() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let paying_wallet = make_paying_wallet(b"wallet");
         let key12 = cryptde.public_key();
         let key34 = PublicKey::new(&[3, 4]);
@@ -270,7 +275,7 @@ mod tests {
 
     #[test]
     fn incipient_cores_package_new_complains_about_problems_encrypting_payload() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let result = IncipientCoresPackage::new(
             cryptde,
             Route { hops: vec![] },
@@ -291,7 +296,7 @@ mod tests {
         let immediate_neighbor = SocketAddr::from_str("1.2.3.4:1234").unwrap();
         let a_key = PublicKey::new(&[65, 65, 65]);
         let b_key = PublicKey::new(&[66, 66, 66]);
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let paying_wallet = make_paying_wallet(b"wallet");
         let route = Route::one_way(
             RouteSegment::new(vec![&a_key, &b_key], Component::Neighborhood),

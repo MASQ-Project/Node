@@ -3,9 +3,9 @@ use crate::proxy_server::protocol_pack::{ProtocolPack, ServerImpersonator};
 use crate::proxy_server::server_impersonator_tls::ServerImpersonatorTls;
 use crate::sub_lib::binary_traverser::BinaryTraverser;
 use crate::sub_lib::cryptde::PlainData;
+use crate::sub_lib::host::Host;
 use crate::sub_lib::proxy_server::ProxyProtocol;
 use masq_lib::constants::TLS_PORT;
-use crate::sub_lib::host::Host;
 
 #[derive(Clone, Copy)]
 pub struct TlsProtocolPack {}

@@ -61,9 +61,7 @@ impl TryFrom<&Value> for ClientRequestPayload_0v1 {
                             "sequenced_packet" => {
                                 sequenced_packet_opt = value_to_type::<SequencedPacket>(v)
                             }
-                            "target_hostname" => {
-                                target_hostname = value_to_type::<String>(v)
-                            }
+                            "target_hostname" => target_hostname = value_to_type::<String>(v),
                             "target_port" => target_port_opt = value_to_type::<u16>(v),
                             "protocol" => protocol_opt = value_to_type::<ProxyProtocol>(v),
                             "originator_public_key" => {
