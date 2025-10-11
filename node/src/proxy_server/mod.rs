@@ -58,8 +58,6 @@ use std::time::{Duration, SystemTime};
 use tokio::prelude::Future;
 
 pub const CRASH_KEY: &str = "PROXYSERVER";
-pub const RETURN_ROUTE_TTL_FIRST_CHANCE: Duration = Duration::from_secs(120);
-pub const RETURN_ROUTE_TTL_STRAGGLERS: Duration = Duration::from_secs(5);
 pub const STREAM_KEY_PURGE_DELAY: Duration = Duration::from_secs(30);
 pub const DNS_FAILURE_RETRIES: usize = 3;
 
@@ -94,11 +92,6 @@ pub struct ProxyServer {
     cryptde_pair: CryptDEPair,
     crashable: bool,
     logger: Logger,
-    // // Holds return-route information for requests that have not yet seen any responses
-    // route_ids_to_return_routes_first_chance: TtlHashMap<u32, AddReturnRouteMessage>,
-    // // Holds return-route information for requests that have seen at least one response and may
-    // // see more in the future. The near future, because this TTL is much shorter.
-    // route_ids_to_return_routes_stragglers: TtlHashMap<u32, AddReturnRouteMessage>,
     browser_proxy_sequence_offset: bool,
     inbound_client_data_helper_opt: Option<Box<dyn IBCDHelper>>,
     stream_key_purge_delay: Duration,
@@ -250,10 +243,13 @@ impl ProxyServer {
         }
     }
 
-    fn stream_info(&self, stream_key: &StreamKey, logger: &Logger) -> Option<&StreamInfo> {
+    fn stream_info(&self, stream_key: &StreamKey) -> Option<&StreamInfo> {
         match self.stream_info.get(stream_key) {
             None => {
-                error!(logger, "Stream key {} not found in stream_info", stream_key);
+                error!(
+                    self.logger,
+                    "Stream key {} not found in stream_info", stream_key
+                );
                 None
             }
             Some(info) => Some(info),
@@ -339,10 +335,9 @@ impl ProxyServer {
     }
 
     fn find_exit_node_key(response_services: &[ExpectedService]) -> Option<PublicKey> {
-        match response_services.first() {
-            Some(ExpectedService::Exit(pk, _, _)) => Some(pk.clone()),
-            _ => None,
-        }
+        response_services
+            .iter()
+            .find_map(|service| service.exit_node_key_opt())
     }
 
     fn handle_add_route_result_message(&mut self, msg: AddRouteResultMessage) {
@@ -431,7 +426,7 @@ impl ProxyServer {
         // circumstances we want to _retire_ the stream key; so we have a restore_stream_info
         // flag that starts out true and is set to false if we retire the stream key. It's an
         // ugly hack. Thanks, Borrow Checker!
-        let mut stream_info = match self.stream_info(&response.stream_key, &self.logger) {
+        let mut stream_info = match self.stream_info(&response.stream_key) {
             Some(info) => (*info).clone(),
             None => {
                 error!(
@@ -1029,7 +1024,7 @@ impl ProxyServer {
         &mut self,
         stream_key: &StreamKey,
     ) -> Option<Vec<ExpectedService>> {
-        match self.stream_info(stream_key, &self.logger) {
+        match self.stream_info(stream_key) {
             None => {
                 error!(self.logger, "Can't pay for return services consumed: received response with unrecognized stream key {:?}. Ignoring", stream_key);
                 None
@@ -1273,7 +1268,7 @@ impl IBCDHelper for IBCDHelperReal {
         );
         let pld = &args.payload;
         let stream_info = proxy_server
-            .stream_info(&pld.stream_key, &proxy_server.logger)
+            .stream_info(&pld.stream_key)
             .unwrap_or_else(|| panic!("Stream key {} disappeared!", &pld.stream_key));
         if let Some(route_query_response) = &stream_info.route_opt {
             debug!(
@@ -1643,9 +1638,8 @@ mod tests {
     #[test]
     fn constants_have_correct_values() {
         assert_eq!(CRASH_KEY, "PROXYSERVER");
-        assert_eq!(RETURN_ROUTE_TTL_FIRST_CHANCE, Duration::from_secs(120));
-        assert_eq!(RETURN_ROUTE_TTL_STRAGGLERS, Duration::from_secs(5));
         assert_eq!(STREAM_KEY_PURGE_DELAY, Duration::from_secs(30));
+        assert_eq!(DNS_FAILURE_RETRIES, 3);
     }
 
     const STANDARD_CONSUMING_WALLET_BALANCE: i64 = 0;
@@ -4654,7 +4648,7 @@ mod tests {
             .try_send(AssertionsMessage {
                 assertions: Box::new(move |proxy_server: &mut ProxyServer| {
                     let retry_opt = &proxy_server
-                        .stream_info(&stream_key_clone, &logger)
+                        .stream_info(&stream_key_clone)
                         .unwrap()
                         .dns_failure_retry_opt;
                     assert!(retry_opt.is_none());
@@ -5421,7 +5415,7 @@ mod tests {
             .try_send(AssertionsMessage {
                 assertions: Box::new(move |proxy_server: &mut ProxyServer| {
                     let retry = proxy_server
-                        .stream_info(&stream_key, &logger)
+                        .stream_info(&stream_key)
                         .unwrap()
                         .dns_failure_retry_opt
                         .as_ref()
@@ -5802,7 +5796,7 @@ mod tests {
             .is_some());
         assert!(subject.stream_info.contains_key(&unaffected_stream_key));
         assert!(subject
-            .stream_info(&unaffected_stream_key, &logger)
+            .stream_info(&unaffected_stream_key)
             .unwrap()
             .tunneled_host_opt
             .is_some());
@@ -6369,7 +6363,7 @@ mod tests {
             .try_send(AssertionsMessage {
                 assertions: Box::new(move |proxy_server: &mut ProxyServer| {
                     let dns_retry = proxy_server
-                        .stream_info(&stream_key, &logger)
+                        .stream_info(&stream_key)
                         .unwrap()
                         .dns_failure_retry_opt
                         .as_ref()
@@ -6444,7 +6438,7 @@ mod tests {
             .try_send(AssertionsMessage {
                 assertions: Box::new(move |proxy_server: &mut ProxyServer| {
                     let dns_retry = proxy_server
-                        .stream_info(&stream_key, &logger)
+                        .stream_info(&stream_key)
                         .unwrap()
                         .dns_failure_retry_opt
                         .as_ref()

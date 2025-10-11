@@ -28,12 +28,14 @@ use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
 use crate::sub_lib::host::Host;
+use crate::sub_lib::neighborhood::ConnectionProgressEvent;
+use crate::sub_lib::neighborhood::ExpectedService::{Exit, Nothing, Routing};
+use crate::sub_lib::neighborhood::ExpectedServices::{OneWay, RoundTrip};
 use crate::sub_lib::neighborhood::RouteQueryResponse;
 use crate::sub_lib::neighborhood::UpdateNodeRecordMetadataMessage;
 use crate::sub_lib::neighborhood::{AskAboutDebutGossipMessage, NodeDescriptor};
 use crate::sub_lib::neighborhood::{ConfigChange, RemoveNeighborMessage};
 use crate::sub_lib::neighborhood::{ConfigChangeMsg, RouteQueryMessage};
-use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ExpectedServices};
 use crate::sub_lib::neighborhood::{ConnectionProgressMessage, ExpectedService};
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
 use crate::sub_lib::neighborhood::{Hops, NeighborhoodMetadata, NodeQueryResponseMetadata};
@@ -998,10 +1000,7 @@ impl Neighborhood {
         .expect("Couldn't create route");
         RouteQueryResponse {
             route,
-            expected_services: ExpectedServices::RoundTrip(
-                vec![ExpectedService::Nothing, ExpectedService::Nothing],
-                vec![ExpectedService::Nothing, ExpectedService::Nothing],
-            ),
+            expected_services: RoundTrip(vec![Nothing, Nothing], vec![Nothing, Nothing]),
             host,
         }
     }
@@ -1077,10 +1076,7 @@ impl Neighborhood {
                 Some(self.chain.rec().contract),
             )
             .expect("Internal error: bad route"),
-            expected_services: ExpectedServices::RoundTrip(
-                expected_request_services,
-                expected_response_services,
-            ),
+            expected_services: RoundTrip(expected_request_services, expected_response_services),
             host,
         })
     }
@@ -1141,20 +1137,20 @@ impl Neighborhood {
         match self.neighborhood_database.node_by_key(route_segment_key) {
             Some(node) => {
                 if route_segment_key == self.neighborhood_database.root().public_key() {
-                    Ok(ExpectedService::Nothing)
+                    Ok(Nothing)
                 } else {
                     match (originator_key, exit_key) {
                         (Some(originator_key), Some(exit_key))
                             if route_segment_key == originator_key
                                 || route_segment_key == exit_key =>
                         {
-                            Ok(ExpectedService::Exit(
+                            Ok(Exit(
                                 route_segment_key.clone(),
                                 node.earning_wallet(),
                                 *node.rate_pack(),
                             ))
                         }
-                        (Some(_), Some(_)) => Ok(ExpectedService::Routing(
+                        (Some(_), Some(_)) => Ok(Routing(
                             route_segment_key.clone(),
                             node.earning_wallet(),
                             *node.rate_pack(),
@@ -2175,6 +2171,7 @@ impl<'a> ComputedRouteSegment<'a> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use actix::Recipient;
     use actix::System;
     use itertools::Itertools;
@@ -2201,7 +2198,6 @@ mod tests {
     use std::time::Duration;
     use std::time::Instant;
     use tokio::prelude::Future;
-    use ExpectedService::Exit;
 
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::neighborhood::gossip::Gossip_0v1;
@@ -2255,8 +2251,6 @@ mod tests {
         ConnectionProgress, ConnectionStage, OverallConnectionStage,
     };
     use crate::sub_lib::host::Host;
-    use crate::sub_lib::neighborhood::ExpectedService::{Nothing, Routing};
-    use crate::sub_lib::neighborhood::ExpectedServices::RoundTrip;
     use crate::test_utils::unshared_test_utils::notify_handlers::NotifyLaterHandleMock;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
@@ -3169,7 +3163,7 @@ mod tests {
     }
 
     #[test]
-    pub fn progress_in_the_stage_of_overall_connection_status_made_by_one_cpm_is_not_overriden_by_the_other(
+    pub fn progress_in_the_stage_of_overall_connection_status_made_by_one_cpm_is_not_overridden_by_the_other(
     ) {
         let peer_1 = make_ip(1);
         let peer_2 = make_ip(2);
@@ -3189,7 +3183,7 @@ mod tests {
                 neighborhood_config,
                 make_wallet("earning"),
                 None,
-                "progress_in_the_stage_of_overall_connection_status_made_by_one_cpm_is_not_overriden_by_the_other"),
+                "progress_in_the_stage_of_overall_connection_status_made_by_one_cpm_is_not_overridden_by_the_other"),
         );
         let (node_to_ui_recipient, _) = make_node_to_ui_recipient();
         subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
@@ -3393,9 +3387,9 @@ mod tests {
                 None,
             )
             .unwrap(),
-            expected_services: ExpectedServices::RoundTrip(
+            expected_services: RoundTrip(
                 vec![
-                    ExpectedService::Nothing,
+                    Nothing,
                     Exit(
                         desirable_exit_node.public_key().clone(),
                         desirable_exit_node.earning_wallet(),
@@ -3408,7 +3402,7 @@ mod tests {
                         desirable_exit_node.earning_wallet(),
                         rate_pack(2345),
                     ),
-                    ExpectedService::Nothing,
+                    Nothing,
                 ],
             ),
             host: Host::new("booga.com", 1234),
@@ -3467,10 +3461,7 @@ mod tests {
                 None,
             )
             .unwrap(),
-            expected_services: ExpectedServices::RoundTrip(
-                vec![ExpectedService::Nothing, ExpectedService::Nothing],
-                vec![ExpectedService::Nothing, ExpectedService::Nothing],
-            ),
+            expected_services: RoundTrip(vec![Nothing, Nothing], vec![Nothing, Nothing]),
             host: Host::new("google.com", 1234),
         };
         assert_eq!(result, expected_response);
@@ -3540,24 +3531,16 @@ mod tests {
                 Some(contract_address),
             )
             .unwrap(),
-            expected_services: ExpectedServices::RoundTrip(
+            expected_services: RoundTrip(
                 vec![
-                    ExpectedService::Nothing,
-                    ExpectedService::Routing(
-                        q.public_key().clone(),
-                        q.earning_wallet(),
-                        rate_pack(3456),
-                    ),
+                    Nothing,
+                    Routing(q.public_key().clone(), q.earning_wallet(), rate_pack(3456)),
                     Exit(r.public_key().clone(), r.earning_wallet(), rate_pack(4567)),
                 ],
                 vec![
                     Exit(r.public_key().clone(), r.earning_wallet(), rate_pack(4567)),
-                    ExpectedService::Routing(
-                        q.public_key().clone(),
-                        q.earning_wallet(),
-                        rate_pack(3456),
-                    ),
-                    ExpectedService::Nothing,
+                    Routing(q.public_key().clone(), q.earning_wallet(), rate_pack(3456)),
+                    Nothing,
                 ],
             ),
             host: Host::new("booga.com", 1234),
@@ -7199,11 +7182,11 @@ mod tests {
             .unwrap();
 
         let (over, back) = match response.expected_services {
-            ExpectedServices::OneWay(_) => panic!("Expecting RoundTrip"),
-            ExpectedServices::RoundTrip(o, b) => (o[1].clone(), b[1].clone()),
+            OneWay(_) => panic!("Expecting RoundTrip"),
+            RoundTrip(o, b) => (o[1].clone(), b[1].clone()),
         };
         let extract_key = |es: ExpectedService| match es {
-            ExpectedService::Routing(pk, _, _) => pk,
+            Routing(pk, _, _) => pk,
             x => panic!("Expecting Routing, found {:?}", x),
         };
         let expected_relay_key = if a_not_b { a.clone() } else { b.clone() };
