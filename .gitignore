@@ -4,6 +4,7 @@
 **/*.rs.bk
 .idea/azure/
 .idea/inspectionProfiles/Project_Default.xml
+.idea/copilot*
 
 ### Node
 node_modules
