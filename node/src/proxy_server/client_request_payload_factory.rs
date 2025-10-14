@@ -55,7 +55,7 @@ impl ClientRequestPayloadFactory for ClientRequestPayloadFactoryReal {
                 }
             },
         };
-        let sequence_number = match ibcd.sequence_number {
+        let sequence_number = match ibcd.sequence_number_opt {
             Some(sequence_number) => sequence_number,
             None => {
                 error!(
@@ -111,7 +111,7 @@ mod tests {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port_opt: Some(HTTP_PORT),
-            sequence_number: Some(1),
+            sequence_number_opt: Some(1),
             last_data: false,
             is_clandestine: false,
             data: data.clone().into(),
@@ -143,7 +143,7 @@ mod tests {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port_opt: Some(HTTP_PORT),
-            sequence_number: Some(1),
+            sequence_number_opt: Some(1),
             last_data: false,
             is_clandestine: false,
             data: data.into(),
@@ -176,7 +176,7 @@ mod tests {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port_opt: Some(HTTP_PORT),
-            sequence_number: Some(1),
+            sequence_number_opt: Some(1),
             last_data: false,
             is_clandestine: false,
             data: data.into(),
@@ -199,7 +199,7 @@ mod tests {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port_opt: Some(HTTP_PORT),
-            sequence_number: Some(1),
+            sequence_number_opt: Some(1),
             last_data: false,
             is_clandestine: false,
             data: data.clone().into(),
@@ -236,7 +236,7 @@ mod tests {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port_opt: Some(HTTP_PORT),
-            sequence_number: Some(1),
+            sequence_number_opt: Some(1),
             last_data: false,
             is_clandestine: false,
             data: data.clone().into(),
@@ -290,7 +290,7 @@ mod tests {
         let ibcd = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             reception_port_opt: Some(443),
             last_data: false,
             is_clandestine: false,
@@ -344,7 +344,7 @@ mod tests {
             reception_port_opt: Some(443),
             last_data: true,
             is_clandestine: false,
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             data: data.clone().into(),
         };
         let cryptde = CRYPTDE_PAIR.main.as_ref();
@@ -365,7 +365,7 @@ mod tests {
         let ibcd = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             reception_port_opt: None,
             last_data: false,
             is_clandestine: false,
@@ -392,7 +392,7 @@ mod tests {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port_opt: Some(1234),
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             last_data: false,
             is_clandestine: true,
             data: vec![0x10, 0x11, 0x12],
@@ -415,7 +415,7 @@ mod tests {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:80").unwrap(),
             reception_port_opt: Some(HTTP_PORT),
-            sequence_number: Some(1),
+            sequence_number_opt: Some(1),
             last_data: false,
             data: data.into(),
             is_clandestine: false,
@@ -448,7 +448,7 @@ mod tests {
             reception_port_opt: Some(HTTP_PORT),
             last_data: false,
             is_clandestine: false,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: data.into(),
         };
         let cryptde = CRYPTDE_PAIR.main.as_ref();

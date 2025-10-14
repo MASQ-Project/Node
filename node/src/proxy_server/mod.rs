@@ -317,7 +317,7 @@ impl ProxyServer {
             .try_send(TransmitDataMsg {
                 endpoint: Endpoint::Socket(client_addr),
                 last_data: true,
-                sequence_number: Some(0), // DNS resolution errors always happen on the first request
+                sequence_number_opt: Some(0), // DNS resolution errors always happen on the first request
                 data: from_protocol(proxy_protocol)
                     .server_impersonator()
                     .dns_resolution_failure_response(hostname),
@@ -641,7 +641,7 @@ impl ProxyServer {
                         .try_send(TransmitDataMsg {
                             endpoint: Endpoint::Socket(socket_addr),
                             last_data,
-                            sequence_number,
+                            sequence_number_opt: Some(response.sequenced_packet.sequence_number),
                             data: response.sequenced_packet.data,
                         })
                         .expect("Dispatcher is dead");
@@ -683,7 +683,7 @@ impl ProxyServer {
                     .try_send(TransmitDataMsg {
                         endpoint: Endpoint::Socket(msg.client_addr),
                         last_data: false,
-                        sequence_number: msg.sequence_number,
+                        sequence_number_opt: msg.sequence_number_opt,
                         data: b"HTTP/1.1 200 OK\r\n\r\n".to_vec(),
                     })
                     .expect("Dispatcher is dead");
@@ -696,7 +696,7 @@ impl ProxyServer {
                     .try_send(TransmitDataMsg {
                         endpoint: Endpoint::Socket(msg.client_addr),
                         last_data: true,
-                        sequence_number: msg.sequence_number,
+                        sequence_number_opt: msg.sequence_number_opt,
                         data: b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n".to_vec(),
                     })
                     .expect("Dispatcher is dead");
@@ -740,7 +740,7 @@ impl ProxyServer {
                 reception_port_opt: Some(nca.reception_port),
                 last_data: true,
                 is_clandestine: false,
-                sequence_number: Some(nca.sequence_number),
+                sequence_number_opt: Some(nca.sequence_number),
                 data: vec![],
             };
             if let Err(e) =
@@ -1014,7 +1014,7 @@ impl ProxyServer {
         let msg = TransmitDataMsg {
             endpoint: Endpoint::Socket(source_addr),
             last_data: true,
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             data,
         };
         dispatcher.try_send(msg).expect("Dispatcher is dead");
@@ -1215,7 +1215,7 @@ impl IBCDHelper for IBCDHelperReal {
             let msg = TransmitDataMsg {
                 endpoint: Endpoint::Socket(client_addr),
                 last_data: true,
-                sequence_number: Some(0),
+                sequence_number_opt: Some(0),
                 data,
             };
             proxy_server
@@ -1852,7 +1852,7 @@ mod tests {
             timestamp: SystemTime::now(),
             client_addr: socket_addr,
             reception_port_opt: Some(HTTP_PORT),
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             last_data: true,
             is_clandestine: false,
             data: expected_data.clone(),
@@ -1967,7 +1967,7 @@ mod tests {
             timestamp: SystemTime::now(),
             client_addr: socket_addr.clone(),
             reception_port_opt: Some(8443),
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             last_data: false,
             is_clandestine: false,
             data: request_data.clone(),
@@ -1976,7 +1976,7 @@ mod tests {
             timestamp: SystemTime::now(),
             client_addr: socket_addr,
             reception_port_opt: Some(8443),
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             last_data: false,
             is_clandestine: false,
             data: tunneled_data.clone(),
@@ -1984,7 +1984,7 @@ mod tests {
         let expected_tdm = TransmitDataMsg {
             endpoint: Endpoint::Socket(socket_addr),
             last_data: false,
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             data: b"HTTP/1.1 200 OK\r\n\r\n".to_vec(),
         };
         let expected_payload = ClientRequestPayload_0v1 {
@@ -2112,7 +2112,7 @@ mod tests {
             reception_port_opt: Some(443),
             last_data: false,
             is_clandestine: false,
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             data: request_data,
         };
 
@@ -2148,7 +2148,7 @@ mod tests {
         let dispatcher_recording = dispatcher_log_arc.lock().unwrap();
         let record = dispatcher_recording.get_record::<TransmitDataMsg>(1);
 
-        assert_eq!(record.sequence_number.unwrap(), 1);
+        assert_eq!(record.sequence_number_opt.unwrap(), 1);
     }
 
     #[test]
@@ -2171,7 +2171,7 @@ mod tests {
             timestamp: SystemTime::now(),
             client_addr: socket_addr.clone(),
             reception_port_opt: Some(8443),
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             last_data: false,
             is_clandestine: false,
             data: request_data.clone(),
@@ -2212,7 +2212,7 @@ mod tests {
         let expected_transmit_data_msg = TransmitDataMsg {
             endpoint: Endpoint::Socket(socket_addr),
             last_data: true,
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             data: b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n".to_vec(),
         };
 
@@ -2242,7 +2242,7 @@ mod tests {
             timestamp: SystemTime::now(),
             client_addr: socket_addr.clone(),
             reception_port_opt: Some(8443),
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             last_data: false,
             is_clandestine: false,
             data: request_data.clone(),
@@ -2283,7 +2283,7 @@ mod tests {
         let expected_transmit_data_msg = TransmitDataMsg {
             endpoint: Endpoint::Socket(socket_addr),
             last_data: true,
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             data: b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n".to_vec(),
         };
 
@@ -2308,7 +2308,7 @@ mod tests {
             timestamp: SystemTime::now(),
             client_addr: socket_addr.clone(),
             reception_port_opt: Some(HTTP_PORT),
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             last_data: true,
             is_clandestine: false,
             data: expected_data.clone(),
@@ -2342,7 +2342,7 @@ mod tests {
             &TransmitDataMsg {
                 endpoint: Endpoint::Socket(socket_addr),
                 last_data: true,
-                sequence_number: Some(0),
+                sequence_number_opt: Some(0),
                 data: server_impersonator.consuming_wallet_absent(),
             }
         );
@@ -2366,7 +2366,7 @@ mod tests {
             timestamp: SystemTime::now(),
             client_addr: socket_addr.clone(),
             reception_port_opt: Some(TLS_PORT),
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             last_data: true,
             is_clandestine: false,
             data: expected_data.clone(),
@@ -2400,7 +2400,7 @@ mod tests {
             &TransmitDataMsg {
                 endpoint: Endpoint::Socket(socket_addr),
                 last_data: true,
-                sequence_number: Some(0),
+                sequence_number_opt: Some(0),
                 data: server_impersonator.consuming_wallet_absent(),
             }
         );
@@ -2430,7 +2430,7 @@ mod tests {
                 timestamp: SystemTime::now(),
                 client_addr: socket_addr.clone(),
                 reception_port_opt: Some(HTTP_PORT),
-                sequence_number: Some(0),
+                sequence_number_opt: Some(0),
                 last_data: true,
                 is_clandestine: false,
                 data: expected_data_inner,
@@ -2514,7 +2514,7 @@ mod tests {
                 timestamp: SystemTime::now(),
                 client_addr: socket_addr.clone(),
                 reception_port_opt: Some(TLS_PORT),
-                sequence_number: Some(0),
+                sequence_number_opt: Some(0),
                 last_data: true,
                 is_clandestine: false,
                 data: expected_data_inner,
@@ -2594,7 +2594,7 @@ mod tests {
             timestamp: SystemTime::now(),
             client_addr: socket_addr.clone(),
             reception_port_opt: Some(HTTP_PORT),
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             last_data: true,
             is_clandestine: false,
             data: expected_data.clone(),
@@ -2715,7 +2715,7 @@ mod tests {
             timestamp: SystemTime::now(),
             client_addr: socket_addr.clone(),
             reception_port_opt: Some(HTTP_PORT),
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             last_data: true,
             is_clandestine: false,
             data: expected_data.clone(),
@@ -2805,7 +2805,7 @@ mod tests {
             timestamp: SystemTime::now(),
             client_addr: socket_addr.clone(),
             reception_port_opt: Some(HTTP_PORT),
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             last_data: true,
             is_clandestine: false,
             data: expected_data.clone(),
@@ -2865,7 +2865,7 @@ mod tests {
             timestamp: SystemTime::now(),
             client_addr: socket_addr.clone(),
             reception_port_opt: Some(HTTP_PORT),
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             last_data: true,
             is_clandestine: false,
             data: expected_data.clone(),
@@ -2917,7 +2917,7 @@ mod tests {
             timestamp: SystemTime::now(),
             client_addr: socket_addr.clone(),
             reception_port_opt: Some(HTTP_PORT),
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             last_data: true,
             is_clandestine: false,
             data: expected_data.clone(),
@@ -2969,7 +2969,7 @@ mod tests {
             timestamp: SystemTime::now(),
             client_addr: socket_addr,
             reception_port_opt: Some(HTTP_PORT),
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             last_data: true,
             is_clandestine: false,
             data: expected_data.clone(),
@@ -3299,7 +3299,7 @@ mod tests {
             timestamp: SystemTime::now(),
             client_addr: socket_addr.clone(),
             reception_port_opt: Some(HTTP_PORT),
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             last_data: true,
             is_clandestine: false,
             data: expected_data.clone(),
@@ -3426,7 +3426,7 @@ mod tests {
             timestamp: SystemTime::now(),
             client_addr: socket_addr.clone(),
             reception_port_opt: Some(HTTP_PORT),
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             last_data: true,
             data: expected_data.clone(),
             is_clandestine: false,
@@ -3462,7 +3462,7 @@ mod tests {
         let expected_msg = TransmitDataMsg {
             endpoint: Endpoint::Socket(SocketAddr::from_str("1.2.3.4:5678").unwrap()),
             last_data: true,
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             data: ServerImpersonatorHttp {}.route_query_failure_response("nowhere.com"),
         };
         assert_eq!(record, &expected_msg);
@@ -3597,7 +3597,7 @@ mod tests {
             timestamp: SystemTime::now(),
             client_addr: socket_addr.clone(),
             reception_port_opt: Some(HTTP_PORT),
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             last_data: true,
             data: expected_data.clone(),
             is_clandestine: false,
@@ -3634,7 +3634,7 @@ mod tests {
         let expected_msg = TransmitDataMsg {
             endpoint: Endpoint::Socket(SocketAddr::from_str("1.2.3.4:5678").unwrap()),
             last_data: true,
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             data: ServerImpersonatorHttp {}.route_query_failure_response("nowhere.com"),
         };
         assert_eq!(record, &expected_msg);
@@ -3676,7 +3676,7 @@ mod tests {
             timestamp: SystemTime::now(),
             client_addr: socket_addr.clone(),
             reception_port_opt: Some(TLS_PORT),
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             last_data: false,
             is_clandestine: false,
             data: expected_data.clone(),
@@ -3761,7 +3761,7 @@ mod tests {
             timestamp: SystemTime::now(),
             client_addr: socket_addr.clone(),
             reception_port_opt: Some(TLS_PORT),
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             last_data: false,
             is_clandestine: false,
             data: expected_data.clone(),
@@ -3860,7 +3860,7 @@ mod tests {
             timestamp: SystemTime::now(),
             client_addr,
             reception_port_opt: Some(TLS_PORT),
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             last_data: true,
             is_clandestine: false,
             data: expected_data.clone(),
@@ -3963,7 +3963,7 @@ mod tests {
             timestamp: SystemTime::now(),
             client_addr: socket_addr.clone(),
             reception_port_opt: Some(TLS_PORT),
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             last_data: true,
             data: tls_request,
             is_clandestine: false,
@@ -3997,7 +3997,7 @@ mod tests {
         let expected_msg = TransmitDataMsg {
             endpoint: Endpoint::Socket(SocketAddr::from_str("1.2.3.4:5678").unwrap()),
             last_data: true,
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             data: ServerImpersonatorTls {}.route_query_failure_response("ignored"),
         };
         assert_eq!(record, &expected_msg);
@@ -4833,7 +4833,7 @@ mod tests {
             TransmitDataMsg {
                 endpoint: Endpoint::Socket(socket_addr),
                 last_data: true,
-                sequence_number: Some(0),
+                sequence_number_opt: Some(0),
                 data: ServerImpersonatorHttp {}
                     .dns_resolution_failure_response("server.com".to_string()),
             },
@@ -5322,7 +5322,7 @@ mod tests {
             TransmitDataMsg {
                 endpoint: Endpoint::Socket(socket_addr),
                 last_data: true,
-                sequence_number: Some(0),
+                sequence_number_opt: Some(0),
                 data: ServerImpersonatorHttp {}
                     .dns_resolution_failure_response("server.com".to_string()),
             },
@@ -5695,7 +5695,7 @@ mod tests {
             timestamp: SystemTime::now(),
             client_addr: socket_addr.clone(),
             reception_port_opt: Some(80),
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             last_data: false,
             is_clandestine: false,
             data: expected_data.clone(),
@@ -5761,7 +5761,6 @@ mod tests {
     #[test]
     fn handle_stream_shutdown_msg_handles_unknown_peer_addr() {
         let test_name = "handle_stream_shutdown_msg_handles_unknown_peer_addr";
-        let logger = Logger::new(test_name);
         let mut subject = ProxyServer::new(CRYPTDE_PAIR.clone(), true, None, false, false);
         let unaffected_socket_addr = SocketAddr::from_str("2.3.4.5:6789").unwrap();
         let unaffected_stream_key = StreamKey::make_meaningful_stream_key("unaffected");
@@ -6149,7 +6148,7 @@ mod tests {
             reception_port_opt: None,
             last_data: true,
             is_clandestine: false,
-            sequence_number: Some(123),
+            sequence_number_opt: Some(123),
             data: vec![],
         };
 
@@ -6287,7 +6286,7 @@ mod tests {
             reception_port_opt: Some(568),
             last_data: true,
             is_clandestine: false,
-            sequence_number: Some(123),
+            sequence_number_opt: Some(123),
             data: vec![],
         };
 
@@ -6306,7 +6305,6 @@ mod tests {
     #[test]
     fn new_http_request_creates_new_entry_inside_dns_retries_hashmap() {
         let test_name = "new_http_request_creates_new_entry_inside_dns_retries_hashmap";
-        let logger = Logger::new(test_name);
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
         let (neighborhood_mock, _, _) = make_recorder();
         let destination_key = PublicKey::from(&b"our destination"[..]);
@@ -6325,7 +6323,7 @@ mod tests {
             timestamp: SystemTime::now(),
             client_addr: socket_addr.clone(),
             reception_port_opt: Some(HTTP_PORT),
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             last_data: true,
             is_clandestine: false,
             data: expected_data.clone(),
@@ -6381,7 +6379,6 @@ mod tests {
     fn new_http_request_creates_new_exhausted_entry_inside_dns_retries_hashmap_zero_hop() {
         let test_name =
             "new_http_request_creates_new_exhausted_entry_inside_dns_retries_hashmap_zero_hop";
-        let logger = Logger::new(test_name);
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
         let (neighborhood_mock, _, _) = make_recorder();
         let destination_key = PublicKey::from(&b"our destination"[..]);
@@ -6400,7 +6397,7 @@ mod tests {
             timestamp: SystemTime::now(),
             client_addr: socket_addr.clone(),
             reception_port_opt: Some(HTTP_PORT),
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             last_data: true,
             is_clandestine: false,
             data: expected_data.clone(),
@@ -6535,7 +6532,7 @@ mod tests {
             reception_port_opt: Some(80),
             last_data: true,
             is_clandestine: false,
-            sequence_number: Some(123),
+            sequence_number_opt: Some(123),
             data: expected_data,
         };
 
@@ -6570,7 +6567,7 @@ mod tests {
                 reception_port_opt: Some(HTTP_PORT),
                 last_data: false,
                 is_clandestine: false,
-                sequence_number: Some(123),
+                sequence_number_opt: Some(123),
                 data: vec![],
             },
             &stream_key,
@@ -6613,7 +6610,7 @@ mod tests {
                 reception_port_opt: Some(HTTP_PORT),
                 last_data: false,
                 is_clandestine: false,
-                sequence_number: Some(123),
+                sequence_number_opt: Some(123),
                 data: vec![],
             },
             &stream_key,
@@ -6666,7 +6663,7 @@ mod tests {
             reception_port_opt: Some(2222),
             last_data: true,
             is_clandestine: false,
-            sequence_number: Some(333),
+            sequence_number_opt: Some(333),
             data: b"GET /index.html HTTP/1.1\r\nHost: header.com:3333\r\n\r\n".to_vec(),
         };
 
@@ -6690,7 +6687,7 @@ mod tests {
             reception_port_opt: Some(2222),
             last_data: true,
             is_clandestine: false,
-            sequence_number: Some(333),
+            sequence_number_opt: Some(333),
             data: b"GET /index.html HTTP/1.1\r\nHost: header.com:4444\r\n\r\n".to_vec(),
         };
 

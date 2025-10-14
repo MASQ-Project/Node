@@ -119,7 +119,7 @@ pub struct InboundClientData {
     pub reception_port_opt: Option<u16>,
     pub last_data: bool,
     pub is_clandestine: bool,
-    pub sequence_number: Option<u64>,
+    pub sequence_number_opt: Option<u64>,
     pub data: Vec<u8>,
 }
 
@@ -130,7 +130,7 @@ impl Debug for InboundClientData {
             Err(_) => self.data.hex_dump().to_string(),
         };
         write!(f, "InboundClientData {{ peer_addr: {:?}, reception_port: {:?}, last_data: {}, sequence_number: {:?}, {} bytes of data: {} }}",
-               self.client_addr, self.reception_port_opt, self.last_data, self.sequence_number, self.data.len(), data_string)
+               self.client_addr, self.reception_port_opt, self.last_data, self.sequence_number_opt, self.data.len(), data_string)
     }
 }
 
@@ -142,7 +142,7 @@ impl InboundClientData {
             reception_port_opt: self.reception_port_opt,
             last_data: self.last_data,
             is_clandestine: self.is_clandestine,
-            sequence_number: self.sequence_number,
+            sequence_number_opt: self.sequence_number_opt,
             data: vec![],
         }
     }
@@ -277,7 +277,7 @@ mod tests {
             reception_port_opt: None,
             last_data: false,
             is_clandestine: false,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: b"CONNECT server.example.com:80 HTTP/1.1\r\nHost: server.example.com:80\r\nProxy-Authorization: basic aGVsbG86d29ybGQ=\r\n\r\n".to_vec(),
         };
 
@@ -292,7 +292,7 @@ mod tests {
             reception_port_opt: None,
             last_data: false,
             is_clandestine: false,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: b"GET server.example.com:80 HTTP/1.1\r\nHost: server.example.com:80\r\nProxy-Authorization: basic aGVsbG86d29ybGQ=\r\n\r\n".to_vec(),
         };
 
@@ -307,7 +307,7 @@ mod tests {
             reception_port_opt: None,
             last_data: false,
             is_clandestine: false,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: b"CONNECTX".to_vec(),
         };
 

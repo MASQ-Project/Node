@@ -1268,10 +1268,6 @@ impl Neighborhood {
             UndesirabilityType::Relay => {
                 node_record.inner.rate_pack.routing_charge(payload_size) as i64
             }
-            UndesirabilityType::ExitRequest("booga.com") => {
-                node_record.inner.rate_pack.exit_charge(payload_size) as i64
-                    + node_record.metadata.country_undesirability as i64
-            }
             UndesirabilityType::ExitRequest(hostname) => {
                 let exit_undesirability =
                     node_record.inner.rate_pack.exit_charge(payload_size) as i64;
@@ -2210,7 +2206,7 @@ mod tests {
     use crate::sub_lib::hop::LiveHop;
     use crate::sub_lib::hopper::MessageType;
     use crate::sub_lib::neighborhood::{
-        AskAboutDebutGossipMessage, ConfigChange, ConfigChangeMsg, ExpectedServices,
+        AskAboutDebutGossipMessage, ConfigChange, ConfigChangeMsg,
         NeighborhoodMode, WalletPair,
     };
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, DEFAULT_RATE_PACK};
@@ -2240,8 +2236,6 @@ mod tests {
         prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
     };
     use crate::test_utils::vec_to_set;
-
-    use super::*;
     use crate::accountant::test_utils::bc_from_earning_wallet;
     use crate::bootstrapper::CryptDEPair;
     use crate::neighborhood::overall_connection_status::ConnectionStageErrors::{
@@ -6624,7 +6618,7 @@ mod tests {
                 context: TransmitDataMsg {
                     endpoint: Endpoint::Key(cryptde.public_key().clone()),
                     last_data: false,
-                    sequence_number: None,
+                    sequence_number_opt: None,
                     data: Vec::new(),
                 },
                 recipient,
@@ -6687,7 +6681,7 @@ mod tests {
                 context: TransmitDataMsg {
                     endpoint: Endpoint::Key(cryptde.public_key().clone()),
                     last_data: false,
-                    sequence_number: None,
+                    sequence_number_opt: None,
                     data: Vec::new(),
                 },
                 recipient,
@@ -6716,7 +6710,7 @@ mod tests {
         let context = TransmitDataMsg {
             endpoint: Endpoint::Key(cryptde.public_key().clone()),
             last_data: false,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: Vec::new(),
         };
         let context_a = context.clone();
@@ -6816,7 +6810,7 @@ mod tests {
                 context: TransmitDataMsg {
                     endpoint: Endpoint::Key(cryptde.public_key().clone()),
                     last_data: false,
-                    sequence_number: None,
+                    sequence_number_opt: None,
                     data: Vec::new(),
                 },
                 recipient,
@@ -6844,7 +6838,7 @@ mod tests {
         let context = TransmitDataMsg {
             endpoint: Endpoint::Key(cryptde.public_key().clone()),
             last_data: false,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: Vec::new(),
         };
         let context_a = context.clone();
