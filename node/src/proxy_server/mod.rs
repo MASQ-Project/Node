@@ -341,6 +341,10 @@ impl ProxyServer {
     }
 
     fn handle_add_route_result_message(&mut self, msg: AddRouteResultMessage) {
+        // We can't access self.logger for logging once we obtain mutable access to a stream_info
+        // element. So we create a delayed_log closure that we can call with self.logger after
+        // we've finished with the mutable borrow.  We have to use #[allow(unused_assignments)]
+        // because Rust can't figure out that delayed_log will always be assigned before it's used.
         type DelayedLogArgs = Box<dyn FnOnce(&Logger, String, StreamKey, usize, String)>;
         #[allow(unused_assignments)]
         let mut delayed_log: DelayedLogArgs = Box::new(|_, _, _, _, _| {});
@@ -538,6 +542,9 @@ impl ProxyServer {
 
     fn schedule_stream_key_purge(&mut self, stream_key: StreamKey) {
         let stream_key_purge_delay = self.stream_key_purge_delay;
+        // We can't access self.logger for logging once we obtain mutable access to a stream_info
+        // element. So we create a delayed_log closure that we can call with self.logger after
+        // we've finished with the mutable borrow.
         let mut delayed_log: Box<dyn FnOnce(&Logger)> = Box::new(|_: &Logger| {});
         if let Some(stream_info) = self.stream_info_mut(&stream_key) {
             let host_info = match &stream_info.tunneled_host_opt {
@@ -606,62 +613,55 @@ impl ProxyServer {
             payload_data_len,
         );
         let stream_key = response.stream_key;
-        let old_timestamp_opt = match self.stream_info_mut(&stream_key) {
-            Some(info) => {
-                let time_to_live_opt = info.time_to_live_opt;
-                // This call to remove_dns_failure_retry is here only because it needs access to
-                // a mutable StreamInfo, and we have one handy here. It has nothing to do with
-                // timestamps.
-                if let Err(e) = ProxyServer::remove_dns_failure_retry(info, &stream_key) {
-                    trace!(
-                        self.logger,
-                        "No DNS retry entry found for stream key {} during a successful attempt: {}",
-                        &stream_key, e
-                    );
-                }
-                time_to_live_opt
+        if let Some(info) = self.stream_info_mut(&stream_key) {
+            if let Err(e) = ProxyServer::remove_dns_failure_retry(info, &stream_key) {
+                trace!(
+                    self.logger,
+                    "No DNS retry entry found for stream key {} during a successful attempt: {}",
+                    &stream_key, e
+                );
             }
-            None => None,
-        };
-        if let Some(old_timestamp) = old_timestamp_opt {
-            self.log_straggling_packet(&stream_key, payload_data_len, &old_timestamp)
-            // TODO: Make sure we actually do something (other than logging) about stragglers.
-        } else {
-            match self.keys_and_addrs.a_to_b(&stream_key) {
-                Some(socket_addr) => {
-                    let last_data = response.sequenced_packet.last_data;
-                    let sequence_number = Some(
-                        response.sequenced_packet.sequence_number
-                            + self.browser_proxy_sequence_offset as u64,
-                    );
-                    self.subs
-                        .as_ref()
-                        .expect("Dispatcher unbound in ProxyServer")
-                        .dispatcher
-                        .try_send(TransmitDataMsg {
-                            endpoint: Endpoint::Socket(socket_addr),
-                            last_data,
-                            sequence_number_opt: Some(response.sequenced_packet.sequence_number),
-                            data: response.sequenced_packet.data,
-                        })
-                        .expect("Dispatcher is dead");
-                    if last_data {
-                        self.purge_stream_key(&stream_key, "last data received from the exit node");
+        }
+        if let Some(info) = self.stream_info(&stream_key) {
+            if let Some(old_timestamp) = info.time_to_live_opt {
+                self.log_straggling_packet(&stream_key, payload_data_len, &old_timestamp)
+            } else {
+                match self.keys_and_addrs.a_to_b(&stream_key) {
+                    Some(socket_addr) => {
+                        let last_data = response.sequenced_packet.last_data;
+                        let sequence_number_opt = Some(
+                            response.sequenced_packet.sequence_number
+                                + self.browser_proxy_sequence_offset as u64,
+                        );
+                        self.subs
+                            .as_ref()
+                            .expect("Dispatcher unbound in ProxyServer")
+                            .dispatcher
+                            .try_send(TransmitDataMsg {
+                                endpoint: Endpoint::Socket(socket_addr),
+                                last_data,
+                                sequence_number_opt,
+                                data: response.sequenced_packet.data,
+                            })
+                            .expect("Dispatcher is dead");
+                        if last_data {
+                            self.purge_stream_key(&stream_key, "last data received from the exit node");
+                        }
                     }
-                }
-                None => {
-                    // TODO GH-608: It would be really nice to be able to send an InboundClientData with last_data: true
-                    // back to the ProxyClient (and the distant server) so that the server could shut down
-                    // its stream, since the browser has shut down _its_ stream and no more data will
-                    // ever be accepted from the server on that stream; but we don't have enough information
-                    // to do so, since our stream key has been purged and all the information it keyed
-                    // is gone. Sorry, server!
-                    warning!(self.logger,
-                        "Discarding {}-byte packet {} from an unrecognized stream key: {:?}; can't send response back to client",
-                        response.sequenced_packet.data.len(),
-                        response.sequenced_packet.sequence_number,
-                        response.stream_key,
-                    )
+                    None => {
+                        // TODO GH-608: It would be really nice to be able to send an InboundClientData with last_data: true
+                        // back to the ProxyClient (and the distant server) so that the server could shut down
+                        // its stream, since the browser has shut down _its_ stream and no more data will
+                        // ever be accepted from the server on that stream; but we don't have enough information
+                        // to do so, since our stream key has been purged and all the information it keyed
+                        // is gone. Sorry, server!
+                        warning!(self.logger,
+                            "Discarding {}-byte packet {} from an unrecognized stream key: {:?}; can't send response back to client",
+                            response.sequenced_packet.data.len(),
+                            response.sequenced_packet.sequence_number,
+                            response.stream_key,
+                        )
+                    }
                 }
             }
         }
@@ -2099,7 +2099,7 @@ mod tests {
                         vec![],
                         vec![ExpectedService::Nothing],
                     ),
-                    host: Host::new("booga.com", HTTP_PORT),
+                    host: Host::new("booga.com", TLS_PORT),
                 })
                 .build(),
         );
@@ -2109,7 +2109,7 @@ mod tests {
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: socket_addr,
-            reception_port_opt: Some(443),
+            reception_port_opt: Some(TLS_PORT),
             last_data: false,
             is_clandestine: false,
             sequence_number_opt: Some(0),
@@ -2146,8 +2146,9 @@ mod tests {
         system.run();
 
         let dispatcher_recording = dispatcher_log_arc.lock().unwrap();
+        let record = dispatcher_recording.get_record::<TransmitDataMsg>(0);
+        assert_eq!(record.sequence_number_opt.unwrap(), 0);
         let record = dispatcher_recording.get_record::<TransmitDataMsg>(1);
-
         assert_eq!(record.sequence_number_opt.unwrap(), 1);
     }
 
