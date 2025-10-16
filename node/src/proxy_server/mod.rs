@@ -430,8 +430,8 @@ impl ProxyServer {
         // circumstances we want to _retire_ the stream key; so we have a restore_stream_info
         // flag that starts out true and is set to false if we retire the stream key. It's an
         // ugly hack. Thanks, Borrow Checker!
-        let mut stream_info = match self.stream_info(&response.stream_key) {
-            Some(info) => (*info).clone(),
+        let mut stream_info = match self.stream_info.remove(&response.stream_key) {
+            Some(info) => info,
             None => {
                 error!(
                     self.logger,
