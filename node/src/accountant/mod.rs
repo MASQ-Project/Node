@@ -1319,6 +1319,7 @@ mod tests {
     use crate::accountant::scanners::pending_payable_scanner::utils::TxByTable;
     use crate::accountant::scanners::scan_schedulers::{
         NewPayableScanIntervalComputer, NewPayableScanIntervalComputerReal, ScanTiming,
+        DEFAULT_RETRY_INTERVAL,
     };
     use crate::accountant::scanners::test_utils::{
         MarkScanner, NewPayableScanIntervalComputerMock, PendingPayableCacheMock, ReplacementType,
@@ -2044,8 +2045,8 @@ mod tests {
         let system = System::new("test");
         subject.scan_schedulers.automatic_scans_enabled = false;
         // Making sure we would kill the test if any sort of scan was scheduled
-        subject.scan_schedulers.payable.retry_payable_notify =
-            Box::new(NotifyHandleMock::default().panic_on_schedule_attempt());
+        subject.scan_schedulers.payable.retry_payable_notify_later =
+            Box::new(NotifyLaterHandleMock::default().panic_on_schedule_attempt());
         subject.scan_schedulers.payable.new_payable_notify_later =
             Box::new(NotifyLaterHandleMock::default().panic_on_schedule_attempt());
         subject.scan_schedulers.payable.new_payable_notify =
@@ -3062,7 +3063,7 @@ mod tests {
     struct NotifyAndNotifyLaterParams {
         new_payables_notify_later: Arc<Mutex<Vec<(ScanForNewPayables, Duration)>>>,
         new_payables_notify: Arc<Mutex<Vec<ScanForNewPayables>>>,
-        retry_payables_notify: Arc<Mutex<Vec<ScanForRetryPayables>>>,
+        retry_payables_notify_later: Arc<Mutex<Vec<(ScanForRetryPayables, Duration)>>>,
         pending_payables_notify_later: Arc<Mutex<Vec<(ScanForPendingPayables, Duration)>>>,
         receivables_notify_later: Arc<Mutex<Vec<(ScanForReceivables, Duration)>>>,
     }
@@ -3102,9 +3103,9 @@ mod tests {
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_and_notify_later_params.new_payables_notify_later),
         );
-        subject.scan_schedulers.payable.retry_payable_notify = Box::new(
-            NotifyHandleMock::default()
-                .notify_params(&notify_and_notify_later_params.retry_payables_notify),
+        subject.scan_schedulers.payable.retry_payable_notify_later = Box::new(
+            NotifyLaterHandleMock::default()
+                .notify_later_params(&notify_and_notify_later_params.retry_payables_notify_later),
         );
         subject.scan_schedulers.payable.new_payable_notify = Box::new(
             NotifyHandleMock::default()
@@ -3164,9 +3165,9 @@ mod tests {
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_and_notify_later_params.new_payables_notify_later),
         );
-        subject.scan_schedulers.payable.retry_payable_notify = Box::new(
-            NotifyHandleMock::default()
-                .notify_params(&notify_and_notify_later_params.retry_payables_notify)
+        subject.scan_schedulers.payable.retry_payable_notify_later = Box::new(
+            NotifyLaterHandleMock::default()
+                .notify_later_params(&notify_and_notify_later_params.retry_payables_notify_later)
                 .capture_msg_and_let_it_fly_on(),
         );
         subject.scan_schedulers.payable.new_payable_notify = Box::new(
@@ -3376,7 +3377,7 @@ mod tests {
             scan_for_new_payables_notify_params
         );
         let scan_for_retry_payables_notify_params = notify_and_notify_later_params
-            .retry_payables_notify
+            .retry_payables_notify_later
             .lock()
             .unwrap();
         assert!(
@@ -3462,14 +3463,17 @@ mod tests {
             scan_for_new_payables_notify_params
         );
         let scan_for_retry_payables_notify_params = notify_and_notify_later_params
-            .retry_payables_notify
+            .retry_payables_notify_later
             .lock()
             .unwrap();
         assert_eq!(
             *scan_for_retry_payables_notify_params,
-            vec![ScanForRetryPayables {
-                response_skeleton_opt: None
-            }],
+            vec![(
+                ScanForRetryPayables {
+                    response_skeleton_opt: None
+                },
+                DEFAULT_RETRY_INTERVAL
+            )],
         );
     }
 
@@ -5092,8 +5096,8 @@ mod tests {
             Box::new(NotifyHandleMock::default().panic_on_schedule_attempt());
         subject.scan_schedulers.payable.new_payable_notify_later =
             Box::new(NotifyLaterHandleMock::default().panic_on_schedule_attempt());
-        subject.scan_schedulers.payable.retry_payable_notify =
-            Box::new(NotifyHandleMock::default().panic_on_schedule_attempt());
+        subject.scan_schedulers.payable.retry_payable_notify_later =
+            Box::new(NotifyLaterHandleMock::default().panic_on_schedule_attempt());
         let expected_tx = TxBuilder::default().hash(expected_hash.clone()).build();
         let sent_payable = SentPayables {
             payment_procedure_result: Ok(BatchResults {
@@ -5151,8 +5155,8 @@ mod tests {
             Box::new(NotifyHandleMock::default().panic_on_schedule_attempt());
         subject.scan_schedulers.payable.new_payable_notify_later =
             Box::new(NotifyLaterHandleMock::default().panic_on_schedule_attempt());
-        subject.scan_schedulers.payable.retry_payable_notify =
-            Box::new(NotifyHandleMock::default().panic_on_schedule_attempt());
+        subject.scan_schedulers.payable.retry_payable_notify_later =
+            Box::new(NotifyLaterHandleMock::default().panic_on_schedule_attempt());
         let expected_tx = TxBuilder::default().hash(expected_hash.clone()).build();
         let sent_payable = SentPayables {
             payment_procedure_result: Ok(BatchResults {
@@ -5186,7 +5190,7 @@ mod tests {
         init_test_logging();
         let test_name = "retry_payable_scan_is_requested_to_be_repeated";
         let finish_scan_params_arc = Arc::new(Mutex::new(vec![]));
-        let retry_payable_notify_params_arc = Arc::new(Mutex::new(vec![]));
+        let retry_payable_notify_later_params_arc = Arc::new(Mutex::new(vec![]));
         let system = System::new(test_name);
         let consuming_wallet = make_paying_wallet(b"paying wallet");
         let mut subject = AccountantBuilder::default()
@@ -5203,8 +5207,10 @@ mod tests {
                         result: NextScanToRun::RetryPayableScan,
                     }),
             )));
-        subject.scan_schedulers.payable.retry_payable_notify =
-            Box::new(NotifyHandleMock::default().notify_params(&retry_payable_notify_params_arc));
+        subject.scan_schedulers.payable.retry_payable_notify_later = Box::new(
+            NotifyLaterHandleMock::default()
+                .notify_later_params(&retry_payable_notify_later_params_arc),
+        );
         subject.scan_schedulers.payable.new_payable_notify =
             Box::new(NotifyHandleMock::default().panic_on_schedule_attempt());
         subject.scan_schedulers.payable.new_payable_notify_later =
@@ -5230,9 +5236,10 @@ mod tests {
         let (actual_sent_payable, logger) = finish_scan_params.remove(0);
         assert_eq!(actual_sent_payable, sent_payable,);
         assert_using_the_same_logger(&logger, test_name, None);
-        let mut payable_notify_params = retry_payable_notify_params_arc.lock().unwrap();
-        let scheduled_msg = payable_notify_params.remove(0);
+        let mut payable_notify_params = retry_payable_notify_later_params_arc.lock().unwrap();
+        let (scheduled_msg, duration) = payable_notify_params.remove(0);
         assert_eq!(scheduled_msg, ScanForRetryPayables::default());
+        assert_eq!(duration, DEFAULT_RETRY_INTERVAL);
         assert!(
             payable_notify_params.is_empty(),
             "Should be empty but {:?}",
@@ -5247,7 +5254,7 @@ mod tests {
         let test_name =
             "accountant_in_automatic_mode_schedules_tx_retry_as_some_pending_payables_have_not_completed";
         let finish_scan_params_arc = Arc::new(Mutex::new(vec![]));
-        let retry_payable_notify_params_arc = Arc::new(Mutex::new(vec![]));
+        let retry_payable_notify_later_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = AccountantBuilder::default()
             .logger(Logger::new(test_name))
             .build();
@@ -5265,8 +5272,10 @@ mod tests {
             Box::new(NotifyLaterHandleMock::default().panic_on_schedule_attempt());
         subject.scan_schedulers.pending_payable.handle =
             Box::new(NotifyLaterHandleMock::default().panic_on_schedule_attempt());
-        subject.scan_schedulers.payable.retry_payable_notify =
-            Box::new(NotifyHandleMock::default().notify_params(&retry_payable_notify_params_arc));
+        subject.scan_schedulers.payable.retry_payable_notify_later = Box::new(
+            NotifyLaterHandleMock::default()
+                .notify_later_params(&retry_payable_notify_later_params_arc),
+        );
         let system = System::new(test_name);
         let (mut msg, _) = make_tx_receipts_msg(vec![
             SeedsToMakeUpPayableWithStatus {
@@ -5288,12 +5297,15 @@ mod tests {
         let mut finish_scan_params = finish_scan_params_arc.lock().unwrap();
         let (msg_actual, logger) = finish_scan_params.remove(0);
         assert_eq!(msg_actual, msg);
-        let retry_payable_notify_params = retry_payable_notify_params_arc.lock().unwrap();
+        let retry_payable_notify_params = retry_payable_notify_later_params_arc.lock().unwrap();
         assert_eq!(
             *retry_payable_notify_params,
-            vec![ScanForRetryPayables {
-                response_skeleton_opt: None
-            }]
+            vec![(
+                ScanForRetryPayables {
+                    response_skeleton_opt: None
+                },
+                DEFAULT_RETRY_INTERVAL
+            )]
         );
         assert_using_the_same_logger(&logger, test_name, None)
     }
@@ -5316,8 +5328,8 @@ mod tests {
             .replace_scanner(ScannerReplacement::PendingPayable(ReplacementType::Mock(
                 pending_payable_scanner,
             )));
-        subject.scan_schedulers.payable.retry_payable_notify =
-            Box::new(NotifyHandleMock::default().panic_on_schedule_attempt());
+        subject.scan_schedulers.payable.retry_payable_notify_later =
+            Box::new(NotifyLaterHandleMock::default().panic_on_schedule_attempt());
         subject.scan_schedulers.payable.new_payable_notify =
             Box::new(NotifyHandleMock::default().panic_on_schedule_attempt());
         subject.scan_schedulers.payable.new_payable_notify_later =
@@ -5382,8 +5394,8 @@ mod tests {
             .replace_scanner(ScannerReplacement::PendingPayable(ReplacementType::Mock(
                 pending_payable_scanner,
             )));
-        subject.scan_schedulers.payable.retry_payable_notify =
-            Box::new(NotifyHandleMock::default().panic_on_schedule_attempt());
+        subject.scan_schedulers.payable.retry_payable_notify_later =
+            Box::new(NotifyLaterHandleMock::default().panic_on_schedule_attempt());
         subject.scan_schedulers.payable.new_payable_notify =
             Box::new(NotifyHandleMock::default().panic_on_schedule_attempt());
         subject.scan_schedulers.payable.new_payable_notify_later =
@@ -5445,8 +5457,9 @@ mod tests {
             .replace_scanner(ScannerReplacement::PendingPayable(ReplacementType::Mock(
                 pending_payable_scanner,
             )));
-        subject.scan_schedulers.payable.retry_payable_notify =
-            Box::new(NotifyHandleMock::default().notify_params(&retry_payable_notify_params_arc));
+        subject.scan_schedulers.payable.retry_payable_notify_later = Box::new(
+            NotifyLaterHandleMock::default().notify_later_params(&retry_payable_notify_params_arc),
+        );
         subject.scan_schedulers.payable.new_payable_notify =
             Box::new(NotifyHandleMock::default().panic_on_schedule_attempt());
         subject.scan_schedulers.payable.new_payable_notify_later =
@@ -5470,9 +5483,12 @@ mod tests {
         let retry_payable_notify_params = retry_payable_notify_params_arc.lock().unwrap();
         assert_eq!(
             *retry_payable_notify_params,
-            vec![ScanForRetryPayables {
-                response_skeleton_opt: Some(response_skeleton)
-            }]
+            vec![(
+                ScanForRetryPayables {
+                    response_skeleton_opt: Some(response_skeleton)
+                },
+                DEFAULT_RETRY_INTERVAL
+            )]
         );
         assert_using_the_same_logger(&logger, test_name, None)
     }
@@ -5889,28 +5905,32 @@ mod tests {
         Box::new(
             |_scanners: &mut Scanners, scan_schedulers: &mut ScanSchedulers| {
                 // Setup
-                let notify_params_arc = Arc::new(Mutex::new(vec![]));
-                scan_schedulers.payable.retry_payable_notify =
-                    Box::new(NotifyHandleMock::default().notify_params(&notify_params_arc));
+                let notify_later_params_arc = Arc::new(Mutex::new(vec![]));
+                scan_schedulers.payable.retry_payable_notify_later = Box::new(
+                    NotifyLaterHandleMock::default().notify_later_params(&notify_later_params_arc),
+                );
 
                 // Assertions
                 Box::new(move |response_skeleton_opt| {
-                    let notify_params = notify_params_arc.lock().unwrap();
+                    let notify_later_params = notify_later_params_arc.lock().unwrap();
                     match response_skeleton_opt {
                         None => {
                             // Response skeleton must be None
                             assert_eq!(
-                                *notify_params,
-                                vec![ScanForRetryPayables {
-                                    response_skeleton_opt: None
-                                }]
+                                *notify_later_params,
+                                vec![(
+                                    ScanForRetryPayables {
+                                        response_skeleton_opt: None
+                                    },
+                                    DEFAULT_RETRY_INTERVAL
+                                )]
                             )
                         }
                         Some(_) => {
                             assert!(
-                                notify_params.is_empty(),
+                                notify_later_params.is_empty(),
                                 "Should be empty but contained {:?}",
-                                notify_params
+                                notify_later_params
                             )
                         }
                     }
