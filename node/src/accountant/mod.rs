@@ -1959,6 +1959,7 @@ mod tests {
         let mut config = bc_from_earning_wallet(make_wallet("some_wallet_address"));
         config.scan_intervals_opt = Some(ScanIntervals {
             payable_scan_interval: Duration::from_millis(10_000),
+            retry_payable_scan_interval: Duration::from_millis(1),
             receivable_scan_interval: Duration::from_millis(10_000),
             pending_payable_scan_interval: Duration::from_secs(100),
         });
@@ -2282,6 +2283,7 @@ mod tests {
             ])
             .build();
         subject.scan_schedulers.automatic_scans_enabled = false;
+        subject.scan_schedulers.payable.retry_payable_scan_interval = Duration::from_millis(1);
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let ui_gateway =
@@ -2680,6 +2682,7 @@ mod tests {
         let mut config = bc_from_earning_wallet(make_wallet("earning_wallet"));
         config.scan_intervals_opt = Some(ScanIntervals {
             payable_scan_interval: Duration::from_millis(10_000),
+            retry_payable_scan_interval: Duration::from_millis(1),
             pending_payable_scan_interval: Duration::from_millis(2_000),
             receivable_scan_interval: Duration::from_millis(10_000),
         });
@@ -2728,6 +2731,7 @@ mod tests {
         let mut config = bc_from_earning_wallet(make_wallet("earning_wallet"));
         config.scan_intervals_opt = Some(ScanIntervals {
             payable_scan_interval: Duration::from_millis(10_000),
+            retry_payable_scan_interval: Duration::from_millis(1),
             pending_payable_scan_interval: Duration::from_millis(2_000),
             receivable_scan_interval: Duration::from_millis(10_000),
         });
@@ -3152,6 +3156,7 @@ mod tests {
             receivable_scanner,
             payable_scanner,
         );
+        let retry_payble_scan_interval = Duration::from_millis(1);
         let pending_payable_scan_interval = Duration::from_secs(3600);
         let receivable_scan_interval = Duration::from_secs(3600);
         let pending_payable_notify_later_handle_mock = NotifyLaterHandleMock::default()
@@ -3160,6 +3165,7 @@ mod tests {
             .stop_system_on_count_received(1);
         subject.scan_schedulers.pending_payable.handle =
             Box::new(pending_payable_notify_later_handle_mock);
+        subject.scan_schedulers.payable.retry_payable_scan_interval = retry_payble_scan_interval;
         subject.scan_schedulers.pending_payable.interval = pending_payable_scan_interval;
         subject.scan_schedulers.payable.new_payable_notify_later = Box::new(
             NotifyLaterHandleMock::default()
@@ -3472,7 +3478,7 @@ mod tests {
                 ScanForRetryPayables {
                     response_skeleton_opt: None
                 },
-                DEFAULT_RETRY_INTERVAL
+                Duration::from_millis(1)
             )],
         );
     }
@@ -3650,6 +3656,7 @@ mod tests {
         let mut config = bc_from_earning_wallet(earning_wallet.clone());
         config.scan_intervals_opt = Some(ScanIntervals {
             payable_scan_interval: Duration::from_secs(100),
+            retry_payable_scan_interval: Duration::from_millis(1),
             pending_payable_scan_interval: Duration::from_secs(10),
             receivable_scan_interval: Duration::from_millis(99),
         });
@@ -3929,6 +3936,7 @@ mod tests {
             // This simply means that we're gonna surplus this value (it abides by how many pending
             // payable cycles have to go in between before the lastly submitted txs are confirmed),
             payable_scan_interval: Duration::from_millis(10),
+            retry_payable_scan_interval: Duration::from_millis(1),
             pending_payable_scan_interval: Duration::from_millis(50),
             receivable_scan_interval: Duration::from_secs(100), // We'll never run this scanner
         });
@@ -4017,6 +4025,7 @@ mod tests {
         let mut config = bc_from_earning_wallet(make_wallet("hi"));
         config.scan_intervals_opt = Some(ScanIntervals {
             payable_scan_interval: Duration::from_millis(100),
+            retry_payable_scan_interval: Duration::from_millis(1),
             pending_payable_scan_interval: Duration::from_millis(50),
             receivable_scan_interval: Duration::from_millis(100),
         });
@@ -4139,6 +4148,7 @@ mod tests {
         let consuming_wallet = make_paying_wallet(b"consuming");
         config.scan_intervals_opt = Some(ScanIntervals {
             payable_scan_interval: Duration::from_secs(50_000),
+            retry_payable_scan_interval: Duration::from_millis(1),
             pending_payable_scan_interval: Duration::from_secs(10_000),
             receivable_scan_interval: Duration::from_secs(50_000),
         });

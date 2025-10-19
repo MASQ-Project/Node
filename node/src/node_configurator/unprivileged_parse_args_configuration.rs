@@ -1829,6 +1829,7 @@ mod tests {
             configure_default_persistent_config(RATE_PACK | MAPPING_PROTOCOL)
                 .scan_intervals_result(Ok(ScanIntervals {
                     payable_scan_interval: Duration::from_secs(101),
+                    retry_payable_scan_interval: Duration::from_millis(1),
                     pending_payable_scan_interval: Duration::from_secs(33),
                     receivable_scan_interval: Duration::from_secs(102),
                 }))
@@ -1857,6 +1858,7 @@ mod tests {
 
         let expected_scan_intervals = ScanIntervals {
             payable_scan_interval: Duration::from_secs(180),
+            retry_payable_scan_interval: Duration::from_millis(1),
             pending_payable_scan_interval: Duration::from_secs(50),
             receivable_scan_interval: Duration::from_secs(130),
         };
@@ -1907,6 +1909,7 @@ mod tests {
             configure_default_persistent_config(RATE_PACK | MAPPING_PROTOCOL)
                 .scan_intervals_result(Ok(ScanIntervals {
                     payable_scan_interval: Duration::from_secs(180),
+                    retry_payable_scan_interval: Duration::from_millis(1),
                     pending_payable_scan_interval: Duration::from_secs(15),
                     receivable_scan_interval: Duration::from_secs(130),
                 }))
@@ -1939,6 +1942,7 @@ mod tests {
         };
         let expected_scan_intervals = ScanIntervals {
             payable_scan_interval: Duration::from_secs(180),
+            retry_payable_scan_interval: Duration::from_millis(1),
             pending_payable_scan_interval: Duration::from_secs(15),
             receivable_scan_interval: Duration::from_secs(130),
         };

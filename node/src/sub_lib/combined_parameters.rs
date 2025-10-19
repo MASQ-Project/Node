@@ -178,6 +178,7 @@ impl CombinedParams {
                     &parsed_values,
                     Duration::from_secs,
                     "payable_scan_interval",
+                    "retry_payable_scan_interval",
                     "pending_payable_scan_interval",
                     "receivable_scan_interval"
                 )))
@@ -305,6 +306,7 @@ fn unreachable() -> ! {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accountant::scanners::scan_schedulers::DEFAULT_RETRY_INTERVAL;
     use crate::sub_lib::combined_parameters::CombinedParamsDataTypes::U128;
     use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
     use crate::test_utils::unshared_test_utils::TEST_SCAN_INTERVALS;
@@ -559,6 +561,7 @@ mod tests {
             result,
             ScanIntervals {
                 payable_scan_interval: Duration::from_secs(115),
+                retry_payable_scan_interval: DEFAULT_RETRY_INTERVAL,
                 pending_payable_scan_interval: Duration::from_secs(55),
                 receivable_scan_interval: Duration::from_secs(113)
             }
@@ -569,6 +572,7 @@ mod tests {
     fn scan_intervals_to_combined_params() {
         let scan_intervals = ScanIntervals {
             payable_scan_interval: Duration::from_secs(90),
+            retry_payable_scan_interval: DEFAULT_RETRY_INTERVAL,
             pending_payable_scan_interval: Duration::from_secs(40),
             receivable_scan_interval: Duration::from_secs(100),
         };

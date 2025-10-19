@@ -29,7 +29,10 @@ pub struct ScanSchedulers {
 impl ScanSchedulers {
     pub fn new(scan_intervals: ScanIntervals, automatic_scans_enabled: bool) -> Self {
         Self {
-            payable: PayableScanScheduler::new(scan_intervals.payable_scan_interval),
+            payable: PayableScanScheduler::new(
+                scan_intervals.payable_scan_interval,
+                scan_intervals.retry_payable_scan_interval,
+            ),
             pending_payable: SimplePeriodicalScanScheduler::new(
                 scan_intervals.pending_payable_scan_interval,
             ),
@@ -83,10 +86,11 @@ pub struct PayableScanScheduler {
     pub interval_computer: Box<dyn NewPayableScanIntervalComputer>,
     pub new_payable_notify: Box<dyn NotifyHandle<ScanForNewPayables, Accountant>>,
     pub retry_payable_notify_later: Box<dyn NotifyLaterHandle<ScanForRetryPayables, Accountant>>,
+    pub retry_payable_scan_interval: Duration,
 }
 
 impl PayableScanScheduler {
-    fn new(new_payable_interval: Duration) -> Self {
+    fn new(new_payable_interval: Duration, retry_payable_scan_interval: Duration) -> Self {
         Self {
             new_payable_notify_later: Box::new(NotifyLaterHandleReal::default()),
             interval_computer: Box::new(NewPayableScanIntervalComputerReal::new(
@@ -94,6 +98,7 @@ impl PayableScanScheduler {
             )),
             new_payable_notify: Box::new(NotifyHandleReal::default()),
             retry_payable_notify_later: Box::new(NotifyLaterHandleReal::default()),
+            retry_payable_scan_interval,
         }
     }
 
@@ -139,12 +144,13 @@ impl PayableScanScheduler {
         logger: &Logger,
     ) {
         debug!(logger, "Scheduling a retry-payable scan asap");
+        let delay = self.retry_payable_scan_interval;
 
         let _ = self.retry_payable_notify_later.notify_later(
             ScanForRetryPayables {
                 response_skeleton_opt,
             },
-            DEFAULT_RETRY_INTERVAL,
+            delay,
             ctx,
         );
     }
@@ -414,6 +420,7 @@ mod tests {
     fn scan_schedulers_are_initialized_correctly() {
         let scan_intervals = ScanIntervals {
             payable_scan_interval: Duration::from_secs(14),
+            retry_payable_scan_interval: Default::default(),
             pending_payable_scan_interval: Duration::from_secs(2),
             receivable_scan_interval: Duration::from_secs(7),
         };

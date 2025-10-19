@@ -627,6 +627,7 @@ pub mod unshared_test_utils {
     lazy_static! {
         pub static ref TEST_SCAN_INTERVALS: ScanIntervals = ScanIntervals {
             payable_scan_interval: Duration::from_secs(600),
+            retry_payable_scan_interval: Duration::from_millis(1),
             pending_payable_scan_interval: Duration::from_secs(360),
             receivable_scan_interval: Duration::from_secs(600),
         };

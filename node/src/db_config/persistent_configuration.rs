@@ -2291,6 +2291,7 @@ mod tests {
             "60|5|50",
             ScanIntervals {
                 payable_scan_interval: Duration::from_secs(60),
+                retry_payable_scan_interval: Duration::from_millis(1),
                 pending_payable_scan_interval: Duration::from_secs(5),
                 receivable_scan_interval: Duration::from_secs(50),
             }

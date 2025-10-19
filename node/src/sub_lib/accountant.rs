@@ -5,6 +5,7 @@ use crate::accountant::db_access_objects::payable_dao::PayableDaoFactory;
 use crate::accountant::db_access_objects::receivable_dao::ReceivableDaoFactory;
 use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDaoFactory;
 use crate::accountant::scanners::payable_scanner::msgs::PricedTemplatesMessage;
+use crate::accountant::scanners::scan_schedulers::DEFAULT_RETRY_INTERVAL;
 use crate::accountant::{
     checked_conversion, Accountant, ReceivedPayments, ScanError, SentPayables, TxReceiptsMessage,
 };
@@ -77,6 +78,7 @@ pub struct DaoFactories {
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub struct ScanIntervals {
     pub payable_scan_interval: Duration,
+    pub retry_payable_scan_interval: Duration,
     pub pending_payable_scan_interval: Duration,
     pub receivable_scan_interval: Duration,
 }
@@ -85,6 +87,7 @@ impl ScanIntervals {
     pub fn compute_default(chain: Chain) -> Self {
         Self {
             payable_scan_interval: Duration::from_secs(600),
+            retry_payable_scan_interval: DEFAULT_RETRY_INTERVAL,
             pending_payable_scan_interval: Duration::from_secs(
                 chain.rec().default_pending_payable_interval_sec,
             ),
@@ -204,6 +207,7 @@ pub enum DetailedScanType {
 
 #[cfg(test)]
 mod tests {
+    use crate::accountant::scanners::scan_schedulers::DEFAULT_RETRY_INTERVAL;
     use crate::accountant::test_utils::AccountantBuilder;
     use crate::accountant::{checked_conversion, Accountant};
     use crate::sub_lib::accountant::{
@@ -319,6 +323,7 @@ mod tests {
             result_a,
             ScanIntervals {
                 payable_scan_interval: Duration::from_secs(600),
+                retry_payable_scan_interval: DEFAULT_RETRY_INTERVAL,
                 pending_payable_scan_interval: Duration::from_secs(
                     chain_a.rec().default_pending_payable_interval_sec
                 ),
@@ -329,6 +334,7 @@ mod tests {
             result_b,
             ScanIntervals {
                 payable_scan_interval: Duration::from_secs(600),
+                retry_payable_scan_interval: DEFAULT_RETRY_INTERVAL,
                 pending_payable_scan_interval: Duration::from_secs(
                     chain_b.rec().default_pending_payable_interval_sec
                 ),
