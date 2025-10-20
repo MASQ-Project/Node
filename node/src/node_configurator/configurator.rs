@@ -2626,7 +2626,6 @@ mod tests {
             }))
             .scan_intervals_result(Ok(ScanIntervals {
                 payable_scan_interval: Duration::from_secs(125),
-                retry_payable_scan_interval: Duration::from_millis(1),
                 pending_payable_scan_interval: Duration::from_secs(122),
                 receivable_scan_interval: Duration::from_secs(128),
             }))
@@ -2778,7 +2777,6 @@ mod tests {
             }))
             .scan_intervals_result(Ok(ScanIntervals {
                 payable_scan_interval: Default::default(),
-                retry_payable_scan_interval: Default::default(),
                 pending_payable_scan_interval: Default::default(),
                 receivable_scan_interval: Default::default(),
             }))

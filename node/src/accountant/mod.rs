@@ -1319,7 +1319,6 @@ mod tests {
     use crate::accountant::scanners::pending_payable_scanner::utils::TxByTable;
     use crate::accountant::scanners::scan_schedulers::{
         NewPayableScanIntervalComputer, NewPayableScanIntervalComputerReal, ScanTiming,
-        DEFAULT_RETRY_INTERVAL,
     };
     use crate::accountant::scanners::test_utils::{
         MarkScanner, NewPayableScanIntervalComputerMock, PendingPayableCacheMock, ReplacementType,
@@ -1959,7 +1958,6 @@ mod tests {
         let mut config = bc_from_earning_wallet(make_wallet("some_wallet_address"));
         config.scan_intervals_opt = Some(ScanIntervals {
             payable_scan_interval: Duration::from_millis(10_000),
-            retry_payable_scan_interval: Duration::from_millis(1),
             receivable_scan_interval: Duration::from_millis(10_000),
             pending_payable_scan_interval: Duration::from_secs(100),
         });
@@ -2682,7 +2680,6 @@ mod tests {
         let mut config = bc_from_earning_wallet(make_wallet("earning_wallet"));
         config.scan_intervals_opt = Some(ScanIntervals {
             payable_scan_interval: Duration::from_millis(10_000),
-            retry_payable_scan_interval: Duration::from_millis(1),
             pending_payable_scan_interval: Duration::from_millis(2_000),
             receivable_scan_interval: Duration::from_millis(10_000),
         });
@@ -2731,7 +2728,6 @@ mod tests {
         let mut config = bc_from_earning_wallet(make_wallet("earning_wallet"));
         config.scan_intervals_opt = Some(ScanIntervals {
             payable_scan_interval: Duration::from_millis(10_000),
-            retry_payable_scan_interval: Duration::from_millis(1),
             pending_payable_scan_interval: Duration::from_millis(2_000),
             receivable_scan_interval: Duration::from_millis(10_000),
         });
@@ -3656,7 +3652,6 @@ mod tests {
         let mut config = bc_from_earning_wallet(earning_wallet.clone());
         config.scan_intervals_opt = Some(ScanIntervals {
             payable_scan_interval: Duration::from_secs(100),
-            retry_payable_scan_interval: Duration::from_millis(1),
             pending_payable_scan_interval: Duration::from_secs(10),
             receivable_scan_interval: Duration::from_millis(99),
         });
@@ -3936,7 +3931,6 @@ mod tests {
             // This simply means that we're gonna surplus this value (it abides by how many pending
             // payable cycles have to go in between before the lastly submitted txs are confirmed),
             payable_scan_interval: Duration::from_millis(10),
-            retry_payable_scan_interval: Duration::from_millis(1),
             pending_payable_scan_interval: Duration::from_millis(50),
             receivable_scan_interval: Duration::from_secs(100), // We'll never run this scanner
         });
@@ -4025,7 +4019,6 @@ mod tests {
         let mut config = bc_from_earning_wallet(make_wallet("hi"));
         config.scan_intervals_opt = Some(ScanIntervals {
             payable_scan_interval: Duration::from_millis(100),
-            retry_payable_scan_interval: Duration::from_millis(1),
             pending_payable_scan_interval: Duration::from_millis(50),
             receivable_scan_interval: Duration::from_millis(100),
         });
@@ -4148,7 +4141,6 @@ mod tests {
         let consuming_wallet = make_paying_wallet(b"consuming");
         config.scan_intervals_opt = Some(ScanIntervals {
             payable_scan_interval: Duration::from_secs(50_000),
-            retry_payable_scan_interval: Duration::from_millis(1),
             pending_payable_scan_interval: Duration::from_secs(10_000),
             receivable_scan_interval: Duration::from_secs(50_000),
         });
@@ -5249,7 +5241,7 @@ mod tests {
         let mut payable_notify_params = retry_payable_notify_later_params_arc.lock().unwrap();
         let (scheduled_msg, duration) = payable_notify_params.remove(0);
         assert_eq!(scheduled_msg, ScanForRetryPayables::default());
-        assert_eq!(duration, DEFAULT_RETRY_INTERVAL);
+        assert_eq!(duration, Duration::from_secs(5 * 60));
         assert!(
             payable_notify_params.is_empty(),
             "Should be empty but {:?}",
@@ -5314,7 +5306,7 @@ mod tests {
                 ScanForRetryPayables {
                     response_skeleton_opt: None
                 },
-                DEFAULT_RETRY_INTERVAL
+                Duration::from_secs(5 * 60)
             )]
         );
         assert_using_the_same_logger(&logger, test_name, None)
@@ -5497,7 +5489,7 @@ mod tests {
                 ScanForRetryPayables {
                     response_skeleton_opt: Some(response_skeleton)
                 },
-                DEFAULT_RETRY_INTERVAL
+                Duration::from_secs(5 * 60)
             )]
         );
         assert_using_the_same_logger(&logger, test_name, None)
@@ -5932,7 +5924,7 @@ mod tests {
                                     ScanForRetryPayables {
                                         response_skeleton_opt: None
                                     },
-                                    DEFAULT_RETRY_INTERVAL
+                                    Duration::from_secs(5 * 60)
                                 )]
                             )
                         }

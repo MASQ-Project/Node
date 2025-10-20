@@ -14,9 +14,8 @@ use masq_lib::logger::Logger;
 use masq_lib::messages::ScanType;
 use masq_lib::simple_clock::{SimpleClock, SimpleClockReal};
 use std::fmt::{Debug, Display, Formatter};
+use std::ops::Div;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
-pub const DEFAULT_RETRY_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
 pub struct ScanSchedulers {
     pub payable: PayableScanScheduler,
@@ -29,10 +28,7 @@ pub struct ScanSchedulers {
 impl ScanSchedulers {
     pub fn new(scan_intervals: ScanIntervals, automatic_scans_enabled: bool) -> Self {
         Self {
-            payable: PayableScanScheduler::new(
-                scan_intervals.payable_scan_interval,
-                scan_intervals.retry_payable_scan_interval,
-            ),
+            payable: PayableScanScheduler::new(scan_intervals.payable_scan_interval),
             pending_payable: SimplePeriodicalScanScheduler::new(
                 scan_intervals.pending_payable_scan_interval,
             ),
@@ -90,15 +86,15 @@ pub struct PayableScanScheduler {
 }
 
 impl PayableScanScheduler {
-    fn new(new_payable_interval: Duration, retry_payable_scan_interval: Duration) -> Self {
+    fn new(payable_scan_interval: Duration) -> Self {
         Self {
             new_payable_notify_later: Box::new(NotifyLaterHandleReal::default()),
             interval_computer: Box::new(NewPayableScanIntervalComputerReal::new(
-                new_payable_interval,
+                payable_scan_interval,
             )),
             new_payable_notify: Box::new(NotifyHandleReal::default()),
             retry_payable_notify_later: Box::new(NotifyLaterHandleReal::default()),
-            retry_payable_scan_interval,
+            retry_payable_scan_interval: payable_scan_interval.div(2),
         }
     }
 
@@ -394,7 +390,7 @@ impl RescheduleScanOnErrorResolverReal {
 mod tests {
     use crate::accountant::scanners::scan_schedulers::{
         NewPayableScanIntervalComputer, NewPayableScanIntervalComputerReal, PayableSequenceScanner,
-        ScanReschedulingAfterEarlyStop, ScanSchedulers, ScanTiming, DEFAULT_RETRY_INTERVAL,
+        ScanReschedulingAfterEarlyStop, ScanSchedulers, ScanTiming,
     };
     use crate::accountant::scanners::test_utils::NewPayableScanIntervalComputerMock;
     use crate::accountant::scanners::{ManulTriggerError, StartScanError};
@@ -412,15 +408,9 @@ mod tests {
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     #[test]
-    fn constants_have_correct_values() {
-        assert_eq!(DEFAULT_RETRY_INTERVAL, Duration::from_secs(5 * 60));
-    }
-
-    #[test]
     fn scan_schedulers_are_initialized_correctly() {
         let scan_intervals = ScanIntervals {
             payable_scan_interval: Duration::from_secs(14),
-            retry_payable_scan_interval: Default::default(),
             pending_payable_scan_interval: Duration::from_secs(2),
             receivable_scan_interval: Duration::from_secs(7),
         };
