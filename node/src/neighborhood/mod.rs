@@ -2214,6 +2214,7 @@ mod tests {
     use crate::sub_lib::hop::LiveHop;
     use crate::sub_lib::hopper::MessageType;
     use crate::sub_lib::host::Host;
+    use crate::sub_lib::neighborhood::ExpectedServices::OneWay;
     use crate::sub_lib::neighborhood::{
         AskAboutDebutGossipMessage, ConfigChange, ConfigChangeMsg, NeighborhoodMode, WalletPair,
     };
@@ -2246,7 +2247,6 @@ mod tests {
     };
     use crate::test_utils::vec_to_set;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use crate::sub_lib::neighborhood::ExpectedServices::OneWay;
 
     lazy_static! {
         static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
