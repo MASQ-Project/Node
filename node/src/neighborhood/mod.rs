@@ -30,7 +30,7 @@ use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
 use crate::sub_lib::host::Host;
 use crate::sub_lib::neighborhood::ConnectionProgressEvent;
 use crate::sub_lib::neighborhood::ExpectedService::{Exit, Nothing, Routing};
-use crate::sub_lib::neighborhood::ExpectedServices::{OneWay, RoundTrip};
+use crate::sub_lib::neighborhood::ExpectedServices::RoundTrip;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
 use crate::sub_lib::neighborhood::UpdateNodeRecordMetadataMessage;
 use crate::sub_lib::neighborhood::{AskAboutDebutGossipMessage, NodeDescriptor};
@@ -1268,10 +1268,6 @@ impl Neighborhood {
             UndesirabilityType::Relay => {
                 node_record.inner.rate_pack.routing_charge(payload_size) as i64
             }
-            UndesirabilityType::ExitRequest("booga.com") => {
-                node_record.inner.rate_pack.exit_charge(payload_size) as i64
-                    + node_record.metadata.country_undesirability as i64
-            }
             UndesirabilityType::ExitRequest(hostname) => {
                 let exit_undesirability =
                     node_record.inner.rate_pack.exit_charge(payload_size) as i64;
@@ -2199,19 +2195,28 @@ mod tests {
     use std::time::Instant;
     use tokio::prelude::Future;
 
+    use crate::accountant::test_utils::bc_from_earning_wallet;
+    use crate::bootstrapper::CryptDEPair;
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::neighborhood::gossip::Gossip_0v1;
     use crate::neighborhood::gossip::{GossipBuilder, GossipNodeRecord};
     use crate::neighborhood::node_record::{NodeRecordInner_0v1, NodeRecordInputs};
+    use crate::neighborhood::overall_connection_status::ConnectionStageErrors::{
+        NoGossipResponseReceived, PassLoopFound, TcpConnectionFailed,
+    };
+    use crate::neighborhood::overall_connection_status::{
+        ConnectionProgress, ConnectionStage, OverallConnectionStage,
+    };
     use crate::stream_messages::{NonClandestineAttributes, RemovedStreamType};
     use crate::sub_lib::cryptde::{decodex, encodex, CryptData, PlainData};
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::Endpoint;
     use crate::sub_lib::hop::LiveHop;
     use crate::sub_lib::hopper::MessageType;
+    use crate::sub_lib::host::Host;
+    use crate::sub_lib::neighborhood::ExpectedServices::OneWay;
     use crate::sub_lib::neighborhood::{
-        AskAboutDebutGossipMessage, ConfigChange, ConfigChangeMsg, ExpectedServices,
-        NeighborhoodMode, WalletPair,
+        AskAboutDebutGossipMessage, ConfigChange, ConfigChangeMsg, NeighborhoodMode, WalletPair,
     };
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, DEFAULT_RATE_PACK};
     use crate::sub_lib::neighborhood::{NeighborhoodMetadata, RatePack};
@@ -2234,24 +2239,13 @@ mod tests {
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
+    use crate::test_utils::unshared_test_utils::notify_handlers::NotifyLaterHandleMock;
     use crate::test_utils::unshared_test_utils::{
         assert_on_initialization_with_panic_on_migration, make_cpm_recipient,
         make_node_to_ui_recipient, make_recipient_and_recording_arc,
         prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
     };
     use crate::test_utils::vec_to_set;
-
-    use super::*;
-    use crate::accountant::test_utils::bc_from_earning_wallet;
-    use crate::bootstrapper::CryptDEPair;
-    use crate::neighborhood::overall_connection_status::ConnectionStageErrors::{
-        NoGossipResponseReceived, PassLoopFound, TcpConnectionFailed,
-    };
-    use crate::neighborhood::overall_connection_status::{
-        ConnectionProgress, ConnectionStage, OverallConnectionStage,
-    };
-    use crate::sub_lib::host::Host;
-    use crate::test_utils::unshared_test_utils::notify_handlers::NotifyLaterHandleMock;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
     lazy_static! {
@@ -6624,7 +6618,7 @@ mod tests {
                 context: TransmitDataMsg {
                     endpoint: Endpoint::Key(cryptde.public_key().clone()),
                     last_data: false,
-                    sequence_number: None,
+                    sequence_number_opt: None,
                     data: Vec::new(),
                 },
                 recipient,
@@ -6687,7 +6681,7 @@ mod tests {
                 context: TransmitDataMsg {
                     endpoint: Endpoint::Key(cryptde.public_key().clone()),
                     last_data: false,
-                    sequence_number: None,
+                    sequence_number_opt: None,
                     data: Vec::new(),
                 },
                 recipient,
@@ -6716,7 +6710,7 @@ mod tests {
         let context = TransmitDataMsg {
             endpoint: Endpoint::Key(cryptde.public_key().clone()),
             last_data: false,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: Vec::new(),
         };
         let context_a = context.clone();
@@ -6816,7 +6810,7 @@ mod tests {
                 context: TransmitDataMsg {
                     endpoint: Endpoint::Key(cryptde.public_key().clone()),
                     last_data: false,
-                    sequence_number: None,
+                    sequence_number_opt: None,
                     data: Vec::new(),
                 },
                 recipient,
@@ -6844,7 +6838,7 @@ mod tests {
         let context = TransmitDataMsg {
             endpoint: Endpoint::Key(cryptde.public_key().clone()),
             last_data: false,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: Vec::new(),
         };
         let context_a = context.clone();

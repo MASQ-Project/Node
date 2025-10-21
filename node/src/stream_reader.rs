@@ -137,7 +137,7 @@ impl StreamReaderReal {
                     // handshake and should start the sequence at Some(0) as well, the ProxyServer will
                     // handle the sequenced packet offset before sending them through the stream_writer
                     // and avoid dropping duplicate packets.
-                    let sequence_number = if unmasked_chunk.sequenced && !is_connect {
+                    let sequence_number_opt = if unmasked_chunk.sequenced && !is_connect {
                         Some(self.sequencer.next_sequence_number())
                     } else if is_connect {
                         // This case needs to explicitly be Some(0) instead of None so that the StreamHandlerPool does
@@ -146,7 +146,7 @@ impl StreamReaderReal {
                     } else {
                         None
                     };
-                    match sequence_number {
+                    match sequence_number_opt {
                         Some(num) => debug!(
                             self.logger,
                             "Read {} bytes of clear data (#{})",
@@ -165,7 +165,7 @@ impl StreamReaderReal {
                         reception_port_opt: self.reception_port_opt,
                         last_data: false,
                         is_clandestine: self.is_clandestine,
-                        sequence_number,
+                        sequence_number_opt,
                         data: unmasked_chunk.chunk.clone(),
                     };
                     debug!(self.logger, "Discriminator framed and unmasked {} bytes for {}; transmitting via Hopper",
@@ -514,7 +514,7 @@ mod tests {
                 reception_port_opt: Some(1234 as u16),
                 last_data: false,
                 is_clandestine: true,
-                sequence_number: Some(0),
+                sequence_number_opt: Some(0),
                 data: Vec::from("GET http://here.com HTTP/1.1\r\n\r\n".as_bytes()),
             }
         );
@@ -575,13 +575,13 @@ mod tests {
             Some(0),
             d_recording
                 .get_record::<dispatcher::InboundClientData>(0)
-                .sequence_number,
+                .sequence_number_opt,
         );
         assert_eq!(
             Some(0),
             d_recording
                 .get_record::<dispatcher::InboundClientData>(1)
-                .sequence_number,
+                .sequence_number_opt,
         );
     }
 
@@ -636,7 +636,7 @@ mod tests {
                 reception_port_opt: Some(1234 as u16),
                 last_data: false,
                 is_clandestine: false,
-                sequence_number: Some(0),
+                sequence_number_opt: Some(0),
                 data: Vec::from("GET http://here.com HTTP/1.1\r\n\r\n".as_bytes()),
             }
         );
@@ -651,7 +651,7 @@ mod tests {
                 reception_port_opt: Some(1234 as u16),
                 last_data: false,
                 is_clandestine: false,
-                sequence_number: Some(1),
+                sequence_number_opt: Some(1),
                 data: Vec::from("GET http://www.example.com HTTP/1.1\r\n\r\n".as_bytes()),
             }
         );
@@ -710,7 +710,7 @@ mod tests {
                 reception_port_opt: Some(1234 as u16),
                 last_data: false,
                 is_clandestine: true,
-                sequence_number: None,
+                sequence_number_opt: None,
                 data: Vec::from("GET http://here.com HTTP/1.1\r\n\r\n".as_bytes()),
             }
         );
