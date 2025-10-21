@@ -28,12 +28,12 @@ impl ClientRequestPayloadFactory for ClientRequestPayloadFactoryReal {
         &self,
         ibcd: &InboundClientData,
         stream_key: StreamKey,
-        host_opt: Option<Host>,
+        host_from_history_opt: Option<Host>,
         cryptde: &dyn CryptDE,
         logger: &Logger,
     ) -> Option<ClientRequestPayload_0v1> {
         let protocol_pack = from_ibcd(ibcd).map_err(|e| error!(logger, "{}", e)).ok()?;
-        let host_from_ibcd = Box::new(|| {
+        let host_from_request_result_closure = Box::new(|| {
             let data = PlainData::new(&ibcd.data);
             match protocol_pack.find_host(&data) {
                 Some(host) => Ok(host),
@@ -45,15 +45,13 @@ impl ClientRequestPayloadFactory for ClientRequestPayloadFactoryReal {
                 )),
             }
         });
-        let target_host: Host = match host_from_ibcd() {
-            Ok(host) => host,
-            Err(e) => match host_opt {
-                Some(host) => host,
-                None => {
-                    error!(logger, "{}", e);
-                    return None;
-                }
-            },
+        let target_host = match (host_from_request_result_closure(), host_from_history_opt) {
+            (Ok(host), _) => host,
+            (Err(_), Some(host)) => host,
+            (Err(e), None) => {
+                error!(logger, "{}", e);
+                return None;
+            }
         };
         let sequence_number = match ibcd.sequence_number_opt {
             Some(sequence_number) => sequence_number,
