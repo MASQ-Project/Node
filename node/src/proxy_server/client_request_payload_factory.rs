@@ -40,7 +40,8 @@ impl ClientRequestPayloadFactory for ClientRequestPayloadFactoryReal {
                 // So far we've only looked in the client packet; but this message will evaporate
                 // unless there's no host information in host_opt (from ProxyServer's StreamInfo) either.
                 None => Err(format!(
-                    "No hostname information found in either client packet or ProxyServer for protocol {:?}",
+                    "No hostname information found in either client packet ({}) or ProxyServer for protocol {:?}",
+                    protocol_pack.describe_packet(&data),
                     protocol_pack.proxy_protocol()
                 )),
             }
@@ -187,7 +188,7 @@ mod tests {
         let result = subject.make(&ibcd, stream_key, None, cryptde.as_ref(), &logger);
 
         assert_eq!(result, None);
-        TestLogHandler::new().exists_log_containing(&format!("ERROR: {test_name}: No hostname information found in either client packet or ProxyServer for protocol HTTP"));
+        TestLogHandler::new().exists_log_containing(&format!("ERROR: {test_name}: No hostname information found in either client packet (Malformed HTTP request: '') or ProxyServer for protocol HTTP"));
     }
 
     #[test]
@@ -353,7 +354,7 @@ mod tests {
         let result = subject.make(&ibcd, stream_key, None, cryptde, &logger);
 
         assert_eq!(result, None);
-        TestLogHandler::new().exists_log_containing(&format!("ERROR: {test_name}: No hostname information found in either client packet or ProxyServer for protocol TLS"));
+        TestLogHandler::new().exists_log_containing(&format!("ERROR: {test_name}: No hostname information found in either client packet (ClientHello with no SNI extension) or ProxyServer for protocol TLS"));
     }
 
     #[test]

@@ -12,6 +12,7 @@ pub trait ProtocolPack: Send + Sync {
     fn standard_port(&self) -> u16;
     fn find_host(&self, data: &PlainData) -> Option<Host>;
     fn server_impersonator(&self) -> Box<dyn ServerImpersonator>;
+    fn describe_packet(&self, data: &PlainData) -> String;
 }
 
 pub fn from_protocol(protocol: ProxyProtocol) -> Box<dyn ProtocolPack> {
