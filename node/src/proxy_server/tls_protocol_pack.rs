@@ -194,6 +194,9 @@ impl TlsProtocolPack {
     }
 
     fn describe_application_data(&self, data: &PlainData) -> String {
+        if data.len() < 5 {
+            return "Incomplete ApplicationData".to_string();
+        }
         format!("{}-byte ApplicationData", data.len() - 5)
     }
 }
@@ -1131,5 +1134,18 @@ mod tests {
         let result = TlsProtocolPack {}.describe_packet(&data);
 
         assert_eq!("5-byte ApplicationData", result);
+    }
+
+    #[test]
+    fn handles_short_application_data_packets() {
+        #[rustfmt::skip]
+        let data = PlainData::new(&[
+            0x17, // content_type: ApplicationData
+            0x00, 0x00, 0x00, // Too short by one byte
+        ]);
+
+        let result = TlsProtocolPack {}.describe_packet(&data);
+
+        assert_eq!("Incomplete ApplicationData", result);
     }
 }
