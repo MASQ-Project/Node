@@ -30,7 +30,7 @@ impl Future for StreamReader {
         let mut buf: [u8; 16384] = [0; 16384];
         loop {
             if self.shutdown_signal.try_recv().is_ok() {
-                info!(
+                debug!(
                     self.logger,
                     "Shutting down for stream: {:?}", self.stream_key
                 );
@@ -429,7 +429,7 @@ mod tests {
 
         assert_eq!(result, Ok(Async::Ready(())));
         TestLogHandler::new().exists_log_containing(&format!(
-            "INFO: {test_name}: Shutting down for stream: {:?}",
+            "DEBUG: {test_name}: Shutting down for stream: {:?}",
             subject.stream_key
         ));
     }
