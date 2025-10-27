@@ -40,9 +40,10 @@ impl ClientRequestPayloadFactory for ClientRequestPayloadFactoryReal {
                 // So far we've only looked in the client packet; but this message will evaporate
                 // unless there's no host information in host_opt (from ProxyServer's StreamInfo) either.
                 None => Err(format!(
-                    "No hostname information found in either client packet ({}) or ProxyServer for protocol {:?}",
+                    "No hostname information found in either client packet ({}) or ProxyServer for protocol {:?}, with StreamKey {}",
                     protocol_pack.describe_packet(&data),
-                    protocol_pack.proxy_protocol()
+                    protocol_pack.proxy_protocol(),
+                    stream_key
                 )),
             }
         });
@@ -53,8 +54,9 @@ impl ClientRequestPayloadFactory for ClientRequestPayloadFactoryReal {
                 if ibcd.last_data && ibcd.data.is_empty() {
                     warning!(
                         logger,
-                        "Client opened {:?} connection and immediately closed it without sending any data",
-                        protocol_pack.proxy_protocol()
+                        "Client opened {:?} connection and immediately closed it without sending any data, with StreamKey {}",
+                        protocol_pack.proxy_protocol(),
+                        stream_key
                     );
                 } else {
                     error!(logger, "{}", e);
