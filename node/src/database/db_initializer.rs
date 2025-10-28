@@ -668,7 +668,7 @@ mod tests {
     #[test]
     fn constants_have_correct_values() {
         assert_eq!(DATABASE_FILE, "node-data.db");
-        assert_eq!(CURRENT_SCHEMA_VERSION, 11);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 12);
     }
 
     #[test]
@@ -968,6 +968,12 @@ mod tests {
         );
         verify(
             &mut config_vec,
+            "rate_pack_limits",
+            Some(DEFAULT_RATE_PACK_LIMITS),
+            false,
+        );
+        verify(
+            &mut config_vec,
             "scan_intervals",
             Some(&DEFAULT_SCAN_INTERVALS.to_string()),
             false,
@@ -1076,6 +1082,12 @@ mod tests {
             &mut config_vec,
             "rate_pack",
             Some(&DEFAULT_RATE_PACK.to_string()),
+            false,
+        );
+        verify(
+            &mut config_vec,
+            "rate_pack_limits",
+            Some(DEFAULT_RATE_PACK_LIMITS),
             false,
         );
         verify(

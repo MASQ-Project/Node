@@ -3,6 +3,7 @@
 use crate::database::db_initializer::ExternalData;
 use crate::database::db_migrations::migrations::migration_0_to_1::Migrate_0_to_1;
 use crate::database::db_migrations::migrations::migration_10_to_11::Migrate_10_to_11;
+use crate::database::db_migrations::migrations::migration_11_to_12::Migrate_11_to_12;
 use crate::database::db_migrations::migrations::migration_1_to_2::Migrate_1_to_2;
 use crate::database::db_migrations::migrations::migration_2_to_3::Migrate_2_to_3;
 use crate::database::db_migrations::migrations::migration_3_to_4::Migrate_3_to_4;
@@ -17,7 +18,6 @@ use crate::database::db_migrations::migrator_utils::{
 };
 use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionSafeWrapper};
 use masq_lib::logger::Logger;
-use crate::database::db_migrations::migrations::migration_11_to_12::Migrate_11_to_12;
 
 pub trait DbMigrator {
     fn migrate_database(

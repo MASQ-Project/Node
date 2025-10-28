@@ -12,12 +12,10 @@ impl DatabaseMigration for Migrate_11_to_12 {
         &self,
         declaration_utils: Box<dyn DBMigDeclarator + 'a>,
     ) -> rusqlite::Result<()> {
-        declaration_utils.execute_upon_transaction(&[
-            &format!(
-                "INSERT INTO config (name, value, encrypted) VALUES ('rate_pack_limits', '{}', 0)",
-                DEFAULT_RATE_PACK_LIMITS
-            )
-        ])
+        declaration_utils.execute_upon_transaction(&[&format!(
+            "INSERT INTO config (name, value, encrypted) VALUES ('rate_pack_limits', '{}', 0)",
+            DEFAULT_RATE_PACK_LIMITS
+        )])
     }
 
     fn old_version(&self) -> usize {
@@ -65,7 +63,13 @@ mod tests {
         let connection = result.unwrap();
         let (lc_value, lc_encrypted) = retrieve_config_row(connection.as_ref(), "rate_pack_limits");
         let (cs_value, cs_encrypted) = retrieve_config_row(connection.as_ref(), "schema_version");
-        assert_eq!(lc_value, Some("100-100000000000000|100-100000000000000|100-100000000000000|100-100000000000000".to_string()));
+        assert_eq!(
+            lc_value,
+            Some(
+                "100-100000000000000|100-100000000000000|100-100000000000000|100-100000000000000"
+                    .to_string()
+            )
+        );
         assert_eq!(lc_encrypted, false);
         assert_eq!(cs_value, Some("12".to_string()));
         assert_eq!(cs_encrypted, false)

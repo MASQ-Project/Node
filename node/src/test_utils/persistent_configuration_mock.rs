@@ -765,7 +765,10 @@ impl PersistentConfigurationMock {
         self
     }
 
-    pub fn rate_pack_limits_result(self, result: Result<(RatePack, RatePack), PersistentConfigError>) -> Self {
+    pub fn rate_pack_limits_result(
+        self,
+        result: Result<(RatePack, RatePack), PersistentConfigError>,
+    ) -> Self {
         self.rate_pack_limits_results.borrow_mut().push(result);
         self
     }

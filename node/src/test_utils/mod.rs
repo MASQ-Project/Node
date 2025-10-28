@@ -633,7 +633,7 @@ pub mod unshared_test_utils {
         };
         let config = config.rate_pack_limits_result(Ok((
             RatePack::new(u64::MIN, u64::MIN, u64::MIN, u64::MIN),
-            RatePack::new(u64::MAX, u64::MAX, u64::MAX, u64::MAX)
+            RatePack::new(u64::MAX, u64::MAX, u64::MAX, u64::MAX),
         )));
         config
     }

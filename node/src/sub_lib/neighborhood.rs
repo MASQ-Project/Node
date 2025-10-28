@@ -48,7 +48,8 @@ pub const ZERO_RATE_PACK: RatePack = RatePack {
     exit_service_rate: 0,
 };
 
-pub const DEFAULT_RATE_PACK_LIMITS: &str = "100-100000000000000|100-100000000000000|100-100000000000000|100-100000000000000";
+pub const DEFAULT_RATE_PACK_LIMITS: &str =
+    "100-100000000000000|100-100000000000000|100-100000000000000|100-100000000000000";
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct RatePack {
