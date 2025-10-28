@@ -5,7 +5,7 @@ use crate::database::db_migrations::db_migrator::{DbMigrator, DbMigratorReal};
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
 use crate::neighborhood::DEFAULT_MIN_HOPS;
 use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
-use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
+use crate::sub_lib::neighborhood::{DEFAULT_RATE_PACK, DEFAULT_RATE_PACK_LIMITS};
 use crate::sub_lib::utils::db_connection_launch_panic;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{
@@ -255,6 +255,13 @@ impl DbInitializerReal {
             Some(&DEFAULT_RATE_PACK.to_string()),
             false,
             "rate pack",
+        );
+        Self::set_config_value(
+            conn,
+            "rate_pack_limits",
+            Some(DEFAULT_RATE_PACK_LIMITS),
+            false,
+            "rate pack limits",
         );
         Self::set_config_value(
             conn,

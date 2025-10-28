@@ -17,6 +17,7 @@ use crate::database::db_migrations::migrator_utils::{
 };
 use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionSafeWrapper};
 use masq_lib::logger::Logger;
+use crate::database::db_migrations::migrations::migration_11_to_12::Migrate_11_to_12;
 
 pub trait DbMigrator {
     fn migrate_database(
@@ -82,6 +83,7 @@ impl DbMigratorReal {
             &Migrate_8_to_9,
             &Migrate_9_to_10,
             &Migrate_10_to_11,
+            &Migrate_11_to_12,
         ]
     }
 
