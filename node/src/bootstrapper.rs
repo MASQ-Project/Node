@@ -1157,6 +1157,8 @@ mod tests {
         subject
             .initialize_as_unprivileged(
                 &make_simplified_multi_config([
+                    "--blockchain-service-url",
+                    "https://booga.com",
                     "--ip",
                     "1.2.3.4",
                     "--clandestine-port",
@@ -1278,7 +1280,14 @@ mod tests {
 
         subject
             .initialize_as_unprivileged(
-                &make_simplified_multi_config(["--ip", "1.2.3.4", "--clandestine-port", "5123"]),
+                &make_simplified_multi_config([
+                    "--blockchain-service-url",
+                    "https://booga.com",
+                    "--ip",
+                    "1.2.3.4",
+                    "--clandestine-port",
+                    "5123",
+                ]),
                 &mut FakeStreamHolder::new().streams(),
             )
             .unwrap();
@@ -1325,6 +1334,8 @@ mod tests {
         subject
             .initialize_as_unprivileged(
                 &make_simplified_multi_config([
+                    "--blockchain-service-url",
+                    "https://booga.com",
                     "--data-directory",
                     data_dir.to_str().unwrap(),
                     "--clandestine-port",
@@ -1363,7 +1374,14 @@ mod tests {
 
         subject
             .initialize_as_unprivileged(
-                &make_simplified_multi_config(["--ip", "1.2.3.4", "--gas-price", "11"]),
+                &make_simplified_multi_config([
+                    "--blockchain-service-url",
+                    "https://booga.com",
+                    "--ip",
+                    "1.2.3.4",
+                    "--gas-price",
+                    "11",
+                ]),
                 &mut FakeStreamHolder::new().streams(),
             )
             .unwrap();
@@ -1438,6 +1456,8 @@ mod tests {
             "init_as_privileged_stores_dns_servers_and_passes_them_to_actor_system_factory_for_proxy_client_in_init_as_unprivileged",
         );
         let args = [
+            "--blockchain-service-url",
+            "https://booga.com",
             "--dns-servers",
             "1.2.3.4,2.3.4.5",
             "--ip",
@@ -1497,7 +1517,12 @@ mod tests {
             .build();
 
         subject
-            .initialize_as_privileged(&make_simplified_multi_config(["--ip", "111.111.111.111"]))
+            .initialize_as_privileged(&make_simplified_multi_config([
+                "--blockchain-service-url",
+                "https://booga.com",
+                "--ip",
+                "111.111.111.111",
+            ]))
             .unwrap();
     }
 
@@ -1624,6 +1649,8 @@ mod tests {
         subject
             .initialize_as_unprivileged(
                 &make_simplified_multi_config([
+                    "--blockchain-service-url",
+                    "https://booga.com",
                     "--clandestine-port",
                     "1234",
                     "--ip",
@@ -1651,6 +1678,8 @@ mod tests {
         let data_dir = ensure_node_home_directory_exists("bootstrapper", "initialize_as_unprivileged_moves_streams_from_listener_handlers_to_stream_handler_pool");
         init_test_logging();
         let args = [
+            "--blockchain-service-url",
+            "https://booga.com",
             "--ip",
             "111.111.111.111",
             "--data-directory",
