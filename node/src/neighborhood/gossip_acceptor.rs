@@ -305,6 +305,7 @@ impl DebutHandler {
             }
             None => (),
         }
+todo!("Drive in a call to GossipAcceptorReal::validate_new_version() here");
         let debut_node_key = database
             .add_node(debuting_node)
             .expect("Debuting Node suddenly appeared in database");
@@ -1411,6 +1412,10 @@ impl GossipAcceptorReal {
             debut_target.inner.public_key.clone(),
             debut_target_node_addr.clone(),
         ))
+    }
+
+    fn validate_new_version(node_record: &NodeRecord, neighborhood_database: &NeighborhoodDatabase) -> bool {
+        todo!("Test-drive me")
     }
 }
 
