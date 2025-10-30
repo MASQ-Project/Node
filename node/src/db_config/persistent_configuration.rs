@@ -22,7 +22,7 @@ use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use masq_lib::utils::NeighborhoodModeLight;
 use masq_lib::utils::{to_string, AutomapProtocol};
-use regex::Regex;
+use regex::{Captures, Regex};
 use rustc_hex::{FromHex, ToHex};
 use std::fmt::Display;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
@@ -31,7 +31,7 @@ use websocket::url::Url;
 
 lazy_static! {
     static ref RATE_PACK_LIMIT_FORMAT: Regex =
-        Regex::new(r"^(\d+)-(\d+)\|(\d+)-(\d+)\|(\d+)-(\d+)\|(\d+)-(\d+)$").unwrap();
+        Regex::new(r"^(\d{1,19})-(\d{1,19})\|(\d{1,19})-(\d{1,19})\|(\d{1,19})-(\d{1,19})\|(\d{1,19})-(\d{1,19})$").unwrap();
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -588,53 +588,27 @@ impl PersistentConfiguration for PersistentConfigurationReal {
                 "Required value rate_pack_limits is NULL in CONFIG table: database is corrupt!",
             );
         let captures = RATE_PACK_LIMIT_FORMAT.captures(limits_string.as_str())
-            .expect("Syntax error in rate_pack_limits value 'Booga!': should be <LRBR>-<HRBR>|<LRSR>-<HRSR>|<LEBR>-<HEBR>|<LESR>-<HESR> where L is low, H is high, R is routing, E is exit, BR is byte rate, and SR is service rate. All numbers should be in wei.");
+            .expect(format!("Syntax error in rate_pack_limits value '{}': should be <LRBR>-<HRBR>|<LRSR>-<HRSR>|<LEBR>-<HEBR>|<LESR>-<HESR> where L is low, H is high, R is routing, E is exit, BR is byte rate, and SR is service rate. All numbers should be in wei.", limits_string).as_str());
         let candidate = (
-            RatePack {
-                routing_byte_rate: u64::from_str(captures.get(1).expect("blah").as_str())
-                    .expect("blah"),
-                routing_service_rate: u64::from_str(captures.get(3).expect("blah").as_str())
-                    .expect("blah"),
-                exit_byte_rate: u64::from_str(captures.get(5).expect("blah").as_str())
-                    .expect("blah"),
-                exit_service_rate: u64::from_str(captures.get(7).expect("blah").as_str())
-                    .expect("blah"),
-            },
-            RatePack {
-                routing_byte_rate: u64::from_str(captures.get(2).expect("blah").as_str())
-                    .expect("blah"),
-                routing_service_rate: u64::from_str(captures.get(4).expect("blah").as_str())
-                    .expect("blah"),
-                exit_byte_rate: u64::from_str(captures.get(6).expect("blah").as_str())
-                    .expect("blah"),
-                exit_service_rate: u64::from_str(captures.get(8).expect("blah").as_str())
-                    .expect("blah"),
-            },
+            Self::extract_candidate(&captures, 1),
+            Self::extract_candidate(&captures, 2)
         );
-        let check_rate_pack_limit_order = |low: u64, high: u64, field_name: &str| {
-            if low >= high {
-                panic!(
-                    "Rate pack limits should have low limits less than high limits, but {} limits are {}-{}",
-                    field_name, low, high
-                );
-            }
-        };
-        check_rate_pack_limit_order(
+        Self::check_rate_pack_limit_order(
             candidate.0.routing_byte_rate,
             candidate.1.routing_byte_rate,
             "routing_byte_rate",
         );
-        check_rate_pack_limit_order(
+        Self::check_rate_pack_limit_order(
             candidate.0.routing_service_rate,
             candidate.1.routing_service_rate,
             "routing_service_rate",
         );
-        check_rate_pack_limit_order(
+        Self::check_rate_pack_limit_order(
             candidate.0.exit_byte_rate,
             candidate.1.exit_byte_rate,
             "exit_byte_rate",
         );
-        check_rate_pack_limit_order(
+        Self::check_rate_pack_limit_order(
             candidate.0.exit_service_rate,
             candidate.1.exit_service_rate,
             "exit_service_rate",
@@ -742,6 +716,34 @@ impl PersistentConfigurationReal {
             "ever-supplied value missing: {}; database is corrupt!",
             parameter_name
         )
+    }
+
+    fn extract_candidate(captures: &Captures, start_index: usize) -> RatePack {
+        RatePack {
+            routing_byte_rate: Self::parse_capture(captures, start_index),
+            routing_service_rate: Self::parse_capture(captures, start_index + 2),
+            exit_byte_rate: Self::parse_capture(captures, start_index + 4),
+            exit_service_rate: Self::parse_capture(captures, start_index + 6),
+        }
+    }
+
+    fn parse_capture(captures: &Captures, index: usize) -> u64 {
+        u64::from_str(
+            captures
+                .get(index)
+                .expect("Internal error: regex needs four captures")
+                .as_str(),
+        )
+        .expect("Internal error: regex must require u64")
+    }
+
+    fn check_rate_pack_limit_order(low: u64, high: u64, field_name: &str) {
+        if low >= high {
+            panic!(
+                "Rate pack limits should have low limits less than high limits, but {} limits are {}-{}",
+                field_name, low, high
+            );
+        }
     }
 }
 
