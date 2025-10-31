@@ -51,7 +51,7 @@ impl ReceiptScanReport {
             .push(PresortedTxFailure::NewEntry(failed_tx));
     }
 
-    pub(super) fn register_finalization_of_suspected_failure(&mut self, tx_hash: TxHash) {
+    pub(super) fn register_finalization_of_supposed_failure(&mut self, tx_hash: TxHash) {
         self.failures
             .tx_failures
             .push(PresortedTxFailure::RecheckCompleted(tx_hash));

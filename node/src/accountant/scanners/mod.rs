@@ -142,9 +142,9 @@ impl Scanners {
     ) -> Result<InitialTemplatesMessage, StartScanError> {
         if let Some(started_at) = self.payable.scan_started_at() {
             unreachable!(
-                "Guards should ensure that no payable scanner can run if the pending payable \
-                 repetitive sequence is still ongoing. However, some other payable scan intruded \
-                 at {} and is still running at {}",
+                "Guards are applied to ensure that none of the payable scanners may run \
+                if the pending payable has not finished the monitoring of pending txs. \
+                Still, another payable scan intruded at {} and is still running at {}",
                 StartScanError::timestamp_as_string(started_at),
                 StartScanError::timestamp_as_string(SystemTime::now())
             )
@@ -795,11 +795,11 @@ mod tests {
             false
         );
         let dumped_records = pending_payable_scanner
-            .suspected_failed_payables
+            .supposed_failed_payables
             .dump_cache();
         assert!(
             dumped_records.is_empty(),
-            "There should be no suspected failures but found {:?}.",
+            "There should be no supposed failures but found {:?}.",
             dumped_records
         );
         assert_eq!(
@@ -1027,18 +1027,19 @@ mod tests {
         let after = SystemTime::now();
         let panic_msg = caught_panic.downcast_ref::<String>().unwrap();
         let expected_needle_1 = "internal error: entered unreachable code: \
-        Guards should ensure that no payable scanner can run if the pending payable \
-        repetitive sequence is still ongoing. However, some other payable scan intruded at";
+        Guards are applied to ensure that none of the payable scanners may run if the pending \
+        payable has not finished the monitoring of pending txs. Still, another payable scan \
+        intruded at";
         assert!(
             panic_msg.contains(expected_needle_1),
-            "We looked for {} but the actual string doesn't contain it: {}",
+            "We looked for \"{}\" but the actual string doesn't contain it: {}",
             expected_needle_1,
             panic_msg
         );
         let expected_needle_2 = "and is still running at ";
         assert!(
             panic_msg.contains(expected_needle_2),
-            "We looked for {} but the actual string doesn't contain it: {}",
+            "We looked for \"{}\" but the actual string doesn't contain it: {}",
             expected_needle_2,
             panic_msg
         );
@@ -1201,7 +1202,8 @@ mod tests {
         TestLogHandler::new().assert_logs_match_in_order(vec![
             &format!("INFO: {test_name}: Scanning for pending payable"),
             &format!(
-                "DEBUG: {test_name}: Found 1 pending payables and 1 suspected failures to process"
+                "DEBUG: {test_name}: Collected 1 pending payables and 1 supposed failures \
+                for the receipt check"
             ),
         ])
     }

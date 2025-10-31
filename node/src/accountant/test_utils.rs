@@ -1281,7 +1281,7 @@ pub struct PendingPayableScannerBuilder {
     payment_thresholds: PaymentThresholds,
     financial_statistics: FinancialStatistics,
     current_sent_payables: Box<dyn PendingPayableCache<SentTx>>,
-    suspected_failed_payables: Box<dyn PendingPayableCache<FailedTx>>,
+    supposed_failed_payables: Box<dyn PendingPayableCache<FailedTx>>,
     clock: Box<dyn SimpleClock>,
 }
 
@@ -1294,7 +1294,7 @@ impl PendingPayableScannerBuilder {
             payment_thresholds: PaymentThresholds::default(),
             financial_statistics: FinancialStatistics::default(),
             current_sent_payables: Box::new(PendingPayableCacheMock::default()),
-            suspected_failed_payables: Box::new(PendingPayableCacheMock::default()),
+            supposed_failed_payables: Box::new(PendingPayableCacheMock::default()),
             clock: Box::new(SimpleClockMock::default()),
         }
     }
@@ -1323,7 +1323,7 @@ impl PendingPayableScannerBuilder {
         mut self,
         failures: Box<dyn PendingPayableCache<FailedTx>>,
     ) -> Self {
-        self.suspected_failed_payables = failures;
+        self.supposed_failed_payables = failures;
         self
     }
 
@@ -1341,7 +1341,7 @@ impl PendingPayableScannerBuilder {
             Rc::new(RefCell::new(self.financial_statistics)),
         );
         scanner.current_sent_payables = self.current_sent_payables;
-        scanner.suspected_failed_payables = self.suspected_failed_payables;
+        scanner.supposed_failed_payables = self.supposed_failed_payables;
         scanner.clock = self.clock;
         scanner
     }

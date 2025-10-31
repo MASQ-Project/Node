@@ -1,5 +1,7 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+mod finish_scan;
+mod start_scan;
 mod tx_receipt_interpreter;
 pub mod utils;
 
@@ -19,20 +21,16 @@ use crate::accountant::scanners::pending_payable_scanner::utils::{
     ReceiptScanReport, RecheckRequiringFailures, Retry, TxByTable, TxCaseToBeInterpreted,
     TxHashByTable, UpdatableValidationStatus,
 };
-use crate::accountant::scanners::{
-    PrivateScanner, Scanner, ScannerCommon, StartScanError, StartableScanner,
-};
+use crate::accountant::scanners::{PrivateScanner, ScannerCommon, StartScanError};
 use crate::accountant::{
     join_with_commas, RequestTransactionReceipts, ResponseSkeleton, ScanForPendingPayables,
     TxReceiptResult, TxReceiptsMessage,
 };
 use crate::blockchain::blockchain_interface::data_structures::TxBlock;
 use crate::sub_lib::accountant::{FinancialStatistics, PaymentThresholds};
-use crate::sub_lib::wallet::Wallet;
-use crate::time_marking_methods;
 use itertools::{Either, Itertools};
 use masq_lib::logger::Logger;
-use masq_lib::messages::{ScanType, ToMessageBody, UiScanResponse};
+use masq_lib::messages::{ToMessageBody, UiScanResponse};
 use masq_lib::simple_clock::{SimpleClock, SimpleClockReal};
 use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
 use std::cell::RefCell;
@@ -40,7 +38,6 @@ use std::collections::{BTreeSet, HashMap};
 use std::fmt::Display;
 use std::rc::Rc;
 use std::str::FromStr;
-use std::time::SystemTime;
 use thousands::Separable;
 use web3::types::H256;
 
@@ -65,7 +62,7 @@ pub struct PendingPayableScanner {
     pub failed_payable_dao: Box<dyn FailedPayableDao>,
     pub financial_statistics: Rc<RefCell<FinancialStatistics>>,
     pub current_sent_payables: Box<dyn PendingPayableCache<SentTx>>,
-    pub suspected_failed_payables: Box<dyn PendingPayableCache<FailedTx>>,
+    pub supposed_failed_payables: Box<dyn PendingPayableCache<FailedTx>>,
     pub clock: Box<dyn SimpleClock>,
 }
 
@@ -81,64 +78,10 @@ impl
 {
 }
 
-impl StartableScanner<ScanForPendingPayables, RequestTransactionReceipts>
-    for PendingPayableScanner
-{
-    fn start_scan(
-        &mut self,
-        _wallet: &Wallet,
-        timestamp: SystemTime,
-        response_skeleton_opt: Option<ResponseSkeleton>,
-        logger: &Logger,
-    ) -> Result<RequestTransactionReceipts, StartScanError> {
-        self.mark_as_started(timestamp);
-
-        info!(logger, "Scanning for pending payable");
-
-        let tx_hashes = self.harvest_tables(logger).map_err(|e| {
-            self.mark_as_ended(logger);
-            e
-        })?;
-
-        Ok(RequestTransactionReceipts {
-            tx_hashes,
-            response_skeleton_opt,
-        })
-    }
-}
-
-impl Scanner<TxReceiptsMessage, PendingPayableScanResult> for PendingPayableScanner {
-    fn finish_scan(
-        &mut self,
-        message: TxReceiptsMessage,
-        logger: &Logger,
-    ) -> PendingPayableScanResult {
-        let response_skeleton_opt = message.response_skeleton_opt;
-
-        let scan_report = self.interpret_tx_receipts(message, logger);
-
-        let retry_opt = scan_report.requires_payments_retry();
-
-        debug!(logger, "Payment retry requirement: {:?}", retry_opt);
-
-        self.process_txs_by_state(scan_report, logger);
-
-        self.mark_as_ended(logger);
-
-        Self::compose_scan_result(retry_opt, response_skeleton_opt)
-    }
-
-    time_marking_methods!(PendingPayables);
-
-    as_any_ref_in_trait_impl!();
-
-    as_any_mut_in_trait_impl!();
-}
-
 impl CachesEmptiableScanner for PendingPayableScanner {
     fn empty_caches(&mut self, logger: &Logger) {
         self.current_sent_payables.ensure_empty_cache(logger);
-        self.suspected_failed_payables.ensure_empty_cache(logger);
+        self.supposed_failed_payables.ensure_empty_cache(logger);
     }
 }
 
@@ -157,7 +100,7 @@ impl PendingPayableScanner {
             failed_payable_dao,
             financial_statistics,
             current_sent_payables: Box::new(CurrentPendingPayables::default()),
-            suspected_failed_payables: Box::new(RecheckRequiringFailures::default()),
+            supposed_failed_payables: Box::new(RecheckRequiringFailures::default()),
             clock: Box::new(SimpleClockReal::default()),
         }
     }
@@ -165,29 +108,22 @@ impl PendingPayableScanner {
     fn harvest_tables(&mut self, logger: &Logger) -> Result<Vec<TxHashByTable>, StartScanError> {
         debug!(logger, "Harvesting sent_payable and failed_payable tables");
 
-        let pending_tx_hashes_opt = self.harvest_pending_payables();
-        let failure_hashes_opt = self.harvest_suspected_failures();
+        let pending_tx_hashes = self.harvest_pending_payables();
+        let failure_hashes = self.harvest_supposed_failures();
 
-        if Self::is_there_nothing_to_process(
-            pending_tx_hashes_opt.as_ref(),
-            failure_hashes_opt.as_ref(),
-        ) {
+        if Self::is_there_nothing_to_process(&pending_tx_hashes, &failure_hashes) {
             return Err(StartScanError::NothingToProcess);
         }
 
-        Self::log_records_for_receipt_check(
-            pending_tx_hashes_opt.as_ref(),
-            failure_hashes_opt.as_ref(),
-            logger,
-        );
+        Self::log_records_for_receipt_check(&pending_tx_hashes, &failure_hashes, logger);
 
-        Ok(Self::merge_hashes(
-            pending_tx_hashes_opt,
-            failure_hashes_opt,
+        Ok(Self::merge_hashes_as_single_vec(
+            pending_tx_hashes,
+            failure_hashes,
         ))
     }
 
-    fn harvest_pending_payables(&mut self) -> Option<Vec<TxHashByTable>> {
+    fn harvest_pending_payables(&mut self) -> Vec<TxHashByTable> {
         let pending_txs = self
             .sent_payable_dao
             .retrieve_txs(Some(RetrieveCondition::IsPending))
@@ -195,15 +131,15 @@ impl PendingPayableScanner {
             .collect_vec();
 
         if pending_txs.is_empty() {
-            return None;
+            return vec![];
         }
 
         let pending_tx_hashes = Self::wrap_hashes(&pending_txs, TxHashByTable::SentPayable);
         self.current_sent_payables.load_cache(pending_txs);
-        Some(pending_tx_hashes)
+        pending_tx_hashes
     }
 
-    fn harvest_suspected_failures(&mut self) -> Option<Vec<TxHashByTable>> {
+    fn harvest_supposed_failures(&mut self) -> Vec<TxHashByTable> {
         let failures = self
             .failed_payable_dao
             .retrieve_txs(Some(FailureRetrieveCondition::EveryRecheckRequiredRecord))
@@ -211,30 +147,28 @@ impl PendingPayableScanner {
             .collect_vec();
 
         if failures.is_empty() {
-            return None;
+            return vec![];
         }
 
         let failure_hashes = Self::wrap_hashes(&failures, TxHashByTable::FailedPayable);
-        self.suspected_failed_payables.load_cache(failures);
-        Some(failure_hashes)
+        self.supposed_failed_payables.load_cache(failures);
+        failure_hashes
     }
 
     fn is_there_nothing_to_process(
-        pending_tx_hashes_opt: Option<&Vec<TxHashByTable>>,
-        failure_hashes_opt: Option<&Vec<TxHashByTable>>,
+        pending_tx_hashes: &[TxHashByTable],
+        failure_hashes: &[TxHashByTable],
     ) -> bool {
-        pending_tx_hashes_opt.is_none() && failure_hashes_opt.is_none()
+        pending_tx_hashes.is_empty() && failure_hashes.is_empty()
     }
 
-    fn merge_hashes(
-        pending_tx_hashes_opt: Option<Vec<TxHashByTable>>,
-        failure_hashes_opt: Option<Vec<TxHashByTable>>,
+    fn merge_hashes_as_single_vec(
+        pending_tx_hashes: Vec<TxHashByTable>,
+        failure_hashes: Vec<TxHashByTable>,
     ) -> Vec<TxHashByTable> {
-        let failures = failure_hashes_opt.unwrap_or_default();
-        pending_tx_hashes_opt
-            .unwrap_or_default()
+        pending_tx_hashes
             .into_iter()
-            .chain(failures)
+            .chain(failure_hashes)
             .collect()
     }
 
@@ -329,7 +263,7 @@ impl PendingPayableScanner {
         };
 
         self.current_sent_payables.ensure_empty_cache(logger);
-        self.suspected_failed_payables.ensure_empty_cache(logger);
+        self.supposed_failed_payables.ensure_empty_cache(logger);
 
         cases
     }
@@ -354,7 +288,7 @@ impl PendingPayableScanner {
                 }
             }
             TxHashByTable::FailedPayable(tx_hash) => {
-                match self.suspected_failed_payables.get_record_by_hash(tx_hash) {
+                match self.supposed_failed_payables.get_record_by_hash(tx_hash) {
                     Some(failed_tx) => {
                         cases.push(TxCaseToBeInterpreted::new(
                             TxByTable::FailedPayable(failed_tx),
@@ -379,10 +313,10 @@ impl PendingPayableScanner {
 
         panic!(
             "Looking up '{:?}' in the cache, the record could not be found. Dumping \
-            the remaining values. Pending payables: {:?}. Suspected failures: {:?}.",
+            the remaining values. Pending payables: {:?}. Supposed failures: {:?}.",
             missing_entry,
             rearrange(self.current_sent_payables.dump_cache()),
-            rearrange(self.suspected_failed_payables.dump_cache()),
+            rearrange(self.supposed_failed_payables.dump_cache()),
         )
     }
 
@@ -629,7 +563,7 @@ impl PendingPayableScanner {
                 });
 
         self.add_new_failures(grouped_failures.new_failures, logger);
-        self.finalize_suspected_failures(grouped_failures.rechecks_completed, logger);
+        self.finalize_supposed_failures(grouped_failures.rechecks_completed, logger);
     }
 
     fn add_new_failures(&self, new_failures: Vec<FailedTx>, logger: &Logger) {
@@ -681,7 +615,7 @@ impl PendingPayableScanner {
         }
     }
 
-    fn finalize_suspected_failures(&self, rechecks_completed: Vec<TxHash>, logger: &Logger) {
+    fn finalize_supposed_failures(&self, rechecks_completed: Vec<TxHash>, logger: &Logger) {
         fn prepare_hashmap(rechecks_completed: &[TxHash]) -> HashMap<TxHash, FailureStatus> {
             rechecks_completed
                 .iter()
@@ -844,19 +778,15 @@ impl PendingPayableScanner {
     }
 
     fn log_records_for_receipt_check(
-        pending_tx_hashes_opt: Option<&Vec<TxHashByTable>>,
-        failure_hashes_opt: Option<&Vec<TxHashByTable>>,
+        pending_tx_hashes: &[TxHashByTable],
+        failure_hashes: &[TxHashByTable],
         logger: &Logger,
     ) {
-        fn resolve_optional_vec(vec_opt: Option<&Vec<TxHashByTable>>) -> usize {
-            vec_opt.map(|hashes| hashes.len()).unwrap_or_default()
-        }
-
         debug!(
             logger,
-            "Found {} pending payables and {} suspected failures to process",
-            resolve_optional_vec(pending_tx_hashes_opt),
-            resolve_optional_vec(failure_hashes_opt)
+            "Collected {} pending payables and {} supposed failures for the receipt check",
+            pending_tx_hashes.len(),
+            failure_hashes.len()
         );
     }
 }
@@ -929,7 +859,7 @@ mod tests {
             .build();
         let logger = Logger::new("start_scan_fills_in_caches_and_returns_msg");
         let pending_payable_cache_before = subject.current_sent_payables.dump_cache();
-        let failed_payable_cache_before = subject.suspected_failed_payables.dump_cache();
+        let failed_payable_cache_before = subject.supposed_failed_payables.dump_cache();
 
         let result = subject.start_scan(&make_wallet("blah"), SystemTime::now(), None, &logger);
 
@@ -956,7 +886,7 @@ mod tests {
             failed_payable_cache_before
         );
         let pending_payable_cache_after = subject.current_sent_payables.dump_cache();
-        let failed_payable_cache_after = subject.suspected_failed_payables.dump_cache();
+        let failed_payable_cache_after = subject.supposed_failed_payables.dump_cache();
         assert_eq!(
             pending_payable_cache_after,
             hashmap!(sent_tx_hash_1 => sent_tx_1, sent_tx_hash_2 => sent_tx_2)
@@ -1064,7 +994,7 @@ mod tests {
         failed_payable_cache.load_cache(vec![failed_tx_1, failed_tx_2]);
         let mut subject = PendingPayableScannerBuilder::new().build();
         subject.current_sent_payables = Box::new(pending_payable_cache);
-        subject.suspected_failed_payables = Box::new(failed_payable_cache);
+        subject.supposed_failed_payables = Box::new(failed_payable_cache);
         let logger = Logger::new("test");
         let msg = TxReceiptsMessage {
             results: btreemap![TxHashByTable::SentPayable(sent_tx_hash_1) => Ok(
@@ -1085,7 +1015,7 @@ mod tests {
         values. Pending payables: [SentTx { hash: 0x0000000000000000000000000000000000000000000000\
         000000000000000890, receiver_address: 0x0000000000000000000558000000000558000000, \
         amount_minor: 43237380096, timestamp: 29942784, gas_price_minor: 94818816, nonce: 456, \
-        status: Pending(Waiting) }]. Suspected failures: [].";
+        status: Pending(Waiting) }]. Supposed failures: [].";
         assert_eq!(panic_msg, expected);
     }
 
@@ -1104,7 +1034,7 @@ mod tests {
         failed_payable_cache.load_cache(vec![failed_tx_1]);
         let mut subject = PendingPayableScannerBuilder::new().build();
         subject.current_sent_payables = Box::new(pending_payable_cache);
-        subject.suspected_failed_payables = Box::new(failed_payable_cache);
+        subject.supposed_failed_payables = Box::new(failed_payable_cache);
         let logger = Logger::new("test");
         let msg = TxReceiptsMessage {
             results: btreemap![TxHashByTable::SentPayable(sent_tx_hash_1) => Ok(StatusReadFromReceiptCheck::Pending),
@@ -1127,7 +1057,7 @@ mod tests {
         Pending(Waiting) }, SentTx { hash: 0x0000000000000000000000000000000000000000000000000000000\
         000000315, receiver_address: 0x000000000000000000093f00000000093f000000, amount_minor: \
         387532395441, timestamp: 89643024, gas_price_minor: 491169069, nonce: 789, status: \
-        Pending(Waiting) }]. Suspected failures: [].";
+        Pending(Waiting) }]. Supposed failures: [].";
         assert_eq!(panic_msg, expected);
     }
 

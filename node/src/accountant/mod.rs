@@ -3,6 +3,7 @@
 pub mod db_access_objects;
 pub mod db_big_integer;
 pub mod financials;
+mod message_counter;
 pub mod payment_adjuster;
 pub mod scanners;
 
@@ -22,6 +23,7 @@ use crate::accountant::db_access_objects::utils::{
 use crate::accountant::financials::visibility_restricted_module::{
     check_query_is_within_tech_limits, financials_entry_check,
 };
+use crate::accountant::message_counter::{AccountingMsgType, MessageCounter};
 use crate::accountant::scanners::payable_scanner::msgs::{
     InitialTemplatesMessage, PricedTemplatesMessage,
 };
@@ -86,6 +88,7 @@ use std::time::SystemTime;
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
 pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; //6 hours
+const DEFAULT_ACCOUNTING_MSG_LOG_GAP: u16 = 50;
 
 pub struct Accountant {
     consuming_wallet_opt: Option<Wallet>,
@@ -105,6 +108,7 @@ pub struct Accountant {
     report_sent_payables_sub_opt: Option<Recipient<SentPayables>>,
     ui_message_sub_opt: Option<Recipient<NodeToUiMessage>>,
     message_id_generator: Box<dyn MessageIdGenerator>,
+    message_counter: MessageCounter,
     logger: Logger,
 }
 
@@ -348,8 +352,8 @@ impl Handler<TxReceiptsMessage> for Accountant {
                 if let Some(node_to_ui_msg) = ui_msg_opt {
                     info!(
                         self.logger,
-                        "Re-running the pending payable scan is recommended, as some parts \
-                        did not finish last time."
+                        "Re-running the pending payable scan is recommended, as some parts were \
+                        prevented from completing during the previous attempt."
                     );
                     self.ui_message_sub_opt
                         .as_ref()
@@ -590,6 +594,7 @@ impl Accountant {
             request_transaction_receipts_sub_opt: None,
             ui_message_sub_opt: None,
             message_id_generator: Box::new(MessageIdGeneratorReal::default()),
+            message_counter: MessageCounter::default(),
             logger: Logger::new("Accountant"),
         }
     }
@@ -739,9 +744,11 @@ impl Accountant {
         &mut self,
         msg: ReportRoutingServiceProvidedMessage,
     ) {
+        let msg_id = self.msg_id();
         trace!(
             self.logger,
-            "Charging routing of {} bytes to wallet {}",
+            "Msg {}: Charging routing of {} bytes to wallet {}",
+            msg_id,
             msg.payload_size,
             msg.paying_wallet
         );
@@ -752,20 +759,34 @@ impl Accountant {
             msg.payload_size,
             &msg.paying_wallet,
         );
+        if let Some(log_instruction) = self.message_counter.manage_log(
+            DEFAULT_ACCOUNTING_MSG_LOG_GAP,
+            AccountingMsgType::RoutingServiceProvided,
+        ) {
+            debug!(
+                self.logger,
+                "Just processed {} more routing service provided msgs. Total: {}",
+                log_instruction.used_gap,
+                log_instruction.msg_total_count
+            );
+        }
     }
 
     fn handle_report_exit_service_provided_message(
         &mut self,
         msg: ReportExitServiceProvidedMessage,
     ) {
-        trace!(
-            self.logger,
-            "Charging exit service for {} bytes to wallet {} at {} per service and {} per byte",
-            msg.payload_size,
-            msg.paying_wallet,
-            msg.service_rate,
-            msg.byte_rate
-        );
+        self.logger.trace(||{
+            let msg_id = self.msg_id();
+            format!(
+                "Msg {}: Charging exit service for {} bytes to wallet {} at {} per service and {} per byte",
+                msg_id,
+                msg.payload_size,
+                msg.paying_wallet,
+                msg.service_rate,
+                msg.byte_rate
+            )
+        });
         self.record_service_provided(
             msg.service_rate,
             msg.byte_rate,
@@ -773,6 +794,17 @@ impl Accountant {
             msg.payload_size,
             &msg.paying_wallet,
         );
+        if let Some(log_instruction) = self.message_counter.manage_log(
+            DEFAULT_ACCOUNTING_MSG_LOG_GAP,
+            AccountingMsgType::ExitServiceProvided,
+        ) {
+            debug!(
+                self.logger,
+                "Just processed {} more exit service provided msgs. Total: {}",
+                log_instruction.used_gap,
+                log_instruction.msg_total_count
+            );
+        }
     }
 
     fn msg_id(&self) -> u32 {
@@ -787,7 +819,7 @@ impl Accountant {
         let msg_id = self.msg_id();
         trace!(
             self.logger,
-            "MsgId {}: Accruing debt to {} for consuming {} exited bytes",
+            "Msg {}: Accruing debt to {} for consuming {} exited bytes",
             msg_id,
             msg.exit.earning_wallet,
             msg.exit.payload_size
@@ -802,7 +834,7 @@ impl Accountant {
         msg.routing.iter().for_each(|routing_service| {
             trace!(
                 self.logger,
-                "MsgId {}: Accruing debt to {} for consuming {} routed bytes",
+                "Msg {}: Accruing debt to {} for consuming {} routed bytes",
                 msg_id,
                 routing_service.earning_wallet,
                 msg.routing_payload_size
@@ -814,7 +846,18 @@ impl Accountant {
                 msg.routing_payload_size,
                 &routing_service.earning_wallet,
             );
-        })
+        });
+        if let Some(log_instruction) = self.message_counter.manage_log(
+            DEFAULT_ACCOUNTING_MSG_LOG_GAP,
+            AccountingMsgType::ServicesConsumed,
+        ) {
+            debug!(
+                self.logger,
+                "Just processed {} more services consumed msgs. Total: {}",
+                log_instruction.used_gap,
+                log_instruction.msg_total_count
+            );
+        }
     }
 
     fn handle_payable_payment_setup(&mut self, msg: PricedTemplatesMessage) {
@@ -1415,6 +1458,7 @@ mod tests {
     fn constants_have_correct_values() {
         assert_eq!(CRASH_KEY, "ACCOUNTANT");
         assert_eq!(DEFAULT_PENDING_TOO_LONG_SEC, 21_600);
+        assert_eq!(DEFAULT_ACCOUNTING_MSG_LOG_GAP, 50);
     }
 
     #[test]
@@ -5431,7 +5475,7 @@ mod tests {
         assert_using_the_same_logger(&logger, test_name, None);
         TestLogHandler::new().exists_log_containing(&format!(
             "INFO: {test_name}: Re-running the pending payable scan is recommended, as some parts \
-            did not finish last time."
+            were prevented from completing during the previous attempt."
         ));
     }
 
