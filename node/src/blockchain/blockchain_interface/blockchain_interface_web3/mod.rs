@@ -279,6 +279,8 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
             get_transaction_id
                 .map_err(LocalPayableError::TransactionID)
                 .and_then(move |latest_nonce| {
+                    debug!(logger, "Latest nonce: {:?}", latest_nonce);
+
                     let templates =
                         SignableTxTemplates::new(priced_templates, latest_nonce.as_u64());
 
