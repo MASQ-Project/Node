@@ -367,7 +367,9 @@ impl BlockchainInterfaceWeb3 {
     ) -> BlockMarker {
         let locally_determined_end_block_marker = match (start_block_marker, scan_range) {
             (BlockMarker::Value(start_block), BlockScanRange::Range(scan_range_number)) => {
-                BlockMarker::Value(start_block + scan_range_number)
+                // Subtract 1 because the range is inclusive: [start_block, end_block]
+                // Example: If max range is 20000, we need start_block to start_block+20000-1 (ending up with 20000 blocks total)
+                BlockMarker::Value(start_block + scan_range_number - 1)
             }
             (_, _) => BlockMarker::Uninitialized,
         };
