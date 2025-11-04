@@ -176,7 +176,8 @@ impl HttpPacketFramer {
             while !self.framer_state.lines.is_empty() {
                 request.extend(self.framer_state.lines.remove(0))
             }
-            info!(self.logger, "{}", summarize_http_packet(&request));
+            // This log was changed from INFO to DEBUG because it was being printed continuously multiple times.
+            debug!(self.logger, "{}", summarize_http_packet(&request));
             Some(request)
         } else {
             None

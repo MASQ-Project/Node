@@ -63,7 +63,7 @@ impl StartableScanner<ScanForRetryPayables, InitialTemplatesMessage> for Payable
         logger: &Logger,
     ) -> Result<InitialTemplatesMessage, StartScanError> {
         self.mark_as_started(timestamp);
-        info!(logger, "Scanning for retry payables");
+        info!(logger, "Scanning for Payables (retry mode)");
         let failed_txs = self.get_txs_to_retry();
         let amount_from_payables = self.find_amount_from_payables(&failed_txs);
         let retry_tx_templates = RetryTxTemplates::new(&failed_txs, &amount_from_payables, logger);
