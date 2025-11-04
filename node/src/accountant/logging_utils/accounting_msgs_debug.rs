@@ -1,9 +1,15 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use itertools::Itertools;
 use masq_lib::logger::Logger;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
+use std::iter::once;
 use web3::types::Address;
+
+// An attempt to provide somewhat useful debug stats for the accounting messages after we have
+// decreased the log level for lots of them, and it drastically reduced the observability
+// of the Accountant.
 
 #[derive(Default)]
 pub struct AccountingMsgsDebugStats {
@@ -73,7 +79,7 @@ impl AccountingMsgsDebugStats {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct NewPosting {
     address: Address,
     amount_wei: u128,
@@ -88,7 +94,7 @@ impl NewPosting {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct LoggableStats {
     msg_type: AccountingMsgType,
     accounting_msg_stats: HashMap<Address, u128>,
@@ -97,7 +103,17 @@ pub struct LoggableStats {
 
 impl Display for LoggableStats {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        todo!()
+        let label = format!(
+            "Account debits in last {} {:?} messages (wei):",
+            self.log_window_in_pcs_of_msgs, self.msg_type
+        );
+        let stats = self
+            .accounting_msg_stats
+            .iter()
+            .sorted()
+            .map(|(address, sum)| format!("{:?}: {}", address, sum))
+            .collect_vec();
+        once(label).chain(stats).join("\n").fmt(f)
     }
 }
 
@@ -130,7 +146,7 @@ impl AccountingMsgStats {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum AccountingMsgType {
     RoutingServiceProvided,
     ExitServiceProvided,
@@ -158,9 +174,9 @@ impl NewPostingsDebugContainer {
     }
 }
 
-impl Into<Vec<NewPosting>> for NewPostingsDebugContainer {
-    fn into(self) -> Vec<NewPosting> {
-        self.vec
+impl From<NewPostingsDebugContainer> for Vec<NewPosting> {
+    fn from(postings: NewPostingsDebugContainer) -> Self {
+        postings.vec
     }
 }
 
@@ -231,9 +247,10 @@ mod tests {
         fetch_stats: fn(&AccountingMsgsDebugStats) -> HashMap<Address, u128>,
         fetch_msg_count_processed: fn(&AccountingMsgsDebugStats) -> usize,
     ) {
-        let initial_new_postings_feeds = (0..gap_size - 1)
-            .map(|idx| NewPosting::new(make_address(idx as u32), (idx as u128 + 1) * 1234567))
-            .collect::<Vec<_>>();
+        // We begin the test by recording N - 1 msgs. Then we add one more and match the gap_size
+        // condition which should release the debug stats. After that happens, the stats are cleared
+        // and the process can start again.
+        let new_posting_feeds_per_msg = generate_posting_feeds_representing_msgs(gap_size);
         let mut subject = AccountingMsgsDebugStats::default();
 
         let initial_state_total_count = fetch_stats(&subject);
@@ -241,33 +258,38 @@ mod tests {
         assert_eq!(initial_state_total_count, hashmap!());
         assert_eq!(initial_msg_count_processed, 0);
 
-        let first_log_instruction_opt = initial_new_postings_feeds
-            .iter()
-            .fold(None, |_, new_posting| {
-                subject.manage_log(msg_type, vec![*new_posting], gap_size)
+        let first_feed_remembered = new_posting_feeds_per_msg.first().unwrap().clone();
+        let last_feed_remembered = new_posting_feeds_per_msg.last().unwrap().clone();
+
+        let first_expected_stats =
+            compute_expected_stats_from_new_posting_feeds(&new_posting_feeds_per_msg);
+        let first_loggable_stats_opt = new_posting_feeds_per_msg
+            .into_iter()
+            .fold(None, |_, new_postings| {
+                subject.manage_log(msg_type, new_postings, gap_size)
             });
-        let first_expected_stats = Vec::from_iter(
-            initial_new_postings_feeds
-                .iter()
-                .map(|new_posting| (new_posting.address, new_posting.amount_wei)),
-        );
         let first_actual_stats = fetch_stats(&subject);
         let first_msg_count_processed = fetch_msg_count_processed(&subject);
-        assert_eq!(first_log_instruction_opt, None);
+        assert_eq!(first_loggable_stats_opt, None);
         assert_eq!(
             first_actual_stats.into_iter().sorted().collect_vec(),
             first_expected_stats
         );
         assert_eq!(first_msg_count_processed, gap_size as usize - 1);
 
-        let second_new_posting = initial_new_postings_feeds.first().unwrap().clone();
-        let second_log_instruction_opt =
-            subject.manage_log(msg_type, vec![second_new_posting], gap_size);
+        let posting_fulfilling_the_msg_count_requirement = first_feed_remembered;
+        let second_loggable_stats_opt = subject.manage_log(
+            msg_type,
+            posting_fulfilling_the_msg_count_requirement.clone(),
+            gap_size,
+        );
         let second_actual_stats = fetch_stats(&subject);
         let second_msg_count_processed = fetch_msg_count_processed(&subject);
-        let mut second_expected_stats = first_expected_stats.clone();
-        second_expected_stats.get_mut(0).unwrap().1 += second_new_posting.amount_wei;
-        let loggable_stats = second_log_instruction_opt.unwrap();
+        let second_expected_stats = record_new_posting_feed_in(
+            first_expected_stats,
+            posting_fulfilling_the_msg_count_requirement,
+        );
+        let loggable_stats = second_loggable_stats_opt.unwrap();
         assert_eq!(
             loggable_stats
                 .accounting_msg_stats
@@ -280,16 +302,80 @@ mod tests {
         assert_eq!(second_actual_stats, hashmap!());
         assert_eq!(second_msg_count_processed, 0);
 
-        let third_new_posting = initial_new_postings_feeds.last().unwrap().clone();
-        let third_log_instruction = subject.manage_log(msg_type, vec![third_new_posting], gap_size);
+        let new_posting_after_stats_dumping = last_feed_remembered;
+        let third_loggable_stats_opt =
+            subject.manage_log(msg_type, new_posting_after_stats_dumping.clone(), gap_size);
         let third_actual_stats = fetch_stats(&subject);
         let third_msg_count_processed = fetch_msg_count_processed(&subject);
-        assert_eq!(third_log_instruction, None);
+        assert_eq!(third_loggable_stats_opt, None);
         assert_eq!(
-            third_actual_stats,
-            hashmap!(third_new_posting.address => third_new_posting.amount_wei)
+            third_actual_stats.into_iter().sorted().collect_vec(),
+            new_posting_after_stats_dumping
+                .into_iter()
+                .map(|posting| (posting.address, posting.amount_wei))
+                .sorted()
+                .collect_vec(),
         );
         assert_eq!(third_msg_count_processed, 1);
+    }
+
+    fn record_new_posting_feed_in(
+        first_expected_stats: Vec<(Address, u128)>,
+        second_new_posting: Vec<NewPosting>,
+    ) -> Vec<(Address, u128)> {
+        let second_expected_stats = first_expected_stats
+            .into_iter()
+            .map(|(address, sum)| {
+                let updated_sum = second_new_posting.iter().fold(sum, |acc, posting| {
+                    if posting.address == address {
+                        acc + posting.amount_wei
+                    } else {
+                        acc
+                    }
+                });
+                (address, updated_sum)
+            })
+            .collect_vec();
+        second_expected_stats
+    }
+
+    fn generate_posting_feeds_representing_msgs(gap_size: u16) -> Vec<Vec<NewPosting>> {
+        let new_postings_feeds = (0..gap_size - 1)
+            .map(|outer_idx| {
+                (0..outer_idx + 1)
+                    .map(|inner_idx| {
+                        NewPosting::new(
+                            make_address(inner_idx as u32),
+                            (inner_idx as u128 + 1) * 1234567,
+                        )
+                    })
+                    .collect_vec()
+            })
+            .collect_vec();
+        new_postings_feeds
+    }
+
+    fn compute_expected_stats_from_new_posting_feeds(
+        new_postings_feeds: &Vec<Vec<NewPosting>>,
+    ) -> Vec<(Address, u128)> {
+        let first_expected_stats = {
+            let all_postings_flattened = new_postings_feeds.iter().flatten().collect_vec();
+            let all_unique_addresses = new_postings_feeds.last().unwrap();
+            all_unique_addresses
+                .iter()
+                .map(|unique_account_posting| {
+                    let sum = all_postings_flattened.iter().fold(0, |acc, posting| {
+                        if posting.address == unique_account_posting.address {
+                            acc + posting.amount_wei
+                        } else {
+                            acc
+                        }
+                    });
+                    (unique_account_posting.address, sum)
+                })
+                .collect_vec()
+        };
+        first_expected_stats
     }
 
     #[test]
@@ -374,8 +460,8 @@ mod tests {
         };
         let expected_display = "\
         Account debits in last 15 RoutingServiceProvided messages (wei):\n\
-        0x0000000000000000000000000000000000000001: 1234567,\
-        0x0000000000000000000000000000000000000002: 7654321";
+        0x0000000000000000000001000000001000000001: 1234567\n\
+        0x0000000000000000000002000000002000000002: 7654321";
         assert_eq!(format!("{}", loggable_stats), expected_display);
     }
 }

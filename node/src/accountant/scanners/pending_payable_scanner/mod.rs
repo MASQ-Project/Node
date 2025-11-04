@@ -1013,7 +1013,7 @@ mod tests {
         let expected = "Looking up 'SentPayable(0x00000000000000000000000000000000000000000000\
         00000000000000000123)' in the cache, the record could not be found. Dumping the remaining \
         values. Pending payables: [SentTx { hash: 0x0000000000000000000000000000000000000000000000\
-        000000000000000890, receiver_address: 0x0000000000000000000558000000000558000000, \
+        000000000000000890, receiver_address: 0x00000000000000000001c80000001c80000001c8, \
         amount_minor: 43237380096, timestamp: 29942784, gas_price_minor: 94818816, nonce: 456, \
         status: Pending(Waiting) }]. Supposed failures: [].";
         assert_eq!(panic_msg, expected);
@@ -1052,10 +1052,10 @@ mod tests {
         let expected = "Looking up 'FailedPayable(0x000000000000000000000000000000000000000000\
         00000000000000000003db)' in the cache, the record could not be found. Dumping the remaining \
         values. Pending payables: [SentTx { hash: 0x000000000000000000000000000000000000000000000000\
-        00000000000001c8, receiver_address: 0x0000000000000000000558000000000558000000, amount_minor: \
+        00000000000001c8, receiver_address: 0x00000000000000000001c80000001c80000001c8, amount_minor: \
         43237380096, timestamp: 29942784, gas_price_minor: 94818816, nonce: 456, status: \
         Pending(Waiting) }, SentTx { hash: 0x0000000000000000000000000000000000000000000000000000000\
-        000000315, receiver_address: 0x000000000000000000093f00000000093f000000, amount_minor: \
+        000000315, receiver_address: 0x0000000000000000000315000000315000000315, amount_minor: \
         387532395441, timestamp: 89643024, gas_price_minor: 491169069, nonce: 789, status: \
         Pending(Waiting) }]. Supposed failures: [].";
         assert_eq!(panic_msg, expected);
@@ -2009,7 +2009,7 @@ mod tests {
     #[test]
     #[should_panic(
         expected = "Unable to complete the tx confirmation by the adjustment of the payable accounts \
-        0x0000000000000000000558000000000558000000 due to: \
+        0x00000000000000000001c80000001c80000001c8 due to: \
         RusqliteError(\"record change not successful\")"
     )]
     fn handle_confirmed_transactions_panics_on_unchecking_payable_table() {

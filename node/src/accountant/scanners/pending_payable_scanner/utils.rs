@@ -761,7 +761,7 @@ mod tests {
         Cache misuse - some pending payables left unprocessed: \
         {{0x0000000000000000000000000000000000000000000000000000000000000567: SentTx {{ hash: \
         0x0000000000000000000000000000000000000000000000000000000000000567, receiver_address: \
-        0x0000000000000000001035000000001035000000, amount_minor: 3658379210721, timestamp: \
+        0x0000000000000000000567000000567000000567, amount_minor: 3658379210721, timestamp: \
         275427216, gas_price_minor: 2645248887, nonce: 1383, status: Pending(Waiting) }}}}. \
         Dumping."
         ));
@@ -904,7 +904,7 @@ mod tests {
         Cache misuse - some tx failures left unprocessed: \
         {{0x0000000000000000000000000000000000000000000000000000000000000567: FailedTx {{ hash: \
         0x0000000000000000000000000000000000000000000000000000000000000567, receiver_address: \
-        0x00000000000000000003cc0000000003cc000000, amount_minor: 3658379210721, timestamp: \
+        0x0000000000000000000144000000144000000144, amount_minor: 3658379210721, timestamp: \
         275427216, gas_price_minor: 2645248887, nonce: 1383, reason: PendingTooLong, status: \
         RetryRequired }}}}. Dumping."
         ));
