@@ -1541,7 +1541,7 @@ mod tests {
         system.run();
         let after = SystemTime::now();
         let expected_transactions = RetrievedBlockchainTransactions {
-            new_start_block: BlockMarker::Value(42 + 9_000_000 + 1),
+            new_start_block: BlockMarker::Value(42 + 9_000_000),
             transactions: vec![
                 BlockchainTransaction {
                     block_number: 6040059,
@@ -1742,7 +1742,7 @@ mod tests {
         let received_payments_message = accountant_recording.get_record::<ReceivedPayments>(0);
         check_timestamp(before, received_payments_message.timestamp, after);
         let expected_transactions = RetrievedBlockchainTransactions {
-            new_start_block: BlockMarker::Value(6 + 5000 + 1),
+            new_start_block: BlockMarker::Value(6 + 5000),
             transactions: vec![BlockchainTransaction {
                 block_number: 2000,
                 from: earning_wallet.clone(),

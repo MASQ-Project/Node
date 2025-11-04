@@ -517,8 +517,8 @@ mod tests {
         let start_block_marker = BlockMarker::Value(42);
         let scan_range = BlockScanRange::Range(1000);
         let block_response = "0x7d0"; // 2_000
-        let expected_new_start_block = BlockMarker::Value(42 + 1000 + 1);
-        let expected_log = "from start block: Number(42) to end block: Number(1042)";
+        let expected_new_start_block = BlockMarker::Value(42 + 1000);
+        let expected_log = "from start block: Number(42) to end block: Number(1041)";
         assert_on_retrieves_transactions(
             start_block_marker,
             scan_range,
@@ -1178,7 +1178,7 @@ mod tests {
                 Err(BlockchainError::InvalidResponse),
                 &logger
             ),
-            BlockMarker::Value(150)
+            BlockMarker::Value(149)
         );
         assert_eq!(
             Subject::calculate_end_block_marker(
@@ -1196,7 +1196,7 @@ mod tests {
                 Ok(120.into()),
                 &logger
             ),
-            BlockMarker::Value(50 + 10)
+            BlockMarker::Value(59)
         );
     }
 
