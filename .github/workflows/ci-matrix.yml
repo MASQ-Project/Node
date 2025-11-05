@@ -15,7 +15,7 @@ jobs:
         target:
           - { name: linux, os: ubuntu-22.04 }
           - { name: macos, os: macos-latest }
-          - { name: windows, os: windows-latest }
+          - { name: windows, os: windows-2022 }
 
     name: Build node on ${{ matrix.target.os }}
     runs-on: ${{ matrix.target.os }}
