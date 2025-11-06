@@ -21,7 +21,6 @@ pub mod framer;
 pub mod framer_utils;
 pub mod hop;
 pub mod hopper;
-pub mod host;
 pub mod http_packet_framer;
 pub mod http_response_start_finder;
 pub mod limiter;

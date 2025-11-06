@@ -271,13 +271,13 @@ mod tests {
         let recording_arc = proxy_server.get_recording();
         let awaiter = proxy_server.get_awaiter();
         let client_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let reception_port_opt = Some(8080);
+        let reception_port = Some(8080);
         let data: Vec<u8> = vec![9, 10, 11];
         let ibcd_in = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr,
-            reception_port_opt,
-            sequence_number_opt: Some(0),
+            reception_port,
+            sequence_number: Some(0),
             last_data: false,
             is_clandestine: false,
             data: data.clone(),
@@ -310,15 +310,15 @@ mod tests {
         let subject_addr = subject.start();
         let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
         let client_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let reception_port_opt = Some(8080);
+        let reception_port = Some(8080);
         let data: Vec<u8> = vec![9, 10, 11];
         let ibcd_in = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr,
-            reception_port_opt,
+            reception_port,
             last_data: false,
             is_clandestine: true,
-            sequence_number_opt: None,
+            sequence_number: None,
             data: data.clone(),
         };
         let mut peer_actors = peer_actors_builder().hopper(hopper).build();
@@ -350,15 +350,15 @@ mod tests {
         let subject_addr = subject.start();
         let subject_ibcd = subject_addr.recipient::<InboundClientData>();
         let client_addr = SocketAddr::from_str("1.2.3.4:8765").unwrap();
-        let reception_port_opt = Some(1234);
+        let reception_port = Some(1234);
         let data: Vec<u8> = vec![9, 10, 11];
         let ibcd_in = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr,
-            reception_port_opt,
+            reception_port,
             last_data: false,
             is_clandestine: false,
-            sequence_number_opt: Some(0),
+            sequence_number: Some(0),
             data: data.clone(),
         };
 
@@ -376,15 +376,15 @@ mod tests {
         let subject_addr = subject.start();
         let subject_ibcd = subject_addr.recipient::<InboundClientData>();
         let client_addr = SocketAddr::from_str("1.2.3.4:8765").unwrap();
-        let reception_port_opt = Some(1234);
+        let reception_port = Some(1234);
         let data: Vec<u8> = vec![9, 10, 11];
         let ibcd_in = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr,
-            reception_port_opt,
+            reception_port,
             last_data: false,
             is_clandestine: true,
-            sequence_number_opt: None,
+            sequence_number: None,
             data: data.clone(),
         };
 
@@ -406,7 +406,7 @@ mod tests {
         let obcd = TransmitDataMsg {
             endpoint: Endpoint::Socket(socket_addr),
             last_data: false,
-            sequence_number_opt: Some(0),
+            sequence_number: Some(0),
             data: data.clone(),
         };
 
@@ -430,7 +430,7 @@ mod tests {
         let obcd = TransmitDataMsg {
             endpoint: Endpoint::Socket(socket_addr),
             last_data: false,
-            sequence_number_opt: None,
+            sequence_number: None,
             data: data.clone(),
         };
         let mut peer_actors = peer_actors_builder().build();

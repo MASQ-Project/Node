@@ -19,7 +19,7 @@ pub struct StreamReaderReal {
     stream: Box<dyn ReadHalfWrapper>,
     local_addr: SocketAddr,
     peer_addr: SocketAddr,
-    reception_port_opt: Option<u16>,
+    reception_port: Option<u16>,
     ibcd_sub: Recipient<dispatcher::InboundClientData>,
     remove_sub: Recipient<RemoveStreamMsg>,
     dispatcher_stream_shutdown_sub: Recipient<StreamShutdownMsg>,
@@ -86,7 +86,7 @@ impl StreamReaderReal {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         stream: Box<dyn ReadHalfWrapper>,
-        reception_port_opt: Option<u16>,
+        reception_port: Option<u16>,
         ibcd_sub: Recipient<dispatcher::InboundClientData>,
         remove_sub: Recipient<RemoveStreamMsg>,
         dispatcher_sub: Recipient<StreamShutdownMsg>,
@@ -107,7 +107,7 @@ impl StreamReaderReal {
             stream,
             local_addr,
             peer_addr,
-            reception_port_opt,
+            reception_port,
             ibcd_sub,
             remove_sub,
             dispatcher_stream_shutdown_sub: dispatcher_sub,
@@ -137,7 +137,7 @@ impl StreamReaderReal {
                     // handshake and should start the sequence at Some(0) as well, the ProxyServer will
                     // handle the sequenced packet offset before sending them through the stream_writer
                     // and avoid dropping duplicate packets.
-                    let sequence_number_opt = if unmasked_chunk.sequenced && !is_connect {
+                    let sequence_number = if unmasked_chunk.sequenced && !is_connect {
                         Some(self.sequencer.next_sequence_number())
                     } else if is_connect {
                         // This case needs to explicitly be Some(0) instead of None so that the StreamHandlerPool does
@@ -146,7 +146,7 @@ impl StreamReaderReal {
                     } else {
                         None
                     };
-                    match sequence_number_opt {
+                    match sequence_number {
                         Some(num) => debug!(
                             self.logger,
                             "Read {} bytes of clear data (#{})",
@@ -162,10 +162,10 @@ impl StreamReaderReal {
                     let msg = dispatcher::InboundClientData {
                         timestamp: SystemTime::now(),
                         client_addr: self.peer_addr,
-                        reception_port_opt: self.reception_port_opt,
+                        reception_port: self.reception_port,
                         last_data: false,
                         is_clandestine: self.is_clandestine,
-                        sequence_number_opt,
+                        sequence_number,
                         data: unmasked_chunk.chunk.clone(),
                     };
                     debug!(self.logger, "Discriminator framed and unmasked {} bytes for {}; transmitting via Hopper",
@@ -181,7 +181,7 @@ impl StreamReaderReal {
     }
 
     fn shutdown(&mut self) {
-        debug!(self.logger, "Directing removal of {}clandestine StreamReader with reception_port {:?} on {} listening to {}", if self.is_clandestine {""} else {"non-"}, self.reception_port_opt, self.local_addr, self.peer_addr);
+        debug!(self.logger, "Directing removal of {}clandestine StreamReader with reception_port {:?} on {} listening to {}", if self.is_clandestine {""} else {"non-"}, self.reception_port, self.local_addr, self.peer_addr);
         self.remove_sub
             .try_send(RemoveStreamMsg {
                 peer_addr: self.peer_addr,
@@ -190,7 +190,7 @@ impl StreamReaderReal {
                     RemovedStreamType::Clandestine
                 } else {
                     RemovedStreamType::NonClandestine(NonClandestineAttributes {
-                        reception_port: self.reception_port_opt.expect(
+                        reception_port: self.reception_port.expect(
                             "Non-clandestine StreamReader should always have a reception_port",
                         ),
                         sequence_number: self.sequencer.next_sequence_number(),
@@ -511,10 +511,10 @@ mod tests {
             &dispatcher::InboundClientData {
                 timestamp: d_record.timestamp,
                 client_addr: peer_addr,
-                reception_port_opt: Some(1234 as u16),
+                reception_port: Some(1234 as u16),
                 last_data: false,
                 is_clandestine: true,
-                sequence_number_opt: Some(0),
+                sequence_number: Some(0),
                 data: Vec::from("GET http://here.com HTTP/1.1\r\n\r\n".as_bytes()),
             }
         );
@@ -575,13 +575,13 @@ mod tests {
             Some(0),
             d_recording
                 .get_record::<dispatcher::InboundClientData>(0)
-                .sequence_number_opt,
+                .sequence_number,
         );
         assert_eq!(
             Some(0),
             d_recording
                 .get_record::<dispatcher::InboundClientData>(1)
-                .sequence_number_opt,
+                .sequence_number,
         );
     }
 
@@ -633,10 +633,10 @@ mod tests {
             &dispatcher::InboundClientData {
                 timestamp: d_record.timestamp,
                 client_addr: peer_addr,
-                reception_port_opt: Some(1234 as u16),
+                reception_port: Some(1234 as u16),
                 last_data: false,
                 is_clandestine: false,
-                sequence_number_opt: Some(0),
+                sequence_number: Some(0),
                 data: Vec::from("GET http://here.com HTTP/1.1\r\n\r\n".as_bytes()),
             }
         );
@@ -648,10 +648,10 @@ mod tests {
             &dispatcher::InboundClientData {
                 timestamp: d_record.timestamp,
                 client_addr: peer_addr,
-                reception_port_opt: Some(1234 as u16),
+                reception_port: Some(1234 as u16),
                 last_data: false,
                 is_clandestine: false,
-                sequence_number_opt: Some(1),
+                sequence_number: Some(1),
                 data: Vec::from("GET http://www.example.com HTTP/1.1\r\n\r\n".as_bytes()),
             }
         );
@@ -707,10 +707,10 @@ mod tests {
             &dispatcher::InboundClientData {
                 timestamp: d_record.timestamp,
                 client_addr,
-                reception_port_opt: Some(1234 as u16),
+                reception_port: Some(1234 as u16),
                 last_data: false,
                 is_clandestine: true,
-                sequence_number_opt: None,
+                sequence_number: None,
                 data: Vec::from("GET http://here.com HTTP/1.1\r\n\r\n".as_bytes()),
             }
         );

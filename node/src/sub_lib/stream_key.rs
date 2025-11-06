@@ -93,22 +93,13 @@ impl StreamKey {
             hash: hash.digest().bytes(),
         }
     }
-
-    #[cfg(test)]
-    pub fn from_bytes(bytes: &[u8]) -> StreamKey {
-        let mut hash = [0xA; sha1::DIGEST_LENGTH];
-        for i in 0..std::cmp::min(sha1::DIGEST_LENGTH, bytes.len()) {
-            hash[i] = bytes[i];
-        }
-        StreamKey { hash }
-    }
 }
 
 impl StreamKey {
     pub fn make_meaningless_stream_key() -> StreamKey {
-        let mut bytes = [0; sha1::DIGEST_LENGTH];
-        randombytes_into(&mut bytes);
-        StreamKey { hash: bytes }
+        StreamKey {
+            hash: [0; sha1::DIGEST_LENGTH],
+        }
     }
 
     pub fn make_meaningful_stream_key(phrase: &str) -> StreamKey {

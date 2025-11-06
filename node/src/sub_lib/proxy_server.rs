@@ -4,7 +4,7 @@ use crate::sub_lib::data_version::DataVersion;
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::dispatcher::StreamShutdownMsg;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, MessageType};
-use crate::sub_lib::neighborhood::RouteQueryResponse;
+use crate::sub_lib::neighborhood::{ExpectedService, RouteQueryResponse};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
 use crate::sub_lib::sequence_buffer::SequencedPacket;
@@ -34,7 +34,7 @@ pub enum ProxyProtocol {
 pub struct ClientRequestPayload_0v1 {
     pub stream_key: StreamKey,
     pub sequenced_packet: SequencedPacket,
-    pub target_hostname: String,
+    pub target_hostname: Option<String>,
     pub target_port: u16,
     pub protocol: ProxyProtocol,
     pub originator_public_key: PublicKey,
@@ -56,6 +56,14 @@ impl ClientRequestPayload_0v1 {
 }
 
 #[derive(Message, Debug, PartialEq, Eq)]
+pub struct AddReturnRouteMessage {
+    pub return_route_id: u32,
+    pub expected_services: Vec<ExpectedService>,
+    pub protocol: ProxyProtocol,
+    pub hostname_opt: Option<String>,
+}
+
+#[derive(Message, Debug, PartialEq, Eq)]
 pub struct AddRouteResultMessage {
     pub stream_key: StreamKey,
     pub result: Result<RouteQueryResponse, String>,
@@ -73,6 +81,7 @@ pub struct ProxyServerSubs {
     pub from_dispatcher: Recipient<InboundClientData>,
     pub from_hopper: Recipient<ExpiredCoresPackage<ClientResponsePayload_0v1>>,
     pub dns_failure_from_hopper: Recipient<ExpiredCoresPackage<DnsResolveFailure_0v1>>,
+    pub add_return_route: Recipient<AddReturnRouteMessage>,
     pub stream_shutdown_sub: Recipient<StreamShutdownMsg>,
     pub node_from_ui: Recipient<NodeFromUiMessage>,
     pub route_result_sub: Recipient<AddRouteResultMessage>,
@@ -104,6 +113,7 @@ mod tests {
                 recorder,
                 ExpiredCoresPackage<DnsResolveFailure_0v1>
             ),
+            add_return_route: recipient!(recorder, AddReturnRouteMessage),
             stream_shutdown_sub: recipient!(recorder, StreamShutdownMsg),
             node_from_ui: recipient!(recorder, NodeFromUiMessage),
             route_result_sub: recipient!(recorder, AddRouteResultMessage),
