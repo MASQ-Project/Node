@@ -1,7 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::constants::HTTP_PORT;
 use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use masq_lib::utils::find_free_port;
 use multinode_integration_tests_lib::masq_mock_node::MASQMockNode;
@@ -87,12 +86,13 @@ fn reported_server_drop() {
     let (_, _, lcp) = mock_node
         .wait_for_package(&masquerader, Duration::from_secs(2))
         .unwrap();
-    let stream_key = stream_key_from_request_lcp(lcp, &exit_cryptde);
+    let (stream_key, return_route_id) =
+        context_from_request_lcp(lcp, real_node.main_cryptde_null().unwrap(), &exit_cryptde);
 
     mock_node
         .transmit_package(
             mock_node.port_list()[0],
-            create_server_drop_report(&mock_node, &real_node, stream_key),
+            create_server_drop_report(&mock_node, &real_node, stream_key, return_route_id),
             &masquerader,
             real_node.main_public_key(),
             real_node.socket_addr(PortSelector::First),
@@ -115,7 +115,7 @@ fn actual_server_drop() {
     let server_port = find_free_port();
     let mut server = real_node.make_server(server_port);
     let masquerader = JsonMasquerader::new();
-    let stream_key = arbitrary_stream_key();
+    let (stream_key, return_route_id) = arbitrary_context();
     let index: u64 = 0;
     request_server_payload(
         index,
@@ -125,6 +125,7 @@ fn actual_server_drop() {
         &mut server,
         &masquerader,
         stream_key,
+        return_route_id,
     );
     let index: u64 = 1;
     request_server_payload(
@@ -135,6 +136,7 @@ fn actual_server_drop() {
         &mut server,
         &masquerader,
         stream_key,
+        return_route_id,
     );
 
     server.shutdown();
@@ -172,6 +174,7 @@ fn request_server_payload(
     server: &mut MASQNodeServer,
     masquerader: &JsonMasquerader,
     stream_key: StreamKey,
+    return_route_id: u32,
 ) {
     mock_node
         .transmit_package(
@@ -181,6 +184,7 @@ fn request_server_payload(
                 &mock_node,
                 &real_node,
                 stream_key,
+                return_route_id,
                 &server,
                 cluster.chain,
             ),
@@ -208,7 +212,7 @@ fn reported_client_drop() {
     let server_port = find_free_port();
     let mut server = real_node.make_server(server_port);
     let masquerader = JsonMasquerader::new();
-    let stream_key = arbitrary_stream_key();
+    let (stream_key, return_route_id) = arbitrary_context();
     let index: u64 = 0;
     mock_node
         .transmit_package(
@@ -218,6 +222,7 @@ fn reported_client_drop() {
                 &mock_node,
                 &real_node,
                 stream_key,
+                return_route_id,
                 &server,
                 cluster.chain,
             ),
@@ -235,7 +240,7 @@ fn reported_client_drop() {
     mock_node
         .transmit_package(
             mock_node.port_list()[0],
-            create_client_drop_report(&mock_node, &real_node, stream_key),
+            create_client_drop_report(&mock_node, &real_node, stream_key, return_route_id),
             &masquerader,
             real_node.main_public_key(),
             real_node.socket_addr(PortSelector::First),
@@ -317,7 +322,11 @@ fn full_neighbor(one: &mut NodeRecord, another: &mut NodeRecord) {
         .unwrap();
 }
 
-fn stream_key_from_request_lcp(lcp: LiveCoresPackage, exit_cryptde: &dyn CryptDE) -> StreamKey {
+fn context_from_request_lcp(
+    lcp: LiveCoresPackage,
+    originating_cryptde: &dyn CryptDE,
+    exit_cryptde: &dyn CryptDE,
+) -> (StreamKey, u32) {
     let payload = match decodex::<MessageType>(exit_cryptde, &lcp.payload).unwrap() {
         MessageType::ClientRequest(vd) => vd
             .extract(&node_lib::sub_lib::migrations::client_request_payload::MIGRATIONS)
@@ -325,11 +334,15 @@ fn stream_key_from_request_lcp(lcp: LiveCoresPackage, exit_cryptde: &dyn CryptDE
         mt => panic!("Unexpected: {:?}", mt),
     };
     let stream_key = payload.stream_key;
-    stream_key
+    let return_route_id = decodex::<u32>(originating_cryptde, &lcp.route.hops[6]).unwrap();
+    (stream_key, return_route_id)
 }
 
-fn arbitrary_stream_key() -> StreamKey {
-    StreamKey::make_meaningful_stream_key("arbitrary_context")
+fn arbitrary_context() -> (StreamKey, u32) {
+    (
+        StreamKey::make_meaningful_stream_key("arbitrary_context"),
+        12345678,
+    )
 }
 
 fn create_request_icp(
@@ -337,12 +350,12 @@ fn create_request_icp(
     originating_node: &MASQMockNode,
     exit_node: &MASQRealNode,
     stream_key: StreamKey,
+    return_route_id: u32,
     server: &MASQNodeServer,
     chain: Chain,
 ) -> IncipientCoresPackage {
-    let originating_main_cryptde = originating_node.main_cryptde_null().unwrap();
     IncipientCoresPackage::new(
-        originating_main_cryptde,
+        originating_node.main_cryptde_null().unwrap(),
         Route::round_trip(
             RouteSegment::new(
                 vec![
@@ -358,8 +371,9 @@ fn create_request_icp(
                 ],
                 Component::ProxyServer,
             ),
-            originating_main_cryptde,
+            originating_node.main_cryptde_null().unwrap(),
             originating_node.consuming_wallet(),
+            return_route_id,
             Some(chain.rec().contract),
         )
         .unwrap(),
@@ -368,7 +382,7 @@ fn create_request_icp(
             &ClientRequestPayload_0v1 {
                 stream_key,
                 sequenced_packet: SequencedPacket::new(Vec::from(HTTP_REQUEST), index, false),
-                target_hostname: format!("{}", server.local_addr().ip()),
+                target_hostname: Some(format!("{}", server.local_addr().ip())),
                 target_port: server.local_addr().port(),
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: originating_node.main_public_key().clone(),
@@ -386,9 +400,8 @@ fn create_meaningless_icp(
     let socket_addr = SocketAddr::from_str("3.2.1.0:7654").unwrap();
     let stream_key =
         StreamKey::make_meaningful_stream_key("Chancellor on brink of second bailout for banks");
-    let main_cryptde = originating_node.main_cryptde_null().unwrap();
     IncipientCoresPackage::new(
-        main_cryptde,
+        originating_node.main_cryptde_null().unwrap(),
         Route::round_trip(
             RouteSegment::new(
                 vec![
@@ -404,8 +417,9 @@ fn create_meaningless_icp(
                 ],
                 Component::ProxyServer,
             ),
-            main_cryptde,
+            originating_node.main_cryptde_null().unwrap(),
             originating_node.consuming_wallet(),
+            1357,
             Some(TEST_DEFAULT_MULTINODE_CHAIN.rec().contract),
         )
         .unwrap(),
@@ -414,7 +428,7 @@ fn create_meaningless_icp(
             &ClientRequestPayload_0v1 {
                 stream_key,
                 sequenced_packet: SequencedPacket::new(Vec::from(HTTP_REQUEST), 0, false),
-                target_hostname: "nowhere.com".to_string(),
+                target_hostname: Some(format!("nowhere.com")),
                 target_port: socket_addr.port(),
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: originating_node.main_public_key().clone(),
@@ -429,9 +443,8 @@ fn create_server_drop_report(
     exit_node: &MASQMockNode,
     originating_node: &MASQRealNode,
     stream_key: StreamKey,
+    return_route_id: u32,
 ) -> IncipientCoresPackage {
-    let exit_main_cryptde = exit_node.main_cryptde_null().unwrap();
-    let originating_main_cryptde = originating_node.main_cryptde_null().unwrap();
     let mut route = Route::round_trip(
         RouteSegment::new(
             vec![
@@ -447,12 +460,15 @@ fn create_server_drop_report(
             ],
             Component::ProxyServer,
         ),
-        originating_main_cryptde,
+        originating_node.main_cryptde_null().unwrap(),
         originating_node.consuming_wallet(),
+        return_route_id,
         Some(TEST_DEFAULT_MULTINODE_CHAIN.rec().contract),
     )
     .unwrap();
-    route.shift(originating_main_cryptde).unwrap();
+    route
+        .shift(originating_node.main_cryptde_null().unwrap())
+        .unwrap();
     let payload = MessageType::ClientResponse(VersionedData::new(
         &node_lib::sub_lib::migrations::client_response_payload::MIGRATIONS,
         &ClientResponsePayload_0v1 {
@@ -462,7 +478,7 @@ fn create_server_drop_report(
     ));
 
     IncipientCoresPackage::new(
-        exit_main_cryptde,
+        exit_node.main_cryptde_null().unwrap(),
         route,
         payload,
         originating_node.alias_public_key(),
@@ -474,8 +490,8 @@ fn create_client_drop_report(
     originating_node: &MASQMockNode,
     exit_node: &MASQRealNode,
     stream_key: StreamKey,
+    return_route_id: u32,
 ) -> IncipientCoresPackage {
-    let originating_main_cryptde = originating_node.main_cryptde_null().unwrap();
     let route = Route::round_trip(
         RouteSegment::new(
             vec![
@@ -491,8 +507,9 @@ fn create_client_drop_report(
             ],
             Component::ProxyServer,
         ),
-        originating_main_cryptde,
+        originating_node.main_cryptde_null().unwrap(),
         originating_node.consuming_wallet(),
+        return_route_id,
         Some(TEST_DEFAULT_MULTINODE_CHAIN.rec().contract),
     )
     .unwrap();
@@ -501,15 +518,15 @@ fn create_client_drop_report(
         &ClientRequestPayload_0v1 {
             stream_key,
             sequenced_packet: SequencedPacket::new(vec![], 1, true),
-            target_hostname: String::from("doesnt.matter.com"),
-            target_port: HTTP_PORT,
+            target_hostname: Some(String::from("doesnt.matter.com")),
+            target_port: 80,
             protocol: ProxyProtocol::HTTP,
             originator_public_key: originating_node.main_public_key().clone(),
         },
     ));
 
     IncipientCoresPackage::new(
-        originating_main_cryptde,
+        originating_node.main_cryptde_null().unwrap(),
         route,
         payload,
         exit_node.main_public_key(),

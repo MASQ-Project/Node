@@ -8,7 +8,7 @@ impl ServerImpersonator for ServerImpersonatorTls {
         Vec::from(&TLS_INTERNAL_ERROR_ALERT[..])
     }
 
-    fn dns_resolution_failure_response(&self, _server_name: String) -> Vec<u8> {
+    fn dns_resolution_failure_response(&self, _server_name: Option<String>) -> Vec<u8> {
         Vec::from(&TLS_UNRECOGNIZED_NAME_ALERT[..])
     }
 
@@ -75,7 +75,7 @@ mod tests {
     fn dns_resolution_failure_response_produces_unrecognized_name_alert() {
         let subject = ServerImpersonatorTls {};
 
-        let result = subject.dns_resolution_failure_response("booga.com".to_string());
+        let result = subject.dns_resolution_failure_response(None);
 
         assert_eq!(Vec::from(&TLS_UNRECOGNIZED_NAME_ALERT[..]), result);
     }

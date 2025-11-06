@@ -8,7 +8,7 @@ use actix::Message;
 pub struct TransmitDataMsg {
     pub endpoint: Endpoint,
     pub last_data: bool,
-    pub sequence_number_opt: Option<u64>, // Some implies clear data; None implies clandestine.
+    pub sequence_number: Option<u64>, // Some implies clear data; None implies clandestine.
     pub data: Vec<u8>,
 }
 

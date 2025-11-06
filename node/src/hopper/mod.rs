@@ -149,7 +149,6 @@ mod tests {
     use crate::sub_lib::hopper::IncipientCoresPackage;
     use crate::sub_lib::route::Route;
     use crate::sub_lib::route::RouteSegment;
-    use crate::sub_lib::stream_key::StreamKey;
     use crate::test_utils::unshared_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::{
         make_meaningless_message_type, make_paying_wallet, route_to_proxy_client,
@@ -176,10 +175,8 @@ mod tests {
     fn panics_if_routing_service_is_unbound() {
         let main_cryptde = CRYPTDE_PAIR.main.as_ref();
         let client_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let route = route_to_proxy_client(&main_cryptde.public_key(), main_cryptde, false);
-        let stream_key = StreamKey::make_meaningless_stream_key();
-        let serialized_payload =
-            serde_cbor::ser::to_vec(&make_meaningless_message_type(stream_key)).unwrap();
+        let route = route_to_proxy_client(&main_cryptde.public_key(), main_cryptde);
+        let serialized_payload = serde_cbor::ser::to_vec(&make_meaningless_message_type()).unwrap();
         let data = main_cryptde
             .encode(
                 &main_cryptde.public_key(),
@@ -196,10 +193,10 @@ mod tests {
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr,
-            reception_port_opt: None,
+            reception_port: None,
             last_data: false,
             is_clandestine: false,
-            sequence_number_opt: None,
+            sequence_number: None,
             data: encrypted_package,
         };
         let system = System::new("panics_if_routing_service_is_unbound");
@@ -237,7 +234,7 @@ mod tests {
         let incipient_package = IncipientCoresPackage::new(
             main_cryptde,
             route,
-            make_meaningless_message_type(StreamKey::make_meaningless_stream_key()),
+            make_meaningless_message_type(),
             &main_cryptde.public_key(),
         )
         .unwrap();

@@ -116,10 +116,10 @@ pub enum DispatcherError {
 pub struct InboundClientData {
     pub timestamp: SystemTime,
     pub client_addr: SocketAddr,
-    pub reception_port_opt: Option<u16>,
+    pub reception_port: Option<u16>,
     pub last_data: bool,
     pub is_clandestine: bool,
-    pub sequence_number_opt: Option<u64>,
+    pub sequence_number: Option<u64>,
     pub data: Vec<u8>,
 }
 
@@ -130,7 +130,7 @@ impl Debug for InboundClientData {
             Err(_) => self.data.hex_dump().to_string(),
         };
         write!(f, "InboundClientData {{ peer_addr: {:?}, reception_port: {:?}, last_data: {}, sequence_number: {:?}, {} bytes of data: {} }}",
-               self.client_addr, self.reception_port_opt, self.last_data, self.sequence_number_opt, self.data.len(), data_string)
+               self.client_addr, self.reception_port, self.last_data, self.sequence_number, self.data.len(), data_string)
     }
 }
 
@@ -139,10 +139,10 @@ impl InboundClientData {
         InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: self.client_addr,
-            reception_port_opt: self.reception_port_opt,
+            reception_port: self.reception_port,
             last_data: self.last_data,
             is_clandestine: self.is_clandestine,
-            sequence_number_opt: self.sequence_number_opt,
+            sequence_number: self.sequence_number,
             data: vec![],
         }
     }
@@ -274,10 +274,10 @@ mod tests {
         let subject = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.4.3.2:9999").unwrap(),
-            reception_port_opt: None,
+            reception_port: None,
             last_data: false,
             is_clandestine: false,
-            sequence_number_opt: None,
+            sequence_number: None,
             data: b"CONNECT server.example.com:80 HTTP/1.1\r\nHost: server.example.com:80\r\nProxy-Authorization: basic aGVsbG86d29ybGQ=\r\n\r\n".to_vec(),
         };
 
@@ -289,10 +289,10 @@ mod tests {
         let subject = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.4.3.2:9999").unwrap(),
-            reception_port_opt: None,
+            reception_port: None,
             last_data: false,
             is_clandestine: false,
-            sequence_number_opt: None,
+            sequence_number: None,
             data: b"GET server.example.com:80 HTTP/1.1\r\nHost: server.example.com:80\r\nProxy-Authorization: basic aGVsbG86d29ybGQ=\r\n\r\n".to_vec(),
         };
 
@@ -304,10 +304,10 @@ mod tests {
         let subject = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.4.3.2:9999").unwrap(),
-            reception_port_opt: None,
+            reception_port: None,
             last_data: false,
             is_clandestine: false,
-            sequence_number_opt: None,
+            sequence_number: None,
             data: b"CONNECTX".to_vec(),
         };
 
