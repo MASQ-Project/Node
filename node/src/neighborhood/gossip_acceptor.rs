@@ -7,15 +7,14 @@ use crate::neighborhood::neighborhood_database::{NeighborhoodDatabase, Neighborh
 use crate::neighborhood::node_record::NodeRecord;
 use crate::neighborhood::UserExitPreferences;
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
-use crate::sub_lib::neighborhood::{
-    ConnectionProgressEvent, ConnectionProgressMessage, GossipFailure_0v1, NeighborhoodMetadata,
-};
+use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ConnectionProgressMessage, GossipFailure_0v1, NeighborhoodMetadata, RatePackLimits};
 use crate::sub_lib::node_addr::NodeAddr;
 use masq_lib::logger::Logger;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
 use std::time::{Duration, SystemTime};
+use crate::db_config::persistent_configuration::PersistentConfiguration;
 
 /// Note: if you decide to change this, make sure you test thoroughly. Values less than 5 may lead
 /// to inability to grow the network beyond a very small size; values greater than 5 may lead to
@@ -33,8 +32,6 @@ pub enum GossipAcceptanceResult {
     Reply(Gossip_0v1, PublicKey, NodeAddr),
     // The incoming Gossip was proper, and we tried to accept it, but couldn't.
     Failed(GossipFailure_0v1, PublicKey, NodeAddr),
-    // The incoming Gossip contained nothing we didn't know. Don't send out any Gossip because of it.
-    Ignored,
     // Gossip was ignored because it was evil: ban the sender of the Gossip as a malefactor.
     Ban(String),
 }
@@ -64,10 +61,11 @@ trait GossipHandler: NamedType + Send /* Send because lazily-written tests requi
         agrs: Vec<AccessibleGossipRecord>,
         gossip_source: SocketAddr,
         neighborhood_metadata: NeighborhoodMetadata,
-    ) -> GossipAcceptanceResult;
+    ) -> Vec<GossipAcceptanceResult>;
 }
 
 struct DebutHandler {
+    rate_pack_limits: RatePackLimits,
     logger: Logger,
 }
 
@@ -150,7 +148,7 @@ impl GossipHandler for DebutHandler {
         mut agrs: Vec<AccessibleGossipRecord>,
         gossip_source: SocketAddr,
         neighborhood_metadata: NeighborhoodMetadata,
-    ) -> GossipAcceptanceResult {
+    ) -> Vec<GossipAcceptanceResult> {
         let source_agr = {
             let mut agr = agrs.remove(0); // empty Gossip shouldn't get here
             if agr.node_addr_opt.is_none() {
@@ -158,6 +156,14 @@ impl GossipHandler for DebutHandler {
             }
             agr
         };
+        if let Err(message) = GossipAcceptorReal::validate_new_version(
+            &source_agr,
+            format!("Debut from {} at {}", source_agr.inner.public_key, gossip_source),
+            &self.rate_pack_limits,
+            &self.logger
+        ) {
+            return vec![GossipAcceptanceResult::Ban(message)];
+        }
         let source_key = source_agr.inner.public_key.clone();
         let source_node_addr = source_agr
             .node_addr_opt
@@ -178,11 +184,11 @@ impl GossipHandler for DebutHandler {
                 preferred_key,
                 preferred_ip,
             );
-            return GossipAcceptanceResult::Reply(
+            return vec![GossipAcceptanceResult::Reply(
                 Self::make_pass_gossip(database, preferred_key),
                 source_key,
                 source_node_addr,
-            );
+            )];
         }
         if let Ok(result) = self.try_accept_debut(
             cryptde,
@@ -191,7 +197,7 @@ impl GossipHandler for DebutHandler {
             gossip_source,
             neighborhood_metadata.user_exit_preferences_opt,
         ) {
-            return result;
+            return vec![result];
         }
         debug!(self.logger, "Seeking neighbor for Pass");
         let lcn_key = match Self::find_least_connected_half_neighbor_excluding(
@@ -203,14 +209,14 @@ impl GossipHandler for DebutHandler {
                     "Neighbor count at maximum, but no non-common neighbors. DebutHandler is reluctantly ignoring debut from {} at {}",
                     source_key, source_node_addr
                 );
-                return GossipAcceptanceResult::Failed(
+                return vec![GossipAcceptanceResult::Failed(
                     GossipFailure_0v1::NoSuitableNeighbors,
                     (&source_agr.inner.public_key).clone(),
                     (&source_agr
                         .node_addr_opt
                         .expect("Debuter's NodeAddr disappeared"))
                         .clone(),
-                );
+                )];
             }
             Some(key) => key,
         };
@@ -230,17 +236,20 @@ impl GossipHandler for DebutHandler {
             lcn_key,
             lcn_ip_str
         );
-        GossipAcceptanceResult::Reply(
+        vec![GossipAcceptanceResult::Reply(
             Self::make_pass_gossip(database, lcn_key),
             source_key,
             source_node_addr,
-        )
+        )]
     }
 }
 
 impl DebutHandler {
-    fn new(logger: Logger) -> DebutHandler {
-        DebutHandler { logger }
+    fn new(rate_pack_limits: &RatePackLimits, logger: Logger) -> DebutHandler {
+        DebutHandler {
+            rate_pack_limits: rate_pack_limits.clone(),
+            logger
+        }
     }
 
     fn find_more_appropriate_neighbor<'b>(
@@ -305,7 +314,6 @@ impl DebutHandler {
             }
             None => (),
         }
-todo!("Drive in a call to GossipAcceptorReal::validate_new_version() here");
         let debut_node_key = database
             .add_node(debuting_node)
             .expect("Debuting Node suddenly appeared in database");
@@ -580,7 +588,7 @@ impl GossipHandler for PassHandler {
         agrs: Vec<AccessibleGossipRecord>,
         _gossip_source: SocketAddr,
         neighborhood_metadata: NeighborhoodMetadata,
-    ) -> GossipAcceptanceResult {
+    ) -> Vec<GossipAcceptanceResult> {
         let pass_agr = &agrs[0]; // empty Gossip shouldn't get here
         let pass_target_node_addr: NodeAddr = pass_agr
             .node_addr_opt
@@ -609,21 +617,21 @@ impl GossipHandler for PassHandler {
         };
 
         let mut hash_map = self.previous_pass_targets.borrow_mut();
-        let gossip_acceptance_result = match hash_map.get_mut(&pass_target_ip_addr) {
+        let gossip_acceptance_results = match hash_map.get_mut(&pass_target_ip_addr) {
             None => match neighborhood_metadata
                 .connection_progress_peers
                 .contains(&pass_target_ip_addr)
             {
                 true => {
                     send_cpm(ConnectionProgressEvent::PassLoopFound);
-                    GossipAcceptanceResult::Ignored
+                    vec![]
                 }
                 false => {
                     hash_map.insert(pass_target_ip_addr, SystemTime::now());
                     send_cpm(ConnectionProgressEvent::PassGossipReceived(
                         pass_target_ip_addr,
                     ));
-                    gossip_acceptance_reply()
+                    vec![gossip_acceptance_reply()]
                 }
             },
             Some(timestamp) => {
@@ -633,16 +641,16 @@ impl GossipHandler for PassHandler {
                 *timestamp = SystemTime::now();
                 if duration_since <= PASS_GOSSIP_EXPIRED_TIME {
                     send_cpm(ConnectionProgressEvent::PassLoopFound);
-                    GossipAcceptanceResult::Ignored
+                    vec![]
                 } else {
                     send_cpm(ConnectionProgressEvent::PassGossipReceived(
                         pass_target_ip_addr,
                     ));
-                    gossip_acceptance_reply()
+                    vec![gossip_acceptance_reply()]
                 }
             }
         };
-        gossip_acceptance_result
+        gossip_acceptance_results
     }
 }
 
@@ -655,6 +663,7 @@ impl PassHandler {
 }
 
 struct IntroductionHandler {
+    rate_pack_limits: RatePackLimits,
     logger: Logger,
 }
 
@@ -701,12 +710,36 @@ impl GossipHandler for IntroductionHandler {
         agrs: Vec<AccessibleGossipRecord>,
         gossip_source: SocketAddr,
         neighborhood_metadata: NeighborhoodMetadata,
-    ) -> GossipAcceptanceResult {
+    ) -> Vec<GossipAcceptanceResult> {
         if database.root().full_neighbor_keys(database).len() >= MAX_DEGREE {
-            GossipAcceptanceResult::Ignored
+            vec![]
         } else {
             let (introducer, introducee) = Self::identify_players(agrs, gossip_source)
                 .expect("Introduction not properly qualified");
+            let mut introducer_ban_message = if let Err(message) = GossipAcceptorReal::validate_new_version(
+                &introducer,
+                format!(
+                    "Introducer {} from {}",
+                    introducer.inner.public_key, gossip_source
+                ),
+                &self.rate_pack_limits,
+                &self.logger
+            ) {
+                Some(message)
+            }
+            else {
+                None
+            };
+            let ignore_introducee = GossipAcceptorReal::validate_new_version(
+                &introducee,
+                format!(
+                    "Introducee {} at {}",
+                    introducee.inner.public_key,
+                    introducee.node_addr_opt.as_ref().expect("NodeAddr disappeared").ip_addr(),
+                ),
+                &self.rate_pack_limits,
+                &self.logger
+            ).is_err();
             let introducer_key = introducer.inner.public_key.clone();
             let introducer_ip_addr = introducer
                 .node_addr_opt
@@ -718,39 +751,59 @@ impl GossipHandler for IntroductionHandler {
                 .as_ref()
                 .expect("IP Address not found for the Node Addr.")
                 .ip_addr();
-            match self.update_database(
-                database,
-                cryptde,
-                introducer,
-                neighborhood_metadata.user_exit_preferences_opt,
-            ) {
-                Ok(_) => (),
-                Err(e) => {
-                    return GossipAcceptanceResult::Ban(format!(
-                        "Introducer {} tried changing immutable characteristic: {}",
-                        introducer_key, e
-                    ));
+            if introducer_ban_message.is_none() {
+                match self.update_database(
+                    database,
+                    cryptde,
+                    introducer,
+                    neighborhood_metadata.user_exit_preferences_opt,
+                ) {
+                    Ok(_) => (),
+                    Err(e) => {
+                        introducer_ban_message = Some(format!(
+                            "Introducer {} tried changing immutable characteristic: {}",
+                            introducer_key, e
+                        ));
+                    }
                 }
             }
-            let connection_progress_message = ConnectionProgressMessage {
-                peer_addr: introducer_ip_addr,
-                event: ConnectionProgressEvent::IntroductionGossipReceived(introducee_ip_addr),
-            };
-            neighborhood_metadata
-                .cpm_recipient
-                .try_send(connection_progress_message)
-                .expect("Neighborhood is dead");
-            let (debut, target_key, target_node_addr) =
-                GossipAcceptorReal::make_debut_triple(database, &introducee)
-                    .expect("Introduction not properly qualified");
-            GossipAcceptanceResult::Reply(debut, target_key, target_node_addr)
+
+            if !ignore_introducee {
+                let connection_progress_message = ConnectionProgressMessage {
+                    peer_addr: introducer_ip_addr,
+                    event: ConnectionProgressEvent::IntroductionGossipReceived(introducee_ip_addr),
+                };
+                neighborhood_metadata
+                    .cpm_recipient
+                    .try_send(connection_progress_message)
+                    .expect("Neighborhood is dead");
+            }
+
+            if ignore_introducee {
+                if let Some(message) = introducer_ban_message {
+                    vec![GossipAcceptanceResult::Ban(message)]
+                } else {
+                    vec![GossipAcceptanceResult::Accepted]
+                }
+            }
+            else {
+                let (debut, target_key, target_node_addr) =
+                    GossipAcceptorReal::make_debut_triple(database, &introducee)
+                        .expect("Introduction not properly qualified");
+                let mut result = vec![];
+                if let Some(message) = introducer_ban_message {
+                    result.push(GossipAcceptanceResult::Ban(message));
+                }
+                result.push(GossipAcceptanceResult::Reply(debut, target_key, target_node_addr));
+                result
+            }
         }
     }
 }
 
 impl IntroductionHandler {
-    fn new(logger: Logger) -> IntroductionHandler {
-        IntroductionHandler { logger }
+    fn new(rate_pack_limits: &RatePackLimits, logger: Logger) -> IntroductionHandler {
+        IntroductionHandler { rate_pack_limits: rate_pack_limits.clone(), logger }
     }
 
     fn verify_size(agrs: &[AccessibleGossipRecord]) -> Option<Qualification> {
@@ -1017,7 +1070,7 @@ impl GossipHandler for StandardGossipHandler {
         agrs: Vec<AccessibleGossipRecord>,
         gossip_source: SocketAddr,
         neighborhood_metadata: NeighborhoodMetadata,
-    ) -> GossipAcceptanceResult {
+    ) -> Vec<GossipAcceptanceResult> {
         let initial_neighborship_status =
             StandardGossipHandler::check_full_neighbor(database, gossip_source.ip());
 
@@ -1050,13 +1103,13 @@ impl GossipHandler for StandardGossipHandler {
                     .try_send(cpm)
                     .unwrap_or_else(|e| panic!("Neighborhood is dead: {}", e));
             }
-            GossipAcceptanceResult::Accepted
+            vec![GossipAcceptanceResult::Accepted]
         } else {
             debug!(
                 self.logger,
                 "Gossip contained nothing new: StandardGossipHandler is ignoring it"
             );
-            GossipAcceptanceResult::Ignored
+            vec![]
         }
     }
 }
@@ -1302,7 +1355,7 @@ impl GossipHandler for RejectHandler {
         _agrs: Vec<AccessibleGossipRecord>,
         _gossip_source: SocketAddr,
         _neighborhood_metadata: NeighborhoodMetadata,
-    ) -> GossipAcceptanceResult {
+    ) -> Vec<GossipAcceptanceResult> {
         panic!("Should never be called")
     }
 }
@@ -1320,7 +1373,7 @@ pub trait GossipAcceptor: Send /* Send because lazily-written tests require it *
         agrs: Vec<AccessibleGossipRecord>,
         gossip_source: SocketAddr,
         neighborhood_metadata: NeighborhoodMetadata,
-    ) -> GossipAcceptanceResult;
+    ) -> Vec<GossipAcceptanceResult>;
 }
 
 pub struct GossipAcceptorReal {
@@ -1336,7 +1389,7 @@ impl GossipAcceptor for GossipAcceptorReal {
         agrs: Vec<AccessibleGossipRecord>,
         gossip_source: SocketAddr,
         neighborhood_metadata: NeighborhoodMetadata,
-    ) -> GossipAcceptanceResult {
+    ) -> Vec<GossipAcceptanceResult> {
         let (qualification, handler_ref) = self
             .gossip_handlers
             .iter()
@@ -1361,19 +1414,25 @@ impl GossipAcceptor for GossipAcceptorReal {
             Qualification::Unmatched => {
                 panic!("Nothing in gossip_handlers returned Matched or Malformed")
             }
-            Qualification::Malformed(reason) => GossipAcceptanceResult::Ban(reason),
+            Qualification::Malformed(reason) => vec![GossipAcceptanceResult::Ban(reason)],
         }
     }
 }
 
 impl GossipAcceptorReal {
-    pub fn new(cryptde: Box<dyn CryptDE>) -> GossipAcceptorReal {
+    pub fn new(
+        cryptde: Box<dyn CryptDE>,
+        persistent_config: &dyn PersistentConfiguration
+    ) -> GossipAcceptorReal {
+        let rate_pack_limits = &persistent_config.rate_pack_limits()
+            .expect("RatePackLimits should be set");
+
         let logger = Logger::new("GossipAcceptor");
         GossipAcceptorReal {
             gossip_handlers: vec![
-                Box::new(DebutHandler::new(logger.clone())),
+                Box::new(DebutHandler::new(rate_pack_limits, logger.clone())),
                 Box::new(PassHandler::new()),
-                Box::new(IntroductionHandler::new(logger.clone())),
+                Box::new(IntroductionHandler::new(rate_pack_limits, logger.clone())),
                 Box::new(StandardGossipHandler::new(logger.clone())),
                 Box::new(RejectHandler::new()),
             ],
@@ -1414,8 +1473,47 @@ impl GossipAcceptorReal {
         ))
     }
 
-    fn validate_new_version(node_record: &NodeRecord, neighborhood_database: &NeighborhoodDatabase) -> bool {
-        todo!("Test-drive me")
+    fn validate_new_version(
+        agr: &AccessibleGossipRecord,
+        agr_description: String,
+        rate_pack_limits: &RatePackLimits,
+        logger: &Logger,
+    ) -> Result<(), String> {
+        match rate_pack_limits.analyze(&agr.inner.rate_pack) {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                let message = format!(
+                    "{} rejected due to rate pack limit violation: {:?}",
+                    agr_description, e
+                );
+                warning!(logger, "{}", message.as_str());
+                Err(message)
+            }
+        }
+    }
+}
+
+pub struct GossipAcceptorInvalid {}
+
+impl GossipAcceptor for GossipAcceptorInvalid {
+    fn handle(
+        &self,
+        _database: &mut NeighborhoodDatabase,
+        _agrs: Vec<AccessibleGossipRecord>,
+        _gossip_source: SocketAddr,
+        _neighborhood_metadata: NeighborhoodMetadata,
+    ) -> Vec<GossipAcceptanceResult> {
+        Self::invalid()
+    }
+}
+
+impl GossipAcceptorInvalid {
+    pub fn new() -> Self {
+        Self {}
+    }
+
+    fn invalid() -> ! {
+        panic!("GossipAcceptor was never initialized");
     }
 }
 
@@ -1431,7 +1529,7 @@ mod tests {
         UNREACHABLE_COUNTRY_PENALTY,
     };
     use crate::sub_lib::cryptde_null::CryptDENull;
-    use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ConnectionProgressMessage};
+    use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ConnectionProgressMessage, RatePack};
     use crate::sub_lib::utils::time_t_timestamp;
     use crate::test_utils::neighborhood_test_utils::{
         db_from_node, gossip_about_nodes_from_database, linearly_connect_nodes,
@@ -1452,6 +1550,7 @@ mod tests {
     use std::ops::{Add, Sub};
     use std::str::FromStr;
     use std::time::Duration;
+    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 
     lazy_static! {
         static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
@@ -1480,6 +1579,15 @@ mod tests {
         }
     }
 
+    impl RatePackLimits {
+        pub fn test_default() -> RatePackLimits {
+            Self {
+                lo: RatePack::new(u64::MIN, u64::MIN, u64::MIN, u64::MIN),
+                hi: RatePack::new(u64::MAX, u64::MAX, u64::MAX, u64::MAX),
+            }
+        }
+    }
+
     #[test]
     fn proper_debut_of_accepting_node_with_populated_database_is_identified_and_handled() {
         let (gossip, new_node, gossip_source_opt) = make_debut(2345, Mode::Standard);
@@ -1489,7 +1597,7 @@ mod tests {
         db.add_arbitrary_full_neighbor(root_node.public_key(), neighbor_key);
         let cryptde = CryptDENull::from(db.root().public_key(), TEST_DEFAULT_CHAIN);
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
-        let subject = DebutHandler::new(Logger::new("test"));
+        let subject = DebutHandler::new(&RatePackLimits::test_default(), Logger::new("test"));
 
         let qualifies_result =
             subject.qualifies(&db, &agrs_vec.as_slice(), gossip_source_opt.clone());
@@ -1508,11 +1616,11 @@ mod tests {
             .build();
         assert_eq!(
             handle_result,
-            GossipAcceptanceResult::Reply(
+            vec![GossipAcceptanceResult::Reply(
                 introduction,
                 new_node.public_key().clone(),
                 new_node.node_addr_opt().unwrap(),
-            ),
+            )],
         );
     }
 
@@ -1525,7 +1633,7 @@ mod tests {
         db.add_arbitrary_full_neighbor(root_node.public_key(), neighbor_key);
         let cryptde = CryptDENull::from(db.root().public_key(), TEST_DEFAULT_CHAIN);
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
-        let subject = DebutHandler::new(Logger::new("test"));
+        let subject = DebutHandler::new(&RatePackLimits::test_default(), Logger::new("test"));
 
         let qualifies_result = subject.qualifies(&db, agrs_vec.as_slice(), gossip_source.clone());
         let handle_result = subject.handle(
@@ -1543,11 +1651,11 @@ mod tests {
             .build();
         assert_eq!(
             handle_result,
-            GossipAcceptanceResult::Reply(
+            vec![GossipAcceptanceResult::Reply(
                 introduction,
                 new_node.public_key().clone(),
                 NodeAddr::from(&gossip_source),
-            ),
+            )],
         );
     }
 
@@ -1579,7 +1687,7 @@ mod tests {
             .node(src_db.root().public_key(), true)
             .build();
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
-        let subject = DebutHandler::new(Logger::new("test"));
+        let subject = DebutHandler::new(&RatePackLimits::test_default(), Logger::new("test"));
 
         let result = subject.handle(
             &cryptde,
@@ -1589,7 +1697,7 @@ mod tests {
             make_default_neighborhood_metadata(),
         );
 
-        assert_eq!(result, GossipAcceptanceResult::Accepted);
+        assert_eq!(result, vec![GossipAcceptanceResult::Accepted]);
     }
 
     #[test]
@@ -1611,7 +1719,7 @@ mod tests {
             .node(src_db.root().public_key(), true)
             .build();
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
-        let subject = DebutHandler::new(Logger::new("test"));
+        let subject = DebutHandler::new(&RatePackLimits::test_default(), Logger::new("test"));
 
         let result = subject.handle(
             &cryptde,
@@ -1623,18 +1731,18 @@ mod tests {
 
         assert_eq!(
             result,
-            GossipAcceptanceResult::Failed(
+            vec![GossipAcceptanceResult::Failed(
                 GossipFailure_0v1::NoSuitableNeighbors,
                 src_root.public_key().clone(),
                 src_root.node_addr_opt().unwrap(),
-            )
+            )]
         );
     }
 
     #[test]
     fn debut_with_node_addr_not_accepting_connections_is_rejected() {
         let (mut gossip, _j, gossip_source) = make_debut(2345, Mode::OriginateOnly);
-        let subject = DebutHandler::new(Logger::new("test"));
+        let subject = DebutHandler::new(&RatePackLimits::test_default(), Logger::new("test"));
         gossip.node_records[0].node_addr_opt = Some(NodeAddr::new(
             &IpAddr::from_str("1.2.3.4").unwrap(),
             &[1234],
@@ -1655,7 +1763,7 @@ mod tests {
     fn debut_without_node_addr_accepting_connections_is_rejected() {
         let (mut gossip, _j, gossip_source) = make_debut(2345, Mode::Standard);
         gossip.node_records[0].node_addr_opt = None;
-        let subject = DebutHandler::new(Logger::new("test"));
+        let subject = DebutHandler::new(&RatePackLimits::test_default(), Logger::new("test"));
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
         let result = subject.qualifies(&make_meaningless_db(), agrs_vec.as_slice(), gossip_source);
@@ -1673,7 +1781,7 @@ mod tests {
         let (mut gossip, _, gossip_source) = make_debut(2345, Mode::Standard);
         gossip.node_records[0].node_addr_opt =
             Some(NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[]));
-        let subject = DebutHandler::new(Logger::new("test"));
+        let subject = DebutHandler::new(&RatePackLimits::test_default(), Logger::new("test"));
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
         let result = subject.qualifies(&make_meaningless_db(), agrs_vec.as_slice(), gossip_source);
@@ -1695,7 +1803,7 @@ mod tests {
         db.add_arbitrary_full_neighbor(root_node.public_key(), neighbor_key);
         db.add_node(new_node.clone()).unwrap();
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
-        let subject = DebutHandler::new(Logger::new("test"));
+        let subject = DebutHandler::new(&RatePackLimits::test_default(), Logger::new("test"));
 
         let result = subject.qualifies(&db, agrs_vec.as_slice(), gossip_source);
 
@@ -1723,7 +1831,7 @@ mod tests {
             .build()
             .try_into()
             .unwrap();
-        let subject = DebutHandler::new(Logger::new("test"));
+        let subject = DebutHandler::new(&RatePackLimits::test_default(), Logger::new("test"));
 
         let result = subject.handle(
             &dest_cryptde,
@@ -1733,7 +1841,40 @@ mod tests {
             make_default_neighborhood_metadata(),
         );
 
-        assert_eq!(result, GossipAcceptanceResult::Accepted);
+        assert_eq!(result, vec![GossipAcceptanceResult::Accepted]);
+    }
+
+    #[test]
+    fn debut_is_rejected_when_validation_fails() {
+        init_test_logging();
+        let test_name = "debut_is_rejected_when_validation_fails";
+        let root_node = make_node_record(1234, true);
+        let root_node_cryptde = CryptDENull::from(&root_node.public_key(), TEST_DEFAULT_CHAIN);
+        let mut src_db = db_from_node(&root_node);
+        let agrs_vec: Vec<AccessibleGossipRecord> = GossipBuilder::new(&src_db)
+            .node(root_node.public_key(), true)
+            .build()
+            .try_into()
+            .unwrap();
+        let subject = DebutHandler::new(
+            &RatePackLimits::new(
+                RatePack::new(0, 0, 0, 0),
+                RatePack::new(0, 0, 0, 0)
+            ),
+            Logger::new(test_name)
+        );
+
+        let result = subject.handle(
+            &root_node_cryptde,
+            &mut src_db,
+            agrs_vec,
+            root_node.node_addr_opt().clone().unwrap().into(),
+            make_default_neighborhood_metadata(),
+        );
+
+        let message = r#"Debut from AQIDBA at 1.2.3.4:1234 rejected due to rate pack limit violation: ConfiguratorError { param_errors: [ParamError { parameter: "rate-pack", reason: "Value of routing_byte_rate (1235) is above the maximum allowed (0)" }, ParamError { parameter: "rate-pack", reason: "Value of routing_service_rate (1434) is above the maximum allowed (0)" }, ParamError { parameter: "rate-pack", reason: "Value of exit_byte_rate (1237) is above the maximum allowed (0)" }, ParamError { parameter: "rate-pack", reason: "Value of exit_service_rate (1634) is above the maximum allowed (0)" }] }"#.to_string();
+        assert_eq!(result, vec![GossipAcceptanceResult::Ban(message.clone())]);
+        TestLogHandler::new().exists_log_containing(format!("WARN: {}: {}", test_name, message).as_str());
     }
 
     #[test]
@@ -1749,7 +1890,7 @@ mod tests {
             half_neighbor_debutant.public_key(),
         );
         let logger = Logger::new("Debut test");
-        let subject = DebutHandler::new(logger);
+        let subject = DebutHandler::new(&RatePackLimits::test_default(), logger);
         let neighborhood_metadata = make_default_neighborhood_metadata();
 
         let counter_debut = subject
@@ -1794,12 +1935,12 @@ mod tests {
             .node(dest_db.root().public_key(), true)
             .build();
         assert_eq!(
-            GossipAcceptanceResult::Reply(
+            handle_result,
+            vec![GossipAcceptanceResult::Reply(
                 debut,
                 pass_target.public_key().clone(),
                 pass_target.node_addr_opt().unwrap().clone(),
-            ),
-            handle_result
+            )],
         );
     }
 
@@ -1842,7 +1983,10 @@ mod tests {
     #[test]
     fn gossip_containing_other_than_two_records_is_not_an_introduction() {
         let (gossip, _, gossip_source) = make_debut(2345, Mode::Standard);
-        let subject = IntroductionHandler::new(Logger::new("test"));
+        let subject = IntroductionHandler::new(
+            &RatePackLimits::test_default(),
+            Logger::new("test")
+        );
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
         let result = subject.qualifies(&make_meaningless_db(), agrs_vec.as_slice(), gossip_source);
@@ -1857,7 +2001,10 @@ mod tests {
         let dest_root = make_node_record(7878, true);
         let mut dest_db = db_from_node(&dest_root);
         dest_db.add_node(not_introducee.clone()).unwrap();
-        let subject = IntroductionHandler::new(Logger::new("test"));
+        let subject = IntroductionHandler::new(
+            &RatePackLimits::test_default(),
+            Logger::new("test")
+        );
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
         let result = subject.qualifies(&dest_db, agrs_vec.as_slice(), gossip_source);
@@ -1871,7 +2018,10 @@ mod tests {
         let dest_root = make_node_record(7878, true);
         let dest_db = db_from_node(&dest_root);
         gossip.node_records[0].node_addr_opt = None;
-        let subject = IntroductionHandler::new(Logger::new("test"));
+        let subject = IntroductionHandler::new(
+            &RatePackLimits::test_default(),
+            Logger::new("test")
+        );
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
         let result = subject.qualifies(&dest_db, agrs_vec.as_slice(), gossip_source);
@@ -1886,7 +2036,10 @@ mod tests {
         let dest_db = db_from_node(&dest_root);
         gossip.node_records[0].node_addr_opt =
             Some(NodeAddr::new(&IpAddr::from_str("2.3.4.5").unwrap(), &[]));
-        let subject = IntroductionHandler::new(Logger::new("test"));
+        let subject = IntroductionHandler::new(
+            &RatePackLimits::test_default(),
+            Logger::new("test")
+        );
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
         let result = subject.qualifies(&dest_db, agrs_vec.as_slice(), gossip_source);
@@ -1903,7 +2056,10 @@ mod tests {
         let dest_root = make_node_record(7878, true);
         let dest_db = db_from_node(&dest_root);
         gossip.node_records[1].node_addr_opt = None;
-        let subject = IntroductionHandler::new(Logger::new("test"));
+        let subject = IntroductionHandler::new(
+            &RatePackLimits::test_default(),
+            Logger::new("test")
+        );
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
         let result = subject.qualifies(&dest_db, agrs_vec.as_slice(), gossip_source);
@@ -1918,7 +2074,10 @@ mod tests {
         let dest_db = db_from_node(&dest_root);
         gossip.node_records[1].node_addr_opt =
             Some(NodeAddr::new(&IpAddr::from_str("3.4.5.6").unwrap(), &[]));
-        let subject = IntroductionHandler::new(Logger::new("test"));
+        let subject = IntroductionHandler::new(
+            &RatePackLimits::test_default(),
+            Logger::new("test")
+        );
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
         let result = subject.qualifies(&dest_db, agrs_vec.as_slice(), gossip_source);
@@ -1941,7 +2100,10 @@ mod tests {
             &IpAddr::from_str("4.5.6.7").unwrap(),
             &[4567],
         ));
-        let subject = IntroductionHandler::new(Logger::new("test"));
+        let subject = IntroductionHandler::new(
+            &RatePackLimits::test_default(),
+            Logger::new("test")
+        );
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
         let result = subject.qualifies(&dest_db, agrs_vec.as_slice(), gossip_source);
@@ -1958,7 +2120,10 @@ mod tests {
             &IpAddr::from_str("2.3.4.5").unwrap(),
             &[2345],
         ));
-        let subject = IntroductionHandler::new(Logger::new("test"));
+        let subject = IntroductionHandler::new(
+            &RatePackLimits::test_default(),
+            Logger::new("test")
+        );
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
         let result = subject.qualifies(&dest_db, agrs_vec.as_slice(), gossip_source);
@@ -1976,7 +2141,10 @@ mod tests {
         let (gossip, gossip_source) = make_introduction(2345, 3456);
         let dest_root = make_node_record(7878, true);
         let dest_db = db_from_node(&dest_root);
-        let subject = IntroductionHandler::new(Logger::new("test"));
+        let subject = IntroductionHandler::new(
+            &RatePackLimits::test_default(),
+            Logger::new("test")
+        );
         let mut agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
         agrs[0].inner.public_key = dest_root.public_key().clone();
         let introducer_key = &agrs[0].inner.public_key;
@@ -1997,7 +2165,10 @@ mod tests {
         let (gossip, _) = make_introduction(2345, 3456);
         let dest_root = make_node_record(7878, true);
         let dest_db = db_from_node(&dest_root);
-        let subject = IntroductionHandler::new(Logger::new("test"));
+        let subject = IntroductionHandler::new(
+            &RatePackLimits::test_default(),
+            Logger::new("test")
+        );
         let mut agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
         agrs[0].node_addr_opt = dest_root.node_addr_opt();
         let introducer_key = &agrs[0].inner.public_key;
@@ -2019,7 +2190,10 @@ mod tests {
         let dest_root = make_node_record(7878, true);
         let mut dest_db = db_from_node(&dest_root);
         let cryptde = CryptDENull::from(dest_db.root().public_key(), TEST_DEFAULT_CHAIN);
-        let subject = IntroductionHandler::new(Logger::new("test"));
+        let subject = IntroductionHandler::new(
+            &RatePackLimits::test_default(),
+            Logger::new("test")
+        );
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
         let introducer_key = &agrs[0].inner.public_key;
         dest_db.add_node(NodeRecord::from(&agrs[0])).unwrap();
@@ -2048,10 +2222,14 @@ mod tests {
 
         let after = time_t_timestamp();
         assert_eq!(qualifies_result, Qualification::Matched);
-        assert_eq!(
-            handle_result,
-            GossipAcceptanceResult::Ban(format!("Introducer {} tried changing immutable characteristic: Updating a NodeRecord must not change its node_addr_opt: 4.5.6.7:4567 -> 2.3.4.5:2345", introducer_key)),
+        assert_eq!(&handle_result[0],
+            &GossipAcceptanceResult::Ban(format!("Introducer {} tried changing immutable characteristic: Updating a NodeRecord must not change its node_addr_opt: 4.5.6.7:4567 -> 2.3.4.5:2345", introducer_key))
         );
+        match &handle_result[1] {
+            GossipAcceptanceResult::Reply(_, _, _) => (),
+            other => panic!("Expected Reply, got {:?}", other),
+        };
+        assert_eq!(handle_result.len(), 2);
         assert_node_records_eq(
             dest_db.node_by_key_mut(introducer_key).unwrap(),
             &introducer_before_gossip,
@@ -2065,7 +2243,10 @@ mod tests {
         let (gossip, gossip_source) = make_introduction(2345, 3456);
         let dest_root = make_node_record_f(7878, false, false, true);
         let dest_db = db_from_node(&dest_root);
-        let subject = IntroductionHandler::new(Logger::new("test"));
+        let subject = IntroductionHandler::new(
+            &RatePackLimits::test_default(),
+            Logger::new("test")
+        );
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
         let result = subject.qualifies(&dest_db, &agrs, gossip_source);
@@ -2079,7 +2260,10 @@ mod tests {
         let dest_root = make_node_record(7878, true);
         let mut dest_db = db_from_node(&dest_root);
         let cryptde = CryptDENull::from(dest_db.root().public_key(), TEST_DEFAULT_CHAIN);
-        let subject = IntroductionHandler::new(Logger::new("test"));
+        let subject = IntroductionHandler::new(
+            &RatePackLimits::test_default(),
+            Logger::new("test")
+        );
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
         let mut expected_introducer = NodeRecord::from(&agrs[0]);
         expected_introducer.metadata.country_undesirability = COUNTRY_UNDESIRABILITY_FACTOR;
@@ -2109,12 +2293,12 @@ mod tests {
             .node(dest_db.root().public_key(), true)
             .build();
         assert_eq!(
-            GossipAcceptanceResult::Reply(
+            handle_result,
+            vec![GossipAcceptanceResult::Reply(
                 debut,
                 agrs[1].inner.public_key.clone(),
                 agrs[1].node_addr_opt.clone().unwrap(),
-            ),
-            handle_result
+            )],
         );
         let result_introducer: &NodeRecord =
             dest_db.node_by_key(&agrs[0].inner.public_key).unwrap();
@@ -2139,7 +2323,10 @@ mod tests {
             dest_db.add_arbitrary_full_neighbor(dest_root.public_key(), &key);
         }
         let cryptde = CryptDENull::from(dest_db.root().public_key(), TEST_DEFAULT_CHAIN);
-        let subject = IntroductionHandler::new(Logger::new("test"));
+        let subject = IntroductionHandler::new(
+            &RatePackLimits::test_default(),
+            Logger::new("test")
+        );
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
         let handle_result = subject.handle(
@@ -2150,7 +2337,7 @@ mod tests {
             make_default_neighborhood_metadata(),
         );
 
-        assert_eq!(handle_result, GossipAcceptanceResult::Ignored);
+        assert_eq!(handle_result, vec![]);
     }
 
     #[test]
@@ -2160,7 +2347,10 @@ mod tests {
         let dest_root = make_node_record(7878, true);
         let mut dest_db = db_from_node(&dest_root);
         let cryptde = CryptDENull::from(dest_db.root().public_key(), TEST_DEFAULT_CHAIN);
-        let subject = IntroductionHandler::new(Logger::new("test"));
+        let subject = IntroductionHandler::new(
+            &RatePackLimits::test_default(),
+            Logger::new("test")
+        );
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
         dest_db.add_node(NodeRecord::from(&agrs[0])).unwrap();
         dest_db
@@ -2183,12 +2373,12 @@ mod tests {
             .node(dest_db.root().public_key(), true)
             .build();
         assert_eq!(
-            GossipAcceptanceResult::Reply(
+            handle_result,
+            vec![GossipAcceptanceResult::Reply(
                 debut,
                 agrs[1].inner.public_key.clone(),
                 agrs[1].node_addr_opt.clone().unwrap(),
-            ),
-            handle_result
+            )],
         );
         let result_introducer: &NodeRecord =
             dest_db.node_by_key(&agrs[0].inner.public_key).unwrap();
@@ -2197,13 +2387,13 @@ mod tests {
         expected_introducer.resign();
         assert_eq!(result_introducer, &expected_introducer);
         assert_eq!(
-            true,
             dest_db
                 .root()
-                .has_half_neighbor(expected_introducer.public_key())
+                .has_half_neighbor(expected_introducer.public_key()),
+            true,
         );
-        assert_eq!(1, dest_db.root().version());
-        assert_eq!(None, dest_db.node_by_key(&agrs[1].inner.public_key));
+        assert_eq!(dest_db.root().version(), 1);
+        assert_eq!(dest_db.node_by_key(&agrs[1].inner.public_key), None);
     }
 
     #[test]
@@ -2220,7 +2410,10 @@ mod tests {
             dest_db.add_arbitrary_half_neighbor(dest_root.public_key(), half_neighbor_key);
         }
         let cryptde = CryptDENull::from(dest_db.root().public_key(), TEST_DEFAULT_CHAIN);
-        let subject = IntroductionHandler::new(Logger::new("test"));
+        let subject = IntroductionHandler::new(
+            &RatePackLimits::test_default(),
+            Logger::new("test")
+        );
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
         dest_db.add_node(NodeRecord::from(&agrs[0])).unwrap();
         dest_db.add_arbitrary_half_neighbor(dest_root.public_key(), &agrs[0].inner.public_key);
@@ -2239,12 +2432,12 @@ mod tests {
             .node(dest_db.root().public_key(), true)
             .build();
         assert_eq!(
-            GossipAcceptanceResult::Reply(
+            handle_result,
+            vec![GossipAcceptanceResult::Reply(
                 debut,
                 agrs[1].inner.public_key.clone(),
                 agrs[1].node_addr_opt.clone().unwrap(),
-            ),
-            handle_result
+            )],
         );
 
         let result_introducer: &NodeRecord =
@@ -2254,13 +2447,105 @@ mod tests {
         expected_introducer.resign();
         assert_eq!(result_introducer, &expected_introducer);
         assert_eq!(
-            true,
             dest_db
                 .root()
-                .has_half_neighbor(expected_introducer.public_key())
+                .has_half_neighbor(expected_introducer.public_key()),
+            true,
         );
-        assert_eq!(0, dest_db.root().version());
-        assert_eq!(None, dest_db.node_by_key(&agrs[1].inner.public_key));
+        assert_eq!(dest_db.root().version(), 0);
+        assert_eq!(dest_db.node_by_key(&agrs[1].inner.public_key), None);
+    }
+
+    #[test]
+    fn introducer_that_fails_validation_is_rejected() {
+        init_test_logging();
+        let test_name = "introducer_that_fails_validation_is_rejected";
+        let (gossip, gossip_source) = make_introduction(2345, 3456);
+        let dest_root = make_node_record(7878, true);
+        let mut dest_db = db_from_node(&dest_root);
+        // These don't count because they're half-only neighbors. Will they be ignored?
+        for idx in 0..MAX_DEGREE {
+            let half_neighbor_key = &dest_db
+                .add_node(make_node_record(4000 + idx as u16, true))
+                .unwrap();
+            dest_db.add_arbitrary_half_neighbor(dest_root.public_key(), half_neighbor_key);
+        }
+        let cryptde = CryptDENull::from(dest_db.root().public_key(), TEST_DEFAULT_CHAIN);
+        let subject = IntroductionHandler::new(
+            &RatePackLimits::new(
+                RatePack::new(100, 100, 100, 100),
+                RatePack::new(u64::MAX, u64::MAX, u64::MAX, u64::MAX)
+            ),
+            Logger::new(test_name)
+        );
+        let mut agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
+        agrs[0].inner.rate_pack = RatePack::new(0, 0, 0, 0); // Invalid rate pack
+        dest_db.add_node(NodeRecord::from(&agrs[0])).unwrap();
+        dest_db.add_arbitrary_half_neighbor(dest_root.public_key(), &agrs[0].inner.public_key);
+
+        let handle_result = subject.handle(
+            &cryptde,
+            &mut dest_db,
+            agrs.clone(),
+            gossip_source,
+            make_default_neighborhood_metadata(),
+        );
+
+        let message = format!("Introducer {} from {} rejected due to rate pack limit violation: ConfiguratorError {{ param_errors: [ParamError {{ parameter: \"rate-pack\", reason: \"Value of routing_byte_rate (0) is below the minimum allowed (100)\" }}, ParamError {{ parameter: \"rate-pack\", reason: \"Value of routing_service_rate (0) is below the minimum allowed (100)\" }}, ParamError {{ parameter: \"rate-pack\", reason: \"Value of exit_byte_rate (0) is below the minimum allowed (100)\" }}, ParamError {{ parameter: \"rate-pack\", reason: \"Value of exit_service_rate (0) is below the minimum allowed (100)\" }}] }}", agrs[0].inner.public_key, gossip_source);
+        assert_eq!(handle_result[0], GossipAcceptanceResult::Ban(message.clone()));
+        match &handle_result[1] {
+            &GossipAcceptanceResult::Reply(_, _, _) => (),
+            other => panic!("Expected Reply as second result, but got {:?}", other),
+        }
+        assert_eq!(handle_result.len(), 2);
+        TestLogHandler::new().exists_log_containing(format!("WARN: {}: {}", test_name, message).as_str());
+    }
+
+    #[test]
+    fn introducee_that_fails_validation_is_rejected() {
+        init_test_logging();
+        let test_name = "introducee_that_fails_validation_is_rejected";
+        let (gossip, gossip_source) = make_introduction(2345, 3456);
+        let dest_root = make_node_record(7878, true);
+        let mut dest_db = db_from_node(&dest_root);
+        // These don't count because they're half-only neighbors. Will they be ignored?
+        for idx in 0..MAX_DEGREE {
+            let half_neighbor_key = &dest_db
+                .add_node(make_node_record(4000 + idx as u16, true))
+                .unwrap();
+            dest_db.add_arbitrary_half_neighbor(dest_root.public_key(), half_neighbor_key);
+        }
+        let cryptde = CryptDENull::from(dest_db.root().public_key(), TEST_DEFAULT_CHAIN);
+        let subject = IntroductionHandler::new(
+            &RatePackLimits::new(
+                RatePack::new(100, 100, 100, 100),
+                RatePack::new(u64::MAX, u64::MAX, u64::MAX, u64::MAX)
+            ),
+            Logger::new(test_name)
+        );
+        let mut agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
+        agrs[1].inner.rate_pack = RatePack::new(0, 0, 0, 0); // Invalid rate pack
+        dest_db.add_node(NodeRecord::from(&agrs[0])).unwrap();
+        dest_db.add_arbitrary_half_neighbor(dest_root.public_key(), &agrs[0].inner.public_key);
+
+        let handle_result = subject.handle(
+            &cryptde,
+            &mut dest_db,
+            agrs.clone(),
+            gossip_source,
+            make_default_neighborhood_metadata(),
+        );
+
+        let message = format!(
+            "Introducee {} at {} rejected due to rate pack limit violation: ConfiguratorError {{ param_errors: [ParamError {{ parameter: \"rate-pack\", reason: \"Value of routing_byte_rate (0) is below the minimum allowed (100)\" }}, ParamError {{ parameter: \"rate-pack\", reason: \"Value of routing_service_rate (0) is below the minimum allowed (100)\" }}, ParamError {{ parameter: \"rate-pack\", reason: \"Value of exit_byte_rate (0) is below the minimum allowed (100)\" }}, ParamError {{ parameter: \"rate-pack\", reason: \"Value of exit_service_rate (0) is below the minimum allowed (100)\" }}] }}",
+            agrs[1].inner.public_key,
+            agrs[1].node_addr_opt.as_ref().unwrap().ip_addr()
+        );
+        assert_eq!(
+            handle_result,
+            vec![GossipAcceptanceResult::Accepted],
+        );
+        TestLogHandler::new().exists_log_containing(format!("WARN: {}: {}", test_name, message).as_str());
     }
 
     #[test]
@@ -2507,26 +2792,26 @@ mod tests {
         );
 
         assert_eq!(
+            0u32,
             dest_db
                 .node_by_key(node_a.public_key())
                 .unwrap()
                 .metadata
                 .country_undesirability,
-            0u32
         );
         assert_eq!(
+            UNREACHABLE_COUNTRY_PENALTY,
             dest_db
                 .node_by_key(node_b.public_key())
                 .unwrap()
                 .metadata
                 .country_undesirability,
-            UNREACHABLE_COUNTRY_PENALTY
         );
-        assert_eq!(Qualification::Matched, qualifies_result);
-        assert_eq!(GossipAcceptanceResult::Accepted, handle_result);
+        assert_eq!(qualifies_result, Qualification::Matched);
+        assert_eq!(handle_result, vec![GossipAcceptanceResult::Accepted]);
         assert_eq!(
             &src_db.root().inner,
-            &dest_db.node_by_key(src_root.public_key()).unwrap().inner
+            &dest_db.node_by_key(src_root.public_key()).unwrap().inner,
         );
         assert!(dest_db.has_full_neighbor(dest_db.root().public_key(), src_db.root().public_key()));
         assert_eq!(
@@ -2754,7 +3039,7 @@ mod tests {
             make_default_neighborhood_metadata(),
         );
 
-        assert_eq!(result, GossipAcceptanceResult::Ignored);
+        assert_eq!(result, vec![]);
     }
 
     fn assert_compute_patch(db_patch_size: u8) {
@@ -2819,7 +3104,7 @@ mod tests {
         assert_eq!(system.run(), 0);
         let recording = recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 0);
-        assert_eq!(result, GossipAcceptanceResult::Ignored);
+        assert_eq!(result, vec![]);
     }
 
     #[test]
@@ -2857,7 +3142,7 @@ mod tests {
 
         System::current().stop();
         assert_eq!(system.run(), 0);
-        assert_eq!(result, GossipAcceptanceResult::Accepted);
+        assert_eq!(result, vec![GossipAcceptanceResult::Accepted]);
         let recording = recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 1);
         let received_message = recording.get_record::<ConnectionProgressMessage>(0);
@@ -2904,7 +3189,7 @@ mod tests {
 
         System::current().stop();
         assert_eq!(system.run(), 0);
-        assert_eq!(result, GossipAcceptanceResult::Accepted);
+        assert_eq!(result, vec![GossipAcceptanceResult::Accepted]);
         let recording = recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 0);
     }
@@ -2945,7 +3230,7 @@ mod tests {
 
         System::current().stop();
         assert_eq!(system.run(), 0);
-        assert_eq!(result, GossipAcceptanceResult::Accepted);
+        assert_eq!(result, vec![GossipAcceptanceResult::Accepted]);
         let recording = recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 0);
     }
@@ -2986,7 +3271,12 @@ mod tests {
             make_default_neighborhood_metadata(),
         );
 
-        assert_eq!(result, GossipAcceptanceResult::Ignored);
+        assert_eq!(result, vec![]);
+    }
+
+    #[test]
+    fn standard_gossip_that_fails_validation_is_rejected() {
+        todo!("Complete me")
     }
 
     #[test]
@@ -3070,7 +3360,7 @@ mod tests {
             make_default_neighborhood_metadata(),
         );
 
-        assert_eq!(GossipAcceptanceResult::Ignored, result);
+        assert_eq!(result, vec![]);
     }
 
     #[test]
@@ -3108,11 +3398,11 @@ mod tests {
         );
 
         let after = time_t_timestamp();
-        let expected_result = GossipAcceptanceResult::Reply(
+        let expected_result = vec![GossipAcceptanceResult::Reply(
             expected_gossip_response,
             debut_node.public_key().clone(),
             debut_node.node_addr_opt().unwrap(),
-        );
+        )];
         assert_eq!(result, expected_result);
         root_node
             .add_half_neighbor_key(debut_node.public_key().clone())
@@ -3161,12 +3451,12 @@ mod tests {
             .node(existing_node_key, true)
             .build();
         assert_eq!(
-            GossipAcceptanceResult::Reply(
+            result,
+            vec![GossipAcceptanceResult::Reply(
                 expected_acceptance_gossip,
                 debut_node.public_key().clone(),
                 debut_node.node_addr_opt().unwrap(),
-            ),
-            result
+            )]
         );
         root_node
             .add_half_neighbor_key(debut_node.public_key().clone())
@@ -3238,18 +3528,18 @@ mod tests {
         let debut_node_addr = debut_node.node_addr_opt().as_ref().unwrap().clone();
         assert_contains(
             &[
-                GossipAcceptanceResult::Reply(
+                vec![GossipAcceptanceResult::Reply(
                     expected_acceptance_gossip_1,
                     debut_key.clone(),
                     debut_node_addr.clone(),
-                ),
-                GossipAcceptanceResult::Reply(
+                )],
+                vec![GossipAcceptanceResult::Reply(
                     expected_acceptance_gossip_2,
                     debut_key.clone(),
                     debut_node_addr.clone(),
-                ),
+                )],
             ],
-            &result,
+            &result
         );
         root_node
             .add_half_neighbor_key(debut_node.public_key().clone())
@@ -3328,16 +3618,16 @@ mod tests {
             .build();
         assert_contains(
             &[
-                GossipAcceptanceResult::Reply(
+                vec![GossipAcceptanceResult::Reply(
                     expected_acceptance_gossip_2,
                     debut_node.public_key().clone(),
                     debut_node.node_addr_opt().unwrap(),
-                ),
-                GossipAcceptanceResult::Reply(
+                )],
+                vec![GossipAcceptanceResult::Reply(
                     expected_acceptance_gossip_3,
                     debut_node.public_key().clone(),
                     debut_node.node_addr_opt().unwrap(),
-                ),
+                )],
             ],
             &result,
         );
@@ -3414,12 +3704,12 @@ mod tests {
             .node(existing_node_5_key, true)
             .build();
         assert_eq!(
-            GossipAcceptanceResult::Reply(
+            result,
+            vec![GossipAcceptanceResult::Reply(
                 expected_acceptance_gossip,
                 debut_node.public_key().clone(),
                 debut_node.node_addr_opt().unwrap(),
-            ),
-            result
+            )],
         );
         root_node
             .add_half_neighbor_key(existing_node_1_key.clone())
@@ -3466,13 +3756,13 @@ mod tests {
             make_default_neighborhood_metadata(),
         );
 
-        assert_eq!(GossipAcceptanceResult::Ignored, result);
+        assert_eq!(result, vec![]);
         assert_eq!(
-            false,
             dest_db
                 .node_by_key(src_node.public_key())
                 .unwrap()
-                .has_half_neighbor(dest_node.public_key())
+                .has_half_neighbor(dest_node.public_key()),
+            false,
         );
     }
 
@@ -3506,7 +3796,7 @@ mod tests {
         );
         let end_at = time_t_timestamp();
 
-        assert_eq!(GossipAcceptanceResult::Accepted, result);
+        assert_eq!(result, vec![GossipAcceptanceResult::Accepted]);
         let node = dest_db.node_by_key(src_node.public_key()).unwrap();
         assert_eq!(node.has_half_neighbor(dest_node.public_key()), true);
         assert_eq!(
@@ -3551,7 +3841,7 @@ mod tests {
         let debut_gossip = Gossip_0v1 {
             node_records: vec![gnr],
         };
-        let expected = make_expected_non_introduction_debut_response(&src_node, debut_gossip);
+        let expected = vec![make_expected_non_introduction_debut_response(&src_node, debut_gossip)];
         assert_eq!(result, expected);
         assert_eq!(
             dest_db
@@ -3600,7 +3890,7 @@ mod tests {
         let debut_gossip = Gossip_0v1 {
             node_records: vec![gnr],
         };
-        let expected = make_expected_non_introduction_debut_response(&src_node, debut_gossip);
+        let expected = vec![make_expected_non_introduction_debut_response(&src_node, debut_gossip)];
         assert_eq!(result, expected);
         assert_eq!(
             dest_db
@@ -3627,7 +3917,10 @@ mod tests {
         let cryptde = CRYPTDE_PAIR.main.as_ref();
         let root_node = make_node_record(1234, true);
         let mut db = db_from_node(&root_node);
-        let subject = IntroductionHandler::new(Logger::new("test"));
+        let subject = IntroductionHandler::new(
+            &RatePackLimits::test_default(),
+            Logger::new("test")
+        );
         let (gossip, gossip_source) = make_introduction(0, 1);
         let (cpm_recipient, recording_arc) = make_cpm_recipient();
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
@@ -3686,11 +3979,11 @@ mod tests {
             .build();
         assert_eq!(
             result,
-            GossipAcceptanceResult::Reply(
+            vec![GossipAcceptanceResult::Reply(
                 expected_relay_gossip,
                 pass_target.public_key().clone(),
                 pass_target.node_addr_opt().unwrap(),
-            )
+            )]
         );
         assert_eq!(db.keys().len(), 1);
     }
@@ -3717,8 +4010,8 @@ mod tests {
         );
 
         let final_timestamp = SystemTime::now();
-        match result {
-            GossipAcceptanceResult::Reply(_, _, _) => (),
+        match &result[0] {
+            &GossipAcceptanceResult::Reply(_, _, _) => (),
             other => panic!(
                 "Expected GossipAcceptanceResult::Reply but received {:?}",
                 other
@@ -3773,7 +4066,7 @@ mod tests {
         let final_timestamp = SystemTime::now();
         System::current().stop();
         assert_eq!(system.run(), 0);
-        assert_eq!(result, GossipAcceptanceResult::Ignored);
+        assert_eq!(result, vec![]);
         let recording = recording_arc.lock().unwrap();
         let received_message: &ConnectionProgressMessage = recording.get_record(0);
         assert_eq!(
@@ -3814,7 +4107,7 @@ mod tests {
 
         System::current().stop();
         assert_eq!(system.run(), 0);
-        assert_eq!(result, GossipAcceptanceResult::Ignored);
+        assert_eq!(result, vec![]);
         let recording = recording_arc.lock().unwrap();
         let received_message: &ConnectionProgressMessage = recording.get_record(0);
         assert_eq!(
@@ -3854,8 +4147,8 @@ mod tests {
         );
 
         let final_timestamp = SystemTime::now();
-        match result {
-            GossipAcceptanceResult::Reply(_, _, _) => (),
+        match &result[0] {
+            &GossipAcceptanceResult::Reply(_, _, _) => (),
             other => panic!(
                 "Expected GossipAcceptanceResult::Reply but received {:?}",
                 other
@@ -3960,7 +4253,7 @@ mod tests {
         );
 
         let after = time_t_timestamp();
-        assert_eq!(GossipAcceptanceResult::Accepted, result);
+        assert_eq!(result, vec![GossipAcceptanceResult::Accepted]);
         let mut expected_dest_db = src_db.clone();
         expected_dest_db.remove_arbitrary_half_neighbor(node_e.public_key(), node_a.public_key());
         expected_dest_db.remove_arbitrary_half_neighbor(node_f.public_key(), node_a.public_key());
@@ -4121,7 +4414,7 @@ mod tests {
             .unwrap();
         dest_node_mut.increment_version();
         dest_node_mut.resign();
-        assert_eq!(result, GossipAcceptanceResult::Accepted);
+        assert_eq!(result, vec![GossipAcceptanceResult::Accepted]);
         fix_nodes_last_updates(&mut expected_dest_db, &dest_db);
         assert_node_records_eq(
             dest_db.node_by_key(third_node.public_key()).unwrap(),
@@ -4193,7 +4486,7 @@ mod tests {
         );
 
         let after = time_t_timestamp();
-        assert_eq!(result, GossipAcceptanceResult::Ignored);
+        assert_eq!(result, vec![]);
         assert_node_records_eq(
             dest_db.node_by_key(dest_root.public_key()).unwrap(),
             original_dest_db
@@ -4301,7 +4594,7 @@ mod tests {
         db.add_arbitrary_full_neighbor(root_node.public_key(), other_neighbor_3_key);
         db.add_arbitrary_full_neighbor(less_connected_neighbor_key, other_neighbor_1_key);
         db.add_arbitrary_full_neighbor(less_connected_neighbor_key, other_neighbor_2_key);
-        let subject = DebutHandler::new(Logger::new("test"));
+        let subject = DebutHandler::new(&RatePackLimits::test_default(), Logger::new("test"));
         let excluded = AccessibleGossipRecord::from((&db, excluded_key, true));
 
         let result = subject.find_more_appropriate_neighbor(&db, &excluded);
@@ -4325,7 +4618,7 @@ mod tests {
         db.add_arbitrary_full_neighbor(less_connected_neighbor_key, other_neighbor_1_key);
         db.add_arbitrary_full_neighbor(less_connected_neighbor_key, other_neighbor_2_key);
         db.add_arbitrary_full_neighbor(less_connected_neighbor_key, other_neighbor_3_key);
-        let subject = DebutHandler::new(Logger::new("test"));
+        let subject = DebutHandler::new(&RatePackLimits::test_default(), Logger::new("test"));
         let excluded = AccessibleGossipRecord::from((&db, excluded_key, true));
 
         let result = subject.find_more_appropriate_neighbor(&db, &excluded);
@@ -4352,7 +4645,7 @@ mod tests {
         db.add_arbitrary_full_neighbor(root_node.public_key(), other_neighbor_4_key);
         db.add_arbitrary_full_neighbor(less_connected_neighbor_key, other_neighbor_1_key);
         db.add_arbitrary_full_neighbor(less_connected_neighbor_key, other_neighbor_2_key);
-        let subject = DebutHandler::new(Logger::new("test"));
+        let subject = DebutHandler::new(&RatePackLimits::test_default(), Logger::new("test"));
         let excluded = AccessibleGossipRecord::from((&db, excluded_key, true));
 
         let result = subject.find_more_appropriate_neighbor(&db, &excluded);
@@ -4374,7 +4667,7 @@ mod tests {
         db.add_arbitrary_full_neighbor(root_node.public_key(), other_neighbor_3_key);
         db.add_arbitrary_full_neighbor(less_connected_neighbor_key, other_neighbor_1_key);
         db.add_arbitrary_full_neighbor(less_connected_neighbor_key, other_neighbor_2_key);
-        let subject = DebutHandler::new(Logger::new("test"));
+        let subject = DebutHandler::new(&RatePackLimits::test_default(), Logger::new("test"));
         let less_connected_neighbor_agr =
             AccessibleGossipRecord::from((&db, less_connected_neighbor_key, true));
 
@@ -4547,7 +4840,11 @@ mod tests {
     }
 
     fn make_subject(crypt_de: &dyn CryptDE) -> GossipAcceptorReal {
-        GossipAcceptorReal::new(crypt_de.dup())
+        GossipAcceptorReal::new(
+            crypt_de.dup(),
+            &PersistentConfigurationMock::new()
+                .rate_pack_limits_result(Ok(RatePackLimits::test_default()))
+        )
     }
 
     fn assert_node_records_eq(actual: &NodeRecord, expected: &NodeRecord, before: u32, after: u32) {

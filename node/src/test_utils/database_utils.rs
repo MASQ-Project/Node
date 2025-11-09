@@ -18,6 +18,8 @@ use std::io::Read;
 use std::iter::once;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigurationFactory};
+use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 
 pub fn bring_db_0_back_to_life_and_return_connection(db_path: &Path) -> Connection {
     match remove_file(db_path) {
@@ -300,5 +302,21 @@ pub fn make_external_data() -> ExternalData {
         chain: TEST_DEFAULT_CHAIN,
         neighborhood_mode: NeighborhoodModeLight::Standard,
         db_password_opt: None,
+    }
+}
+
+pub struct PersistentConfigurationFactoryTest {
+    mock_opt: RefCell<Option<PersistentConfigurationMock>>
+}
+
+impl PersistentConfigurationFactory for PersistentConfigurationFactoryTest {
+    fn make(&self) -> Box<dyn PersistentConfiguration> {
+        Box::new(self.mock_opt.borrow_mut().take().expect("PersistentConfigurationFactoryTest already used"))
+    }
+}
+
+impl PersistentConfigurationFactoryTest {
+    pub fn new(mock: PersistentConfigurationMock) -> Self {
+        Self { mock_opt: RefCell::new(Some(mock)) }
     }
 }

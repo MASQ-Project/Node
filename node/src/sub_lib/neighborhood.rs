@@ -31,6 +31,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::net::IpAddr;
 use std::str::FromStr;
 use std::time::Duration;
+use masq_lib::shared_schema::ConfiguratorError;
 
 const ASK_ABOUT_GOSSIP_INTERVAL: Duration = Duration::from_secs(10);
 
@@ -80,6 +81,89 @@ impl RatePack {
 
     pub fn exit_charge(&self, payload_size: u64) -> u64 {
         self.exit_service_rate + (self.exit_byte_rate * payload_size)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RatePackLimits {
+    pub lo: RatePack,
+    pub hi: RatePack
+}
+
+impl RatePackLimits {
+    pub fn new(lo: RatePack, hi: RatePack) -> Self {
+        Self { lo, hi }
+    }
+
+    pub fn check(&self, rate_pack: &RatePack) -> bool {
+        match self.analyze(rate_pack) {
+            Ok(_) => true,
+            Err(_) => false,
+        }
+    }
+
+    pub fn analyze(&self, rate_pack: &RatePack) -> Result<(), ConfiguratorError> {
+        let check_min_and_max = |
+            candidate: u64,
+            min: u64,
+            max: u64,
+            name: &str,
+            error: ConfiguratorError
+        | -> ConfiguratorError {
+            let mut result = error;
+            if candidate < min {
+                result = result.another_required(
+                    "rate-pack",
+                    &format!(
+                        "Value of {} ({}) is below the minimum allowed ({})",
+                        name, candidate, min
+                    ),
+                );
+            } else if candidate > max {
+                result = result.another_required(
+                    "rate-pack",
+                    &format!(
+                        "Value of {} ({}) is above the maximum allowed ({})",
+                        name, candidate, max
+                    ),
+                );
+            }
+            result
+        };
+        let mut error = ConfiguratorError::new(vec![]);
+        error = check_min_and_max(
+            rate_pack.routing_byte_rate,
+            self.lo.routing_byte_rate,
+            self.hi.routing_byte_rate,
+            "routing_byte_rate",
+            error,
+        );
+        error = check_min_and_max(
+            rate_pack.routing_service_rate,
+            self.lo.routing_service_rate,
+            self.hi.routing_service_rate,
+            "routing_service_rate",
+            error,
+        );
+        error = check_min_and_max(
+            rate_pack.exit_byte_rate,
+            self.lo.exit_byte_rate,
+            self.hi.exit_byte_rate,
+            "exit_byte_rate",
+            error,
+        );
+        error = check_min_and_max(
+            rate_pack.exit_service_rate,
+            self.lo.exit_service_rate,
+            self.hi.exit_service_rate,
+            "exit_service_rate",
+            error,
+        );
+        if error.is_empty() {
+            Ok(())
+        } else {
+            Err(error)
+        }
     }
 }
 

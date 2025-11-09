@@ -12,11 +12,9 @@ pub mod overall_connection_status;
 use crate::bootstrapper::{BootstrapperConfig, CryptDEPair};
 use crate::database::db_initializer::DbInitializationConfig;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-use crate::db_config::persistent_configuration::{
-    PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
-};
+use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration, PersistentConfigurationFactory, PersistentConfigurationFactoryReal, PersistentConfigurationInvalid};
 use crate::neighborhood::gossip::{AccessibleGossipRecord, DotGossipEndpoint, Gossip_0v1};
-use crate::neighborhood::gossip_acceptor::GossipAcceptanceResult;
+use crate::neighborhood::gossip_acceptor::{GossipAcceptanceResult, GossipAcceptorInvalid};
 use crate::neighborhood::node_location::get_node_location;
 use crate::neighborhood::overall_connection_status::{
     OverallConnectionStage, OverallConnectionStatus,
@@ -43,9 +41,7 @@ use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp, StartMessage};
 use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
-use crate::sub_lib::utils::{
-    db_connection_launch_panic, handle_ui_crash_request, NODE_MAILBOX_CAPACITY,
-};
+use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::versioned_data::VersionedData;
 use crate::sub_lib::wallet::Wallet;
 use actix::Context;
@@ -110,7 +106,8 @@ pub struct Neighborhood {
     chain: Chain,
     crashable: bool,
     data_directory: PathBuf,
-    persistent_config_opt: Option<Box<dyn PersistentConfiguration>>,
+    persistent_config_factory: Box<dyn PersistentConfigurationFactory>,
+    persistent_config: Box<dyn PersistentConfiguration>,
     db_password_opt: Option<String>,
     logger: Logger,
     tools: NeighborhoodTools,
@@ -423,7 +420,7 @@ impl Neighborhood {
             hopper_no_lookup_opt: None,
             connected_signal_opt: None,
             node_to_ui_recipient_opt: None,
-            gossip_acceptor: Box::new(GossipAcceptorReal::new(cryptde_pair.main.dup())),
+            gossip_acceptor: Box::new(GossipAcceptorInvalid::new()),
             gossip_producer: Box::new(GossipProducerReal::new()),
             neighborhood_database,
             consuming_wallet_opt: config.consuming_wallet_opt.clone(),
@@ -435,7 +432,8 @@ impl Neighborhood {
             chain: config.blockchain_bridge_config.chain,
             crashable: config.crash_point == CrashPoint::Message,
             data_directory: config.data_directory.clone(),
-            persistent_config_opt: None,
+            persistent_config_factory: Box::new(PersistentConfigurationFactoryReal::new(config.data_directory.clone())),
+            persistent_config: Box::new(PersistentConfigurationInvalid::new()),
             db_password_opt: config.db_password_opt.clone(),
             logger: Logger::new("Neighborhood"),
             tools: NeighborhoodTools::default(),
@@ -467,7 +465,11 @@ impl Neighborhood {
 
     fn handle_start_message(&mut self) {
         debug!(self.logger, "Connecting to persistent database");
-        self.connect_database();
+        self.persistent_config = self.persistent_config_factory.make();
+        self.gossip_acceptor = Box::new(GossipAcceptorReal::new(
+            self.cryptde.dup(),
+            self.persistent_config.as_ref(),
+        ));
         self.validate_or_replace_min_hops_value();
         self.send_debut_gossip_to_all_initial_descriptors();
     }
@@ -519,19 +521,6 @@ impl Neighborhood {
         }
     }
 
-    fn connect_database(&mut self) {
-        if self.persistent_config_opt.is_none() {
-            let db_initializer = DbInitializerReal::default();
-            let conn = db_initializer
-                .initialize(
-                    &self.data_directory,
-                    DbInitializationConfig::panic_on_migration(),
-                )
-                .unwrap_or_else(|err| db_connection_launch_panic(err, &self.data_directory));
-            self.persistent_config_opt = Some(Box::new(PersistentConfigurationReal::from(conn)));
-        }
-    }
-
     fn handle_config_change_msg(&mut self, msg: ConfigChangeMsg) {
         match msg.change {
             ConfigChange::UpdateWallets(wallet_pair) => {
@@ -578,22 +567,20 @@ impl Neighborhood {
     }
 
     fn validate_or_replace_min_hops_value(&mut self) {
-        if let Some(persistent_config) = self.persistent_config_opt.as_ref() {
-            let value_in_db = persistent_config
-                .min_hops()
-                .expect("Min Hops value is not initialized inside Database");
-            let value_in_neighborhood = self.min_hops;
-            if value_in_neighborhood != value_in_db {
-                info!(
-                    self.logger,
-                    "Database with different min hops value detected; \
-                    currently set: {:?}, found in db: {:?}; changing to {:?}",
-                    value_in_neighborhood,
-                    value_in_db,
-                    value_in_db
-                );
-                self.min_hops = value_in_db;
-            }
+        let value_in_db = self.persistent_config
+            .min_hops()
+            .expect("Min Hops value is not initialized inside Database");
+        let value_in_neighborhood = self.min_hops;
+        if value_in_neighborhood != value_in_db {
+            info!(
+                self.logger,
+                "Database with different min hops value detected; \
+                currently set: {:?}, found in db: {:?}; changing to {:?}",
+                value_in_neighborhood,
+                value_in_db,
+                value_in_db
+            );
+            self.min_hops = value_in_db;
         }
     }
 
@@ -781,37 +768,41 @@ impl Neighborhood {
             db_patch_size: self.db_patch_size,
             user_exit_preferences_opt: Some(self.user_exit_preferences.clone()),
         };
-        let acceptance_result = self.gossip_acceptor.handle(
+        let mut acceptance_results = self.gossip_acceptor.handle(
             &mut self.neighborhood_database,
             agrs,
             gossip_source,
             neighborhood_metadata,
         );
-        match acceptance_result {
-            GossipAcceptanceResult::Accepted => {
-                self.user_exit_preferences.db_countries = self.init_db_countries();
-                self.gossip_to_neighbors()
-            }
-            GossipAcceptanceResult::Reply(next_debut, target_key, target_node_addr) => {
-                //TODO also ensure init_db_countries on hop change
-                if self.min_hops == Hops::OneHop {
-                    self.user_exit_preferences.db_countries = self.init_db_countries();
+        if acceptance_results.is_empty() {
+            trace!(self.logger, "Gossip from {} ignored", gossip_source);
+            self.handle_gossip_ignored(&ignored_node_name, gossip_record_count)
+        }
+        else {
+            acceptance_results.into_iter().for_each(|acceptance_result| {
+                match acceptance_result {
+                    GossipAcceptanceResult::Accepted => {
+                        self.user_exit_preferences.db_countries = self.init_db_countries();
+                        self.gossip_to_neighbors()
+                    }
+                    GossipAcceptanceResult::Reply(next_debut, target_key, target_node_addr) => {
+                        //TODO also ensure init_db_countries on hop change
+                        if self.min_hops == Hops::OneHop {
+                            self.user_exit_preferences.db_countries = self.init_db_countries();
+                        }
+                        self.handle_gossip_reply(next_debut, &target_key, &target_node_addr)
+                    }
+                    GossipAcceptanceResult::Failed(failure, target_key, target_node_addr) => {
+                        self.handle_gossip_failed(failure, &target_key, &target_node_addr)
+                    }
+                    GossipAcceptanceResult::Ban(reason) => {
+                        // TODO in case we introduce Ban machinery we want to reinitialize the db_countries here as well
+                        // That implies new process in init_db_countries to exclude banned node from the result
+                        warning!(self.logger, "Malefactor detected at {}, but malefactor bans not yet implemented; ignoring: {}", gossip_source, reason);
+                        self.handle_gossip_ignored(&ignored_node_name, gossip_record_count);
+                    }
                 }
-                self.handle_gossip_reply(next_debut, &target_key, &target_node_addr)
-            }
-            GossipAcceptanceResult::Failed(failure, target_key, target_node_addr) => {
-                self.handle_gossip_failed(failure, &target_key, &target_node_addr)
-            }
-            GossipAcceptanceResult::Ignored => {
-                trace!(self.logger, "Gossip from {} ignored", gossip_source);
-                self.handle_gossip_ignored(ignored_node_name, gossip_record_count)
-            }
-            GossipAcceptanceResult::Ban(reason) => {
-                // TODO in case we introduce Ban machinery we want to reinitialize the db_countries here as well
-                // That implies new process in init_db_countries to exclude banned node from the result
-                warning!(self.logger, "Malefactor detected at {}, but malefactor bans not yet implemented; ignoring: {}", gossip_source, reason);
-                self.handle_gossip_ignored(ignored_node_name, gossip_record_count);
-            }
+            });
         }
     }
 
@@ -838,11 +829,7 @@ impl Neighborhood {
                     self.logger,
                     "Saving neighbor list: {:?}", node_descriptors_opt
                 );
-                match self
-                    .persistent_config_opt
-                    .as_mut()
-                    .expect("PersistentConfig was not set by StartMessage")
-                    .set_past_neighbors(node_descriptors_opt, db_password)
+                match self.persistent_config.set_past_neighbors(node_descriptors_opt, db_password)
                 {
                     Ok(_) => info!(self.logger, "Persisted neighbor changes for next run"),
                     Err(PersistentConfigError::DatabaseError(msg))
@@ -1950,7 +1937,7 @@ impl Neighborhood {
         trace!(self.logger, "Sent GossipFailure_0v1: {}", gossip_failure);
     }
 
-    fn handle_gossip_ignored(&self, _ignored_node_name: String, _gossip_record_count: usize) {
+    fn handle_gossip_ignored(&self, _ignored_node_name: &str, _gossip_record_count: usize) {
         // Maybe something here eventually for keeping statistics
     }
 
@@ -2223,10 +2210,7 @@ mod tests {
     use crate::sub_lib::dispatcher::Endpoint;
     use crate::sub_lib::hop::LiveHop;
     use crate::sub_lib::hopper::MessageType;
-    use crate::sub_lib::neighborhood::{
-        AskAboutDebutGossipMessage, ConfigChange, ConfigChangeMsg, ExpectedServices,
-        NeighborhoodMode, WalletPair,
-    };
+    use crate::sub_lib::neighborhood::{AskAboutDebutGossipMessage, ConfigChange, ConfigChangeMsg, ExpectedServices, NeighborhoodMode, RatePackLimits, WalletPair};
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, DEFAULT_RATE_PACK};
     use crate::sub_lib::neighborhood::{NeighborhoodMetadata, RatePack};
     use crate::sub_lib::peer_actors::PeerActors;
@@ -2266,9 +2250,10 @@ mod tests {
     };
     use crate::test_utils::unshared_test_utils::notify_handlers::NotifyLaterHandleMock;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
+    use crate::test_utils::database_utils::PersistentConfigurationFactoryTest;
 
     lazy_static! {
-        static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
+        static ref N_CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
     }
 
     impl Neighborhood {
@@ -2323,7 +2308,7 @@ mod tests {
         let neighborhood_config = NeighborhoodConfig { mode, min_hops };
 
         let subject = Neighborhood::new(
-            CRYPTDE_PAIR.clone(),
+            N_CRYPTDE_PAIR.clone(),
             &bc_from_nc_plus(
                 neighborhood_config,
                 make_wallet("earning"),
@@ -2423,12 +2408,18 @@ mod tests {
     #[test]
     fn introduction_results_in_full_neighborship_in_debutant_db_and_enrich_db_countries_on_one_hop()
     {
-        let debut_node = make_global_cryptde_node_record(1111, true, &CRYPTDE_PAIR);
-        let mut debut_subject = neighborhood_from_nodes(&debut_node, None, &CRYPTDE_PAIR);
+        let debut_node = make_global_cryptde_node_record(1111, true, &N_CRYPTDE_PAIR);
+        let mut debut_subject = neighborhood_from_nodes(&debut_node, None, &N_CRYPTDE_PAIR);
         debut_subject.min_hops = Hops::OneHop;
         let persistent_config =
-            PersistentConfigurationMock::new().set_past_neighbors_result(Ok(()));
-        debut_subject.persistent_config_opt = Some(Box::new(persistent_config));
+            PersistentConfigurationMock::new()
+                .set_past_neighbors_result(Ok(()))
+                .rate_pack_limits_result(Ok(RatePackLimits::test_default()));
+        debut_subject.persistent_config = Box::new(persistent_config);
+        debut_subject.gossip_acceptor = Box::new(GossipAcceptorReal::new(
+            N_CRYPTDE_PAIR.main.dup(),
+            debut_subject.persistent_config.as_ref(),
+        ));
         let debut_root_key = debut_subject.neighborhood_database.root_key().clone();
         let introducer_node = make_node_record_cc(3333, true, "AU"); //AU
         let introducee = make_node_record_cc(2222, true, "FR"); //FR
@@ -2465,7 +2456,7 @@ mod tests {
         expected = "Neighbor masq://eth-ropsten:AQIDBA@1.2.3.4:1234 is not on the mainnet blockchain"
     )]
     fn cant_create_mainnet_neighborhood_with_non_mainnet_neighbors() {
-        let cryptde = CRYPTDE_PAIR.main.as_ref();
+        let cryptde = N_CRYPTDE_PAIR.main.as_ref();
         let earning_wallet = make_wallet("earning");
         let mut bc = bc_from_nc_plus(
             NeighborhoodConfig {
@@ -2482,7 +2473,7 @@ mod tests {
         );
         bc.blockchain_bridge_config.chain = DEFAULT_CHAIN;
 
-        let _ = Neighborhood::new(CRYPTDE_PAIR.clone(), &bc);
+        let _ = Neighborhood::new(N_CRYPTDE_PAIR.clone(), &bc);
     }
 
     #[test]
@@ -2490,7 +2481,7 @@ mod tests {
         expected = "Neighbor masq://eth-mainnet:AQIDBA@1.2.3.4:1234 is on the mainnet blockchain"
     )]
     fn cant_create_non_mainnet_neighborhood_with_mainnet_neighbors() {
-        let cryptde = CRYPTDE_PAIR.main.as_ref();
+        let cryptde = N_CRYPTDE_PAIR.main.as_ref();
         let earning_wallet = make_wallet("earning");
         let mut bc = bc_from_nc_plus(
             NeighborhoodConfig {
@@ -2507,16 +2498,16 @@ mod tests {
         );
         bc.blockchain_bridge_config.chain = TEST_DEFAULT_CHAIN;
 
-        let _ = Neighborhood::new(CRYPTDE_PAIR.clone(), &bc);
+        let _ = Neighborhood::new(N_CRYPTDE_PAIR.clone(), &bc);
     }
 
     #[test]
     fn node_with_zero_hop_config_creates_single_node_database() {
-        let cryptde = CRYPTDE_PAIR.main.as_ref();
+        let cryptde = N_CRYPTDE_PAIR.main.as_ref();
         let earning_wallet = make_wallet("earning");
 
         let subject = Neighborhood::new(
-            CRYPTDE_PAIR.clone(),
+            N_CRYPTDE_PAIR.clone(),
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::ZeroHop,
@@ -2537,12 +2528,12 @@ mod tests {
 
     #[test]
     fn node_with_originate_only_config_is_decentralized_with_neighbor_but_not_ip() {
-        let cryptde: &dyn CryptDE = CRYPTDE_PAIR.main.as_ref();
+        let cryptde: &dyn CryptDE = N_CRYPTDE_PAIR.main.as_ref();
         let neighbor: NodeRecord = make_node_record(1234, true);
         let earning_wallet = make_wallet("earning");
 
         let subject = Neighborhood::new(
-            CRYPTDE_PAIR.clone(),
+            N_CRYPTDE_PAIR.clone(),
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::OriginateOnly(
@@ -2583,7 +2574,7 @@ mod tests {
         let system =
             System::new("node_with_no_neighbor_configs_ignores_bootstrap_neighborhood_now_message");
         let mut subject = Neighborhood::new(
-            CRYPTDE_PAIR.clone(),
+            N_CRYPTDE_PAIR.clone(),
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::ZeroHop,
@@ -2594,9 +2585,13 @@ mod tests {
                 "node_with_zero_hop_config_ignores_start_message",
             ),
         );
-        subject.persistent_config_opt = Some(Box::new(
-            PersistentConfigurationMock::new().min_hops_result(Ok(MIN_HOPS_FOR_TEST)),
-        ));
+        subject.persistent_config_factory = Box::new(
+            PersistentConfigurationFactoryTest::new(
+                PersistentConfigurationMock::new()
+                    .min_hops_result(Ok(MIN_HOPS_FOR_TEST))
+                    .rate_pack_limits_result(Ok(RatePackLimits::test_default()))
+            )
+        );
         subject.data_directory = data_dir;
         let addr = subject.start();
         let sub = addr.clone().recipient::<StartMessage>();
@@ -2616,7 +2611,7 @@ mod tests {
 
     #[test]
     fn neighborhood_adds_nodes_and_links() {
-        let cryptde: &dyn CryptDE = CRYPTDE_PAIR.main.as_ref();
+        let cryptde: &dyn CryptDE = N_CRYPTDE_PAIR.main.as_ref();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let one_neighbor_node = make_node_record(3456, true);
@@ -2624,7 +2619,7 @@ mod tests {
         let this_node_addr = NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]);
 
         let subject = Neighborhood::new(
-            CRYPTDE_PAIR.clone(),
+            N_CRYPTDE_PAIR.clone(),
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::Standard(
@@ -2723,7 +2718,7 @@ mod tests {
         };
         let bootstrap_config =
             bc_from_nc_plus(neighborhood_config, make_wallet("earning"), None, "test");
-        let mut subject = Neighborhood::new(CRYPTDE_PAIR.clone(), &bootstrap_config);
+        let mut subject = Neighborhood::new(N_CRYPTDE_PAIR.clone(), &bootstrap_config);
         subject
             .overall_connection_status
             .get_connection_progress_by_ip(peer_1)
@@ -3191,7 +3186,7 @@ mod tests {
             min_hops: MIN_HOPS_FOR_TEST,
         };
         let mut subject = Neighborhood::new(
-            CRYPTDE_PAIR.clone(),
+            N_CRYPTDE_PAIR.clone(),
             &bc_from_nc_plus(
                 neighborhood_config,
                 make_wallet("earning"),
@@ -3243,14 +3238,14 @@ mod tests {
     #[test]
     fn gossip_failures_eventually_stop_the_neighborhood() {
         init_test_logging();
-        let cryptde: &dyn CryptDE = CRYPTDE_PAIR.main.as_ref();
+        let cryptde: &dyn CryptDE = N_CRYPTDE_PAIR.main.as_ref();
         let earning_wallet = make_wallet("earning");
         let one_neighbor_node: NodeRecord = make_node_record(3456, true);
         let another_neighbor_node: NodeRecord = make_node_record(4567, true);
         let this_node_addr = NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]);
 
         let subject = Neighborhood::new(
-            CRYPTDE_PAIR.clone(),
+            N_CRYPTDE_PAIR.clone(),
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::Standard(
@@ -3275,14 +3270,14 @@ mod tests {
         let ecp1 = ExpiredCoresPackage::new(
             one_neighbor_node.node_addr_opt().unwrap().into(),
             None,
-            make_meaningless_route(&CRYPTDE_PAIR),
+            make_meaningless_route(&N_CRYPTDE_PAIR),
             GossipFailure_0v1::NoNeighbors,
             0,
         );
         let ecp2 = ExpiredCoresPackage::new(
             another_neighbor_node.node_addr_opt().unwrap().into(),
             None,
-            make_meaningless_route(&CRYPTDE_PAIR),
+            make_meaningless_route(&N_CRYPTDE_PAIR),
             GossipFailure_0v1::ManualRejection,
             0,
         );
@@ -3335,7 +3330,7 @@ mod tests {
 
     #[test]
     fn route_query_works_when_node_is_set_for_one_hop_and_no_consuming_wallet() {
-        let cryptde = CRYPTDE_PAIR.main.as_ref();
+        let cryptde = N_CRYPTDE_PAIR.main.as_ref();
         let earning_wallet = make_wallet("earning");
         let system =
             System::new("route_query_works_when_node_is_set_for_one_hop_and_no_consuming_wallet");
@@ -3437,7 +3432,7 @@ mod tests {
 
     #[test]
     fn route_query_responds_with_standard_zero_hop_route_when_requested() {
-        let cryptde = CRYPTDE_PAIR.main.as_ref();
+        let cryptde = N_CRYPTDE_PAIR.main.as_ref();
         let system = System::new("responds_with_standard_zero_hop_route_when_requested");
         let mut subject = make_standard_subject();
         subject.mode = NeighborhoodModeLight::ZeroHop;
@@ -3508,7 +3503,7 @@ mod tests {
 
     #[test]
     fn route_query_messages() {
-        let cryptde = CRYPTDE_PAIR.main.as_ref();
+        let cryptde = N_CRYPTDE_PAIR.main.as_ref();
         let earning_wallet = make_wallet("earning");
         let system = System::new("route_query_messages");
         let mut subject = make_standard_subject();
@@ -3629,7 +3624,7 @@ mod tests {
 
     #[test]
     fn return_route_ids_increase() {
-        let cryptde = CRYPTDE_PAIR.main.as_ref();
+        let cryptde = N_CRYPTDE_PAIR.main.as_ref();
         let system = System::new("return_route_ids_increase");
         let (_, _, _, mut subject) = make_o_r_e_subject();
         subject.min_hops = Hops::TwoHops;
@@ -5162,7 +5157,7 @@ mod tests {
     #[test]
     fn gossips_after_removing_a_neighbor() {
         let (hopper, hopper_awaiter, hopper_recording) = make_recorder();
-        let cryptde = CRYPTDE_PAIR.main.as_ref();
+        let cryptde = N_CRYPTDE_PAIR.main.as_ref();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let this_node = NodeRecord::new_for_tests(
@@ -5185,7 +5180,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("gossips_after_removing_a_neighbor");
             let mut subject = Neighborhood::new(
-                CRYPTDE_PAIR.clone(),
+                N_CRYPTDE_PAIR.clone(),
                 &bc_from_nc_plus(
                     NeighborhoodConfig {
                         mode: NeighborhoodMode::Standard(
@@ -5301,10 +5296,10 @@ mod tests {
         let handle_params_arc = Arc::new(Mutex::new(vec![]));
         let gossip_acceptor = GossipAcceptorMock::new()
             .handle_params(&handle_params_arc)
-            .handle_result(GossipAcceptanceResult::Ignored);
-        let mut subject_node = make_global_cryptde_node_record(1234, true, &CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
+            .handle_result(vec![]);
+        let mut subject_node = make_global_cryptde_node_record(1234, true, &N_CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
         let neighbor = make_node_record(1111, true);
-        let mut subject = neighborhood_from_nodes(&subject_node, Some(&neighbor), &CRYPTDE_PAIR);
+        let mut subject = neighborhood_from_nodes(&subject_node, Some(&neighbor), &N_CRYPTDE_PAIR);
         subject.gossip_acceptor = Box::new(gossip_acceptor);
         let gossip = GossipBuilder::new(&subject.neighborhood_database)
             .node(subject_node.public_key(), true)
@@ -5312,7 +5307,7 @@ mod tests {
         let cores_package = ExpiredCoresPackage {
             immediate_neighbor: subject_node.node_addr_opt().unwrap().into(),
             paying_wallet: None,
-            remaining_route: make_meaningless_route(&CRYPTDE_PAIR),
+            remaining_route: make_meaningless_route(&N_CRYPTDE_PAIR),
             payload: gossip.clone(),
             payload_len: 0,
         };
@@ -5345,9 +5340,9 @@ mod tests {
     #[test]
     fn neighborhood_sends_only_an_acceptance_debut_when_an_acceptance_debut_is_provided() {
         let introduction_target_node = make_node_record(7345, true);
-        let subject_node = make_global_cryptde_node_record(5555, true, &CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
+        let subject_node = make_global_cryptde_node_record(5555, true, &N_CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
         let neighbor = make_node_record(1050, true);
-        let mut subject = neighborhood_from_nodes(&subject_node, Some(&neighbor), &CRYPTDE_PAIR);
+        let mut subject = neighborhood_from_nodes(&subject_node, Some(&neighbor), &N_CRYPTDE_PAIR);
         subject
             .neighborhood_database
             .add_node(introduction_target_node.clone())
@@ -5361,11 +5356,11 @@ mod tests {
             .node(subject_node.public_key(), true)
             .build();
         let gossip_acceptor =
-            GossipAcceptorMock::new().handle_result(GossipAcceptanceResult::Reply(
+            GossipAcceptorMock::new().handle_result(vec![GossipAcceptanceResult::Reply(
                 debut.clone(),
                 introduction_target_node.public_key().clone(),
                 introduction_target_node.node_addr_opt().unwrap(),
-            ));
+            )]);
         subject.gossip_acceptor = Box::new(gossip_acceptor);
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
@@ -5396,18 +5391,18 @@ mod tests {
 
     #[test]
     fn neighborhood_transmits_gossip_failure_properly() {
-        let subject_node = make_global_cryptde_node_record(5555, true, &CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
+        let subject_node = make_global_cryptde_node_record(5555, true, &N_CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
         let neighbor = make_node_record(1111, true);
         let public_key = PublicKey::new(&[1, 2, 3, 4]);
         let node_addr = NodeAddr::from_str("1.2.3.4:1234").unwrap();
         let gossip_acceptor =
-            GossipAcceptorMock::new().handle_result(GossipAcceptanceResult::Failed(
+            GossipAcceptorMock::new().handle_result(vec![GossipAcceptanceResult::Failed(
                 GossipFailure_0v1::NoSuitableNeighbors,
                 public_key.clone(),
                 node_addr.clone(),
-            ));
+            )]);
         let mut subject: Neighborhood =
-            neighborhood_from_nodes(&subject_node, Some(&neighbor), &CRYPTDE_PAIR);
+            neighborhood_from_nodes(&subject_node, Some(&neighbor), &N_CRYPTDE_PAIR);
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let system = System::new("neighborhood_transmits_gossip_failure_properly");
         let peer_actors = peer_actors_builder().hopper(hopper).build();
@@ -5451,7 +5446,7 @@ mod tests {
             _agrs: Vec<AccessibleGossipRecord>,
             _gossip_source: SocketAddr,
             _neighborhood_metadata: NeighborhoodMetadata,
-        ) -> GossipAcceptanceResult {
+        ) -> Vec<GossipAcceptanceResult> {
             let non_root_database_keys = database
                 .keys()
                 .into_iter()
@@ -5485,7 +5480,7 @@ mod tests {
                     database.add_arbitrary_half_neighbor(k, n);
                 });
             });
-            GossipAcceptanceResult::Ignored
+            vec![]
         }
     }
 
@@ -5497,10 +5492,10 @@ mod tests {
 
     #[test]
     fn neighborhood_does_not_start_accountant_if_no_route_can_be_made() {
-        let subject_node = make_global_cryptde_node_record(5555, true, &CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
+        let subject_node = make_global_cryptde_node_record(5555, true, &N_CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
         let neighbor = make_node_record(1111, true);
         let mut subject: Neighborhood =
-            neighborhood_from_nodes(&subject_node, Some(&neighbor), &CRYPTDE_PAIR);
+            neighborhood_from_nodes(&subject_node, Some(&neighbor), &N_CRYPTDE_PAIR);
         let mut replacement_database = subject.neighborhood_database.clone();
         replacement_database.add_node(neighbor.clone()).unwrap();
         replacement_database
@@ -5528,10 +5523,10 @@ mod tests {
 
     #[test]
     fn neighborhood_does_not_start_accountant_if_already_connected() {
-        let subject_node = make_global_cryptde_node_record(5555, true, &CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
+        let subject_node = make_global_cryptde_node_record(5555, true, &N_CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
         let neighbor = make_node_record(1111, true);
         let mut subject: Neighborhood =
-            neighborhood_from_nodes(&subject_node, Some(&neighbor), &CRYPTDE_PAIR);
+            neighborhood_from_nodes(&subject_node, Some(&neighbor), &N_CRYPTDE_PAIR);
         let replacement_database = subject.neighborhood_database.clone();
         subject.gossip_acceptor = Box::new(DatabaseReplacementGossipAcceptor {
             replacement_database,
@@ -5582,12 +5577,12 @@ mod tests {
         let handle_params_arc = Arc::new(Mutex::new(vec![]));
         let gossip_acceptor = GossipAcceptorMock::new()
             .handle_params(&handle_params_arc)
-            .handle_result(GossipAcceptanceResult::Ignored);
+            .handle_result(vec![]);
         let (node_to_ui_recipient, _) = make_node_to_ui_recipient();
         let peer_1 = make_node_record(1234, true);
         let peer_2 = make_node_record(6721, true);
-        let desc_1 = peer_1.node_descriptor(Chain::Dev, CRYPTDE_PAIR.main.as_ref());
-        let desc_2 = peer_2.node_descriptor(Chain::Dev, CRYPTDE_PAIR.main.as_ref());
+        let desc_1 = peer_1.node_descriptor(Chain::Dev, N_CRYPTDE_PAIR.main.as_ref());
+        let desc_2 = peer_2.node_descriptor(Chain::Dev, N_CRYPTDE_PAIR.main.as_ref());
         let this_node = make_node_record(7777, true);
         let initial_node_descriptors = vec![desc_1, desc_2];
         let neighborhood_config = NeighborhoodConfig {
@@ -5600,7 +5595,7 @@ mod tests {
         };
         let bootstrap_config =
             bc_from_nc_plus(neighborhood_config, make_wallet("earning"), None, "test");
-        let mut subject = Neighborhood::new(CRYPTDE_PAIR.clone(), &bootstrap_config);
+        let mut subject = Neighborhood::new(N_CRYPTDE_PAIR.clone(), &bootstrap_config);
         subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
         subject.gossip_acceptor = Box::new(gossip_acceptor);
         subject.db_patch_size = 6;
@@ -5725,7 +5720,7 @@ mod tests {
             _agrs: Vec<AccessibleGossipRecord>,
             _gossip_source: SocketAddr,
             _neighborhood_metadata: NeighborhoodMetadata,
-        ) -> GossipAcceptanceResult {
+        ) -> Vec<GossipAcceptanceResult> {
             let half_neighbor_keys = database
                 .root()
                 .half_neighbor_keys()
@@ -5740,18 +5735,18 @@ mod tests {
                 database.add_node(nr.clone()).unwrap();
                 database.add_arbitrary_full_neighbor(&root_key, nr.public_key());
             });
-            GossipAcceptanceResult::Ignored
+            vec![]
         }
     }
 
     #[test]
     fn neighborhood_updates_past_neighbors_when_neighbor_list_changes() {
-        let cryptde: &dyn CryptDE = CRYPTDE_PAIR.main.as_ref();
-        let subject_node = make_global_cryptde_node_record(5555, true, &CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
+        let cryptde: &dyn CryptDE = N_CRYPTDE_PAIR.main.as_ref();
+        let subject_node = make_global_cryptde_node_record(5555, true, &N_CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
         let old_neighbor = make_node_record(1111, true);
         let new_neighbor = make_node_record(2222, true);
         let mut subject: Neighborhood =
-            neighborhood_from_nodes(&subject_node, Some(&old_neighbor), &CRYPTDE_PAIR);
+            neighborhood_from_nodes(&subject_node, Some(&old_neighbor), &N_CRYPTDE_PAIR);
         subject
             .neighborhood_database
             .add_node(old_neighbor.clone())
@@ -5767,7 +5762,7 @@ mod tests {
             .set_past_neighbors_params(&set_past_neighbors_params_arc)
             .set_past_neighbors_result(Ok(()));
         subject.gossip_acceptor = Box::new(gossip_acceptor);
-        subject.persistent_config_opt = Some(Box::new(persistent_config));
+        subject.persistent_config = Box::new(persistent_config);
 
         subject.handle_gossip_agrs(
             vec![],
@@ -5792,10 +5787,10 @@ mod tests {
 
     #[test]
     fn neighborhood_removes_past_neighbors_when_neighbor_list_goes_empty() {
-        let subject_node = make_global_cryptde_node_record(5555, true, &CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
+        let subject_node = make_global_cryptde_node_record(5555, true, &N_CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
         let neighbor = make_node_record(1111, true);
         let mut subject: Neighborhood =
-            neighborhood_from_nodes(&subject_node, Some(&neighbor), &CRYPTDE_PAIR);
+            neighborhood_from_nodes(&subject_node, Some(&neighbor), &N_CRYPTDE_PAIR);
         subject
             .neighborhood_database
             .add_node(neighbor.clone())
@@ -5811,7 +5806,7 @@ mod tests {
             .set_past_neighbors_params(&set_past_neighbors_params_arc)
             .set_past_neighbors_result(Ok(()));
         subject.gossip_acceptor = Box::new(gossip_acceptor);
-        subject.persistent_config_opt = Some(Box::new(persistent_config));
+        subject.persistent_config = Box::new(persistent_config);
 
         subject.handle_gossip_agrs(
             vec![],
@@ -5827,10 +5822,10 @@ mod tests {
 
     #[test]
     fn neighborhood_does_not_update_past_neighbors_when_neighbor_list_does_not_change() {
-        let subject_node = make_global_cryptde_node_record(5555, true, &CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
+        let subject_node = make_global_cryptde_node_record(5555, true, &N_CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
         let steadfast_neighbor = make_node_record(1111, true);
         let mut subject: Neighborhood =
-            neighborhood_from_nodes(&subject_node, Some(&steadfast_neighbor), &CRYPTDE_PAIR);
+            neighborhood_from_nodes(&subject_node, Some(&steadfast_neighbor), &N_CRYPTDE_PAIR);
         subject
             .neighborhood_database
             .add_node(steadfast_neighbor.clone())
@@ -5846,7 +5841,7 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::new()
             .set_past_neighbors_params(&set_past_neighbors_params_arc);
         subject.gossip_acceptor = Box::new(gossip_acceptor);
-        subject.persistent_config_opt = Some(Box::new(persistent_config));
+        subject.persistent_config = Box::new(persistent_config);
 
         subject.handle_gossip_agrs(
             vec![],
@@ -5861,11 +5856,11 @@ mod tests {
     #[test]
     fn neighborhood_does_not_update_past_neighbors_without_password_even_when_neighbor_list_changes(
     ) {
-        let subject_node = make_global_cryptde_node_record(5555, true, &CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
+        let subject_node = make_global_cryptde_node_record(5555, true, &N_CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
         let old_neighbor = make_node_record(1111, true);
         let new_neighbor = make_node_record(2222, true);
         let mut subject: Neighborhood =
-            neighborhood_from_nodes(&subject_node, Some(&old_neighbor), &CRYPTDE_PAIR);
+            neighborhood_from_nodes(&subject_node, Some(&old_neighbor), &N_CRYPTDE_PAIR);
         subject
             .neighborhood_database
             .add_node(old_neighbor.clone())
@@ -5880,7 +5875,7 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::new()
             .set_past_neighbors_params(&set_past_neighbors_params_arc);
         subject.gossip_acceptor = Box::new(gossip_acceptor);
-        subject.persistent_config_opt = Some(Box::new(persistent_config));
+        subject.persistent_config = Box::new(persistent_config);
         subject.db_password_opt = None;
 
         subject.handle_gossip_agrs(
@@ -5896,11 +5891,11 @@ mod tests {
     #[test]
     fn neighborhood_warns_when_past_neighbors_update_fails_because_of_database_lock() {
         init_test_logging();
-        let subject_node = make_global_cryptde_node_record(5555, true, &CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
+        let subject_node = make_global_cryptde_node_record(5555, true, &N_CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
         let old_neighbor = make_node_record(1111, true);
         let new_neighbor = make_node_record(2222, true);
         let mut subject: Neighborhood =
-            neighborhood_from_nodes(&subject_node, Some(&old_neighbor), &CRYPTDE_PAIR);
+            neighborhood_from_nodes(&subject_node, Some(&old_neighbor), &N_CRYPTDE_PAIR);
         subject
             .neighborhood_database
             .add_node(old_neighbor.clone())
@@ -5915,7 +5910,7 @@ mod tests {
             PersistentConfigError::DatabaseError("database is locked".to_string()),
         ));
         subject.gossip_acceptor = Box::new(gossip_acceptor);
-        subject.persistent_config_opt = Some(Box::new(persistent_config));
+        subject.persistent_config = Box::new(persistent_config);
 
         subject.handle_gossip_agrs(
             vec![],
@@ -5929,11 +5924,11 @@ mod tests {
     #[test]
     fn neighborhood_logs_error_when_past_neighbors_update_fails_for_another_reason() {
         init_test_logging();
-        let subject_node = make_global_cryptde_node_record(5555, true, &CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
+        let subject_node = make_global_cryptde_node_record(5555, true, &N_CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
         let old_neighbor = make_node_record(1111, true);
         let new_neighbor = make_node_record(2222, true);
         let mut subject: Neighborhood =
-            neighborhood_from_nodes(&subject_node, Some(&old_neighbor), &CRYPTDE_PAIR);
+            neighborhood_from_nodes(&subject_node, Some(&old_neighbor), &N_CRYPTDE_PAIR);
         subject
             .neighborhood_database
             .add_node(old_neighbor.clone())
@@ -5948,7 +5943,7 @@ mod tests {
             PersistentConfigError::DatabaseError("Booga".to_string()),
         ));
         subject.gossip_acceptor = Box::new(gossip_acceptor);
-        subject.persistent_config_opt = Some(Box::new(persistent_config));
+        subject.persistent_config = Box::new(persistent_config);
 
         subject.handle_gossip_agrs(
             vec![],
@@ -5962,10 +5957,10 @@ mod tests {
     #[test]
     fn handle_new_public_ip_changes_public_ip_and_country_code_nothing_else() {
         init_test_logging();
-        let subject_node = make_global_cryptde_node_record(1234, true, &CRYPTDE_PAIR);
+        let subject_node = make_global_cryptde_node_record(1234, true, &N_CRYPTDE_PAIR);
         let neighbor = make_node_record(1050, true);
         let mut subject: Neighborhood =
-            neighborhood_from_nodes(&subject_node, Some(&neighbor), &CRYPTDE_PAIR);
+            neighborhood_from_nodes(&subject_node, Some(&neighbor), &N_CRYPTDE_PAIR);
         subject
             .neighborhood_database
             .root_mut()
@@ -6013,9 +6008,9 @@ mod tests {
     #[test]
     fn neighborhood_sends_from_gossip_producer_when_acceptance_introductions_are_not_provided() {
         init_test_logging();
-        let subject_node = make_global_cryptde_node_record(5555, true, &CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
+        let subject_node = make_global_cryptde_node_record(5555, true, &N_CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
         let neighbor = make_node_record(1050, true);
-        let mut subject = neighborhood_from_nodes(&subject_node, Some(&neighbor), &CRYPTDE_PAIR);
+        let mut subject = neighborhood_from_nodes(&subject_node, Some(&neighbor), &N_CRYPTDE_PAIR);
         let full_neighbor = make_node_record(1234, true);
         let half_neighbor = make_node_record(2345, true);
         subject
@@ -6033,7 +6028,7 @@ mod tests {
             .neighborhood_database
             .add_arbitrary_half_neighbor(subject_node.public_key(), half_neighbor.public_key());
         let gossip_acceptor =
-            GossipAcceptorMock::new().handle_result(GossipAcceptanceResult::Accepted);
+            GossipAcceptorMock::new().handle_result(vec![GossipAcceptanceResult::Accepted]);
         subject.gossip_acceptor = Box::new(gossip_acceptor);
         let gossip = Gossip_0v1::new(vec![]);
         let produce_params_arc = Arc::new(Mutex::new(vec![]));
@@ -6065,7 +6060,7 @@ mod tests {
             (
                 package
                     .route
-                    .next_hop(CRYPTDE_PAIR.main.as_ref())
+                    .next_hop(N_CRYPTDE_PAIR.main.as_ref())
                     .unwrap()
                     .public_key,
                 package.payload,
@@ -6077,7 +6072,7 @@ mod tests {
                 (
                     full_neighbor.public_key().clone(),
                     encodex(
-                        CRYPTDE_PAIR.main.as_ref(),
+                        N_CRYPTDE_PAIR.main.as_ref(),
                         full_neighbor.public_key(),
                         &MessageType::Gossip(gossip.clone().into()),
                     )
@@ -6086,7 +6081,7 @@ mod tests {
                 (
                     half_neighbor.public_key().clone(),
                     encodex(
-                        CRYPTDE_PAIR.main.as_ref(),
+                        N_CRYPTDE_PAIR.main.as_ref(),
                         half_neighbor.public_key(),
                         &MessageType::Gossip(gossip.into()),
                     )
@@ -6110,19 +6105,19 @@ mod tests {
             )
             .as_str(),
         );
-        let key_as_str = format!("{}", CRYPTDE_PAIR.main.as_ref().public_key());
+        let key_as_str = format!("{}", N_CRYPTDE_PAIR.main.as_ref().public_key());
         tlh.exists_log_containing(&format!("Sent Gossip: digraph db {{ \"src\" [label=\"Gossip From:\\n{}\\n5.5.5.5\"]; \"dest\" [label=\"Gossip To:\\nAQIDBA\\n1.2.3.4\"]; \"src\" -> \"dest\" [arrowhead=empty]; }}", &key_as_str[..8]));
         tlh.exists_log_containing(&format!("Sent Gossip: digraph db {{ \"src\" [label=\"Gossip From:\\n{}\\n5.5.5.5\"]; \"dest\" [label=\"Gossip To:\\nAgMEBQ\\n2.3.4.5\"]; \"src\" -> \"dest\" [arrowhead=empty]; }}", &key_as_str[..8]));
     }
 
     #[test]
     fn neighborhood_sends_no_gossip_when_target_does_not_exist() {
-        let subject_node = make_global_cryptde_node_record(5555, true, &CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
+        let subject_node = make_global_cryptde_node_record(5555, true, &N_CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
                                                                                        // This is ungossippable not because of any attribute of its own, but because the
                                                                                        // GossipProducerMock is set to return None when ordered to target it.
         let ungossippable = make_node_record(1050, true);
         let mut subject =
-            neighborhood_from_nodes(&subject_node, Some(&ungossippable), &CRYPTDE_PAIR);
+            neighborhood_from_nodes(&subject_node, Some(&ungossippable), &N_CRYPTDE_PAIR);
         subject
             .neighborhood_database
             .add_node(ungossippable.clone())
@@ -6131,7 +6126,7 @@ mod tests {
             .neighborhood_database
             .add_arbitrary_full_neighbor(subject_node.public_key(), ungossippable.public_key());
         let gossip_acceptor =
-            GossipAcceptorMock::new().handle_result(GossipAcceptanceResult::Accepted);
+            GossipAcceptorMock::new().handle_result(vec![GossipAcceptanceResult::Accepted]);
         subject.gossip_acceptor = Box::new(gossip_acceptor);
         let produce_params_arc = Arc::new(Mutex::new(vec![]));
         let gossip_producer = GossipProducerMock::new()
@@ -6159,22 +6154,22 @@ mod tests {
 
     #[test]
     fn neighborhood_sends_only_relay_gossip_when_gossip_acceptor_relays() {
-        let subject_node = make_global_cryptde_node_record(5555, true, &CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
+        let subject_node = make_global_cryptde_node_record(5555, true, &N_CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
         let mut subject = neighborhood_from_nodes(
             &subject_node,
             Some(&make_node_record(1111, true)),
-            &CRYPTDE_PAIR,
+            &N_CRYPTDE_PAIR,
         );
         let debut_node = make_node_record(1234, true);
         let debut_gossip = GossipBuilder::new(&subject.neighborhood_database)
             .node(subject_node.public_key(), true)
             .build();
         let gossip_acceptor =
-            GossipAcceptorMock::new().handle_result(GossipAcceptanceResult::Reply(
+            GossipAcceptorMock::new().handle_result(vec![GossipAcceptanceResult::Reply(
                 debut_gossip.clone(),
                 debut_node.public_key().clone(),
                 debut_node.node_addr_opt().unwrap(),
-            ));
+            )]);
         subject.gossip_acceptor = Box::new(gossip_acceptor);
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
@@ -6213,11 +6208,11 @@ mod tests {
 
     #[test]
     fn neighborhood_sends_no_gossip_when_gossip_acceptor_ignores() {
-        let subject_node = make_global_cryptde_node_record(5555, true, &CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
+        let subject_node = make_global_cryptde_node_record(5555, true, &N_CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
         let neighbor = make_node_record(1111, true);
-        let mut subject = neighborhood_from_nodes(&subject_node, Some(&neighbor), &CRYPTDE_PAIR);
+        let mut subject = neighborhood_from_nodes(&subject_node, Some(&neighbor), &N_CRYPTDE_PAIR);
         let gossip_acceptor =
-            GossipAcceptorMock::new().handle_result(GossipAcceptanceResult::Ignored);
+            GossipAcceptorMock::new().handle_result(vec![]);
         subject.gossip_acceptor = Box::new(gossip_acceptor);
         let subject_node = subject.neighborhood_database.root().clone();
         let (hopper, _, hopper_recording_arc) = make_recorder();
@@ -6240,11 +6235,11 @@ mod tests {
     #[test]
     fn neighborhood_complains_about_inability_to_ban_when_gossip_acceptor_requests_it() {
         init_test_logging();
-        let subject_node = make_global_cryptde_node_record(5555, true, &CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
+        let subject_node = make_global_cryptde_node_record(5555, true, &N_CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
         let neighbor = make_node_record(1111, true);
-        let mut subject = neighborhood_from_nodes(&subject_node, Some(&neighbor), &CRYPTDE_PAIR);
+        let mut subject = neighborhood_from_nodes(&subject_node, Some(&neighbor), &N_CRYPTDE_PAIR);
         let gossip_acceptor = GossipAcceptorMock::new()
-            .handle_result(GossipAcceptanceResult::Ban("Bad guy".to_string()));
+            .handle_result(vec![GossipAcceptanceResult::Ban("Bad guy".to_string())]);
         subject.gossip_acceptor = Box::new(gossip_acceptor);
         let subject_node = subject.neighborhood_database.root().clone();
         let (hopper, _, hopper_recording_arc) = make_recorder();
@@ -6315,7 +6310,7 @@ mod tests {
     #[test]
     fn neighborhood_logs_received_gossip_in_dot_graph_format() {
         init_test_logging();
-        let cryptde = CRYPTDE_PAIR.main.as_ref();
+        let cryptde = N_CRYPTDE_PAIR.main.as_ref();
         let this_node = NodeRecord::new_for_tests(
             &cryptde.public_key(),
             Some(&NodeAddr::new(
@@ -6349,7 +6344,7 @@ mod tests {
         let cores_package = ExpiredCoresPackage {
             immediate_neighbor: SocketAddr::from_str("1.2.3.4:1234").unwrap(),
             paying_wallet: Some(make_paying_wallet(b"consuming")),
-            remaining_route: make_meaningless_route(&CRYPTDE_PAIR),
+            remaining_route: make_meaningless_route(&N_CRYPTDE_PAIR),
             payload: gossip,
             payload_len: 0,
         };
@@ -6358,7 +6353,7 @@ mod tests {
         thread::spawn(move || {
             let system = System::new("");
             let subject = Neighborhood::new(
-                CRYPTDE_PAIR.clone(),
+                N_CRYPTDE_PAIR.clone(),
                 &bc_from_nc_plus(
                     NeighborhoodConfig {
                         mode: NeighborhoodMode::Standard(
@@ -6413,15 +6408,15 @@ mod tests {
                 .initialize(&data_dir, DbInitializationConfig::test_default())
                 .unwrap();
         }
-        let cryptde: &dyn CryptDE = CRYPTDE_PAIR.main.as_ref();
+        let cryptde: &dyn CryptDE = N_CRYPTDE_PAIR.main.as_ref();
         let debut_target = NodeDescriptor::try_from((
-            CRYPTDE_PAIR.main.as_ref(), // Used to provide default cryptde
+            N_CRYPTDE_PAIR.main.as_ref(), // Used to provide default cryptde
             "masq://eth-ropsten:AQIDBA@1.2.3.4:1234",
         ))
         .unwrap();
         let (hopper, _, hopper_recording) = make_recorder();
         let mut subject = Neighborhood::new(
-            CRYPTDE_PAIR.clone(),
+            N_CRYPTDE_PAIR.clone(),
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::Standard(
@@ -6436,9 +6431,13 @@ mod tests {
                 "node_gossips_to_neighbors_on_startup",
             ),
         );
-        subject.persistent_config_opt = Some(Box::new(
-            PersistentConfigurationMock::new().min_hops_result(Ok(MIN_HOPS_FOR_TEST)),
-        ));
+        subject.persistent_config_factory = Box::new(
+            PersistentConfigurationFactoryTest::new(
+                PersistentConfigurationMock::new()
+                    .min_hops_result(Ok(MIN_HOPS_FOR_TEST))
+                    .rate_pack_limits_result(Ok(RatePackLimits::test_default())),
+            )
+        );
         subject.data_directory = data_dir;
         subject.logger = Logger::new("node_gossips_to_neighbors_on_startup");
         let this_node = subject.neighborhood_database.root().clone();
@@ -6478,7 +6477,7 @@ mod tests {
         let min_hops_in_neighborhood = Hops::SixHops;
         let min_hops_in_persistent_configuration = min_hops_in_neighborhood;
         let mut subject = Neighborhood::new(
-            CRYPTDE_PAIR.clone(),
+            N_CRYPTDE_PAIR.clone(),
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::Standard(
@@ -6493,10 +6492,13 @@ mod tests {
                 test_name,
             ),
         );
-        subject.persistent_config_opt = Some(Box::new(
-            PersistentConfigurationMock::new()
-                .min_hops_result(Ok(min_hops_in_persistent_configuration)),
-        ));
+        subject.persistent_config_factory = Box::new(
+            PersistentConfigurationFactoryTest::new(
+                PersistentConfigurationMock::new()
+                    .min_hops_result(Ok(min_hops_in_persistent_configuration))
+                    .rate_pack_limits_result(Ok(RatePackLimits::test_default()))
+            )
+        );
         let system = System::new(test_name);
         let addr: Addr<Neighborhood> = subject.start();
         let peer_actors = peer_actors_builder().build();
@@ -6521,7 +6523,7 @@ mod tests {
         let min_hops_in_neighborhood = Hops::SixHops;
         let min_hops_in_db = Hops::TwoHops;
         let mut subject = Neighborhood::new(
-            CRYPTDE_PAIR.clone(),
+            N_CRYPTDE_PAIR.clone(),
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::Standard(
@@ -6537,9 +6539,13 @@ mod tests {
             ),
         );
         subject.logger = Logger::new(test_name);
-        subject.persistent_config_opt = Some(Box::new(
-            PersistentConfigurationMock::new().min_hops_result(Ok(min_hops_in_db)),
-        ));
+        subject.persistent_config_factory = Box::new(
+            PersistentConfigurationFactoryTest::new(
+                PersistentConfigurationMock::new()
+                    .min_hops_result(Ok(min_hops_in_db))
+                    .rate_pack_limits_result(Ok(RatePackLimits::test_default())),
+            )
+        );
         let system = System::new(test_name);
         let addr: Addr<Neighborhood> = subject.start();
         let peer_actors = peer_actors_builder().build();
@@ -6647,13 +6653,13 @@ mod tests {
     }
 
     fn node_record_to_neighbor_config(node_record_ref: &NodeRecord) -> NodeDescriptor {
-        let cryptde: &dyn CryptDE = CRYPTDE_PAIR.main.as_ref();
+        let cryptde: &dyn CryptDE = N_CRYPTDE_PAIR.main.as_ref();
         NodeDescriptor::from((node_record_ref, Chain::EthRopsten, cryptde))
     }
 
     #[test]
     fn neighborhood_sends_node_query_response_with_none_when_initially_configured_with_no_data() {
-        let cryptde = CRYPTDE_PAIR.main.as_ref();
+        let cryptde = N_CRYPTDE_PAIR.main.as_ref();
         let (recorder, awaiter, recording_arc) = make_recorder();
         thread::spawn(move || {
             let system = System::new("responds_with_none_when_initially_configured_with_no_data");
@@ -6692,7 +6698,7 @@ mod tests {
     #[test]
     fn neighborhood_sends_node_query_response_with_none_when_key_query_matches_no_configured_data()
     {
-        let cryptde: &dyn CryptDE = CRYPTDE_PAIR.main.as_ref();
+        let cryptde: &dyn CryptDE = N_CRYPTDE_PAIR.main.as_ref();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let (recorder, awaiter, recording_arc) = make_recorder();
@@ -6703,7 +6709,7 @@ mod tests {
                 addr.recipient::<DispatcherNodeQueryResponse>();
 
             let subject = Neighborhood::new(
-                CRYPTDE_PAIR.clone(),
+                N_CRYPTDE_PAIR.clone(),
                 &bc_from_nc_plus(
                     NeighborhoodConfig {
                         mode: NeighborhoodMode::Standard(
@@ -6754,7 +6760,7 @@ mod tests {
 
     #[test]
     fn neighborhood_sends_node_query_response_with_result_when_key_query_matches_configured_data() {
-        let cryptde = CRYPTDE_PAIR.main.as_ref();
+        let cryptde = N_CRYPTDE_PAIR.main.as_ref();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let (recorder, awaiter, recording_arc) = make_recorder();
@@ -6773,7 +6779,7 @@ mod tests {
             let addr: Addr<Recorder> = recorder.start();
             let recipient = addr.recipient::<DispatcherNodeQueryResponse>();
             let mut subject = Neighborhood::new(
-                CRYPTDE_PAIR.clone(),
+                N_CRYPTDE_PAIR.clone(),
                 &bc_from_nc_plus(
                     NeighborhoodConfig {
                         mode: NeighborhoodMode::Standard(
@@ -6822,7 +6828,7 @@ mod tests {
     #[test]
     fn neighborhood_sends_node_query_response_with_none_when_ip_address_query_matches_no_configured_data(
     ) {
-        let cryptde: &dyn CryptDE = CRYPTDE_PAIR.main.as_ref();
+        let cryptde: &dyn CryptDE = N_CRYPTDE_PAIR.main.as_ref();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
         let (recorder, awaiter, recording_arc) = make_recorder();
@@ -6832,7 +6838,7 @@ mod tests {
             let recipient: Recipient<DispatcherNodeQueryResponse> =
                 addr.recipient::<DispatcherNodeQueryResponse>();
             let subject = Neighborhood::new(
-                CRYPTDE_PAIR.clone(),
+                N_CRYPTDE_PAIR.clone(),
                 &bc_from_nc_plus(
                     NeighborhoodConfig {
                         mode: NeighborhoodMode::Standard(
@@ -6884,7 +6890,7 @@ mod tests {
     #[test]
     fn neighborhood_sends_node_query_response_with_result_when_ip_address_query_matches_configured_data(
     ) {
-        let cryptde: &dyn CryptDE = CRYPTDE_PAIR.main.as_ref();
+        let cryptde: &dyn CryptDE = N_CRYPTDE_PAIR.main.as_ref();
         let (recorder, awaiter, recording_arc) = make_recorder();
         let node_record = make_node_record(1234, true);
         let another_node_record = make_node_record(2345, true);
@@ -6918,7 +6924,7 @@ mod tests {
                 None,
                 "neighborhood_sends_node_query_response_with_result_when_ip_address_query_matches_configured_data",
             );
-            let mut subject = Neighborhood::new(CRYPTDE_PAIR.clone(), &config);
+            let mut subject = Neighborhood::new(N_CRYPTDE_PAIR.clone(), &config);
             subject
                 .neighborhood_database
                 .add_node(another_node_record_a)
@@ -6957,9 +6963,9 @@ mod tests {
         let min_hops = Hops::TwoHops;
         let one_next_door_neighbor = make_node_record(3333, true);
         let another_next_door_neighbor = make_node_record(4444, true);
-        let subject_node = make_global_cryptde_node_record(5555, true, &CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
+        let subject_node = make_global_cryptde_node_record(5555, true, &N_CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
         let mut subject =
-            neighborhood_from_nodes(&subject_node, Some(&one_next_door_neighbor), &CRYPTDE_PAIR);
+            neighborhood_from_nodes(&subject_node, Some(&one_next_door_neighbor), &N_CRYPTDE_PAIR);
         subject.min_hops = min_hops;
 
         subject
@@ -6996,7 +7002,7 @@ mod tests {
             Err(format!(
                 "Couldn't find any routes: at least {}-hop from {} to ProxyClient at Unknown",
                 min_hops as usize,
-                CRYPTDE_PAIR.main.as_ref().public_key()
+                N_CRYPTDE_PAIR.main.as_ref().public_key()
             )),
             result
         );
@@ -7007,9 +7013,9 @@ mod tests {
         let next_door_neighbor = make_node_record(3333, true);
         let exit_node = make_node_record(5, false);
 
-        let subject_node = make_global_cryptde_node_record(666, true, &CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
+        let subject_node = make_global_cryptde_node_record(666, true, &N_CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
         let mut subject =
-            neighborhood_from_nodes(&subject_node, Some(&next_door_neighbor), &CRYPTDE_PAIR);
+            neighborhood_from_nodes(&subject_node, Some(&next_door_neighbor), &N_CRYPTDE_PAIR);
         subject.min_hops = Hops::TwoHops;
 
         subject
@@ -7045,7 +7051,7 @@ mod tests {
         let hops = result.clone().unwrap().route.hops;
         let actual_keys: Vec<PublicKey> = match hops.as_slice() {
             [hop, exit, hop_back, origin, empty, _accounting] => vec![
-                decodex::<LiveHop>(CRYPTDE_PAIR.main.as_ref(), hop)
+                decodex::<LiveHop>(N_CRYPTDE_PAIR.main.as_ref(), hop)
                     .expect("hop")
                     .public_key,
                 decodex::<LiveHop>(&next_door_neighbor_cryptde, exit)
@@ -7057,7 +7063,7 @@ mod tests {
                 decodex::<LiveHop>(&next_door_neighbor_cryptde, origin)
                     .expect("origin")
                     .public_key,
-                decodex::<LiveHop>(CRYPTDE_PAIR.main.as_ref(), empty)
+                decodex::<LiveHop>(N_CRYPTDE_PAIR.main.as_ref(), empty)
                     .expect("empty")
                     .public_key,
             ],
@@ -7076,11 +7082,11 @@ mod tests {
     fn assert_route_query_message(min_hops: Hops) {
         let hops = min_hops as usize;
         let nodes_count = hops + 1;
-        let root_node = make_global_cryptde_node_record(4242, true, &CRYPTDE_PAIR);
+        let root_node = make_global_cryptde_node_record(4242, true, &N_CRYPTDE_PAIR);
         let mut nodes = make_node_records(nodes_count as u16);
         nodes[0] = root_node;
         let db = linearly_connect_nodes(&nodes);
-        let mut subject = neighborhood_from_nodes(db.root(), nodes.get(1), &CRYPTDE_PAIR);
+        let mut subject = neighborhood_from_nodes(db.root(), nodes.get(1), &N_CRYPTDE_PAIR);
         subject.min_hops = min_hops;
         subject.neighborhood_database = db;
 
@@ -7211,7 +7217,7 @@ mod tests {
     #[test]
     fn node_record_metadata_message_is_handled_properly() {
         init_test_logging();
-        let subject_node = make_global_cryptde_node_record(1345, true, &CRYPTDE_PAIR);
+        let subject_node = make_global_cryptde_node_record(1345, true, &N_CRYPTDE_PAIR);
         let public_key = PublicKey::from(&b"exit_node"[..]);
         let node_record_inputs = NodeRecordInputs {
             earning_wallet: make_wallet("earning"),
@@ -7222,9 +7228,9 @@ mod tests {
             location_opt: None,
         };
         let node_record =
-            NodeRecord::new(&public_key, CRYPTDE_PAIR.main.as_ref(), node_record_inputs);
+            NodeRecord::new(&public_key, N_CRYPTDE_PAIR.main.as_ref(), node_record_inputs);
         let unreachable_host = String::from("facebook.com");
-        let mut subject = neighborhood_from_nodes(&subject_node, None, &CRYPTDE_PAIR);
+        let mut subject = neighborhood_from_nodes(&subject_node, None, &N_CRYPTDE_PAIR);
         let _ = subject.neighborhood_database.add_node(node_record);
         let addr = subject.start();
         let system = System::new("test");
@@ -7259,8 +7265,8 @@ mod tests {
         expected = "Neighborhood should never get ShutdownStreamMsg about non-clandestine stream"
     )]
     fn handle_stream_shutdown_complains_about_non_clandestine_message() {
-        let subject_node = make_global_cryptde_node_record(1345, true, &CRYPTDE_PAIR);
-        let mut subject = neighborhood_from_nodes(&subject_node, None, &CRYPTDE_PAIR);
+        let subject_node = make_global_cryptde_node_record(1345, true, &N_CRYPTDE_PAIR);
+        let mut subject = neighborhood_from_nodes(&subject_node, None, &N_CRYPTDE_PAIR);
 
         subject.handle_stream_shutdown_msg(StreamShutdownMsg {
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
@@ -7283,8 +7289,8 @@ mod tests {
             unrecognized_node_addr.ip_addr(),
             unrecognized_node_addr.ports()[0],
         );
-        let subject_node = make_global_cryptde_node_record(1345, true, &CRYPTDE_PAIR);
-        let mut subject = neighborhood_from_nodes(&subject_node, None, &CRYPTDE_PAIR);
+        let subject_node = make_global_cryptde_node_record(1345, true, &N_CRYPTDE_PAIR);
+        let mut subject = neighborhood_from_nodes(&subject_node, None, &N_CRYPTDE_PAIR);
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         subject.hopper_opt = Some(peer_actors.hopper.from_hopper_client);
 
@@ -7315,8 +7321,8 @@ mod tests {
             inactive_neighbor_node_addr.ip_addr(),
             inactive_neighbor_node_addr.ports()[0],
         );
-        let subject_node = make_global_cryptde_node_record(1345, true, &CRYPTDE_PAIR);
-        let mut subject = neighborhood_from_nodes(&subject_node, None, &CRYPTDE_PAIR);
+        let subject_node = make_global_cryptde_node_record(1345, true, &N_CRYPTDE_PAIR);
+        let mut subject = neighborhood_from_nodes(&subject_node, None, &N_CRYPTDE_PAIR);
         subject
             .neighborhood_database
             .add_node(gossip_neighbor_node.clone())
@@ -7370,8 +7376,8 @@ mod tests {
             shutdown_neighbor_node_addr.ip_addr(),
             shutdown_neighbor_node_addr.ports()[0],
         );
-        let subject_node = make_global_cryptde_node_record(1345, true, &CRYPTDE_PAIR);
-        let mut subject = neighborhood_from_nodes(&subject_node, None, &CRYPTDE_PAIR);
+        let subject_node = make_global_cryptde_node_record(1345, true, &N_CRYPTDE_PAIR);
+        let mut subject = neighborhood_from_nodes(&subject_node, None, &N_CRYPTDE_PAIR);
         subject
             .neighborhood_database
             .add_node(gossip_neighbor_node.clone())
@@ -7423,7 +7429,7 @@ mod tests {
         init_test_logging();
         let system = System::new("test");
         let subject = Neighborhood::new(
-            CRYPTDE_PAIR.clone(),
+            N_CRYPTDE_PAIR.clone(),
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::ZeroHop,
@@ -7550,7 +7556,7 @@ mod tests {
         let mut subject = make_standard_subject();
         // This mock is completely unprepared: any call to it should cause a panic
         let persistent_config = PersistentConfigurationMock::new();
-        subject.persistent_config_opt = Some(Box::new(persistent_config));
+        subject.persistent_config = Box::new(persistent_config);
         let neighbor_keys_before = vec![PublicKey::new(b"ABCDE"), PublicKey::new(b"FGHIJ")]
             .into_iter()
             .collect();
@@ -7572,22 +7578,28 @@ mod tests {
 
         let act = |data_dir: &Path| {
             let mut subject = Neighborhood::new(
-                CRYPTDE_PAIR.clone(),
+                N_CRYPTDE_PAIR.clone(),
                 &bc_from_earning_wallet(make_wallet("earning_wallet")),
             );
             subject.data_directory = data_dir.to_path_buf();
-            subject.connect_database();
+            subject.persistent_config_factory = Box::new(PersistentConfigurationFactoryReal::new(subject.data_directory.clone()));
+            subject.persistent_config_factory.make();
         };
 
         assert_on_initialization_with_panic_on_migration(&data_dir, &act);
     }
 
     fn make_standard_subject() -> Neighborhood {
-        let root_node = make_global_cryptde_node_record(9999, true, &CRYPTDE_PAIR);
+        let root_node = make_global_cryptde_node_record(9999, true, &N_CRYPTDE_PAIR);
         let neighbor_node = make_node_record(9998, true);
-        let mut subject = neighborhood_from_nodes(&root_node, Some(&neighbor_node), &CRYPTDE_PAIR);
-        let persistent_config = PersistentConfigurationMock::new();
-        subject.persistent_config_opt = Some(Box::new(persistent_config));
+        let mut subject = neighborhood_from_nodes(&root_node, Some(&neighbor_node), &N_CRYPTDE_PAIR);
+        let persistent_config = PersistentConfigurationMock::new()
+            .rate_pack_limits_result(Ok(RatePackLimits::test_default()));
+        subject.persistent_config = Box::new(persistent_config);
+        subject.gossip_acceptor = Box::new(GossipAcceptorReal::new(
+            N_CRYPTDE_PAIR.main.dup(),
+            subject.persistent_config.as_ref()
+        ));
         subject
     }
 
@@ -7627,7 +7639,7 @@ mod tests {
                 )>,
             >,
         >,
-        handle_results: RefCell<Vec<GossipAcceptanceResult>>,
+        handle_results: RefCell<Vec<Vec<GossipAcceptanceResult>>>,
     }
 
     impl GossipAcceptor for GossipAcceptorMock {
@@ -7637,9 +7649,10 @@ mod tests {
             agrs: Vec<AccessibleGossipRecord>,
             gossip_source: SocketAddr,
             neighborhood_metadata: NeighborhoodMetadata,
-        ) -> GossipAcceptanceResult {
+        ) -> Vec<GossipAcceptanceResult> {
             self.handle_params.lock().unwrap().push((
                 database.clone(),
+                // TODO: Figure out how to store some represntation of persistent_config
                 agrs,
                 gossip_source,
                 neighborhood_metadata,
@@ -7673,7 +7686,7 @@ mod tests {
             self
         }
 
-        pub fn handle_result(self, result: GossipAcceptanceResult) -> GossipAcceptorMock {
+        pub fn handle_result(self, result: Vec<GossipAcceptanceResult>) -> GossipAcceptorMock {
             self.handle_results.borrow_mut().push(result);
             self
         }
@@ -7754,7 +7767,7 @@ mod tests {
         let bootstrap_config =
             bc_from_nc_plus(neighborhood_config, make_wallet("earning"), None, test_name);
 
-        let mut neighborhood = Neighborhood::new(CRYPTDE_PAIR.clone(), &bootstrap_config);
+        let mut neighborhood = Neighborhood::new(N_CRYPTDE_PAIR.clone(), &bootstrap_config);
 
         let (node_to_ui_recipient, _) = make_node_to_ui_recipient();
         neighborhood.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
@@ -7769,7 +7782,7 @@ mod tests {
     ) -> Option<NodeToUiMessage> {
         let system = System::new("test");
         let mut subject = Neighborhood::new(
-            CRYPTDE_PAIR.clone(),
+            N_CRYPTDE_PAIR.clone(),
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::ConsumeOnly(vec![make_node_descriptor(make_ip(1))]),
@@ -7808,12 +7821,19 @@ mod tests {
     }
 
     fn make_neighborhood_with_linearly_connected_nodes(nodes_count: u16) -> Neighborhood {
-        let root_node = make_global_cryptde_node_record(4242, true, &CRYPTDE_PAIR);
+        let root_node = make_global_cryptde_node_record(4242, true, &N_CRYPTDE_PAIR);
         let mut nodes = make_node_records(nodes_count);
         nodes[0] = root_node;
         let db = linearly_connect_nodes(&nodes);
-        let mut neighborhood = neighborhood_from_nodes(db.root(), nodes.get(1), &CRYPTDE_PAIR);
+        let mut neighborhood = neighborhood_from_nodes(db.root(), nodes.get(1), &N_CRYPTDE_PAIR);
         neighborhood.neighborhood_database = db;
+        let persistent_config_mock = PersistentConfigurationMock::new()
+            .rate_pack_limits_result(Ok(RatePackLimits::test_default()));
+        let gossip_acceptor = GossipAcceptorReal::new(
+            N_CRYPTDE_PAIR.main.dup(),
+            &persistent_config_mock
+        );
+        neighborhood.gossip_acceptor = Box::new(gossip_acceptor);
 
         neighborhood
     }

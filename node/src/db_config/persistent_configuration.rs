@@ -14,7 +14,7 @@ use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
 use crate::sub_lib::cryptde::{CryptDE, PlainData};
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::cryptde_real::CryptDEReal;
-use crate::sub_lib::neighborhood::{Hops, NodeDescriptor, RatePack};
+use crate::sub_lib::neighborhood::{Hops, NodeDescriptor, RatePack, RatePackLimits};
 use crate::sub_lib::wallet::Wallet;
 use lazy_static::lazy_static;
 use masq_lib::blockchains::chains::Chain;
@@ -26,8 +26,11 @@ use regex::{Captures, Regex};
 use rustc_hex::{FromHex, ToHex};
 use std::fmt::Display;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
+use std::path::PathBuf;
 use std::str::FromStr;
 use websocket::url::Url;
+use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DbInitializerReal};
+use crate::sub_lib::utils::db_connection_launch_panic;
 
 lazy_static! {
     static ref RATE_PACK_LIMIT_FORMAT: Regex =
@@ -166,7 +169,7 @@ pub trait PersistentConfiguration {
     fn payment_thresholds(&self) -> Result<PaymentThresholds, PersistentConfigError>;
     fn set_payment_thresholds(&mut self, curves: String) -> Result<(), PersistentConfigError>;
     fn rate_pack(&self) -> Result<RatePack, PersistentConfigError>;
-    fn rate_pack_limits(&self) -> Result<(RatePack, RatePack), PersistentConfigError>;
+    fn rate_pack_limits(&self) -> Result<RatePackLimits, PersistentConfigError>;
     fn set_rate_pack(&mut self, rate_pack: String) -> Result<(), PersistentConfigError>;
     fn scan_intervals(&self) -> Result<ScanIntervals, PersistentConfigError>;
     fn set_scan_intervals(&mut self, intervals: String) -> Result<(), PersistentConfigError>;
@@ -578,7 +581,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         self.simple_set_method("rate_pack", rate_pack)
     }
 
-    fn rate_pack_limits(&self) -> Result<(RatePack, RatePack), PersistentConfigError> {
+    fn rate_pack_limits(&self) -> Result<RatePackLimits, PersistentConfigError> {
         let limits_string = self
             .get("rate_pack_limits")
             .expect(
@@ -589,28 +592,28 @@ impl PersistentConfiguration for PersistentConfigurationReal {
             );
         let captures = RATE_PACK_LIMIT_FORMAT.captures(limits_string.as_str())
             .expect(format!("Syntax error in rate_pack_limits value '{}': should be <LRBR>-<HRBR>|<LRSR>-<HRSR>|<LEBR>-<HEBR>|<LESR>-<HESR> where L is low, H is high, R is routing, E is exit, BR is byte rate, and SR is service rate. All numbers should be in wei.", limits_string).as_str());
-        let candidate = (
+        let candidate = RatePackLimits::new(
             Self::extract_candidate(&captures, 1),
             Self::extract_candidate(&captures, 2)
         );
         Self::check_rate_pack_limit_order(
-            candidate.0.routing_byte_rate,
-            candidate.1.routing_byte_rate,
+            candidate.lo.routing_byte_rate,
+            candidate.hi.routing_byte_rate,
             "routing_byte_rate",
         );
         Self::check_rate_pack_limit_order(
-            candidate.0.routing_service_rate,
-            candidate.1.routing_service_rate,
+            candidate.lo.routing_service_rate,
+            candidate.hi.routing_service_rate,
             "routing_service_rate",
         );
         Self::check_rate_pack_limit_order(
-            candidate.0.exit_byte_rate,
-            candidate.1.exit_byte_rate,
+            candidate.lo.exit_byte_rate,
+            candidate.hi.exit_byte_rate,
             "exit_byte_rate",
         );
         Self::check_rate_pack_limit_order(
-            candidate.0.exit_service_rate,
-            candidate.1.exit_service_rate,
+            candidate.lo.exit_service_rate,
+            candidate.hi.exit_service_rate,
             "exit_service_rate",
         );
         Ok(candidate)
@@ -743,6 +746,201 @@ impl PersistentConfigurationReal {
                 "Rate pack limits should have low limits less than high limits, but {} limits are {}-{}",
                 field_name, low, high
             );
+        }
+    }
+}
+
+pub struct PersistentConfigurationInvalid {}
+
+impl PersistentConfiguration for PersistentConfigurationInvalid {
+    fn blockchain_service_url(&self) -> Result<Option<String>, PersistentConfigError> {
+        PersistentConfigurationInvalid::invalid()
+    }
+    fn set_blockchain_service_url(&mut self, _url: &str) -> Result<(), PersistentConfigError> {
+        PersistentConfigurationInvalid::invalid()
+    }
+    fn current_schema_version(&self) -> String {
+        PersistentConfigurationInvalid::invalid()
+    }
+    fn chain_name(&self) -> String {
+        PersistentConfigurationInvalid::invalid()
+    }
+    fn check_password(
+        &self,
+        _db_password_opt: Option<String>,
+    ) -> Result<bool, PersistentConfigError> {
+        PersistentConfigurationInvalid::invalid()
+    }
+    fn change_password(
+        &mut self,
+        _old_password_opt: Option<String>,
+        _new_password: &str,
+    ) -> Result<(), PersistentConfigError> {
+        PersistentConfigurationInvalid::invalid()
+    }
+    fn consuming_wallet(&self, _db_password: &str) -> Result<Option<Wallet>, PersistentConfigError> {
+        PersistentConfigurationInvalid::invalid()
+    }
+    fn consuming_wallet_private_key(
+        &self,
+        _db_password: &str,
+    ) -> Result<Option<String>, PersistentConfigError> {
+        PersistentConfigurationInvalid::invalid()
+    }
+    fn clandestine_port(&self) -> Result<u16, PersistentConfigError> {
+        PersistentConfigurationInvalid::invalid()
+    }
+    fn set_clandestine_port(&mut self, _port: u16) -> Result<(), PersistentConfigError> {
+        PersistentConfigurationInvalid::invalid()
+    }
+    fn cryptde(
+        &self,
+        _db_password: &str,
+    ) -> Result<Option<Box<dyn CryptDE>>, PersistentConfigError> {
+        PersistentConfigurationInvalid::invalid()
+    }
+    fn set_cryptde(
+        &mut self,
+        _cryptde: &dyn CryptDE,
+        _db_password: &str,
+    ) -> Result<(), PersistentConfigError> {
+        PersistentConfigurationInvalid::invalid()
+    }
+    fn earning_wallet(&self) -> Result<Option<Wallet>, PersistentConfigError> {
+        PersistentConfigurationInvalid::invalid()
+    }
+    fn earning_wallet_address(&self) -> Result<Option<String>, PersistentConfigError> {
+        PersistentConfigurationInvalid::invalid()
+    }
+    fn gas_price(&self) -> Result<u64, PersistentConfigError> {
+        PersistentConfigurationInvalid::invalid()
+    }
+    fn set_gas_price(&mut self, _gas_price: u64) -> Result<(), PersistentConfigError> {
+        PersistentConfigurationInvalid::invalid()
+    }
+    fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError> {
+        PersistentConfigurationInvalid::invalid()
+    }
+    fn set_mapping_protocol(
+        &mut self,
+        _value_opt: Option<AutomapProtocol>,
+    ) -> Result<(), PersistentConfigError> {
+        PersistentConfigurationInvalid::invalid()
+    }
+    fn min_hops(&self) -> Result<Hops, PersistentConfigError> {
+        PersistentConfigurationInvalid::invalid()
+    }
+    fn set_min_hops(&mut self, _value: Hops) -> Result<(), PersistentConfigError> {
+        PersistentConfigurationInvalid::invalid()
+    }
+    fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError> {
+        PersistentConfigurationInvalid::invalid()
+    }
+    fn set_neighborhood_mode(
+        &mut self,
+        _value: NeighborhoodModeLight,
+    ) -> Result<(), PersistentConfigError> {
+        PersistentConfigurationInvalid::invalid()
+    }
+    fn past_neighbors(
+        &self,
+        _db_password: &str,
+    ) -> Result<Option<Vec<NodeDescriptor>>, PersistentConfigError> {
+        PersistentConfigurationInvalid::invalid()
+    }
+    fn set_past_neighbors(
+        &mut self,
+        _node_descriptors_opt: Option<Vec<NodeDescriptor>>,
+        _db_password: &str,
+    ) -> Result<(), PersistentConfigError> {
+        PersistentConfigurationInvalid::invalid()
+    }
+    fn start_block(&self) -> Result<Option<u64>, PersistentConfigError> {
+        PersistentConfigurationInvalid::invalid()
+    }
+    fn set_start_block(&mut self, _value_opt: Option<u64>) -> Result<(), PersistentConfigError> {
+        PersistentConfigurationInvalid::invalid()
+    }
+    fn max_block_count(&self) -> Result<Option<u64>, PersistentConfigError> {
+        PersistentConfigurationInvalid::invalid()
+    }
+    fn set_max_block_count(&mut self, _value_opt: Option<u64>) -> Result<(), PersistentConfigError> {
+        PersistentConfigurationInvalid::invalid()
+    }
+    fn set_start_block_from_txn(
+        &mut self,
+        _value_opt: Option<u64>,
+        _transaction: &mut TransactionSafeWrapper,
+    ) -> Result<(), PersistentConfigError> {
+        PersistentConfigurationInvalid::invalid()
+    }
+    fn set_wallet_info(
+        &mut self,
+        _consuming_wallet_private_key: &str,
+        _earning_wallet_address: &str,
+        _db_password: &str,
+    ) -> Result<(), PersistentConfigError> {
+        PersistentConfigurationInvalid::invalid()
+    }
+    fn payment_thresholds(&self) -> Result<PaymentThresholds, PersistentConfigError> {
+        PersistentConfigurationInvalid::invalid()
+    }
+    fn set_payment_thresholds(&mut self, _curves: String) -> Result<(), PersistentConfigError> {
+        PersistentConfigurationInvalid::invalid()
+    }
+    fn rate_pack(&self) -> Result<RatePack, PersistentConfigError> {
+        PersistentConfigurationInvalid::invalid()
+    }
+    fn set_rate_pack(&mut self, _rate_pack: String) -> Result<(), PersistentConfigError> {
+        PersistentConfigurationInvalid::invalid()
+    }
+    fn rate_pack_limits(&self) -> Result<RatePackLimits, PersistentConfigError> {
+        PersistentConfigurationInvalid::invalid()
+    }
+    fn scan_intervals(&self) -> Result<ScanIntervals, PersistentConfigError> {
+        PersistentConfigurationInvalid::invalid()
+    }
+    fn set_scan_intervals(&mut self, _intervals: String) -> Result<(), PersistentConfigError> {
+        PersistentConfigurationInvalid::invalid()
+    }
+    arbitrary_id_stamp_in_trait!();
+}
+
+impl PersistentConfigurationInvalid {
+    pub fn new() -> Self {
+        Self {}
+    }
+
+    fn invalid() -> ! {
+        panic!("PersistentConfiguration is uninitialized")
+    }
+}
+
+pub trait PersistentConfigurationFactory {
+    fn make(&self) -> Box<dyn PersistentConfiguration>;
+}
+
+pub struct PersistentConfigurationFactoryReal {
+    data_directory: PathBuf
+}
+
+impl PersistentConfigurationFactory for PersistentConfigurationFactoryReal {
+    fn make(&self) -> Box<dyn PersistentConfiguration> {
+        let db_initializer: &dyn DbInitializer = &DbInitializerReal::default();
+        let conn = db_initializer
+            .initialize(
+                &self.data_directory.as_path(),
+                DbInitializationConfig::panic_on_migration(),
+            )
+            .unwrap_or_else(|err| db_connection_launch_panic(err, &self.data_directory));
+        Box::new(PersistentConfigurationReal::from(conn))
+    }
+}
+
+impl PersistentConfigurationFactoryReal {
+    pub fn new(data_directory: PathBuf) -> Self {
+        Self {
+            data_directory
         }
     }
 }
@@ -2363,7 +2561,7 @@ mod tests {
         persistent_config_plain_data_assertions_for_simple_get_method!(
             "rate_pack_limits",
             "100-200|300-400|500000000000000000-600000000000000000|700-800",
-            (
+            RatePackLimits::new(
                 RatePack {
                     routing_byte_rate: 100,
                     routing_service_rate: 300,
@@ -2397,7 +2595,7 @@ mod tests {
             "rate_pack_limits",
             "Booga!",
             // Irrelevant but necessary
-            (
+            RatePackLimits::new(
                 RatePack {
                     routing_byte_rate: 0,
                     routing_service_rate: 0,
@@ -2423,7 +2621,7 @@ mod tests {
             "rate_pack_limits",
             "1-1|0-1|0-1|0-1",
             // Irrelevant but necessary
-            (
+            RatePackLimits::new(
                 RatePack {
                     routing_byte_rate: 0,
                     routing_service_rate: 0,
@@ -2449,7 +2647,7 @@ mod tests {
             "rate_pack_limits",
             "0-1|1-1|0-1|0-1",
             // Irrelevant but necessary
-            (
+            RatePackLimits::new(
                 RatePack {
                     routing_byte_rate: 0,
                     routing_service_rate: 0,
@@ -2475,7 +2673,7 @@ mod tests {
             "rate_pack_limits",
             "0-1|0-1|1-1|0-1",
             // Irrelevant but necessary
-            (
+            RatePackLimits::new(
                 RatePack {
                     routing_byte_rate: 0,
                     routing_service_rate: 0,
@@ -2501,7 +2699,7 @@ mod tests {
             "rate_pack_limits",
             "0-1|0-1|0-1|1-1",
             // Irrelevant but necessary
-            (
+            RatePackLimits::new(
                 RatePack {
                     routing_byte_rate: 0,
                     routing_service_rate: 0,
