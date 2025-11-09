@@ -14,7 +14,7 @@ use crate::proxy_client::resolver_wrapper::ResolverWrapperFactoryReal;
 use crate::proxy_client::stream_handler_pool::StreamHandlerPool;
 use crate::proxy_client::stream_handler_pool::StreamHandlerPoolFactory;
 use crate::proxy_client::stream_handler_pool::StreamHandlerPoolFactoryReal;
-use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
+use crate::sub_lib::accountant::{ReportExitServiceProvidedMessage, ServiceProvided};
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::hopper::MessageType;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, IncipientCoresPackage};
@@ -302,11 +302,13 @@ impl ProxyClient {
     ) {
         if let Some(paying_wallet) = stream_context.paying_wallet.clone() {
             let exit_report = ReportExitServiceProvidedMessage {
-                timestamp: SystemTime::now(),
-                paying_wallet,
-                payload_size: msg_data_len,
-                service_rate: self.exit_service_rate,
-                byte_rate: self.exit_byte_rate,
+                service: ServiceProvided {
+                    timestamp: SystemTime::now(),
+                    paying_wallet,
+                    payload_size: msg_data_len,
+                    service_rate: self.exit_service_rate,
+                    byte_rate: self.exit_byte_rate,
+                },
             };
             self.to_accountant
                 .as_ref()
@@ -1047,28 +1049,32 @@ mod tests {
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         let accountant_record =
             accountant_recording.get_record::<ReportExitServiceProvidedMessage>(0);
-        check_timestamp(before, accountant_record.timestamp, after);
+        check_timestamp(before, accountant_record.service.timestamp, after);
         assert_eq!(
             accountant_record,
             &ReportExitServiceProvidedMessage {
-                timestamp: accountant_record.timestamp,
-                paying_wallet: make_wallet("paying"),
-                payload_size: data.len(),
-                service_rate: 100,
-                byte_rate: 200,
+                service: ServiceProvided {
+                    timestamp: accountant_record.service.timestamp,
+                    paying_wallet: make_wallet("paying"),
+                    payload_size: data.len(),
+                    service_rate: 100,
+                    byte_rate: 200,
+                }
             }
         );
         let accountant_record =
             accountant_recording.get_record::<ReportExitServiceProvidedMessage>(1);
-        check_timestamp(before, accountant_record.timestamp, after);
+        check_timestamp(before, accountant_record.service.timestamp, after);
         assert_eq!(
             accountant_record,
             &ReportExitServiceProvidedMessage {
-                timestamp: accountant_record.timestamp,
-                paying_wallet: make_wallet("paying"),
-                payload_size: data.len(),
-                service_rate: 100,
-                byte_rate: 200,
+                service: ServiceProvided {
+                    timestamp: accountant_record.service.timestamp,
+                    paying_wallet: make_wallet("paying"),
+                    payload_size: data.len(),
+                    service_rate: 100,
+                    byte_rate: 200,
+                }
             }
         );
         assert_eq!(accountant_recording.len(), 2);
@@ -1285,15 +1291,17 @@ mod tests {
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         let accountant_record =
             accountant_recording.get_record::<ReportExitServiceProvidedMessage>(0);
-        check_timestamp(before, accountant_record.timestamp, after);
+        check_timestamp(before, accountant_record.service.timestamp, after);
         assert_eq!(
             accountant_record,
             &ReportExitServiceProvidedMessage {
-                timestamp: accountant_record.timestamp,
-                paying_wallet: make_wallet("gnimusnoc"),
-                payload_size: data.len(),
-                service_rate: 100,
-                byte_rate: 200,
+                service: ServiceProvided {
+                    timestamp: accountant_record.service.timestamp,
+                    paying_wallet: make_wallet("gnimusnoc"),
+                    payload_size: data.len(),
+                    service_rate: 100,
+                    byte_rate: 200,
+                }
             }
         )
     }

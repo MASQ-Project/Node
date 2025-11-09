@@ -3,7 +3,7 @@ use super::live_cores_package::LiveCoresPackage;
 use crate::blockchain::payer::Payer;
 use crate::bootstrapper::CryptDEPair;
 use crate::neighborhood::gossip::Gossip_0v1;
-use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
+use crate::sub_lib::accountant::{ReportRoutingServiceProvidedMessage, ServiceProvided};
 use crate::sub_lib::cryptde::{decodex, encodex, CryptData, CryptdecError};
 use crate::sub_lib::dispatcher::{Component, Endpoint, InboundClientData};
 use crate::sub_lib::hop::LiveHop;
@@ -420,11 +420,13 @@ impl RoutingService {
                 }
                 match self.routing_service_subs.to_accountant_routing.try_send(
                     ReportRoutingServiceProvidedMessage {
-                        timestamp: SystemTime::now(),
-                        paying_wallet: payer.wallet,
-                        payload_size,
-                        service_rate: self.per_routing_service,
-                        byte_rate: self.per_routing_byte,
+                        service: ServiceProvided {
+                            timestamp: SystemTime::now(),
+                            paying_wallet: payer.wallet,
+                            payload_size,
+                            service_rate: self.per_routing_service,
+                            byte_rate: self.per_routing_byte,
+                        },
                     },
                 ) {
                     Ok(_) => (),
@@ -1178,16 +1180,18 @@ mod tests {
         );
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         let message = accountant_recording.get_record::<ReportRoutingServiceProvidedMessage>(0);
-        check_timestamp(before, message.timestamp, after);
-        assert!(message.paying_wallet.congruent(&paying_wallet));
+        check_timestamp(before, message.service.timestamp, after);
+        assert!(message.service.paying_wallet.congruent(&paying_wallet));
         assert_eq!(
             *message,
             ReportRoutingServiceProvidedMessage {
-                timestamp: message.timestamp,
-                paying_wallet: address_paying_wallet,
-                payload_size: lcp.payload.len(),
-                service_rate: rate_pack_routing(103),
-                byte_rate: rate_pack_routing_byte(103),
+                service: ServiceProvided {
+                    timestamp: message.service.timestamp,
+                    paying_wallet: address_paying_wallet,
+                    payload_size: lcp.payload.len(),
+                    service_rate: rate_pack_routing(103),
+                    byte_rate: rate_pack_routing_byte(103),
+                }
             }
         )
     }

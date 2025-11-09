@@ -465,7 +465,7 @@ fn verify_pending_payables() {
     }
     MASQNodeUtils::assert_node_wrote_log_containing(
         real_consuming_node.name(),
-        "Found 3 pending payables and 0 supposed failures to process",
+        "Found 3 pending payables and 0 suspected failures to process",
         Duration::from_secs(5),
     );
     MASQNodeUtils::assert_node_wrote_log_containing(

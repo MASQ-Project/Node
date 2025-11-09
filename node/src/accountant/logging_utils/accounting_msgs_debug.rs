@@ -12,80 +12,68 @@ use web3::types::Address;
 // of the Accountant.
 
 #[derive(Default)]
-pub struct AccountingMsgsDebugStats {
-    report_routing_service_provided_processed: AccountingMsgStats,
-    report_exit_service_provided_processed: AccountingMsgStats,
-    report_services_consumed_processed: AccountingMsgStats,
+pub struct AccountingMessageTracker {
+    routing_provided_stats: AccountingMsgStats,
+    exit_provided_stats: AccountingMsgStats,
+    consumed_stats: AccountingMsgStats,
 }
 
-impl AccountingMsgsDebugStats {
-    pub fn manage_debug_log(
-        &mut self,
-        logger: &Logger,
-        msg_type: AccountingMsgType,
-        log_window_size: u16,
-        new_postings: Vec<NewPosting>,
-    ) {
-        if logger.debug_enabled() {
-            if let Some(loggable_stats) = self.manage_log(msg_type, new_postings, log_window_size) {
-                debug!(logger, "{}", loggable_stats);
-            }
-        }
-    }
-
-    fn manage_log(
+impl AccountingMessageTracker {
+    pub fn process_debug_stats(
         &mut self,
         msg_type: AccountingMsgType,
-        new_postings: Vec<NewPosting>,
+        new_charges: Vec<NewCharge>,
         log_window_size: u16,
     ) -> Option<LoggableStats> {
-        self.record(new_postings, msg_type);
-        self.request_log_instruction(log_window_size, msg_type)
+        self.record_new_charges_by_msg_type(new_charges, msg_type);
+
+        self.maybe_dump_stats_by_msg_type(log_window_size, msg_type)
     }
 
-    fn record(&mut self, new_postings: Vec<NewPosting>, msg_type: AccountingMsgType) {
+    fn record_new_charges_by_msg_type(
+        &mut self,
+        new_charges: Vec<NewCharge>,
+        msg_type: AccountingMsgType,
+    ) {
         match msg_type {
             AccountingMsgType::RoutingServiceProvided => {
-                self.report_routing_service_provided_processed
-                    .handle_new_postings(new_postings);
+                self.routing_provided_stats.record_new_charges(new_charges);
             }
             AccountingMsgType::ExitServiceProvided => {
-                self.report_exit_service_provided_processed
-                    .handle_new_postings(new_postings);
+                self.exit_provided_stats.record_new_charges(new_charges);
             }
             AccountingMsgType::ServicesConsumed => {
-                self.report_services_consumed_processed
-                    .handle_new_postings(new_postings);
+                self.consumed_stats.record_new_charges(new_charges);
             }
         }
     }
 
-    fn request_log_instruction(
+    fn maybe_dump_stats_by_msg_type(
         &mut self,
         gap_size: u16,
         msg_type: AccountingMsgType,
     ) -> Option<LoggableStats> {
         match msg_type {
             AccountingMsgType::RoutingServiceProvided => self
-                .report_routing_service_provided_processed
-                .loggable_stats(gap_size),
+                .routing_provided_stats
+                .maybe_dump_stats(gap_size, msg_type),
             AccountingMsgType::ExitServiceProvided => self
-                .report_exit_service_provided_processed
-                .loggable_stats(gap_size),
-            AccountingMsgType::ServicesConsumed => self
-                .report_services_consumed_processed
-                .loggable_stats(gap_size),
+                .exit_provided_stats
+                .maybe_dump_stats(gap_size, msg_type),
+            AccountingMsgType::ServicesConsumed => {
+                self.consumed_stats.maybe_dump_stats(gap_size, msg_type)
+            }
         }
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub struct NewPosting {
-    address: Address,
-    amount_wei: u128,
+pub struct NewCharge {
+    pub address: Address,
+    pub amount_wei: u128,
 }
 
-impl NewPosting {
+impl NewCharge {
     pub fn new(address: Address, amount_wei: u128) -> Self {
         Self {
             address,
@@ -100,11 +88,10 @@ pub struct LoggableStats {
     accounting_msg_stats: HashMap<Address, u128>,
     log_window_in_pcs_of_msgs: u16,
 }
-
 impl Display for LoggableStats {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let label = format!(
-            "Account debits in last {} {:?} messages (wei):",
+            "Total debits across last {} {:?} messages (wei):",
             self.log_window_in_pcs_of_msgs, self.msg_type
         );
         let stats = self
@@ -124,12 +111,16 @@ struct AccountingMsgStats {
 }
 
 impl AccountingMsgStats {
-    fn loggable_stats(&mut self, log_window_size: u16) -> Option<LoggableStats> {
-        if self.msg_count_since_last_logged == log_window_size as usize {
+    fn maybe_dump_stats(
+        &mut self,
+        log_window_size: u16,
+        msg_type: AccountingMsgType,
+    ) -> Option<LoggableStats> {
+        if self.should_log_stats(log_window_size) {
             self.msg_count_since_last_logged = 0;
 
             Some(LoggableStats {
-                msg_type: AccountingMsgType::RoutingServiceProvided,
+                msg_type,
                 accounting_msg_stats: self.stats.drain().collect(),
                 log_window_in_pcs_of_msgs: log_window_size,
             })
@@ -138,10 +129,14 @@ impl AccountingMsgStats {
         }
     }
 
-    fn handle_new_postings(&mut self, new_postings: Vec<NewPosting>) {
-        for new_posting in &new_postings {
-            *self.stats.entry(new_posting.address).or_default() += new_posting.amount_wei;
-        }
+    fn should_log_stats(&self, log_window_size: u16) -> bool {
+        self.msg_count_since_last_logged >= log_window_size as usize
+    }
+
+    fn record_new_charges(&mut self, new_charges_vec: Vec<NewCharge>) {
+        new_charges_vec.iter().for_each(|new_charges| {
+            *self.stats.entry(new_charges.address).or_default() += new_charges.amount_wei;
+        });
         self.msg_count_since_last_logged += 1;
     }
 }
@@ -153,12 +148,12 @@ pub enum AccountingMsgType {
     ServicesConsumed,
 }
 
-pub struct NewPostingsDebugContainer {
+pub struct NewChargessDebugContainer {
     debug_enabled: bool,
-    vec: Vec<NewPosting>,
+    vec: Vec<NewCharge>,
 }
 
-impl NewPostingsDebugContainer {
+impl NewChargessDebugContainer {
     pub fn new(logger: &Logger) -> Self {
         Self {
             debug_enabled: logger.debug_enabled(),
@@ -166,16 +161,18 @@ impl NewPostingsDebugContainer {
         }
     }
 
-    pub fn add(mut self, address: Address, sum_wei: u128) -> Self {
+    pub fn add(mut self, new_charge_opt: Option<NewCharge>) -> Self {
         if self.debug_enabled {
-            self.vec.push(NewPosting::new(address, sum_wei));
+            if let Some(new_charge) = new_charge_opt {
+                self.vec.push(new_charge);
+            }
         }
         self
     }
 }
 
-impl From<NewPostingsDebugContainer> for Vec<NewPosting> {
-    fn from(postings: NewPostingsDebugContainer) -> Self {
+impl From<NewChargessDebugContainer> for Vec<NewCharge> {
+    fn from(postings: NewChargessDebugContainer) -> Self {
         postings.vec
     }
 }
@@ -183,75 +180,57 @@ impl From<NewPostingsDebugContainer> for Vec<NewPosting> {
 #[cfg(test)]
 mod tests {
     use super::{
-        AccountingMsgType, AccountingMsgsDebugStats, LoggableStats, NewPosting,
-        NewPostingsDebugContainer,
+        AccountingMessageTracker, AccountingMsgType, LoggableStats, NewCharge,
+        NewChargessDebugContainer,
     };
     use crate::blockchain::test_utils::make_address;
     use itertools::Itertools;
     use log::Level;
     use masq_lib::logger::Logger;
-    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::collections::HashMap;
     use web3::types::Address;
 
     #[test]
     fn test_loggable_count_works_for_routing_service_provided() {
-        test_manage_debug_log(
+        test_process_debug_stats(
             AccountingMsgType::RoutingServiceProvided,
             6,
-            |subject| {
-                subject
-                    .report_routing_service_provided_processed
-                    .stats
-                    .clone()
-            },
-            |subject| {
-                subject
-                    .report_routing_service_provided_processed
-                    .msg_count_since_last_logged
-            },
+            |subject| subject.routing_provided_stats.stats.clone(),
+            |subject| subject.routing_provided_stats.msg_count_since_last_logged,
         );
     }
 
     #[test]
     fn test_loggable_count_works_for_exit_service_provided() {
-        test_manage_debug_log(
+        test_process_debug_stats(
             AccountingMsgType::ExitServiceProvided,
             3,
-            |subject| subject.report_exit_service_provided_processed.stats.clone(),
-            |subject| {
-                subject
-                    .report_exit_service_provided_processed
-                    .msg_count_since_last_logged
-            },
+            |subject| subject.exit_provided_stats.stats.clone(),
+            |subject| subject.exit_provided_stats.msg_count_since_last_logged,
         );
     }
 
     #[test]
     fn test_loggable_count_works_for_services_consumed() {
-        test_manage_debug_log(
+        test_process_debug_stats(
             AccountingMsgType::ServicesConsumed,
             8,
-            |subject| subject.report_services_consumed_processed.stats.clone(),
-            |subject| {
-                subject
-                    .report_services_consumed_processed
-                    .msg_count_since_last_logged
-            },
+            |subject| subject.consumed_stats.stats.clone(),
+            |subject| subject.consumed_stats.msg_count_since_last_logged,
         );
     }
 
-    fn test_manage_debug_log(
+    fn test_process_debug_stats(
         msg_type: AccountingMsgType,
         gap_size: u16,
-        fetch_stats: fn(&AccountingMsgsDebugStats) -> HashMap<Address, u128>,
-        fetch_msg_count_processed: fn(&AccountingMsgsDebugStats) -> usize,
+        fetch_stats: fn(&AccountingMessageTracker) -> HashMap<Address, u128>,
+        fetch_msg_count_processed: fn(&AccountingMessageTracker) -> usize,
     ) {
         // We begin the test by recording N - 1 msgs. Then we add one more and match the gap_size
         // condition which should release the debug stats. After that happens, the stats are cleared
         // and the process can start again.
         let new_posting_feeds_per_msg = generate_posting_feeds_representing_msgs(gap_size);
-        let mut subject = AccountingMsgsDebugStats::default();
+        let mut subject = AccountingMessageTracker::default();
 
         let initial_state_total_count = fetch_stats(&subject);
         let initial_msg_count_processed = fetch_msg_count_processed(&subject);
@@ -266,7 +245,7 @@ mod tests {
         let first_loggable_stats_opt = new_posting_feeds_per_msg
             .into_iter()
             .fold(None, |_, new_postings| {
-                subject.manage_log(msg_type, new_postings, gap_size)
+                subject.process_debug_stats(msg_type, gap_size, new_postings)
             });
         let first_actual_stats = fetch_stats(&subject);
         let first_msg_count_processed = fetch_msg_count_processed(&subject);
@@ -290,6 +269,7 @@ mod tests {
             posting_fulfilling_the_msg_count_requirement,
         );
         let loggable_stats = second_loggable_stats_opt.unwrap();
+        assert_eq!(loggable_stats.msg_type, msg_type);
         assert_eq!(
             loggable_stats
                 .accounting_msg_stats
@@ -321,7 +301,7 @@ mod tests {
 
     fn record_new_posting_feed_in(
         first_expected_stats: Vec<(Address, u128)>,
-        second_new_posting: Vec<NewPosting>,
+        second_new_posting: Vec<NewCharge>,
     ) -> Vec<(Address, u128)> {
         let second_expected_stats = first_expected_stats
             .into_iter()
@@ -339,12 +319,12 @@ mod tests {
         second_expected_stats
     }
 
-    fn generate_posting_feeds_representing_msgs(gap_size: u16) -> Vec<Vec<NewPosting>> {
+    fn generate_posting_feeds_representing_msgs(gap_size: u16) -> Vec<Vec<NewCharge>> {
         let new_postings_feeds = (0..gap_size - 1)
             .map(|outer_idx| {
                 (0..outer_idx + 1)
                     .map(|inner_idx| {
-                        NewPosting::new(
+                        NewCharge::new(
                             make_address(inner_idx as u32),
                             (inner_idx as u128 + 1) * 1234567,
                         )
@@ -356,7 +336,7 @@ mod tests {
     }
 
     fn compute_expected_stats_from_new_posting_feeds(
-        new_postings_feeds: &Vec<Vec<NewPosting>>,
+        new_postings_feeds: &Vec<Vec<NewCharge>>,
     ) -> Vec<(Address, u128)> {
         let first_expected_stats = {
             let all_postings_flattened = new_postings_feeds.iter().flatten().collect_vec();
@@ -382,73 +362,52 @@ mod tests {
     fn new_posting_debug_container_for_debug_enabled() {
         let mut logger = Logger::new("test");
         logger.set_level_for_test(Level::Debug);
-        let container = NewPostingsDebugContainer::new(&logger);
-        let new_posting_1 = NewPosting::new(make_address(1), 1234567);
-        let new_posting_2 = NewPosting::new(make_address(2), 7654321);
+        let container = NewChargessDebugContainer::new(&logger);
+        let new_charge_1 = NewCharge::new(make_address(1), 1234567);
+        let new_charge_2 = NewCharge::new(make_address(2), 7654321);
 
-        let container = container.add(new_posting_1.address, new_posting_1.amount_wei);
-        let container = container.add(new_posting_1.address, new_posting_1.amount_wei);
-        let container = container.add(new_posting_2.address, new_posting_2.amount_wei);
+        let container = container.add(Some(NewCharge::new(
+            new_charge_1.address,
+            new_charge_1.amount_wei,
+        )));
+        let container = container.add(Some(NewCharge::new(
+            new_charge_1.address,
+            new_charge_1.amount_wei,
+        )));
+        let container = container.add(None);
+        let container = container.add(Some(NewCharge::new(
+            new_charge_2.address,
+            new_charge_2.amount_wei,
+        )));
 
-        let stats: Vec<NewPosting> = container.into();
-        assert_eq!(stats, vec![new_posting_1, new_posting_1, new_posting_2]);
+        let stats: Vec<NewCharge> = container.into();
+        assert_eq!(stats, vec![new_charge_1, new_charge_1, new_charge_2]);
     }
 
     #[test]
     fn new_posting_debug_container_for_debug_not_enabled() {
         let mut logger = Logger::new("test");
         logger.set_level_for_test(Level::Info);
-        let container = NewPostingsDebugContainer::new(&logger);
-        let new_posting_1 = NewPosting::new(make_address(1), 1234567);
-        let new_posting_2 = NewPosting::new(make_address(2), 7654321);
+        let container = NewChargessDebugContainer::new(&logger);
+        let new_charge_1 = NewCharge::new(make_address(1), 1234567);
+        let new_charge_2 = NewCharge::new(make_address(2), 7654321);
 
-        let container = container.add(new_posting_1.address, new_posting_1.amount_wei);
-        let container = container.add(new_posting_1.address, new_posting_1.amount_wei);
-        let container = container.add(new_posting_2.address, new_posting_2.amount_wei);
+        let container = container.add(Some(NewCharge::new(
+            new_charge_1.address,
+            new_charge_1.amount_wei,
+        )));
+        let container = container.add(Some(NewCharge::new(
+            new_charge_1.address,
+            new_charge_1.amount_wei,
+        )));
+        let container = container.add(None);
+        let container = container.add(Some(NewCharge::new(
+            new_charge_2.address,
+            new_charge_2.amount_wei,
+        )));
 
-        let stats: Vec<NewPosting> = container.into();
+        let stats: Vec<NewCharge> = container.into();
         assert_eq!(stats, vec![]);
-    }
-
-    #[test]
-    fn accounts_stats_are_logged_only_if_debug_enabled() {
-        init_test_logging();
-        let test_name = "accounts_stats_are_logged_only_if_debug_enabled";
-        let mut logger = Logger::new(test_name);
-        logger.set_level_for_test(Level::Debug);
-        let mut subject = AccountingMsgsDebugStats::default();
-        let new_posting_1 = NewPosting::new(make_address(1), 1234567);
-        let new_posting_2 = NewPosting::new(make_address(2), 7654321);
-
-        subject.manage_debug_log(
-            &logger,
-            AccountingMsgType::ServicesConsumed,
-            1,
-            vec![new_posting_1, new_posting_2],
-        );
-
-        TestLogHandler::new()
-            .exists_log_containing(&format!("DEBUG: {test_name}: Account debits in last"));
-    }
-
-    #[test]
-    fn accounts_stats_are_not_logged_if_debug_is_not_enabled() {
-        init_test_logging();
-        let test_name = "accounts_stats_are_not_logged_if_debug_is_not_enabled";
-        let mut logger = Logger::new("test");
-        logger.set_level_for_test(Level::Info);
-        let mut subject = AccountingMsgsDebugStats::default();
-        let new_posting_1 = NewPosting::new(make_address(1), 1234567);
-        let new_posting_2 = NewPosting::new(make_address(2), 7654321);
-
-        subject.manage_debug_log(
-            &logger,
-            AccountingMsgType::ServicesConsumed,
-            1,
-            vec![new_posting_1, new_posting_2],
-        );
-
-        TestLogHandler::new().exists_no_log_containing(&format!("DEBUG: {test_name}:"));
     }
 
     #[test]
@@ -459,7 +418,7 @@ mod tests {
             log_window_in_pcs_of_msgs: 15,
         };
         let expected_display = "\
-        Account debits in last 15 RoutingServiceProvided messages (wei):\n\
+        Total debits across last 15 RoutingServiceProvided messages (wei):\n\
         0x0000000000000000000001000000001000000001: 1234567\n\
         0x0000000000000000000002000000002000000002: 7654321";
         assert_eq!(format!("{}", loggable_stats), expected_display);

@@ -4,6 +4,7 @@ use crate::accountant::db_access_objects::failed_payable_dao::FailedPayableDaoFa
 use crate::accountant::db_access_objects::payable_dao::PayableDaoFactory;
 use crate::accountant::db_access_objects::receivable_dao::ReceivableDaoFactory;
 use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDaoFactory;
+use crate::accountant::logging_utils::accounting_msgs_debug::AccountingMsgType;
 use crate::accountant::scanners::payable_scanner::msgs::PricedTemplatesMessage;
 use crate::accountant::{
     checked_conversion, Accountant, ReceivedPayments, ScanError, SentPayables, TxReceiptsMessage,
@@ -18,6 +19,7 @@ use actix::Recipient;
 use actix::{Addr, Message};
 use lazy_static::lazy_static;
 use masq_lib::blockchains::chains::Chain;
+use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
@@ -124,18 +126,81 @@ impl SubsFactory<Accountant, AccountantSubs> for AccountantSubsFactoryReal {
     }
 }
 
-// TODO: These four structures all consist of exactly the same five fields. They could be factored out.
-#[derive(Clone, PartialEq, Eq, Debug, Message)]
-pub struct ReportRoutingServiceProvidedMessage {
-    pub timestamp: SystemTime,
-    pub paying_wallet: Wallet,
-    pub payload_size: usize,
-    pub service_rate: u64,
-    pub byte_rate: u64,
+pub trait AccountableServiceWithTraceLog {
+    fn log_trace(&self, (logger, msg_id): (&Logger, u32), msg_type: AccountingMsgType) {
+        logger.trace(|| self.trace_log_msg(msg_id, msg_type))
+    }
+    fn trace_log_msg(&self, msg_id: u32, msg_type: AccountingMsgType) -> String;
+}
+
+pub trait MessageWithServicesProvided {
+    fn services_provided(&self) -> &ServiceProvided;
+    fn msg_type(&self) -> AccountingMsgType;
+    fn trace_log_wrapper(&self) -> Box<dyn AccountableServiceWithTraceLog>;
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Message)]
 pub struct ReportExitServiceProvidedMessage {
+    pub service: ServiceProvided,
+}
+
+impl AccountableServiceWithTraceLog for ExitServiceProvidedTraceLogWrapper {
+    fn trace_log_msg(&self, msg_id: u32, msg_type: AccountingMsgType) -> String {
+        format!(
+            "Msg {}: Charging exit service for {} bytes to wallet {} at {} per service and {} per byte",
+            msg_id,
+            self.service.payload_size,
+            self.service.paying_wallet,
+            self.service.service_rate,
+            self.service.byte_rate
+        )
+    }
+}
+
+impl MessageWithServicesProvided for ReportExitServiceProvidedMessage {
+    fn services_provided(&self) -> &ServiceProvided {
+        &self.service
+    }
+
+    fn msg_type(&self) -> AccountingMsgType {
+        todo!()
+    }
+
+    fn trace_log_wrapper(&self) -> Box<dyn AccountableServiceWithTraceLog> {
+        todo!()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Message)]
+pub struct ReportRoutingServiceProvidedMessage {
+    pub service: ServiceProvided,
+}
+
+impl AccountableServiceWithTraceLog for RoutingServiceProvidedTraceLogWrapper {
+    fn trace_log_msg(&self, msg_id: u32, msg_type: AccountingMsgType) -> String {
+        format!(
+            "Msg {}: Charging routing of {} bytes to wallet {}",
+            msg_id, self.service.payload_size, self.service.paying_wallet
+        )
+    }
+}
+
+impl MessageWithServicesProvided for ReportRoutingServiceProvidedMessage {
+    fn services_provided(&self) -> &ServiceProvided {
+        &self.service
+    }
+
+    fn msg_type(&self) -> AccountingMsgType {
+        todo!()
+    }
+
+    fn trace_log_wrapper(&self) -> Box<dyn AccountableServiceWithTraceLog> {
+        todo!()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct ServiceProvided {
     pub timestamp: SystemTime,
     pub paying_wallet: Wallet,
     pub payload_size: usize,
@@ -147,8 +212,39 @@ pub struct ReportExitServiceProvidedMessage {
 pub struct ReportServicesConsumedMessage {
     pub timestamp: SystemTime,
     pub exit: ExitServiceConsumed,
+    pub routing: RoutingServicesConsumed,
+}
+
+impl AccountableServiceWithTraceLog for ExitServiceConsumed {
+    fn trace_log_msg(&self, msg_id: u32, msg_type: AccountingMsgType) -> String {
+        format!(
+            "Msg {}: Accruing debt to {} for consuming {} exited bytes",
+            msg_id, self.earning_wallet, self.payload_size
+        )
+    }
+}
+
+impl<'a> AccountableServiceWithTraceLog for RoutingServiceConsumedTraceLogWrapper<'a> {
+    fn trace_log_msg(&self, msg_id: u32, msg_type: AccountingMsgType) -> String {
+        format!(
+            "Msg {}: Accruing debt to {} for consuming {} routed bytes",
+            msg_id, self.service.earning_wallet, self.routing_payload_size
+        )
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct ExitServiceConsumed {
+    pub earning_wallet: Wallet,
+    pub payload_size: usize,
+    pub service_rate: u64,
+    pub byte_rate: u64,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct RoutingServicesConsumed {
     pub routing_payload_size: usize,
-    pub routing: Vec<RoutingServiceConsumed>,
+    pub services: Vec<RoutingServiceConsumed>,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -158,12 +254,17 @@ pub struct RoutingServiceConsumed {
     pub byte_rate: u64,
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct ExitServiceConsumed {
-    pub earning_wallet: Wallet,
-    pub payload_size: usize,
-    pub service_rate: u64,
-    pub byte_rate: u64,
+pub struct ExitServiceProvidedTraceLogWrapper {
+    service: ServiceProvided,
+}
+
+pub struct RoutingServiceProvidedTraceLogWrapper {
+    service: ServiceProvided,
+}
+
+pub struct RoutingServiceConsumedTraceLogWrapper<'a> {
+    pub service: &'a RoutingServiceConsumed,
+    pub routing_payload_size: usize,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
@@ -240,7 +341,7 @@ mod tests {
         assert_eq!(
             *TEMPORARY_CONSUMING_WALLET,
             temporary_consuming_wallet_expected
-        )
+        );
     }
 
     #[test]
