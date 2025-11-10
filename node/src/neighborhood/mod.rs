@@ -768,7 +768,7 @@ impl Neighborhood {
             db_patch_size: self.db_patch_size,
             user_exit_preferences_opt: Some(self.user_exit_preferences.clone()),
         };
-        let mut acceptance_results = self.gossip_acceptor.handle(
+        let acceptance_results = self.gossip_acceptor.handle(
             &mut self.neighborhood_database,
             agrs,
             gossip_source,
