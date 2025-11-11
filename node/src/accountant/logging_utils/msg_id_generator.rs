@@ -17,7 +17,7 @@ impl MessageIdGenerator for MessageIdGeneratorReal {
         MSG_ID_INCREMENTER.fetch_add(1, Ordering::Relaxed)
     }
     fn last_used_id(&self) -> u32 {
-        todo!()
+        MSG_ID_INCREMENTER.load(Ordering::Relaxed) - 1
     }
     as_any_ref_in_trait_impl!();
 }
@@ -70,8 +70,12 @@ mod tests {
         let subject = MessageIdGeneratorReal::default();
         let new_id = subject.new_id();
 
-        let same_id = subject.last_used_id();
+        let same_id_1 = subject.last_used_id();
+        let same_id_2 = subject.last_used_id();
+        let new_id_2 = subject.new_id();
 
-        assert_eq!(new_id, same_id);
+        assert_eq!(new_id, same_id_1);
+        assert_eq!(new_id, same_id_2);
+        assert_eq!(new_id_2, same_id_2 + 1);
     }
 }

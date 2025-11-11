@@ -50,19 +50,19 @@ impl AccountingMessageTracker {
 
     fn maybe_dump_stats_by_msg_type(
         &mut self,
-        gap_size: u16,
+        log_window_size: u16,
         msg_type: AccountingMsgType,
     ) -> Option<LoggableStats> {
         match msg_type {
             AccountingMsgType::RoutingServiceProvided => self
                 .routing_provided_stats
-                .maybe_dump_stats(gap_size, msg_type),
+                .maybe_dump_stats(log_window_size, msg_type),
             AccountingMsgType::ExitServiceProvided => self
                 .exit_provided_stats
-                .maybe_dump_stats(gap_size, msg_type),
-            AccountingMsgType::ServicesConsumed => {
-                self.consumed_stats.maybe_dump_stats(gap_size, msg_type)
-            }
+                .maybe_dump_stats(log_window_size, msg_type),
+            AccountingMsgType::ServicesConsumed => self
+                .consumed_stats
+                .maybe_dump_stats(log_window_size, msg_type),
         }
     }
 }
@@ -161,7 +161,7 @@ impl NewChargessDebugContainer {
         }
     }
 
-    pub fn add(mut self, new_charge_opt: Option<NewCharge>) -> Self {
+    pub fn add_new_charge(mut self, new_charge_opt: Option<NewCharge>) -> Self {
         if self.debug_enabled {
             if let Some(new_charge) = new_charge_opt {
                 self.vec.push(new_charge);
@@ -206,56 +206,38 @@ mod tests {
     }
 
     fn test_process_debug_stats(msg_type: AccountingMsgType, log_window_size: u16) {
-        let mut new_charges_feeds_per_msg =
+        let mut new_charge_feeds_per_msg =
             generate_new_charge_feeds_representing_msgs(log_window_size);
         let expected_sorted_stats =
-            construct_expected_sorted_stats_from_generated_new_charges(&new_charges_feeds_per_msg);
+            construct_expected_sorted_stats_from_generated_new_charges(&new_charge_feeds_per_msg);
         let mut subject = AccountingMessageTracker::default();
         assert_empty_stats(&subject);
-        let exact_window_msg_charges =
-            new_charges_feeds_per_msg.remove(log_window_size as usize - 1);
-        let initial_charge_msgs = new_charges_feeds_per_msg;
+        let charge_msg_matching_the_window_size =
+            new_charge_feeds_per_msg.remove(log_window_size as usize - 1 - 1);
+        let initial_charge_msgs = new_charge_feeds_per_msg;
 
-        test_initial_n_minus_1_msgs(&mut subject, msg_type, log_window_size, initial_charge_msgs);
+        test_msgs_of_count_window_size_minus_one(
+            &mut subject,
+            msg_type,
+            log_window_size,
+            initial_charge_msgs,
+        );
 
         let result = subject
-            .process_debug_stats(msg_type, exact_window_msg_charges, log_window_size)
+            .process_debug_stats(
+                msg_type,
+                charge_msg_matching_the_window_size,
+                log_window_size,
+            )
             .expect("first try: expected stats dump");
 
         assert_provided_loggable_stats(result, msg_type, log_window_size, expected_sorted_stats);
         assert_empty_stats(&subject);
 
-        const QUICK_RECHECK_WINDOW_SIZE: u16 = 2;
-        let mut new_charges_feeds_per_msg =
-            generate_new_charge_feeds_representing_msgs(QUICK_RECHECK_WINDOW_SIZE);
-        let expected_sorted_stats =
-            construct_expected_sorted_stats_from_generated_new_charges(&new_charges_feeds_per_msg);
-
-        let result = subject.process_debug_stats(
-            msg_type,
-            new_charges_feeds_per_msg.remove(0),
-            QUICK_RECHECK_WINDOW_SIZE,
-        );
-
-        assert_eq!(result, None);
-
-        let result = subject
-            .process_debug_stats(
-                msg_type,
-                new_charges_feeds_per_msg.remove(0),
-                QUICK_RECHECK_WINDOW_SIZE,
-            )
-            .expect("second try: expected stats dump");
-
-        assert_provided_loggable_stats(
-            result,
-            msg_type,
-            QUICK_RECHECK_WINDOW_SIZE,
-            expected_sorted_stats,
-        );
+        retest_after_emptied(&mut subject, msg_type);
     }
 
-    fn test_initial_n_minus_1_msgs(
+    fn test_msgs_of_count_window_size_minus_one(
         subject: &mut AccountingMessageTracker,
         msg_type: AccountingMsgType,
         log_window_size: u16,
@@ -311,10 +293,41 @@ mod tests {
         );
     }
 
+    fn retest_after_emptied(subject: &mut AccountingMessageTracker, msg_type: AccountingMsgType) {
+        const QUICK_RETEST_WINDOW_SIZE: u16 = 2;
+        let mut new_charges_feeds_per_msg =
+            generate_new_charge_feeds_representing_msgs(QUICK_RETEST_WINDOW_SIZE);
+        let expected_sorted_stats =
+            construct_expected_sorted_stats_from_generated_new_charges(&new_charges_feeds_per_msg);
+
+        let result = subject.process_debug_stats(
+            msg_type,
+            new_charges_feeds_per_msg.remove(0),
+            QUICK_RETEST_WINDOW_SIZE,
+        );
+
+        assert_eq!(result, None);
+
+        let result = subject
+            .process_debug_stats(
+                msg_type,
+                new_charges_feeds_per_msg.remove(0),
+                QUICK_RETEST_WINDOW_SIZE,
+            )
+            .expect("second try: expected stats dump");
+
+        assert_provided_loggable_stats(
+            result,
+            msg_type,
+            QUICK_RETEST_WINDOW_SIZE,
+            expected_sorted_stats,
+        );
+    }
+
     fn generate_new_charge_feeds_representing_msgs(log_window_size: u16) -> Vec<Vec<NewCharge>> {
-        (0..log_window_size - 1)
+        (0..log_window_size)
             .map(|msg_number| {
-                (0..msg_number + 1)
+                (0..msg_number)
                     .map(|new_charge_idx| {
                         let address = make_address(new_charge_idx as u32);
                         let charge = (new_charge_idx as u128 + 1) * 1234567;
@@ -348,16 +361,16 @@ mod tests {
         let new_charge_1 = NewCharge::new(make_address(1), 1234567);
         let new_charge_2 = NewCharge::new(make_address(2), 7654321);
 
-        let container = container.add(Some(NewCharge::new(
+        let container = container.add_new_charge(Some(NewCharge::new(
             new_charge_1.address,
             new_charge_1.amount_wei,
         )));
-        let container = container.add(Some(NewCharge::new(
+        let container = container.add_new_charge(Some(NewCharge::new(
             new_charge_1.address,
             new_charge_1.amount_wei,
         )));
-        let container = container.add(None);
-        let container = container.add(Some(NewCharge::new(
+        let container = container.add_new_charge(None);
+        let container = container.add_new_charge(Some(NewCharge::new(
             new_charge_2.address,
             new_charge_2.amount_wei,
         )));
@@ -374,16 +387,16 @@ mod tests {
         let new_charge_1 = NewCharge::new(make_address(1), 1234567);
         let new_charge_2 = NewCharge::new(make_address(2), 7654321);
 
-        let container = container.add(Some(NewCharge::new(
+        let container = container.add_new_charge(Some(NewCharge::new(
             new_charge_1.address,
             new_charge_1.amount_wei,
         )));
-        let container = container.add(Some(NewCharge::new(
+        let container = container.add_new_charge(Some(NewCharge::new(
             new_charge_1.address,
             new_charge_1.amount_wei,
         )));
-        let container = container.add(None);
-        let container = container.add(Some(NewCharge::new(
+        let container = container.add_new_charge(None);
+        let container = container.add_new_charge(Some(NewCharge::new(
             new_charge_2.address,
             new_charge_2.amount_wei,
         )));

@@ -94,7 +94,6 @@ use std::time::SystemTime;
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
 pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; //6 hours
-const ACCOUNTING_MSG_LOG_WINDOW: u16 = 50;
 
 pub struct Accountant {
     consuming_wallet_opt: Option<Wallet>,
@@ -745,7 +744,7 @@ impl Accountant {
 
     fn handle_report_service_provided_message<AccountingMessage>(&mut self, msg: AccountingMessage)
     where
-        for<'a> AccountingMessage: MessageWithServicesProvided<'a>,
+        AccountingMessage: MessageWithServicesProvided,
     {
         let services_provided = &msg.services_provided();
         let accounting_msg_type = msg.msg_type();
@@ -755,16 +754,11 @@ impl Accountant {
 
         let charges = self.record_service_provided(services_provided);
 
-        self.consider_logging_debug_stats(
-            accounting_msg_type,
-            charges.into_iter().collect_vec(),
-        );
+        self.consider_logging_debug_stats(accounting_msg_type, charges.into_iter().collect_vec());
     }
 
     fn handle_report_services_consumed_message(&mut self, msg: ReportServicesConsumedMessage) {
-        msg.exit.log_trace(
-            self.logging_kit(MsgIdRequested::New),
-        );
+        msg.exit.log_trace(self.logging_kit(MsgIdRequested::New));
 
         let exit_charge_opt = self.record_service_consumed(
             msg.exit.service_rate,
@@ -775,7 +769,7 @@ impl Accountant {
         );
 
         let new_charges_container =
-            NewChargessDebugContainer::new(&self.logger).add(exit_charge_opt);
+            NewChargessDebugContainer::new(&self.logger).add_new_charge(exit_charge_opt);
 
         let new_charges_container =
             self.handle_routing_services_consumed(&msg, new_charges_container);
@@ -799,9 +793,7 @@ impl Accountant {
                     service: routing_service,
                     routing_payload_size: msg.routing.routing_payload_size,
                 }
-                .log_trace(
-                    self.logging_kit(MsgIdRequested::LastUsed),
-                );
+                .log_trace(self.logging_kit(MsgIdRequested::LastUsed));
 
                 let new_charge = self.record_service_consumed(
                     routing_service.service_rate,
@@ -811,7 +803,7 @@ impl Accountant {
                     &routing_service.earning_wallet,
                 );
 
-                new_charges.add(new_charge)
+                new_charges.add_new_charge(new_charge)
             })
     }
 
@@ -840,7 +832,7 @@ impl Accountant {
             if let Some(loggable_stats) = self.logging_utils.debug_stats.process_debug_stats(
                 msg_type,
                 charges,
-                log_window_size
+                log_window_size,
             ) {
                 debug!(self.logger, "{}", loggable_stats);
             }
@@ -1363,9 +1355,9 @@ mod tests {
         bc_from_earning_wallet, bc_from_wallets, make_payable_account,
         make_qualified_and_unqualified_payables, make_transaction_block, BannedDaoFactoryMock,
         ConfigDaoFactoryMock, DaoWithDestination, FailedPayableDaoFactoryMock,
-        FailedPayableDaoMock, PayableDaoFactoryMock, PayableDaoMock,
-        PaymentAdjusterMock, PendingPayableScannerBuilder, ReceivableDaoFactoryMock,
-        ReceivableDaoMock, SentPayableDaoFactoryMock, SentPayableDaoMock,
+        FailedPayableDaoMock, PayableDaoFactoryMock, PayableDaoMock, PaymentAdjusterMock,
+        PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock,
+        SentPayableDaoFactoryMock, SentPayableDaoMock,
     };
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
     use crate::accountant::Accountant;
@@ -4539,7 +4531,8 @@ mod tests {
             more_money_receivable_parameters[0],
             (now, make_wallet("booga"), (1 * 42) + (1234 * 24))
         );
-        TestLogHandler::new().exists_log_containing(&format!("DEBUG: {test_name}: Total debits across last "));
+        TestLogHandler::new()
+            .exists_log_containing(&format!("DEBUG: {test_name}: Total debits across last "));
     }
 
     #[test]
@@ -4682,7 +4675,8 @@ mod tests {
             more_money_receivable_parameters[0],
             (now, make_wallet("booga"), (1 * 42) + (1234 * 24))
         );
-        TestLogHandler::new().exists_log_containing(&format!("DEBUG: {test_name}: Total debits across last "));
+        TestLogHandler::new()
+            .exists_log_containing(&format!("DEBUG: {test_name}: Total debits across last "));
     }
 
     #[test]
@@ -4857,7 +4851,8 @@ mod tests {
                 )
             ]
         );
-        TestLogHandler::new().exists_log_containing(&format!("DEBUG: {test_name}: Total debits across last "));
+        TestLogHandler::new()
+            .exists_log_containing(&format!("DEBUG: {test_name}: Total debits across last "));
     }
 
     fn assert_that_we_do_not_charge_our_own_wallet_for_consumed_services(
@@ -7038,7 +7033,7 @@ mod tests {
         let test_name = "accounts_stats_are_logged_only_if_debug_enabled";
         let mut logger = Logger::new(test_name);
         logger.set_level_for_test(Level::Debug);
-        let mut subject = AccountantBuilder::default().build();
+        let mut subject = AccountantBuilder::default().logger(logger).build();
         subject.logging_utils.accounting_msg_log_window = 1;
         let new_charge_1 = NewCharge::new(make_address(1), 1234567);
         let new_charge_2 = NewCharge::new(make_address(2), 7654321);
@@ -7049,7 +7044,7 @@ mod tests {
         );
 
         TestLogHandler::new()
-            .exists_log_containing(&format!("DEBUG: {test_name}: Account debits in last"));
+            .exists_log_containing(&format!("DEBUG: {test_name}: Total debits across last"));
     }
 
     #[test]
@@ -7058,7 +7053,7 @@ mod tests {
         let test_name = "accounts_stats_are_not_logged_if_debug_is_not_enabled";
         let mut logger = Logger::new("test");
         logger.set_level_for_test(Level::Info);
-        let mut subject = AccountantBuilder::default().build();
+        let mut subject = AccountantBuilder::default().logger(logger).build();
         subject.logging_utils.accounting_msg_log_window = 1;
         let new_charge_1 = NewCharge::new(make_address(1), 1234567);
         let new_charge_2 = NewCharge::new(make_address(2), 7654321);
@@ -7077,10 +7072,10 @@ mod tests {
         let test_name = "accounts_stats_are_not_produced_for_empty_charges";
         let mut logger = Logger::new("test");
         logger.set_level_for_test(Level::Debug);
-        let mut subject = AccountantBuilder::default().build();
+        let mut subject = AccountantBuilder::default().logger(logger).build();
         subject.logging_utils.accounting_msg_log_window = 1;
 
-        subject.consider_logging_debug_stats(AccountingMsgType::ServicesConsumed,vec![]);
+        subject.consider_logging_debug_stats(AccountingMsgType::ServicesConsumed, vec![]);
 
         TestLogHandler::new().exists_no_log_containing(&format!("DEBUG: {test_name}:"));
     }
@@ -7088,7 +7083,9 @@ mod tests {
     #[test]
     fn logging_kit_works() {
         let test_name = "logging_kit_works";
-        let subject = AccountantBuilder::default().logger(Logger::new(test_name)).build();
+        let subject = AccountantBuilder::default()
+            .logger(Logger::new(test_name))
+            .build();
 
         let (logger_1, id_1) = subject.logging_kit(MsgIdRequested::New);
         let (logger_2, id_2) = subject.logging_kit(MsgIdRequested::New);

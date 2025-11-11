@@ -28,18 +28,17 @@ impl Default for LoggingUtils {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::ACCOUNTING_MSG_LOG_WINDOW;
-    use crate::accountant::logging_utils::LoggingUtils;
+    use crate::accountant::logging_utils::{LoggingUtils, ACCOUNTING_MSG_LOG_WINDOW};
 
     #[test]
-    fn constants_have_right_values(){
+    fn constants_have_right_values() {
         assert_eq!(ACCOUNTING_MSG_LOG_WINDOW, 50);
     }
-    
+
     #[test]
-    fn default_log_window(){
+    fn default_log_window() {
         let subject = LoggingUtils::default();
-        
+
         assert_eq!(subject.accounting_msg_log_window, ACCOUNTING_MSG_LOG_WINDOW)
     }
 }
