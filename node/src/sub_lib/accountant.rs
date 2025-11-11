@@ -127,16 +127,16 @@ impl SubsFactory<Accountant, AccountantSubs> for AccountantSubsFactoryReal {
 }
 
 pub trait AccountableServiceWithTraceLog {
-    fn log_trace(&self, (logger, msg_id): (&Logger, u32), msg_type: AccountingMsgType) {
-        logger.trace(|| self.trace_log_msg(msg_id, msg_type))
+    fn log_trace(&self, (logger, msg_id): (&Logger, u32)) {
+        logger.trace(|| self.trace_log_msg(msg_id))
     }
-    fn trace_log_msg(&self, msg_id: u32, msg_type: AccountingMsgType) -> String;
+    fn trace_log_msg(&self, msg_id: u32) -> String;
 }
 
-pub trait MessageWithServicesProvided {
+pub trait MessageWithServicesProvided<'a> {
     fn services_provided(&self) -> &ServiceProvided;
     fn msg_type(&self) -> AccountingMsgType;
-    fn trace_log_wrapper(&self) -> Box<dyn AccountableServiceWithTraceLog>;
+    fn trace_log_wrapper(&'a self) -> Box<dyn AccountableServiceWithTraceLog + 'a>;
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Message)]
@@ -144,8 +144,8 @@ pub struct ReportExitServiceProvidedMessage {
     pub service: ServiceProvided,
 }
 
-impl AccountableServiceWithTraceLog for ExitServiceProvidedTraceLogWrapper {
-    fn trace_log_msg(&self, msg_id: u32, msg_type: AccountingMsgType) -> String {
+impl <'a> AccountableServiceWithTraceLog for ExitServiceProvidedTraceLogWrapper<'a> {
+    fn trace_log_msg(&self, msg_id: u32) -> String {
         format!(
             "Msg {}: Charging exit service for {} bytes to wallet {} at {} per service and {} per byte",
             msg_id,
@@ -157,17 +157,19 @@ impl AccountableServiceWithTraceLog for ExitServiceProvidedTraceLogWrapper {
     }
 }
 
-impl MessageWithServicesProvided for ReportExitServiceProvidedMessage {
+impl <'a> MessageWithServicesProvided<'a> for ReportExitServiceProvidedMessage {
     fn services_provided(&self) -> &ServiceProvided {
         &self.service
     }
 
     fn msg_type(&self) -> AccountingMsgType {
-        todo!()
+        AccountingMsgType::ExitServiceProvided
     }
 
-    fn trace_log_wrapper(&self) -> Box<dyn AccountableServiceWithTraceLog> {
-        todo!()
+    fn trace_log_wrapper(&'a self) -> Box<dyn AccountableServiceWithTraceLog + 'a> {
+        Box::new(ExitServiceProvidedTraceLogWrapper {
+            service: &self.service,
+        })
     }
 }
 
@@ -176,8 +178,8 @@ pub struct ReportRoutingServiceProvidedMessage {
     pub service: ServiceProvided,
 }
 
-impl AccountableServiceWithTraceLog for RoutingServiceProvidedTraceLogWrapper {
-    fn trace_log_msg(&self, msg_id: u32, msg_type: AccountingMsgType) -> String {
+impl <'a> AccountableServiceWithTraceLog for RoutingServiceProvidedTraceLogWrapper<'a> {
+    fn trace_log_msg(&self, msg_id: u32) -> String {
         format!(
             "Msg {}: Charging routing of {} bytes to wallet {}",
             msg_id, self.service.payload_size, self.service.paying_wallet
@@ -185,7 +187,7 @@ impl AccountableServiceWithTraceLog for RoutingServiceProvidedTraceLogWrapper {
     }
 }
 
-impl MessageWithServicesProvided for ReportRoutingServiceProvidedMessage {
+impl <'a> MessageWithServicesProvided<'a> for ReportRoutingServiceProvidedMessage {
     fn services_provided(&self) -> &ServiceProvided {
         &self.service
     }
@@ -194,7 +196,7 @@ impl MessageWithServicesProvided for ReportRoutingServiceProvidedMessage {
         todo!()
     }
 
-    fn trace_log_wrapper(&self) -> Box<dyn AccountableServiceWithTraceLog> {
+    fn trace_log_wrapper(&'a self) -> Box<dyn AccountableServiceWithTraceLog + 'a> {
         todo!()
     }
 }
@@ -216,7 +218,7 @@ pub struct ReportServicesConsumedMessage {
 }
 
 impl AccountableServiceWithTraceLog for ExitServiceConsumed {
-    fn trace_log_msg(&self, msg_id: u32, msg_type: AccountingMsgType) -> String {
+    fn trace_log_msg(&self, msg_id: u32) -> String {
         format!(
             "Msg {}: Accruing debt to {} for consuming {} exited bytes",
             msg_id, self.earning_wallet, self.payload_size
@@ -225,7 +227,7 @@ impl AccountableServiceWithTraceLog for ExitServiceConsumed {
 }
 
 impl<'a> AccountableServiceWithTraceLog for RoutingServiceConsumedTraceLogWrapper<'a> {
-    fn trace_log_msg(&self, msg_id: u32, msg_type: AccountingMsgType) -> String {
+    fn trace_log_msg(&self, msg_id: u32) -> String {
         format!(
             "Msg {}: Accruing debt to {} for consuming {} routed bytes",
             msg_id, self.service.earning_wallet, self.routing_payload_size
@@ -254,14 +256,22 @@ pub struct RoutingServiceConsumed {
     pub byte_rate: u64,
 }
 
-pub struct ExitServiceProvidedTraceLogWrapper {
-    service: ServiceProvided,
+pub enum ServiceProvidedTraceLogWrapper<'a>{
+    ExitServiceProvided(&'a ServiceProvided),
+    RoutingServiceProvided(&'a ServiceProvided),
 }
 
-pub struct RoutingServiceProvidedTraceLogWrapper {
-    service: ServiceProvided,
+// These wrappers allow different logging implementations for otherwise identical data types
+pub struct ExitServiceProvidedTraceLogWrapper<'a> {
+    service: &'a ServiceProvided,
 }
 
+pub struct RoutingServiceProvidedTraceLogWrapper<'a> {
+    service: &'a ServiceProvided,
+}
+
+// This wrapper provides context for the consumed service, combining information from both
+// sources for a meaningful log message
 pub struct RoutingServiceConsumedTraceLogWrapper<'a> {
     pub service: &'a RoutingServiceConsumed,
     pub routing_payload_size: usize,
@@ -293,17 +303,16 @@ mod tests {
 
     use crate::accountant::test_utils::AccountantBuilder;
     use crate::accountant::{checked_conversion, Accountant};
-    use crate::sub_lib::accountant::{
-        AccountantSubsFactoryReal, DetailedScanType, PaymentThresholds, ScanIntervals, SubsFactory,
-        DEFAULT_EARNING_WALLET, DEFAULT_PAYMENT_THRESHOLDS, TEMPORARY_CONSUMING_WALLET,
-    };
+    use crate::sub_lib::accountant::{AccountantSubsFactoryReal, DetailedScanType, MessageWithServicesProvided, PaymentThresholds, ReportExitServiceProvidedMessage, ReportRoutingServiceProvidedMessage, ScanIntervals, ServiceProvided, SubsFactory, DEFAULT_EARNING_WALLET, DEFAULT_PAYMENT_THRESHOLDS, TEMPORARY_CONSUMING_WALLET};
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::recorder::{make_accountant_subs_from_recorder, Recorder};
     use actix::Actor;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::messages::ScanType;
     use std::str::FromStr;
-    use std::time::Duration;
+    use std::time::{Duration, SystemTime};
+    use crate::accountant::logging_utils::accounting_msgs_debug::AccountingMsgType;
+    use crate::test_utils::make_wallet;
 
     impl From<DetailedScanType> for ScanType {
         fn from(scan_type: DetailedScanType) -> Self {
@@ -392,5 +401,28 @@ mod tests {
                 receivable_scan_interval: Duration::from_secs(600),
             }
         );
+    }
+
+    #[test]
+    fn messages_with_services_provided_are_correctly_implemented() {
+        let service = ServiceProvided {
+            timestamp: SystemTime::now(),
+            paying_wallet: make_wallet("abc"),
+            payload_size: 0,
+            service_rate: 0,
+            byte_rate: 0,
+        };
+        let exit_service_msg =  ReportExitServiceProvidedMessage{ service: service.clone()};
+        let routing_service_msg = ReportRoutingServiceProvidedMessage{ service };
+
+        let exit_service_accounting_msg_type = exit_service_msg.msg_type();
+        let exit_service_provided_trace_log_wrapper = exit_service_msg.trace_log_wrapper();
+        let routing_service_accounting_msg_type = exit_service_msg.msg_type();
+        let routing_service_provided_trace_log_wrapper = routing_service_msg.trace_log_wrapper();
+
+        assert_eq!(exit_service_accounting_msg_type, AccountingMsgType::ExitServiceProvided);
+        assert_eq!(routing_service_accounting_msg_type, AccountingMsgType::RoutingServiceProvided);
+        assert!(exit_service_provided_trace_log_wrapper.trace_log_msg(1).contains( "Msg 1: Charging"));
+        assert!(routing_service_provided_trace_log_wrapper.trace_log_msg(2).contains("Msg 2: Charging"));
     }
 }

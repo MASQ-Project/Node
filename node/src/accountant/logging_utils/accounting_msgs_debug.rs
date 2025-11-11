@@ -192,170 +192,152 @@ mod tests {
 
     #[test]
     fn test_loggable_count_works_for_routing_service_provided() {
-        test_process_debug_stats(
-            AccountingMsgType::RoutingServiceProvided,
-            6,
-            |subject| subject.routing_provided_stats.stats.clone(),
-            |subject| subject.routing_provided_stats.msg_count_since_last_logged,
-        );
+        test_process_debug_stats(AccountingMsgType::RoutingServiceProvided, 6);
     }
 
     #[test]
     fn test_loggable_count_works_for_exit_service_provided() {
-        test_process_debug_stats(
-            AccountingMsgType::ExitServiceProvided,
-            3,
-            |subject| subject.exit_provided_stats.stats.clone(),
-            |subject| subject.exit_provided_stats.msg_count_since_last_logged,
-        );
+        test_process_debug_stats(AccountingMsgType::ExitServiceProvided, 3);
     }
 
     #[test]
     fn test_loggable_count_works_for_services_consumed() {
-        test_process_debug_stats(
-            AccountingMsgType::ServicesConsumed,
-            8,
-            |subject| subject.consumed_stats.stats.clone(),
-            |subject| subject.consumed_stats.msg_count_since_last_logged,
+        test_process_debug_stats(AccountingMsgType::ServicesConsumed, 8);
+    }
+
+    fn test_process_debug_stats(msg_type: AccountingMsgType, log_window_size: u16) {
+        let mut new_charges_feeds_per_msg =
+            generate_new_charge_feeds_representing_msgs(log_window_size);
+        let expected_sorted_stats =
+            construct_expected_sorted_stats_from_generated_new_charges(&new_charges_feeds_per_msg);
+        let mut subject = AccountingMessageTracker::default();
+        assert_empty_stats(&subject);
+        let exact_window_msg_charges =
+            new_charges_feeds_per_msg.remove(log_window_size as usize - 1);
+        let initial_charge_msgs = new_charges_feeds_per_msg;
+
+        test_initial_n_minus_1_msgs(&mut subject, msg_type, log_window_size, initial_charge_msgs);
+
+        let result = subject
+            .process_debug_stats(msg_type, exact_window_msg_charges, log_window_size)
+            .expect("first try: expected stats dump");
+
+        assert_provided_loggable_stats(result, msg_type, log_window_size, expected_sorted_stats);
+        assert_empty_stats(&subject);
+
+        const QUICK_RECHECK_WINDOW_SIZE: u16 = 2;
+        let mut new_charges_feeds_per_msg =
+            generate_new_charge_feeds_representing_msgs(QUICK_RECHECK_WINDOW_SIZE);
+        let expected_sorted_stats =
+            construct_expected_sorted_stats_from_generated_new_charges(&new_charges_feeds_per_msg);
+
+        let result = subject.process_debug_stats(
+            msg_type,
+            new_charges_feeds_per_msg.remove(0),
+            QUICK_RECHECK_WINDOW_SIZE,
+        );
+
+        assert_eq!(result, None);
+
+        let result = subject
+            .process_debug_stats(
+                msg_type,
+                new_charges_feeds_per_msg.remove(0),
+                QUICK_RECHECK_WINDOW_SIZE,
+            )
+            .expect("second try: expected stats dump");
+
+        assert_provided_loggable_stats(
+            result,
+            msg_type,
+            QUICK_RECHECK_WINDOW_SIZE,
+            expected_sorted_stats,
         );
     }
 
-    fn test_process_debug_stats(
+    fn test_initial_n_minus_1_msgs(
+        subject: &mut AccountingMessageTracker,
         msg_type: AccountingMsgType,
-        gap_size: u16,
-        fetch_stats: fn(&AccountingMessageTracker) -> HashMap<Address, u128>,
-        fetch_msg_count_processed: fn(&AccountingMessageTracker) -> usize,
+        log_window_size: u16,
+        initial_charge_msgs: Vec<Vec<NewCharge>>,
     ) {
-        // We begin the test by recording N - 1 msgs. Then we add one more and match the gap_size
-        // condition which should release the debug stats. After that happens, the stats are cleared
-        // and the process can start again.
-        let new_posting_feeds_per_msg = generate_posting_feeds_representing_msgs(gap_size);
-        let mut subject = AccountingMessageTracker::default();
-
-        let initial_state_total_count = fetch_stats(&subject);
-        let initial_msg_count_processed = fetch_msg_count_processed(&subject);
-        assert_eq!(initial_state_total_count, hashmap!());
-        assert_eq!(initial_msg_count_processed, 0);
-
-        let first_feed_remembered = new_posting_feeds_per_msg.first().unwrap().clone();
-        let last_feed_remembered = new_posting_feeds_per_msg.last().unwrap().clone();
-
-        let first_expected_stats =
-            compute_expected_stats_from_new_posting_feeds(&new_posting_feeds_per_msg);
-        let first_loggable_stats_opt = new_posting_feeds_per_msg
+        initial_charge_msgs
             .into_iter()
-            .fold(None, |_, new_postings| {
-                subject.process_debug_stats(msg_type, gap_size, new_postings)
-            });
-        let first_actual_stats = fetch_stats(&subject);
-        let first_msg_count_processed = fetch_msg_count_processed(&subject);
-        assert_eq!(first_loggable_stats_opt, None);
-        assert_eq!(
-            first_actual_stats.into_iter().sorted().collect_vec(),
-            first_expected_stats
-        );
-        assert_eq!(first_msg_count_processed, gap_size as usize - 1);
+            .enumerate()
+            .for_each(|(idx, new_charges)| {
+                let result = subject.process_debug_stats(msg_type, new_charges, log_window_size);
 
-        let posting_fulfilling_the_msg_count_requirement = first_feed_remembered;
-        let second_loggable_stats_opt = subject.manage_log(
-            msg_type,
-            posting_fulfilling_the_msg_count_requirement.clone(),
-            gap_size,
-        );
-        let second_actual_stats = fetch_stats(&subject);
-        let second_msg_count_processed = fetch_msg_count_processed(&subject);
-        let second_expected_stats = record_new_posting_feed_in(
-            first_expected_stats,
-            posting_fulfilling_the_msg_count_requirement,
-        );
-        let loggable_stats = second_loggable_stats_opt.unwrap();
-        assert_eq!(loggable_stats.msg_type, msg_type);
+                assert_eq!(
+                    result,
+                    None,
+                    "We expected the first {} msgs to be just recorded and not to stimulate stats \
+                     as happened with msg {}",
+                    log_window_size - 1,
+                    idx + 1
+                )
+            });
+    }
+
+    fn assert_empty_stats(subject: &AccountingMessageTracker) {
+        assert!(subject.consumed_stats.stats.is_empty());
+        assert_eq!(subject.consumed_stats.msg_count_since_last_logged, 0);
+        assert!(subject.exit_provided_stats.stats.is_empty());
+        assert_eq!(subject.exit_provided_stats.msg_count_since_last_logged, 0);
+        assert!(subject.routing_provided_stats.stats.is_empty());
         assert_eq!(
-            loggable_stats
+            subject.routing_provided_stats.msg_count_since_last_logged,
+            0
+        )
+    }
+
+    fn assert_provided_loggable_stats(
+        actual_loggable_stats: LoggableStats,
+        msg_type: AccountingMsgType,
+        log_window_size: u16,
+        expected_sorted_stats: Vec<(Address, u128)>,
+    ) {
+        assert_eq!(actual_loggable_stats.msg_type, msg_type);
+        assert_eq!(
+            actual_loggable_stats
                 .accounting_msg_stats
                 .into_iter()
                 .sorted()
                 .collect_vec(),
-            second_expected_stats,
+            expected_sorted_stats
         );
-        assert_eq!(loggable_stats.log_window_in_pcs_of_msgs, gap_size,);
-        assert_eq!(second_actual_stats, hashmap!());
-        assert_eq!(second_msg_count_processed, 0);
-
-        let new_posting_after_stats_dumping = last_feed_remembered;
-        let third_loggable_stats_opt =
-            subject.manage_log(msg_type, new_posting_after_stats_dumping.clone(), gap_size);
-        let third_actual_stats = fetch_stats(&subject);
-        let third_msg_count_processed = fetch_msg_count_processed(&subject);
-        assert_eq!(third_loggable_stats_opt, None);
         assert_eq!(
-            third_actual_stats.into_iter().sorted().collect_vec(),
-            new_posting_after_stats_dumping
-                .into_iter()
-                .map(|posting| (posting.address, posting.amount_wei))
-                .sorted()
-                .collect_vec(),
+            actual_loggable_stats.log_window_in_pcs_of_msgs,
+            log_window_size
         );
-        assert_eq!(third_msg_count_processed, 1);
     }
 
-    fn record_new_posting_feed_in(
-        first_expected_stats: Vec<(Address, u128)>,
-        second_new_posting: Vec<NewCharge>,
-    ) -> Vec<(Address, u128)> {
-        let second_expected_stats = first_expected_stats
-            .into_iter()
-            .map(|(address, sum)| {
-                let updated_sum = second_new_posting.iter().fold(sum, |acc, posting| {
-                    if posting.address == address {
-                        acc + posting.amount_wei
-                    } else {
-                        acc
-                    }
-                });
-                (address, updated_sum)
-            })
-            .collect_vec();
-        second_expected_stats
-    }
-
-    fn generate_posting_feeds_representing_msgs(gap_size: u16) -> Vec<Vec<NewCharge>> {
-        let new_postings_feeds = (0..gap_size - 1)
-            .map(|outer_idx| {
-                (0..outer_idx + 1)
-                    .map(|inner_idx| {
-                        NewCharge::new(
-                            make_address(inner_idx as u32),
-                            (inner_idx as u128 + 1) * 1234567,
-                        )
+    fn generate_new_charge_feeds_representing_msgs(log_window_size: u16) -> Vec<Vec<NewCharge>> {
+        (0..log_window_size - 1)
+            .map(|msg_number| {
+                (0..msg_number + 1)
+                    .map(|new_charge_idx| {
+                        let address = make_address(new_charge_idx as u32);
+                        let charge = (new_charge_idx as u128 + 1) * 1234567;
+                        NewCharge::new(address, charge)
                     })
                     .collect_vec()
             })
-            .collect_vec();
-        new_postings_feeds
+            .collect_vec()
     }
 
-    fn compute_expected_stats_from_new_posting_feeds(
-        new_postings_feeds: &Vec<Vec<NewCharge>>,
+    fn construct_expected_sorted_stats_from_generated_new_charges(
+        msg_batches: &[Vec<NewCharge>],
     ) -> Vec<(Address, u128)> {
-        let first_expected_stats = {
-            let all_postings_flattened = new_postings_feeds.iter().flatten().collect_vec();
-            let all_unique_addresses = new_postings_feeds.last().unwrap();
-            all_unique_addresses
-                .iter()
-                .map(|unique_account_posting| {
-                    let sum = all_postings_flattened.iter().fold(0, |acc, posting| {
-                        if posting.address == unique_account_posting.address {
-                            acc + posting.amount_wei
-                        } else {
-                            acc
-                        }
-                    });
-                    (unique_account_posting.address, sum)
-                })
-                .collect_vec()
-        };
-        first_expected_stats
+        msg_batches
+            .iter()
+            .flatten()
+            .fold(HashMap::new(), |mut totals, posting| {
+                *totals.entry(posting.address).or_default() += posting.amount_wei;
+                totals
+            })
+            .into_iter()
+            .sorted()
+            .collect()
     }
 
     #[test]

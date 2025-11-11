@@ -745,19 +745,18 @@ impl Accountant {
 
     fn handle_report_service_provided_message<AccountingMessage>(&mut self, msg: AccountingMessage)
     where
-        AccountingMessage: MessageWithServicesProvided,
+        for<'a> AccountingMessage: MessageWithServicesProvided<'a>,
     {
         let services_provided = &msg.services_provided();
         let accounting_msg_type = msg.msg_type();
         let trace_log_wrapper = msg.trace_log_wrapper();
 
-        trace_log_wrapper.log_trace(self.logging_kit(MsgIdRequested::New), accounting_msg_type);
+        trace_log_wrapper.log_trace(self.logging_kit(MsgIdRequested::New));
 
         let charges = self.record_service_provided(services_provided);
 
         self.consider_logging_debug_stats(
             accounting_msg_type,
-            ACCOUNTING_MSG_LOG_WINDOW,
             charges.into_iter().collect_vec(),
         );
     }
@@ -765,7 +764,6 @@ impl Accountant {
     fn handle_report_services_consumed_message(&mut self, msg: ReportServicesConsumedMessage) {
         msg.exit.log_trace(
             self.logging_kit(MsgIdRequested::New),
-            AccountingMsgType::ServicesConsumed,
         );
 
         let exit_charge_opt = self.record_service_consumed(
@@ -784,7 +782,6 @@ impl Accountant {
 
         self.consider_logging_debug_stats(
             AccountingMsgType::ServicesConsumed,
-            ACCOUNTING_MSG_LOG_WINDOW,
             new_charges_container.into(),
         );
     }
@@ -804,7 +801,6 @@ impl Accountant {
                 }
                 .log_trace(
                     self.logging_kit(MsgIdRequested::LastUsed),
-                    AccountingMsgType::ServicesConsumed,
                 );
 
                 let new_charge = self.record_service_consumed(
@@ -832,18 +828,19 @@ impl Accountant {
     fn consider_logging_debug_stats(
         &mut self,
         msg_type: AccountingMsgType,
-        log_window_size: u16,
         charges: Vec<NewCharge>,
     ) {
         if charges.is_empty() {
             return;
         }
 
+        let log_window_size = self.logging_utils.accounting_msg_log_window;
+
         if self.logger.debug_enabled() {
             if let Some(loggable_stats) = self.logging_utils.debug_stats.process_debug_stats(
                 msg_type,
                 charges,
-                log_window_size,
+                log_window_size
             ) {
                 debug!(self.logger, "{}", loggable_stats);
             }
@@ -1366,7 +1363,7 @@ mod tests {
         bc_from_earning_wallet, bc_from_wallets, make_payable_account,
         make_qualified_and_unqualified_payables, make_transaction_block, BannedDaoFactoryMock,
         ConfigDaoFactoryMock, DaoWithDestination, FailedPayableDaoFactoryMock,
-        FailedPayableDaoMock, MessageIdGeneratorMock, PayableDaoFactoryMock, PayableDaoMock,
+        FailedPayableDaoMock, PayableDaoFactoryMock, PayableDaoMock,
         PaymentAdjusterMock, PendingPayableScannerBuilder, ReceivableDaoFactoryMock,
         ReceivableDaoMock, SentPayableDaoFactoryMock, SentPayableDaoMock,
     };
@@ -1449,7 +1446,6 @@ mod tests {
     fn constants_have_correct_values() {
         assert_eq!(CRASH_KEY, "ACCOUNTANT");
         assert_eq!(DEFAULT_PENDING_TOO_LONG_SEC, 21_600);
-        assert_eq!(ACCOUNTING_MSG_LOG_WINDOW, 50);
     }
 
     #[test]
@@ -4500,6 +4496,7 @@ mod tests {
     #[test]
     fn report_routing_service_provided_message_is_received() {
         init_test_logging();
+        let test_name = "report_routing_service_provided_message_is_received";
         let now = SystemTime::now();
         let bootstrapper_config = bc_from_earning_wallet(make_wallet("hi"));
         let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
@@ -4507,11 +4504,13 @@ mod tests {
         let receivable_dao_mock = ReceivableDaoMock::new()
             .more_money_receivable_parameters(&more_money_receivable_parameters_arc)
             .more_money_receivable_result(Ok(()));
-        let subject = AccountantBuilder::default()
+        let mut subject = AccountantBuilder::default()
             .bootstrapper_config(bootstrapper_config)
+            .logger(Logger::new(test_name))
             .payable_daos(vec![ForAccountantBody(payable_dao_mock)])
             .receivable_daos(vec![ForAccountantBody(receivable_dao_mock)])
             .build();
+        subject.logging_utils.accounting_msg_log_window = 1;
         let system = System::new("report_routing_service_message_is_received");
         let subject_addr: Addr<Accountant> = subject.start();
         subject_addr
@@ -4540,6 +4539,7 @@ mod tests {
             more_money_receivable_parameters[0],
             (now, make_wallet("booga"), (1 * 42) + (1234 * 24))
         );
+        TestLogHandler::new().exists_log_containing(&format!("DEBUG: {test_name}: Total debits across last "));
     }
 
     #[test]
@@ -4639,6 +4639,7 @@ mod tests {
     #[test]
     fn report_exit_service_provided_message_is_received() {
         init_test_logging();
+        let test_name = "report_exit_service_provided_message_is_received";
         let now = SystemTime::now();
         let config = bc_from_earning_wallet(make_wallet("hi"));
         let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
@@ -4646,11 +4647,13 @@ mod tests {
         let receivable_dao_mock = ReceivableDaoMock::new()
             .more_money_receivable_parameters(&more_money_receivable_parameters_arc)
             .more_money_receivable_result(Ok(()));
-        let subject = AccountantBuilder::default()
+        let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
+            .logger(Logger::new(test_name))
             .payable_daos(vec![ForAccountantBody(payable_dao_mock)])
             .receivable_daos(vec![ForAccountantBody(receivable_dao_mock)])
             .build();
+        subject.logging_utils.accounting_msg_log_window = 1;
         let system = System::new("report_exit_service_provided_message_is_received");
         let subject_addr: Addr<Accountant> = subject.start();
         subject_addr
@@ -4679,6 +4682,7 @@ mod tests {
             more_money_receivable_parameters[0],
             (now, make_wallet("booga"), (1 * 42) + (1234 * 24))
         );
+        TestLogHandler::new().exists_log_containing(&format!("DEBUG: {test_name}: Total debits across last "));
     }
 
     #[test]
@@ -4778,6 +4782,7 @@ mod tests {
     #[test]
     fn report_services_consumed_message_is_received() {
         init_test_logging();
+        let test_name = "report_services_consumed_message_is_received";
         let config = make_bc_with_defaults(TEST_DEFAULT_CHAIN);
         let more_money_payable_params_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao_mock = PayableDaoMock::new()
@@ -4787,10 +4792,10 @@ mod tests {
             .more_money_payable_result(Ok(()));
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
+            .logger(Logger::new(test_name))
             .payable_daos(vec![ForAccountantBody(payable_dao_mock)])
             .build();
-        subject.logging_utils.msg_id_generator =
-            Box::new(MessageIdGeneratorMock::default().id_result(123));
+        subject.logging_utils.accounting_msg_log_window = 1;
         let system = System::new("report_services_consumed_message_is_received");
         let subject_addr: Addr<Accountant> = subject.start();
         subject_addr
@@ -4852,6 +4857,7 @@ mod tests {
                 )
             ]
         );
+        TestLogHandler::new().exists_log_containing(&format!("DEBUG: {test_name}: Total debits across last "));
     }
 
     fn assert_that_we_do_not_charge_our_own_wallet_for_consumed_services(
@@ -7033,12 +7039,12 @@ mod tests {
         let mut logger = Logger::new(test_name);
         logger.set_level_for_test(Level::Debug);
         let mut subject = AccountantBuilder::default().build();
+        subject.logging_utils.accounting_msg_log_window = 1;
         let new_charge_1 = NewCharge::new(make_address(1), 1234567);
         let new_charge_2 = NewCharge::new(make_address(2), 7654321);
 
         subject.consider_logging_debug_stats(
             AccountingMsgType::ServicesConsumed,
-            1,
             vec![new_charge_1, new_charge_2],
         );
 
@@ -7053,12 +7059,12 @@ mod tests {
         let mut logger = Logger::new("test");
         logger.set_level_for_test(Level::Info);
         let mut subject = AccountantBuilder::default().build();
+        subject.logging_utils.accounting_msg_log_window = 1;
         let new_charge_1 = NewCharge::new(make_address(1), 1234567);
         let new_charge_2 = NewCharge::new(make_address(2), 7654321);
 
         subject.consider_logging_debug_stats(
             AccountingMsgType::ServicesConsumed,
-            1,
             vec![new_charge_1, new_charge_2],
         );
 
@@ -7066,10 +7072,23 @@ mod tests {
     }
 
     #[test]
+    fn accounts_stats_are_not_produced_for_empty_charges() {
+        init_test_logging();
+        let test_name = "accounts_stats_are_not_produced_for_empty_charges";
+        let mut logger = Logger::new("test");
+        logger.set_level_for_test(Level::Debug);
+        let mut subject = AccountantBuilder::default().build();
+        subject.logging_utils.accounting_msg_log_window = 1;
+
+        subject.consider_logging_debug_stats(AccountingMsgType::ServicesConsumed,vec![]);
+
+        TestLogHandler::new().exists_no_log_containing(&format!("DEBUG: {test_name}:"));
+    }
+
+    #[test]
     fn logging_kit_works() {
         let test_name = "logging_kit_works";
-        let subject = AccountantBuilder::default().build();
-        let logger = Logger::new(test_name);
+        let subject = AccountantBuilder::default().logger(Logger::new(test_name)).build();
 
         let (logger_1, id_1) = subject.logging_kit(MsgIdRequested::New);
         let (logger_2, id_2) = subject.logging_kit(MsgIdRequested::New);
