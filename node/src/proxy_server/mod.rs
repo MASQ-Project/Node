@@ -16,8 +16,8 @@ use crate::proxy_server::protocol_pack::{from_ibcd, from_protocol, ProtocolPack}
 use crate::proxy_server::ExitServiceSearch::{Definite, ZeroHop};
 use crate::stream_messages::NonClandestineAttributes;
 use crate::stream_messages::RemovedStreamType;
-use crate::sub_lib::accountant::RoutingServiceConsumed;
 use crate::sub_lib::accountant::{ExitServiceConsumed, ReportServicesConsumedMessage};
+use crate::sub_lib::accountant::{RoutingServiceConsumed, RoutingServicesConsumed};
 use crate::sub_lib::bidi_hashmap::BidiHashMap;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::PublicKey;
@@ -856,8 +856,10 @@ impl ProxyServer {
                         .try_send(ReportServicesConsumedMessage {
                             timestamp: args.timestamp,
                             exit,
-                            routing_payload_size: pkg.payload.len(),
-                            routing,
+                            routing: RoutingServicesConsumed {
+                                routing_payload_size: pkg.payload.len(),
+                                services: routing,
+                            },
                         })
                         .expect("Accountant is dead");
                 }
@@ -997,8 +999,10 @@ impl ProxyServer {
         let report_message = ReportServicesConsumedMessage {
             timestamp: SystemTime::now(),
             exit: exit_service_report,
-            routing_payload_size: routing_size,
-            routing: routing_service_reports,
+            routing: RoutingServicesConsumed {
+                routing_payload_size: routing_size,
+                services: routing_service_reports,
+            },
         };
         self.subs
             .as_ref()
@@ -2902,19 +2906,21 @@ mod tests {
                     service_rate: exit_node_rate_pack.exit_service_rate,
                     byte_rate: exit_node_rate_pack.exit_byte_rate
                 },
-                routing_payload_size: payload_enc_length,
-                routing: vec![
-                    RoutingServiceConsumed {
-                        earning_wallet: route_1_earning_wallet,
-                        service_rate: routing_node_1_rate_pack.routing_service_rate,
-                        byte_rate: routing_node_1_rate_pack.routing_byte_rate,
-                    },
-                    RoutingServiceConsumed {
-                        earning_wallet: route_2_earning_wallet,
-                        service_rate: routing_node_2_rate_pack.routing_service_rate,
-                        byte_rate: routing_node_2_rate_pack.routing_byte_rate,
-                    }
-                ]
+                routing: RoutingServicesConsumed {
+                    routing_payload_size: payload_enc_length,
+                    services: vec![
+                        RoutingServiceConsumed {
+                            earning_wallet: route_1_earning_wallet,
+                            service_rate: routing_node_1_rate_pack.routing_service_rate,
+                            byte_rate: routing_node_1_rate_pack.routing_byte_rate,
+                        },
+                        RoutingServiceConsumed {
+                            earning_wallet: route_2_earning_wallet,
+                            service_rate: routing_node_2_rate_pack.routing_service_rate,
+                            byte_rate: routing_node_2_rate_pack.routing_byte_rate,
+                        }
+                    ]
+                }
             }
         );
         let recording = proxy_server_recording_arc.lock().unwrap();
@@ -4101,7 +4107,7 @@ mod tests {
                 byte_rate: exit_rates.exit_byte_rate,
             }
         );
-        assert_eq!(msg.routing_payload_size, 5432);
+        assert_eq!(msg.routing.routing_payload_size, 5432);
         let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
         let len = dispatcher_recording.len();
         assert_eq!(len, 0);
@@ -4270,19 +4276,21 @@ mod tests {
                     service_rate: rate_pack_d.exit_service_rate,
                     byte_rate: rate_pack_d.exit_byte_rate
                 },
-                routing_payload_size: routing_size,
-                routing: vec![
-                    RoutingServiceConsumed {
-                        earning_wallet: incoming_route_e_wallet,
-                        service_rate: rate_pack_e.routing_service_rate,
-                        byte_rate: rate_pack_e.routing_byte_rate
-                    },
-                    RoutingServiceConsumed {
-                        earning_wallet: incoming_route_f_wallet,
-                        service_rate: rate_pack_f.routing_service_rate,
-                        byte_rate: rate_pack_f.routing_byte_rate
-                    }
-                ]
+                routing: RoutingServicesConsumed {
+                    routing_payload_size: routing_size,
+                    services: vec![
+                        RoutingServiceConsumed {
+                            earning_wallet: incoming_route_e_wallet,
+                            service_rate: rate_pack_e.routing_service_rate,
+                            byte_rate: rate_pack_e.routing_byte_rate
+                        },
+                        RoutingServiceConsumed {
+                            earning_wallet: incoming_route_f_wallet,
+                            service_rate: rate_pack_f.routing_service_rate,
+                            byte_rate: rate_pack_f.routing_byte_rate
+                        }
+                    ]
+                }
             }
         );
         assert!(before <= first_report_timestamp && first_report_timestamp <= after);
@@ -4299,19 +4307,21 @@ mod tests {
                     service_rate: rate_pack_g.exit_service_rate,
                     byte_rate: rate_pack_g.exit_byte_rate
                 },
-                routing_payload_size: routing_size,
-                routing: vec![
-                    RoutingServiceConsumed {
-                        earning_wallet: incoming_route_h_wallet,
-                        service_rate: rate_pack_h.routing_service_rate,
-                        byte_rate: rate_pack_h.routing_byte_rate
-                    },
-                    RoutingServiceConsumed {
-                        earning_wallet: incoming_route_i_wallet,
-                        service_rate: rate_pack_i.routing_service_rate,
-                        byte_rate: rate_pack_i.routing_byte_rate
-                    }
-                ]
+                routing: RoutingServicesConsumed {
+                    routing_payload_size: routing_size,
+                    services: vec![
+                        RoutingServiceConsumed {
+                            earning_wallet: incoming_route_h_wallet,
+                            service_rate: rate_pack_h.routing_service_rate,
+                            byte_rate: rate_pack_h.routing_byte_rate
+                        },
+                        RoutingServiceConsumed {
+                            earning_wallet: incoming_route_i_wallet,
+                            service_rate: rate_pack_i.routing_service_rate,
+                            byte_rate: rate_pack_i.routing_byte_rate
+                        }
+                    ]
+                }
             }
         );
         assert!(before <= second_report_timestamp && second_report_timestamp <= after);
@@ -4507,12 +4517,14 @@ mod tests {
                     service_rate: rate_pack_d.exit_service_rate,
                     byte_rate: rate_pack_d.exit_byte_rate
                 },
-                routing_payload_size: routing_size,
-                routing: vec![RoutingServiceConsumed {
-                    earning_wallet: incoming_route_e_wallet,
-                    service_rate: rate_pack_e.routing_service_rate,
-                    byte_rate: rate_pack_e.routing_byte_rate
-                }]
+                routing: RoutingServicesConsumed {
+                    routing_payload_size: routing_size,
+                    services: vec![RoutingServiceConsumed {
+                        earning_wallet: incoming_route_e_wallet,
+                        service_rate: rate_pack_e.routing_service_rate,
+                        byte_rate: rate_pack_e.routing_byte_rate
+                    }]
+                }
             }
         );
         assert!(before <= returned_timestamp && returned_timestamp <= after);
@@ -4689,19 +4701,21 @@ mod tests {
                     service_rate: rate_pack_d.exit_service_rate,
                     byte_rate: rate_pack_d.exit_byte_rate
                 },
-                routing_payload_size: routing_size,
-                routing: vec![
-                    RoutingServiceConsumed {
-                        earning_wallet: incoming_route_e_wallet,
-                        service_rate: rate_pack_e.routing_service_rate,
-                        byte_rate: rate_pack_e.routing_byte_rate
-                    },
-                    RoutingServiceConsumed {
-                        earning_wallet: incoming_route_f_wallet,
-                        service_rate: rate_pack_f.routing_service_rate,
-                        byte_rate: rate_pack_f.routing_byte_rate
-                    }
-                ]
+                routing: RoutingServicesConsumed {
+                    routing_payload_size: routing_size,
+                    services: vec![
+                        RoutingServiceConsumed {
+                            earning_wallet: incoming_route_e_wallet,
+                            service_rate: rate_pack_e.routing_service_rate,
+                            byte_rate: rate_pack_e.routing_byte_rate
+                        },
+                        RoutingServiceConsumed {
+                            earning_wallet: incoming_route_f_wallet,
+                            service_rate: rate_pack_f.routing_service_rate,
+                            byte_rate: rate_pack_f.routing_byte_rate
+                        }
+                    ]
+                }
             }
         );
         assert!(before <= returned_timestamp && returned_timestamp <= after);

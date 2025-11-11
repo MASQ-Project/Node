@@ -186,7 +186,7 @@ impl TxReceiptInterpreter {
                     failed_tx.reason,
                 );
 
-                scan_report.register_finalization_of_supposed_failure(failed_tx.hash);
+                scan_report.register_finalization_of_suspected_failure(failed_tx.hash);
             }
         }
         scan_report
@@ -473,10 +473,10 @@ mod tests {
     }
 
     #[test]
-    fn interprets_tx_receipt_for_supposedly_failed_tx_if_the_tx_keeps_pending() {
+    fn interprets_tx_receipt_for_suspectedly_failed_tx_if_the_tx_keeps_pending() {
         init_test_logging();
         let retrieve_txs_params_arc = Arc::new(Mutex::new(vec![]));
-        let test_name = "interprets_tx_receipt_for_supposedly_failed_tx_if_the_tx_keeps_pending";
+        let test_name = "interprets_tx_receipt_for_suspectedly_failed_tx_if_the_tx_keeps_pending";
         let mut newer_sent_tx_for_older_failed_tx = make_sent_tx(2244);
         newer_sent_tx_for_older_failed_tx.hash = make_tx_hash(0x7c6);
         let sent_payable_dao = SentPayableDaoMock::new()

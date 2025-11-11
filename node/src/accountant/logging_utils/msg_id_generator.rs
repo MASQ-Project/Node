@@ -4,7 +4,8 @@ use crate::sub_lib::accountant::MSG_ID_INCREMENTER;
 use std::sync::atomic::Ordering;
 
 pub trait MessageIdGenerator {
-    fn id(&self) -> u32;
+    fn new_id(&self) -> u32;
+    fn last_used_id(&self) -> u32;
     as_any_ref_in_trait!();
 }
 
@@ -12,10 +13,18 @@ pub trait MessageIdGenerator {
 pub struct MessageIdGeneratorReal {}
 
 impl MessageIdGenerator for MessageIdGeneratorReal {
-    fn id(&self) -> u32 {
+    fn new_id(&self) -> u32 {
         MSG_ID_INCREMENTER.fetch_add(1, Ordering::Relaxed)
     }
+    fn last_used_id(&self) -> u32 {
+        MSG_ID_INCREMENTER.load(Ordering::Relaxed) - 1
+    }
     as_any_ref_in_trait_impl!();
+}
+
+pub enum MsgIdRequested {
+    New,
+    LastUsed,
 }
 
 #[cfg(test)]
@@ -34,9 +43,9 @@ mod tests {
         let _guard = MSG_ID_GENERATOR_TEST_GUARD.lock().unwrap();
         let subject = MessageIdGeneratorReal::default();
 
-        let id1 = subject.id();
-        let id2 = subject.id();
-        let id3 = subject.id();
+        let id1 = subject.new_id();
+        let id2 = subject.new_id();
+        let id3 = subject.new_id();
 
         assert_eq!(id2, id1 + 1);
         assert_eq!(id3, id2 + 1)
@@ -47,10 +56,26 @@ mod tests {
         let _guard = MSG_ID_GENERATOR_TEST_GUARD.lock().unwrap();
         MSG_ID_INCREMENTER.store(u32::MAX, Ordering::Relaxed);
         let subject = MessageIdGeneratorReal::default();
-        subject.id(); // This returns the previous value, not the newly incremented
+        // First call: gets u32::MAX; then increments the global counter to 0 (wraparound)
+        subject.new_id();
 
-        let id = subject.id();
+        let id = subject.new_id();
 
         assert_eq!(id, 0)
+    }
+
+    #[test]
+    fn msg_id_generator_last_used_id() {
+        let _guard = MSG_ID_GENERATOR_TEST_GUARD.lock().unwrap();
+        let subject = MessageIdGeneratorReal::default();
+        let new_id = subject.new_id();
+
+        let same_id_1 = subject.last_used_id();
+        let same_id_2 = subject.last_used_id();
+        let new_id_2 = subject.new_id();
+
+        assert_eq!(new_id, same_id_1);
+        assert_eq!(new_id, same_id_2);
+        assert_eq!(new_id_2, same_id_2 + 1);
     }
 }

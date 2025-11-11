@@ -4,6 +4,7 @@ use crate::accountant::db_access_objects::failed_payable_dao::FailedPayableDaoFa
 use crate::accountant::db_access_objects::payable_dao::PayableDaoFactory;
 use crate::accountant::db_access_objects::receivable_dao::ReceivableDaoFactory;
 use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDaoFactory;
+use crate::accountant::logging_utils::accounting_msgs_debug::AccountingMsgType;
 use crate::accountant::scanners::payable_scanner::msgs::PricedTemplatesMessage;
 use crate::accountant::{
     checked_conversion, Accountant, ReceivedPayments, ScanError, SentPayables, TxReceiptsMessage,
@@ -18,6 +19,7 @@ use actix::Recipient;
 use actix::{Addr, Message};
 use lazy_static::lazy_static;
 use masq_lib::blockchains::chains::Chain;
+use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
@@ -124,18 +126,82 @@ impl SubsFactory<Accountant, AccountantSubs> for AccountantSubsFactoryReal {
     }
 }
 
-// TODO: These four structures all consist of exactly the same five fields. They could be factored out.
-#[derive(Clone, PartialEq, Eq, Debug, Message)]
-pub struct ReportRoutingServiceProvidedMessage {
-    pub timestamp: SystemTime,
-    pub paying_wallet: Wallet,
-    pub payload_size: usize,
-    pub service_rate: u64,
-    pub byte_rate: u64,
+pub trait AccountableServiceWithTraceLog {
+    fn log_trace(&self, (logger, msg_id): (&Logger, u32)) {
+        logger.trace(|| self.trace_log_msg(msg_id))
+    }
+    fn trace_log_msg(&self, msg_id: u32) -> String;
+}
+
+pub trait MessageWithServicesProvided {
+    fn services_provided(&self) -> &ServiceProvided;
+    fn msg_type(&self) -> AccountingMsgType;
+    fn trace_log_wrapper(&self) -> ServiceProvidedTraceLogWrapper<'_>;
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Message)]
 pub struct ReportExitServiceProvidedMessage {
+    pub service: ServiceProvided,
+}
+
+impl MessageWithServicesProvided for ReportExitServiceProvidedMessage {
+    fn services_provided(&self) -> &ServiceProvided {
+        &self.service
+    }
+
+    fn msg_type(&self) -> AccountingMsgType {
+        AccountingMsgType::ExitServiceProvided
+    }
+
+    fn trace_log_wrapper(&self) -> ServiceProvidedTraceLogWrapper<'_> {
+        ServiceProvidedTraceLogWrapper::ExitServiceProvided(&self.service)
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Message)]
+pub struct ReportRoutingServiceProvidedMessage {
+    pub service: ServiceProvided,
+}
+
+impl MessageWithServicesProvided for ReportRoutingServiceProvidedMessage {
+    fn services_provided(&self) -> &ServiceProvided {
+        &self.service
+    }
+
+    fn msg_type(&self) -> AccountingMsgType {
+        AccountingMsgType::RoutingServiceProvided
+    }
+
+    fn trace_log_wrapper(&self) -> ServiceProvidedTraceLogWrapper<'_> {
+        ServiceProvidedTraceLogWrapper::RoutingServiceProvided(&self.service)
+    }
+}
+
+impl AccountableServiceWithTraceLog for ServiceProvidedTraceLogWrapper<'_> {
+    fn trace_log_msg(&self, msg_id: u32) -> String {
+        match self {
+            ServiceProvidedTraceLogWrapper::ExitServiceProvided(service) => {
+                format!(
+                    "Msg {}: Charging exit service for {} bytes to wallet {} at {} per service and {} per byte",
+                    msg_id,
+                    service.payload_size,
+                    service.paying_wallet,
+                    service.service_rate,
+                    service.byte_rate
+                )
+            }
+            ServiceProvidedTraceLogWrapper::RoutingServiceProvided(service) => {
+                format!(
+                    "Msg {}: Charging routing of {} bytes to wallet {}",
+                    msg_id, service.payload_size, service.paying_wallet
+                )
+            }
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct ServiceProvided {
     pub timestamp: SystemTime,
     pub paying_wallet: Wallet,
     pub payload_size: usize,
@@ -147,8 +213,39 @@ pub struct ReportExitServiceProvidedMessage {
 pub struct ReportServicesConsumedMessage {
     pub timestamp: SystemTime,
     pub exit: ExitServiceConsumed,
+    pub routing: RoutingServicesConsumed,
+}
+
+impl AccountableServiceWithTraceLog for ExitServiceConsumed {
+    fn trace_log_msg(&self, msg_id: u32) -> String {
+        format!(
+            "Msg {}: Accruing debt to {} for consuming {} exited bytes",
+            msg_id, self.earning_wallet, self.payload_size
+        )
+    }
+}
+
+impl<'a> AccountableServiceWithTraceLog for RoutingServiceConsumedTraceLogWrapper<'a> {
+    fn trace_log_msg(&self, msg_id: u32) -> String {
+        format!(
+            "Msg {}: Accruing debt to {} for consuming {} routed bytes",
+            msg_id, self.service.earning_wallet, self.routing_payload_size
+        )
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct ExitServiceConsumed {
+    pub earning_wallet: Wallet,
+    pub payload_size: usize,
+    pub service_rate: u64,
+    pub byte_rate: u64,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct RoutingServicesConsumed {
     pub routing_payload_size: usize,
-    pub routing: Vec<RoutingServiceConsumed>,
+    pub services: Vec<RoutingServiceConsumed>,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -158,12 +255,14 @@ pub struct RoutingServiceConsumed {
     pub byte_rate: u64,
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct ExitServiceConsumed {
-    pub earning_wallet: Wallet,
-    pub payload_size: usize,
-    pub service_rate: u64,
-    pub byte_rate: u64,
+pub enum ServiceProvidedTraceLogWrapper<'a> {
+    ExitServiceProvided(&'a ServiceProvided),
+    RoutingServiceProvided(&'a ServiceProvided),
+}
+
+pub struct RoutingServiceConsumedTraceLogWrapper<'a> {
+    pub service: &'a RoutingServiceConsumed,
+    pub routing_payload_size: usize,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
@@ -190,19 +289,23 @@ pub enum DetailedScanType {
 #[cfg(test)]
 mod tests {
 
+    use crate::accountant::logging_utils::accounting_msgs_debug::AccountingMsgType;
     use crate::accountant::test_utils::AccountantBuilder;
     use crate::accountant::{checked_conversion, Accountant};
     use crate::sub_lib::accountant::{
-        AccountantSubsFactoryReal, DetailedScanType, PaymentThresholds, ScanIntervals, SubsFactory,
+        AccountableServiceWithTraceLog, AccountantSubsFactoryReal, DetailedScanType,
+        MessageWithServicesProvided, PaymentThresholds, ReportExitServiceProvidedMessage,
+        ReportRoutingServiceProvidedMessage, ScanIntervals, ServiceProvided, SubsFactory,
         DEFAULT_EARNING_WALLET, DEFAULT_PAYMENT_THRESHOLDS, TEMPORARY_CONSUMING_WALLET,
     };
     use crate::sub_lib::wallet::Wallet;
+    use crate::test_utils::make_wallet;
     use crate::test_utils::recorder::{make_accountant_subs_from_recorder, Recorder};
     use actix::Actor;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::messages::ScanType;
     use std::str::FromStr;
-    use std::time::Duration;
+    use std::time::{Duration, SystemTime};
 
     impl From<DetailedScanType> for ScanType {
         fn from(scan_type: DetailedScanType) -> Self {
@@ -240,7 +343,7 @@ mod tests {
         assert_eq!(
             *TEMPORARY_CONSUMING_WALLET,
             temporary_consuming_wallet_expected
-        )
+        );
     }
 
     #[test]
@@ -291,5 +394,40 @@ mod tests {
                 receivable_scan_interval: Duration::from_secs(600),
             }
         );
+    }
+
+    #[test]
+    fn messages_with_services_provided_are_correctly_implemented() {
+        let service = ServiceProvided {
+            timestamp: SystemTime::now(),
+            paying_wallet: make_wallet("abc"),
+            payload_size: 0,
+            service_rate: 0,
+            byte_rate: 0,
+        };
+        let exit_service_msg = ReportExitServiceProvidedMessage {
+            service: service.clone(),
+        };
+        let routing_service_msg = ReportRoutingServiceProvidedMessage { service };
+
+        let exit_service_accounting_msg_type = exit_service_msg.msg_type();
+        let exit_service_provided_trace_log_wrapper = exit_service_msg.trace_log_wrapper();
+        let routing_service_accounting_msg_type = routing_service_msg.msg_type();
+        let routing_service_provided_trace_log_wrapper = routing_service_msg.trace_log_wrapper();
+
+        assert_eq!(
+            exit_service_accounting_msg_type,
+            AccountingMsgType::ExitServiceProvided
+        );
+        assert_eq!(
+            routing_service_accounting_msg_type,
+            AccountingMsgType::RoutingServiceProvided
+        );
+        assert!(exit_service_provided_trace_log_wrapper
+            .trace_log_msg(1)
+            .contains("Msg 1: Charging exit"));
+        assert!(routing_service_provided_trace_log_wrapper
+            .trace_log_msg(2)
+            .contains("Msg 2: Charging routing"));
     }
 }

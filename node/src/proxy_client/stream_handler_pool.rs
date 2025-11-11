@@ -4,7 +4,7 @@
 use crate::proxy_client::resolver_wrapper::ResolverWrapper;
 use crate::proxy_client::stream_establisher::StreamEstablisherFactoryReal;
 use crate::proxy_client::stream_establisher::{StreamEstablisher, StreamEstablisherFactory};
-use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
+use crate::sub_lib::accountant::{ReportExitServiceProvidedMessage, ServiceProvided};
 use crate::sub_lib::channel_wrappers::SenderWrapper;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::proxy_client::{error_socket_addr, ProxyClientSubs};
@@ -260,11 +260,13 @@ impl StreamHandlerPoolReal {
                     Some(wallet) => inner
                         .accountant_sub
                         .try_send(ReportExitServiceProvidedMessage {
-                            timestamp: SystemTime::now(),
-                            paying_wallet: wallet,
-                            payload_size,
-                            service_rate: inner.exit_service_rate,
-                            byte_rate: inner.exit_byte_rate,
+                            service: ServiceProvided{
+                                timestamp: SystemTime::now(),
+                                paying_wallet: wallet,
+                                payload_size,
+                                service_rate: inner.exit_service_rate,
+                                byte_rate: inner.exit_byte_rate,
+                            }
                         })
                         .expect("Accountant is dead"),
                     // This log is here mostly for testing, to prove that no Accountant message is sent in the no-wallet case
@@ -1399,7 +1401,7 @@ mod tests {
         );
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         let resp_msg = accountant_recording.get_record::<ReportExitServiceProvidedMessage>(0);
-        check_timestamp(before, resp_msg.timestamp, after);
+        check_timestamp(before, resp_msg.service.timestamp, after);
     }
 
     #[test]
