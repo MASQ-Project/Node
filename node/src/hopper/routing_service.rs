@@ -186,7 +186,7 @@ impl RoutingService {
         let inbound_client_data = InboundClientData {
             timestamp: ibcd_but_data.timestamp,
             client_addr: ibcd_but_data.client_addr,
-            reception_port: ibcd_but_data.reception_port,
+            reception_port_opt: ibcd_but_data.reception_port_opt,
             last_data: ibcd_but_data.last_data,
             is_clandestine: ibcd_but_data.is_clandestine,
             sequence_number: ibcd_but_data.sequence_number,
@@ -542,16 +542,18 @@ mod tests {
 
     #[test]
     fn dns_resolution_failures_are_reported_to_the_proxy_server() {
-        let cryptde_pair = CRYPTDE_PAIR.clone();
-        let route =
-            route_to_proxy_server(&cryptde_pair.main.public_key(), cryptde_pair.main.as_ref());
+        let route = route_to_proxy_server(
+            &CRYPTDE_PAIR.main.public_key(),
+            CRYPTDE_PAIR.main.as_ref(),
+            false,
+        );
         let stream_key = StreamKey::make_meaningless_stream_key();
         let dns_resolve_failure = DnsResolveFailure_0v1::new(stream_key);
         let lcp = LiveCoresPackage::new(
             route,
             encodex(
-                cryptde_pair.alias.as_ref(),
-                &cryptde_pair.alias.public_key(),
+                CRYPTDE_PAIR.alias.as_ref(),
+                &CRYPTDE_PAIR.alias.public_key(),
                 &MessageType::DnsResolveFailed(VersionedData::new(
                     &crate::sub_lib::migrations::dns_resolve_failure::MIGRATIONS,
                     &dns_resolve_failure.clone(),
@@ -560,15 +562,15 @@ mod tests {
             .unwrap(),
         );
         let data_enc = encodex(
-            cryptde_pair.main.as_ref(),
-            &cryptde_pair.main.public_key(),
+            CRYPTDE_PAIR.main.as_ref(),
+            &CRYPTDE_PAIR.main.public_key(),
             &lcp,
         )
         .unwrap();
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            reception_port: None,
+            reception_port_opt: None,
             sequence_number: None,
             last_data: false,
             is_clandestine: false,
@@ -579,7 +581,7 @@ mod tests {
         let system = System::new("dns_resolution_failures_are_reported_to_the_proxy_server");
         let peer_actors = peer_actors_builder().proxy_server(proxy_server).build();
         let subject = RoutingService::new(
-            cryptde_pair,
+            CRYPTDE_PAIR.clone(),
             RoutingServiceSubs {
                 proxy_client_subs_opt: peer_actors.proxy_client_opt,
                 proxy_server_subs: peer_actors.proxy_server,
@@ -606,28 +608,30 @@ mod tests {
     #[test]
     fn logs_and_ignores_message_that_cannot_be_deserialized() {
         init_test_logging();
-        let cryptde_pair = CRYPTDE_PAIR.clone();
-        let route =
-            route_from_proxy_client(&cryptde_pair.main.public_key(), cryptde_pair.main.as_ref());
+        let route = route_from_proxy_client(
+            &CRYPTDE_PAIR.main.public_key(),
+            CRYPTDE_PAIR.main.as_ref(),
+            false,
+        );
         let lcp = LiveCoresPackage::new(
             route,
             encodex(
-                cryptde_pair.main.as_ref(),
-                &cryptde_pair.main.public_key(),
+                CRYPTDE_PAIR.main.as_ref(),
+                &CRYPTDE_PAIR.main.public_key(),
                 &[42u8],
             )
             .unwrap(),
         );
         let data_enc = encodex(
-            cryptde_pair.main.as_ref(),
-            &cryptde_pair.main.public_key(),
+            CRYPTDE_PAIR.main.as_ref(),
+            &CRYPTDE_PAIR.main.public_key(),
             &lcp,
         )
         .unwrap();
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            reception_port: None,
+            reception_port_opt: None,
             sequence_number: None,
             last_data: false,
             is_clandestine: false,
@@ -635,7 +639,7 @@ mod tests {
         };
         let peer_actors = peer_actors_builder().build();
         let subject = RoutingService::new(
-            cryptde_pair,
+            CRYPTDE_PAIR.clone(),
             RoutingServiceSubs {
                 proxy_client_subs_opt: peer_actors.proxy_client_opt,
                 proxy_server_subs: peer_actors.proxy_server,
@@ -661,7 +665,7 @@ mod tests {
         init_test_logging();
         let main_cryptde = CryptDEReal::new(TEST_DEFAULT_CHAIN);
         let rogue_cryptde = CryptDEReal::new(TEST_DEFAULT_CHAIN);
-        let route = route_from_proxy_client(main_cryptde.public_key(), &main_cryptde);
+        let route = route_from_proxy_client(main_cryptde.public_key(), &main_cryptde, false);
         let lcp = LiveCoresPackage::new(
             route,
             encodex(&rogue_cryptde, rogue_cryptde.public_key(), &[42u8]).unwrap(),
@@ -670,7 +674,7 @@ mod tests {
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            reception_port: None,
+            reception_port_opt: None,
             sequence_number: None,
             last_data: false,
             is_clandestine: false,
@@ -707,7 +711,7 @@ mod tests {
     fn logs_and_ignores_message_that_had_invalid_destination() {
         init_test_logging();
         let main_cryptde = CRYPTDE_PAIR.main.as_ref();
-        let route = route_from_proxy_client(&main_cryptde.public_key(), main_cryptde);
+        let route = route_from_proxy_client(&main_cryptde.public_key(), main_cryptde, false);
         let payload = GossipBuilder::empty();
         let lcp = LiveCoresPackage::new(
             route,
@@ -722,7 +726,7 @@ mod tests {
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            reception_port: None,
+            reception_port_opt: None,
             sequence_number: None,
             last_data: false,
             is_clandestine: false,
@@ -753,7 +757,7 @@ mod tests {
         BAN_CACHE.clear();
         let main_cryptde = CRYPTDE_PAIR.main.as_ref();
         let (component, _, component_recording_arc) = make_recorder();
-        let route = route_to_proxy_client(&main_cryptde.public_key(), main_cryptde);
+        let route = route_to_proxy_client(&main_cryptde.public_key(), main_cryptde, false);
         let payload = make_request_payload(0, main_cryptde);
         let lcp = LiveCoresPackage::new(
             route,
@@ -772,7 +776,7 @@ mod tests {
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            reception_port: None,
+            reception_port_opt: None,
             sequence_number: None,
             last_data: true,
             is_clandestine: false,
@@ -823,7 +827,7 @@ mod tests {
         init_test_logging();
         BAN_CACHE.clear();
         let main_cryptde = CRYPTDE_PAIR.main.as_ref();
-        let route = route_to_proxy_client(&main_cryptde.public_key(), main_cryptde);
+        let route = route_to_proxy_client(&main_cryptde.public_key(), main_cryptde, false);
         let payload = make_request_payload(0, main_cryptde);
         let lcp = LiveCoresPackage::new(
             route,
@@ -841,7 +845,7 @@ mod tests {
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            reception_port: None,
+            reception_port_opt: None,
             sequence_number: None,
             last_data: true,
             is_clandestine: false,
@@ -881,7 +885,7 @@ mod tests {
         let main_cryptde = CRYPTDE_PAIR.main.as_ref();
         let alias_cryptde = CRYPTDE_PAIR.alias.as_ref();
         let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
-        let route = route_to_proxy_server(&main_cryptde.public_key(), main_cryptde);
+        let route = route_to_proxy_server(&main_cryptde.public_key(), main_cryptde, false);
         let payload = make_response_payload(0);
         let lcp = LiveCoresPackage::new(
             route,
@@ -897,7 +901,7 @@ mod tests {
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.3.2.4:5678").unwrap(),
-            reception_port: None,
+            reception_port_opt: None,
             last_data: false,
             is_clandestine: true,
             sequence_number: None,
@@ -974,7 +978,7 @@ mod tests {
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.3.2.4:5678").unwrap(),
-            reception_port: None,
+            reception_port_opt: None,
             last_data: false,
             is_clandestine: true,
             sequence_number: None,
@@ -1047,7 +1051,7 @@ mod tests {
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.3.2.4:5678").unwrap(),
-            reception_port: None,
+            reception_port_opt: None,
             last_data: false,
             is_clandestine: true,
             sequence_number: None,
@@ -1123,7 +1127,7 @@ mod tests {
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            reception_port: None,
+            reception_port_opt: None,
             last_data: true,
             is_clandestine: true,
             sequence_number: None,
@@ -1215,7 +1219,7 @@ mod tests {
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            reception_port: None,
+            reception_port_opt: None,
             last_data: true,
             is_clandestine: true,
             sequence_number: None,
@@ -1258,7 +1262,7 @@ mod tests {
             InboundClientData {
                 timestamp: record.timestamp,
                 client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-                reception_port: None,
+                reception_port_opt: None,
                 last_data: true,
                 is_clandestine: true,
                 sequence_number: None,
@@ -1276,7 +1280,7 @@ mod tests {
         let origin_key = PublicKey::new(&[1, 2]);
         let origin_cryptde = CryptDENull::from(&origin_key, TEST_DEFAULT_CHAIN);
         let destination_key = PublicKey::new(&[3, 4]);
-        let payload = make_meaningless_message_type();
+        let payload = make_meaningless_message_type(StreamKey::make_meaningless_stream_key());
         let route = Route::one_way(
             RouteSegment::new(
                 vec![&origin_key, &main_cryptde.public_key(), &destination_key],
@@ -1297,7 +1301,7 @@ mod tests {
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            reception_port: None,
+            reception_port_opt: None,
             last_data: true,
             is_clandestine: true,
             sequence_number: None,
@@ -1394,7 +1398,7 @@ mod tests {
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            reception_port: None,
+            reception_port_opt: None,
             last_data: true,
             is_clandestine: true,
             sequence_number: None,
@@ -1570,7 +1574,7 @@ mod tests {
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            reception_port: None,
+            reception_port_opt: None,
             last_data: true,
             is_clandestine: true,
             sequence_number: None,
@@ -1640,7 +1644,7 @@ mod tests {
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            reception_port: None,
+            reception_port_opt: None,
             last_data: true,
             is_clandestine: true,
             sequence_number: None,
@@ -1684,7 +1688,7 @@ mod tests {
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            reception_port: None,
+            reception_port_opt: None,
             last_data: true,
             is_clandestine: true,
             sequence_number: None,
@@ -1741,7 +1745,7 @@ mod tests {
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            reception_port: None,
+            reception_port_opt: None,
             last_data: true,
             is_clandestine: true,
             sequence_number: None,
@@ -1808,7 +1812,7 @@ mod tests {
         let ibcd = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            reception_port: None,
+            reception_port_opt: None,
             last_data: true,
             is_clandestine: true,
             sequence_number: None,
@@ -1873,7 +1877,7 @@ mod tests {
                     &ClientRequestPayload_0v1 {
                         stream_key: StreamKey::make_meaningless_stream_key(),
                         sequenced_packet: SequencedPacket::new(vec![1, 2, 3, 4], 1234, false),
-                        target_hostname: Some("hostname".to_string()),
+                        target_hostname: "hostname".to_string(),
                         target_port: 1234,
                         protocol: ProxyProtocol::TLS,
                         originator_public_key: PublicKey::new(b"1234"),

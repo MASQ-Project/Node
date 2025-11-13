@@ -160,6 +160,8 @@ mod tests {
     fn spawn_stream_reader_handles_data() {
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let (sub_tx, sub_rx) = unbounded();
+        let stream_key = StreamKey::make_meaningless_stream_key();
+        let stream_key_inner = stream_key.clone();
         thread::spawn(move || {
             let system = System::new("spawn_stream_reader_handles_data");
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
@@ -193,13 +195,13 @@ mod tests {
             };
             subject.spawn_stream_reader(
                 &ClientRequestPayload_0v1 {
-                    stream_key: StreamKey::make_meaningless_stream_key(),
+                    stream_key: stream_key_inner,
                     sequenced_packet: SequencedPacket {
                         data: vec![],
                         sequence_number: 0,
                         last_data: false,
                     },
-                    target_hostname: Some("blah".to_string()),
+                    target_hostname: "blah".to_string(),
                     target_port: 0,
                     protocol: ProxyProtocol::HTTP,
                     originator_public_key: subject.cryptde.public_key().clone(),
@@ -227,7 +229,7 @@ mod tests {
         assert_eq!(
             ibsd,
             InboundServerData {
-                stream_key: StreamKey::make_meaningless_stream_key(),
+                stream_key,
                 last_data: false,
                 sequence_number: 0,
                 source: SocketAddr::from_str("1.2.3.4:5678").unwrap(),

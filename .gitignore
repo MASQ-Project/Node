@@ -4,6 +4,7 @@
 **/*.rs.bk
 .idea/azure/
 .idea/inspectionProfiles/Project_Default.xml
+.idea/copilot.data.migration.*
 
 ### Node
 node_modules
