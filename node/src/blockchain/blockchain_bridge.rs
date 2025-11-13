@@ -507,8 +507,8 @@ impl BlockchainBridge {
 
     pub fn extract_max_block_count(error: BlockchainError) -> Option<u64> {
         let regex_result =
-            Regex::new(r".* (max: |allowed for your plan: |is limited to |block range limit \(|exceeds max block range )(?P<max_block_count>\d+).*")
-                .expect("Invalid regex");
+            Regex::new(r".* (max: |allowed for your plan: |is limited to |block range limit \(|exceeds max block range |maximum allowed is )(?P<max_block_count>\d+).*")
+        .expect("Invalid regex");
         let max_block_count = match error {
             BlockchainError::QueryFailed(msg) => match regex_result.captures(msg.as_str()) {
                 Some(captures) => match captures.name("max_block_count") {
@@ -1541,7 +1541,7 @@ mod tests {
         system.run();
         let after = SystemTime::now();
         let expected_transactions = RetrievedBlockchainTransactions {
-            new_start_block: BlockMarker::Value(42 + 9_000_000 + 1),
+            new_start_block: BlockMarker::Value(42 + 9_000_000),
             transactions: vec![
                 BlockchainTransaction {
                     block_number: 6040059,
@@ -1742,7 +1742,7 @@ mod tests {
         let received_payments_message = accountant_recording.get_record::<ReceivedPayments>(0);
         check_timestamp(before, received_payments_message.timestamp, after);
         let expected_transactions = RetrievedBlockchainTransactions {
-            new_start_block: BlockMarker::Value(6 + 5000 + 1),
+            new_start_block: BlockMarker::Value(6 + 5000),
             transactions: vec![BlockchainTransaction {
                 block_number: 2000,
                 from: earning_wallet.clone(),
@@ -2199,6 +2199,15 @@ mod tests {
         let max_block_count = BlockchainBridge::extract_max_block_count(result);
 
         assert_eq!(Some(100000), max_block_count);
+    }
+
+    #[test]
+    fn extract_max_block_range_for_nodies_error_response_v2() {
+        let result = BlockchainError::QueryFailed("RPC error: Error { code: ServerError(-32001), message: \"Block range too large: maximum allowed is 20000 blocks\", data: None }".to_string());
+
+        let max_block_count = BlockchainBridge::extract_max_block_count(result);
+
+        assert_eq!(Some(20000), max_block_count);
     }
 
     #[test]
