@@ -3,6 +3,7 @@
 use crate::arbitrary_id_stamp_in_trait;
 use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
 use crate::blockchain::bip39::{Bip39, Bip39Error};
+use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DbInitializerReal};
 use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionSafeWrapper};
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoReal, ConfigDaoRecord};
 use crate::db_config::secure_config_layer::{SecureConfigLayer, SecureConfigLayerError};
@@ -15,6 +16,7 @@ use crate::sub_lib::cryptde::{CryptDE, PlainData};
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::neighborhood::{Hops, NodeDescriptor, RatePack, RatePackLimits};
+use crate::sub_lib::utils::db_connection_launch_panic;
 use crate::sub_lib::wallet::Wallet;
 use lazy_static::lazy_static;
 use masq_lib::blockchains::chains::Chain;
@@ -29,8 +31,6 @@ use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::path::PathBuf;
 use std::str::FromStr;
 use websocket::url::Url;
-use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DbInitializerReal};
-use crate::sub_lib::utils::db_connection_launch_panic;
 
 lazy_static! {
     static ref RATE_PACK_LIMIT_FORMAT: Regex =
@@ -594,7 +594,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
             .expect(format!("Syntax error in rate_pack_limits value '{}': should be <LRBR>-<HRBR>|<LRSR>-<HRSR>|<LEBR>-<HEBR>|<LESR>-<HESR> where L is low, H is high, R is routing, E is exit, BR is byte rate, and SR is service rate. All numbers should be in wei.", limits_string).as_str());
         let candidate = RatePackLimits::new(
             Self::extract_candidate(&captures, 1),
-            Self::extract_candidate(&captures, 2)
+            Self::extract_candidate(&captures, 2),
         );
         Self::check_rate_pack_limit_order(
             candidate.lo.routing_byte_rate,
@@ -778,7 +778,10 @@ impl PersistentConfiguration for PersistentConfigurationInvalid {
     ) -> Result<(), PersistentConfigError> {
         PersistentConfigurationInvalid::invalid()
     }
-    fn consuming_wallet(&self, _db_password: &str) -> Result<Option<Wallet>, PersistentConfigError> {
+    fn consuming_wallet(
+        &self,
+        _db_password: &str,
+    ) -> Result<Option<Wallet>, PersistentConfigError> {
         PersistentConfigurationInvalid::invalid()
     }
     fn consuming_wallet_private_key(
@@ -864,7 +867,10 @@ impl PersistentConfiguration for PersistentConfigurationInvalid {
     fn max_block_count(&self) -> Result<Option<u64>, PersistentConfigError> {
         PersistentConfigurationInvalid::invalid()
     }
-    fn set_max_block_count(&mut self, _value_opt: Option<u64>) -> Result<(), PersistentConfigError> {
+    fn set_max_block_count(
+        &mut self,
+        _value_opt: Option<u64>,
+    ) -> Result<(), PersistentConfigError> {
         PersistentConfigurationInvalid::invalid()
     }
     fn set_start_block_from_txn(
@@ -921,7 +927,7 @@ pub trait PersistentConfigurationFactory {
 }
 
 pub struct PersistentConfigurationFactoryReal {
-    data_directory: PathBuf
+    data_directory: PathBuf,
 }
 
 impl PersistentConfigurationFactory for PersistentConfigurationFactoryReal {
@@ -939,9 +945,7 @@ impl PersistentConfigurationFactory for PersistentConfigurationFactoryReal {
 
 impl PersistentConfigurationFactoryReal {
     pub fn new(data_directory: PathBuf) -> Self {
-        Self {
-            data_directory
-        }
+        Self { data_directory }
     }
 }
 

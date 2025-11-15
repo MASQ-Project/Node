@@ -6,11 +6,13 @@ use crate::discriminator::DiscriminatorFactory;
 use crate::discriminator::UnmaskedChunk;
 use crate::masquerader::MasqueradeError;
 use crate::masquerader::Masquerader;
+use crate::neighborhood::node_record::NodeRecord;
 use crate::node_configurator::DirsWrapper;
 use crate::null_masquerader::NullMasquerader;
 use crate::privilege_drop::IdWrapper;
 use crate::stream_handler_pool::StreamHandlerPoolSubs;
 use crate::stream_messages::*;
+use crate::sub_lib::cryptde::{CryptData, PlainData};
 use crate::sub_lib::framer::FramedChunk;
 use crate::sub_lib::framer::Framer;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
@@ -315,5 +317,18 @@ impl Masquerader for FailingMasquerader {
         Err(MasqueradeError::LowLevelDataError(
             String::from_str("don't care").unwrap(),
         ))
+    }
+}
+
+impl NodeRecord {
+    pub fn but_no_node_addr(&self) -> NodeRecord {
+        let mut modified = NodeRecord {
+            inner: self.inner.clone(),
+            metadata: self.metadata.clone(),
+            signed_gossip: PlainData::new(&[]),
+            signature: CryptData::new(&[]),
+        };
+        modified.resign();
+        modified
     }
 }

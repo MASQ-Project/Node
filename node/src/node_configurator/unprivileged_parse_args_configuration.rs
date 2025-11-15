@@ -2496,7 +2496,7 @@ mod tests {
             .set_rate_pack_result(Ok(()))
             .rate_pack_limits_result(Ok(RatePackLimits::new(
                 RatePack::new(5, 5, 5, 5),
-                RatePack::new(7, 7, 7, 7)
+                RatePack::new(7, 7, 7, 7),
             )));
 
         let result = configure_rate_pack(
@@ -2531,7 +2531,7 @@ mod tests {
             .set_rate_pack_result(Ok(()))
             .rate_pack_limits_result(Ok(RatePackLimits::new(
                 RatePack::new(5, 5, 5, 5),
-                RatePack::new(7, 7, 7, 7)
+                RatePack::new(7, 7, 7, 7),
             )));
 
         let result = configure_rate_pack(

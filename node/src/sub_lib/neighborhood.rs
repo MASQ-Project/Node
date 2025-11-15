@@ -23,6 +23,7 @@ use lazy_static::lazy_static;
 use masq_lib::blockchains::blockchain_records::CHAINS;
 use masq_lib::blockchains::chains::{chain_from_chain_identifier_opt, Chain};
 use masq_lib::constants::{CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, MASQ_URL_PREFIX};
+use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::NeighborhoodModeLight;
 use serde_derive::{Deserialize, Serialize};
@@ -31,7 +32,6 @@ use std::fmt::{Debug, Display, Formatter};
 use std::net::IpAddr;
 use std::str::FromStr;
 use std::time::Duration;
-use masq_lib::shared_schema::ConfiguratorError;
 
 const ASK_ABOUT_GOSSIP_INTERVAL: Duration = Duration::from_secs(10);
 
@@ -87,7 +87,7 @@ impl RatePack {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RatePackLimits {
     pub lo: RatePack,
-    pub hi: RatePack
+    pub hi: RatePack,
 }
 
 impl RatePackLimits {
@@ -103,13 +103,12 @@ impl RatePackLimits {
     }
 
     pub fn analyze(&self, rate_pack: &RatePack) -> Result<(), ConfiguratorError> {
-        let check_min_and_max = |
-            candidate: u64,
-            min: u64,
-            max: u64,
-            name: &str,
-            error: ConfiguratorError
-        | -> ConfiguratorError {
+        let check_min_and_max = |candidate: u64,
+                                 min: u64,
+                                 max: u64,
+                                 name: &str,
+                                 error: ConfiguratorError|
+         -> ConfiguratorError {
             let mut result = error;
             if candidate < min {
                 result = result.another_required(

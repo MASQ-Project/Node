@@ -507,7 +507,9 @@ pub mod unshared_test_utils {
     use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
     use crate::sub_lib::cryptde::CryptDE;
-    use crate::sub_lib::neighborhood::{ConnectionProgressMessage, RatePack, RatePackLimits, DEFAULT_RATE_PACK};
+    use crate::sub_lib::neighborhood::{
+        ConnectionProgressMessage, RatePack, RatePackLimits, DEFAULT_RATE_PACK,
+    };
     use crate::sub_lib::proxy_client::ClientResponsePayload_0v1;
     use crate::sub_lib::proxy_server::{ClientRequestPayload_0v1, ProxyProtocol};
     use crate::sub_lib::sequence_buffer::SequencedPacket;

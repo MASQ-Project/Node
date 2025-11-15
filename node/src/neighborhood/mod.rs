@@ -4,6 +4,7 @@ pub mod dot_graph;
 pub mod gossip;
 pub mod gossip_acceptor;
 pub mod gossip_producer;
+mod malefactor;
 pub mod neighborhood_database;
 pub mod node_location;
 pub mod node_record;
@@ -12,7 +13,10 @@ pub mod overall_connection_status;
 use crate::bootstrapper::{BootstrapperConfig, CryptDEPair};
 use crate::database::db_initializer::DbInitializationConfig;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration, PersistentConfigurationFactory, PersistentConfigurationFactoryReal, PersistentConfigurationInvalid};
+use crate::db_config::persistent_configuration::{
+    PersistentConfigError, PersistentConfiguration, PersistentConfigurationFactory,
+    PersistentConfigurationFactoryReal, PersistentConfigurationInvalid,
+};
 use crate::neighborhood::gossip::{AccessibleGossipRecord, DotGossipEndpoint, Gossip_0v1};
 use crate::neighborhood::gossip_acceptor::{GossipAcceptanceResult, GossipAcceptorInvalid};
 use crate::neighborhood::node_location::get_node_location;
@@ -432,7 +436,9 @@ impl Neighborhood {
             chain: config.blockchain_bridge_config.chain,
             crashable: config.crash_point == CrashPoint::Message,
             data_directory: config.data_directory.clone(),
-            persistent_config_factory: Box::new(PersistentConfigurationFactoryReal::new(config.data_directory.clone())),
+            persistent_config_factory: Box::new(PersistentConfigurationFactoryReal::new(
+                config.data_directory.clone(),
+            )),
             persistent_config: Box::new(PersistentConfigurationInvalid::new()),
             db_password_opt: config.db_password_opt.clone(),
             logger: Logger::new("Neighborhood"),
@@ -567,7 +573,8 @@ impl Neighborhood {
     }
 
     fn validate_or_replace_min_hops_value(&mut self) {
-        let value_in_db = self.persistent_config
+        let value_in_db = self
+            .persistent_config
             .min_hops()
             .expect("Min Hops value is not initialized inside Database");
         let value_in_neighborhood = self.min_hops;
@@ -777,8 +784,7 @@ impl Neighborhood {
         if acceptance_results.is_empty() {
             trace!(self.logger, "Gossip from {} ignored", gossip_source);
             self.handle_gossip_ignored(&ignored_node_name, gossip_record_count)
-        }
-        else {
+        } else {
             acceptance_results.into_iter().for_each(|acceptance_result| {
                 match acceptance_result {
                     GossipAcceptanceResult::Accepted => {
@@ -829,7 +835,9 @@ impl Neighborhood {
                     self.logger,
                     "Saving neighbor list: {:?}", node_descriptors_opt
                 );
-                match self.persistent_config.set_past_neighbors(node_descriptors_opt, db_password)
+                match self
+                    .persistent_config
+                    .set_past_neighbors(node_descriptors_opt, db_password)
                 {
                     Ok(_) => info!(self.logger, "Persisted neighbor changes for next run"),
                     Err(PersistentConfigError::DatabaseError(msg))
@@ -2188,6 +2196,7 @@ mod tests {
     use std::thread;
     use std::time::Duration;
     use std::time::Instant;
+    use time::{Date, Month, PrimitiveDateTime, Time};
     use tokio::prelude::Future;
 
     use masq_lib::constants::{DEFAULT_CHAIN, TLS_PORT};
@@ -2210,7 +2219,10 @@ mod tests {
     use crate::sub_lib::dispatcher::Endpoint;
     use crate::sub_lib::hop::LiveHop;
     use crate::sub_lib::hopper::MessageType;
-    use crate::sub_lib::neighborhood::{AskAboutDebutGossipMessage, ConfigChange, ConfigChangeMsg, ExpectedServices, NeighborhoodMode, RatePackLimits, WalletPair};
+    use crate::sub_lib::neighborhood::{
+        AskAboutDebutGossipMessage, ConfigChange, ConfigChangeMsg, ExpectedServices,
+        NeighborhoodMode, RatePackLimits, WalletPair,
+    };
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, DEFAULT_RATE_PACK};
     use crate::sub_lib::neighborhood::{NeighborhoodMetadata, RatePack};
     use crate::sub_lib::peer_actors::PeerActors;
@@ -2242,15 +2254,16 @@ mod tests {
     use super::*;
     use crate::accountant::test_utils::bc_from_earning_wallet;
     use crate::bootstrapper::CryptDEPair;
+    use crate::neighborhood::malefactor::Malefactor;
     use crate::neighborhood::overall_connection_status::ConnectionStageErrors::{
         NoGossipResponseReceived, PassLoopFound, TcpConnectionFailed,
     };
     use crate::neighborhood::overall_connection_status::{
         ConnectionProgress, ConnectionStage, OverallConnectionStage,
     };
+    use crate::test_utils::database_utils::PersistentConfigurationFactoryTest;
     use crate::test_utils::unshared_test_utils::notify_handlers::NotifyLaterHandleMock;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use crate::test_utils::database_utils::PersistentConfigurationFactoryTest;
 
     lazy_static! {
         static ref N_CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
@@ -2411,10 +2424,9 @@ mod tests {
         let debut_node = make_global_cryptde_node_record(1111, true, &N_CRYPTDE_PAIR);
         let mut debut_subject = neighborhood_from_nodes(&debut_node, None, &N_CRYPTDE_PAIR);
         debut_subject.min_hops = Hops::OneHop;
-        let persistent_config =
-            PersistentConfigurationMock::new()
-                .set_past_neighbors_result(Ok(()))
-                .rate_pack_limits_result(Ok(RatePackLimits::test_default()));
+        let persistent_config = PersistentConfigurationMock::new()
+            .set_past_neighbors_result(Ok(()))
+            .rate_pack_limits_result(Ok(RatePackLimits::test_default()));
         debut_subject.persistent_config = Box::new(persistent_config);
         debut_subject.gossip_acceptor = Box::new(GossipAcceptorReal::new(
             N_CRYPTDE_PAIR.main.dup(),
@@ -2585,13 +2597,11 @@ mod tests {
                 "node_with_zero_hop_config_ignores_start_message",
             ),
         );
-        subject.persistent_config_factory = Box::new(
-            PersistentConfigurationFactoryTest::new(
-                PersistentConfigurationMock::new()
-                    .min_hops_result(Ok(MIN_HOPS_FOR_TEST))
-                    .rate_pack_limits_result(Ok(RatePackLimits::test_default()))
-            )
-        );
+        subject.persistent_config_factory = Box::new(PersistentConfigurationFactoryTest::new(
+            PersistentConfigurationMock::new()
+                .min_hops_result(Ok(MIN_HOPS_FOR_TEST))
+                .rate_pack_limits_result(Ok(RatePackLimits::test_default())),
+        ));
         subject.data_directory = data_dir;
         let addr = subject.start();
         let sub = addr.clone().recipient::<StartMessage>();
@@ -6113,8 +6123,8 @@ mod tests {
     #[test]
     fn neighborhood_sends_no_gossip_when_target_does_not_exist() {
         let subject_node = make_global_cryptde_node_record(5555, true, &N_CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
-                                                                                       // This is ungossippable not because of any attribute of its own, but because the
-                                                                                       // GossipProducerMock is set to return None when ordered to target it.
+                                                                                         // This is ungossippable not because of any attribute of its own, but because the
+                                                                                         // GossipProducerMock is set to return None when ordered to target it.
         let ungossippable = make_node_record(1050, true);
         let mut subject =
             neighborhood_from_nodes(&subject_node, Some(&ungossippable), &N_CRYPTDE_PAIR);
@@ -6211,8 +6221,7 @@ mod tests {
         let subject_node = make_global_cryptde_node_record(5555, true, &N_CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
         let neighbor = make_node_record(1111, true);
         let mut subject = neighborhood_from_nodes(&subject_node, Some(&neighbor), &N_CRYPTDE_PAIR);
-        let gossip_acceptor =
-            GossipAcceptorMock::new().handle_result(vec![]);
+        let gossip_acceptor = GossipAcceptorMock::new().handle_result(vec![]);
         subject.gossip_acceptor = Box::new(gossip_acceptor);
         let subject_node = subject.neighborhood_database.root().clone();
         let (hopper, _, hopper_recording_arc) = make_recorder();
@@ -6238,8 +6247,26 @@ mod tests {
         let subject_node = make_global_cryptde_node_record(5555, true, &N_CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
         let neighbor = make_node_record(1111, true);
         let mut subject = neighborhood_from_nodes(&subject_node, Some(&neighbor), &N_CRYPTDE_PAIR);
-        let gossip_acceptor = GossipAcceptorMock::new()
-            .handle_result(vec![GossipAcceptanceResult::Ban("Bad guy".to_string())]);
+        let public_key = PublicKey::from(&b"BadGuyPublicKey"[..]);
+        let ip_address = IpAddr::from_str("1.3.2.4").unwrap();
+        let earning_wallet = make_wallet("BadGuyEarningWallet");
+        let consuming_wallet = make_wallet("BadGuyConsumingWallet");
+        let timestamp = PrimitiveDateTime::new(
+            Date::from_calendar_date(2024, Month::April, 1).unwrap(),
+            Time::from_hms(3, 4, 5).unwrap(),
+        );
+        let reason = "Bad guy".to_string();
+        let gossip_acceptor =
+            GossipAcceptorMock::new().handle_result(vec![GossipAcceptanceResult::Ban(
+                Malefactor {
+                    public_key_opt: Some(public_key.clone()),
+                    ip_address_opt: Some(ip_address),
+                    earning_wallet_opt: Some(earning_wallet.clone()),
+                    consuming_wallet_opt: Some(consuming_wallet.clone()),
+                    timestamp: timestamp.clone(),
+                    reason: reason.clone(),
+                },
+            )]);
         subject.gossip_acceptor = Box::new(gossip_acceptor);
         let subject_node = subject.neighborhood_database.root().clone();
         let (hopper, _, hopper_recording_arc) = make_recorder();
@@ -6431,13 +6458,11 @@ mod tests {
                 "node_gossips_to_neighbors_on_startup",
             ),
         );
-        subject.persistent_config_factory = Box::new(
-            PersistentConfigurationFactoryTest::new(
-                PersistentConfigurationMock::new()
-                    .min_hops_result(Ok(MIN_HOPS_FOR_TEST))
-                    .rate_pack_limits_result(Ok(RatePackLimits::test_default())),
-            )
-        );
+        subject.persistent_config_factory = Box::new(PersistentConfigurationFactoryTest::new(
+            PersistentConfigurationMock::new()
+                .min_hops_result(Ok(MIN_HOPS_FOR_TEST))
+                .rate_pack_limits_result(Ok(RatePackLimits::test_default())),
+        ));
         subject.data_directory = data_dir;
         subject.logger = Logger::new("node_gossips_to_neighbors_on_startup");
         let this_node = subject.neighborhood_database.root().clone();
@@ -6492,13 +6517,11 @@ mod tests {
                 test_name,
             ),
         );
-        subject.persistent_config_factory = Box::new(
-            PersistentConfigurationFactoryTest::new(
-                PersistentConfigurationMock::new()
-                    .min_hops_result(Ok(min_hops_in_persistent_configuration))
-                    .rate_pack_limits_result(Ok(RatePackLimits::test_default()))
-            )
-        );
+        subject.persistent_config_factory = Box::new(PersistentConfigurationFactoryTest::new(
+            PersistentConfigurationMock::new()
+                .min_hops_result(Ok(min_hops_in_persistent_configuration))
+                .rate_pack_limits_result(Ok(RatePackLimits::test_default())),
+        ));
         let system = System::new(test_name);
         let addr: Addr<Neighborhood> = subject.start();
         let peer_actors = peer_actors_builder().build();
@@ -6539,13 +6562,11 @@ mod tests {
             ),
         );
         subject.logger = Logger::new(test_name);
-        subject.persistent_config_factory = Box::new(
-            PersistentConfigurationFactoryTest::new(
-                PersistentConfigurationMock::new()
-                    .min_hops_result(Ok(min_hops_in_db))
-                    .rate_pack_limits_result(Ok(RatePackLimits::test_default())),
-            )
-        );
+        subject.persistent_config_factory = Box::new(PersistentConfigurationFactoryTest::new(
+            PersistentConfigurationMock::new()
+                .min_hops_result(Ok(min_hops_in_db))
+                .rate_pack_limits_result(Ok(RatePackLimits::test_default())),
+        ));
         let system = System::new(test_name);
         let addr: Addr<Neighborhood> = subject.start();
         let peer_actors = peer_actors_builder().build();
@@ -6964,8 +6985,11 @@ mod tests {
         let one_next_door_neighbor = make_node_record(3333, true);
         let another_next_door_neighbor = make_node_record(4444, true);
         let subject_node = make_global_cryptde_node_record(5555, true, &N_CRYPTDE_PAIR); // 9e7p7un06eHs6frl5A
-        let mut subject =
-            neighborhood_from_nodes(&subject_node, Some(&one_next_door_neighbor), &N_CRYPTDE_PAIR);
+        let mut subject = neighborhood_from_nodes(
+            &subject_node,
+            Some(&one_next_door_neighbor),
+            &N_CRYPTDE_PAIR,
+        );
         subject.min_hops = min_hops;
 
         subject
@@ -7227,8 +7251,11 @@ mod tests {
             version: 0,
             location_opt: None,
         };
-        let node_record =
-            NodeRecord::new(&public_key, N_CRYPTDE_PAIR.main.as_ref(), node_record_inputs);
+        let node_record = NodeRecord::new(
+            &public_key,
+            N_CRYPTDE_PAIR.main.as_ref(),
+            node_record_inputs,
+        );
         let unreachable_host = String::from("facebook.com");
         let mut subject = neighborhood_from_nodes(&subject_node, None, &N_CRYPTDE_PAIR);
         let _ = subject.neighborhood_database.add_node(node_record);
@@ -7582,7 +7609,9 @@ mod tests {
                 &bc_from_earning_wallet(make_wallet("earning_wallet")),
             );
             subject.data_directory = data_dir.to_path_buf();
-            subject.persistent_config_factory = Box::new(PersistentConfigurationFactoryReal::new(subject.data_directory.clone()));
+            subject.persistent_config_factory = Box::new(PersistentConfigurationFactoryReal::new(
+                subject.data_directory.clone(),
+            ));
             subject.persistent_config_factory.make();
         };
 
@@ -7592,13 +7621,14 @@ mod tests {
     fn make_standard_subject() -> Neighborhood {
         let root_node = make_global_cryptde_node_record(9999, true, &N_CRYPTDE_PAIR);
         let neighbor_node = make_node_record(9998, true);
-        let mut subject = neighborhood_from_nodes(&root_node, Some(&neighbor_node), &N_CRYPTDE_PAIR);
+        let mut subject =
+            neighborhood_from_nodes(&root_node, Some(&neighbor_node), &N_CRYPTDE_PAIR);
         let persistent_config = PersistentConfigurationMock::new()
             .rate_pack_limits_result(Ok(RatePackLimits::test_default()));
         subject.persistent_config = Box::new(persistent_config);
         subject.gossip_acceptor = Box::new(GossipAcceptorReal::new(
             N_CRYPTDE_PAIR.main.dup(),
-            subject.persistent_config.as_ref()
+            subject.persistent_config.as_ref(),
         ));
         subject
     }
@@ -7829,10 +7859,8 @@ mod tests {
         neighborhood.neighborhood_database = db;
         let persistent_config_mock = PersistentConfigurationMock::new()
             .rate_pack_limits_result(Ok(RatePackLimits::test_default()));
-        let gossip_acceptor = GossipAcceptorReal::new(
-            N_CRYPTDE_PAIR.main.dup(),
-            &persistent_config_mock
-        );
+        let gossip_acceptor =
+            GossipAcceptorReal::new(N_CRYPTDE_PAIR.main.dup(), &persistent_config_mock);
         neighborhood.gossip_acceptor = Box::new(gossip_acceptor);
 
         neighborhood

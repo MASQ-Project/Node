@@ -7,6 +7,10 @@ use crate::database::db_initializer::ExternalData;
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 
 use crate::database::db_migrations::db_migrator::DbMigrator;
+use crate::db_config::persistent_configuration::{
+    PersistentConfiguration, PersistentConfigurationFactory,
+};
+use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 use masq_lib::logger::Logger;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::{to_string, NeighborhoodModeLight};
@@ -18,8 +22,6 @@ use std::io::Read;
 use std::iter::once;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigurationFactory};
-use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 
 pub fn bring_db_0_back_to_life_and_return_connection(db_path: &Path) -> Connection {
     match remove_file(db_path) {
@@ -306,17 +308,24 @@ pub fn make_external_data() -> ExternalData {
 }
 
 pub struct PersistentConfigurationFactoryTest {
-    mock_opt: RefCell<Option<PersistentConfigurationMock>>
+    mock_opt: RefCell<Option<PersistentConfigurationMock>>,
 }
 
 impl PersistentConfigurationFactory for PersistentConfigurationFactoryTest {
     fn make(&self) -> Box<dyn PersistentConfiguration> {
-        Box::new(self.mock_opt.borrow_mut().take().expect("PersistentConfigurationFactoryTest already used"))
+        Box::new(
+            self.mock_opt
+                .borrow_mut()
+                .take()
+                .expect("PersistentConfigurationFactoryTest already used"),
+        )
     }
 }
 
 impl PersistentConfigurationFactoryTest {
     pub fn new(mock: PersistentConfigurationMock) -> Self {
-        Self { mock_opt: RefCell::new(Some(mock)) }
+        Self {
+            mock_opt: RefCell::new(Some(mock)),
+        }
     }
 }
