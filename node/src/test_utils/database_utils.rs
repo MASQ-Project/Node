@@ -7,6 +7,10 @@ use crate::database::db_initializer::ExternalData;
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 
 use crate::database::db_migrations::db_migrator::DbMigrator;
+use crate::db_config::persistent_configuration::{
+    PersistentConfiguration, PersistentConfigurationFactory,
+};
+use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 use masq_lib::logger::Logger;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::{to_string, NeighborhoodModeLight};
@@ -300,5 +304,28 @@ pub fn make_external_data() -> ExternalData {
         chain: TEST_DEFAULT_CHAIN,
         neighborhood_mode: NeighborhoodModeLight::Standard,
         db_password_opt: None,
+    }
+}
+
+pub struct PersistentConfigurationFactoryTest {
+    mock_opt: RefCell<Option<PersistentConfigurationMock>>,
+}
+
+impl PersistentConfigurationFactory for PersistentConfigurationFactoryTest {
+    fn make(&self) -> Box<dyn PersistentConfiguration> {
+        Box::new(
+            self.mock_opt
+                .borrow_mut()
+                .take()
+                .expect("PersistentConfigurationFactoryTest already used"),
+        )
+    }
+}
+
+impl PersistentConfigurationFactoryTest {
+    pub fn new(mock: PersistentConfigurationMock) -> Self {
+        Self {
+            mock_opt: RefCell::new(Some(mock)),
+        }
     }
 }
