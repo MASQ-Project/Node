@@ -133,6 +133,8 @@ impl Scanner<TxReceiptsMessage, PendingPayableScanResult, PendingPayableScannerC
         _args: PendingPayableScannerCleanupArgs,
         logger: &Logger,
     ) -> Result<(), ScanCleanUpError> {
+        debug!(logger, "Cleaning up in the pending payable scanner after a scan error");
+        
         self.mark_as_ended(logger);
 
          self.current_sent_payables.ensure_empty_cache(logger);

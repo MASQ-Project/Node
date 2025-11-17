@@ -14,7 +14,7 @@ use itertools::Itertools;
 use masq_lib::utils::ExpectValue;
 use serde_derive::{Deserialize, Serialize};
 use std::cmp::Ordering;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use web3::types::Address;
@@ -180,7 +180,7 @@ impl Display for RetrieveCondition {
 }
 
 pub trait SentPayableDao {
-    fn get_tx_identifiers(&self, hashes: &BTreeSet<TxHash>) -> TxIdentifiers;
+    fn get_existing_tx_records(&self, hashes: &BTreeSet<TxHash>) -> BTreeSet<TxHash>;
     fn insert_new_records(&self, txs: &BTreeSet<SentTx>) -> Result<(), SentPayableDaoError>;
     fn retrieve_txs(&self, condition: Option<RetrieveCondition>) -> BTreeSet<SentTx>;
     //TODO potentially atomically
@@ -206,9 +206,9 @@ impl<'a> SentPayableDaoReal<'a> {
 }
 
 impl SentPayableDao for SentPayableDaoReal<'_> {
-    fn get_tx_identifiers(&self, hashes: &BTreeSet<TxHash>) -> TxIdentifiers {
+    fn get_existing_tx_records(&self, hashes: &BTreeSet<TxHash>) -> BTreeSet<TxHash> {
         let sql = format!(
-            "SELECT tx_hash, rowid FROM sent_payable WHERE tx_hash IN ({})",
+            "SELECT tx_hash FROM sent_payable WHERE tx_hash IN ({})",
             join_with_commas(hashes, |hash| format!("'{:?}'", hash))
         );
 
@@ -220,9 +220,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
         stmt.query_map([], |row| {
             let tx_hash_str: String = row.get(0).expectv("tx_hash");
             let tx_hash = H256::from_str(&tx_hash_str[2..]).expect("Failed to parse H256");
-            let row_id: u64 = row.get(1).expectv("rowid");
-
-            Ok((tx_hash, row_id))
+            Ok(tx_hash)
         })
         .expect("Failed to execute query")
         .filter_map(Result::ok)
@@ -242,7 +240,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
             )));
         }
 
-        let duplicates = self.get_tx_identifiers(&unique_hashes);
+        let duplicates = self.get_existing_tx_records(&unique_hashes);
         if !duplicates.is_empty() {
             return Err(SentPayableDaoError::InvalidInput(format!(
                 "Duplicates detected in the database: {:?}",
@@ -698,10 +696,10 @@ mod tests {
         setup_conn
             .execute("CREATE TABLE example (id integer)", [])
             .unwrap();
-        let get_tx_identifiers_stmt = setup_conn.prepare("SELECT id FROM example").unwrap();
+        let get_existing_tx_records_stmt = setup_conn.prepare("SELECT id FROM example").unwrap();
         let faulty_insert_stmt = { setup_conn.prepare("SELECT id FROM example").unwrap() };
         let wrapped_conn = ConnectionWrapperMock::default()
-            .prepare_result(Ok(get_tx_identifiers_stmt))
+            .prepare_result(Ok(get_existing_tx_records_stmt))
             .prepare_result(Ok(faulty_insert_stmt));
         let tx = TxBuilder::default().build();
         let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
@@ -737,9 +735,9 @@ mod tests {
     }
 
     #[test]
-    fn get_tx_identifiers_works() {
+    fn get_existing_tx_records_works() {
         let home_dir =
-            ensure_node_home_directory_exists("sent_payable_dao", "get_tx_identifiers_works");
+            ensure_node_home_directory_exists("sent_payable_dao", "get_existing_tx_records_works");
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
@@ -754,11 +752,11 @@ mod tests {
             .insert_new_records(&BTreeSet::from([present_tx, another_present_tx]))
             .unwrap();
 
-        let result = subject.get_tx_identifiers(&hashset);
+        let result = subject.get_existing_tx_records(&hashset);
 
-        assert_eq!(result.get(&present_hash), Some(&1u64));
-        assert_eq!(result.get(&absent_hash), None);
-        assert_eq!(result.get(&another_present_hash), Some(&2u64));
+        assert_eq!(result.get(&present_hash), Some(&present_hash));
+        assert_eq!(result.get(&another_present_hash), Some(&another_present_hash));
+        assert_eq!(result.len(), 2);
     }
 
     #[test]

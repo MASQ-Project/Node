@@ -256,14 +256,14 @@ impl Scanners {
             ScanErrorPayload::NewPayables(err) => self.payable.clean_up_after_error(
                 PayableScannerCleanupArgs {
                     payable_scan_type: PayableScanType::New,
-                    failed_txs: err.failed_tx_hashes(),
+                    failed_txs: err.into(),
                 },
                 logger,
             ),
             ScanErrorPayload::RetryPayables(err) => self.payable.clean_up_after_error(
                 PayableScannerCleanupArgs {
                     payable_scan_type: PayableScanType::Retry,
-                    failed_txs: err.failed_tx_hashes(),
+                    failed_txs: err.into(),
                 },
                 logger,
             ),

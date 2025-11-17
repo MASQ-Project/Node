@@ -170,7 +170,7 @@ impl Display for FailureRetrieveCondition {
 }
 
 pub trait FailedPayableDao {
-    fn get_tx_identifiers(&self, hashes: &BTreeSet<TxHash>) -> TxIdentifiers;
+    fn get_existing_tx_records(&self, hashes: &BTreeSet<TxHash>) -> TxIdentifiers;
     //TODO potentially atomically
     fn insert_new_records(&self, txs: &BTreeSet<FailedTx>) -> Result<(), FailedPayableDaoError>;
     fn retrieve_txs(&self, condition: Option<FailureRetrieveCondition>) -> BTreeSet<FailedTx>;
@@ -194,7 +194,7 @@ impl<'a> FailedPayableDaoReal<'a> {
 }
 
 impl FailedPayableDao for FailedPayableDaoReal<'_> {
-    fn get_tx_identifiers(&self, hashes: &BTreeSet<TxHash>) -> TxIdentifiers {
+    fn get_existing_tx_records(&self, hashes: &BTreeSet<TxHash>) -> TxIdentifiers {
         let sql = format!(
             "SELECT tx_hash, rowid FROM failed_payable WHERE tx_hash IN ({})",
             join_with_commas(hashes, |hash| format!("'{:?}'", hash))
@@ -230,7 +230,7 @@ impl FailedPayableDao for FailedPayableDaoReal<'_> {
             )));
         }
 
-        let duplicates = self.get_tx_identifiers(&unique_hashes);
+        let duplicates = self.get_existing_tx_records(&unique_hashes);
         if !duplicates.is_empty() {
             return Err(FailedPayableDaoError::InvalidInput(format!(
                 "Duplicates detected in the database: {:?}",
@@ -571,10 +571,10 @@ mod tests {
         setup_conn
             .execute("CREATE TABLE example (id integer)", [])
             .unwrap();
-        let get_tx_identifiers_stmt = setup_conn.prepare("SELECT id FROM example").unwrap();
+        let get_existing_tx_records_stmt = setup_conn.prepare("SELECT id FROM example").unwrap();
         let faulty_insert_stmt = { setup_conn.prepare("SELECT id FROM example").unwrap() };
         let wrapped_conn = ConnectionWrapperMock::default()
-            .prepare_result(Ok(get_tx_identifiers_stmt))
+            .prepare_result(Ok(get_existing_tx_records_stmt))
             .prepare_result(Ok(faulty_insert_stmt));
         let tx = FailedTxBuilder::default().build();
         let subject = FailedPayableDaoReal::new(Box::new(wrapped_conn));
@@ -610,9 +610,9 @@ mod tests {
     }
 
     #[test]
-    fn get_tx_identifiers_works() {
+    fn get_existing_tx_records_works() {
         let home_dir =
-            ensure_node_home_directory_exists("failed_payable_dao", "get_tx_identifiers_works");
+            ensure_node_home_directory_exists("failed_payable_dao", "get_existing_tx_records_works");
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
@@ -633,7 +633,7 @@ mod tests {
             .insert_new_records(&BTreeSet::from([present_tx, another_present_tx]))
             .unwrap();
 
-        let result = subject.get_tx_identifiers(&hashset);
+        let result = subject.get_existing_tx_records(&hashset);
 
         assert_eq!(result.get(&present_hash), Some(&1u64));
         assert_eq!(result.get(&absent_hash), None);

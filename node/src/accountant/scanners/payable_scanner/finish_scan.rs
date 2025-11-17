@@ -3,7 +3,7 @@ use crate::accountant::db_access_objects::utils::TxHash;
 use crate::accountant::scanners::payable_scanner::utils::PayableScanResult;
 use crate::accountant::scanners::payable_scanner::PayableScanner;
 use crate::accountant::scanners::{ScanCleanUpError, Scanner};
-use crate::accountant::{PayableScanType, SentPayables};
+use crate::accountant::{PayableScanType, SentPayables, SimplePayable};
 use crate::time_marking_methods;
 use masq_lib::logger::Logger;
 use masq_lib::messages::ScanType;
@@ -11,12 +11,11 @@ use std::time::SystemTime;
 
 impl Scanner<SentPayables, PayableScanResult, PayableScannerCleanupArgs> for PayableScanner {
     fn finish_scan(&mut self, msg: SentPayables, logger: &Logger) -> PayableScanResult {
-        // TODO as for GH-701, here there should be this check, but later on, when it comes to
-        // GH-655, the need for this check passes and it will go away. Until then it should be
-        // present, though.
-        // if !sent_payables.is_empty() {
-        //     self.check_on_missing_sent_tx_records(&sent_payables);
-        // }
+        // TODO: Remove this check once GH-655 is implemented. Until then, keep it.
+        if !msg.batch_results.sent_txs.is_empty() || !msg.batch_results.failed_txs.is_empty() {
+            let payables = Self::collect_simple_payables_from_batch_results(&msg.batch_results);
+            self.check_on_missing_sent_txs(msg.payable_scan_type, &payables);
+        }
 
         self.process_message(&msg, logger);
 
@@ -33,7 +32,14 @@ impl Scanner<SentPayables, PayableScanResult, PayableScannerCleanupArgs> for Pay
         args: PayableScannerCleanupArgs,
         logger: &Logger,
     ) -> Result<(), ScanCleanUpError> {
-        todo!()
+        debug!(logger, "Cleaning up in the {} payable scanner after a scan error", args.payable_scan_type);
+
+        // TODO: Remove this check once GH-655 is implemented. Until then, keep it.
+        self.check_on_missing_sent_txs(args.payable_scan_type, &args.failed_txs);
+
+        self.mark_as_ended(logger);
+
+        Ok(())
     }
 
     time_marking_methods!(Payables);
@@ -43,7 +49,7 @@ impl Scanner<SentPayables, PayableScanResult, PayableScannerCleanupArgs> for Pay
 
 pub struct PayableScannerCleanupArgs {
     pub payable_scan_type: PayableScanType,
-    pub failed_txs: Vec<TxHash>,
+    pub failed_txs: Vec<SimplePayable>,
 }
 
 #[cfg(test)]
@@ -56,7 +62,7 @@ mod tests {
     use crate::accountant::scanners::payable_scanner::utils::{NextScanToRun, PayableScanResult};
     use crate::accountant::scanners::Scanner;
     use crate::accountant::test_utils::{FailedPayableDaoMock, PendingPayableScannerBuilder, SentPayableDaoMock};
-    use crate::accountant::{join_with_separator, PayableScanType, ResponseSkeleton, SentPayables};
+    use crate::accountant::{join_with_separator, PayableScanType, ResponseSkeleton, SentPayables, SimplePayable};
     use crate::blockchain::blockchain_interface::data_structures::BatchResults;
     use crate::blockchain::errors::validation_status::ValidationStatus::Waiting;
     use crate::blockchain::test_utils::make_tx_hash;
@@ -67,8 +73,8 @@ mod tests {
     use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
-    use crate::accountant::scanners::pending_payable_scanner::PendingPayableScannerCleanupArgs;
-    use crate::accountant::scanners::test_utils::PendingPayableCacheMock;
+    use crate::accountant::db_access_objects::utils::TxHash;
+    use crate::accountant::scanners::payable_scanner::finish_scan::PayableScannerCleanupArgs;
 
     #[test]
     fn new_payable_scan_finishes_as_expected() {
@@ -76,10 +82,10 @@ mod tests {
         let test_name = "new_payable_scan_finishes_as_expected";
         let sent_payable_insert_new_records_params_arc = Arc::new(Mutex::new(vec![]));
         let failed_payable_insert_new_records_params_arc = Arc::new(Mutex::new(vec![]));
-        let failed_tx_1 = make_failed_tx(1);
-        let failed_tx_2 = make_failed_tx(2);
-        let sent_tx_1 = make_sent_tx(1);
-        let sent_tx_2 = make_sent_tx(2);
+        let failed_tx_1 = make_failed_tx(12);
+        let failed_tx_2 = make_failed_tx(22);
+        let sent_tx_1 = make_sent_tx(19);
+        let sent_tx_2 = make_sent_tx(29);
         let batch_results = BatchResults {
             sent_txs: vec![sent_tx_1.clone(), sent_tx_2.clone()],
             failed_txs: vec![failed_tx_1.clone(), failed_tx_2.clone()],
@@ -138,14 +144,15 @@ mod tests {
     #[test]
     fn retry_payable_scan_finishes_as_expected() {
         init_test_logging();
+        fix me and the test above to do finding of missing tx records
         let test_name = "retry_payable_scan_finishes_as_expected";
         let sent_payable_insert_new_records_params_arc = Arc::new(Mutex::new(vec![]));
         let failed_payable_update_statuses_params_arc = Arc::new(Mutex::new(vec![]));
         let sent_payable_dao = SentPayableDaoMock::default()
             .insert_new_records_params(&sent_payable_insert_new_records_params_arc)
             .insert_new_records_result(Ok(()));
-        let sent_txs = vec![make_sent_tx(1), make_sent_tx(2)];
-        let failed_txs = vec![make_failed_tx(1), make_failed_tx(2)];
+        let sent_txs = vec![make_sent_tx(12), make_sent_tx(22)];
+        let failed_txs = vec![make_failed_tx(19), make_failed_tx(29)];
         let prev_failed_txs: BTreeSet<FailedTx> = sent_txs
             .iter()
             .enumerate()
@@ -224,65 +231,218 @@ mod tests {
     }
 
     #[test]
-    fn clean_up_after_error_works() {
-        make sure to write me right
-        let mut subject = PayableScannerBuilder::new().build();
-        subject.mark_as_started(SystemTime::now());
-
-        let result =
-            subject.clean_up_after_error(PendingPayableScannerCleanupArgs {}, &Logger::new("test"));
-
-        assert_eq!(result, Ok(()));
-        assert_eq!(subject.scan_started_at(), None);
+    #[should_panic(expected = "Expected sent-payable records for (tx: \
+    0x0000000000000000000000000000000000000000000000000000000000000019 to recipient: \
+    0x000000000000000000004b00000000004b000000), \
+    (tx: 0x0000000000000000000000000000000000000000000000000000000000000029 to recipient: \
+    0x000000000000000000007b00000000007b000000) \
+    were not found once the payment should have completed in the new payable scanner. \
+    System is in an unreliable state")]
+    fn new_payable_scanner_finishes_scan_by_panicking_on_missing_only_sent_tx_records(){
+        test_payable_scanner_finishes_scan_by_panicking_on_missing_only_sent_tx_records(PayableScanType::New);
     }
 
     #[test]
-    fn payable_scanner_with_error_works_as_expected() {
-        test_execute_payable_scanner_finish_scan_with_an_error(PayableScanType::New, "new");
-        test_execute_payable_scanner_finish_scan_with_an_error(PayableScanType::Retry, "retry");
+    #[should_panic(expected = "Expected sent-payable records for (tx: \
+    0x0000000000000000000000000000000000000000000000000000000000000019 to recipient: \
+    0x000000000000000000004b00000000004b000000), \
+    (tx: 0x0000000000000000000000000000000000000000000000000000000000000029 to recipient: \
+    0x000000000000000000007b00000000007b000000) \
+    were not found once the payment should have completed in the retry payable scanner. \
+    System is in an unreliable state")]
+    fn retry_payable_scanner_finishes_scan_by_panicking_on_missing_only_sent_tx_records(){
+        test_payable_scanner_finishes_scan_by_panicking_on_missing_only_sent_tx_records(PayableScanType::Retry)
     }
 
-    fn test_execute_payable_scanner_finish_scan_with_an_error(
-        payable_scan_type: PayableScanType,
-        suffix: &str,
-    ) {
-        todo!("this code is groundless")
-        // init_test_logging();
-        // let test_name = &format!("test_execute_payable_scanner_finish_scan_with_an_error_{suffix}");
-        // let response_skeleton = ResponseSkeleton {
-        //     client_id: 1234,
-        //     context_id: 5678,
-        // };
-        // let mut subject = PayableScannerBuilder::new().build();
-        // subject.mark_as_started(SystemTime::now());
-        // let sent_payables = SentPayables {
-        //     batch_results: Err("Any error".to_string()),
-        //     payable_scan_type,
-        //     response_skeleton_opt: Some(response_skeleton),
-        // };
-        // let logger = Logger::new(test_name);
-        //
-        // let result = subject.finish_scan(sent_payables, &logger);
-        //
-        // assert_eq!(
-        //     result,
-        //     PayableScanResult {
-        //         ui_response_opt: Some(NodeToUiMessage {
-        //             target: MessageTarget::ClientId(response_skeleton.client_id),
-        //             body: UiScanResponse {}.tmb(response_skeleton.context_id),
-        //         }),
-        //         result: match payable_scan_type {
-        //             PayableScanType::New => NextScanToRun::NewPayableScan,
-        //             PayableScanType::Retry => NextScanToRun::RetryPayableScan,
-        //         },
-        //     }
-        // );
-        // let tlh = TestLogHandler::new();
-        // tlh.exists_log_containing(&format!(
-        //     "WARN: {test_name}: Local error occurred before transaction signing. Error: Any error"
-        // ));
-        // tlh.exists_log_matching(&format!(
-        //     "INFO: {test_name}: The Payables scan ended in \\d+ms."
-        // ));
+    #[test]
+    #[should_panic(expected = "Expected sent-payable records for (tx: \
+    0x0000000000000000000000000000000000000000000000000000000000000012 to recipient: \
+    0x00000000000000000003cc0000000003cc000000), \
+    (tx: 0x0000000000000000000000000000000000000000000000000000000000000032 to recipient: \
+    0x0000000000000000001d4c000000001d4c000000) \
+    were not found once the payment should have completed in the new payable scanner. \
+    System is in an unreliable state")]
+    fn new_payable_scanner_finishes_scan_by_panicking_on_missing_only_failed_tx_records(){
+        test_payable_scanner_finishes_scan_by_panicking_on_missing_only_failed_tx_records(PayableScanType::New);
+    }
+
+    #[test]
+    #[should_panic(expected = "Expected sent-payable records for (tx: \
+    0x0000000000000000000000000000000000000000000000000000000000000012 to recipient: \
+    0x00000000000000000003cc0000000003cc000000), \
+    (tx: 0x0000000000000000000000000000000000000000000000000000000000000032 to recipient: \
+    0x0000000000000000001d4c000000001d4c000000) \
+    were not found once the payment should have completed in the retry payable scanner. \
+    System is in an unreliable state")]
+    fn retry_payable_scanner_finishes_scan_by_panicking_on_missing_only_failed_tx_records(){
+        test_payable_scanner_finishes_scan_by_panicking_on_missing_only_failed_tx_records(PayableScanType::Retry)
+    }
+
+    #[test]
+    #[should_panic(expected = "Expected sent-payable records for (tx: \
+    0x0000000000000000000000000000000000000000000000000000000000000019 to recipient: \
+    0x000000000000000000004b00000000004b000000), \
+    (tx: 0x0000000000000000000000000000000000000000000000000000000000000039 to recipient: \
+    0x00000000000000000000ab0000000000ab000000), \
+    (tx: 0x0000000000000000000000000000000000000000000000000000000000000022 to recipient: \
+    0x0000000000000000000d8c000000000d8c000000), \
+    (tx: 0x0000000000000000000000000000000000000000000000000000000000000032 to recipient: \
+    0x0000000000000000001d4c000000001d4c000000) \
+    were not found once the payment should have completed in the new payable scanner.
+    System is in an unreliable state")]
+    fn new_payable_scanner_finishes_scan_by_panicking_on_missing_both_sent_and_failed_tx_records(){
+        test_payable_scanner_finishes_scan_by_panicking_on_missing_both_sent_and_failed_tx_records(PayableScanType::New);
+    }
+
+    #[test]
+    #[should_panic(expected = "Expected sent-payable records for (tx: \
+    0x0000000000000000000000000000000000000000000000000000000000000019 to recipient: \
+    0x000000000000000000004b00000000004b000000), \
+    (tx: 0x0000000000000000000000000000000000000000000000000000000000000039 to recipient: \
+    0x00000000000000000000ab0000000000ab000000), \
+    (tx: 0x0000000000000000000000000000000000000000000000000000000000000022 to recipient: \
+    0x0000000000000000000d8c000000000d8c000000), \
+    (tx: 0x0000000000000000000000000000000000000000000000000000000000000032 to recipient: \
+    0x0000000000000000001d4c000000001d4c000000) \
+    were not found once the payment should have completed in the retry payable scanner.
+    System is in an unreliable state")]
+    fn retry_payable_scanner_finishes_scan_by_panicking_on_missing_both_sent_and_failed_tx_records(){
+        test_payable_scanner_finishes_scan_by_panicking_on_missing_both_sent_and_failed_tx_records(PayableScanType::Retry)
+    }
+
+    fn test_payable_scanner_finishes_scan_by_panicking_on_missing_only_sent_tx_records(payable_scan_type: PayableScanType){
+        let failed_tx_1 = make_failed_tx(0x12);
+        let failed_tx_1_hash = failed_tx_1.hash.clone();
+        let failed_tx_2 = make_failed_tx(0x22);
+        let failed_tx_2_hash = failed_tx_2.hash.clone();
+        let sent_tx_1 = make_sent_tx(0x19);
+        let sent_tx_2 = make_sent_tx(0x29);
+        let sent_tx_3 = make_sent_tx(0x39);
+        let sent_tx_3_hash = sent_tx_3.hash.clone();
+        let batch_results = BatchResults {
+            sent_txs: vec![sent_tx_1, sent_tx_2, sent_tx_3],
+            failed_txs: vec![failed_tx_1, failed_tx_2],
+        };
+        let get_existing_tx_records_result = btreeset!(sent_tx_3_hash, failed_tx_1_hash, failed_tx_2_hash);
+
+        test_payable_scanner_finishes_scan_by_panicking_on_missing_tx_records(payable_scan_type, batch_results,get_existing_tx_records_result)
+    }
+
+    fn test_payable_scanner_finishes_scan_by_panicking_on_missing_only_failed_tx_records(payable_scan_type: PayableScanType){
+        let failed_tx_1 = make_failed_tx(0x12);
+        let failed_tx_2 = make_failed_tx(0x22);
+        let failed_tx_2_hash = failed_tx_2.hash.clone();
+        let failed_tx_3 = make_failed_tx(0x32);
+        let sent_tx_1 = make_sent_tx(0x19);
+        let sent_tx_1_hash = sent_tx_1.hash.clone();
+        let sent_tx_2 = make_sent_tx(0x29);
+        let sent_tx_2_hash = sent_tx_2.hash.clone();
+        let batch_results = BatchResults {
+            sent_txs: vec![sent_tx_1, sent_tx_2],
+            failed_txs: vec![failed_tx_1, failed_tx_2, failed_tx_3],
+        };
+        let get_existing_tx_records_result = btreeset!(failed_tx_2_hash, sent_tx_1_hash, sent_tx_2_hash);
+
+        test_payable_scanner_finishes_scan_by_panicking_on_missing_tx_records(payable_scan_type, batch_results,get_existing_tx_records_result)
+    }
+
+    fn test_payable_scanner_finishes_scan_by_panicking_on_missing_both_sent_and_failed_tx_records(payable_scan_type: PayableScanType){
+        let failed_tx_1 = make_failed_tx(0x12);
+        let failed_tx_1_hash = failed_tx_1.hash.clone();
+        let failed_tx_2 = make_failed_tx(0x22);
+        let failed_tx_3 = make_failed_tx(0x32);
+        let sent_tx_1 = make_sent_tx(0x19);
+        let sent_tx_2 = make_sent_tx(0x29);
+        let sent_tx_2_hash = sent_tx_2.hash.clone();
+        let sent_tx_3 = make_sent_tx(0x39);
+        let batch_results = BatchResults {
+            sent_txs: vec![sent_tx_1, sent_tx_2, sent_tx_3],
+            failed_txs: vec![failed_tx_1, failed_tx_2, failed_tx_3],
+        };
+        let get_existing_tx_records_result = btreeset!(failed_tx_1_hash, sent_tx_2_hash);
+
+        test_payable_scanner_finishes_scan_by_panicking_on_missing_tx_records(payable_scan_type, batch_results,get_existing_tx_records_result)
+    }
+
+    fn test_payable_scanner_finishes_scan_by_panicking_on_missing_tx_records(payable_scan_type: PayableScanType, batch_results: BatchResults, get_existing_tx_records_result: BTreeSet<TxHash>){
+        let sent_payable_dao = SentPayableDaoMock::default()
+            .get_existing_tx_records_result(get_existing_tx_records_result);
+        let mut subject = PayableScannerBuilder::new()
+            .sent_payable_dao(sent_payable_dao)
+            .build();
+        subject.mark_as_started(SystemTime::now());
+        let sent_payables = SentPayables {
+            batch_results,
+            payable_scan_type,
+            response_skeleton_opt: None,
+        };
+        let logger = Logger::new("test");
+
+        let _ = subject.finish_scan(sent_payables, &logger);
+    }
+
+    #[test]
+    fn clean_up_after_error_happy_path_for_new_payable_scanner() {
+        test_clean_up_after_error_happy_path(PayableScanType::New);
+    }
+
+    #[test]
+    fn clean_up_after_error_happy_path_for_retry_payable_scanner() {
+        test_clean_up_after_error_happy_path(PayableScanType::Retry);
+    }
+
+    fn test_clean_up_after_error_happy_path(payable_scan_type: PayableScanType){
+        let get_existing_tx_records_params_arc = Arc::new(Mutex::new(vec![]));
+        let failed_tx_1 = make_failed_tx(123);
+        let tx_hash_1 = failed_tx_1.hash.clone();
+        let failed_tx_2 = make_failed_tx(456);
+        let tx_hash_2 = failed_tx_2.hash.clone();
+        let existing_tx_records = btreeset!(tx_hash_1, tx_hash_2);
+        let sent_payable_dao = SentPayableDaoMock::default()
+            .get_existing_tx_records_params(&get_existing_tx_records_params_arc)
+            .get_existing_tx_records_result(existing_tx_records);
+        let mut subject = PayableScannerBuilder::new().sent_payable_dao(sent_payable_dao).build();
+        subject.mark_as_started(SystemTime::now());
+
+        let result =
+            subject.clean_up_after_error(PayableScannerCleanupArgs{ payable_scan_type, failed_txs: vec![SimplePayable::new(failed_tx_1.receiver_address, tx_hash_1), SimplePayable::new(failed_tx_2.receiver_address, tx_hash_2)] }, &Logger::new("test"));
+
+        assert_eq!(result, Ok(()));
+        assert_eq!(subject.scan_started_at(), None);
+        let get_existing_tx_records_params = get_existing_tx_records_params_arc.lock().unwrap();
+        assert_eq!(*get_existing_tx_records_params,vec![btreeset![tx_hash_1, tx_hash_2]]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Expected sent-payable records for (tx: \
+    0x00000000000000000000000000000000000000000000000000000000000001c8 to recipient: \
+    0x0000000000000000002556000000002556000000) were not found once the payment should have \
+    completed in the new payable scanner. System is in an unreliable state")]
+    fn clean_up_after_error_sad_path_for_new_payable_scanner(){
+        test_clean_up_after_error_sad_path(PayableScanType::New);
+    }
+
+    #[test]
+    #[should_panic(expected = "Expected sent-payable records for (tx: \
+    0x00000000000000000000000000000000000000000000000000000000000001c8 to recipient: \
+    0x0000000000000000002556000000002556000000) were not found once the payment should have \
+    completed in the retry payable scanner. System is in an unreliable state")]
+    fn clean_up_after_error_sad_path_for_retry_payable_scanner(){
+        test_clean_up_after_error_sad_path(PayableScanType::Retry);
+    }
+
+    fn test_clean_up_after_error_sad_path(payable_scan_type: PayableScanType){
+        let failed_tx_1 = make_failed_tx(123);
+        let tx_hash_1 = failed_tx_1.hash.clone();
+        let failed_tx_2 = make_failed_tx(456);
+        let tx_hash_2 = failed_tx_2.hash.clone();
+        let existing_tx_records = btreeset!(tx_hash_1);
+        let sent_payable_dao = SentPayableDaoMock::default()
+            .get_existing_tx_records_result(existing_tx_records);
+        let mut subject = PayableScannerBuilder::new().sent_payable_dao(sent_payable_dao).build();
+        subject.mark_as_started(SystemTime::now());
+
+        let _ =
+            subject.clean_up_after_error(PayableScannerCleanupArgs{ payable_scan_type, failed_txs: vec![SimplePayable::new(failed_tx_1.receiver_address, tx_hash_1), SimplePayable::new(failed_tx_2.receiver_address, tx_hash_2)] }, &Logger::new("test"));
     }
 }

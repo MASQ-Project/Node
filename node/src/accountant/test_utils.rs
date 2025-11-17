@@ -51,7 +51,7 @@ use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use rusqlite::{Connection, OpenFlags, Row};
 use std::any::type_name;
 use std::cell::RefCell;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt::Debug;
 use std::path::Path;
 use std::rc::Rc;
@@ -939,8 +939,8 @@ pub fn bc_from_wallets(consuming_wallet: Wallet, earning_wallet: Wallet) -> Boot
 
 #[derive(Default)]
 pub struct SentPayableDaoMock {
-    get_tx_identifiers_params: Arc<Mutex<Vec<BTreeSet<TxHash>>>>,
-    get_tx_identifiers_results: RefCell<Vec<TxIdentifiers>>,
+    get_existing_tx_records_params: Arc<Mutex<Vec<BTreeSet<TxHash>>>>,
+    get_existing_tx_records_results: RefCell<Vec<BTreeSet<TxHash>>>,
     insert_new_records_params: Arc<Mutex<Vec<BTreeSet<SentTx>>>>,
     insert_new_records_results: RefCell<Vec<Result<(), SentPayableDaoError>>>,
     retrieve_txs_params: Arc<Mutex<Vec<Option<RetrieveCondition>>>>,
@@ -956,12 +956,12 @@ pub struct SentPayableDaoMock {
 }
 
 impl SentPayableDao for SentPayableDaoMock {
-    fn get_tx_identifiers(&self, hashes: &BTreeSet<TxHash>) -> TxIdentifiers {
-        self.get_tx_identifiers_params
+    fn get_existing_tx_records(&self, hashes: &BTreeSet<TxHash>) -> BTreeSet<TxHash> {
+        self.get_existing_tx_records_params
             .lock()
             .unwrap()
             .push(hashes.clone());
-        self.get_tx_identifiers_results.borrow_mut().remove(0)
+        self.get_existing_tx_records_results.borrow_mut().remove(0)
     }
     fn insert_new_records(&self, txs: &BTreeSet<SentTx>) -> Result<(), SentPayableDaoError> {
         self.insert_new_records_params
@@ -1014,13 +1014,13 @@ impl SentPayableDaoMock {
         SentPayableDaoMock::default()
     }
 
-    pub fn get_tx_identifiers_params(mut self, params: &Arc<Mutex<Vec<BTreeSet<TxHash>>>>) -> Self {
-        self.get_tx_identifiers_params = params.clone();
+    pub fn get_existing_tx_records_params(mut self, params: &Arc<Mutex<Vec<BTreeSet<TxHash>>>>) -> Self {
+        self.get_existing_tx_records_params = params.clone();
         self
     }
 
-    pub fn get_tx_identifiers_result(self, result: TxIdentifiers) -> Self {
-        self.get_tx_identifiers_results.borrow_mut().push(result);
+    pub fn get_existing_tx_records_result(self, result: BTreeSet<TxHash>) -> Self {
+        self.get_existing_tx_records_results.borrow_mut().push(result);
         self
     }
 
@@ -1093,8 +1093,8 @@ impl SentPayableDaoMock {
 
 #[derive(Default)]
 pub struct FailedPayableDaoMock {
-    get_tx_identifiers_params: Arc<Mutex<Vec<BTreeSet<TxHash>>>>,
-    get_tx_identifiers_results: RefCell<Vec<TxIdentifiers>>,
+    get_existing_tx_records_params: Arc<Mutex<Vec<BTreeSet<TxHash>>>>,
+    get_existing_tx_records_results: RefCell<Vec<TxIdentifiers>>,
     insert_new_records_params: Arc<Mutex<Vec<BTreeSet<FailedTx>>>>,
     insert_new_records_results: RefCell<Vec<Result<(), FailedPayableDaoError>>>,
     retrieve_txs_params: Arc<Mutex<Vec<Option<FailureRetrieveCondition>>>>,
@@ -1106,12 +1106,12 @@ pub struct FailedPayableDaoMock {
 }
 
 impl FailedPayableDao for FailedPayableDaoMock {
-    fn get_tx_identifiers(&self, hashes: &BTreeSet<TxHash>) -> TxIdentifiers {
-        self.get_tx_identifiers_params
+    fn get_existing_tx_records(&self, hashes: &BTreeSet<TxHash>) -> TxIdentifiers {
+        self.get_existing_tx_records_params
             .lock()
             .unwrap()
             .push(hashes.clone());
-        self.get_tx_identifiers_results.borrow_mut().remove(0)
+        self.get_existing_tx_records_results.borrow_mut().remove(0)
     }
 
     fn insert_new_records(&self, txs: &BTreeSet<FailedTx>) -> Result<(), FailedPayableDaoError> {
@@ -1152,13 +1152,13 @@ impl FailedPayableDaoMock {
         Self::default()
     }
 
-    pub fn get_tx_identifiers_params(mut self, params: &Arc<Mutex<Vec<BTreeSet<TxHash>>>>) -> Self {
-        self.get_tx_identifiers_params = params.clone();
+    pub fn get_existing_tx_records_params(mut self, params: &Arc<Mutex<Vec<BTreeSet<TxHash>>>>) -> Self {
+        self.get_existing_tx_records_params = params.clone();
         self
     }
 
-    pub fn get_tx_identifiers_result(self, result: TxIdentifiers) -> Self {
-        self.get_tx_identifiers_results.borrow_mut().push(result);
+    pub fn get_existing_tx_records_result(self, result: TxIdentifiers) -> Self {
+        self.get_existing_tx_records_results.borrow_mut().push(result);
         self
     }
 

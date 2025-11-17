@@ -27,10 +27,7 @@ use crate::accountant::scanners::payable_scanner::utils::{
     PayableThresholdsGaugeReal, PendingPayableMissingInDb,
 };
 use crate::accountant::scanners::{Scanner, ScannerCommon, StartableScanner};
-use crate::accountant::{
-    gwei_to_wei, join_with_commas, join_with_separator, PayableScanType, PendingPayable,
-    ResponseSkeleton, ScanForNewPayables, ScanForRetryPayables, SentPayables,
-};
+use crate::accountant::{gwei_to_wei, join_with_commas, join_with_separator, PayableScanType, ResponseSkeleton, ScanForNewPayables, ScanForRetryPayables, SentPayables, SimplePayable};
 use crate::blockchain::blockchain_interface::data_structures::BatchResults;
 use crate::blockchain::errors::validation_status::ValidationStatus;
 use crate::sub_lib::accountant::PaymentThresholds;
@@ -144,67 +141,70 @@ impl PayableScanner {
         }
     }
 
-    fn check_for_missing_records(
-        &self,
-        just_baked_sent_payables: &[&PendingPayable],
-    ) -> Vec<PendingPayableMissingInDb> {
-        let actual_sent_payables_len = just_baked_sent_payables.len();
-        let hashset_with_hashes_to_eliminate_duplicates = just_baked_sent_payables
-            .iter()
-            .map(|pending_payable| pending_payable.hash)
-            .collect::<BTreeSet<TxHash>>();
+    fn collect_simple_payables_from_batch_results(batch_results: &BatchResults) -> Vec<SimplePayable> {
+        batch_results.sent_txs.iter().map(|sent_tx|SimplePayable::new(sent_tx.receiver_address, sent_tx.hash)).chain(batch_results.failed_txs.iter().map(|failed_tx|SimplePayable::new(failed_tx.receiver_address, failed_tx.hash))).collect()
+    }
 
-        if hashset_with_hashes_to_eliminate_duplicates.len() != actual_sent_payables_len {
-            panic!(
-                "Found duplicates in the recent sent txs: {:?}",
-                just_baked_sent_payables
-            );
+    fn check_on_missing_sent_txs(&self, payable_scan_type: PayableScanType, payments: &[SimplePayable]) {
+        fn missing_record_msg(payable_scan_type: PayableScanType, nonexistent: &[PendingPayableMissingInDb]) -> String {
+            format!(
+                "Expected sent-payable records for {} were not found once the payment should have \
+                completed in the {} payable scanner. System is in an unreliable state",
+                join_with_commas(nonexistent, |missing_sent_tx_ids| format!(
+                    "(tx: {:?} to recipient: {:?})",
+                    missing_sent_tx_ids.hash, missing_sent_tx_ids.recipient
+                )),payable_scan_type
+            )
         }
 
-        let transaction_hashes_and_rowids_from_db = self
-            .sent_payable_dao
-            .get_tx_identifiers(&hashset_with_hashes_to_eliminate_duplicates);
-        let hashes_from_db = transaction_hashes_and_rowids_from_db
-            .keys()
-            .copied()
-            .collect::<BTreeSet<TxHash>>();
+        let missing_sent_tx_records = self.find_missing_records(payments);
+        if !missing_sent_tx_records.is_empty() {
+            panic!("{}", missing_record_msg(payable_scan_type, &missing_sent_tx_records))
+        }
+    }
 
-        let missing_sent_payables_hashes = hashset_with_hashes_to_eliminate_duplicates
-            .difference(&hashes_from_db)
-            .copied();
+    fn find_missing_records(
+        &self,
+        payments: &[SimplePayable],
+    ) -> Vec<PendingPayableMissingInDb> {
+        fn verify_inputs(payments: &[SimplePayable]) -> BTreeSet<TxHash> {
+            let actual_sent_payables_count = payments.len();
+            let deduplicated_hashes = payments
+                .iter()
+                .map(|pending_payable| pending_payable.hash)
+                .collect::<BTreeSet<TxHash>>();
 
-        let mut sent_payables_hashmap = just_baked_sent_payables
-            .iter()
-            .map(|payable| (payable.hash, &payable.recipient_wallet))
-            .collect::<HashMap<TxHash, &Wallet>>();
-        missing_sent_payables_hashes
-            .map(|hash| {
-                let wallet_address = sent_payables_hashmap
-                    .remove(&hash)
-                    .expectv("wallet")
-                    .address();
-                PendingPayableMissingInDb::new(wallet_address, hash)
+            if deduplicated_hashes.len() != actual_sent_payables_count {
+                panic!(
+                    "Found duplicates in the recently attempted outbound payments: {:?}",
+                    payments
+                );
+            }
+
+            deduplicated_hashes
+        }
+
+        let verified_inputs = verify_inputs(payments);
+        let hashes_of_missing_sent_payables = self.find_missing_sent_payables(verified_inputs);
+
+        payments
+            .into_iter()
+            .flat_map(|payable| {
+                let hash = payable.hash;
+                hashes_of_missing_sent_payables.get(&hash).map(|_| PendingPayableMissingInDb::new(payable.recipient_address, hash))
             })
             .collect()
     }
 
-    // TODO this should be used when Utkarsh picks the card GH-701 where he postponed the fix of saving the SentTxs
-    #[allow(dead_code)]
-    fn check_on_missing_sent_tx_records(&self, sent_payments: &[&PendingPayable]) {
-        fn missing_record_msg(nonexistent: &[PendingPayableMissingInDb]) -> String {
-            format!(
-                "Expected sent-payable records for {} were not found. The system has become unreliable",
-                join_with_commas(nonexistent, |missing_sent_tx_ids| format!(
-                    "(tx: {:?}, to wallet: {:?})",
-                    missing_sent_tx_ids.hash, missing_sent_tx_ids.recipient
-                ))
-            )
-        }
+    fn find_missing_sent_payables(&self, verified_inputs: BTreeSet<TxHash>) -> BTreeSet<TxHash> {
+        let tx_hashes_from_db = self
+            .sent_payable_dao
+            .get_existing_tx_records(&verified_inputs);
 
-        let missing_sent_tx_records = self.check_for_missing_records(sent_payments);
-        if !missing_sent_tx_records.is_empty() {
-            panic!("{}", missing_record_msg(&missing_sent_tx_records))
-        }
+        verified_inputs
+            .difference(&tx_hashes_from_db)
+            .copied()
+            .collect()
     }
 
     fn determine_next_scan_to_run(msg: &SentPayables) -> NextScanToRun {
@@ -401,7 +401,7 @@ mod tests {
     use crate::accountant::test_utils::{
         make_payable_account, FailedPayableDaoMock, PayableThresholdsGaugeMock, SentPayableDaoMock,
     };
-    use crate::blockchain::test_utils::make_tx_hash;
+    use crate::blockchain::test_utils::{make_address, make_tx_hash};
     use crate::sub_lib::accountant::DEFAULT_PAYMENT_THRESHOLDS;
     use crate::test_utils::make_wallet;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
@@ -584,31 +584,28 @@ mod tests {
 
     #[test]
     fn no_missing_records() {
-        let wallet_1 = make_wallet("abc");
-        let hash_1 = make_tx_hash(123);
-        let wallet_2 = make_wallet("def");
-        let hash_2 = make_tx_hash(345);
-        let wallet_3 = make_wallet("ghi");
-        let hash_3 = make_tx_hash(546);
-        let wallet_4 = make_wallet("jkl");
-        let hash_4 = make_tx_hash(678);
-        let pending_payables_owned = vec![
-            PendingPayable::new(wallet_1.clone(), hash_1),
-            PendingPayable::new(wallet_2.clone(), hash_2),
-            PendingPayable::new(wallet_3.clone(), hash_3),
-            PendingPayable::new(wallet_4.clone(), hash_4),
+        let wallet_1 = make_address(556);
+        let hash_1 = make_tx_hash(555);
+        let wallet_2 = make_address(334);
+        let hash_2 = make_tx_hash(333);
+        let wallet_3 = make_address(112);
+        let hash_3 = make_tx_hash(111);
+        let wallet_4 = make_address(223);
+        let hash_4 = make_tx_hash(222);
+        let payables = vec![
+            SimplePayable::new(wallet_1, hash_1),
+            SimplePayable::new(wallet_2, hash_2),
+            SimplePayable::new(wallet_3, hash_3),
+            SimplePayable::new(wallet_4, hash_4),
         ];
-        let pending_payables_ref = pending_payables_owned
-            .iter()
-            .collect::<Vec<&PendingPayable>>();
-        let sent_payable_dao = SentPayableDaoMock::new().get_tx_identifiers_result(
-            hashmap!(hash_4 => 4, hash_1 => 1, hash_3 => 3, hash_2 => 2),
+        let sent_payable_dao = SentPayableDaoMock::new().get_existing_tx_records_result(
+            btreeset!(hash_4, hash_1, hash_3, hash_2),
         );
         let subject = PayableScannerBuilder::new()
             .sent_payable_dao(sent_payable_dao)
             .build();
 
-        let missing_records = subject.check_for_missing_records(&pending_payables_ref);
+        let missing_records = subject.find_missing_records(&payables);
 
         assert!(
             missing_records.is_empty(),
@@ -631,23 +628,22 @@ mod tests {
         hash: 0x0000000000000000000000000000000000000000000000000000000000000315 }]"
     )]
     fn just_baked_pending_payables_contain_duplicates() {
-        let hash_1 = make_tx_hash(123);
-        let hash_2 = make_tx_hash(456);
-        let hash_3 = make_tx_hash(789);
-        let pending_payables = vec![
-            PendingPayable::new(make_wallet("abc"), hash_1),
-            PendingPayable::new(make_wallet("def"), hash_2),
-            PendingPayable::new(make_wallet("ghi"), hash_2),
-            PendingPayable::new(make_wallet("jkl"), hash_3),
+        let hash_1 = make_tx_hash(321);
+        let hash_2 = make_tx_hash(654);
+        let hash_3 = make_tx_hash(987);
+        let payables = vec![
+            SimplePayable::new(make_address(123), hash_1),
+            SimplePayable::new(make_address(456), hash_2),
+            SimplePayable::new(make_address(789), hash_2),
+            SimplePayable::new(make_address(012), hash_3),
         ];
-        let pending_payables_ref = pending_payables.iter().collect::<Vec<&PendingPayable>>();
         let sent_payable_dao = SentPayableDaoMock::new()
-            .get_tx_identifiers_result(hashmap!(hash_1 => 1, hash_2 => 3, hash_3 => 5));
+            .get_existing_tx_records_result(btreeset!(hash_1, hash_2, hash_3));
         let subject = PayableScannerBuilder::new()
             .sent_payable_dao(sent_payable_dao)
             .build();
 
-        subject.check_for_missing_records(&pending_payables_ref);
+        subject.find_missing_records(&payables);
     }
 
     #[test]

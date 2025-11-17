@@ -81,11 +81,12 @@ use std::any::type_name;
 use std::collections::{BTreeMap, BTreeSet};
 #[cfg(test)]
 use std::default::Default;
-use std::fmt::Display;
+use std::fmt::{Display, Formatter};
 use std::ops::{Div, Mul};
 use std::path::Path;
 use std::rc::Rc;
 use std::time::SystemTime;
+use web3::types::Address;
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
 pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; //6 hours
@@ -154,6 +155,15 @@ pub struct TxReceiptsMessage {
 pub enum PayableScanType {
     New,
     Retry,
+}
+
+impl Display for PayableScanType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PayableScanType::New => write!(f, "new"),
+            PayableScanType::Retry => write!(f, "retry"),
+        }
+    }
 }
 
 #[derive(Debug, Message, PartialEq, Eq, Clone)]
@@ -1234,6 +1244,19 @@ impl Accountant {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SimplePayable {
+    pub recipient_address: Address,
+    pub hash: TxHash
+}
+
+impl SimplePayable {
+    pub fn new(recipient_address: Address, hash: TxHash) -> Self {
+       Self { recipient_address, hash }
+    }
+}
+
+// TODO make sure this structure was deleted in gh-662
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PendingPayable {
     pub recipient_wallet: Wallet,
     pub hash: TxHash,
@@ -1248,6 +1271,7 @@ impl PendingPayable {
     }
 }
 
+// TODO make sure this structure was deleted in gh-662
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct PendingPayableId {
     pub rowid: u64,
@@ -5083,7 +5107,7 @@ mod tests {
 
     #[test]
     fn accountant_processes_sent_payables_and_schedules_pending_payable_scanner() {
-        // let get_tx_identifiers_params_arc = Arc::new(Mutex::new(vec![]));
+        // let get_existing_tx_records_params_arc = Arc::new(Mutex::new(vec![]));
         let pending_payable_notify_later_params_arc = Arc::new(Mutex::new(vec![]));
         let inserted_new_records_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_hash = H256::from("transaction_hash".keccak256());
@@ -5093,8 +5117,8 @@ mod tests {
             .insert_new_records_result(Ok(()));
         // let expected_rowid = 45623;
         // let sent_payable_dao = SentPayableDaoMock::default()
-        //     .get_tx_identifiers_params(&get_tx_identifiers_params_arc)
-        //     .get_tx_identifiers_result(hashmap! (expected_hash => expected_rowid));
+        //     .get_existing_tx_records_params(&get_existing_tx_records_params_arc)
+        //     .get_existing_tx_records_result(hashmap! (expected_hash => expected_rowid));
         let system =
             System::new("accountant_processes_sent_payables_and_schedules_pending_payable_scanner");
         let mut subject = AccountantBuilder::default()

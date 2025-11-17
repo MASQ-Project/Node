@@ -5,9 +5,7 @@ use crate::accountant::db_access_objects::utils::TxHash;
 use crate::accountant::scanners::payable_scanner::msgs::InitialTemplatesMessage;
 use crate::accountant::scanners::payable_scanner::tx_templates::priced::new::PricedNewTxTemplates;
 use crate::accountant::scanners::payable_scanner::tx_templates::priced::retry::PricedRetryTxTemplates;
-use crate::accountant::{
-    PayableScanType, RequestTransactionReceipts, ResponseSkeleton, SkeletonOptHolder,
-};
+use crate::accountant::{PayableScanType, RequestTransactionReceipts, ResponseSkeleton, SimplePayable, SkeletonOptHolder};
 use crate::blockchain::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::{
     MsgInterpretableAsPayableScanType, RetrieveTransactions,
@@ -176,12 +174,12 @@ pub enum PayableScanError {
     },
 }
 
-impl PayableScanError {
-    pub fn failed_tx_hashes(&self) -> Vec<TxHash> {
-        match self {
+impl From<&PayableScanError> for Vec<SimplePayable> {
+    fn from(err: &PayableScanError) -> Self {
+        match err {
             PayableScanError::PlainTextError(_) => vec![],
             PayableScanError::ErrorWithTxsIssued { failed_txs, .. } => {
-                failed_txs.iter().map(|tx| tx.hash.clone()).collect()
+                failed_txs.iter().map(|tx|SimplePayable::new(tx.receiver_address, tx.hash)).collect()
             }
         }
     }
@@ -220,7 +218,7 @@ mod tests {
     use crate::accountant::scanners::payable_scanner::tx_templates::priced::retry::PricedRetryTxTemplates;
     use crate::accountant::scanners::payable_scanner::tx_templates::test_utils::make_priced_new_tx_templates;
     use crate::accountant::test_utils::make_payable_account;
-    use crate::accountant::PayableScanType;
+    use crate::accountant::{PayableScanType, SimplePayable};
     use crate::actor_system_factory::SubsFactory;
     use crate::blockchain::blockchain_agent::test_utils::BlockchainAgentMock;
     use crate::blockchain::blockchain_bridge::{
@@ -356,19 +354,21 @@ mod tests {
     }
 
     #[test]
-    fn payable_scan_error_provides_hashes_of_failed_txs() {
-        let result_1 = PayableScanError::PlainTextError("bluh".to_string());
+    fn simple_payables_can_be_converted_from_ref_of_payable_scan_error() {
+        let err_1 = PayableScanError::PlainTextError("bluh".to_string());
         let failed_tx_a = make_failed_tx(123);
+        let receivable_address_a = failed_tx_a.receiver_address;
         let hash_a = failed_tx_a.hash.clone();
         let failed_tx_b = make_failed_tx(456);
+        let receivable_address_b = failed_tx_b.receiver_address;
         let hash_b = failed_tx_b.hash.clone();
-        let result_2 = PayableScanError::ErrorWithTxsIssued {
+        let err_2 = PayableScanError::ErrorWithTxsIssued {
             error: ErrorWithTxsIssued::Sending("bluh".to_string()),
             failed_txs: vec![failed_tx_a, failed_tx_b],
         };
 
-        assert_eq!(result_1.failed_tx_hashes(), vec![]);
-        assert_eq!(result_2.failed_tx_hashes(), vec![hash_a, hash_b]);
+        assert_eq!(<Vec<SimplePayable>>::from(&err_1), vec![]);
+        assert_eq!(<Vec<SimplePayable>>::from(&err_2), vec![SimplePayable::new(receivable_address_a, hash_a), SimplePayable::new(receivable_address_b, hash_b)]);
     }
 
     #[test]

@@ -96,7 +96,7 @@ impl Scanner<ReceivedPayments, Option<NodeToUiMessage>, ReceivableScannerCleanup
         _args: ReceivableScannerCleanupArgs,
         logger: &Logger,
     ) -> Result<(), ScanCleanUpError> {
-        debug!(logger, "Cleaning up the receivable scanner after an error");
+        debug!(logger, "Cleaning up in the receivable scanner after a scan error");
 
         self.mark_as_ended(logger);
 
