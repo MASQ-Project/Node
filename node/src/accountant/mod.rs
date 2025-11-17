@@ -13,6 +13,7 @@ use core::fmt::Debug;
 use masq_lib::constants::{SCAN_ERROR, WEIS_IN_GWEI};
 use std::cell::{Ref, RefCell};
 
+use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
 use crate::accountant::db_access_objects::payable_dao::{PayableDao, PayableDaoError};
 use crate::accountant::db_access_objects::receivable_dao::{ReceivableDao, ReceivableDaoError};
 use crate::accountant::db_access_objects::sent_payable_dao::{SentPayableDao, SentTx};
@@ -42,14 +43,16 @@ use crate::blockchain::blockchain_interface::data_structures::{
 use crate::blockchain::errors::rpc_errors::AppRpcError;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::DbInitializationConfig;
+use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::accountant::DaoFactories;
 use crate::sub_lib::accountant::FinancialStatistics;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportServicesConsumedMessage;
-use crate::sub_lib::accountant::{AccountantSubs, DetailedScanType};
 use crate::sub_lib::accountant::{MessageIdGenerator, MessageIdGeneratorReal};
-use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
+use crate::sub_lib::blockchain_bridge::{
+    ErrorWithTxsIssued, OutboundPaymentsInstructions, PayableScanError, ScanErrorPayload,
+};
 use crate::sub_lib::neighborhood::{ConfigChange, ConfigChangeMsg};
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
@@ -155,7 +158,7 @@ pub enum PayableScanType {
 
 #[derive(Debug, Message, PartialEq, Eq, Clone)]
 pub struct SentPayables {
-    pub payment_procedure_result: Result<BatchResults, String>,
+    pub batch_results: BatchResults,
     pub payable_scan_type: PayableScanType,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
@@ -182,9 +185,8 @@ pub struct ScanForReceivables {
 
 #[derive(Debug, Clone, Message, PartialEq, Eq)]
 pub struct ScanError {
-    pub scan_type: DetailedScanType,
+    pub payload: ScanErrorPayload,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
-    pub msg: String,
 }
 
 impl Handler<BindMessage> for Accountant {
@@ -427,20 +429,37 @@ impl Handler<ScanError> for Accountant {
                     self.logger,
                     "Trying to restore the scan train after a crash"
                 );
-                match scan_error.scan_type {
-                    DetailedScanType::NewPayables => self
-                        .scan_schedulers
-                        .payable
-                        .schedule_new_payable_scan(ctx, &self.logger),
-                    DetailedScanType::RetryPayables => self
-                        .scan_schedulers
-                        .payable
-                        .schedule_retry_payable_scan(ctx, None, &self.logger),
-                    DetailedScanType::PendingPayables => self
+                match scan_error.payload {
+                    ScanErrorPayload::NewPayables(payable_scan_error) => {
+                        let failed_txs: Vec<FailedTx> = payable_scan_error.into();
+                        if failed_txs.is_empty() {
+                            todo!()
+                            // match scan_error.scan_type {
+                            //     DetailedScanType::NewPayables => self
+                            //         .scan_schedulers
+                            //         .payable
+                            //         .schedule_new_payable_scan(ctx, &self.logger),
+                        } else {
+                            todo!()
+                        }
+                    }
+                    ScanErrorPayload::RetryPayables(payable_scan_error) => {
+                        let failed_txs: Vec<FailedTx> = payable_scan_error.into();
+                        if failed_txs.is_empty() {
+                            todo!()
+                            // self
+                            //     .scan_schedulers
+                            //     .payable
+                            //     .schedule_retry_payable_scan(ctx, None, & self.logger),
+                        } else {
+                            todo!()
+                        }
+                    }
+                    ScanErrorPayload::PendingPayables { .. } => self
                         .scan_schedulers
                         .pending_payable
                         .schedule(ctx, &self.logger),
-                    DetailedScanType::Receivables => {
+                    ScanErrorPayload::Receivables { .. } => {
                         self.scan_schedulers.receivable.schedule(ctx, &self.logger)
                     }
                 }
@@ -453,10 +472,7 @@ impl Handler<ScanError> for Accountant {
                         path: MessagePath::Conversation(response_skeleton.context_id),
                         payload: Err((
                             SCAN_ERROR,
-                            format!(
-                                "{:?} scan failed: '{}'",
-                                scan_error.scan_type, scan_error.msg
-                            ),
+                            format!("Scan failure: '{}'", scan_error.payload),
                         )),
                     },
                 };
@@ -1353,7 +1369,7 @@ mod tests {
         ExitServiceConsumed, PaymentThresholds, RoutingServiceConsumed, ScanIntervals,
         DEFAULT_EARNING_WALLET, DEFAULT_PAYMENT_THRESHOLDS,
     };
-    use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
+    use crate::sub_lib::blockchain_bridge::{DetailedScanType, OutboundPaymentsInstructions};
     use crate::sub_lib::neighborhood::ConfigChange;
     use crate::sub_lib::neighborhood::{Hops, WalletPair};
     use crate::test_utils::recorder::peer_actors_builder;
@@ -1698,10 +1714,10 @@ mod tests {
         let system = System::new("test");
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
         let sent_payables = SentPayables {
-            payment_procedure_result: Ok(BatchResults {
+            batch_results: BatchResults {
                 sent_txs: vec![make_sent_tx(1)],
                 failed_txs: vec![],
-            }),
+            },
             payable_scan_type: PayableScanType::New,
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 1234,
@@ -2307,10 +2323,10 @@ mod tests {
             &subject_addr
         );
         let sent_payables = SentPayables {
-            payment_procedure_result: Ok(BatchResults {
+            batch_results: BatchResults {
                 sent_txs: vec![make_sent_tx(1)],
                 failed_txs: vec![],
-            }),
+            },
             payable_scan_type: PayableScanType::New,
             response_skeleton_opt,
         };
@@ -2986,10 +3002,10 @@ mod tests {
             .receiver_address(make_wallet("bcd").address())
             .build();
         let expected_sent_payables = SentPayables {
-            payment_procedure_result: Ok(BatchResults {
+            batch_results: BatchResults {
                 sent_txs: vec![sent_tx],
                 failed_txs: vec![],
-            }),
+            },
             payable_scan_type: PayableScanType::New,
             response_skeleton_opt: None,
         };
@@ -3775,10 +3791,10 @@ mod tests {
             .receiver_address(creditor_wallet.address())
             .build();
         let counter_msg_2 = SentPayables {
-            payment_procedure_result: Ok(BatchResults {
+            batch_results: BatchResults {
                 sent_txs: vec![sent_tx],
                 failed_txs: vec![],
-            }),
+            },
             payable_scan_type: PayableScanType::New,
             response_skeleton_opt: None,
         };
@@ -4293,15 +4309,13 @@ mod tests {
         addr.try_send(message_simultaneous).unwrap();
 
         // We ignored the second ScanForNewPayables message as there was already in progress from
-        // the first message. Now we reset the state by ending the first scan by a failure and see
-        // that the third scan request is going to be accepted willingly again.
-        addr.try_send(SentPayables {
-            payment_procedure_result: Err("blah".to_string()),
-            payable_scan_type: PayableScanType::New,
-            response_skeleton_opt: Some(ResponseSkeleton {
-                client_id: 1122,
-                context_id: 7788,
-            }),
+        // the first message. Now we're gonna reset the state by simulating a failure for the first
+        // scan and see that the third scan request is gonna be accepted willingly.
+        addr.try_send(ScanError {
+            payload: ScanErrorPayload::NewPayables(PayableScanError::PlainTextError(
+                "bluh".to_string(),
+            )),
+            response_skeleton_opt: None,
         })
         .unwrap();
         addr.try_send(message_after.clone()).unwrap();
@@ -5102,10 +5116,10 @@ mod tests {
             Box::new(NotifyLaterHandleMock::default().panic_on_schedule_attempt());
         let expected_tx = TxBuilder::default().hash(expected_hash.clone()).build();
         let sent_payable = SentPayables {
-            payment_procedure_result: Ok(BatchResults {
+            batch_results: BatchResults {
                 sent_txs: vec![expected_tx.clone()],
                 failed_txs: vec![],
-            }),
+            },
             payable_scan_type: PayableScanType::New,
             response_skeleton_opt: None,
         };
@@ -5161,10 +5175,10 @@ mod tests {
             Box::new(NotifyLaterHandleMock::default().panic_on_schedule_attempt());
         let expected_tx = TxBuilder::default().hash(expected_hash.clone()).build();
         let sent_payable = SentPayables {
-            payment_procedure_result: Ok(BatchResults {
+            batch_results: BatchResults {
                 sent_txs: vec![expected_tx.clone()],
                 failed_txs: vec![],
-            }),
+            },
             payable_scan_type: PayableScanType::Retry,
             response_skeleton_opt: None,
         };
@@ -5220,10 +5234,10 @@ mod tests {
         subject.scan_schedulers.pending_payable.handle =
             Box::new(NotifyLaterHandleMock::default().panic_on_schedule_attempt());
         let sent_payable = SentPayables {
-            payment_procedure_result: Ok(BatchResults {
+            batch_results: BatchResults {
                 sent_txs: vec![],
                 failed_txs: vec![make_failed_tx(1), make_failed_tx(2)],
-            }),
+            },
             payable_scan_type: PayableScanType::New,
             response_skeleton_opt: None,
         };
@@ -6028,15 +6042,43 @@ mod tests {
         )
     }
 
+    fn new_payable_scan_error() -> ScanError {
+        ScanError {
+            payload: ScanErrorPayload::NewPayables(PayableScanError::PlainTextError(
+                EXAMPLE_ERROR_MSG.to_string(),
+            )),
+            response_skeleton_opt: Some(EXAMPLE_RESPONSE_SKELETON),
+        }
+    }
+
+    fn retry_payable_scan_error() -> ScanError {
+        ScanError {
+            payload: ScanErrorPayload::RetryPayables(PayableScanError::PlainTextError(
+                EXAMPLE_ERROR_MSG.to_string(),
+            )),
+            response_skeleton_opt: Some(EXAMPLE_RESPONSE_SKELETON),
+        }
+    }
+
+    fn pending_payable_scan_error() -> ScanError {
+        ScanError {
+            payload: ScanErrorPayload::PendingPayables(EXAMPLE_ERROR_MSG.to_string()),
+            response_skeleton_opt: Some(EXAMPLE_RESPONSE_SKELETON),
+        }
+    }
+
+    fn receivable_scan_error() -> ScanError {
+        ScanError {
+            payload: ScanErrorPayload::Receivables(EXAMPLE_ERROR_MSG.to_string()),
+            response_skeleton_opt: Some(EXAMPLE_RESPONSE_SKELETON),
+        }
+    }
+
     #[test]
     fn handling_scan_error_for_externally_triggered_new_payables() {
         test_scan_error_is_handled_properly(
             "handling_scan_error_for_externally_triggered_new_payables",
-            ScanError {
-                scan_type: DetailedScanType::NewPayables,
-                response_skeleton_opt: Some(EXAMPLE_RESPONSE_SKELETON),
-                msg: EXAMPLE_ERROR_MSG.to_string(),
-            },
+            new_payable_scan_error(),
             do_setup_and_prepare_assertions_for_new_payables(),
         );
     }
@@ -6045,11 +6087,7 @@ mod tests {
     fn handling_scan_error_for_externally_triggered_retry_payables() {
         test_scan_error_is_handled_properly(
             "handling_scan_error_for_externally_triggered_retry_payables",
-            ScanError {
-                scan_type: DetailedScanType::RetryPayables,
-                response_skeleton_opt: Some(EXAMPLE_RESPONSE_SKELETON),
-                msg: EXAMPLE_ERROR_MSG.to_string(),
-            },
+            retry_payable_scan_error(),
             do_setup_and_prepare_assertions_for_retry_payables(),
         )
     }
@@ -6058,11 +6096,7 @@ mod tests {
     fn handling_scan_error_for_externally_triggered_pending_payables() {
         test_scan_error_is_handled_properly(
             "handling_scan_error_for_externally_triggered_pending_payables",
-            ScanError {
-                scan_type: DetailedScanType::PendingPayables,
-                response_skeleton_opt: Some(EXAMPLE_RESPONSE_SKELETON),
-                msg: EXAMPLE_ERROR_MSG.to_string(),
-            },
+            pending_payable_scan_error(),
             do_setup_and_prepare_assertions_for_pending_payables(),
         );
     }
@@ -6071,11 +6105,7 @@ mod tests {
     fn handling_scan_error_for_externally_triggered_receivables() {
         test_scan_error_is_handled_properly(
             "handling_scan_error_for_externally_triggered_receivables",
-            ScanError {
-                scan_type: DetailedScanType::Receivables,
-                response_skeleton_opt: Some(EXAMPLE_RESPONSE_SKELETON),
-                msg: EXAMPLE_ERROR_MSG.to_string(),
-            },
+            receivable_scan_error(),
             do_setup_and_prepare_assertions_for_receivables(),
         );
     }
@@ -6084,11 +6114,7 @@ mod tests {
     fn handling_scan_error_for_internally_triggered_new_payables() {
         test_scan_error_is_handled_properly(
             "handling_scan_error_for_internally_triggered_new_payables",
-            ScanError {
-                scan_type: DetailedScanType::NewPayables,
-                response_skeleton_opt: None,
-                msg: EXAMPLE_ERROR_MSG.to_string(),
-            },
+            new_payable_scan_error(),
             do_setup_and_prepare_assertions_for_new_payables(),
         );
     }
@@ -6097,11 +6123,7 @@ mod tests {
     fn handling_scan_error_for_internally_triggered_retry_payables() {
         test_scan_error_is_handled_properly(
             "handling_scan_error_for_internally_triggered_retry_payables",
-            ScanError {
-                scan_type: DetailedScanType::RetryPayables,
-                response_skeleton_opt: None,
-                msg: EXAMPLE_ERROR_MSG.to_string(),
-            },
+            retry_payable_scan_error(),
             do_setup_and_prepare_assertions_for_retry_payables(),
         );
     }
@@ -6110,11 +6132,7 @@ mod tests {
     fn handling_scan_error_for_internally_triggered_pending_payables() {
         test_scan_error_is_handled_properly(
             "handling_scan_error_for_internally_triggered_pending_payables",
-            ScanError {
-                scan_type: DetailedScanType::PendingPayables,
-                response_skeleton_opt: None,
-                msg: EXAMPLE_ERROR_MSG.to_string(),
-            },
+            pending_payable_scan_error(),
             do_setup_and_prepare_assertions_for_pending_payables(),
         );
     }
@@ -6123,11 +6141,7 @@ mod tests {
     fn handling_scan_error_for_internally_triggered_receivables() {
         test_scan_error_is_handled_properly(
             "handling_scan_error_for_internally_triggered_receivables",
-            ScanError {
-                scan_type: DetailedScanType::Receivables,
-                response_skeleton_opt: None,
-                msg: EXAMPLE_ERROR_MSG.to_string(),
-            },
+            receivable_scan_error(),
             do_setup_and_prepare_assertions_for_receivables(),
         );
     }
@@ -6887,13 +6901,14 @@ mod tests {
         >,
     ) {
         init_test_logging();
+        let detailed_scan_type = DetailedScanType::from(&message.payload);
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let mut subject = AccountantBuilder::default()
             .consuming_wallet(make_wallet("blah"))
             .logger(Logger::new(test_name))
             .build();
         subject.scanners.reset_scan_started(
-            message.scan_type.into(),
+            DetailedScanType::from(&message.payload).into(),
             MarkScanner::Started(SystemTime::now()),
         );
         let run_schedulers_assertions = set_up_schedulers_and_prepare_assertions(
@@ -6911,7 +6926,7 @@ mod tests {
             .try_send(AssertionsMessage {
                 assertions: Box::new(move |actor: &mut Accountant| {
                     let scan_started_at_opt =
-                        actor.scanners.scan_started_at(message.scan_type.into());
+                        actor.scanners.scan_started_at(detailed_scan_type.into());
                     assert_eq!(scan_started_at_opt, None);
                 }),
             })
@@ -6927,10 +6942,7 @@ mod tests {
                     body: MessageBody {
                         opcode: "scan".to_string(),
                         path: MessagePath::Conversation(response_skeleton.context_id),
-                        payload: Err((
-                            SCAN_ERROR,
-                            format!("{:?} scan failed: '{}'", message.scan_type, message.msg),
-                        )),
+                        payload: Err((SCAN_ERROR, format!("Scan failure: '{}'", message.payload))),
                     },
                 };
                 assert_eq!(

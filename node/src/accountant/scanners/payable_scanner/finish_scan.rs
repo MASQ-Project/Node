@@ -1,14 +1,15 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use crate::accountant::db_access_objects::utils::TxHash;
 use crate::accountant::scanners::payable_scanner::utils::PayableScanResult;
 use crate::accountant::scanners::payable_scanner::PayableScanner;
-use crate::accountant::scanners::Scanner;
-use crate::accountant::SentPayables;
+use crate::accountant::scanners::{ScanCleanUpError, Scanner};
+use crate::accountant::{PayableScanType, SentPayables};
 use crate::time_marking_methods;
 use masq_lib::logger::Logger;
 use masq_lib::messages::ScanType;
 use std::time::SystemTime;
 
-impl Scanner<SentPayables, PayableScanResult> for PayableScanner {
+impl Scanner<SentPayables, PayableScanResult, PayableScannerCleanupArgs> for PayableScanner {
     fn finish_scan(&mut self, msg: SentPayables, logger: &Logger) -> PayableScanResult {
         // TODO as for GH-701, here there should be this check, but later on, when it comes to
         // GH-655, the need for this check passes and it will go away. Until then it should be
@@ -27,9 +28,22 @@ impl Scanner<SentPayables, PayableScanResult> for PayableScanner {
         }
     }
 
+    fn clean_up_after_error(
+        &mut self,
+        args: PayableScannerCleanupArgs,
+        logger: &Logger,
+    ) -> Result<(), ScanCleanUpError> {
+        todo!()
+    }
+
     time_marking_methods!(Payables);
 
     as_any_ref_in_trait_impl!();
+}
+
+pub struct PayableScannerCleanupArgs {
+    pub payable_scan_type: PayableScanType,
+    pub failed_txs: Vec<TxHash>,
 }
 
 #[cfg(test)]
@@ -41,7 +55,7 @@ mod tests {
     use crate::accountant::scanners::payable_scanner::test_utils::PayableScannerBuilder;
     use crate::accountant::scanners::payable_scanner::utils::{NextScanToRun, PayableScanResult};
     use crate::accountant::scanners::Scanner;
-    use crate::accountant::test_utils::{FailedPayableDaoMock, SentPayableDaoMock};
+    use crate::accountant::test_utils::{FailedPayableDaoMock, PendingPayableScannerBuilder, SentPayableDaoMock};
     use crate::accountant::{join_with_separator, PayableScanType, ResponseSkeleton, SentPayables};
     use crate::blockchain::blockchain_interface::data_structures::BatchResults;
     use crate::blockchain::errors::validation_status::ValidationStatus::Waiting;
@@ -53,6 +67,8 @@ mod tests {
     use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
+    use crate::accountant::scanners::pending_payable_scanner::PendingPayableScannerCleanupArgs;
+    use crate::accountant::scanners::test_utils::PendingPayableCacheMock;
 
     #[test]
     fn new_payable_scan_finishes_as_expected() {
@@ -84,7 +100,7 @@ mod tests {
             .build();
         subject.mark_as_started(SystemTime::now());
         let sent_payables = SentPayables {
-            payment_procedure_result: Ok(batch_results),
+            batch_results,
             payable_scan_type: PayableScanType::New,
             response_skeleton_opt: Some(response_skeleton),
         };
@@ -156,10 +172,10 @@ mod tests {
             context_id: 5678,
         };
         let sent_payables = SentPayables {
-            payment_procedure_result: Ok(BatchResults {
+            batch_results: BatchResults {
                 sent_txs: sent_txs.clone(),
                 failed_txs: failed_txs.clone(),
-            }),
+            },
             payable_scan_type: PayableScanType::Retry,
             response_skeleton_opt: Some(response_skeleton),
         };
@@ -208,6 +224,19 @@ mod tests {
     }
 
     #[test]
+    fn clean_up_after_error_works() {
+        make sure to write me right
+        let mut subject = PayableScannerBuilder::new().build();
+        subject.mark_as_started(SystemTime::now());
+
+        let result =
+            subject.clean_up_after_error(PendingPayableScannerCleanupArgs {}, &Logger::new("test"));
+
+        assert_eq!(result, Ok(()));
+        assert_eq!(subject.scan_started_at(), None);
+    }
+
+    #[test]
     fn payable_scanner_with_error_works_as_expected() {
         test_execute_payable_scanner_finish_scan_with_an_error(PayableScanType::New, "new");
         test_execute_payable_scanner_finish_scan_with_an_error(PayableScanType::Retry, "retry");
@@ -217,42 +246,43 @@ mod tests {
         payable_scan_type: PayableScanType,
         suffix: &str,
     ) {
-        init_test_logging();
-        let test_name = &format!("test_execute_payable_scanner_finish_scan_with_an_error_{suffix}");
-        let response_skeleton = ResponseSkeleton {
-            client_id: 1234,
-            context_id: 5678,
-        };
-        let mut subject = PayableScannerBuilder::new().build();
-        subject.mark_as_started(SystemTime::now());
-        let sent_payables = SentPayables {
-            payment_procedure_result: Err("Any error".to_string()),
-            payable_scan_type,
-            response_skeleton_opt: Some(response_skeleton),
-        };
-        let logger = Logger::new(test_name);
-
-        let result = subject.finish_scan(sent_payables, &logger);
-
-        assert_eq!(
-            result,
-            PayableScanResult {
-                ui_response_opt: Some(NodeToUiMessage {
-                    target: MessageTarget::ClientId(response_skeleton.client_id),
-                    body: UiScanResponse {}.tmb(response_skeleton.context_id),
-                }),
-                result: match payable_scan_type {
-                    PayableScanType::New => NextScanToRun::NewPayableScan,
-                    PayableScanType::Retry => NextScanToRun::RetryPayableScan,
-                },
-            }
-        );
-        let tlh = TestLogHandler::new();
-        tlh.exists_log_containing(&format!(
-            "WARN: {test_name}: Local error occurred before transaction signing. Error: Any error"
-        ));
-        tlh.exists_log_matching(&format!(
-            "INFO: {test_name}: The Payables scan ended in \\d+ms."
-        ));
+        todo!("this code is groundless")
+        // init_test_logging();
+        // let test_name = &format!("test_execute_payable_scanner_finish_scan_with_an_error_{suffix}");
+        // let response_skeleton = ResponseSkeleton {
+        //     client_id: 1234,
+        //     context_id: 5678,
+        // };
+        // let mut subject = PayableScannerBuilder::new().build();
+        // subject.mark_as_started(SystemTime::now());
+        // let sent_payables = SentPayables {
+        //     batch_results: Err("Any error".to_string()),
+        //     payable_scan_type,
+        //     response_skeleton_opt: Some(response_skeleton),
+        // };
+        // let logger = Logger::new(test_name);
+        //
+        // let result = subject.finish_scan(sent_payables, &logger);
+        //
+        // assert_eq!(
+        //     result,
+        //     PayableScanResult {
+        //         ui_response_opt: Some(NodeToUiMessage {
+        //             target: MessageTarget::ClientId(response_skeleton.client_id),
+        //             body: UiScanResponse {}.tmb(response_skeleton.context_id),
+        //         }),
+        //         result: match payable_scan_type {
+        //             PayableScanType::New => NextScanToRun::NewPayableScan,
+        //             PayableScanType::Retry => NextScanToRun::RetryPayableScan,
+        //         },
+        //     }
+        // );
+        // let tlh = TestLogHandler::new();
+        // tlh.exists_log_containing(&format!(
+        //     "WARN: {test_name}: Local error occurred before transaction signing. Error: Any error"
+        // ));
+        // tlh.exists_log_matching(&format!(
+        //     "INFO: {test_name}: The Payables scan ended in \\d+ms."
+        // ));
     }
 }

@@ -184,7 +184,6 @@ macro_rules! match_lazily_every_type_id{
 mod tests {
     use crate::accountant::{ResponseSkeleton, ScanError, ScanForNewPayables};
     use crate::daemon::crash_notification::CrashNotification;
-    use crate::sub_lib::accountant::DetailedScanType;
     use crate::sub_lib::peer_actors::{NewPublicIp, StartMessage};
     use crate::test_utils::recorder_stop_conditions::{MsgIdentification, StopConditions};
     use std::any::TypeId;
@@ -248,27 +247,27 @@ mod tests {
     fn stop_on_predicate_works() {
         let mut cond_set = StopConditions::AllGreedily(vec![MsgIdentification::ByPredicate {
             predicate: Box::new(|msg| {
-                let scan_err_msg: &ScanError = msg.downcast_ref().unwrap();
-                scan_err_msg.scan_type == DetailedScanType::PendingPayables
+                let crash_notification: &CrashNotification = msg.downcast_ref().unwrap();
+                crash_notification.exit_code == Some(444)
             }),
         }]);
-        let wrong_msg = ScanError {
-            scan_type: DetailedScanType::NewPayables,
-            response_skeleton_opt: None,
-            msg: "booga".to_string(),
+        let wrong_msg = CrashNotification {
+            process_id: 8974,
+            exit_code: Some(232),
+            stderr: Some(String::from("blah")),
         };
-        let good_msg = ScanError {
-            scan_type: DetailedScanType::PendingPayables,
-            response_skeleton_opt: None,
-            msg: "blah".to_string(),
+        let good_msg = CrashNotification {
+            process_id: 8974,
+            exit_code: Some(444),
+            stderr: None,
         };
 
         assert_eq!(
-            cond_set.resolve_stop_conditions::<ScanError>(&wrong_msg),
+            cond_set.resolve_stop_conditions::<CrashNotification>(&wrong_msg),
             false
         );
         assert_eq!(
-            cond_set.resolve_stop_conditions::<ScanError>(&good_msg),
+            cond_set.resolve_stop_conditions::<CrashNotification>(&good_msg),
             true
         )
     }

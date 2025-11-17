@@ -4,11 +4,16 @@ pub mod utils;
 
 use crate::accountant::db_access_objects::banned_dao::BannedDao;
 use crate::accountant::db_access_objects::receivable_dao::ReceivableDao;
+use crate::accountant::scanners::pending_payable_scanner::utils::PendingPayableScanResult;
+use crate::accountant::scanners::pending_payable_scanner::PendingPayableScannerCleanupArgs;
 use crate::accountant::scanners::receivable_scanner::utils::balance_and_age;
 use crate::accountant::scanners::{
-    PrivateScanner, Scanner, ScannerCommon, StartScanError, StartableScanner,
+    PrivateScanner, ScanCleanUpError, Scanner, ScannerCommon, StartScanError, StartableScanner,
 };
-use crate::accountant::{ReceivedPayments, ResponseSkeleton, ScanForReceivables};
+use crate::accountant::{
+    ReceivedPayments, RequestTransactionReceipts, ResponseSkeleton, ScanForPendingPayables,
+    ScanForReceivables, TxReceiptsMessage,
+};
 use crate::blockchain::blockchain_bridge::{BlockMarker, RetrieveTransactions};
 use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::accountant::{FinancialStatistics, PaymentThresholds};
@@ -21,6 +26,17 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::SystemTime;
 
+pub(in crate::accountant::scanners) trait ReceivablePrivateScanner:
+    PrivateScanner<
+    ScanForReceivables,
+    RetrieveTransactions,
+    ReceivedPayments,
+    Option<NodeToUiMessage>,
+    ReceivableScannerCleanupArgs,
+>
+{
+}
+
 pub struct ReceivableScanner {
     pub common: ScannerCommon,
     pub receivable_dao: Box<dyn ReceivableDao>,
@@ -29,12 +45,15 @@ pub struct ReceivableScanner {
     pub financial_statistics: Rc<RefCell<FinancialStatistics>>,
 }
 
+impl ReceivablePrivateScanner for ReceivableScanner {}
+
 impl
     PrivateScanner<
         ScanForReceivables,
         RetrieveTransactions,
         ReceivedPayments,
         Option<NodeToUiMessage>,
+        ReceivableScannerCleanupArgs,
     > for ReceivableScanner
 {
 }
@@ -58,7 +77,9 @@ impl StartableScanner<ScanForReceivables, RetrieveTransactions> for ReceivableSc
     }
 }
 
-impl Scanner<ReceivedPayments, Option<NodeToUiMessage>> for ReceivableScanner {
+impl Scanner<ReceivedPayments, Option<NodeToUiMessage>, ReceivableScannerCleanupArgs>
+    for ReceivableScanner
+{
     fn finish_scan(&mut self, msg: ReceivedPayments, logger: &Logger) -> Option<NodeToUiMessage> {
         self.handle_new_received_payments(&msg, logger);
         self.mark_as_ended(logger);
@@ -68,6 +89,18 @@ impl Scanner<ReceivedPayments, Option<NodeToUiMessage>> for ReceivableScanner {
                 target: MessageTarget::ClientId(response_skeleton.client_id),
                 body: UiScanResponse {}.tmb(response_skeleton.context_id),
             })
+    }
+
+    fn clean_up_after_error(
+        &mut self,
+        _args: ReceivableScannerCleanupArgs,
+        logger: &Logger,
+    ) -> Result<(), ScanCleanUpError> {
+        debug!(logger, "Cleaning up the receivable scanner after an error");
+
+        self.mark_as_ended(logger);
+
+        Ok(())
     }
 
     time_marking_methods!(Receivables);
@@ -191,5 +224,32 @@ impl ReceivableScanner {
                     age.as_secs()
                 )
             });
+    }
+}
+
+pub struct ReceivableScannerCleanupArgs {}
+
+#[cfg(test)]
+mod tests {
+    use crate::accountant::scanners::receivable_scanner::ReceivableScannerCleanupArgs;
+    use crate::accountant::scanners::Scanner;
+    use crate::accountant::test_utils::ReceivableScannerBuilder;
+    use crate::accountant::ReceivedPayments;
+    use crate::blockchain::blockchain_bridge::BlockMarker;
+    use crate::blockchain::blockchain_interface::data_structures::BlockchainTransaction;
+    use crate::test_utils::make_wallet;
+    use masq_lib::logger::Logger;
+    use std::time::SystemTime;
+
+    #[test]
+    fn clean_up_after_error_works() {
+        let mut subject = ReceivableScannerBuilder::new().build();
+        subject.mark_as_started(SystemTime::now());
+
+        let result =
+            subject.clean_up_after_error(ReceivableScannerCleanupArgs {}, &Logger::new("test"));
+
+        assert_eq!(result, Ok(()));
+        assert_eq!(subject.scan_started_at(), None);
     }
 }

@@ -8,7 +8,7 @@ use crate::accountant::scanners::payable_scanner::tx_templates::priced::new::Pri
 use crate::accountant::scanners::payable_scanner::tx_templates::priced::retry::PricedRetryTxTemplates;
 use crate::accountant::scanners::payable_scanner::utils::initial_templates_msg_stats;
 use crate::accountant::{
-    ReceivedPayments, ResponseSkeleton, ScanError, SentPayables, SkeletonOptHolder,
+    PayableScanType, ReceivedPayments, ResponseSkeleton, ScanError, SentPayables, SkeletonOptHolder,
 };
 use crate::accountant::{RequestTransactionReceipts, TxReceiptResult, TxReceiptsMessage};
 use crate::actor_system_factory::SubsFactory;
@@ -26,8 +26,10 @@ use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
-use crate::sub_lib::accountant::DetailedScanType;
-use crate::sub_lib::blockchain_bridge::{BlockchainBridgeSubs, OutboundPaymentsInstructions};
+use crate::sub_lib::blockchain_bridge::{
+    BlockchainBridgeSubs, OutboundPaymentsInstructions, PayableScanError,
+    PayableScanPlainTextError, ScanErrorPayload,
+};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request};
 use crate::sub_lib::wallet::Wallet;
@@ -124,11 +126,7 @@ impl Handler<RetrieveTransactions> for BlockchainBridge {
         msg: RetrieveTransactions,
         _ctx: &mut Self::Context,
     ) -> <Self as Handler<RetrieveTransactions>>::Result {
-        self.handle_scan_future(
-            Self::handle_retrieve_transactions,
-            DetailedScanType::Receivables,
-            msg,
-        )
+        self.handle_scan_future(Self::handle_retrieve_transactions, msg)
     }
 }
 
@@ -136,27 +134,19 @@ impl Handler<RequestTransactionReceipts> for BlockchainBridge {
     type Result = ();
 
     fn handle(&mut self, msg: RequestTransactionReceipts, _ctx: &mut Self::Context) {
-        self.handle_scan_future(
-            Self::handle_request_transaction_receipts,
-            DetailedScanType::PendingPayables,
-            msg,
-        )
+        self.handle_scan_future(Self::handle_request_transaction_receipts, msg)
     }
 }
 
-pub trait MsgInterpretableAsDetailedScanType {
-    fn detailed_scan_type(&self) -> DetailedScanType;
+pub trait MsgInterpretableAsPayableScanType {
+    fn payable_scan_type(&self) -> PayableScanType;
 }
 
 impl Handler<InitialTemplatesMessage> for BlockchainBridge {
     type Result = ();
 
     fn handle(&mut self, msg: InitialTemplatesMessage, _ctx: &mut Self::Context) {
-        self.handle_scan_future(
-            Self::handle_initial_templates_msg,
-            msg.detailed_scan_type(),
-            msg,
-        );
+        self.handle_scan_future(Self::handle_initial_templates_msg, msg);
     }
 }
 
@@ -164,11 +154,7 @@ impl Handler<OutboundPaymentsInstructions> for BlockchainBridge {
     type Result = ();
 
     fn handle(&mut self, msg: OutboundPaymentsInstructions, _ctx: &mut Self::Context) {
-        self.handle_scan_future(
-            Self::handle_outbound_payments_instructions,
-            msg.detailed_scan_type(),
-            msg,
-        )
+        self.handle_scan_future(Self::handle_outbound_payments_instructions, msg)
     }
 }
 
@@ -258,18 +244,24 @@ impl BlockchainBridge {
     fn handle_initial_templates_msg(
         &mut self,
         incoming_message: InitialTemplatesMessage,
-    ) -> Box<dyn Future<Item = (), Error = String>> {
+    ) -> Box<dyn Future<Item = (), Error = ScanErrorPayload>> {
         debug!(
             &self.logger,
             "{}",
             initial_templates_msg_stats(&incoming_message)
         );
+        let scan_type = incoming_message.payable_scan_type();
         // TODO rewrite this into a batch call as soon as GH-629 gets into master
         let accountant_recipient = self.payable_payments_setup_subs_opt.clone();
         Box::new(
             self.blockchain_interface
                 .introduce_blockchain_agent(incoming_message.consuming_wallet)
-                .map_err(|e| format!("Blockchain agent build error: {:?}", e))
+                .map_err(move |e| {
+                    ScanErrorPayload::from(PayableScanPlainTextError {
+                        scan_type,
+                        msg: format!("Blockchain agent build error: {:?}", e),
+                    })
+                })
                 .and_then(move |agent| {
                     let priced_templates =
                         agent.price_qualified_payables(incoming_message.initial_templates);
@@ -287,7 +279,7 @@ impl BlockchainBridge {
         )
     }
 
-    fn payment_procedure_result_from_error(e: LocalPayableError) -> Result<BatchResults, String> {
+    fn scan_error_payload_from_local_error(e: LocalPayableError) -> Result<BatchResults, String> {
         match e {
             LocalPayableError::Sending { failed_txs, .. } => Ok(BatchResults {
                 sent_txs: vec![],
@@ -300,7 +292,7 @@ impl BlockchainBridge {
     fn handle_outbound_payments_instructions(
         &mut self,
         msg: OutboundPaymentsInstructions,
-    ) -> Box<dyn Future<Item = (), Error = String>> {
+    ) -> Box<dyn Future<Item = (), Error = ScanErrorPayload>> {
         let skeleton_opt = msg.response_skeleton_opt;
         let sent_payable_subs_success = self
             .sent_payable_subs_opt
@@ -313,26 +305,48 @@ impl BlockchainBridge {
         Box::new(
             self.process_payments(msg.agent, msg.priced_templates)
                 .map_err(move |e: LocalPayableError| {
-                    sent_payable_subs_err
-                        .try_send(SentPayables {
-                            payment_procedure_result: Self::payment_procedure_result_from_error(
-                                e.clone(),
-                            ),
-                            payable_scan_type,
-                            response_skeleton_opt: skeleton_opt,
-                        })
-                        .expect("Accountant is dead");
+                    // sent_payable_subs_err
+                    //     .try_send(SentPayables {
+                    //         payment_procedure_result:
+                    //         payable_scan_type,
+                    //         response_skeleton_opt: skeleton_opt,
+                    //     })
+                    //     .expect("Accountant is dead");
 
-                    format!("ReportAccountsPayable: {}", e)
+                    // Self::scan_error_payload_from_local_error(
+                    //     e.clone(),
+                    // );
+
+                    if let LocalPayableError::Sending { error, failed_txs } = e {
+                        todo!()
+                    }
+
+                    let error_msg = format!("ReportAccountsPayable: {}", e);
+                    match payable_scan_type {
+                        PayableScanType::New => todo!(), //ScanErrorPayload::NewPayables(PayableScanError::PlainTextError {msg: error_msg}),
+                        PayableScanType::Retry => todo!(),
+                    }
                 })
                 .and_then(move |batch_results| {
-                    sent_payable_subs_success
-                        .try_send(SentPayables {
-                            payment_procedure_result: Ok(batch_results),
-                            payable_scan_type,
-                            response_skeleton_opt: skeleton_opt,
-                        })
-                        .expect("Accountant is dead");
+                    if !batch_results.sent_txs.is_empty() {
+                        sent_payable_subs_success
+                            .try_send(SentPayables {
+                                batch_results,
+                                payable_scan_type,
+                                response_skeleton_opt: skeleton_opt,
+                            })
+                            .expect("Accountant is dead");
+                    } else {
+                        todo!()
+                    }
+
+                    // sent_payable_subs_success
+                    //     .try_send(SentPayables {
+                    //         payment_procedure_result: Ok(batch_results),
+                    //         payable_scan_type,
+                    //         response_skeleton_opt: skeleton_opt,
+                    //     })
+                    //     .expect("Accountant is dead");
 
                     Ok(())
                 }),
@@ -342,7 +356,7 @@ impl BlockchainBridge {
     fn handle_retrieve_transactions(
         &mut self,
         msg: RetrieveTransactions,
-    ) -> Box<dyn Future<Item = (), Error = String>> {
+    ) -> Box<dyn Future<Item = (), Error = ScanErrorPayload>> {
         let (start_block, block_scan_range) = {
             let persistent_config_lock = self
                 .persistent_config_arc
@@ -400,7 +414,7 @@ impl BlockchainBridge {
                             }
                         }
                     }
-                    format!("Error while retrieving transactions: {:?}", e)
+                    ScanErrorPayload::Receivables(format!("Error while retrieving transactions: {:?}", e))
                 })
                 .and_then(move |retrieved_blockchain_transactions| {
                     received_payments_subs
@@ -445,7 +459,7 @@ impl BlockchainBridge {
     fn handle_request_transaction_receipts(
         &mut self,
         msg: RequestTransactionReceipts,
-    ) -> Box<dyn Future<Item = (), Error = String>> {
+    ) -> Box<dyn Future<Item = (), Error = ScanErrorPayload>> {
         let logger = self.logger.clone();
         let accountant_recipient = self
             .pending_payable_confirmation
@@ -455,7 +469,7 @@ impl BlockchainBridge {
         Box::new(
             self.blockchain_interface
                 .process_transaction_receipts(msg.tx_hashes)
-                .map_err(move |e| e.to_string())
+                .map_err(move |e| ScanErrorPayload::PendingPayables(e.to_string()))
                 .and_then(move |tx_receipt_results| {
                     Self::log_status_of_tx_receipts(
                         &logger,
@@ -473,9 +487,9 @@ impl BlockchainBridge {
         )
     }
 
-    fn handle_scan_future<M, F>(&mut self, handler: F, scan_type: DetailedScanType, msg: M)
+    fn handle_scan_future<M, F>(&mut self, handler: F, msg: M)
     where
-        F: FnOnce(&mut BlockchainBridge, M) -> Box<dyn Future<Item = (), Error = String>>,
+        F: FnOnce(&mut BlockchainBridge, M) -> Box<dyn Future<Item = (), Error = ScanErrorPayload>>,
         M: SkeletonOptHolder,
     {
         let skeleton_opt = msg.skeleton_opt();
@@ -487,9 +501,8 @@ impl BlockchainBridge {
                 .as_ref()
                 .expect("Accountant not bound")
                 .try_send(ScanError {
-                    scan_type,
+                    payload: e,
                     response_skeleton_opt: skeleton_opt,
-                    msg: e,
                 })
                 .expect("Accountant is dead");
         });
@@ -584,7 +597,7 @@ mod tests {
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::match_lazily_every_type_id;
     use crate::node_test_utils::check_timestamp;
-    use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
+    use crate::sub_lib::blockchain_bridge::{ConsumingWalletBalances, ErrorWithTxsIssued};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{
         make_accountant_subs_from_recorder, make_blockchain_bridge_subs_from_recorder,
@@ -839,7 +852,7 @@ mod tests {
             }),
         };
 
-        let error_msg = subject
+        let scan_err_payload = subject
             .handle_initial_templates_msg(qualified_payables_msg)
             .wait()
             .unwrap_err();
@@ -855,11 +868,11 @@ mod tests {
             ),
         );
         assert_eq!(
-            error_msg,
-            format!(
+            scan_err_payload,
+            ScanErrorPayload::NewPayables(PayableScanError::PlainTextError(format!(
                 "Blockchain agent build error: {:?}",
                 service_fee_balance_error
-            )
+            )))
         )
     }
 
@@ -928,7 +941,7 @@ mod tests {
         // let pending_payable_fingerprint_seeds_msg =
         //     accountant_recording.get_record::<PendingPayableFingerprintSeeds>(0);
         let sent_payables_msg = accountant_recording.get_record::<SentPayables>(0);
-        let batch_results = sent_payables_msg.clone().payment_procedure_result.unwrap();
+        let batch_results = sent_payables_msg.clone().batch_results;
         assert!(batch_results.failed_txs.is_empty());
         assert_on_sent_txs(
             batch_results.sent_txs,
@@ -1020,9 +1033,8 @@ mod tests {
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         // let pending_payable_fingerprint_seeds_msg =
         //     accountant_recording.get_record::<PendingPayableFingerprintSeeds>(0);
-        let sent_payables_msg = accountant_recording.get_record::<SentPayables>(0);
-        let scan_error_msg = accountant_recording.get_record::<ScanError>(1);
-        let batch_results = sent_payables_msg.clone().payment_procedure_result.unwrap();
+        assert_eq!(accountant_recording.get_record_opt::<SentPayables>(0), None);
+        let scan_error_msg = accountant_recording.get_record::<ScanError>(0);
         let failed_tx = FailedTx {
             hash: H256::from_str(
                 "81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c",
@@ -1036,7 +1048,6 @@ mod tests {
             reason: Submission(AppRpcErrorKind::Local(LocalErrorKind::Transport)),
             status: RetryRequired,
         };
-        assert_on_failed_txs(batch_results.failed_txs, vec![failed_tx]);
         // TODO: GH-701: This card is related to the commented out code in this test
         // assert_eq!(
         //     pending_payable_fingerprint_seeds_msg.hashes_and_balances,
@@ -1048,7 +1059,17 @@ mod tests {
         //         amount: account.balance_wei
         //     }]
         // );
-        assert_eq!(scan_error_msg.scan_type, DetailedScanType::NewPayables);
+        //TODO fix me better
+        // TODO change error "Sending" to "Submitting"
+        assert_eq!(
+            scan_error_msg.payload,
+            ScanErrorPayload::NewPayables(PayableScanError::ErrorWithTxsIssued {
+                error: ErrorWithTxsIssued::Sending(
+                    "Sending error: \"Transport error: Error(IncompleteMessage)\"".to_string()
+                ),
+                failed_txs: vec![failed_tx]
+            })
+        );
         assert_eq!(
             scan_error_msg.response_skeleton_opt,
             Some(ResponseSkeleton {
@@ -1056,14 +1077,14 @@ mod tests {
                 context_id: 4321
             })
         );
-        assert!(scan_error_msg
-            .msg
-            .contains("ReportAccountsPayable: Sending error: \"Transport error: Error(IncompleteMessage)\". Signed and hashed transactions:"), "This string didn't contain the expected: {}", scan_error_msg.msg);
-        assert!(scan_error_msg.msg.contains(
-            "FailedTx { hash: 0x81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c,"
-        ));
-        assert!(scan_error_msg.msg.contains("FailedTx { hash: 0x81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c, receiver_address: 0x00000000000000000000000000000000626c6168, amount_minor: 111420204, timestamp:"), "This string didn't contain the expected: {}", scan_error_msg.msg);
-        assert_eq!(accountant_recording.len(), 2);
+        // assert!(scan_error_msg
+        //     .msg
+        //     .contains("ReportAccountsPayable: Sending error: \"Transport error: Error(IncompleteMessage)\". Signed and hashed transactions:"), "This string didn't contain the expected: {}", scan_error_msg.msg);
+        // assert!(scan_error_msg.msg.contains(
+        //     "FailedTx { hash: 0x81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c,"
+        // ));
+        // assert!(scan_error_msg.msg.contains("FailedTx { hash: 0x81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c, receiver_address: 0x00000000000000000000000000000000626c6168, amount_minor: 111420204, timestamp:"), "This string didn't contain the expected: {}", scan_error_msg.msg);
+        assert_eq!(accountant_recording.len(), 1);
     }
 
     #[test]
@@ -1305,9 +1326,8 @@ mod tests {
         assert_eq!(
             scan_error,
             &ScanError {
-                scan_type: DetailedScanType::Receivables,
+                payload: ScanErrorPayload::Receivables("Error while retrieving transactions: QueryFailed(\"Transport error: Error(IncompleteMessage)\")".to_string()),
                 response_skeleton_opt: None,
-                msg: "Error while retrieving transactions: QueryFailed(\"Transport error: Error(IncompleteMessage)\")".to_string()
             }
         );
         assert_eq!(recording.len(), 1);
@@ -1439,21 +1459,19 @@ mod tests {
         };
         let system = System::new("test");
 
-        let _ = subject.handle_scan_future(
-            BlockchainBridge::handle_request_transaction_receipts,
-            DetailedScanType::PendingPayables,
-            msg,
-        );
+        let _ =
+            subject.handle_scan_future(BlockchainBridge::handle_request_transaction_receipts, msg);
 
         system.run();
         let recording = accountant_recording.lock().unwrap();
         assert_eq!(
             recording.get_record::<ScanError>(0),
             &ScanError {
-                scan_type: DetailedScanType::PendingPayables,
+                payload: ScanErrorPayload::PendingPayables(
+                    "Blockchain error: Query failed: Transport error: Error(IncompleteMessage)"
+                        .to_string()
+                ),
                 response_skeleton_opt: None,
-                msg: "Blockchain error: Query failed: Transport error: Error(IncompleteMessage)"
-                    .to_string()
             }
         );
         assert_eq!(recording.len(), 1);
@@ -1819,12 +1837,13 @@ mod tests {
         assert_eq!(
             scan_error_msg,
             &ScanError {
-                scan_type: DetailedScanType::Receivables,
+                payload: ScanErrorPayload::Receivables(
+                    "Error while retrieving transactions: InvalidResponse".to_string()
+                ),
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321
                 }),
-                msg: "Error while retrieving transactions: InvalidResponse".to_string(),
             }
         );
         TestLogHandler::new().exists_log_containing(&format!(
@@ -1840,7 +1859,7 @@ mod tests {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .ok_response("0x3B9ACA00".to_string(), 0)
-            .err_response(-32005, "Blockheight too far in the past. Check params passed to eth_getLogs or eth_call requests.Range of blocks allowed for your plan: 1000", 0)
+            .err_response(-32005, "Blockheight too far in the past. Check params passed to eth_getLogs or eth_call requests. Range of blocks allowed for your plan: 1000", 0)
             .start();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let accountant = accountant.system_stop_conditions(match_lazily_every_type_id!(ScanError));
@@ -1879,12 +1898,14 @@ mod tests {
         assert_eq!(
             scan_error_msg,
             &ScanError {
-                scan_type: DetailedScanType::Receivables,
+                payload: ScanErrorPayload::Receivables("Error while retrieving \
+                transactions: QueryFailed(\"RPC error: Error { code: ServerError(-32005), \
+                message: \\\"Blockheight too far in the past. Check params passed to eth_getLogs \
+                or eth_call requests. Range of blocks allowed for your plan: 1000\\\", data: None }\")".to_string()),
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321
                 }),
-                msg: "Error while retrieving transactions: QueryFailed(\"RPC error: Error { code: ServerError(-32005), message: \\\"Blockheight too far in the past. Check params passed to eth_getLogs or eth_call requests.Range of blocks allowed for your plan: 1000\\\", data: None }\")".to_string(),
             }
         );
         let max_block_count_params = set_max_block_count_params_arc.lock().unwrap();
@@ -2025,7 +2046,6 @@ mod tests {
 
         subject.handle_scan_future(
             BlockchainBridge::handle_retrieve_transactions,
-            DetailedScanType::Receivables,
             retrieve_transactions,
         );
 
@@ -2077,11 +2097,7 @@ mod tests {
         subject.received_payments_subs_opt = Some(accountant_addr.clone().recipient());
         subject.scan_error_subs_opt = Some(accountant_addr.recipient());
 
-        subject.handle_scan_future(
-            BlockchainBridge::handle_retrieve_transactions,
-            DetailedScanType::Receivables,
-            msg.clone(),
-        );
+        subject.handle_scan_future(BlockchainBridge::handle_retrieve_transactions, msg.clone());
 
         system.run();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
@@ -2089,10 +2105,9 @@ mod tests {
         assert_eq!(
             message,
             &ScanError {
-                scan_type: DetailedScanType::Receivables,
+                payload: ScanErrorPayload::Receivables("Error while retrieving transactions: QueryFailed(\"RPC error: Error { code: ServerError(-32005), message: \\\"My tummy hurts\\\", data: None }\")"
+                    .to_string()),
                 response_skeleton_opt: msg.response_skeleton_opt,
-                msg: "Error while retrieving transactions: QueryFailed(\"RPC error: Error { code: ServerError(-32005), message: \\\"My tummy hurts\\\", data: None }\")"
-                    .to_string()
             }
         );
         assert_eq!(accountant_recording.len(), 1);

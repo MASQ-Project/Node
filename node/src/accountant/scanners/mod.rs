@@ -7,6 +7,7 @@ pub mod scan_schedulers;
 pub mod test_utils;
 
 use crate::accountant::payment_adjuster::PaymentAdjusterReal;
+use crate::accountant::scanners::payable_scanner::finish_scan::PayableScannerCleanupArgs;
 use crate::accountant::scanners::payable_scanner::msgs::{
     InitialTemplatesMessage, PricedTemplatesMessage,
 };
@@ -15,19 +16,19 @@ use crate::accountant::scanners::payable_scanner::utils::{NextScanToRun, Payable
 use crate::accountant::scanners::payable_scanner::{MultistageDualPayableScanner, PayableScanner};
 use crate::accountant::scanners::pending_payable_scanner::utils::PendingPayableScanResult;
 use crate::accountant::scanners::pending_payable_scanner::{
-    ExtendedPendingPayablePrivateScanner, PendingPayableScanner,
+    PendingPayablePrivateScanner, PendingPayableScanner, PendingPayableScannerCleanupArgs,
 };
-use crate::accountant::scanners::receivable_scanner::ReceivableScanner;
+use crate::accountant::scanners::receivable_scanner::{
+    ReceivablePrivateScanner, ReceivableScanner, ReceivableScannerCleanupArgs,
+};
 use crate::accountant::{
-    ReceivedPayments, RequestTransactionReceipts, ResponseSkeleton, ScanError, ScanForNewPayables,
-    ScanForReceivables, ScanForRetryPayables, SentPayables, TxReceiptsMessage,
+    PayableScanType, ReceivedPayments, RequestTransactionReceipts, ResponseSkeleton, ScanError,
+    ScanForNewPayables, ScanForReceivables, ScanForRetryPayables, SentPayables, TxReceiptsMessage,
 };
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::db_config::persistent_configuration::PersistentConfigurationReal;
-use crate::sub_lib::accountant::{
-    DaoFactories, DetailedScanType, FinancialStatistics, PaymentThresholds,
-};
-use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
+use crate::sub_lib::accountant::{DaoFactories, FinancialStatistics, PaymentThresholds};
+use crate::sub_lib::blockchain_bridge::{OutboundPaymentsInstructions, ScanErrorPayload};
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use itertools::Either;
@@ -48,15 +49,8 @@ pub struct Scanners {
     payable: Box<dyn MultistageDualPayableScanner>,
     aware_of_unresolved_pending_payable: bool,
     initial_pending_payable_scan: bool,
-    pending_payable: Box<dyn ExtendedPendingPayablePrivateScanner>,
-    receivable: Box<
-        dyn PrivateScanner<
-            ScanForReceivables,
-            RetrieveTransactions,
-            ReceivedPayments,
-            Option<NodeToUiMessage>,
-        >,
-    >,
+    pending_payable: Box<dyn PendingPayablePrivateScanner>,
+    receivable: Box<dyn ReceivablePrivateScanner>,
 }
 
 impl Scanners {
@@ -257,22 +251,41 @@ impl Scanners {
 
     pub fn acknowledge_scan_error(&mut self, error: &ScanError, logger: &Logger) {
         debug!(logger, "Acknowledging a scan that couldn't finish");
-        match error.scan_type {
-            DetailedScanType::NewPayables | DetailedScanType::RetryPayables => {
-                self.payable.mark_as_ended(logger)
-            }
-            DetailedScanType::PendingPayables => {
-                self.empty_caches(logger);
-                self.pending_payable.mark_as_ended(logger);
-            }
-            DetailedScanType::Receivables => {
-                self.receivable.mark_as_ended(logger);
-            }
+        match &error.payload {
+            // TODO refactor us two
+            ScanErrorPayload::NewPayables(err) => self.payable.clean_up_after_error(
+                PayableScannerCleanupArgs {
+                    payable_scan_type: PayableScanType::New,
+                    failed_txs: err.failed_tx_hashes(),
+                },
+                logger,
+            ),
+            ScanErrorPayload::RetryPayables(err) => self.payable.clean_up_after_error(
+                PayableScannerCleanupArgs {
+                    payable_scan_type: PayableScanType::Retry,
+                    failed_txs: err.failed_tx_hashes(),
+                },
+                logger,
+            ),
+            ScanErrorPayload::PendingPayables { .. } => self
+                .pending_payable
+                .clean_up_after_error(PendingPayableScannerCleanupArgs {}, logger),
+            ScanErrorPayload::Receivables { .. } => self
+                .receivable
+                .clean_up_after_error(ReceivableScannerCleanupArgs {}, logger),
         };
-    }
-
-    fn empty_caches(&mut self, logger: &Logger) {
-        self.pending_payable.empty_caches(logger)
+        // match error.payload {
+        //     ScanErrorPayload::NewPayables(..) | ScanErrorPayload::RetryPayables(..) => {
+        //         self.payable.mark_as_ended(logger)
+        //     }
+        //     ScanErrorPayload::PendingPayables{..} => {
+        //         self.empty_caches(logger);
+        //         self.pending_payable.mark_as_ended(logger);
+        //     }
+        //     ScanErrorPayload::Receivables{..} => {
+        //         self.receivable.mark_as_ended(logger);
+        //     }
+        // };
     }
 
     pub fn try_skipping_payable_adjustment(
@@ -357,8 +370,9 @@ pub(in crate::accountant::scanners) trait PrivateScanner<
     StartMessage,
     EndMessage,
     ScanResult,
+    CleanupArgs,
 >:
-    StartableScanner<TriggerMessage, StartMessage> + Scanner<EndMessage, ScanResult> where
+    StartableScanner<TriggerMessage, StartMessage> + Scanner<EndMessage, ScanResult, CleanupArgs> where
     TriggerMessage: Message,
     StartMessage: Message,
     EndMessage: Message,
@@ -379,11 +393,16 @@ where
     ) -> Result<StartMessage, StartScanError>;
 }
 
-trait Scanner<EndMessage, ScanResult>
+trait Scanner<EndMessage, ScanResult, CleanupArgs>
 where
     EndMessage: Message,
 {
     fn finish_scan(&mut self, message: EndMessage, logger: &Logger) -> ScanResult;
+    fn clean_up_after_error(
+        &mut self,
+        args: CleanupArgs,
+        logger: &Logger,
+    ) -> Result<(), ScanCleanUpError>;
     fn scan_started_at(&self) -> Option<SystemTime>;
     fn mark_as_started(&mut self, timestamp: SystemTime);
     fn mark_as_ended(&mut self, logger: &Logger);
@@ -549,6 +568,9 @@ impl StartScanError {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum ScanCleanUpError {}
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ManulTriggerError {
     AutomaticScanConflict,
@@ -573,6 +595,7 @@ mod tests {
     use crate::accountant::db_access_objects::sent_payable_dao::{Detection, SentTx, TxStatus};
     use crate::accountant::db_access_objects::test_utils::{make_failed_tx, make_sent_tx};
     use crate::accountant::db_access_objects::utils::from_unix_timestamp;
+    use crate::accountant::scanners::payable_scanner::finish_scan::PayableScannerCleanupArgs;
     use crate::accountant::scanners::payable_scanner::msgs::InitialTemplatesMessage;
     use crate::accountant::scanners::payable_scanner::test_utils::PayableScannerBuilder;
     use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::NewTxTemplates;
@@ -619,9 +642,8 @@ mod tests {
     use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMockBuilder;
     use crate::db_config::mocks::ConfigDaoMock;
     use crate::db_config::persistent_configuration::PersistentConfigError;
-    use crate::sub_lib::accountant::{
-        DaoFactories, DetailedScanType, FinancialStatistics, PaymentThresholds,
-    };
+    use crate::sub_lib::accountant::{DaoFactories, FinancialStatistics, PaymentThresholds};
+    use crate::sub_lib::blockchain_bridge::{DetailedScanType, PayableScanError, ScanErrorPayload};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use crate::test_utils::{make_paying_wallet, make_wallet};
@@ -698,11 +720,11 @@ mod tests {
             self.aware_of_unresolved_pending_payable = value
         }
 
-        fn simple_scanner_timestamp_treatment<Scanner, EndMessage, ScanResult>(
+        fn simple_scanner_timestamp_treatment<Scanner, EndMessage, ScanResult, CleanupArgs>(
             scanner: &mut Scanner,
             value: MarkScanner,
         ) where
-            Scanner: self::Scanner<EndMessage, ScanResult> + ?Sized,
+            Scanner: self::Scanner<EndMessage, ScanResult, CleanupArgs> + ?Sized,
             EndMessage: actix::Message,
         {
             match value {
@@ -1092,7 +1114,10 @@ mod tests {
              {test_name_str}"
         );
         let sent_payable = SentPayables {
-            payment_procedure_result: Err("Some error".to_string()),
+            batch_results: BatchResults {
+                sent_txs: vec![make_sent_tx(123)],
+                failed_txs: vec![make_failed_tx(456)],
+            },
             payable_scan_type,
             response_skeleton_opt: None,
         };
@@ -1130,10 +1155,10 @@ mod tests {
         let mut subject = make_dull_subject();
         subject.payable = Box::new(payable_scanner);
         let sent_payables = SentPayables {
-            payment_procedure_result: Ok(BatchResults {
+            batch_results: BatchResults {
                 sent_txs: vec![make_sent_tx(1)],
                 failed_txs: vec![],
-            }),
+            },
             payable_scan_type: PayableScanType::Retry,
             response_skeleton_opt: None,
         };
@@ -1993,8 +2018,8 @@ mod tests {
         ));
     }
 
-    fn assert_elapsed_time_in_mark_as_ended<EndMessage: Message, ScanResult>(
-        subject: &mut dyn Scanner<EndMessage, ScanResult>,
+    fn assert_elapsed_time_in_mark_as_ended<EndMessage: Message, ScanResult, CleanupArgs>(
+        subject: &mut dyn Scanner<EndMessage, ScanResult, CleanupArgs>,
         scanner_name: &str,
         test_name: &str,
         logger: &Logger,
@@ -2033,21 +2058,21 @@ mod tests {
         let logger = Logger::new(test_name);
         let log_handler = TestLogHandler::new();
 
-        assert_elapsed_time_in_mark_as_ended::<SentPayables, PayableScanResult>(
+        assert_elapsed_time_in_mark_as_ended::<SentPayables, PayableScanResult, _>(
             &mut PayableScannerBuilder::new().build(),
             "Payables",
             test_name,
             &logger,
             &log_handler,
         );
-        assert_elapsed_time_in_mark_as_ended::<TxReceiptsMessage, PendingPayableScanResult>(
+        assert_elapsed_time_in_mark_as_ended::<TxReceiptsMessage, PendingPayableScanResult, _>(
             &mut PendingPayableScannerBuilder::new().build(),
             "PendingPayables",
             test_name,
             &logger,
             &log_handler,
         );
-        assert_elapsed_time_in_mark_as_ended::<ReceivedPayments, Option<NodeToUiMessage>>(
+        assert_elapsed_time_in_mark_as_ended::<ReceivedPayments, Option<NodeToUiMessage>, _>(
             &mut ReceivableScannerBuilder::new().build(),
             "Receivables",
             test_name,
@@ -2108,38 +2133,34 @@ mod tests {
 
     #[test]
     fn acknowledge_scan_error_works() {
-        fn scan_error(scan_type: DetailedScanType) -> ScanError {
-            ScanError {
-                scan_type,
-                response_skeleton_opt: None,
-                msg: "blah".to_string(),
-            }
-        }
-
         init_test_logging();
         let test_name = "acknowledge_scan_error_works";
         let inputs: Vec<(
-            DetailedScanType,
+            ScanErrorPayload,
             Box<dyn Fn(&mut Scanners)>,
             Box<dyn Fn(&Scanners) -> Option<SystemTime>>,
         )> = vec![
             (
-                DetailedScanType::NewPayables,
+                ScanErrorPayload::NewPayables(PayableScanError::PlainTextError(
+                    "booga".to_string(),
+                )),
                 Box::new(|subject| subject.payable.mark_as_started(SystemTime::now())),
                 Box::new(|subject| subject.payable.scan_started_at()),
             ),
             (
-                DetailedScanType::RetryPayables,
+                ScanErrorPayload::RetryPayables(PayableScanError::PlainTextError(
+                    "booga".to_string(),
+                )),
                 Box::new(|subject| subject.payable.mark_as_started(SystemTime::now())),
                 Box::new(|subject| subject.payable.scan_started_at()),
             ),
             (
-                DetailedScanType::PendingPayables,
+                ScanErrorPayload::PendingPayables("booga".to_string()),
                 Box::new(|subject| subject.pending_payable.mark_as_started(SystemTime::now())),
                 Box::new(|subject| subject.pending_payable.scan_started_at()),
             ),
             (
-                DetailedScanType::Receivables,
+                ScanErrorPayload::Receivables("booga".to_string()),
                 Box::new(|subject| subject.receivable.mark_as_started(SystemTime::now())),
                 Box::new(|subject| subject.receivable.scan_started_at()),
             ),
@@ -2153,26 +2174,31 @@ mod tests {
 
         inputs
             .into_iter()
-            .for_each(|(scan_type, set_started, get_started_at)| {
+            .for_each(|(payload, set_started, get_started_at)| {
                 set_started(&mut subject);
                 let started_at_before = get_started_at(&subject);
+                let err = ScanError {
+                    payload,
+                    response_skeleton_opt: None,
+                };
 
-                subject.acknowledge_scan_error(&scan_error(scan_type), &logger);
+                subject.acknowledge_scan_error(&err, &logger);
 
                 let started_at_after = get_started_at(&subject);
                 assert!(
                     started_at_before.is_some(),
                     "Should've been started for {:?}",
-                    scan_type
+                    DetailedScanType::from(&err.payload)
                 );
                 assert_eq!(
-                    started_at_after, None,
+                    started_at_after,
+                    None,
                     "Should've been unset for {:?}",
-                    scan_type
+                    DetailedScanType::from(&err.payload)
                 );
                 test_log_handler.exists_log_containing(&format!(
                     "INFO: {test_name}: The {:?} scan ended in",
-                    ScanType::from(scan_type)
+                    ScanType::from(DetailedScanType::from(&err.payload))
                 ));
             })
     }

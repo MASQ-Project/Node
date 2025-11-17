@@ -14,16 +14,15 @@ use crate::accountant::scanners::payable_scanner::{MultistageDualPayableScanner,
 use crate::accountant::scanners::pending_payable_scanner::utils::{
     PendingPayableCache, PendingPayableScanResult,
 };
-use crate::accountant::scanners::pending_payable_scanner::{
-    CachesEmptiableScanner, ExtendedPendingPayablePrivateScanner,
-};
+use crate::accountant::scanners::pending_payable_scanner::PendingPayablePrivateScanner;
+use crate::accountant::scanners::receivable_scanner::ReceivablePrivateScanner;
 use crate::accountant::scanners::scan_schedulers::{
     NewPayableScanIntervalComputer, PayableSequenceScanner, RescheduleScanOnErrorResolver,
     ScanReschedulingAfterEarlyStop, ScanTiming,
 };
 use crate::accountant::scanners::{
-    PendingPayableScanner, PrivateScanner, RealScannerMarker, ReceivableScanner, Scanner,
-    StartScanError, StartableScanner,
+    PendingPayableScanner, PrivateScanner, RealScannerMarker, ReceivableScanner, ScanCleanUpError,
+    Scanner, StartScanError, StartableScanner,
 };
 use crate::accountant::{
     ReceivedPayments, RequestTransactionReceipts, ResponseSkeleton, SentPayables, TxReceiptsMessage,
@@ -45,8 +44,9 @@ use time::{format_description, PrimitiveDateTime};
 
 pub struct NullScanner {}
 
-impl<TriggerMessage, StartMessage, EndMessage, ScanResult>
-    PrivateScanner<TriggerMessage, StartMessage, EndMessage, ScanResult> for NullScanner
+impl<TriggerMessage, StartMessage, EndMessage, ScanResult, CleanupArgs>
+    PrivateScanner<TriggerMessage, StartMessage, EndMessage, ScanResult, CleanupArgs>
+    for NullScanner
 where
     TriggerMessage: Message,
     StartMessage: Message,
@@ -70,12 +70,21 @@ where
     }
 }
 
-impl<EndMessage, ScanResult> Scanner<EndMessage, ScanResult> for NullScanner
+impl<EndMessage, ScanResult, CleanupArgs> Scanner<EndMessage, ScanResult, CleanupArgs>
+    for NullScanner
 where
     EndMessage: Message,
 {
     fn finish_scan(&mut self, _message: EndMessage, _logger: &Logger) -> ScanResult {
         panic!("Called finish_scan() from NullScanner");
+    }
+
+    fn clean_up_after_error(
+        &mut self,
+        args: CleanupArgs,
+        logger: &Logger,
+    ) -> Result<(), ScanCleanUpError> {
+        todo!()
     }
 
     fn scan_started_at(&self) -> Option<SystemTime> {
@@ -113,13 +122,9 @@ impl SolvencySensitivePaymentInstructor for NullScanner {
     }
 }
 
-impl ExtendedPendingPayablePrivateScanner for NullScanner {}
+impl PendingPayablePrivateScanner for NullScanner {}
 
-impl CachesEmptiableScanner for NullScanner {
-    fn empty_caches(&mut self, _logger: &Logger) {
-        intentionally_blank!()
-    }
-}
+impl ReceivablePrivateScanner for NullScanner {}
 
 impl Default for NullScanner {
     fn default() -> Self {
@@ -143,8 +148,8 @@ pub struct ScannerMock<StartMessage, EndMessage, ScanResult> {
     stop_system_after_last_message: RefCell<bool>,
 }
 
-impl<TriggerMessage, StartMessage, EndMessage, ScanResult>
-    PrivateScanner<TriggerMessage, StartMessage, EndMessage, ScanResult>
+impl<TriggerMessage, StartMessage, EndMessage, ScanResult, CleanupArgs>
+    PrivateScanner<TriggerMessage, StartMessage, EndMessage, ScanResult, CleanupArgs>
     for ScannerMock<StartMessage, EndMessage, ScanResult>
 where
     TriggerMessage: Message,
@@ -184,7 +189,7 @@ where
     }
 }
 
-impl<StartMessage, EndMessage, ScanResult> Scanner<EndMessage, ScanResult>
+impl<StartMessage, EndMessage, ScanResult, CleanupArgs> Scanner<EndMessage, ScanResult, CleanupArgs>
     for ScannerMock<StartMessage, EndMessage, ScanResult>
 where
     StartMessage: Message,
@@ -199,6 +204,14 @@ where
             System::current().stop();
         }
         self.finish_scan_results.borrow_mut().remove(0)
+    }
+
+    fn clean_up_after_error(
+        &mut self,
+        args: CleanupArgs,
+        logger: &Logger,
+    ) -> Result<(), ScanCleanUpError> {
+        todo!()
     }
 
     fn scan_started_at(&self) -> Option<SystemTime> {
@@ -317,17 +330,14 @@ impl SolvencySensitivePaymentInstructor
     }
 }
 
-impl ExtendedPendingPayablePrivateScanner
+impl PendingPayablePrivateScanner
     for ScannerMock<RequestTransactionReceipts, TxReceiptsMessage, PendingPayableScanResult>
 {
 }
 
-impl CachesEmptiableScanner
-    for ScannerMock<RequestTransactionReceipts, TxReceiptsMessage, PendingPayableScanResult>
+impl ReceivablePrivateScanner
+    for ScannerMock<RetrieveTransactions, ReceivedPayments, Option<NodeToUiMessage>>
 {
-    fn empty_caches(&mut self, _logger: &Logger) {
-        intentionally_blank!()
-    }
 }
 
 pub trait ScannerMockMarker {}

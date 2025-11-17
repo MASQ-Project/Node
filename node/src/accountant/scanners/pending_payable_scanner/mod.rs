@@ -20,7 +20,7 @@ use crate::accountant::scanners::pending_payable_scanner::utils::{
     TxHashByTable, UpdatableValidationStatus,
 };
 use crate::accountant::scanners::{
-    PrivateScanner, Scanner, ScannerCommon, StartScanError, StartableScanner,
+    PrivateScanner, ScanCleanUpError, Scanner, ScannerCommon, StartScanError, StartableScanner,
 };
 use crate::accountant::{
     join_with_commas, RequestTransactionReceipts, ResponseSkeleton, ScanForPendingPayables,
@@ -44,18 +44,15 @@ use std::time::SystemTime;
 use thousands::Separable;
 use web3::types::H256;
 
-pub(in crate::accountant::scanners) trait ExtendedPendingPayablePrivateScanner:
+pub(in crate::accountant::scanners) trait PendingPayablePrivateScanner:
     PrivateScanner<
-        ScanForPendingPayables,
-        RequestTransactionReceipts,
-        TxReceiptsMessage,
-        PendingPayableScanResult,
-    > + CachesEmptiableScanner
+    ScanForPendingPayables,
+    RequestTransactionReceipts,
+    TxReceiptsMessage,
+    PendingPayableScanResult,
+    PendingPayableScannerCleanupArgs,
+>
 {
-}
-
-pub trait CachesEmptiableScanner {
-    fn empty_caches(&mut self, logger: &Logger);
 }
 
 pub struct PendingPayableScanner {
@@ -69,7 +66,7 @@ pub struct PendingPayableScanner {
     pub clock: Box<dyn SimpleClock>,
 }
 
-impl ExtendedPendingPayablePrivateScanner for PendingPayableScanner {}
+impl PendingPayablePrivateScanner for PendingPayableScanner {}
 
 impl
     PrivateScanner<
@@ -77,6 +74,7 @@ impl
         RequestTransactionReceipts,
         TxReceiptsMessage,
         PendingPayableScanResult,
+        PendingPayableScannerCleanupArgs,
     > for PendingPayableScanner
 {
 }
@@ -107,7 +105,9 @@ impl StartableScanner<ScanForPendingPayables, RequestTransactionReceipts>
     }
 }
 
-impl Scanner<TxReceiptsMessage, PendingPayableScanResult> for PendingPayableScanner {
+impl Scanner<TxReceiptsMessage, PendingPayableScanResult, PendingPayableScannerCleanupArgs>
+    for PendingPayableScanner
+{
     fn finish_scan(
         &mut self,
         message: TxReceiptsMessage,
@@ -128,18 +128,24 @@ impl Scanner<TxReceiptsMessage, PendingPayableScanResult> for PendingPayableScan
         Self::compose_scan_result(retry_opt, response_skeleton_opt)
     }
 
+    fn clean_up_after_error(
+        &mut self,
+        _args: PendingPayableScannerCleanupArgs,
+        logger: &Logger,
+    ) -> Result<(), ScanCleanUpError> {
+        self.mark_as_ended(logger);
+
+         self.current_sent_payables.ensure_empty_cache(logger);
+         self.suspected_failed_payables.ensure_empty_cache(logger);
+
+        Ok(())
+    }
+
     time_marking_methods!(PendingPayables);
 
     as_any_ref_in_trait_impl!();
 
     as_any_mut_in_trait_impl!();
-}
-
-impl CachesEmptiableScanner for PendingPayableScanner {
-    fn empty_caches(&mut self, logger: &Logger) {
-        self.current_sent_payables.ensure_empty_cache(logger);
-        self.suspected_failed_payables.ensure_empty_cache(logger);
-    }
 }
 
 impl PendingPayableScanner {
@@ -861,6 +867,8 @@ impl PendingPayableScanner {
     }
 }
 
+pub struct PendingPayableScannerCleanupArgs {}
+
 #[cfg(test)]
 mod tests {
     use crate::accountant::db_access_objects::failed_payable_dao::{
@@ -876,13 +884,10 @@ mod tests {
         FailedValidationByTable, PendingPayableCache, PendingPayableScanResult, PresortedTxFailure,
         RecheckRequiringFailures, Retry, TxHashByTable,
     };
-    use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
+    use crate::accountant::scanners::pending_payable_scanner::{PendingPayableScanner, PendingPayableScannerCleanupArgs};
     use crate::accountant::scanners::test_utils::PendingPayableCacheMock;
     use crate::accountant::scanners::{Scanner, StartScanError, StartableScanner};
-    use crate::accountant::test_utils::{
-        make_transaction_block, FailedPayableDaoMock, PayableDaoMock, PendingPayableScannerBuilder,
-        SentPayableDaoMock,
-    };
+    use crate::accountant::test_utils::{make_transaction_block, FailedPayableDaoMock, PayableDaoMock, PendingPayableScannerBuilder, ReceivableScannerBuilder, SentPayableDaoMock};
     use crate::accountant::{RequestTransactionReceipts, ResponseSkeleton, TxReceiptsMessage};
     use crate::blockchain::blockchain_interface::data_structures::{
         StatusReadFromReceiptCheck, TxBlock,
@@ -906,6 +911,7 @@ mod tests {
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
+    use crate::accountant::scanners::receivable_scanner::ReceivableScannerCleanupArgs;
 
     #[test]
     fn start_scan_fills_in_caches_and_returns_msg() {
@@ -1214,6 +1220,26 @@ mod tests {
                 body: UiScanResponse {}.tmb(12)
             }))
         )
+    }
+
+    #[test]
+    fn clean_up_after_error_works() {
+        let ensure_empty_cache_sent_payable_params_arc = Arc::new(Mutex::new(vec![]));
+        let ensure_empty_cache_failed_payable_params_arc = Arc::new(Mutex::new(vec![]));
+        let sent_payable_cache = PendingPayableCacheMock::default().ensure_empty_cache_params(&ensure_empty_cache_sent_payable_params_arc);
+        let failed_payable_cache = PendingPayableCacheMock::default().ensure_empty_cache_params(&ensure_empty_cache_failed_payable_params_arc);
+        let mut subject = PendingPayableScannerBuilder::new().sent_payable_cache(Box::new(sent_payable_cache)).failed_payable_cache(Box::new(failed_payable_cache)).build();
+        subject.mark_as_started(SystemTime::now());
+
+        let result =
+            subject.clean_up_after_error(PendingPayableScannerCleanupArgs {}, &Logger::new("test"));
+
+        assert_eq!(result, Ok(()));
+        assert_eq!(subject.scan_started_at(), None);
+        let ensure_empty_cache_sent_payable_params = ensure_empty_cache_sent_payable_params_arc.lock().unwrap();
+        assert_eq!(*ensure_empty_cache_sent_payable_params, vec![()]);
+        let ensure_empty_cache_failed_payable_params = ensure_empty_cache_failed_payable_params_arc.lock().unwrap();
+        assert_eq!(*ensure_empty_cache_failed_payable_params, vec![()]);
     }
 
     #[test]
