@@ -9,10 +9,7 @@ use crate::neighborhood::neighborhood_database::{NeighborhoodDatabase, Neighborh
 use crate::neighborhood::node_record::NodeRecord;
 use crate::neighborhood::UserExitPreferences;
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
-use crate::sub_lib::neighborhood::{
-    ConnectionProgressEvent, ConnectionProgressMessage, GossipFailure_0v1, NeighborhoodMetadata,
-    RatePackLimits,
-};
+use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ConnectionProgressMessage, GossipFailure_0v1, NeighborhoodMetadata, RatePackLimits, DEFAULT_RATE_PACK_LIMITS};
 use crate::sub_lib::node_addr::NodeAddr;
 use itertools::Itertools;
 use masq_lib::logger::Logger;
@@ -1132,16 +1129,23 @@ impl GossipHandler for StandardGossipHandler {
     ) -> Vec<GossipAcceptanceResult> {
         let initial_neighborship_status =
             StandardGossipHandler::check_full_neighbor(database, gossip_source.ip());
-        let gossip_source_agr = agrs
-            .iter()
-            .find(|agr| {
-                agr.node_addr_opt.as_ref().map(|na| na.ip_addr()) == Some(gossip_source.ip())
-            })
-            .expect(&format!(
-                "Standard Gossip from {} lacks source AGR",
-                gossip_source
-            ))
-            .clone();
+        let gossip_source_agr = match agrs.iter().find(|agr| agr.node_addr_opt.as_ref().map(|na| na.ip_addr()) == Some(gossip_source.ip())) {
+            Some(agr) => agr.clone(),
+            None => {
+                let message = format!(
+                    "Node at {} sent Standard gossip without a record describing itself",
+                    gossip_source.ip()
+                );
+                warning!(self.logger, "{}", message);
+                return vec![GossipAcceptanceResult::Ban(Malefactor::new(
+                        None,
+                        Some(gossip_source.ip()),
+                        None,
+                        None,
+                        message,
+                ))]
+            }
+        };
         let patch = self.compute_patch(&agrs, database.root(), neighborhood_metadata.db_patch_size);
         let in_patch_agrs = agrs
             .into_iter()
@@ -1608,7 +1612,7 @@ impl GossipAcceptorReal {
                 Box::new(PassHandler::new()),
                 Box::new(IntroductionHandler::new(rate_pack_limits, logger.clone())),
                 Box::new(StandardGossipHandler::new(
-                    &RatePackLimits::test_default(),
+                    &DEFAULT_RATE_PACK_LIMITS,
                     logger.clone(),
                 )),
                 Box::new(RejectHandler::new()),
@@ -1691,6 +1695,12 @@ impl GossipAcceptorInvalid {
 
     fn invalid() -> ! {
         panic!("GossipAcceptor was never initialized");
+    }
+}
+
+impl Default for GossipAcceptorInvalid {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -3467,6 +3477,62 @@ mod tests {
     }
 
     #[test]
+    fn standard_gossip_that_does_not_describe_gossip_source_is_rejected() {
+        /*
+          Destination Node ==>
+            S---D
+
+          Source Node ==>
+           S---D
+
+          The source node(S) will send Gossip containing no information about
+          itself, which will get it banned by IP.
+        */
+        init_test_logging();
+        let test_name = "standard_gossip_that_does_not_describe_gossip_source_is_rejected";
+        let src_root = make_node_record(1234, true);
+        let dest_root = make_node_record(2345, true);
+        let mut src_db = db_from_node(&src_root);
+        let mut dest_db = db_from_node(&dest_root);
+        dest_db.add_node(src_root.clone()).unwrap();
+        dest_db.add_arbitrary_full_neighbor(dest_root.public_key(), src_root.public_key());
+        src_db.add_node(dest_db.root().clone()).unwrap();
+        src_db.add_arbitrary_full_neighbor(src_root.public_key(), dest_root.public_key());
+        let subject = StandardGossipHandler::new(&RatePackLimits::test_default(), Logger::new(test_name));
+        let cryptde = CryptDENull::from(dest_db.root().public_key(), TEST_DEFAULT_CHAIN);
+        let gossip_source: SocketAddr = src_root.node_addr_opt().unwrap().into();
+        let (cpm_recipient, _) = make_cpm_recipient();
+        let mut neighborhood_metadata = make_default_neighborhood_metadata();
+        neighborhood_metadata.cpm_recipient = cpm_recipient;
+
+        let handle_result = subject.handle(
+            &cryptde,
+            &mut dest_db,
+            vec![],
+            gossip_source,
+            neighborhood_metadata,
+        );
+
+        let message = format!(
+            "Node at {} sent Standard gossip without a record describing itself",
+            gossip_source.ip(),
+        );
+        assert_eq!(
+            handle_result,
+            vec![
+                GossipAcceptanceResult::Ban(Malefactor::new(
+                    None,
+                    Some(gossip_source.ip()),
+                    None,
+                    None,
+                    message.clone()
+                )),
+            ]
+        );
+        TestLogHandler::new().exists_log_containing(&format!("WARN: {}: {}", test_name, message));
+    }
+
+    #[test]
     fn standard_gossip_that_fails_validation_is_rejected() {
         /*
           Destination Node ==>
@@ -3482,6 +3548,7 @@ mod tests {
           rate pack is outside the limits.
         */
         init_test_logging();
+        let test_name = "standard_gossip_that_fails_validation_is_rejected";
         let src_root = make_node_record(1234, true);
         let dest_root = make_node_record(2345, true);
         let mut src_db = db_from_node(&src_root);
@@ -3512,7 +3579,7 @@ mod tests {
             RatePack::new(100, 100, 100, 100),
             RatePack::new(u64::MAX, u64::MAX, u64::MAX, u64::MAX),
         );
-        let subject = StandardGossipHandler::new(&rate_pack_limits, Logger::new("test"));
+        let subject = StandardGossipHandler::new(&rate_pack_limits, Logger::new(test_name));
         let cryptde = CryptDENull::from(dest_db.root().public_key(), TEST_DEFAULT_CHAIN);
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
         let gossip_source: SocketAddr = src_root.node_addr_opt().unwrap().into();
@@ -3561,7 +3628,7 @@ mod tests {
         assert_eq!(system.run(), 0);
         let recording = cpm_recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 0);
-        TestLogHandler::new().exists_log_containing(&message);
+        TestLogHandler::new().exists_log_containing(&format!("WARN: {}: {}", test_name, message));
     }
 
     #[test]

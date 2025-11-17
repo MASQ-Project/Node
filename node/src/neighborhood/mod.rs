@@ -11,8 +11,6 @@ pub mod node_record;
 pub mod overall_connection_status;
 
 use crate::bootstrapper::{BootstrapperConfig, CryptDEPair};
-use crate::database::db_initializer::DbInitializationConfig;
-use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::db_config::persistent_configuration::{
     PersistentConfigError, PersistentConfiguration, PersistentConfigurationFactory,
     PersistentConfigurationFactoryReal, PersistentConfigurationInvalid,
@@ -79,7 +77,7 @@ use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::net::{IpAddr, SocketAddr};
-use std::path::PathBuf;
+// use std::path::PathBuf;
 use std::string::ToString;
 
 pub const CRASH_KEY: &str = "NEIGHBORHOOD";
@@ -109,7 +107,7 @@ pub struct Neighborhood {
     overall_connection_status: OverallConnectionStatus,
     chain: Chain,
     crashable: bool,
-    data_directory: PathBuf,
+    // data_directory: PathBuf,
     persistent_config_factory: Box<dyn PersistentConfigurationFactory>,
     persistent_config: Box<dyn PersistentConfiguration>,
     db_password_opt: Option<String>,
@@ -435,7 +433,7 @@ impl Neighborhood {
             overall_connection_status,
             chain: config.blockchain_bridge_config.chain,
             crashable: config.crash_point == CrashPoint::Message,
-            data_directory: config.data_directory.clone(),
+            // data_directory: config.data_directory.clone(),
             persistent_config_factory: Box::new(PersistentConfigurationFactoryReal::new(
                 config.data_directory.clone(),
             )),
@@ -2264,6 +2262,7 @@ mod tests {
     use crate::test_utils::database_utils::PersistentConfigurationFactoryTest;
     use crate::test_utils::unshared_test_utils::notify_handlers::NotifyLaterHandleMock;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
+    use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DbInitializerReal};
 
     lazy_static! {
         static ref N_CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
@@ -2602,7 +2601,7 @@ mod tests {
                 .min_hops_result(Ok(MIN_HOPS_FOR_TEST))
                 .rate_pack_limits_result(Ok(RatePackLimits::test_default())),
         ));
-        subject.data_directory = data_dir;
+        // subject.data_directory = data_dir;
         let addr = subject.start();
         let sub = addr.clone().recipient::<StartMessage>();
         let (hopper, _, hopper_recording_arc) = make_recorder();
@@ -6285,7 +6284,7 @@ mod tests {
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         assert_eq!(0, hopper_recording.len());
         let tlh = TestLogHandler::new();
-        tlh.exists_log_containing("WARN: Neighborhood: Malefactor detected at 5.5.5.5:5555, but malefactor bans not yet implemented; ignoring: Bad guy");
+        tlh.exists_log_containing("WARN: Neighborhood: Malefactor detected at 5.5.5.5:5555, but malefactor bans not yet implemented; ignoring: Malefactor QmFkR3V5UHVibGljS2V5 at 1.3.2.4 with earning wallet 0x004261644775794561726e696e6757616c6c6574, consuming wallet 0x426164477579436f6e73756d696e6757616c6c65 detected at 2024-04-01 3:04:05.0: Bad guy");
     }
 
     #[test]
@@ -6463,7 +6462,7 @@ mod tests {
                 .min_hops_result(Ok(MIN_HOPS_FOR_TEST))
                 .rate_pack_limits_result(Ok(RatePackLimits::test_default())),
         ));
-        subject.data_directory = data_dir;
+        // subject.data_directory = data_dir;
         subject.logger = Logger::new("node_gossips_to_neighbors_on_startup");
         let this_node = subject.neighborhood_database.root().clone();
         let system = System::new("node_gossips_to_neighbors_on_startup");
@@ -7608,9 +7607,9 @@ mod tests {
                 N_CRYPTDE_PAIR.clone(),
                 &bc_from_earning_wallet(make_wallet("earning_wallet")),
             );
-            subject.data_directory = data_dir.to_path_buf();
+            // subject.data_directory = data_dir.to_path_buf();
             subject.persistent_config_factory = Box::new(PersistentConfigurationFactoryReal::new(
-                subject.data_directory.clone(),
+                data_dir.to_path_buf(),
             ));
             subject.persistent_config_factory.make();
         };

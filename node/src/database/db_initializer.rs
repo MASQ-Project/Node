@@ -259,7 +259,7 @@ impl DbInitializerReal {
         Self::set_config_value(
             conn,
             "rate_pack_limits",
-            Some(DEFAULT_RATE_PACK_LIMITS),
+            Some(DEFAULT_RATE_PACK_LIMITS.rate_pack_limits_parameter().as_str()),
             false,
             "rate pack limits",
         );
@@ -969,7 +969,7 @@ mod tests {
         verify(
             &mut config_vec,
             "rate_pack_limits",
-            Some(DEFAULT_RATE_PACK_LIMITS),
+            Some(DEFAULT_RATE_PACK_LIMITS.rate_pack_limits_parameter().as_str()),
             false,
         );
         verify(
@@ -1087,7 +1087,7 @@ mod tests {
         verify(
             &mut config_vec,
             "rate_pack_limits",
-            Some(DEFAULT_RATE_PACK_LIMITS),
+            Some(DEFAULT_RATE_PACK_LIMITS.rate_pack_limits_parameter().as_str()),
             false,
         );
         verify(

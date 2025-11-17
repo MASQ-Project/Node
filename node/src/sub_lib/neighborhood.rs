@@ -49,8 +49,20 @@ pub const ZERO_RATE_PACK: RatePack = RatePack {
     exit_service_rate: 0,
 };
 
-pub const DEFAULT_RATE_PACK_LIMITS: &str =
-    "100-100000000000000|100-100000000000000|100-100000000000000|100-100000000000000";
+pub const DEFAULT_RATE_PACK_LIMITS: RatePackLimits = RatePackLimits {
+    lo: RatePack {
+        routing_byte_rate: 100,
+        routing_service_rate: 100,
+        exit_byte_rate: 100,
+        exit_service_rate: 100,
+    },
+    hi: RatePack {
+        routing_byte_rate: 100_000_000_000_000,
+        routing_service_rate: 100_000_000_000_000,
+        exit_byte_rate: 100_000_000_000_000,
+        exit_service_rate: 100_000_000_000_000,
+    },
+};
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct RatePack {
@@ -96,10 +108,7 @@ impl RatePackLimits {
     }
 
     pub fn check(&self, rate_pack: &RatePack) -> bool {
-        match self.analyze(rate_pack) {
-            Ok(_) => true,
-            Err(_) => false,
-        }
+        self.analyze(rate_pack).is_ok()
     }
 
     pub fn analyze(&self, rate_pack: &RatePack) -> Result<(), ConfiguratorError> {
@@ -163,6 +172,19 @@ impl RatePackLimits {
         } else {
             Err(error)
         }
+    }
+
+    pub fn rate_pack_limits_parameter(&self) -> String {
+        format!("{}-{}|{}-{}|{}-{}|{}-{}",
+            self.lo.routing_byte_rate,
+            self.hi.routing_byte_rate,
+            self.lo.routing_service_rate,
+            self.hi.routing_service_rate,
+            self.lo.exit_byte_rate,
+            self.hi.exit_byte_rate,
+            self.lo.exit_service_rate,
+            self.hi.exit_service_rate,
+        )
     }
 }
 
@@ -679,8 +701,8 @@ pub enum GossipFailure_0v1 {
     Unknown,
 }
 
-impl fmt::Display for GossipFailure_0v1 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+impl Display for GossipFailure_0v1 {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), fmt::Error> {
         let msg = match self {
             GossipFailure_0v1::NoNeighbors => "No neighbors for Introduction or Pass",
             GossipFailure_0v1::NoSuitableNeighbors => {
@@ -730,7 +752,7 @@ mod tests {
     use std::str::FromStr;
 
     lazy_static! {
-        static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
+        static ref NB_CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
     }
 
     #[test]
@@ -962,7 +984,7 @@ mod tests {
     #[test]
     fn from_str_complains_about_bad_base_64() {
         let result = NodeDescriptor::try_from((
-            CRYPTDE_PAIR.main.as_ref(),
+            NB_CRYPTDE_PAIR.main.as_ref(),
             "masq://eth-mainnet:bad_key@1.2.3.4:1234;2345",
         ));
 
@@ -1005,7 +1027,7 @@ mod tests {
     #[test]
     fn from_str_complains_about_blank_public_key() {
         let result =
-            NodeDescriptor::try_from((CRYPTDE_PAIR.main.as_ref(), "masq://dev:@1.2.3.4:1234/2345"));
+            NodeDescriptor::try_from((NB_CRYPTDE_PAIR.main.as_ref(), "masq://dev:@1.2.3.4:1234/2345"));
 
         assert_eq!(result, Err(String::from("Public key cannot be empty")));
     }
@@ -1013,7 +1035,7 @@ mod tests {
     #[test]
     fn from_str_complains_about_bad_node_addr() {
         let result = NodeDescriptor::try_from((
-            CRYPTDE_PAIR.main.as_ref(),
+            NB_CRYPTDE_PAIR.main.as_ref(),
             "masq://eth-mainnet:R29vZEtleQ==@BadNodeAddr",
         ));
 
@@ -1023,7 +1045,7 @@ mod tests {
     #[test]
     fn from_str_handles_the_happy_path_with_node_addr() {
         let result = NodeDescriptor::try_from((
-            CRYPTDE_PAIR.main.as_ref(),
+            NB_CRYPTDE_PAIR.main.as_ref(),
             "masq://eth-ropsten:R29vZEtleQ@1.2.3.4:1234/2345/3456",
         ));
 
@@ -1043,7 +1065,7 @@ mod tests {
     #[test]
     fn from_str_handles_the_happy_path_without_node_addr() {
         let result = NodeDescriptor::try_from((
-            CRYPTDE_PAIR.main.as_ref(),
+            NB_CRYPTDE_PAIR.main.as_ref(),
             "masq://eth-mainnet:R29vZEtleQ@:",
         ));
 
@@ -1087,7 +1109,7 @@ mod tests {
 
     #[test]
     fn node_descriptor_from_key_node_addr_and_mainnet_flag_works() {
-        let cryptde: &dyn CryptDE = CRYPTDE_PAIR.main.as_ref();
+        let cryptde: &dyn CryptDE = NB_CRYPTDE_PAIR.main.as_ref();
         let public_key = PublicKey::new(&[1, 2, 3, 4, 5, 6, 7, 8]);
         let node_addr = NodeAddr::new(&IpAddr::from_str("123.45.67.89").unwrap(), &[2345, 3456]);
 
@@ -1105,7 +1127,7 @@ mod tests {
 
     #[test]
     fn node_descriptor_to_string_works_for_mainnet() {
-        let cryptde: &dyn CryptDE = CRYPTDE_PAIR.main.as_ref();
+        let cryptde: &dyn CryptDE = NB_CRYPTDE_PAIR.main.as_ref();
         let public_key = PublicKey::new(&[1, 2, 3, 4, 5, 6, 7, 8]);
         let node_addr = NodeAddr::new(&IpAddr::from_str("123.45.67.89").unwrap(), &[2345, 3456]);
         let subject = NodeDescriptor::from((&public_key, &node_addr, Chain::EthMainnet, cryptde));
@@ -1120,7 +1142,7 @@ mod tests {
 
     #[test]
     fn node_descriptor_to_string_works_for_not_mainnet() {
-        let cryptde: &dyn CryptDE = CRYPTDE_PAIR.main.as_ref();
+        let cryptde: &dyn CryptDE = NB_CRYPTDE_PAIR.main.as_ref();
         let public_key = PublicKey::new(&[1, 2, 3, 4, 5, 6, 7, 8]);
         let node_addr = NodeAddr::new(&IpAddr::from_str("123.45.67.89").unwrap(), &[2345, 3456]);
         let subject = NodeDescriptor::from((&public_key, &node_addr, Chain::EthRopsten, cryptde));
@@ -1135,7 +1157,7 @@ mod tests {
 
     #[test]
     fn first_part_of_node_descriptor_must_not_be_longer_than_required() {
-        let cryptde: &dyn CryptDE = CRYPTDE_PAIR.main.as_ref();
+        let cryptde: &dyn CryptDE = NB_CRYPTDE_PAIR.main.as_ref();
         let public_key = PublicKey::new(&[
             1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 1, 2, 3, 4, 5, 6, 7, 8,
             9, 10, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
@@ -1177,12 +1199,12 @@ mod tests {
     #[test]
     fn standard_mode_results() {
         let one_neighbor = NodeDescriptor::try_from((
-            CRYPTDE_PAIR.main.as_ref(),
+            NB_CRYPTDE_PAIR.main.as_ref(),
             "masq://eth-mainnet:AQIDBA@1.2.3.4:1234",
         ))
         .unwrap();
         let another_neighbor = NodeDescriptor::try_from((
-            CRYPTDE_PAIR.main.as_ref(),
+            NB_CRYPTDE_PAIR.main.as_ref(),
             "masq://eth-mainnet:AgMEBQ@2.3.4.5:2345",
         ))
         .unwrap();
@@ -1212,12 +1234,12 @@ mod tests {
     #[test]
     fn originate_only_mode_results() {
         let one_neighbor = NodeDescriptor::try_from((
-            CRYPTDE_PAIR.main.as_ref(),
+            NB_CRYPTDE_PAIR.main.as_ref(),
             "masq://eth-ropsten:AQIDBA@1.2.3.4:1234",
         ))
         .unwrap();
         let another_neighbor = NodeDescriptor::try_from((
-            CRYPTDE_PAIR.main.as_ref(),
+            NB_CRYPTDE_PAIR.main.as_ref(),
             "masq://eth-ropsten:AgMEBQ@2.3.4.5:2345",
         ))
         .unwrap();
@@ -1243,12 +1265,12 @@ mod tests {
     #[test]
     fn consume_only_mode_results() {
         let one_neighbor = NodeDescriptor::try_from((
-            CRYPTDE_PAIR.main.as_ref(),
+            NB_CRYPTDE_PAIR.main.as_ref(),
             "masq://eth-mainnet:AQIDBA@1.2.3.4:1234",
         ))
         .unwrap();
         let another_neighbor = NodeDescriptor::try_from((
-            CRYPTDE_PAIR.main.as_ref(),
+            NB_CRYPTDE_PAIR.main.as_ref(),
             "masq://eth-mainnet:AgMEBQ@2.3.4.5:2345",
         ))
         .unwrap();

@@ -14,7 +14,7 @@ impl DatabaseMigration for Migrate_11_to_12 {
     ) -> rusqlite::Result<()> {
         declaration_utils.execute_upon_transaction(&[&format!(
             "INSERT INTO config (name, value, encrypted) VALUES ('rate_pack_limits', '{}', 0)",
-            DEFAULT_RATE_PACK_LIMITS
+            DEFAULT_RATE_PACK_LIMITS.rate_pack_limits_parameter()
         )])
     }
 

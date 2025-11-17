@@ -591,7 +591,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
                 "Required value rate_pack_limits is NULL in CONFIG table: database is corrupt!",
             );
         let captures = RATE_PACK_LIMIT_FORMAT.captures(limits_string.as_str())
-            .expect(format!("Syntax error in rate_pack_limits value '{}': should be <LRBR>-<HRBR>|<LRSR>-<HRSR>|<LEBR>-<HEBR>|<LESR>-<HESR> where L is low, H is high, R is routing, E is exit, BR is byte rate, and SR is service rate. All numbers should be in wei.", limits_string).as_str());
+            .unwrap_or_else(|| panic!("Syntax error in rate_pack_limits value '{}': should be <LRBR>-<HRBR>|<LRSR>-<HRSR>|<LEBR>-<HEBR>|<LESR>-<HESR> where L is low, H is high, R is routing, E is exit, BR is byte rate, and SR is service rate. All numbers should be in wei.", limits_string));
         let candidate = RatePackLimits::new(
             Self::extract_candidate(&captures, 1),
             Self::extract_candidate(&captures, 2),
@@ -922,6 +922,12 @@ impl PersistentConfigurationInvalid {
     }
 }
 
+impl Default for PersistentConfigurationInvalid {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub trait PersistentConfigurationFactory {
     fn make(&self) -> Box<dyn PersistentConfiguration>;
 }
@@ -935,7 +941,7 @@ impl PersistentConfigurationFactory for PersistentConfigurationFactoryReal {
         let db_initializer: &dyn DbInitializer = &DbInitializerReal::default();
         let conn = db_initializer
             .initialize(
-                &self.data_directory.as_path(),
+                self.data_directory.as_path(),
                 DbInitializationConfig::panic_on_migration(),
             )
             .unwrap_or_else(|err| db_connection_launch_panic(err, &self.data_directory));
