@@ -175,7 +175,8 @@ impl RatePackLimits {
     }
 
     pub fn rate_pack_limits_parameter(&self) -> String {
-        format!("{}-{}|{}-{}|{}-{}|{}-{}",
+        format!(
+            "{}-{}|{}-{}|{}-{}|{}-{}",
             self.lo.routing_byte_rate,
             self.hi.routing_byte_rate,
             self.lo.routing_service_rate,
@@ -1026,8 +1027,10 @@ mod tests {
 
     #[test]
     fn from_str_complains_about_blank_public_key() {
-        let result =
-            NodeDescriptor::try_from((NB_CRYPTDE_PAIR.main.as_ref(), "masq://dev:@1.2.3.4:1234/2345"));
+        let result = NodeDescriptor::try_from((
+            NB_CRYPTDE_PAIR.main.as_ref(),
+            "masq://dev:@1.2.3.4:1234/2345",
+        ));
 
         assert_eq!(result, Err(String::from("Public key cannot be empty")));
     }

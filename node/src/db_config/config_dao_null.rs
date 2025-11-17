@@ -140,7 +140,10 @@ impl Default for ConfigDaoNull {
         );
         data.insert(
             "rate_pack_limits".to_string(),
-            (Some(DEFAULT_RATE_PACK_LIMITS.rate_pack_limits_parameter()), false),
+            (
+                Some(DEFAULT_RATE_PACK_LIMITS.rate_pack_limits_parameter()),
+                false,
+            ),
         );
         data.insert(
             "scan_intervals".to_string(),

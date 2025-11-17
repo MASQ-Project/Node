@@ -2252,6 +2252,9 @@ mod tests {
     use super::*;
     use crate::accountant::test_utils::bc_from_earning_wallet;
     use crate::bootstrapper::CryptDEPair;
+    use crate::database::db_initializer::{
+        DbInitializationConfig, DbInitializer, DbInitializerReal,
+    };
     use crate::neighborhood::malefactor::Malefactor;
     use crate::neighborhood::overall_connection_status::ConnectionStageErrors::{
         NoGossipResponseReceived, PassLoopFound, TcpConnectionFailed,
@@ -2262,7 +2265,6 @@ mod tests {
     use crate::test_utils::database_utils::PersistentConfigurationFactoryTest;
     use crate::test_utils::unshared_test_utils::notify_handlers::NotifyLaterHandleMock;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DbInitializerReal};
 
     lazy_static! {
         static ref N_CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();

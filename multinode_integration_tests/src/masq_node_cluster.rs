@@ -312,8 +312,15 @@ impl MASQNodeCluster {
         );
         match command.stdout_or_stderr() {
             Ok(_) => println!("Removed existing integration_net network"),
-            Err(msg) if msg.contains("network integration_net not found") => println!("No existing integration_net network to remove: cool!"),
-            Err(msg) => return Err(format!("Error removing existing integration_net network: {}", msg)),
+            Err(msg) if msg.contains("network integration_net not found") => {
+                println!("No existing integration_net network to remove: cool!")
+            }
+            Err(msg) => {
+                return Err(format!(
+                    "Error removing existing integration_net network: {}",
+                    msg
+                ))
+            }
         }
         let mut command = Command::new(
             "docker",

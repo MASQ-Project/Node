@@ -9,7 +9,10 @@ use crate::neighborhood::neighborhood_database::{NeighborhoodDatabase, Neighborh
 use crate::neighborhood::node_record::NodeRecord;
 use crate::neighborhood::UserExitPreferences;
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
-use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ConnectionProgressMessage, GossipFailure_0v1, NeighborhoodMetadata, RatePackLimits, DEFAULT_RATE_PACK_LIMITS};
+use crate::sub_lib::neighborhood::{
+    ConnectionProgressEvent, ConnectionProgressMessage, GossipFailure_0v1, NeighborhoodMetadata,
+    RatePackLimits, DEFAULT_RATE_PACK_LIMITS,
+};
 use crate::sub_lib::node_addr::NodeAddr;
 use itertools::Itertools;
 use masq_lib::logger::Logger;
@@ -1129,7 +1132,9 @@ impl GossipHandler for StandardGossipHandler {
     ) -> Vec<GossipAcceptanceResult> {
         let initial_neighborship_status =
             StandardGossipHandler::check_full_neighbor(database, gossip_source.ip());
-        let gossip_source_agr = match agrs.iter().find(|agr| agr.node_addr_opt.as_ref().map(|na| na.ip_addr()) == Some(gossip_source.ip())) {
+        let gossip_source_agr = match agrs.iter().find(|agr| {
+            agr.node_addr_opt.as_ref().map(|na| na.ip_addr()) == Some(gossip_source.ip())
+        }) {
             Some(agr) => agr.clone(),
             None => {
                 let message = format!(
@@ -1138,12 +1143,12 @@ impl GossipHandler for StandardGossipHandler {
                 );
                 warning!(self.logger, "{}", message);
                 return vec![GossipAcceptanceResult::Ban(Malefactor::new(
-                        None,
-                        Some(gossip_source.ip()),
-                        None,
-                        None,
-                        message,
-                ))]
+                    None,
+                    Some(gossip_source.ip()),
+                    None,
+                    None,
+                    message,
+                ))];
             }
         };
         let patch = self.compute_patch(&agrs, database.root(), neighborhood_metadata.db_patch_size);
@@ -3498,7 +3503,8 @@ mod tests {
         dest_db.add_arbitrary_full_neighbor(dest_root.public_key(), src_root.public_key());
         src_db.add_node(dest_db.root().clone()).unwrap();
         src_db.add_arbitrary_full_neighbor(src_root.public_key(), dest_root.public_key());
-        let subject = StandardGossipHandler::new(&RatePackLimits::test_default(), Logger::new(test_name));
+        let subject =
+            StandardGossipHandler::new(&RatePackLimits::test_default(), Logger::new(test_name));
         let cryptde = CryptDENull::from(dest_db.root().public_key(), TEST_DEFAULT_CHAIN);
         let gossip_source: SocketAddr = src_root.node_addr_opt().unwrap().into();
         let (cpm_recipient, _) = make_cpm_recipient();
@@ -3519,15 +3525,13 @@ mod tests {
         );
         assert_eq!(
             handle_result,
-            vec![
-                GossipAcceptanceResult::Ban(Malefactor::new(
-                    None,
-                    Some(gossip_source.ip()),
-                    None,
-                    None,
-                    message.clone()
-                )),
-            ]
+            vec![GossipAcceptanceResult::Ban(Malefactor::new(
+                None,
+                Some(gossip_source.ip()),
+                None,
+                None,
+                message.clone()
+            )),]
         );
         TestLogHandler::new().exists_log_containing(&format!("WARN: {}: {}", test_name, message));
     }
