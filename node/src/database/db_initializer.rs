@@ -5,7 +5,7 @@ use crate::database::db_migrations::db_migrator::{DbMigrator, DbMigratorReal};
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
 use crate::neighborhood::DEFAULT_MIN_HOPS;
 use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
-use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
+use crate::sub_lib::neighborhood::{DEFAULT_RATE_PACK, DEFAULT_RATE_PACK_LIMITS};
 use crate::sub_lib::utils::db_connection_launch_panic;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{
@@ -255,6 +255,13 @@ impl DbInitializerReal {
             Some(&DEFAULT_RATE_PACK.to_string()),
             false,
             "rate pack",
+        );
+        Self::set_config_value(
+            conn,
+            "rate_pack_limits",
+            Some(DEFAULT_RATE_PACK_LIMITS),
+            false,
+            "rate pack limits",
         );
         Self::set_config_value(
             conn,
@@ -661,7 +668,7 @@ mod tests {
     #[test]
     fn constants_have_correct_values() {
         assert_eq!(DATABASE_FILE, "node-data.db");
-        assert_eq!(CURRENT_SCHEMA_VERSION, 11);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 12);
     }
 
     #[test]
@@ -961,6 +968,12 @@ mod tests {
         );
         verify(
             &mut config_vec,
+            "rate_pack_limits",
+            Some(DEFAULT_RATE_PACK_LIMITS),
+            false,
+        );
+        verify(
+            &mut config_vec,
             "scan_intervals",
             Some(&DEFAULT_SCAN_INTERVALS.to_string()),
             false,
@@ -1069,6 +1082,12 @@ mod tests {
             &mut config_vec,
             "rate_pack",
             Some(&DEFAULT_RATE_PACK.to_string()),
+            false,
+        );
+        verify(
+            &mut config_vec,
+            "rate_pack_limits",
+            Some(DEFAULT_RATE_PACK_LIMITS),
             false,
         );
         verify(

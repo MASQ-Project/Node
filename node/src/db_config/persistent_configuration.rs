@@ -16,16 +16,23 @@ use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::neighborhood::{Hops, NodeDescriptor, RatePack};
 use crate::sub_lib::wallet::Wallet;
+use lazy_static::lazy_static;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use masq_lib::utils::NeighborhoodModeLight;
 use masq_lib::utils::{to_string, AutomapProtocol};
+use regex::{Captures, Regex};
 use rustc_hex::{FromHex, ToHex};
 use std::fmt::Display;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
 use websocket::url::Url;
+
+lazy_static! {
+    static ref RATE_PACK_LIMIT_FORMAT: Regex =
+        Regex::new(r"^(\d{1,19})-(\d{1,19})\|(\d{1,19})-(\d{1,19})\|(\d{1,19})-(\d{1,19})\|(\d{1,19})-(\d{1,19})$").unwrap();
+}
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum PersistentConfigError {
@@ -159,6 +166,7 @@ pub trait PersistentConfiguration {
     fn payment_thresholds(&self) -> Result<PaymentThresholds, PersistentConfigError>;
     fn set_payment_thresholds(&mut self, curves: String) -> Result<(), PersistentConfigError>;
     fn rate_pack(&self) -> Result<RatePack, PersistentConfigError>;
+    fn rate_pack_limits(&self) -> Result<(RatePack, RatePack), PersistentConfigError>;
     fn set_rate_pack(&mut self, rate_pack: String) -> Result<(), PersistentConfigError>;
     fn scan_intervals(&self) -> Result<ScanIntervals, PersistentConfigError>;
     fn set_scan_intervals(&mut self, intervals: String) -> Result<(), PersistentConfigError>;
@@ -570,6 +578,44 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         self.simple_set_method("rate_pack", rate_pack)
     }
 
+    fn rate_pack_limits(&self) -> Result<(RatePack, RatePack), PersistentConfigError> {
+        let limits_string = self
+            .get("rate_pack_limits")
+            .expect(
+                "Required value rate_pack_limits missing from CONFIG table: database is corrupt!",
+            )
+            .expect(
+                "Required value rate_pack_limits is NULL in CONFIG table: database is corrupt!",
+            );
+        let captures = RATE_PACK_LIMIT_FORMAT.captures(limits_string.as_str())
+            .expect(format!("Syntax error in rate_pack_limits value '{}': should be <LRBR>-<HRBR>|<LRSR>-<HRSR>|<LEBR>-<HEBR>|<LESR>-<HESR> where L is low, H is high, R is routing, E is exit, BR is byte rate, and SR is service rate. All numbers should be in wei.", limits_string).as_str());
+        let candidate = (
+            Self::extract_candidate(&captures, 1),
+            Self::extract_candidate(&captures, 2)
+        );
+        Self::check_rate_pack_limit_order(
+            candidate.0.routing_byte_rate,
+            candidate.1.routing_byte_rate,
+            "routing_byte_rate",
+        );
+        Self::check_rate_pack_limit_order(
+            candidate.0.routing_service_rate,
+            candidate.1.routing_service_rate,
+            "routing_service_rate",
+        );
+        Self::check_rate_pack_limit_order(
+            candidate.0.exit_byte_rate,
+            candidate.1.exit_byte_rate,
+            "exit_byte_rate",
+        );
+        Self::check_rate_pack_limit_order(
+            candidate.0.exit_service_rate,
+            candidate.1.exit_service_rate,
+            "exit_service_rate",
+        );
+        Ok(candidate)
+    }
+
     fn scan_intervals(&self) -> Result<ScanIntervals, PersistentConfigError> {
         self.combined_params_get_method(|str: &str| ScanIntervals::try_from(str), "scan_intervals")
     }
@@ -670,6 +716,34 @@ impl PersistentConfigurationReal {
             "ever-supplied value missing: {}; database is corrupt!",
             parameter_name
         )
+    }
+
+    fn extract_candidate(captures: &Captures, start_index: usize) -> RatePack {
+        RatePack {
+            routing_byte_rate: Self::parse_capture(captures, start_index),
+            routing_service_rate: Self::parse_capture(captures, start_index + 2),
+            exit_byte_rate: Self::parse_capture(captures, start_index + 4),
+            exit_service_rate: Self::parse_capture(captures, start_index + 6),
+        }
+    }
+
+    fn parse_capture(captures: &Captures, index: usize) -> u64 {
+        u64::from_str(
+            captures
+                .get(index)
+                .expect("Internal error: regex needs four captures")
+                .as_str(),
+        )
+        .expect("Internal error: regex must require u64")
+    }
+
+    fn check_rate_pack_limit_order(low: u64, high: u64, field_name: &str) {
+        if low >= high {
+            panic!(
+                "Rate pack limits should have low limits less than high limits, but {} limits are {}-{}",
+                field_name, low, high
+            );
+        }
     }
 }
 
@@ -2282,6 +2356,166 @@ mod tests {
     #[should_panic(expected = "ever-supplied value missing: rate_pack; database is corrupt!")]
     fn rate_pack_panics_at_none_value() {
         getter_method_plain_data_does_not_tolerate_none_value!("rate_pack");
+    }
+
+    #[test]
+    fn rate_pack_limits_works() {
+        persistent_config_plain_data_assertions_for_simple_get_method!(
+            "rate_pack_limits",
+            "100-200|300-400|500000000000000000-600000000000000000|700-800",
+            (
+                RatePack {
+                    routing_byte_rate: 100,
+                    routing_service_rate: 300,
+                    exit_byte_rate: 500_000_000_000_000_000,
+                    exit_service_rate: 700,
+                },
+                RatePack {
+                    routing_byte_rate: 200,
+                    routing_service_rate: 400,
+                    exit_byte_rate: 600_000_000_000_000_000,
+                    exit_service_rate: 800,
+                }
+            )
+        );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Required value rate_pack_limits is NULL in CONFIG table: database is corrupt!"
+    )]
+    fn rate_pack_limits_panics_at_none_value() {
+        getter_method_plain_data_does_not_tolerate_none_value!("rate_pack_limits");
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Syntax error in rate_pack_limits value 'Booga!': should be <LRBR>-<HRBR>|<LRSR>-<HRSR>|<LEBR>-<HEBR>|<LESR>-<HESR> where L is low, H is high, R is routing, E is exit, BR is byte rate, and SR is service rate. All numbers should be in wei."
+    )]
+    fn rate_pack_limits_panics_at_syntax_error_in_value() {
+        persistent_config_plain_data_assertions_for_simple_get_method!(
+            "rate_pack_limits",
+            "Booga!",
+            // Irrelevant but necessary
+            (
+                RatePack {
+                    routing_byte_rate: 0,
+                    routing_service_rate: 0,
+                    exit_byte_rate: 0,
+                    exit_service_rate: 0,
+                },
+                RatePack {
+                    routing_byte_rate: 0,
+                    routing_service_rate: 0,
+                    exit_byte_rate: 0,
+                    exit_service_rate: 0,
+                }
+            )
+        );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Rate pack limits should have low limits less than high limits, but routing_byte_rate limits are 1-1"
+    )]
+    fn rate_pack_limits_panics_when_routing_byte_rate_limits_are_reversed() {
+        persistent_config_plain_data_assertions_for_simple_get_method!(
+            "rate_pack_limits",
+            "1-1|0-1|0-1|0-1",
+            // Irrelevant but necessary
+            (
+                RatePack {
+                    routing_byte_rate: 0,
+                    routing_service_rate: 0,
+                    exit_byte_rate: 0,
+                    exit_service_rate: 0,
+                },
+                RatePack {
+                    routing_byte_rate: 0,
+                    routing_service_rate: 0,
+                    exit_byte_rate: 0,
+                    exit_service_rate: 0,
+                }
+            )
+        );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Rate pack limits should have low limits less than high limits, but routing_service_rate limits are 1-1"
+    )]
+    fn rate_pack_limits_panics_when_routing_service_rate_limits_are_reversed() {
+        persistent_config_plain_data_assertions_for_simple_get_method!(
+            "rate_pack_limits",
+            "0-1|1-1|0-1|0-1",
+            // Irrelevant but necessary
+            (
+                RatePack {
+                    routing_byte_rate: 0,
+                    routing_service_rate: 0,
+                    exit_byte_rate: 0,
+                    exit_service_rate: 0,
+                },
+                RatePack {
+                    routing_byte_rate: 0,
+                    routing_service_rate: 0,
+                    exit_byte_rate: 0,
+                    exit_service_rate: 0,
+                }
+            )
+        );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Rate pack limits should have low limits less than high limits, but exit_byte_rate limits are 1-1"
+    )]
+    fn rate_pack_limits_panics_when_exit_byte_rate_limits_are_reversed() {
+        persistent_config_plain_data_assertions_for_simple_get_method!(
+            "rate_pack_limits",
+            "0-1|0-1|1-1|0-1",
+            // Irrelevant but necessary
+            (
+                RatePack {
+                    routing_byte_rate: 0,
+                    routing_service_rate: 0,
+                    exit_byte_rate: 0,
+                    exit_service_rate: 0,
+                },
+                RatePack {
+                    routing_byte_rate: 0,
+                    routing_service_rate: 0,
+                    exit_byte_rate: 0,
+                    exit_service_rate: 0,
+                }
+            )
+        );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Rate pack limits should have low limits less than high limits, but exit_service_rate limits are 1-1"
+    )]
+    fn rate_pack_limits_panics_when_exit_service_rate_limits_are_reversed() {
+        persistent_config_plain_data_assertions_for_simple_get_method!(
+            "rate_pack_limits",
+            "0-1|0-1|0-1|1-1",
+            // Irrelevant but necessary
+            (
+                RatePack {
+                    routing_byte_rate: 0,
+                    routing_service_rate: 0,
+                    exit_byte_rate: 0,
+                    exit_service_rate: 0,
+                },
+                RatePack {
+                    routing_byte_rate: 0,
+                    routing_service_rate: 0,
+                    exit_byte_rate: 0,
+                    exit_service_rate: 0,
+                }
+            )
+        );
     }
 
     #[test]

@@ -48,6 +48,9 @@ pub const ZERO_RATE_PACK: RatePack = RatePack {
     exit_service_rate: 0,
 };
 
+pub const DEFAULT_RATE_PACK_LIMITS: &str =
+    "100-100000000000000|100-100000000000000|100-100000000000000|100-100000000000000";
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct RatePack {
     pub routing_byte_rate: u64,
@@ -57,6 +60,20 @@ pub struct RatePack {
 }
 
 impl RatePack {
+    pub fn new(
+        routing_byte_rate: u64,
+        routing_service_rate: u64,
+        exit_byte_rate: u64,
+        exit_service_rate: u64,
+    ) -> Self {
+        Self {
+            routing_byte_rate,
+            routing_service_rate,
+            exit_byte_rate,
+            exit_service_rate,
+        }
+    }
+
     pub fn routing_charge(&self, payload_size: u64) -> u64 {
         self.routing_service_rate + (self.routing_byte_rate * payload_size)
     }
