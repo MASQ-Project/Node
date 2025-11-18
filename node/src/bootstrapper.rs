@@ -361,6 +361,7 @@ pub struct BootstrapperConfig {
     pub node_descriptor: NodeDescriptor,
     pub cryptde_pair: CryptDEPair,
     pub mapping_protocol_opt: Option<AutomapProtocol>,
+    pub new_public_key_opt: Option<bool>,
     pub real_user: RealUser,
     pub payment_thresholds_opt: Option<PaymentThresholds>,
 
@@ -406,6 +407,7 @@ impl BootstrapperConfig {
                 Box::new(CryptDEReal::disabled()),
             ),
             mapping_protocol_opt: None,
+            new_public_key_opt: None,
             real_user: RealUser::new(None, None, None),
             payment_thresholds_opt: Default::default(),
 
