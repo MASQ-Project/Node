@@ -312,28 +312,32 @@ impl BlockchainBridge {
 
         Box::new(
             self.process_payments(msg.agent, msg.priced_templates)
-                .map_err(move |e: LocalPayableError| {
-                    sent_payable_subs_err
-                        .try_send(SentPayables {
-                            payment_procedure_result: Self::payment_procedure_result_from_error(
-                                e.clone(),
-                            ),
-                            payable_scan_type,
-                            response_skeleton_opt: skeleton_opt,
-                        })
-                        .expect("Accountant is dead");
-
-                    format!("ReportAccountsPayable: {}", e)
-                })
-                .and_then(move |batch_results| {
-                    sent_payable_subs_success
-                        .try_send(SentPayables {
-                            payment_procedure_result: Ok(batch_results),
-                            payable_scan_type,
-                            response_skeleton_opt: skeleton_opt,
-                        })
-                        .expect("Accountant is dead");
-
+                .then(move |result| {
+                    match result {
+                        Ok(batch_results) => {
+                            sent_payable_subs_success
+                                .try_send(SentPayables {
+                                    payment_procedure_result: Ok(batch_results),
+                                    payable_scan_type,
+                                    response_skeleton_opt: skeleton_opt,
+                                })
+                                .expect("Accountant is dead");
+                        }
+                        Err(e) => {
+                            sent_payable_subs_err
+                                .try_send(SentPayables {
+                                    payment_procedure_result:
+                                        Self::payment_procedure_result_from_error(e),
+                                    payable_scan_type,
+                                    response_skeleton_opt: skeleton_opt,
+                                })
+                                .expect("Accountant is dead");
+                        }
+                    }
+                    // TODO Temporary workaround: prevents the Accountant from receiving two messages
+                    // describing the same error. Duplicate notifications could previously trigger
+                    // a panic in the scanners, because the substitution call for a given scanner
+                    // was executed twice and tripped the guard that enforces a single concurrent scan.
                     Ok(())
                 }),
         )
@@ -1021,7 +1025,7 @@ mod tests {
         // let pending_payable_fingerprint_seeds_msg =
         //     accountant_recording.get_record::<PendingPayableFingerprintSeeds>(0);
         let sent_payables_msg = accountant_recording.get_record::<SentPayables>(0);
-        let scan_error_msg = accountant_recording.get_record::<ScanError>(1);
+        // let scan_error_msg = accountant_recording.get_record::<ScanError>(1);
         let batch_results = sent_payables_msg.clone().payment_procedure_result.unwrap();
         let failed_tx = FailedTx {
             hash: H256::from_str(
@@ -1048,22 +1052,23 @@ mod tests {
         //         amount: account.balance_wei
         //     }]
         // );
-        assert_eq!(scan_error_msg.scan_type, DetailedScanType::NewPayables);
-        assert_eq!(
-            scan_error_msg.response_skeleton_opt,
-            Some(ResponseSkeleton {
-                client_id: 1234,
-                context_id: 4321
-            })
-        );
-        assert!(scan_error_msg
-            .msg
-            .contains("ReportAccountsPayable: Sending error: \"Transport error: Error(IncompleteMessage)\". Signed and hashed transactions:"), "This string didn't contain the expected: {}", scan_error_msg.msg);
-        assert!(scan_error_msg.msg.contains(
-            "FailedTx { hash: 0x81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c,"
-        ));
-        assert!(scan_error_msg.msg.contains("FailedTx { hash: 0x81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c, receiver_address: 0x00000000000000000000000000000000626c6168, amount_minor: 111420204, timestamp:"), "This string didn't contain the expected: {}", scan_error_msg.msg);
-        assert_eq!(accountant_recording.len(), 2);
+        // assert_eq!(scan_error_msg.scan_type, DetailedScanType::NewPayables);
+        // assert_eq!(
+        //     scan_error_msg.response_skeleton_opt,
+        //     Some(ResponseSkeleton {
+        //         client_id: 1234,
+        //         context_id: 4321
+        //     })
+        // );
+        // assert!(scan_error_msg
+        //     .msg
+        //     .contains("ReportAccountsPayable: Sending error: \"Transport error: Error(IncompleteMessage)\". Signed and hashed transactions:"), "This string didn't contain the expected: {}", scan_error_msg.msg);
+        // assert!(scan_error_msg.msg.contains(
+        //     "FailedTx { hash: 0x81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c,"
+        // ));
+        // assert!(scan_error_msg.msg.contains("FailedTx { hash: 0x81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c, receiver_address: 0x00000000000000000000000000000000626c6168, amount_minor: 111420204, timestamp:"), "This string didn't contain the expected: {}", scan_error_msg.msg);
+        //assert_eq!(accountant_recording.len(), 2);
+        assert_eq!(accountant_recording.len(), 1);
     }
 
     #[test]
