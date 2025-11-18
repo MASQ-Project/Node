@@ -3,6 +3,7 @@ use crate::proxy_server::protocol_pack::from_ibcd;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::dispatcher::InboundClientData;
+use crate::sub_lib::host::Host;
 use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
@@ -13,6 +14,7 @@ pub trait ClientRequestPayloadFactory {
         &self,
         ibcd: &InboundClientData,
         stream_key: StreamKey,
+        host_opt: Option<Host>,
         cryptde: &dyn CryptDE,
         logger: &Logger,
     ) -> Option<ClientRequestPayload_0v1>;
@@ -26,11 +28,32 @@ impl ClientRequestPayloadFactory for ClientRequestPayloadFactoryReal {
         &self,
         ibcd: &InboundClientData,
         stream_key: StreamKey,
+        host_from_history_opt: Option<Host>,
         cryptde: &dyn CryptDE,
         logger: &Logger,
     ) -> Option<ClientRequestPayload_0v1> {
         let protocol_pack = from_ibcd(ibcd).map_err(|e| error!(logger, "{}", e)).ok()?;
-        let sequence_number = match ibcd.sequence_number {
+        let host_from_request_result_closure = Box::new(|| {
+            let data = PlainData::new(&ibcd.data);
+            match protocol_pack.find_host(&data) {
+                Some(host) => Ok(host),
+                // So far we've only looked in the client packet; but this message will evaporate
+                // unless there's no host information in host_opt (from ProxyServer's StreamInfo) either.
+                None => Err(format!(
+                    "No hostname information found in either client packet or ProxyServer for protocol {:?}",
+                    protocol_pack.proxy_protocol()
+                )),
+            }
+        });
+        let target_host = match (host_from_request_result_closure(), host_from_history_opt) {
+            (Ok(host), _) => host,
+            (Err(_), Some(host)) => host,
+            (Err(e), None) => {
+                error!(logger, "{}", e);
+                return None;
+            }
+        };
+        let sequence_number = match ibcd.sequence_number_opt {
             Some(sequence_number) => sequence_number,
             None => {
                 error!(
@@ -41,12 +64,6 @@ impl ClientRequestPayloadFactory for ClientRequestPayloadFactoryReal {
                 return None;
             }
         };
-        let data = PlainData::new(&ibcd.data);
-        let target_host = protocol_pack.find_host(&data);
-        let (target_hostname_opt, target_port) = match target_host {
-            Some(host) => (Some(host.name), host.port),
-            None => (None, protocol_pack.standard_port()),
-        };
         Some(ClientRequestPayload_0v1 {
             stream_key,
             sequenced_packet: SequencedPacket {
@@ -54,8 +71,8 @@ impl ClientRequestPayloadFactory for ClientRequestPayloadFactoryReal {
                 sequence_number,
                 last_data: ibcd.last_data,
             },
-            target_hostname: target_hostname_opt,
-            target_port,
+            target_hostname: target_host.name,
+            target_port: target_host.port,
             protocol: protocol_pack.proxy_protocol(),
             originator_public_key: cryptde.public_key().clone(),
         })
@@ -74,7 +91,7 @@ mod tests {
     use crate::bootstrapper::CryptDEPair;
     use crate::sub_lib::proxy_server::ProxyProtocol;
     use lazy_static::lazy_static;
-    use masq_lib::constants::HTTP_PORT;
+    use masq_lib::constants::{HTTP_PORT, TLS_PORT};
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
     use std::net::SocketAddr;
@@ -86,13 +103,101 @@ mod tests {
     }
 
     #[test]
+    fn ibcd_hostname_overrides_supplied_hostname() {
+        let data = PlainData::new(&b"GET http://borkoed.com:1234/fleebs.html HTTP/1.1\r\n\r\n"[..]);
+        let ibcd = InboundClientData {
+            timestamp: SystemTime::now(),
+            client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            reception_port_opt: Some(HTTP_PORT),
+            sequence_number_opt: Some(1),
+            last_data: false,
+            is_clandestine: false,
+            data: data.clone().into(),
+        };
+        let cryptde = CRYPTDE_PAIR.main.dup();
+        let stream_key = StreamKey::make_meaningless_stream_key();
+        let logger = Logger::new("ibcd_hostname_overrides_supplied_hostname");
+        let subject = Box::new(ClientRequestPayloadFactoryReal::new());
+
+        let result = subject
+            .make(
+                &ibcd,
+                stream_key,
+                Some(Host::new("ignored.com", 4321)),
+                cryptde.as_ref(),
+                &logger,
+            )
+            .unwrap();
+
+        assert_eq!(result.target_hostname, String::from("borkoed.com"));
+        assert_eq!(result.target_port, 1234);
+    }
+
+    #[test]
+    fn uses_supplied_host_if_ibcd_does_not_have_one() {
+        let test_name = "uses_supplied_hostname_if_ibcd_does_not_have_one";
+        let data = PlainData::new(&[0x01, 0x02, 0x03]); // No host can be extracted here
+        let ibcd = InboundClientData {
+            timestamp: SystemTime::now(),
+            client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            reception_port_opt: Some(HTTP_PORT),
+            sequence_number_opt: Some(1),
+            last_data: false,
+            is_clandestine: false,
+            data: data.into(),
+        };
+        let cryptde = CRYPTDE_PAIR.main.dup();
+        let stream_key = StreamKey::make_meaningful_stream_key(test_name);
+        let logger = Logger::new(test_name);
+        let subject = Box::new(ClientRequestPayloadFactoryReal::new());
+        let supplied_host = Host::new("supplied.com", 4321);
+
+        let result = subject
+            .make(
+                &ibcd,
+                stream_key,
+                Some(supplied_host.clone()),
+                cryptde.as_ref(),
+                &logger,
+            )
+            .unwrap();
+
+        assert_eq!(result.target_hostname, supplied_host.name);
+    }
+
+    #[test]
+    fn logs_error_and_returns_none_if_no_ibcd_host_and_no_supplied_host() {
+        init_test_logging();
+        let test_name = "logs_error_and_returns_none_if_no_ibcd_hostname_and_no_supplied_hostname";
+        let data = PlainData::new(&[0x01, 0x02, 0x03]); // no host can be extracted here
+        let ibcd = InboundClientData {
+            timestamp: SystemTime::now(),
+            client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            reception_port_opt: Some(HTTP_PORT),
+            sequence_number_opt: Some(1),
+            last_data: false,
+            is_clandestine: false,
+            data: data.into(),
+        };
+        let cryptde = CRYPTDE_PAIR.main.dup();
+        let stream_key = StreamKey::make_meaningful_stream_key(test_name);
+        let logger = Logger::new(test_name);
+        let subject = Box::new(ClientRequestPayloadFactoryReal::new());
+
+        let result = subject.make(&ibcd, stream_key, None, cryptde.as_ref(), &logger);
+
+        assert_eq!(result, None);
+        TestLogHandler::new().exists_log_containing(&format!("ERROR: {test_name}: No hostname information found in either client packet or ProxyServer for protocol HTTP"));
+    }
+
+    #[test]
     fn handles_http_with_a_port() {
         let data = PlainData::new(&b"GET http://borkoed.com:2345/fleebs.html HTTP/1.1\r\n\r\n"[..]);
         let ibcd = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            reception_port: Some(HTTP_PORT),
-            sequence_number: Some(1),
+            reception_port_opt: Some(HTTP_PORT),
+            sequence_number_opt: Some(1),
             last_data: false,
             is_clandestine: false,
             data: data.clone().into(),
@@ -102,7 +207,7 @@ mod tests {
         let logger = Logger::new("test");
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
-        let result = subject.make(&ibcd, stream_key, cryptde, &logger);
+        let result = subject.make(&ibcd, stream_key, None, cryptde, &logger);
 
         assert_eq!(
             result,
@@ -113,7 +218,7 @@ mod tests {
                     sequence_number: 1,
                     last_data: false
                 },
-                target_hostname: Some(String::from("borkoed.com")),
+                target_hostname: String::from("borkoed.com"),
                 target_port: 2345,
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: cryptde.public_key().clone(),
@@ -128,8 +233,8 @@ mod tests {
         let ibcd = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            reception_port: Some(HTTP_PORT),
-            sequence_number: Some(1),
+            reception_port_opt: Some(HTTP_PORT),
+            sequence_number_opt: Some(1),
             last_data: false,
             is_clandestine: false,
             data: data.clone().into(),
@@ -139,7 +244,7 @@ mod tests {
         let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
-        let result = subject.make(&ibcd, stream_key, cryptde, &logger);
+        let result = subject.make(&ibcd, stream_key, None, cryptde, &logger);
 
         assert_eq!(
             result,
@@ -150,7 +255,7 @@ mod tests {
                     sequence_number: 1,
                     last_data: false
                 },
-                target_hostname: Some(String::from("borkoed.com")),
+                target_hostname: String::from("borkoed.com"),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: cryptde.public_key().clone(),
@@ -183,8 +288,8 @@ mod tests {
         let ibcd = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            sequence_number: Some(0),
-            reception_port: Some(443),
+            sequence_number_opt: Some(0),
+            reception_port_opt: Some(443),
             last_data: false,
             is_clandestine: false,
             data: data.clone().into(),
@@ -194,7 +299,7 @@ mod tests {
         let logger = Logger::new("test");
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
-        let result = subject.make(&ibcd, stream_key, cryptde, &logger);
+        let result = subject.make(&ibcd, stream_key, None, cryptde, &logger);
 
         assert_eq!(
             result,
@@ -205,8 +310,8 @@ mod tests {
                     sequence_number: 0,
                     last_data: false
                 },
-                target_hostname: Some(String::from("server.com")),
-                target_port: 443,
+                target_hostname: String::from("server.com"),
+                target_port: TLS_PORT,
                 protocol: ProxyProtocol::TLS,
                 originator_public_key: cryptde.public_key().clone(),
             })
@@ -215,6 +320,7 @@ mod tests {
 
     #[test]
     fn handles_tls_without_hostname() {
+        init_test_logging();
         let test_name = "handles_tls_without_hostname";
         let data = PlainData::new(&[
             0x16, // content_type: Handshake
@@ -233,10 +339,10 @@ mod tests {
         let ibcd = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            reception_port: Some(443),
+            reception_port_opt: Some(443),
             last_data: true,
             is_clandestine: false,
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             data: data.clone().into(),
         };
         let cryptde = CRYPTDE_PAIR.main.as_ref();
@@ -244,23 +350,10 @@ mod tests {
         let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
-        let result = subject.make(&ibcd, stream_key, cryptde, &logger);
+        let result = subject.make(&ibcd, stream_key, None, cryptde, &logger);
 
-        assert_eq!(
-            result,
-            Some(ClientRequestPayload_0v1 {
-                stream_key,
-                sequenced_packet: SequencedPacket {
-                    data: data.into(),
-                    sequence_number: 0,
-                    last_data: true
-                },
-                target_hostname: None,
-                target_port: 443,
-                protocol: ProxyProtocol::TLS,
-                originator_public_key: cryptde.public_key().clone(),
-            })
-        );
+        assert_eq!(result, None);
+        TestLogHandler::new().exists_log_containing(&format!("ERROR: {test_name}: No hostname information found in either client packet or ProxyServer for protocol TLS"));
     }
 
     #[test]
@@ -270,8 +363,8 @@ mod tests {
         let ibcd = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            sequence_number: Some(0),
-            reception_port: None,
+            sequence_number_opt: Some(0),
+            reception_port_opt: None,
             last_data: false,
             is_clandestine: false,
             data: vec![0x10, 0x11, 0x12],
@@ -281,7 +374,7 @@ mod tests {
         let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
-        let result = subject.make(&ibcd, stream_key, cryptde, &logger);
+        let result = subject.make(&ibcd, stream_key, None, cryptde, &logger);
 
         assert_eq!(result, None);
         TestLogHandler::new().exists_log_containing(
@@ -296,8 +389,8 @@ mod tests {
         let ibcd = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            reception_port: Some(1234),
-            sequence_number: Some(0),
+            reception_port_opt: Some(1234),
+            sequence_number_opt: Some(0),
             last_data: false,
             is_clandestine: true,
             data: vec![0x10, 0x11, 0x12],
@@ -307,7 +400,7 @@ mod tests {
         let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
-        let result = subject.make(&ibcd, stream_key, cryptde, &logger);
+        let result = subject.make(&ibcd, stream_key, None, cryptde, &logger);
 
         assert_eq!(result, None);
         TestLogHandler::new().exists_log_containing(&format!("ERROR: {test_name}: No protocol associated with origin port 1234 for 3-byte non-clandestine packet: [16, 17, 18]"));
@@ -315,13 +408,14 @@ mod tests {
 
     #[test]
     fn use_sequence_from_inbound_client_data_in_client_request_payload() {
+        let data = PlainData::new(&b"GET http://borkoed.com/fleebs.html HTTP/1.1\r\n\r\n"[..]);
         let ibcd = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:80").unwrap(),
-            reception_port: Some(HTTP_PORT),
-            sequence_number: Some(1),
+            reception_port_opt: Some(HTTP_PORT),
+            sequence_number_opt: Some(1),
             last_data: false,
-            data: vec![0x10, 0x11, 0x12],
+            data: data.into(),
             is_clandestine: false,
         };
         let cryptde = CRYPTDE_PAIR.main.as_ref();
@@ -332,6 +426,7 @@ mod tests {
             .make(
                 &ibcd,
                 StreamKey::make_meaningless_stream_key(),
+                None,
                 cryptde,
                 &logger,
             )
@@ -344,25 +439,26 @@ mod tests {
     fn makes_no_payload_if_sequence_number_is_unknown() {
         init_test_logging();
         let test_name = "makes_no_payload_if_sequence_number_is_unknown";
+        let data = PlainData::new(&b"GET http://borkoed.com/fleebs.html HTTP/1.1\r\n\r\n"[..]);
         let ibcd = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:80").unwrap(),
-            reception_port: Some(HTTP_PORT),
+            reception_port_opt: Some(HTTP_PORT),
             last_data: false,
             is_clandestine: false,
-            sequence_number: None,
-            data: vec![1, 3, 5, 7],
+            sequence_number_opt: None,
+            data: data.into(),
         };
         let cryptde = CRYPTDE_PAIR.main.as_ref();
         let logger = Logger::new(test_name);
         let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
-        let result = subject.make(&ibcd, stream_key, cryptde, &logger);
+        let result = subject.make(&ibcd, stream_key, None, cryptde, &logger);
 
         assert_eq!(result, None);
         TestLogHandler::new().exists_log_containing(&format!(
-            "ERROR: {test_name}: internal error: got IBCD with no sequence number and 4 bytes"
+            "ERROR: {test_name}: internal error: got IBCD with no sequence number and 47 bytes"
         ));
     }
 }

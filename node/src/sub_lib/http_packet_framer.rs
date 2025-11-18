@@ -104,7 +104,7 @@ impl HttpPacketFramer {
                 lines: Vec::new(),
             },
             start_finder,
-            logger: Logger::new("HttpRequestFramer"),
+            logger: Logger::new("HttpPacketFramer"),
         }
     }
 
