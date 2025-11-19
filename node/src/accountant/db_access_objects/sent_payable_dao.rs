@@ -684,7 +684,7 @@ mod tests {
             result,
             Err(SentPayableDaoError::InvalidInput(
                 "Duplicates detected in the database: \
-                {0x00000000000000000000000000000000000000000000000000000000000004d2: 1}"
+                {0x00000000000000000000000000000000000000000000000000000000000004d2}"
                     .to_string()
             ))
         );
@@ -755,7 +755,10 @@ mod tests {
         let result = subject.get_existing_tx_records(&hashset);
 
         assert_eq!(result.get(&present_hash), Some(&present_hash));
-        assert_eq!(result.get(&another_present_hash), Some(&another_present_hash));
+        assert_eq!(
+            result.get(&another_present_hash),
+            Some(&another_present_hash)
+        );
         assert_eq!(result.len(), 2);
     }
 

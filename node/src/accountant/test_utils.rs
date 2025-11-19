@@ -1014,13 +1014,18 @@ impl SentPayableDaoMock {
         SentPayableDaoMock::default()
     }
 
-    pub fn get_existing_tx_records_params(mut self, params: &Arc<Mutex<Vec<BTreeSet<TxHash>>>>) -> Self {
+    pub fn get_existing_tx_records_params(
+        mut self,
+        params: &Arc<Mutex<Vec<BTreeSet<TxHash>>>>,
+    ) -> Self {
         self.get_existing_tx_records_params = params.clone();
         self
     }
 
     pub fn get_existing_tx_records_result(self, result: BTreeSet<TxHash>) -> Self {
-        self.get_existing_tx_records_results.borrow_mut().push(result);
+        self.get_existing_tx_records_results
+            .borrow_mut()
+            .push(result);
         self
     }
 
@@ -1152,13 +1157,18 @@ impl FailedPayableDaoMock {
         Self::default()
     }
 
-    pub fn get_existing_tx_records_params(mut self, params: &Arc<Mutex<Vec<BTreeSet<TxHash>>>>) -> Self {
+    pub fn get_existing_tx_records_params(
+        mut self,
+        params: &Arc<Mutex<Vec<BTreeSet<TxHash>>>>,
+    ) -> Self {
         self.get_existing_tx_records_params = params.clone();
         self
     }
 
     pub fn get_existing_tx_records_result(self, result: TxIdentifiers) -> Self {
-        self.get_existing_tx_records_results.borrow_mut().push(result);
+        self.get_existing_tx_records_results
+            .borrow_mut()
+            .push(result);
         self
     }
 

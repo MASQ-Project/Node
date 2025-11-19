@@ -12,7 +12,7 @@ use crate::accountant::scanners::payable_scanner::msgs::{
     InitialTemplatesMessage, PricedTemplatesMessage,
 };
 use crate::accountant::scanners::payable_scanner::payment_adjuster_integration::PreparedAdjustment;
-use crate::accountant::scanners::payable_scanner::utils::{NextScanToRun, PayableScanResult};
+use crate::accountant::scanners::payable_scanner::utils::PayableScanResult;
 use crate::accountant::scanners::payable_scanner::{MultistageDualPayableScanner, PayableScanner};
 use crate::accountant::scanners::pending_payable_scanner::utils::PendingPayableScanResult;
 use crate::accountant::scanners::pending_payable_scanner::{
@@ -227,9 +227,10 @@ impl Scanners {
 
     pub fn finish_payable_scan(&mut self, msg: SentPayables, logger: &Logger) -> PayableScanResult {
         let scan_result = self.payable.finish_scan(msg, logger);
-        if scan_result.result == NextScanToRun::PendingPayableScan {
-            self.aware_of_unresolved_pending_payable = true
-        }
+
+        //TODO properly tested??
+        self.aware_of_unresolved_pending_payable = true;
+
         scan_result
     }
 
@@ -249,9 +250,9 @@ impl Scanners {
         self.receivable.finish_scan(msg, logger)
     }
 
-    pub fn acknowledge_scan_error(&mut self, error: &ScanError, logger: &Logger) {
+    pub fn acknowledge_scan_error(&mut self, error: ScanError, logger: &Logger) {
         debug!(logger, "Acknowledging a scan that couldn't finish");
-        match &error.payload {
+        match error.payload {
             // TODO refactor us two
             ScanErrorPayload::NewPayables(err) => self.payable.clean_up_after_error(
                 PayableScannerCleanupArgs {
@@ -595,6 +596,7 @@ mod tests {
     use crate::accountant::db_access_objects::sent_payable_dao::{Detection, SentTx, TxStatus};
     use crate::accountant::db_access_objects::test_utils::{make_failed_tx, make_sent_tx};
     use crate::accountant::db_access_objects::utils::from_unix_timestamp;
+    use crate::accountant::db_access_objects::Transaction;
     use crate::accountant::scanners::payable_scanner::finish_scan::PayableScannerCleanupArgs;
     use crate::accountant::scanners::payable_scanner::msgs::InitialTemplatesMessage;
     use crate::accountant::scanners::payable_scanner::test_utils::PayableScannerBuilder;
@@ -1113,16 +1115,22 @@ mod tests {
              pending_payable_flag_as_false_in_case_of_err_for_\
              {test_name_str}"
         );
+        let sent_tx = make_sent_tx(123);
+        let failed_tx = make_failed_tx(456);
+        let hashes = btreeset![sent_tx.hash, failed_tx.hash];
         let sent_payable = SentPayables {
             batch_results: BatchResults {
-                sent_txs: vec![make_sent_tx(123)],
-                failed_txs: vec![make_failed_tx(456)],
+                sent_txs: vec![sent_tx],
+                failed_txs: vec![failed_tx],
             },
             payable_scan_type,
             response_skeleton_opt: None,
         };
         let logger = Logger::new(&test_name);
-        let payable_scanner = PayableScannerBuilder::new().build();
+        let sent_payable_dao = SentPayableDaoMock::new().get_existing_tx_records_result(hashes);
+        let payable_scanner = PayableScannerBuilder::new()
+            .sent_payable_dao(sent_payable_dao)
+            .build();
         let mut subject = make_dull_subject();
         subject.payable = Box::new(payable_scanner);
         let aware_of_unresolved_pending_payable_before =
@@ -1140,11 +1148,14 @@ mod tests {
     }
 
     #[test]
-    fn finish_payable_scan_changes_the_aware_of_unresolved_pending_payable_flag_as_true_when_pending_txs_found_in_retry_mode(
+    fn finish_retry_payable_scan_changes_the_aware_of_unresolved_pending_payable_flag_for_produced_txs(
     ) {
         init_test_logging();
-        let test_name = "finish_payable_scan_changes_the_aware_of_unresolved_pending_payable_flag_as_true_when_pending_txs_found_in_retry_mode";
-        let sent_payable_dao = SentPayableDaoMock::default().insert_new_records_result(Ok(()));
+        let test_name = "finish_retry_payable_scan_changes_the_aware_of_unresolved_pending_payable_flag_for_produced_txs";
+        let sent_tx = make_sent_tx(1);
+        let sent_payable_dao = SentPayableDaoMock::default()
+            .get_existing_tx_records_result(btreeset!(sent_tx.hash))
+            .insert_new_records_result(Ok(()));
         let failed_payable_dao =
             FailedPayableDaoMock::default().retrieve_txs_result(BTreeSet::new());
         let payable_scanner = PayableScannerBuilder::new()
@@ -1156,7 +1167,7 @@ mod tests {
         subject.payable = Box::new(payable_scanner);
         let sent_payables = SentPayables {
             batch_results: BatchResults {
-                sent_txs: vec![make_sent_tx(1)],
+                sent_txs: vec![sent_tx],
                 failed_txs: vec![],
             },
             payable_scan_type: PayableScanType::Retry,
@@ -2178,27 +2189,27 @@ mod tests {
                 set_started(&mut subject);
                 let started_at_before = get_started_at(&subject);
                 let err = ScanError {
-                    payload,
+                    payload: payload.clone(),
                     response_skeleton_opt: None,
                 };
 
-                subject.acknowledge_scan_error(&err, &logger);
+                subject.acknowledge_scan_error(err, &logger);
 
                 let started_at_after = get_started_at(&subject);
                 assert!(
                     started_at_before.is_some(),
                     "Should've been started for {:?}",
-                    DetailedScanType::from(&err.payload)
+                    DetailedScanType::from(&payload)
                 );
                 assert_eq!(
                     started_at_after,
                     None,
                     "Should've been unset for {:?}",
-                    DetailedScanType::from(&err.payload)
+                    DetailedScanType::from(&payload)
                 );
                 test_log_handler.exists_log_containing(&format!(
                     "INFO: {test_name}: The {:?} scan ended in",
-                    ScanType::from(DetailedScanType::from(&err.payload))
+                    ScanType::from(DetailedScanType::from(&payload))
                 ));
             })
     }

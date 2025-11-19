@@ -23,11 +23,14 @@ use crate::accountant::scanners::payable_scanner::msgs::InitialTemplatesMessage;
 use crate::accountant::scanners::payable_scanner::payment_adjuster_integration::SolvencySensitivePaymentInstructor;
 use crate::accountant::scanners::payable_scanner::utils::{
     batch_stats, calculate_occurences, filter_receiver_addresses_from_txs, generate_status_updates,
-    payables_debug_summary, NextScanToRun, PayableScanResult, PayableThresholdsGauge,
-    PayableThresholdsGaugeReal, PendingPayableMissingInDb,
+    payables_debug_summary, PayableScanResult, PayableThresholdsGauge, PayableThresholdsGaugeReal,
+    PendingPayableMissingInDb,
 };
 use crate::accountant::scanners::{Scanner, ScannerCommon, StartableScanner};
-use crate::accountant::{gwei_to_wei, join_with_commas, join_with_separator, PayableScanType, ResponseSkeleton, ScanForNewPayables, ScanForRetryPayables, SentPayables, SimplePayable};
+use crate::accountant::{
+    gwei_to_wei, join_with_commas, PayableScanType, ResponseSkeleton, ScanForNewPayables,
+    ScanForRetryPayables, SentPayables, SimplePayable,
+};
 use crate::blockchain::blockchain_interface::data_structures::BatchResults;
 use crate::blockchain::errors::validation_status::ValidationStatus;
 use crate::sub_lib::accountant::PaymentThresholds;
@@ -141,32 +144,57 @@ impl PayableScanner {
         }
     }
 
-    fn collect_simple_payables_from_batch_results(batch_results: &BatchResults) -> Vec<SimplePayable> {
-        batch_results.sent_txs.iter().map(|sent_tx|SimplePayable::new(sent_tx.receiver_address, sent_tx.hash)).chain(batch_results.failed_txs.iter().map(|failed_tx|SimplePayable::new(failed_tx.receiver_address, failed_tx.hash))).collect()
+    fn collect_simple_payables_from_batch_results(
+        batch_results: &BatchResults,
+    ) -> Vec<SimplePayable> {
+        batch_results
+            .sent_txs
+            .iter()
+            .map(|sent_tx| SimplePayable::new(sent_tx.receiver_address, sent_tx.hash))
+            .chain(
+                batch_results.failed_txs.iter().map(|failed_tx| {
+                    SimplePayable::new(failed_tx.receiver_address, failed_tx.hash)
+                }),
+            )
+            .collect()
     }
 
-    fn check_on_missing_sent_txs(&self, payable_scan_type: PayableScanType, payments: &[SimplePayable]) {
-        fn missing_record_msg(payable_scan_type: PayableScanType, nonexistent: &[PendingPayableMissingInDb]) -> String {
+    fn collect_simple_payables_from_cleanup_args(
+        args: &PayableScannerCleanupArgs,
+    ) -> Vec<SimplePayable> {
+        todo!()
+    }
+
+    fn check_on_missing_sent_txs(
+        &self,
+        payable_scan_type: PayableScanType,
+        payments: &[SimplePayable],
+    ) {
+        fn missing_record_msg(
+            payable_scan_type: PayableScanType,
+            nonexistent: &[PendingPayableMissingInDb],
+        ) -> String {
             format!(
                 "Expected sent-payable records for {} were not found once the payment should have \
                 completed in the {} payable scanner. System is in an unreliable state",
                 join_with_commas(nonexistent, |missing_sent_tx_ids| format!(
                     "(tx: {:?} to recipient: {:?})",
                     missing_sent_tx_ids.hash, missing_sent_tx_ids.recipient
-                )),payable_scan_type
+                )),
+                payable_scan_type
             )
         }
 
         let missing_sent_tx_records = self.find_missing_records(payments);
         if !missing_sent_tx_records.is_empty() {
-            panic!("{}", missing_record_msg(payable_scan_type, &missing_sent_tx_records))
+            panic!(
+                "{}",
+                missing_record_msg(payable_scan_type, &missing_sent_tx_records)
+            )
         }
     }
 
-    fn find_missing_records(
-        &self,
-        payments: &[SimplePayable],
-    ) -> Vec<PendingPayableMissingInDb> {
+    fn find_missing_records(&self, payments: &[SimplePayable]) -> Vec<PendingPayableMissingInDb> {
         fn verify_inputs(payments: &[SimplePayable]) -> BTreeSet<TxHash> {
             let actual_sent_payables_count = payments.len();
             let deduplicated_hashes = payments
@@ -191,7 +219,9 @@ impl PayableScanner {
             .into_iter()
             .flat_map(|payable| {
                 let hash = payable.hash;
-                hashes_of_missing_sent_payables.get(&hash).map(|_| PendingPayableMissingInDb::new(payable.recipient_address, hash))
+                hashes_of_missing_sent_payables
+                    .get(&hash)
+                    .map(|_| PendingPayableMissingInDb::new(payable.recipient_address, hash))
             })
             .collect()
     }
@@ -207,101 +237,134 @@ impl PayableScanner {
             .collect()
     }
 
-    fn determine_next_scan_to_run(msg: &SentPayables) -> NextScanToRun {
-        if msg.batch_results.sent_txs.is_empty() {
-            if msg.batch_results.failed_txs.is_empty() {
-                //TODO This is wrong too...only the PendingPayableScanner should
-                // be able to call up the NewPayableScanner (regardless this
-                // is not a realistic scenario)
-                return NextScanToRun::NewPayableScan;
-            } else {
-                return NextScanToRun::RetryPayableScan;
-            }
-        }
+    // fn determine_next_scan_to_run(msg: &SentPayables) -> NextScanToRun {
+    //     if msg.batch_results.sent_txs.is_empty() {
+    //         if msg.batch_results.failed_txs.is_empty() {
+    //             //TODO This is wrong too...only the PendingPayableScanner should
+    //             // be able to call up the NewPayableScanner (regardless this
+    //             // is not a realistic scenario)
+    //             return NextScanToRun::NewPayableScan;
+    //         } else {
+    //             return NextScanToRun::RetryPayableScan;
+    //         }
+    //     }
+    //
+    //     NextScanToRun::PendingPayableScan
+    //
+    //     // match &msg.payment_procedure_result {
+    //     //     Ok(batch_results) => {
+    //     //         if batch_results.sent_txs.is_empty() {
+    //     //             if batch_results.failed_txs.is_empty() {
+    //     //                 return NextScanToRun::NewPayableScan;
+    //     //             } else {
+    //     //                 return NextScanToRun::RetryPayableScan;
+    //     //             }
+    //     //         }
+    //     //
+    //     //         NextScanToRun::PendingPayableScan
+    //     //     }
+    //     //     Err(_e) => match msg.payable_scan_type {
+    //     //         PayableScanType::New => NextScanToRun::NewPayableScan,
+    //     //         PayableScanType::Retry => NextScanToRun::RetryPayableScan,
+    //     //     },
+    //     // }
+    // }
 
-        NextScanToRun::PendingPayableScan
-
-        // match &msg.payment_procedure_result {
-        //     Ok(batch_results) => {
-        //         if batch_results.sent_txs.is_empty() {
-        //             if batch_results.failed_txs.is_empty() {
-        //                 return NextScanToRun::NewPayableScan;
-        //             } else {
-        //                 return NextScanToRun::RetryPayableScan;
-        //             }
-        //         }
-        //
-        //         NextScanToRun::PendingPayableScan
-        //     }
-        //     Err(_e) => match msg.payable_scan_type {
-        //         PayableScanType::New => NextScanToRun::NewPayableScan,
-        //         PayableScanType::Retry => NextScanToRun::RetryPayableScan,
-        //     },
-        // }
-    }
-
-    fn process_message(&self, msg: &SentPayables, logger: &Logger) {
-        match msg.payable_scan_type {
-            PayableScanType::New => {
-                self.handle_batch_results_for_new_scan(&msg.batch_results, logger)
-            }
-            PayableScanType::Retry => {
-                self.handle_batch_results_for_retry_scan(&msg.batch_results, logger)
-            }
-        }
-        //     Err(local_error) => Self::log_local_error(local_error, logger),
-    }
-
-    fn handle_batch_results_for_new_scan(&self, batch_results: &BatchResults, logger: &Logger) {
-        let (sent, failed) = calculate_occurences(batch_results);
-        debug!(
-            logger,
-            "Processed new txs while sending to RPC: {}",
-            batch_stats(sent, failed),
-        );
-        if sent > 0 {
-            self.insert_records_in_sent_payables(&batch_results.sent_txs);
-        }
-        if failed > 0 {
-            debug!(
-                logger,
-                "Recording failed txs: {:?}", batch_results.failed_txs
-            );
-            self.insert_records_in_failed_payables(&batch_results.failed_txs);
-        }
-    }
-
-    fn handle_batch_results_for_retry_scan(&self, batch_results: &BatchResults, logger: &Logger) {
-        let (sent, failed) = calculate_occurences(batch_results);
+    fn process_sent_payables(&self, msg: &SentPayables, logger: &Logger) {
+        let (sent, failed) = calculate_occurences(&msg.batch_results);
         debug!(
             logger,
             "Processed retried txs while sending to RPC: {}",
             batch_stats(sent, failed),
         );
 
-        if sent > 0 {
-            self.insert_records_in_sent_payables(&batch_results.sent_txs);
-            self.update_statuses_of_prev_txs(&batch_results.sent_txs);
-        }
         if failed > 0 {
-            // TODO: Would it be a good ides to update Retry attempt of previous tx?
-            Self::log_failed_txs_during_retry(&batch_results.failed_txs, logger);
+            debug!(
+                logger,
+                "Recording failed txs: {:?}", msg.batch_results.failed_txs
+            );
+            self.insert_records_in_failed_payables(&msg.batch_results.failed_txs);
+        }
+
+        if msg.payable_scan_type == PayableScanType::Retry {
+            todo!();
+            // Sent txs must be non-zero, otherwise the logic is broken
+            // if sent > 0 {
+            //     //  self.insert_records_in_sent_payables(&batch_results.sent_txs);
+            //     self.update_statuses_of_prev_txs(&msg.batch_results.sent_txs);
+            // }
         }
     }
 
+    pub fn process_failed_payables(&self, failed_txs: &[FailedTx], logger: &Logger) {
+        todo!()
+        // debug!(
+        //     logger,
+        //     "Recording failed txs: {:?}", failed_txs
+        // );
+        // self.insert_records_in_failed_payables(&failed_txs);
+    }
+
+    // match msg.payable_scan_type {
+    //     PayableScanType::New => {
+    //         self.handle_batch_results_for_new_scan(&msg.batch_results, logger)
+    //     }
+    //     PayableScanType::Retry => {
+    //         self.handle_batch_results_for_retry_scan(&msg.batch_results, logger)
+    //     }
+    // }
+    //     Err(local_error) => Self::log_local_error(local_error, logger),
+
+    // fn handle_batch_results_for_new_scan(&self, batch_results: &BatchResults, logger: &Logger) {
+    //     let (sent, failed) = calculate_occurences(batch_results);
+    //     debug!(
+    //         logger,
+    //         "Processed new txs while sending to RPC: {}",
+    //         batch_stats(sent, failed),
+    //     );
+    //     if sent > 0 {
+    //         self.insert_records_in_sent_payables(&batch_results.sent_txs);
+    //     }
+    //     if failed > 0 {
+    //         debug!(
+    //             logger,
+    //             "Recording failed txs: {:?}", batch_results.failed_txs
+    //         );
+    //         self.insert_records_in_failed_payables(&batch_results.failed_txs);
+    //     }
+    // }
+
+    // fn handle_batch_results_for_retry_scan(&self, batch_results: &BatchResults, logger: &Logger) {
+    //     let (sent, failed) = calculate_occurences(batch_results);
+    //     debug!(
+    //         logger,
+    //         "Processed retried txs while sending to RPC: {}",
+    //         batch_stats(sent, failed),
+    //     );
+    //
+    //     if sent > 0 {
+    //         self.insert_records_in_sent_payables(&batch_results.sent_txs);
+    //         self.update_statuses_of_prev_txs(&batch_results.sent_txs);
+    //     }
+    //     if failed > 0 {
+    //         // TODO: Would it be a good ides to update Retry attempt of previous tx?
+    //         Self::log_failed_txs_during_retry(&batch_results.failed_txs, logger);
+    //     }
+    // }
+
     fn update_statuses_of_prev_txs(&self, sent_txs: &[SentTx]) {
-        // TODO: We can do better here, possibly by creating a relationship between failed and sent txs
-        // Also, consider the fact that some txs will be with PendingTooLong status, what should we do with them?
         let retrieved_txs = self.retrieve_failed_txs_by_receiver_addresses(sent_txs);
         let (pending_too_long, other_reasons): (BTreeSet<_>, BTreeSet<_>) = retrieved_txs
             .into_iter()
             .partition(|tx| matches!(tx.reason, FailureReason::PendingTooLong));
+
         if !pending_too_long.is_empty() {
             self.update_failed_txs(
                 &pending_too_long,
                 FailureStatus::RecheckRequired(ValidationStatus::Waiting),
             );
         }
+
         if !other_reasons.is_empty() {
             self.update_failed_txs(&other_reasons, FailureStatus::Concluded);
         }
@@ -322,33 +385,33 @@ impl PayableScanner {
             .unwrap_or_else(|e| panic!("Failed to conclude txs in database: {:?}", e));
     }
 
-    fn log_failed_txs_during_retry(failed_txs: &[FailedTx], logger: &Logger) {
-        warning!(
-            logger,
-            "While retrying, {} transactions with hashes: {} have failed.",
-            failed_txs.len(),
-            join_with_separator(failed_txs, |failed_tx| format!("{:?}", failed_tx.hash), ",")
-        )
-    }
-
-    fn log_local_error(local_error: &str, logger: &Logger) {
-        warning!(
-            logger,
-            "Local error occurred before transaction signing. Error: {}",
-            local_error
-        )
-    }
-
-    fn insert_records_in_sent_payables(&self, sent_txs: &[SentTx]) {
-        self.sent_payable_dao
-            .insert_new_records(&sent_txs.iter().cloned().collect())
-            .unwrap_or_else(|e| {
-                panic!(
-                    "Failed to insert transactions into the SentPayable table. Error: {:?}",
-                    e
-                )
-            });
-    }
+    // fn log_failed_txs_during_retry(failed_txs: &[FailedTx], logger: &Logger) {
+    //     warning!(
+    //         logger,
+    //         "While retrying, {} transactions with hashes: {} have failed.",
+    //         failed_txs.len(),
+    //         join_with_separator(failed_txs, |failed_tx| format!("{:?}", failed_tx.hash), ",")
+    //     )
+    // }
+    //
+    // fn log_local_error(local_error: &str, logger: &Logger) {
+    //     warning!(
+    //         logger,
+    //         "Local error occurred before transaction signing. Error: {}",
+    //         local_error
+    //     )
+    // }
+    //
+    // fn insert_records_in_sent_payables(&self, sent_txs: &[SentTx]) {
+    //     self.sent_payable_dao
+    //         .insert_new_records(&sent_txs.iter().cloned().collect())
+    //         .unwrap_or_else(|e| {
+    //             panic!(
+    //                 "Failed to insert transactions into the SentPayable table. Error: {:?}",
+    //                 e
+    //             )
+    //         });
+    // }
 
     fn insert_records_in_failed_payables(&self, failed_txs: &[FailedTx]) {
         self.failed_payable_dao
@@ -426,6 +489,7 @@ mod tests {
 
     #[test]
     fn determine_next_scan_to_run_works() {
+        todo!("delete me")
         //TODO fix me carefully
         // Error
         // assert_eq!(
@@ -598,9 +662,8 @@ mod tests {
             SimplePayable::new(wallet_3, hash_3),
             SimplePayable::new(wallet_4, hash_4),
         ];
-        let sent_payable_dao = SentPayableDaoMock::new().get_existing_tx_records_result(
-            btreeset!(hash_4, hash_1, hash_3, hash_2),
-        );
+        let sent_payable_dao = SentPayableDaoMock::new()
+            .get_existing_tx_records_result(btreeset!(hash_4, hash_1, hash_3, hash_2));
         let subject = PayableScannerBuilder::new()
             .sent_payable_dao(sent_payable_dao)
             .build();
@@ -627,7 +690,7 @@ mod tests {
         recipient_wallet: Wallet { kind: Address(0x00000000000000000000000000000000006a6b6c) }, \
         hash: 0x0000000000000000000000000000000000000000000000000000000000000315 }]"
     )]
-    fn just_baked_pending_payables_contain_duplicates() {
+    fn payables_contain_duplicates() {
         let hash_1 = make_tx_hash(321);
         let hash_2 = make_tx_hash(654);
         let hash_3 = make_tx_hash(987);
@@ -868,43 +931,45 @@ mod tests {
 
     #[test]
     fn insert_records_in_sent_payables_inserts_records_successfully() {
-        let insert_new_records_params = Arc::new(Mutex::new(vec![]));
-        let sent_payable_dao = SentPayableDaoMock::default()
-            .insert_new_records_params(&insert_new_records_params)
-            .insert_new_records_result(Ok(()));
-        let subject = PayableScannerBuilder::new()
-            .sent_payable_dao(sent_payable_dao)
-            .build();
-        let tx1 = TxBuilder::default().hash(make_tx_hash(1)).build();
-        let tx2 = TxBuilder::default().hash(make_tx_hash(2)).build();
-        let sent_txs = vec![tx1.clone(), tx2.clone()];
-
-        subject.insert_records_in_sent_payables(&sent_txs);
-
-        let params = insert_new_records_params.lock().unwrap();
-        assert_eq!(params.len(), 1);
-        assert_eq!(params[0], sent_txs.into_iter().collect());
+        todo!()
+        // let insert_new_records_params = Arc::new(Mutex::new(vec![]));
+        // let sent_payable_dao = SentPayableDaoMock::default()
+        //     .insert_new_records_params(&insert_new_records_params)
+        //     .insert_new_records_result(Ok(()));
+        // let subject = PayableScannerBuilder::new()
+        //     .sent_payable_dao(sent_payable_dao)
+        //     .build();
+        // let tx1 = TxBuilder::default().hash(make_tx_hash(1)).build();
+        // let tx2 = TxBuilder::default().hash(make_tx_hash(2)).build();
+        // let sent_txs = vec![tx1.clone(), tx2.clone()];
+        //
+        // subject.insert_records_in_sent_payables(&sent_txs);
+        //
+        // let params = insert_new_records_params.lock().unwrap();
+        // assert_eq!(params.len(), 1);
+        // assert_eq!(params[0], sent_txs.into_iter().collect());
     }
 
     #[test]
     fn insert_records_in_sent_payables_panics_on_error() {
-        let sent_payable_dao = SentPayableDaoMock::default().insert_new_records_result(Err(
-            SentPayableDaoError::PartialExecution("Test error".to_string()),
-        ));
-        let subject = PayableScannerBuilder::new()
-            .sent_payable_dao(sent_payable_dao)
-            .build();
-        let tx = TxBuilder::default().hash(make_tx_hash(1)).build();
-        let sent_txs = vec![tx];
-
-        let result = catch_unwind(AssertUnwindSafe(|| {
-            subject.insert_records_in_sent_payables(&sent_txs);
-        }))
-        .unwrap_err();
-
-        let panic_msg = result.downcast_ref::<String>().unwrap();
-        assert!(panic_msg.contains("Failed to insert transactions into the SentPayable table"));
-        assert!(panic_msg.contains("Test error"));
+        todo!()
+        // let sent_payable_dao = SentPayableDaoMock::default().insert_new_records_result(Err(
+        //     SentPayableDaoError::PartialExecution("Test error".to_string()),
+        // ));
+        // let subject = PayableScannerBuilder::new()
+        //     .sent_payable_dao(sent_payable_dao)
+        //     .build();
+        // let tx = TxBuilder::default().hash(make_tx_hash(1)).build();
+        // let sent_txs = vec![tx];
+        //
+        // let result = catch_unwind(AssertUnwindSafe(|| {
+        //     subject.insert_records_in_sent_payables(&sent_txs);
+        // }))
+        // .unwrap_err();
+        //
+        // let panic_msg = result.downcast_ref::<String>().unwrap();
+        // assert!(panic_msg.contains("Failed to insert transactions into the SentPayable table"));
+        // assert!(panic_msg.contains("Test error"));
     }
 
     #[test]
@@ -950,108 +1015,112 @@ mod tests {
 
     #[test]
     fn handle_batch_results_for_new_scan_does_not_perform_any_operation_when_sent_txs_is_empty() {
-        let insert_new_records_sent_tx_params_arc = Arc::new(Mutex::new(vec![]));
-        let insert_new_records_failed_tx_params_arc = Arc::new(Mutex::new(vec![]));
-        let sent_payable_dao = SentPayableDaoMock::default()
-            .insert_new_records_params(&insert_new_records_sent_tx_params_arc);
-        let failed_payable_dao = FailedPayableDaoMock::default()
-            .insert_new_records_params(&insert_new_records_failed_tx_params_arc)
-            .insert_new_records_result(Ok(()));
-        let subject = PayableScannerBuilder::new()
-            .sent_payable_dao(sent_payable_dao)
-            .failed_payable_dao(failed_payable_dao)
-            .build();
-        let batch_results = BatchResults {
-            sent_txs: vec![],
-            failed_txs: vec![make_failed_tx(1)],
-        };
-
-        subject.handle_batch_results_for_new_scan(&batch_results, &Logger::new("test"));
-
-        assert_eq!(
-            insert_new_records_failed_tx_params_arc
-                .lock()
-                .unwrap()
-                .len(),
-            1
-        );
-        assert!(insert_new_records_sent_tx_params_arc
-            .lock()
-            .unwrap()
-            .is_empty());
+        todo!()
+        // let insert_new_records_sent_tx_params_arc = Arc::new(Mutex::new(vec![]));
+        // let insert_new_records_failed_tx_params_arc = Arc::new(Mutex::new(vec![]));
+        // let sent_payable_dao = SentPayableDaoMock::default()
+        //     .insert_new_records_params(&insert_new_records_sent_tx_params_arc);
+        // let failed_payable_dao = FailedPayableDaoMock::default()
+        //     .insert_new_records_params(&insert_new_records_failed_tx_params_arc)
+        //     .insert_new_records_result(Ok(()));
+        // let subject = PayableScannerBuilder::new()
+        //     .sent_payable_dao(sent_payable_dao)
+        //     .failed_payable_dao(failed_payable_dao)
+        //     .build();
+        // let batch_results = BatchResults {
+        //     sent_txs: vec![],
+        //     failed_txs: vec![make_failed_tx(1)],
+        // };
+        //
+        // subject.handle_batch_results_for_new_scan(&batch_results, &Logger::new("test"));
+        //
+        // assert_eq!(
+        //     insert_new_records_failed_tx_params_arc
+        //         .lock()
+        //         .unwrap()
+        //         .len(),
+        //     1
+        // );
+        // assert!(insert_new_records_sent_tx_params_arc
+        //     .lock()
+        //     .unwrap()
+        //     .is_empty());
     }
 
     #[test]
     fn handle_batch_results_for_new_scan_does_not_perform_any_operation_when_failed_txs_is_empty() {
-        let insert_new_records_params_failed = Arc::new(Mutex::new(vec![]));
-        let sent_payable_dao = SentPayableDaoMock::default().insert_new_records_result(Ok(()));
-        let failed_payable_dao = FailedPayableDaoMock::default()
-            .insert_new_records_params(&insert_new_records_params_failed);
-        let subject = PayableScannerBuilder::new()
-            .sent_payable_dao(sent_payable_dao)
-            .failed_payable_dao(failed_payable_dao)
-            .build();
-        let batch_results = BatchResults {
-            sent_txs: vec![make_sent_tx(1)],
-            failed_txs: vec![],
-        };
-
-        subject.handle_batch_results_for_new_scan(&batch_results, &Logger::new("test"));
-
-        assert!(insert_new_records_params_failed.lock().unwrap().is_empty());
+        todo!()
+        // let insert_new_records_params_failed = Arc::new(Mutex::new(vec![]));
+        // let sent_payable_dao = SentPayableDaoMock::default().insert_new_records_result(Ok(()));
+        // let failed_payable_dao = FailedPayableDaoMock::default()
+        //     .insert_new_records_params(&insert_new_records_params_failed);
+        // let subject = PayableScannerBuilder::new()
+        //     .sent_payable_dao(sent_payable_dao)
+        //     .failed_payable_dao(failed_payable_dao)
+        //     .build();
+        // let batch_results = BatchResults {
+        //     sent_txs: vec![make_sent_tx(1)],
+        //     failed_txs: vec![],
+        // };
+        //
+        // subject.handle_batch_results_for_new_scan(&batch_results, &Logger::new("test"));
+        //
+        // assert!(insert_new_records_params_failed.lock().unwrap().is_empty());
     }
 
     #[test]
     fn handle_batch_results_for_retry_scan_does_not_perform_any_operation_when_sent_txs_is_empty() {
-        let insert_new_records_sent_tx_params_arc = Arc::new(Mutex::new(vec![]));
-        let retrieve_txs_params = Arc::new(Mutex::new(vec![]));
-        let update_statuses_params = Arc::new(Mutex::new(vec![]));
-        let sent_payable_dao = SentPayableDaoMock::default()
-            .insert_new_records_params(&insert_new_records_sent_tx_params_arc);
-        let failed_payable_dao = FailedPayableDaoMock::default()
-            .retrieve_txs_params(&retrieve_txs_params)
-            .update_statuses_params(&update_statuses_params);
-        let subject = PayableScannerBuilder::new()
-            .sent_payable_dao(sent_payable_dao)
-            .failed_payable_dao(failed_payable_dao)
-            .build();
-        let batch_results = BatchResults {
-            sent_txs: vec![],
-            failed_txs: vec![make_failed_tx(1)],
-        };
-
-        subject.handle_batch_results_for_retry_scan(&batch_results, &Logger::new("test"));
-
-        assert!(insert_new_records_sent_tx_params_arc
-            .lock()
-            .unwrap()
-            .is_empty());
-        assert!(retrieve_txs_params.lock().unwrap().is_empty());
-        assert!(update_statuses_params.lock().unwrap().is_empty());
+        todo!()
+        // let insert_new_records_sent_tx_params_arc = Arc::new(Mutex::new(vec![]));
+        // let retrieve_txs_params = Arc::new(Mutex::new(vec![]));
+        // let update_statuses_params = Arc::new(Mutex::new(vec![]));
+        // let sent_payable_dao = SentPayableDaoMock::default()
+        //     .insert_new_records_params(&insert_new_records_sent_tx_params_arc);
+        // let failed_payable_dao = FailedPayableDaoMock::default()
+        //     .retrieve_txs_params(&retrieve_txs_params)
+        //     .update_statuses_params(&update_statuses_params);
+        // let subject = PayableScannerBuilder::new()
+        //     .sent_payable_dao(sent_payable_dao)
+        //     .failed_payable_dao(failed_payable_dao)
+        //     .build();
+        // let batch_results = BatchResults {
+        //     sent_txs: vec![],
+        //     failed_txs: vec![make_failed_tx(1)],
+        // };
+        //
+        // subject.handle_batch_results_for_retry_scan(&batch_results, &Logger::new("test"));
+        //
+        // assert!(insert_new_records_sent_tx_params_arc
+        //     .lock()
+        //     .unwrap()
+        //     .is_empty());
+        // assert!(retrieve_txs_params.lock().unwrap().is_empty());
+        // assert!(update_statuses_params.lock().unwrap().is_empty());
     }
 
     #[test]
     fn handle_retry_logs_no_warn_when_failed_txs_exist() {
-        init_test_logging();
-        let test_name = "handle_retry_logs_no_warn_when_failed_txs_exist";
-        let sent_payable_dao = SentPayableDaoMock::default().insert_new_records_result(Ok(()));
-        let failed_payable_dao = FailedPayableDaoMock::default()
-            .retrieve_txs_result(BTreeSet::from([make_failed_tx(1)]))
-            .update_statuses_result(Ok(()))
-            .update_statuses_result(Ok(()));
-        let subject = PayableScannerBuilder::new()
-            .sent_payable_dao(sent_payable_dao)
-            .failed_payable_dao(failed_payable_dao)
-            .build();
-        let batch_results = BatchResults {
-            sent_txs: vec![make_sent_tx(1)],
-            failed_txs: vec![],
-        };
-
-        subject.handle_batch_results_for_retry_scan(&batch_results, &Logger::new(test_name));
-
-        let tlh = TestLogHandler::new();
-        tlh.exists_no_log_containing(&format!("WARN: {test_name}"));
+        todo!()
+        // init_test_logging();
+        // let test_name = "handle_retry_logs_no_warn_when_failed_txs_exist";
+        // let sent_payable_dao = SentPayableDaoMock::default().insert_new_records_result(Ok(()));
+        // let failed_payable_dao = FailedPayableDaoMock::default()
+        //     .retrieve_txs_result(BTreeSet::from([make_failed_tx(1)]))
+        //     .update_statuses_result(Ok(()))
+        //     .update_statuses_result(Ok(()));
+        // let subject = PayableScannerBuilder::new()
+        //     .sent_payable_dao(sent_payable_dao)
+        //     .failed_payable_dao(failed_payable_dao)
+        //     .build();
+        // let batch_results = BatchResults {
+        //     sent_txs: vec![make_sent_tx(1)],
+        //     failed_txs: vec![],
+        // };
+        //
+        // subject.handle_batch_results_for_retry_scan(&batch_results, &Logger::new(test_name));
+        //
+        // let tlh = TestLogHandler::new();
+        // tlh.exists_no_log_containing(&format!("WARN: {test_name}"));
     }
 
     #[test]

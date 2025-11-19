@@ -133,12 +133,15 @@ impl Scanner<TxReceiptsMessage, PendingPayableScanResult, PendingPayableScannerC
         _args: PendingPayableScannerCleanupArgs,
         logger: &Logger,
     ) -> Result<(), ScanCleanUpError> {
-        debug!(logger, "Cleaning up in the pending payable scanner after a scan error");
-        
+        debug!(
+            logger,
+            "Cleaning up in the pending payable scanner after a scan error"
+        );
+
         self.mark_as_ended(logger);
 
-         self.current_sent_payables.ensure_empty_cache(logger);
-         self.suspected_failed_payables.ensure_empty_cache(logger);
+        self.current_sent_payables.ensure_empty_cache(logger);
+        self.suspected_failed_payables.ensure_empty_cache(logger);
 
         Ok(())
     }
@@ -291,6 +294,9 @@ impl PendingPayableScanner {
                 target: MessageTarget::ClientId(response_skeleton.client_id),
                 body: UiScanResponse {}.tmb(response_skeleton.context_id),
             });
+
+            todo!("maybe here ... you should set the aware_of_unresolved_pending_payables flag to false; but then the fn name is wrong");
+
             PendingPayableScanResult::NoPendingPayablesLeft(ui_msg_opt)
         }
     }
@@ -886,10 +892,16 @@ mod tests {
         FailedValidationByTable, PendingPayableCache, PendingPayableScanResult, PresortedTxFailure,
         RecheckRequiringFailures, Retry, TxHashByTable,
     };
-    use crate::accountant::scanners::pending_payable_scanner::{PendingPayableScanner, PendingPayableScannerCleanupArgs};
+    use crate::accountant::scanners::pending_payable_scanner::{
+        PendingPayableScanner, PendingPayableScannerCleanupArgs,
+    };
+    use crate::accountant::scanners::receivable_scanner::ReceivableScannerCleanupArgs;
     use crate::accountant::scanners::test_utils::PendingPayableCacheMock;
     use crate::accountant::scanners::{Scanner, StartScanError, StartableScanner};
-    use crate::accountant::test_utils::{make_transaction_block, FailedPayableDaoMock, PayableDaoMock, PendingPayableScannerBuilder, ReceivableScannerBuilder, SentPayableDaoMock};
+    use crate::accountant::test_utils::{
+        make_transaction_block, FailedPayableDaoMock, PayableDaoMock, PendingPayableScannerBuilder,
+        ReceivableScannerBuilder, SentPayableDaoMock,
+    };
     use crate::accountant::{RequestTransactionReceipts, ResponseSkeleton, TxReceiptsMessage};
     use crate::blockchain::blockchain_interface::data_structures::{
         StatusReadFromReceiptCheck, TxBlock,
@@ -913,7 +925,6 @@ mod tests {
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
-    use crate::accountant::scanners::receivable_scanner::ReceivableScannerCleanupArgs;
 
     #[test]
     fn start_scan_fills_in_caches_and_returns_msg() {
@@ -1228,9 +1239,14 @@ mod tests {
     fn clean_up_after_error_works() {
         let ensure_empty_cache_sent_payable_params_arc = Arc::new(Mutex::new(vec![]));
         let ensure_empty_cache_failed_payable_params_arc = Arc::new(Mutex::new(vec![]));
-        let sent_payable_cache = PendingPayableCacheMock::default().ensure_empty_cache_params(&ensure_empty_cache_sent_payable_params_arc);
-        let failed_payable_cache = PendingPayableCacheMock::default().ensure_empty_cache_params(&ensure_empty_cache_failed_payable_params_arc);
-        let mut subject = PendingPayableScannerBuilder::new().sent_payable_cache(Box::new(sent_payable_cache)).failed_payable_cache(Box::new(failed_payable_cache)).build();
+        let sent_payable_cache = PendingPayableCacheMock::default()
+            .ensure_empty_cache_params(&ensure_empty_cache_sent_payable_params_arc);
+        let failed_payable_cache = PendingPayableCacheMock::default()
+            .ensure_empty_cache_params(&ensure_empty_cache_failed_payable_params_arc);
+        let mut subject = PendingPayableScannerBuilder::new()
+            .sent_payable_cache(Box::new(sent_payable_cache))
+            .failed_payable_cache(Box::new(failed_payable_cache))
+            .build();
         subject.mark_as_started(SystemTime::now());
 
         let result =
@@ -1238,9 +1254,11 @@ mod tests {
 
         assert_eq!(result, Ok(()));
         assert_eq!(subject.scan_started_at(), None);
-        let ensure_empty_cache_sent_payable_params = ensure_empty_cache_sent_payable_params_arc.lock().unwrap();
+        let ensure_empty_cache_sent_payable_params =
+            ensure_empty_cache_sent_payable_params_arc.lock().unwrap();
         assert_eq!(*ensure_empty_cache_sent_payable_params, vec![()]);
-        let ensure_empty_cache_failed_payable_params = ensure_empty_cache_failed_payable_params_arc.lock().unwrap();
+        let ensure_empty_cache_failed_payable_params =
+            ensure_empty_cache_failed_payable_params_arc.lock().unwrap();
         assert_eq!(*ensure_empty_cache_failed_payable_params, vec![()]);
     }
 

@@ -22,14 +22,6 @@ use web3::types::{Address, H256};
 #[derive(Debug, PartialEq, Eq)]
 pub struct PayableScanResult {
     pub ui_response_opt: Option<NodeToUiMessage>,
-    pub result: NextScanToRun,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum NextScanToRun {
-    PendingPayableScan,
-    NewPayableScan,
-    RetryPayableScan,
 }
 
 pub fn filter_receiver_addresses_from_txs<'a, T, I>(transactions: I) -> BTreeSet<Address>

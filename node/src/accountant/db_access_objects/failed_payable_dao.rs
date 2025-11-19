@@ -611,8 +611,10 @@ mod tests {
 
     #[test]
     fn get_existing_tx_records_works() {
-        let home_dir =
-            ensure_node_home_directory_exists("failed_payable_dao", "get_existing_tx_records_works");
+        let home_dir = ensure_node_home_directory_exists(
+            "failed_payable_dao",
+            "get_existing_tx_records_works",
+        );
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();

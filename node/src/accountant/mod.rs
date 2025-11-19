@@ -26,7 +26,6 @@ use crate::accountant::financials::visibility_restricted_module::{
 use crate::accountant::scanners::payable_scanner::msgs::{
     InitialTemplatesMessage, PricedTemplatesMessage,
 };
-use crate::accountant::scanners::payable_scanner::utils::NextScanToRun;
 use crate::accountant::scanners::pending_payable_scanner::utils::{
     PendingPayableScanResult, TxHashByTable,
 };
@@ -51,7 +50,8 @@ use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportServicesConsumedMessage;
 use crate::sub_lib::accountant::{MessageIdGenerator, MessageIdGeneratorReal};
 use crate::sub_lib::blockchain_bridge::{
-    ErrorWithTxsIssued, OutboundPaymentsInstructions, PayableScanError, ScanErrorPayload,
+    DetailedScanType, ErrorWithTxsIssued, OutboundPaymentsInstructions, PayableScanError,
+    ScanErrorPayload,
 };
 use crate::sub_lib::neighborhood::{ConfigChange, ConfigChangeMsg};
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
@@ -394,7 +394,7 @@ impl Handler<SentPayables> for Accountant {
         let scan_result = self.scanners.finish_payable_scan(msg, &self.logger);
 
         match scan_result.ui_response_opt {
-            None => self.schedule_next_automatic_scan(scan_result.result, ctx),
+            None => todo!("schedule PendingPayableScanner"),
             Some(node_to_ui_msg) => {
                 self.ui_message_sub_opt
                     .as_ref()
@@ -430,60 +430,63 @@ impl Handler<ScanError> for Accountant {
     fn handle(&mut self, scan_error: ScanError, ctx: &mut Self::Context) -> Self::Result {
         error!(self.logger, "Received ScanError: {:?}", scan_error);
 
-        self.scanners
-            .acknowledge_scan_error(&scan_error, &self.logger);
+        let scan_type = DetailedScanType::from(&scan_error.payload);
+        let ui_response_inputs_opt = Self::collect_ui_response_inputs_if_requested(&scan_error);
 
-        match scan_error.response_skeleton_opt {
+        self.scanners
+            .acknowledge_scan_error(scan_error, &self.logger);
+
+        match ui_response_inputs_opt {
             None => {
                 debug!(
                     self.logger,
                     "Trying to restore the scan train after a crash"
                 );
-                match scan_error.payload {
-                    ScanErrorPayload::NewPayables(payable_scan_error) => {
-                        let failed_txs: Vec<FailedTx> = payable_scan_error.into();
-                        if failed_txs.is_empty() {
-                            todo!()
-                            // match scan_error.scan_type {
-                            //     DetailedScanType::NewPayables => self
-                            //         .scan_schedulers
-                            //         .payable
-                            //         .schedule_new_payable_scan(ctx, &self.logger),
-                        } else {
-                            todo!()
-                        }
+                match scan_type {
+                    DetailedScanType::NewPayables | DetailedScanType::RetryPayables => {
+                        todo!("test me from two tests!!!")
+                        //     let failed_txs: Vec<FailedTx> = payable_scan_error.into();
+                        //     if failed_txs.is_empty() {
+                        //         todo!()
+                        //         // match scan_error.scan_type {
+                        //         //     DetailedScanType::NewPayables => self
+                        //         //         .scan_schedulers
+                        //         //         .payable
+                        //         //         .schedule_new_payable_scan(ctx, &self.logger),
+                        //     } else {
+                        //         todo!()
+                        //     }
+                        // }
+                        // ScanErrorPayload::RetryPayables(payable_scan_error) => {
+                        //     let failed_txs: Vec<FailedTx> = payable_scan_error.into();
+                        //     if failed_txs.is_empty() {
+                        //         todo!()
+                        //         // self
+                        //         //     .scan_schedulers
+                        //         //     .payable
+                        //         //     .schedule_retry_payable_scan(ctx, None, & self.logger),
+                        //     } else {
+                        //         todo!()
+                        //     }
                     }
-                    ScanErrorPayload::RetryPayables(payable_scan_error) => {
-                        let failed_txs: Vec<FailedTx> = payable_scan_error.into();
-                        if failed_txs.is_empty() {
-                            todo!()
-                            // self
-                            //     .scan_schedulers
-                            //     .payable
-                            //     .schedule_retry_payable_scan(ctx, None, & self.logger),
-                        } else {
-                            todo!()
-                        }
-                    }
-                    ScanErrorPayload::PendingPayables { .. } => self
+                    DetailedScanType::PendingPayables => self
                         .scan_schedulers
                         .pending_payable
                         .schedule(ctx, &self.logger),
-                    ScanErrorPayload::Receivables { .. } => {
+                    DetailedScanType::Receivables => {
                         self.scan_schedulers.receivable.schedule(ctx, &self.logger)
                     }
                 }
             }
-            Some(response_skeleton) => {
+            Some(ui_response_inputs) => {
                 let error_msg = NodeToUiMessage {
-                    target: ClientId(response_skeleton.client_id),
+                    target: ClientId(ui_response_inputs.response_skeleton.client_id),
                     body: MessageBody {
                         opcode: "scan".to_string(),
-                        path: MessagePath::Conversation(response_skeleton.context_id),
-                        payload: Err((
-                            SCAN_ERROR,
-                            format!("Scan failure: '{}'", scan_error.payload),
-                        )),
+                        path: MessagePath::Conversation(
+                            ui_response_inputs.response_skeleton.context_id,
+                        ),
+                        payload: Err((SCAN_ERROR, ui_response_inputs.err_msg)),
                     },
                 };
                 error!(self.logger, "Sending UiScanResponse: {:?}", error_msg);
@@ -495,6 +498,11 @@ impl Handler<ScanError> for Accountant {
             }
         }
     }
+}
+
+struct ScanErrorUiResponseInputs {
+    response_skeleton: ResponseSkeleton,
+    err_msg: String,
 }
 
 impl Handler<ReportRoutingServiceProvidedMessage> for Accountant {
@@ -1194,26 +1202,37 @@ impl Accountant {
         }
     }
 
-    fn schedule_next_automatic_scan(
-        &self,
-        next_scan_to_run: NextScanToRun,
-        ctx: &mut Context<Accountant>,
-    ) {
-        match next_scan_to_run {
-            NextScanToRun::PendingPayableScan => self
-                .scan_schedulers
-                .pending_payable
-                .schedule(ctx, &self.logger),
-            NextScanToRun::NewPayableScan => self
-                .scan_schedulers
-                .payable
-                .schedule_new_payable_scan(ctx, &self.logger),
-            NextScanToRun::RetryPayableScan => self
-                .scan_schedulers
-                .payable
-                .schedule_retry_payable_scan(ctx, None, &self.logger),
-        }
+    fn collect_ui_response_inputs_if_requested(
+        scan_error: &ScanError,
+    ) -> Option<ScanErrorUiResponseInputs> {
+        scan_error
+            .response_skeleton_opt
+            .map(|response_skeleton| ScanErrorUiResponseInputs {
+                response_skeleton,
+                err_msg: format!("Scan failure: '{}'", scan_error.payload),
+            })
     }
+
+    // fn schedule_next_automatic_scan(
+    //     &self,
+    //     next_scan_to_run: NextScanToRun,
+    //     ctx: &mut Context<Accountant>,
+    // ) {
+    //     match next_scan_to_run {
+    //         NextScanToRun::PendingPayableScan => self
+    //             .scan_schedulers
+    //             .pending_payable
+    //             .schedule(ctx, &self.logger),
+    //         NextScanToRun::NewPayableScan => self
+    //             .scan_schedulers
+    //             .payable
+    //             .schedule_new_payable_scan(ctx, &self.logger),
+    //         NextScanToRun::RetryPayableScan => self
+    //             .scan_schedulers
+    //             .payable
+    //             .schedule_retry_payable_scan(ctx, None, &self.logger),
+    //     }
+    // }
 
     fn register_new_pending_sent_tx(&self, msg: RegisterNewPendingPayables) {
         fn serialize_hashes(tx_hashes: &[SentTx]) -> String {
@@ -1246,12 +1265,15 @@ impl Accountant {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SimplePayable {
     pub recipient_address: Address,
-    pub hash: TxHash
+    pub hash: TxHash,
 }
 
 impl SimplePayable {
     pub fn new(recipient_address: Address, hash: TxHash) -> Self {
-       Self { recipient_address, hash }
+        Self {
+            recipient_address,
+            hash,
+        }
     }
 }
 
@@ -1725,7 +1747,10 @@ mod tests {
     fn sent_payables_with_response_skeleton_results_in_scan_response_to_ui_gateway() {
         let config = bc_from_earning_wallet(make_wallet("earning_wallet"));
         let payable_dao = PayableDaoMock::default().mark_pending_payables_rowids_result(Ok(()));
-        let sent_payable_dao = SentPayableDaoMock::default().insert_new_records_result(Ok(()));
+        let sent_tx_hash = make_tx_hash(123);
+        let sent_payable_dao = SentPayableDaoMock::default()
+            .get_existing_tx_records_result(btreeset!(sent_tx_hash))
+            .insert_new_records_result(Ok(()));
         let subject = AccountantBuilder::default()
             .payable_daos(vec![ForPayableScanner(payable_dao)])
             .sent_payable_daos(vec![DaoWithDestination::ForPayableScanner(
@@ -1737,9 +1762,11 @@ mod tests {
         let subject_addr = subject.start();
         let system = System::new("test");
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
+        let mut sent_tx = make_sent_tx(1);
+        sent_tx.hash = sent_tx_hash;
         let sent_payables = SentPayables {
             batch_results: BatchResults {
-                sent_txs: vec![make_sent_tx(1)],
+                sent_txs: vec![sent_tx],
                 failed_txs: vec![],
             },
             payable_scan_type: PayableScanType::New,
@@ -2293,6 +2320,7 @@ mod tests {
         let sent_tx = make_sent_tx(123);
         let tx_hash = sent_tx.hash;
         let sent_payable_dao_for_payable_scanner = SentPayableDaoMock::default()
+            .get_existing_tx_records_result(btreeset!(tx_hash))
             // TODO should be removed with GH-701
             .insert_new_records_result(Ok(()));
         let sent_payable_dao_for_pending_payable_scanner = SentPayableDaoMock::default()
@@ -2988,7 +3016,6 @@ mod tests {
             // Important
             .finish_scan_result(PayableScanResult {
                 ui_response_opt: None,
-                result: NextScanToRun::PendingPayableScan,
             });
         let pending_payable_scanner = ScannerMock::new()
             .scan_started_at_result(None)
@@ -3964,7 +3991,6 @@ mod tests {
             .start_scan_result(Ok(qualified_payables_msg.clone()))
             .finish_scan_result(PayableScanResult {
                 ui_response_opt: None,
-                result: NextScanToRun::PendingPayableScan,
             });
         let mut config = bc_from_earning_wallet(make_wallet("hi"));
         config.scan_intervals_opt = Some(ScanIntervals {
@@ -5107,7 +5133,6 @@ mod tests {
 
     #[test]
     fn accountant_processes_sent_payables_and_schedules_pending_payable_scanner() {
-        // let get_existing_tx_records_params_arc = Arc::new(Mutex::new(vec![]));
         let pending_payable_notify_later_params_arc = Arc::new(Mutex::new(vec![]));
         let inserted_new_records_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_hash = H256::from("transaction_hash".keccak256());
@@ -5115,10 +5140,8 @@ mod tests {
         let sent_payable_dao = SentPayableDaoMock::new()
             .insert_new_records_params(&inserted_new_records_params_arc)
             .insert_new_records_result(Ok(()));
-        // let expected_rowid = 45623;
-        // let sent_payable_dao = SentPayableDaoMock::default()
-        //     .get_existing_tx_records_params(&get_existing_tx_records_params_arc)
-        //     .get_existing_tx_records_result(hashmap! (expected_hash => expected_rowid));
+        let sent_payable_dao =
+            SentPayableDaoMock::default().get_existing_tx_records_result(btreeset!(expected_hash));
         let system =
             System::new("accountant_processes_sent_payables_and_schedules_pending_payable_scanner");
         let mut subject = AccountantBuilder::default()
@@ -5173,6 +5196,7 @@ mod tests {
         let expected_hash = H256::from("transaction_hash".keccak256());
         let payable_dao = PayableDaoMock::new();
         let sent_payable_dao = SentPayableDaoMock::new()
+            .get_existing_tx_records_result(btreeset!(expected_hash))
             .insert_new_records_params(&inserted_new_records_params_arc)
             .insert_new_records_result(Ok(()));
         let failed_payble_dao = FailedPayableDaoMock::new().retrieve_txs_result(BTreeSet::new());
@@ -5244,7 +5268,6 @@ mod tests {
                     .finish_scan_params(&finish_scan_params_arc)
                     .finish_scan_result(PayableScanResult {
                         ui_response_opt: None,
-                        result: NextScanToRun::RetryPayableScan,
                     }),
             )));
         subject.scan_schedulers.payable.retry_payable_notify_later = Box::new(
