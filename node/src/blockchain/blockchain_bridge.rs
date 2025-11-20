@@ -2205,7 +2205,7 @@ mod tests {
 
     #[test]
     fn extract_max_block_range_for_nodies_error_response_v2() {
-        let result = BlockchainError::QueryFailed("RPC error: Error { code: ServerError(-32001), message: \"Block range too large: maximum allowed is 20000 blocks\", data: None }".to_string());
+        let result = BlockchainInterfaceError::QueryFailed("RPC error: Error { code: ServerError(-32001), message: \"Block range too large: maximum allowed is 20000 blocks\", data: None }".to_string());
 
         let max_block_count = BlockchainBridge::extract_max_block_count(result);
 
