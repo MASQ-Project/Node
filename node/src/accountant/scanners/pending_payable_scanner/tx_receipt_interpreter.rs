@@ -186,7 +186,7 @@ impl TxReceiptInterpreter {
                     failed_tx.reason,
                 );
 
-                scan_report.register_finalization_of_suspected_failure(failed_tx.hash);
+                scan_report.register_finalization_of_supposed_failure(failed_tx.hash);
             }
         }
         scan_report

@@ -3,6 +3,7 @@
 pub mod db_access_objects;
 pub mod db_big_integer;
 pub mod financials;
+mod logging_utils;
 pub mod payment_adjuster;
 pub mod scanners;
 
@@ -22,6 +23,10 @@ use crate::accountant::db_access_objects::utils::{
 use crate::accountant::financials::visibility_restricted_module::{
     check_query_is_within_tech_limits, financials_entry_check,
 };
+use crate::accountant::logging_utils::accounting_msgs_debug::{
+    AccountingMsgType, NewPosting, NewPostingsDebugContainer,
+};
+use crate::accountant::logging_utils::LoggingUtils;
 use crate::accountant::scanners::payable_scanner::msgs::{
     InitialTemplatesMessage, PricedTemplatesMessage,
 };
@@ -48,7 +53,6 @@ use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportServicesConsumedMessage;
 use crate::sub_lib::accountant::{AccountantSubs, DetailedScanType};
-use crate::sub_lib::accountant::{MessageIdGenerator, MessageIdGeneratorReal};
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use crate::sub_lib::neighborhood::{ConfigChange, ConfigChangeMsg};
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
@@ -86,6 +90,7 @@ use std::time::SystemTime;
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
 pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; //6 hours
+const DEFAULT_ACCOUNTING_MSG_LOG_WINDOW: u16 = 50;
 
 pub struct Accountant {
     consuming_wallet_opt: Option<Wallet>,
@@ -104,7 +109,7 @@ pub struct Accountant {
     report_inbound_payments_sub_opt: Option<Recipient<ReceivedPayments>>,
     report_sent_payables_sub_opt: Option<Recipient<SentPayables>>,
     ui_message_sub_opt: Option<Recipient<NodeToUiMessage>>,
-    message_id_generator: Box<dyn MessageIdGenerator>,
+    logging_utils: LoggingUtils,
     logger: Logger,
 }
 
@@ -348,8 +353,8 @@ impl Handler<TxReceiptsMessage> for Accountant {
                 if let Some(node_to_ui_msg) = ui_msg_opt {
                     info!(
                         self.logger,
-                        "Re-running the pending payable scan is recommended, as some parts \
-                        did not finish last time."
+                        "Re-running the pending payable scan is recommended, as some parts were \
+                        prevented from completing during the previous attempt."
                     );
                     self.ui_message_sub_opt
                         .as_ref()
@@ -560,6 +565,7 @@ impl Accountant {
     pub fn new(config: BootstrapperConfig, dao_factories: DaoFactories) -> Accountant {
         let payment_thresholds = config.payment_thresholds_opt.expectv("Payment thresholds");
         let scan_intervals = config.scan_intervals_opt.expectv("Scan Intervals");
+        let consuming_wallet_opt = config.consuming_wallet_opt.clone();
         let earning_wallet = config.earning_wallet.clone();
         let financial_statistics = Rc::new(RefCell::new(FinancialStatistics::default()));
         let payable_dao = dao_factories.payable_dao_factory.make();
@@ -573,7 +579,7 @@ impl Accountant {
         );
 
         Accountant {
-            consuming_wallet_opt: config.consuming_wallet_opt.clone(),
+            consuming_wallet_opt,
             earning_wallet,
             payable_dao,
             receivable_dao,
@@ -589,7 +595,7 @@ impl Accountant {
             report_inbound_payments_sub_opt: None,
             request_transaction_receipts_sub_opt: None,
             ui_message_sub_opt: None,
-            message_id_generator: Box::new(MessageIdGeneratorReal::default()),
+            logging_utils: LoggingUtils::default(),
             logger: Logger::new("Accountant"),
         }
     }
@@ -623,7 +629,7 @@ impl Accountant {
         timestamp: SystemTime,
         payload_size: usize,
         wallet: &Wallet,
-    ) {
+    ) -> u128 {
         let byte_charge = byte_rate as u128 * (payload_size as u128);
         let total_charge = service_rate as u128 + byte_charge;
         if !self.our_wallet(wallet) {
@@ -641,12 +647,14 @@ impl Accountant {
                 ),
                 Err(e) => panic!("Was recording services provided for {} but hit a fatal database error: {:?}", wallet, e)
             };
+            total_charge
         } else {
             warning!(
                 self.logger,
                 "Declining to record a receivable against our wallet {} for services we provided",
                 wallet
             );
+            0
         }
     }
 
@@ -657,7 +665,7 @@ impl Accountant {
         timestamp: SystemTime,
         payload_size: usize,
         wallet: &Wallet,
-    ) {
+    ) -> u128 {
         let byte_charge = byte_rate as u128 * (payload_size as u128);
         let total_charge = service_rate as u128 + byte_charge;
         if !self.our_wallet(wallet) {
@@ -676,12 +684,14 @@ impl Accountant {
                 ),
                 Err(e) => panic!("Recording services consumed from {} but has hit fatal database error: {:?}", wallet, e)
             };
+            total_charge
         } else {
             warning!(
                 self.logger,
                 "Declining to record a payable against our wallet {} for service we provided",
                 wallet
             );
+            0
         }
     }
 
@@ -739,45 +749,65 @@ impl Accountant {
         &mut self,
         msg: ReportRoutingServiceProvidedMessage,
     ) {
+        let msg_id = self.msg_id();
         trace!(
             self.logger,
-            "Charging routing of {} bytes to wallet {}",
+            "Msg {}: Charging routing of {} bytes to wallet {}",
+            msg_id,
             msg.payload_size,
             msg.paying_wallet
         );
-        self.record_service_provided(
+
+        let sum = self.record_service_provided(
             msg.service_rate,
             msg.byte_rate,
             msg.timestamp,
             msg.payload_size,
             &msg.paying_wallet,
         );
+
+        self.logging_utils.accounting_msgs_stats.manage_debug_log(
+            &self.logger,
+            AccountingMsgType::RoutingServiceProvided,
+            DEFAULT_ACCOUNTING_MSG_LOG_WINDOW,
+            vec![NewPosting::new(msg.paying_wallet.address(), sum)],
+        )
     }
 
     fn handle_report_exit_service_provided_message(
         &mut self,
         msg: ReportExitServiceProvidedMessage,
     ) {
-        trace!(
-            self.logger,
-            "Charging exit service for {} bytes to wallet {} at {} per service and {} per byte",
-            msg.payload_size,
-            msg.paying_wallet,
-            msg.service_rate,
-            msg.byte_rate
-        );
-        self.record_service_provided(
+        self.logger.trace(||{
+            let msg_id = self.msg_id();
+            format!(
+                "Msg {}: Charging exit service for {} bytes to wallet {} at {} per service and {} per byte",
+                msg_id,
+                msg.payload_size,
+                msg.paying_wallet,
+                msg.service_rate,
+                msg.byte_rate
+            )
+        });
+        let sum = self.record_service_provided(
             msg.service_rate,
             msg.byte_rate,
             msg.timestamp,
             msg.payload_size,
             &msg.paying_wallet,
         );
+
+        self.logging_utils.accounting_msgs_stats.manage_debug_log(
+            &self.logger,
+            AccountingMsgType::ExitServiceProvided,
+            DEFAULT_ACCOUNTING_MSG_LOG_WINDOW,
+            vec![NewPosting::new(msg.paying_wallet.address(), sum)],
+        )
     }
 
     fn msg_id(&self) -> u32 {
         if self.logger.debug_enabled() {
-            self.message_id_generator.id()
+            self.logging_utils.msg_id_generator.id()
         } else {
             0
         }
@@ -787,34 +817,59 @@ impl Accountant {
         let msg_id = self.msg_id();
         trace!(
             self.logger,
-            "MsgId {}: Accruing debt to {} for consuming {} exited bytes",
+            "Msg {}: Accruing debt to {} for consuming {} exited bytes",
             msg_id,
             msg.exit.earning_wallet,
             msg.exit.payload_size
         );
-        self.record_service_consumed(
+        let exit_sum = self.record_service_consumed(
             msg.exit.service_rate,
             msg.exit.byte_rate,
             msg.timestamp,
             msg.exit.payload_size,
             &msg.exit.earning_wallet,
         );
-        msg.routing.iter().for_each(|routing_service| {
-            trace!(
-                self.logger,
-                "MsgId {}: Accruing debt to {} for consuming {} routed bytes",
-                msg_id,
-                routing_service.earning_wallet,
-                msg.routing_payload_size
-            );
-            self.record_service_consumed(
-                routing_service.service_rate,
-                routing_service.byte_rate,
-                msg.timestamp,
-                msg.routing_payload_size,
-                &routing_service.earning_wallet,
-            );
-        })
+
+        let new_postings = NewPostingsDebugContainer::new(&self.logger)
+            .add(msg.exit.earning_wallet.address(), exit_sum);
+
+        let new_postings = self.handle_routing_services_consumed(msg, msg_id, new_postings);
+
+        self.logging_utils.accounting_msgs_stats.manage_debug_log(
+            &self.logger,
+            AccountingMsgType::ServicesConsumed,
+            DEFAULT_ACCOUNTING_MSG_LOG_WINDOW,
+            new_postings.into(),
+        )
+    }
+
+    fn handle_routing_services_consumed(
+        &mut self,
+        msg: ReportServicesConsumedMessage,
+        msg_id: u32,
+        new_postings: NewPostingsDebugContainer,
+    ) -> NewPostingsDebugContainer {
+        msg.routing
+            .iter()
+            .fold(new_postings, |new_postings, routing_service| {
+                trace!(
+                    self.logger,
+                    "Msg {}: Accruing debt to {} for consuming {} routed bytes",
+                    msg_id,
+                    routing_service.earning_wallet,
+                    msg.routing_payload_size
+                );
+
+                let sum = self.record_service_consumed(
+                    routing_service.service_rate,
+                    routing_service.byte_rate,
+                    msg.timestamp,
+                    msg.routing_payload_size,
+                    &routing_service.earning_wallet,
+                );
+
+                new_postings.add(routing_service.earning_wallet.address(), sum)
+            })
     }
 
     fn handle_payable_payment_setup(&mut self, msg: PricedTemplatesMessage) {
@@ -1308,6 +1363,7 @@ mod tests {
     use crate::accountant::db_access_objects::utils::{
         from_unix_timestamp, to_unix_timestamp, CustomQuery,
     };
+    use crate::accountant::logging_utils::msg_id_generator::MessageIdGeneratorReal;
     use crate::accountant::payment_adjuster::Adjustment;
     use crate::accountant::scanners::payable_scanner::test_utils::PayableScannerBuilder;
     use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::NewTxTemplates;
@@ -1415,6 +1471,7 @@ mod tests {
     fn constants_have_correct_values() {
         assert_eq!(CRASH_KEY, "ACCOUNTANT");
         assert_eq!(DEFAULT_PENDING_TOO_LONG_SEC, 21_600);
+        assert_eq!(DEFAULT_ACCOUNTING_MSG_LOG_WINDOW, 50);
     }
 
     #[test]
@@ -1551,7 +1608,8 @@ mod tests {
         assert_eq!(result.consuming_wallet_opt, None);
         assert_eq!(result.earning_wallet, *DEFAULT_EARNING_WALLET);
         result
-            .message_id_generator
+            .logging_utils
+            .msg_id_generator
             .as_any()
             .downcast_ref::<MessageIdGeneratorReal>()
             .unwrap();
@@ -4741,7 +4799,8 @@ mod tests {
             .bootstrapper_config(config)
             .payable_daos(vec![ForAccountantBody(payable_dao_mock)])
             .build();
-        subject.message_id_generator = Box::new(MessageIdGeneratorMock::default().id_result(123));
+        subject.logging_utils.msg_id_generator =
+            Box::new(MessageIdGeneratorMock::default().id_result(123));
         let system = System::new("report_services_consumed_message_is_received");
         let subject_addr: Addr<Accountant> = subject.start();
         subject_addr
@@ -5431,7 +5490,7 @@ mod tests {
         assert_using_the_same_logger(&logger, test_name, None);
         TestLogHandler::new().exists_log_containing(&format!(
             "INFO: {test_name}: Re-running the pending payable scan is recommended, as some parts \
-            did not finish last time."
+            were prevented from completing during the previous attempt."
         ));
     }
 
@@ -6802,8 +6861,8 @@ mod tests {
         let mut logger1 = Logger::new("msg_id_generator_off");
         logger1.set_level_for_test(Level::Info);
         let mut subject = AccountantBuilder::default().build();
-        let msg_id_generator = MessageIdGeneratorMock::default().id_result(789); //we prepared a result just for one call
-        subject.message_id_generator = Box::new(msg_id_generator);
+        let msg_id_generator = MessageIdGeneratorMock::default().id_result(789); // We prepared a result just for one call
+        subject.logging_utils.msg_id_generator = Box::new(msg_id_generator);
         subject.logger = logger1;
 
         let id1 = subject.msg_id();
