@@ -1459,7 +1459,7 @@ mod tests {
                 &DEFAULT_PAYMENT_THRESHOLDS.to_string(),
                 Default,
             ),
-            ("rate-pack", &DEFAULT_RATE_PACK.to_string(), Default),
+            ("rate-pack", &"".to_string(), Blank),
             #[cfg(not(target_os = "windows"))]
             (
                 "real-user",

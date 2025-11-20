@@ -1163,6 +1163,8 @@ mod tests {
                     "5123",
                     "--data-directory",
                     data_dir.to_str().unwrap(),
+                    "--neighborhood-mode",
+                    "standard",
                 ]),
                 &mut FakeStreamHolder::new().streams(),
             )
@@ -1285,6 +1287,8 @@ mod tests {
                     "1.2.3.4",
                     "--clandestine-port",
                     "5123",
+                    "--neighborhood-mode",
+                    "standard",
                 ]),
                 &mut FakeStreamHolder::new().streams(),
             )
@@ -1338,6 +1342,8 @@ mod tests {
                     data_dir.to_str().unwrap(),
                     "--clandestine-port",
                     "5124",
+                    "--neighborhood-mode",
+                    "standard",
                 ]),
                 &mut holder.streams(),
             )
@@ -1655,6 +1661,8 @@ mod tests {
                     "1.2.3.4",
                     "--data-directory",
                     data_dir.to_str().unwrap(),
+                    "--neighborhood-mode",
+                    "standard",
                 ]),
                 &mut holder.streams(),
             )

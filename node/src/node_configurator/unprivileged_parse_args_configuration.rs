@@ -304,10 +304,7 @@ fn make_neighborhood_mode(
             "--neighborhood-mode {} has not been properly provided for in the code",
             s
         ),
-        None => {
-            let rate_pack = configure_rate_pack(multi_config, persistent_config)?;
-            neighborhood_mode_standard(multi_config, neighbor_configs, rate_pack)
-        }
+        None => Ok(NeighborhoodMode::ZeroHop),
     }
 }
 
@@ -1537,33 +1534,7 @@ mod tests {
                     .unwrap()
             )),
         );
-        assert_eq!(
-            config.neighborhood_config.mode,
-            NeighborhoodMode::Standard(
-                NodeAddr::new(&IpAddr::from_str("34.56.78.90").unwrap(), &[]),
-                vec![
-                    NodeDescriptor::try_from((
-                        CRYPTDE_PAIR.main.as_ref(),
-                        format!(
-                            "masq://{}:QmlsbA@1.2.3.4:1234/2345",
-                            DEFAULT_CHAIN.rec().literal_identifier
-                        )
-                        .as_str()
-                    ))
-                    .unwrap(),
-                    NodeDescriptor::try_from((
-                        CRYPTDE_PAIR.main.as_ref(),
-                        format!(
-                            "masq://{}:VGVk@2.3.4.5:3456/4567",
-                            DEFAULT_CHAIN.rec().literal_identifier
-                        )
-                        .as_str()
-                    ))
-                    .unwrap(),
-                ],
-                DEFAULT_RATE_PACK.clone()
-            )
-        );
+        assert_eq!(config.neighborhood_config.mode, NeighborhoodMode::ZeroHop);
         assert_eq!(config.db_password_opt, Some(password.to_string()));
         assert_eq!(config.mapping_protocol_opt, Some(AutomapProtocol::Pcp));
     }
@@ -1597,15 +1568,7 @@ mod tests {
             .mode
             .neighbor_configs()
             .is_empty());
-        assert_eq!(
-            config
-                .neighborhood_config
-                .mode
-                .node_addr_opt()
-                .unwrap()
-                .ip_addr(),
-            IpAddr::from_str("0.0.0.0").unwrap(),
-        );
+        assert_eq!(config.neighborhood_config.mode.node_addr_opt(), None,);
         assert_eq!(config.earning_wallet, DEFAULT_EARNING_WALLET.clone(),);
         assert_eq!(config.consuming_wallet_opt, None);
         assert_eq!(config.mapping_protocol_opt, None);
@@ -1655,21 +1618,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(
-            config.neighborhood_config.mode.neighbor_configs(),
-            &[
-                NodeDescriptor::try_from((
-                    CRYPTDE_PAIR.main.as_ref(),
-                    "masq://eth-ropsten:AQIDBA@1.2.3.4:1234"
-                ))
-                .unwrap(),
-                NodeDescriptor::try_from((
-                    CRYPTDE_PAIR.main.as_ref(),
-                    "masq://eth-ropsten:AgMEBQ@2.3.4.5:2345"
-                ))
-                .unwrap(),
-            ]
-        );
+        assert_eq!(config.neighborhood_config.mode.neighbor_configs(), &[]);
         let past_neighbors_params = past_neighbors_params_arc.lock().unwrap();
         assert_eq!(past_neighbors_params[0], "password".to_string());
         assert_eq!(config.mapping_protocol_opt, Some(AutomapProtocol::Pcp));
