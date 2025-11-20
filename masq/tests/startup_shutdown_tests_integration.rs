@@ -85,7 +85,7 @@ fn masq_terminates_based_on_loss_of_connection_to_the_daemon_integration() {
     assert_eq!(exit_code, None);
     #[cfg(target_os = "windows")]
     assert_eq!(exit_code.unwrap(), 1);
-    assert!(stdout.contains("neighborhood-mode             standard                                                         Default"));
+    assert!(stdout.contains("neighborhood-mode             zero-hop                                                         Default"));
     assert_eq!(
         stderr,
         "\nThe Daemon is no longer running; masq is terminating.\n\n"
