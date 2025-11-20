@@ -1306,7 +1306,7 @@ mod tests {
         make_failed_tx, make_sent_tx, TxBuilder,
     };
     use crate::accountant::db_access_objects::utils::{
-        from_unix_timestamp, to_unix_timestamp, CustomQuery,
+        from_unix_timestamp, to_unix_timestamp, CustomQuery, PayableAccountWithTxInfo,
     };
     use crate::accountant::payment_adjuster::Adjustment;
     use crate::accountant::scanners::payable_scanner::test_utils::PayableScannerBuilder;
@@ -1382,8 +1382,8 @@ mod tests {
     };
     use masq_lib::messages::TopRecordsOrdering::{Age, Balance};
     use masq_lib::messages::{
-        CustomQueries, RangeQuery, TopRecordsConfig, UiFinancialStatistics, UiMessageError,
-        UiPayableAccount, UiReceivableAccount, UiScanRequest, UiScanResponse,
+        CustomQueries, RangeQuery, TopRecordsConfig, TxProcessingInfo, UiFinancialStatistics,
+        UiMessageError, UiPayableAccount, UiReceivableAccount, UiScanRequest, UiScanResponse,
     };
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
@@ -1632,7 +1632,6 @@ mod tests {
             last_paid_timestamp: SystemTime::now().sub(Duration::from_secs(
                 (DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec + 1) as u64,
             )),
-            pending_payable_opt: None,
         };
         let payable_dao =
             PayableDaoMock::new().retrieve_payables_result(vec![payable_account.clone()]);
@@ -4067,7 +4066,6 @@ mod tests {
                             + payment_thresholds.threshold_interval_sec,
                     ),
                 ),
-                pending_payable_opt: None,
             },
             // above balance intersection, to the left of minimum time (outside buffer zone)
             PayableAccount {
@@ -4077,7 +4075,6 @@ mod tests {
                     now - checked_conversion::<u64, i64>(payment_thresholds.maturity_threshold_sec)
                         + 1,
                 ),
-                pending_payable_opt: None,
             },
             // above minimum balance, to the right of minimum time (not in buffer zone, below the curve)
             PayableAccount {
@@ -4089,7 +4086,6 @@ mod tests {
                     now - checked_conversion::<u64, i64>(payment_thresholds.threshold_interval_sec)
                         + 1,
                 ),
-                pending_payable_opt: None,
             },
         ];
         let payable_dao = PayableDaoMock::new()
@@ -4159,7 +4155,6 @@ mod tests {
                             + 10,
                     ),
                 ),
-                pending_payable_opt: None,
             },
             // Slightly above the curve (balance intersection), to the right of minimum time
             PayableAccount {
@@ -4170,7 +4165,6 @@ mod tests {
                         DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec + 10,
                     ),
                 ),
-                pending_payable_opt: None,
             },
         ];
         let payable_dao =
@@ -6322,11 +6316,13 @@ mod tests {
         //that part is in the responsibility of the database manager, answering the specific SQL query
         let payable_custom_query_params_arc = Arc::new(Mutex::new(vec![]));
         let receivable_custom_query_params_arc = Arc::new(Mutex::new(vec![]));
-        let payable_accounts_retrieved = vec![PayableAccount {
-            wallet: make_wallet("abcd123"),
-            balance_wei: 58_568_686_005,
-            last_paid_timestamp: SystemTime::now().sub(Duration::from_secs(5000)),
-            pending_payable_opt: None,
+        let payable_accounts_retrieved = vec![PayableAccountWithTxInfo {
+            account: PayableAccount {
+                wallet: make_wallet("abcd123"),
+                balance_wei: 58_568_686_005,
+                last_paid_timestamp: SystemTime::now().sub(Duration::from_secs(5000)),
+            },
+            tx_opt: None,
         }];
         let payable_dao = PayableDaoMock::new()
             .custom_query_params(&payable_custom_query_params_arc)
@@ -6372,7 +6368,7 @@ mod tests {
                         wallet: make_wallet("abcd123").to_string(),
                         age_s: extracted_payable_ages[0],
                         balance_gwei: 58,
-                        pending_payable_hash_opt: None
+                        tx_processing_info_opt: None,
                     },]),
                     receivable_opt: Some(vec![UiReceivableAccount {
                         wallet: make_wallet("efe4848").to_string(),
@@ -6471,11 +6467,16 @@ mod tests {
     fn compute_financials_processes_request_with_range_queries_only() {
         let payable_custom_query_params_arc = Arc::new(Mutex::new(vec![]));
         let receivable_custom_query_params_arc = Arc::new(Mutex::new(vec![]));
-        let payable_accounts_retrieved = vec![PayableAccount {
-            wallet: make_wallet("abcd123"),
-            balance_wei: 5_686_860_056,
-            last_paid_timestamp: SystemTime::now().sub(Duration::from_secs(7580)),
-            pending_payable_opt: None,
+        let payable_accounts_retrieved = vec![PayableAccountWithTxInfo {
+            account: PayableAccount {
+                wallet: make_wallet("abcd123"),
+                balance_wei: 5_686_860_056,
+                last_paid_timestamp: SystemTime::now().sub(Duration::from_secs(7580)),
+            },
+            tx_opt: Some(TxProcessingInfo {
+                pending_tx_hash_opt: None,
+                failures: 2,
+            }),
         }];
         let payable_dao = PayableDaoMock::new()
             .custom_query_params(&payable_custom_query_params_arc)
@@ -6538,7 +6539,10 @@ mod tests {
                         wallet: make_wallet("abcd123").to_string(),
                         age_s: extracted_payable_ages[0],
                         balance_gwei: 5,
-                        pending_payable_hash_opt: None
+                        tx_processing_info_opt: Some(TxProcessingInfo {
+                            pending_tx_hash_opt: None,
+                            failures: 2
+                        }),
                     },]),
                     receivable_opt: Some(vec![
                         UiReceivableAccount {
@@ -6730,11 +6734,16 @@ mod tests {
     )]
     fn compute_financials_blows_up_on_screwed_sql_query_for_payables_returning_balance_smaller_than_one_gwei(
     ) {
-        let payable_accounts_retrieved = vec![PayableAccount {
-            wallet: make_wallet("abcd123"),
-            balance_wei: 8_686_005,
-            last_paid_timestamp: SystemTime::now().sub(Duration::from_secs(5000)),
-            pending_payable_opt: None,
+        let payable_accounts_retrieved = vec![PayableAccountWithTxInfo {
+            account: PayableAccount {
+                wallet: make_wallet("abcd123"),
+                balance_wei: 8_686_005,
+                last_paid_timestamp: SystemTime::now().sub(Duration::from_secs(5000)),
+            },
+            tx_opt: Some(TxProcessingInfo {
+                pending_tx_hash_opt: None,
+                failures: 3,
+            }),
         }];
         let payable_dao =
             PayableDaoMock::new().custom_query_result(Some(payable_accounts_retrieved));

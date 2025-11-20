@@ -12,7 +12,7 @@ pub(in crate::commands::financials_command) mod restricted {
     use masq_lib::messages::{UiPayableAccount, UiReceivableAccount};
     use masq_lib::short_writeln;
     use masq_lib::utils::to_string;
-    use std::fmt::{Debug, Display};
+    use std::fmt::{Debug, Display, Formatter};
     use std::io::Write;
     use thousands::Separable;
 
@@ -27,10 +27,27 @@ pub(in crate::commands::financials_command) mod restricted {
                 self.wallet.to_string(),
                 self.age_s.separate_with_commas(),
                 process_gwei_into_requested_format(self.balance_gwei, is_gwei),
-                if let Some(hash) = &self.pending_payable_hash_opt {
-                    hash.to_string()
-                } else {
-                    "None".to_string()
+                match &self.tx_processing_info_opt {
+                    Some(current_tx_info) => match &current_tx_info.pending_tx_hash_opt {
+                        Some(hash) => {
+                            if current_tx_info.failures == 0 {
+                                hash.clone()
+                            } else {
+                                format!(
+                                    "{} ({})",
+                                    hash,
+                                    AttemptsConjugator::new(current_tx_info.failures)
+                                )
+                            }
+                        }
+                        None => {
+                            format!(
+                                "Processing... {}",
+                                AttemptsConjugator::new(current_tx_info.failures)
+                            )
+                        }
+                    },
+                    None => "None".to_string(),
                 },
             ]
         }
@@ -44,6 +61,26 @@ pub(in crate::commands::financials_command) mod restricted {
                 self.age_s.separate_with_commas(),
                 process_gwei_into_requested_format(self.balance_gwei, is_gwei),
             ]
+        }
+    }
+
+    pub(super) struct AttemptsConjugator {
+        failures: usize,
+    }
+
+    impl AttemptsConjugator {
+        pub fn new(failures: usize) -> Self {
+            Self { failures }
+        }
+    }
+
+    impl Display for AttemptsConjugator {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            if self.failures == 1 {
+                write!(f, "1 failed attempt")
+            } else {
+                write!(f, "{} failed attempts", self.failures)
+            }
         }
     }
 
@@ -250,7 +287,7 @@ pub(in crate::commands::financials_command) mod restricted {
 #[cfg(test)]
 mod tests {
     use crate::commands::financials_command::pretty_print_utils::restricted::{
-        figure_out_max_widths, StringValuesFormattableAccount,
+        figure_out_max_widths, AttemptsConjugator, StringValuesFormattableAccount,
     };
 
     #[derive(Clone)]
@@ -310,5 +347,21 @@ mod tests {
         //the first number means number of digits within the biggest ordinal number
         //the second number is always 42 as the length of wallet address
         assert_eq!(result, vec![3, 42, 5, 10])
+    }
+
+    #[test]
+    fn failures_conjugator_works_for_singular_failure() {
+        let subject = AttemptsConjugator::new(1);
+        assert_eq!(subject.to_string(), "1 failed attempt")
+    }
+
+    #[test]
+    fn failures_conjugator_works_for_plural_failure() {
+        let failures = vec![2, 5, 10];
+
+        failures.iter().for_each(|failure| {
+            let subject = AttemptsConjugator::new(*failure);
+            assert_eq!(subject.to_string(), format!("{} failed attempts", failure))
+        })
     }
 }

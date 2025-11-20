@@ -285,27 +285,25 @@ mod tests {
                 wallet: make_wallet("wallet0"),
                 balance_wei: same_amount_significance,
                 last_paid_timestamp: from_unix_timestamp(now_t - 5000),
-                pending_payable_opt: None,
             },
-            //this debt is more significant because beside being high in amount it's also older, so should be prioritized and picked
+            // This debt is more significant because besides being high in amount, it's also older,
+            // so should be prioritized and picked
             PayableAccount {
                 wallet: make_wallet("wallet1"),
                 balance_wei: same_amount_significance,
                 last_paid_timestamp: from_unix_timestamp(now_t - 10000),
-                pending_payable_opt: None,
             },
-            //similarly these two wallets have debts equally old but the second has a bigger balance and should be chosen
+            // Similarly, these two wallets have debts equally old, but the second has a bigger
+            // balance and should be chosen
             PayableAccount {
                 wallet: make_wallet("wallet3"),
                 balance_wei: 100,
                 last_paid_timestamp: same_age_significance,
-                pending_payable_opt: None,
             },
             PayableAccount {
                 wallet: make_wallet("wallet2"),
                 balance_wei: 330,
                 last_paid_timestamp: same_age_significance,
-                pending_payable_opt: None,
             },
         ];
 
@@ -367,7 +365,6 @@ mod tests {
                                 + payment_thresholds.threshold_interval_sec,
                         ),
                     ),
-                    pending_payable_opt: None,
                 },
                 10_000_000_001_152_000_u128,
             ),
@@ -380,7 +377,6 @@ mod tests {
                             payment_thresholds.maturity_threshold_sec + 55,
                         ),
                     ),
-                    pending_payable_opt: None,
                 },
                 999_978_993_055_555_580,
             ),

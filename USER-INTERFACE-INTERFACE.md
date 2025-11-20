@@ -769,7 +769,10 @@ searching over; this is the upper limit for the debt's age, or how long it has b
               "wallet": <string>,
               "ageS": <integer>,
               "balanceGwei": <integer>, 
-              "pendingPayableHashOpt": <optional string> 
+              "txProcessingInfoOpt": {
+                  "pendingTxHashOpt": <optional string>,
+                  "failures": <integer>
+              } 
             },
             [...]
         ],
@@ -826,9 +829,25 @@ payment was later also confirmed on the blockchain.
 
 `balanceGwei` is a number of gwei we owe to this particular Node.
 
-`pendingPayableHashOpt` is present only sporadically. When it is, it denotes that we've recently sent a payment to the
-blockchain, but our confirmation detector has not yet determined that the payment has been confirmed. The value is
-either null or stores a transaction hash of the pending transaction. 
+`txProcessingInfoOpt` is present only sporadically. When it is, it denotes that we've recently sent a tx to 
+the blockchain, but the payment hasn't been confirmed yet. The value is either null, which means that no tx has been 
+recently issued for the respective account, or stores an object representing an already begun payment operation; 
+this object has two fields.
+
+The first, `pendingTxHashOpt`, if present, contains a transaction hash of an alive, pending transaction that is still 
+waiting for resolution. 
+
+The second, `failures`, is a positive number of times we've tried to send this same tx to the blockchain in this latest 
+payment, but it has failed repeatedly. The tx always bears the same nonce and is bound for the same wallet. 
+There are three possible observable states:
+
+1. `pendingTxHashOpt` is not null and `failures` is 0. This means that we've yet made only a single attempt to send 
+a tx to the blockchain, and the tx is pending.
+2. `pendingTxHashOpt` is not null and `failures` is greater than 0. This means that we've made more than one attempt. 
+There is an alive pending tx, plus we've experienced X failures before that.
+3. `pendingTxHashOpt` is null and `failures` is greater than 0. This means that the payment mechanism is in a mid-state 
+preparing a submission of another payment attempt, but the blockchain hasn't been updated about this new tx yet. 
+At the same time, there have already been preceding failed tx attempts.
 
 `receivable` is the field devoted to receivable records if any exist.
 
