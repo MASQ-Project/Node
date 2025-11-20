@@ -986,7 +986,7 @@ impl ValueRetriever for NeighborhoodMode {
         _persistent_config: &dyn PersistentConfiguration,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
-        Some(("standard".to_string(), Default))
+        Some(("zero-hop".to_string(), Default))
     }
 
     fn is_required(&self, _params: &SetupCluster) -> bool {
@@ -1448,7 +1448,7 @@ mod tests {
             ("log-level", "warn", Default),
             ("mapping-protocol", "", Blank),
             ("min-hops", &DEFAULT_MIN_HOPS.to_string(), Default),
-            ("neighborhood-mode", "standard", Default),
+            ("neighborhood-mode", "zero-hop", Default),
             (
                 "neighbors",
                 "masq://eth-mainnet:QUJDRDU2Nzg5MDEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-mainnet:RUZHSDU2Nzg5MDEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678",
@@ -3287,7 +3287,7 @@ mod tests {
             &None,
         );
 
-        assert_eq!(result, Some(("standard".to_string(), Default)))
+        assert_eq!(result, Some(("zero-hop".to_string(), Default)))
     }
 
     #[test]
