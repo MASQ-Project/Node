@@ -21,7 +21,6 @@ use crate::node_configurator::{
     data_directory_from_context, determine_user_specific_data, DirsWrapper, DirsWrapperReal,
 };
 use crate::sub_lib::accountant::PaymentThresholds as PaymentThresholdsFromAccountant;
-use crate::sub_lib::accountant::DEFAULT_SCAN_INTERVALS;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::neighborhood::NodeDescriptor;
@@ -1104,12 +1103,16 @@ impl ValueRetriever for ScanIntervals {
 
     fn computed_default(
         &self,
-        _bootstrapper_config: &BootstrapperConfig,
+        bootstrapper_config: &BootstrapperConfig,
         pc: &dyn PersistentConfiguration,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         let pc_value = pc.scan_intervals().expectv("scan-intervals");
-        payment_thresholds_rate_pack_and_scan_intervals(pc_value, *DEFAULT_SCAN_INTERVALS)
+        let chain = bootstrapper_config.blockchain_bridge_config.chain;
+        payment_thresholds_rate_pack_and_scan_intervals(
+            pc_value,
+            crate::sub_lib::accountant::ScanIntervals::compute_default(chain),
+        )
     }
 
     fn is_required(&self, _params: &SetupCluster) -> bool {
@@ -1229,7 +1232,9 @@ mod tests {
     use crate::daemon::dns_inspector::dns_inspector::DnsInspector;
     use crate::daemon::dns_inspector::DnsInspectionError;
     use crate::daemon::setup_reporter;
-    use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
+    use crate::database::db_initializer::{
+        DbInitializer, DbInitializerReal, InitializationMode, DATABASE_FILE,
+    };
     use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal};
     use crate::db_config::persistent_configuration::{
@@ -1251,6 +1256,7 @@ mod tests {
     use crate::test_utils::unshared_test_utils::{
         make_persistent_config_real_with_config_dao_null,
         make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
+        TEST_SCAN_INTERVALS,
     };
     use crate::test_utils::{assert_string_contains, rate_pack};
     use core::option::Option;
@@ -1357,15 +1363,19 @@ mod tests {
             "setup_reporter",
             "get_modified_setup_database_populated_only_requireds_set",
         );
+        let chain = DEFAULT_CHAIN;
+        let mut init_config = DbInitializationConfig::test_default();
+        if let InitializationMode::CreationAndMigration { external_data } = &mut init_config.mode {
+            external_data.chain = chain
+        } else {
+            panic!("unexpected initialization mode");
+        }
         let data_dir = home_dir.join("data_dir");
-        let chain_specific_data_dir = data_dir.join(DEFAULT_CHAIN.rec().literal_identifier);
+        let chain_specific_data_dir = data_dir.join(chain.rec().literal_identifier);
         create_dir_all(&chain_specific_data_dir).unwrap();
         let db_initializer = DbInitializerReal::default();
         let conn = db_initializer
-            .initialize(
-                &chain_specific_data_dir,
-                DbInitializationConfig::test_default(),
-            )
+            .initialize(&chain_specific_data_dir, init_config)
             .unwrap();
         let mut config = PersistentConfigurationReal::from(conn);
         config.change_password(None, "password").unwrap();
@@ -1470,7 +1480,7 @@ mod tests {
             ),
             (
                 "scan-intervals",
-                &DEFAULT_SCAN_INTERVALS.to_string(),
+                &accountant::ScanIntervals::compute_default(chain).to_string(),
                 Default,
             ),
             ("scans", "on", Default),
@@ -3438,6 +3448,7 @@ mod tests {
     fn rate_pack_computed_default_when_persistent_config_like_default() {
         assert_computed_default_when_persistent_config_like_default(
             &RatePack {},
+            None,
             DEFAULT_RATE_PACK.to_string(),
         )
     }
@@ -3517,19 +3528,26 @@ mod tests {
 
     #[test]
     fn scan_intervals_computed_default_when_persistent_config_like_default() {
+        let chain = DEFAULT_CHAIN;
+        let mut bootstrapper_config = BootstrapperConfig::new();
+        bootstrapper_config.blockchain_bridge_config.chain = chain;
         assert_computed_default_when_persistent_config_like_default(
             &ScanIntervals {},
-            *DEFAULT_SCAN_INTERVALS,
+            Some(bootstrapper_config),
+            accountant::ScanIntervals::compute_default(chain),
         )
     }
 
     #[test]
     fn scan_intervals_computed_default_persistent_config_unequal_to_default() {
-        let mut scan_intervals = *DEFAULT_SCAN_INTERVALS;
-        scan_intervals.pending_payable_scan_interval = scan_intervals
-            .pending_payable_scan_interval
+        let mut scan_intervals = *TEST_SCAN_INTERVALS;
+        scan_intervals.payable_scan_interval = scan_intervals
+            .payable_scan_interval
             .add(Duration::from_secs(15));
         scan_intervals.pending_payable_scan_interval = scan_intervals
+            .pending_payable_scan_interval
+            .add(Duration::from_secs(20));
+        scan_intervals.receivable_scan_interval = scan_intervals
             .receivable_scan_interval
             .sub(Duration::from_secs(33));
 
@@ -3546,6 +3564,7 @@ mod tests {
     fn payment_thresholds_computed_default_when_persistent_config_like_default() {
         assert_computed_default_when_persistent_config_like_default(
             &PaymentThresholds {},
+            None,
             DEFAULT_PAYMENT_THRESHOLDS.to_string(),
         )
     }
@@ -3568,12 +3587,13 @@ mod tests {
 
     fn assert_computed_default_when_persistent_config_like_default<T>(
         subject: &dyn ValueRetriever,
+        bootstrapper_config_opt: Option<BootstrapperConfig>,
         default: T,
     ) where
         T: Display + PartialEq,
     {
-        let mut bootstrapper_config = BootstrapperConfig::new();
-        //the rate_pack within the mode setting does not determine the result, so I just set a nonsense
+        let mut bootstrapper_config = bootstrapper_config_opt.unwrap_or(BootstrapperConfig::new());
+        //the rate_pack within the mode setting does not affect the result, so I set nonsense
         bootstrapper_config.neighborhood_config.mode =
             NeighborhoodModeEnum::OriginateOnly(vec![], rate_pack(0));
         let persistent_config =

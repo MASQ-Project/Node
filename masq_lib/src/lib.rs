@@ -24,7 +24,7 @@ pub mod crash_point;
 pub mod data_version;
 pub mod exit_locations;
 pub mod shared_schema;
+pub mod simple_clock;
 pub mod test_utils;
-pub mod type_obfuscation;
 pub mod ui_gateway;
 pub mod ui_traffic_converter;

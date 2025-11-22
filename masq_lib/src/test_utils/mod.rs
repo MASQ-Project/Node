@@ -5,5 +5,6 @@ pub mod fake_stream_holder;
 pub mod logging;
 pub mod mock_blockchain_client_server;
 pub mod mock_websockets_server;
+pub mod simple_clock;
 pub mod ui_connection;
 pub mod utils;

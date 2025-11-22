@@ -452,7 +452,8 @@ impl ActorFactory for ActorFactoryReal {
     ) -> AccountantSubs {
         let data_directory = config.data_directory.as_path();
         let payable_dao_factory = Box::new(Accountant::dao_factory(data_directory));
-        let pending_payable_dao_factory = Box::new(Accountant::dao_factory(data_directory));
+        let failed_payable_dao_factory = Box::new(Accountant::dao_factory(data_directory));
+        let sent_payable_dao_factory = Box::new(Accountant::dao_factory(data_directory));
         let receivable_dao_factory = Box::new(Accountant::dao_factory(data_directory));
         let banned_dao_factory = Box::new(Accountant::dao_factory(data_directory));
         let config_dao_factory = Box::new(Accountant::dao_factory(data_directory));
@@ -463,7 +464,8 @@ impl ActorFactory for ActorFactoryReal {
                 config,
                 DaoFactories {
                     payable_dao_factory,
-                    pending_payable_dao_factory,
+                    sent_payable_dao_factory,
+                    failed_payable_dao_factory,
                     receivable_dao_factory,
                     banned_dao_factory,
                     config_dao_factory,
@@ -1122,8 +1124,8 @@ mod tests {
             log_level: LevelFilter::Off,
             crash_point: CrashPoint::None,
             dns_servers: vec![],
-            scan_intervals_opt: Some(ScanIntervals::default()),
-            suppress_initial_scans: false,
+            scan_intervals_opt: Some(ScanIntervals::compute_default(TEST_DEFAULT_CHAIN)),
+            automatic_scans_enabled: true,
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
@@ -1193,7 +1195,7 @@ mod tests {
             crash_point: CrashPoint::None,
             dns_servers: vec![],
             scan_intervals_opt: None,
-            suppress_initial_scans: false,
+            automatic_scans_enabled: true,
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
@@ -1489,7 +1491,7 @@ mod tests {
             crash_point: CrashPoint::None,
             dns_servers: vec![],
             scan_intervals_opt: None,
-            suppress_initial_scans: false,
+            automatic_scans_enabled: true,
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
@@ -1673,7 +1675,7 @@ mod tests {
             crash_point: CrashPoint::None,
             dns_servers: vec![],
             scan_intervals_opt: None,
-            suppress_initial_scans: false,
+            automatic_scans_enabled: true,
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {

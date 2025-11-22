@@ -13,7 +13,7 @@ use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, open_all_fi
 use masq_lib::utils::find_free_port;
 use node_lib::accountant::db_access_objects::payable_dao::{PayableDao, PayableDaoReal};
 use node_lib::accountant::db_access_objects::receivable_dao::{ReceivableDao, ReceivableDaoReal};
-use node_lib::accountant::db_access_objects::utils::{from_time_t, to_time_t};
+use node_lib::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp};
 use node_lib::accountant::gwei_to_wei;
 use node_lib::database::db_initializer::{
     DbInitializationConfig, DbInitializer, DbInitializerReal,
@@ -30,9 +30,9 @@ fn financials_command_retrieves_payable_and_receivable_records_integration() {
     let port = find_free_port();
     let home_dir = ensure_node_home_directory_exists("integration", test_name);
     let now = SystemTime::now();
-    let timestamp_payable = from_time_t(to_time_t(now) - 678);
-    let timestamp_receivable_1 = from_time_t(to_time_t(now) - 10000);
-    let timestamp_receivable_2 = from_time_t(to_time_t(now) - 1111);
+    let timestamp_payable = from_unix_timestamp(to_unix_timestamp(now) - 678);
+    let timestamp_receivable_1 = from_unix_timestamp(to_unix_timestamp(now) - 10000);
+    let timestamp_receivable_2 = from_unix_timestamp(to_unix_timestamp(now) - 1111);
     let wallet_payable = make_wallet("efef");
     let wallet_receivable_1 = make_wallet("abcde");
     let wallet_receivable_2 = make_wallet("ccccc");

@@ -350,7 +350,7 @@ pub struct BootstrapperConfig {
     pub log_level: LevelFilter,
     pub dns_servers: Vec<SocketAddr>,
     pub scan_intervals_opt: Option<ScanIntervals>,
-    pub suppress_initial_scans: bool,
+    pub automatic_scans_enabled: bool,
     pub when_pending_too_long_sec: u64,
     pub crash_point: CrashPoint,
     pub clandestine_discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
@@ -385,7 +385,7 @@ impl BootstrapperConfig {
             log_level: LevelFilter::Off,
             dns_servers: vec![],
             scan_intervals_opt: None,
-            suppress_initial_scans: false,
+            automatic_scans_enabled: true,
             crash_point: CrashPoint::None,
             clandestine_discriminator_factories: vec![],
             ui_gateway_config: UiGatewayConfig {
@@ -434,7 +434,7 @@ impl BootstrapperConfig {
         self.cryptde_pair = unprivileged.cryptde_pair;
         self.db_password_opt = unprivileged.db_password_opt;
         self.scan_intervals_opt = unprivileged.scan_intervals_opt;
-        self.suppress_initial_scans = unprivileged.suppress_initial_scans;
+        self.automatic_scans_enabled = unprivileged.automatic_scans_enabled;
         self.payment_thresholds_opt = unprivileged.payment_thresholds_opt;
         self.when_pending_too_long_sec = unprivileged.when_pending_too_long_sec;
     }
@@ -1197,6 +1197,7 @@ mod tests {
             vec![SocketAddr::new(IpAddr::from_str("1.2.3.4").unwrap(), 1111)];
         let mut unprivileged_config = BootstrapperConfig::new();
         //values from unprivileged config
+        let chain = unprivileged_config.blockchain_bridge_config.chain;
         let gas_price = 123;
         let blockchain_url_opt = Some("some.service@earth.abc".to_string());
         let clandestine_port_opt = Some(44444);
@@ -1216,8 +1217,8 @@ mod tests {
         unprivileged_config.earning_wallet = earning_wallet.clone();
         unprivileged_config.consuming_wallet_opt = consuming_wallet_opt.clone();
         unprivileged_config.db_password_opt = db_password_opt.clone();
-        unprivileged_config.scan_intervals_opt = Some(ScanIntervals::default());
-        unprivileged_config.suppress_initial_scans = false;
+        unprivileged_config.scan_intervals_opt = Some(ScanIntervals::compute_default(chain));
+        unprivileged_config.automatic_scans_enabled = true;
         unprivileged_config.when_pending_too_long_sec = DEFAULT_PENDING_TOO_LONG_SEC;
 
         privileged_config.merge_unprivileged(unprivileged_config);
@@ -1240,9 +1241,9 @@ mod tests {
         assert_eq!(privileged_config.db_password_opt, db_password_opt);
         assert_eq!(
             privileged_config.scan_intervals_opt,
-            Some(ScanIntervals::default())
+            Some(ScanIntervals::compute_default(chain))
         );
-        assert_eq!(privileged_config.suppress_initial_scans, false);
+        assert_eq!(privileged_config.automatic_scans_enabled, true);
         assert_eq!(
             privileged_config.when_pending_too_long_sec,
             DEFAULT_PENDING_TOO_LONG_SEC

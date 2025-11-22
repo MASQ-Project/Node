@@ -349,7 +349,7 @@ fn get_public_ip(multi_config: &MultiConfig) -> Result<IpAddr, ConfiguratorError
     match value_m!(multi_config, "ip", String) {
         Some(ip_str) => match IpAddr::from_str(&ip_str) {
             Ok(ip_addr) => Ok(ip_addr),
-            Err(_) => todo!("Drive in a better error message"), //Err(ConfiguratorError::required("ip", &format! ("blockety blip: '{}'", ip_str),
+            Err(_) => todo!("Drive in a better error message. The multiconfig wouldn't allow a bad format, though."), //Err(ConfiguratorError::required("ip", &format! ("blockety blip: '{}'", ip_str),
         },
         None => Ok(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))), // sentinel: means "Try Automap"
     }
@@ -513,7 +513,7 @@ fn configure_accountant_config(
         |pc: &mut dyn PersistentConfiguration, curves| pc.set_payment_thresholds(curves),
     )?;
 
-    check_payment_thresholds(&payment_thresholds)?;
+    validate_payment_thresholds(&payment_thresholds)?;
 
     let scan_intervals = process_combined_params(
         "scan-intervals",
@@ -523,22 +523,26 @@ fn configure_accountant_config(
         |pc: &dyn PersistentConfiguration| pc.scan_intervals(),
         |pc: &mut dyn PersistentConfiguration, intervals| pc.set_scan_intervals(intervals),
     )?;
-    let suppress_initial_scans =
-        value_m!(multi_config, "scans", String).unwrap_or_else(|| "on".to_string()) == *"off";
+
+    validate_scan_intervals(&scan_intervals)?;
+
+    let automatic_scans_enabled =
+        value_m!(multi_config, "scans", String).unwrap_or_else(|| "on".to_string()) == "on";
 
     config.payment_thresholds_opt = Some(payment_thresholds);
     config.scan_intervals_opt = Some(scan_intervals);
-    config.suppress_initial_scans = suppress_initial_scans;
+    config.automatic_scans_enabled = automatic_scans_enabled;
     config.when_pending_too_long_sec = DEFAULT_PENDING_TOO_LONG_SEC;
     Ok(())
 }
 
-fn check_payment_thresholds(
+fn validate_payment_thresholds(
     payment_thresholds: &PaymentThresholds,
 ) -> Result<(), ConfiguratorError> {
     if payment_thresholds.debt_threshold_gwei <= payment_thresholds.permanent_debt_allowed_gwei {
         let msg = format!(
-            "Value of DebtThresholdGwei ({}) must be bigger than PermanentDebtAllowedGwei ({})",
+            "Value of DebtThresholdGwei ({}) must be bigger than PermanentDebtAllowedGwei ({}) \
+            as the smallest value",
             payment_thresholds.debt_threshold_gwei, payment_thresholds.permanent_debt_allowed_gwei
         );
         return Err(ConfiguratorError::required("payment-thresholds", &msg));
@@ -550,6 +554,21 @@ fn check_payment_thresholds(
         ));
     }
     Ok(())
+}
+
+fn validate_scan_intervals(scan_intervals: &ScanIntervals) -> Result<(), ConfiguratorError> {
+    if scan_intervals.payable_scan_interval < scan_intervals.pending_payable_scan_interval {
+        Err(ConfiguratorError::required(
+            "scan-intervals",
+            &format!(
+            "The PendingPayableScanInterval value ({} s) must not exceed the PayableScanInterval \
+            value ({} s) and should ideally be approximately half of it",
+            scan_intervals.pending_payable_scan_interval.as_secs(),
+            scan_intervals.payable_scan_interval.as_secs()),
+        ))
+    } else {
+        Ok(())
+    }
 }
 
 fn configure_rate_pack(
@@ -1800,7 +1819,7 @@ mod tests {
             "--ip",
             "1.2.3.4",
             "--scan-intervals",
-            "180|150|130",
+            "180|50|130",
             "--payment-thresholds",
             "100000|10000|1000|20000|1000|20000",
         ];
@@ -1809,8 +1828,8 @@ mod tests {
         let mut persistent_configuration =
             configure_default_persistent_config(RATE_PACK | MAPPING_PROTOCOL)
                 .scan_intervals_result(Ok(ScanIntervals {
-                    pending_payable_scan_interval: Duration::from_secs(100),
                     payable_scan_interval: Duration::from_secs(101),
+                    pending_payable_scan_interval: Duration::from_secs(33),
                     receivable_scan_interval: Duration::from_secs(102),
                 }))
                 .payment_thresholds_result(Ok(PaymentThresholds {
@@ -1837,8 +1856,8 @@ mod tests {
             .unwrap();
 
         let expected_scan_intervals = ScanIntervals {
-            pending_payable_scan_interval: Duration::from_secs(180),
-            payable_scan_interval: Duration::from_secs(150),
+            payable_scan_interval: Duration::from_secs(180),
+            pending_payable_scan_interval: Duration::from_secs(50),
             receivable_scan_interval: Duration::from_secs(130),
         };
         let expected_payment_thresholds = PaymentThresholds {
@@ -1854,13 +1873,13 @@ mod tests {
             Some(expected_payment_thresholds)
         );
         assert_eq!(config.scan_intervals_opt, Some(expected_scan_intervals));
-        assert_eq!(config.suppress_initial_scans, false);
+        assert_eq!(config.automatic_scans_enabled, true);
         assert_eq!(
             config.when_pending_too_long_sec,
             DEFAULT_PENDING_TOO_LONG_SEC
         );
         let set_scan_intervals_params = set_scan_intervals_params_arc.lock().unwrap();
-        assert_eq!(*set_scan_intervals_params, vec!["180|150|130".to_string()]);
+        assert_eq!(*set_scan_intervals_params, vec!["180|50|130".to_string()]);
         let set_payment_thresholds_params = set_payment_thresholds_params_arc.lock().unwrap();
         assert_eq!(
             *set_payment_thresholds_params,
@@ -1878,7 +1897,7 @@ mod tests {
             "--ip",
             "1.2.3.4",
             "--scan-intervals",
-            "180|150|130",
+            "180|15|130",
             "--payment-thresholds",
             "100000|1000|1000|20000|1000|20000",
         ];
@@ -1887,8 +1906,8 @@ mod tests {
         let mut persistent_configuration =
             configure_default_persistent_config(RATE_PACK | MAPPING_PROTOCOL)
                 .scan_intervals_result(Ok(ScanIntervals {
-                    pending_payable_scan_interval: Duration::from_secs(180),
-                    payable_scan_interval: Duration::from_secs(150),
+                    payable_scan_interval: Duration::from_secs(180),
+                    pending_payable_scan_interval: Duration::from_secs(15),
                     receivable_scan_interval: Duration::from_secs(130),
                 }))
                 .payment_thresholds_result(Ok(PaymentThresholds {
@@ -1919,11 +1938,11 @@ mod tests {
             unban_below_gwei: 20000,
         };
         let expected_scan_intervals = ScanIntervals {
-            pending_payable_scan_interval: Duration::from_secs(180),
-            payable_scan_interval: Duration::from_secs(150),
+            payable_scan_interval: Duration::from_secs(180),
+            pending_payable_scan_interval: Duration::from_secs(15),
             receivable_scan_interval: Duration::from_secs(130),
         };
-        let expected_suppress_initial_scans = false;
+        let expected_automatic_scans_enabled = true;
         let expected_when_pending_too_long_sec = DEFAULT_PENDING_TOO_LONG_SEC;
         assert_eq!(
             config.payment_thresholds_opt,
@@ -1931,8 +1950,8 @@ mod tests {
         );
         assert_eq!(config.scan_intervals_opt, Some(expected_scan_intervals));
         assert_eq!(
-            config.suppress_initial_scans,
-            expected_suppress_initial_scans
+            config.automatic_scans_enabled,
+            expected_automatic_scans_enabled
         );
         assert_eq!(
             config.when_pending_too_long_sec,
@@ -2088,8 +2107,8 @@ mod tests {
     }
 
     #[test]
-    fn configure_accountant_config_discovers_invalid_payment_thresholds_params_combination_given_from_users_input(
-    ) {
+    fn configure_accountant_config_discovers_invalid_payment_thresholds_combination_in_users_input()
+    {
         let multi_config = make_simplified_multi_config([
             "--payment-thresholds",
             "19999|10000|1000|20000|1000|20000",
@@ -2105,7 +2124,8 @@ mod tests {
             &mut persistent_config,
         );
 
-        let expected_msg = "Value of DebtThresholdGwei (19999) must be bigger than PermanentDebtAllowedGwei (20000)";
+        let expected_msg = "Value of DebtThresholdGwei (19999) must be bigger than \
+        PermanentDebtAllowedGwei (20000) as the smallest value";
         assert_eq!(
             result,
             Err(ConfiguratorError::required(
@@ -2116,14 +2136,15 @@ mod tests {
     }
 
     #[test]
-    fn check_payment_thresholds_works_for_equal_debt_parameters() {
+    fn validate_payment_thresholds_works_for_equal_debt_parameters() {
         let mut payment_thresholds = *DEFAULT_PAYMENT_THRESHOLDS;
         payment_thresholds.permanent_debt_allowed_gwei = 10000;
         payment_thresholds.debt_threshold_gwei = 10000;
 
-        let result = check_payment_thresholds(&payment_thresholds);
+        let result = validate_payment_thresholds(&payment_thresholds);
 
-        let expected_msg = "Value of DebtThresholdGwei (10000) must be bigger than PermanentDebtAllowedGwei (10000)";
+        let expected_msg = "Value of DebtThresholdGwei (10000) must be bigger than \
+        PermanentDebtAllowedGwei (10000) as the smallest value";
         assert_eq!(
             result,
             Err(ConfiguratorError::required(
@@ -2134,14 +2155,15 @@ mod tests {
     }
 
     #[test]
-    fn check_payment_thresholds_works_for_too_small_debt_threshold() {
+    fn validate_payment_thresholds_works_for_too_small_debt_threshold() {
         let mut payment_thresholds = *DEFAULT_PAYMENT_THRESHOLDS;
         payment_thresholds.permanent_debt_allowed_gwei = 10000;
         payment_thresholds.debt_threshold_gwei = 9999;
 
-        let result = check_payment_thresholds(&payment_thresholds);
+        let result = validate_payment_thresholds(&payment_thresholds);
 
-        let expected_msg = "Value of DebtThresholdGwei (9999) must be bigger than PermanentDebtAllowedGwei (10000)";
+        let expected_msg = "Value of DebtThresholdGwei (9999) must be bigger than \
+        PermanentDebtAllowedGwei (10000) as the smallest value";
         assert_eq!(
             result,
             Err(ConfiguratorError::required(
@@ -2152,7 +2174,8 @@ mod tests {
     }
 
     #[test]
-    fn check_payment_thresholds_does_not_permit_threshold_interval_longer_than_1_000_000_000_s() {
+    fn validate_payment_thresholds_does_not_permit_threshold_interval_longer_than_1_000_000_000_s()
+    {
         //this goes to the furthest extreme where the delta of debt limits is just 1 gwei, which,
         //if divided by the slope interval equal or longer 10^9 and rounded, gives 0
         let mut payment_thresholds = *DEFAULT_PAYMENT_THRESHOLDS;
@@ -2160,7 +2183,7 @@ mod tests {
         payment_thresholds.debt_threshold_gwei = 101;
         payment_thresholds.threshold_interval_sec = 1_000_000_001;
 
-        let result = check_payment_thresholds(&payment_thresholds);
+        let result = validate_payment_thresholds(&payment_thresholds);
 
         let expected_msg = "Value of ThresholdIntervalSec must not exceed 1,000,000,000 s";
         assert_eq!(
@@ -2173,6 +2196,28 @@ mod tests {
         payment_thresholds.threshold_interval_sec -= 1;
         let last_value_possible = ThresholdUtils::slope(&payment_thresholds);
         assert_eq!(last_value_possible, -1)
+    }
+
+    #[test]
+    fn configure_accountant_config_discovers_invalid_scan_intervals_combination_in_users_input() {
+        let multi_config = make_simplified_multi_config(["--scan-intervals", "600|601|600"]);
+        let mut bootstrapper_config = BootstrapperConfig::new();
+        let mut persistent_config =
+            configure_default_persistent_config(ACCOUNTANT_CONFIG_PARAMS | MAPPING_PROTOCOL)
+                .set_scan_intervals_result(Ok(()));
+
+        let result = configure_accountant_config(
+            &multi_config,
+            &mut bootstrapper_config,
+            &mut persistent_config,
+        );
+
+        let expected_msg = "The PendingPayableScanInterval value (601 s) must not exceed \
+        the PayableScanInterval value (600 s) and should ideally be approximately half of it";
+        assert_eq!(
+            result,
+            Err(ConfiguratorError::required("scan-intervals", expected_msg))
+        )
     }
 
     #[test]
@@ -2575,7 +2620,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(bootstrapper_config.suppress_initial_scans, true);
+        assert_eq!(bootstrapper_config.automatic_scans_enabled, false);
     }
 
     #[test]
@@ -2603,7 +2648,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(bootstrapper_config.suppress_initial_scans, false);
+        assert_eq!(bootstrapper_config.automatic_scans_enabled, true);
     }
 
     #[test]
@@ -2624,7 +2669,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(bootstrapper_config.suppress_initial_scans, false);
+        assert_eq!(bootstrapper_config.automatic_scans_enabled, true);
     }
 
     fn make_persistent_config(
