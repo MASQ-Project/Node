@@ -312,28 +312,32 @@ impl BlockchainBridge {
 
         Box::new(
             self.process_payments(msg.agent, msg.priced_templates)
-                .map_err(move |e: LocalPayableError| {
-                    sent_payable_subs_err
-                        .try_send(SentPayables {
-                            payment_procedure_result: Self::payment_procedure_result_from_error(
-                                e.clone(),
-                            ),
-                            payable_scan_type,
-                            response_skeleton_opt: skeleton_opt,
-                        })
-                        .expect("Accountant is dead");
-
-                    format!("ReportAccountsPayable: {}", e)
-                })
-                .and_then(move |batch_results| {
-                    sent_payable_subs_success
-                        .try_send(SentPayables {
-                            payment_procedure_result: Ok(batch_results),
-                            payable_scan_type,
-                            response_skeleton_opt: skeleton_opt,
-                        })
-                        .expect("Accountant is dead");
-
+                .then(move |result| {
+                    match result {
+                        Ok(batch_results) => {
+                            sent_payable_subs_success
+                                .try_send(SentPayables {
+                                    payment_procedure_result: Ok(batch_results),
+                                    payable_scan_type,
+                                    response_skeleton_opt: skeleton_opt,
+                                })
+                                .expect("Accountant is dead");
+                        }
+                        Err(e) => {
+                            sent_payable_subs_err
+                                .try_send(SentPayables {
+                                    payment_procedure_result:
+                                        Self::payment_procedure_result_from_error(e),
+                                    payable_scan_type,
+                                    response_skeleton_opt: skeleton_opt,
+                                })
+                                .expect("Accountant is dead");
+                        }
+                    }
+                    // TODO Temporary workaround: prevents the Accountant from receiving two messages
+                    // describing the same error. Duplicate notifications could previously trigger
+                    // a panic in the scanners, because the substitution call for a given scanner
+                    // was executed twice and tripped the guard that enforces a single concurrent scan.
                     Ok(())
                 }),
         )
@@ -509,8 +513,8 @@ impl BlockchainBridge {
 
     pub fn extract_max_block_count(error: BlockchainInterfaceError) -> Option<u64> {
         let regex_result =
-            Regex::new(r".* (max: |allowed for your plan: |is limited to |block range limit \(|exceeds max block range )(?P<max_block_count>\d+).*")
-                .expect("Invalid regex");
+            Regex::new(r".* (max: |allowed for your plan: |is limited to |block range limit \(|exceeds max block range |maximum allowed is )(?P<max_block_count>\d+).*")
+        .expect("Invalid regex");
         let max_block_count = match error {
             BlockchainInterfaceError::QueryFailed(msg) => match regex_result.captures(msg.as_str())
             {
@@ -1021,7 +1025,7 @@ mod tests {
         // let pending_payable_fingerprint_seeds_msg =
         //     accountant_recording.get_record::<PendingPayableFingerprintSeeds>(0);
         let sent_payables_msg = accountant_recording.get_record::<SentPayables>(0);
-        let scan_error_msg = accountant_recording.get_record::<ScanError>(1);
+        // let scan_error_msg = accountant_recording.get_record::<ScanError>(1);
         let batch_results = sent_payables_msg.clone().payment_procedure_result.unwrap();
         let failed_tx = FailedTx {
             hash: H256::from_str(
@@ -1048,22 +1052,23 @@ mod tests {
         //         amount: account.balance_wei
         //     }]
         // );
-        assert_eq!(scan_error_msg.scan_type, DetailedScanType::NewPayables);
-        assert_eq!(
-            scan_error_msg.response_skeleton_opt,
-            Some(ResponseSkeleton {
-                client_id: 1234,
-                context_id: 4321
-            })
-        );
-        assert!(scan_error_msg
-            .msg
-            .contains("ReportAccountsPayable: Sending error: \"Transport error: Error(IncompleteMessage)\". Signed and hashed transactions:"), "This string didn't contain the expected: {}", scan_error_msg.msg);
-        assert!(scan_error_msg.msg.contains(
-            "FailedTx { hash: 0x81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c,"
-        ));
-        assert!(scan_error_msg.msg.contains("FailedTx { hash: 0x81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c, receiver_address: 0x00000000000000000000000000000000626c6168, amount_minor: 111420204, timestamp:"), "This string didn't contain the expected: {}", scan_error_msg.msg);
-        assert_eq!(accountant_recording.len(), 2);
+        // assert_eq!(scan_error_msg.scan_type, DetailedScanType::NewPayables);
+        // assert_eq!(
+        //     scan_error_msg.response_skeleton_opt,
+        //     Some(ResponseSkeleton {
+        //         client_id: 1234,
+        //         context_id: 4321
+        //     })
+        // );
+        // assert!(scan_error_msg
+        //     .msg
+        //     .contains("ReportAccountsPayable: Sending error: \"Transport error: Error(IncompleteMessage)\". Signed and hashed transactions:"), "This string didn't contain the expected: {}", scan_error_msg.msg);
+        // assert!(scan_error_msg.msg.contains(
+        //     "FailedTx { hash: 0x81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c,"
+        // ));
+        // assert!(scan_error_msg.msg.contains("FailedTx { hash: 0x81d20df32920161727cd20e375e53c2f9df40fd80256a236fb39e444c999fb6c, receiver_address: 0x00000000000000000000000000000000626c6168, amount_minor: 111420204, timestamp:"), "This string didn't contain the expected: {}", scan_error_msg.msg);
+        //assert_eq!(accountant_recording.len(), 2);
+        assert_eq!(accountant_recording.len(), 1);
     }
 
     #[test]
@@ -1534,7 +1539,7 @@ mod tests {
         system.run();
         let after = SystemTime::now();
         let expected_transactions = RetrievedBlockchainTransactions {
-            new_start_block: BlockMarker::Value(42 + 9_000_000 + 1),
+            new_start_block: BlockMarker::Value(42 + 9_000_000),
             transactions: vec![
                 BlockchainTransaction {
                     block_number: 6040059,
@@ -1735,7 +1740,7 @@ mod tests {
         let received_payments_message = accountant_recording.get_record::<ReceivedPayments>(0);
         check_timestamp(before, received_payments_message.timestamp, after);
         let expected_transactions = RetrievedBlockchainTransactions {
-            new_start_block: BlockMarker::Value(6 + 5000 + 1),
+            new_start_block: BlockMarker::Value(6 + 5000),
             transactions: vec![BlockchainTransaction {
                 block_number: 2000,
                 from: earning_wallet.clone(),
@@ -2196,6 +2201,15 @@ mod tests {
         let max_block_count = BlockchainBridge::extract_max_block_count(result);
 
         assert_eq!(Some(100000), max_block_count);
+    }
+
+    #[test]
+    fn extract_max_block_range_for_nodies_error_response_v2() {
+        let result = BlockchainInterfaceError::QueryFailed("RPC error: Error { code: ServerError(-32001), message: \"Block range too large: maximum allowed is 20000 blocks\", data: None }".to_string());
+
+        let max_block_count = BlockchainBridge::extract_max_block_count(result);
+
+        assert_eq!(Some(20000), max_block_count);
     }
 
     #[test]

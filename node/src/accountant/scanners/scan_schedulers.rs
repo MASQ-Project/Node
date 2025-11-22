@@ -14,6 +14,7 @@ use masq_lib::logger::Logger;
 use masq_lib::messages::ScanType;
 use masq_lib::simple_clock::{SimpleClock, SimpleClockReal};
 use std::fmt::{Debug, Display, Formatter};
+use std::ops::Div;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub struct ScanSchedulers {
@@ -80,18 +81,20 @@ pub struct PayableScanScheduler {
     pub new_payable_notify_later: Box<dyn NotifyLaterHandle<ScanForNewPayables, Accountant>>,
     pub interval_computer: Box<dyn NewPayableScanIntervalComputer>,
     pub new_payable_notify: Box<dyn NotifyHandle<ScanForNewPayables, Accountant>>,
-    pub retry_payable_notify: Box<dyn NotifyHandle<ScanForRetryPayables, Accountant>>,
+    pub retry_payable_notify_later: Box<dyn NotifyLaterHandle<ScanForRetryPayables, Accountant>>,
+    pub retry_payable_scan_interval: Duration,
 }
 
 impl PayableScanScheduler {
-    fn new(new_payable_interval: Duration) -> Self {
+    fn new(payable_scan_interval: Duration) -> Self {
         Self {
             new_payable_notify_later: Box::new(NotifyLaterHandleReal::default()),
             interval_computer: Box::new(NewPayableScanIntervalComputerReal::new(
-                new_payable_interval,
+                payable_scan_interval,
             )),
             new_payable_notify: Box::new(NotifyHandleReal::default()),
-            retry_payable_notify: Box::new(NotifyHandleReal::default()),
+            retry_payable_notify_later: Box::new(NotifyLaterHandleReal::default()),
+            retry_payable_scan_interval: payable_scan_interval.div(2),
         }
     }
 
@@ -122,7 +125,8 @@ impl PayableScanScheduler {
         }
     }
 
-    pub fn reset_scan_timer(&mut self) {
+    pub fn reset_scan_timer(&mut self, logger: &Logger) {
+        debug!(logger, "NewPayableScanIntervalComputer timer reset");
         self.interval_computer.reset_last_scan_timestamp();
     }
 
@@ -136,13 +140,15 @@ impl PayableScanScheduler {
         logger: &Logger,
     ) {
         debug!(logger, "Scheduling a retry-payable scan asap");
+        let delay = self.retry_payable_scan_interval;
 
-        self.retry_payable_notify.notify(
+        let _ = self.retry_payable_notify_later.notify_later(
             ScanForRetryPayables {
                 response_skeleton_opt,
             },
+            delay,
             ctx,
-        )
+        );
     }
 }
 
@@ -612,7 +618,7 @@ mod tests {
                 .reset_last_scan_timestamp_params(&reset_last_scan_timestamp_params_arc),
         );
 
-        subject.payable.reset_scan_timer();
+        subject.payable.reset_scan_timer(&Logger::new("test"));
 
         let reset_last_scan_timestamp_params = reset_last_scan_timestamp_params_arc.lock().unwrap();
         assert_eq!(*reset_last_scan_timestamp_params, vec![()])
