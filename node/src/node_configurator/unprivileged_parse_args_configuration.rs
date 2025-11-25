@@ -282,29 +282,33 @@ fn make_neighborhood_mode(
             }
         }
         Some(ref s) if s == "zero-hop" => {
-            if value_m!(multi_config, "ip", IpAddr).is_some() {
-                Err(ConfiguratorError::required(
-                    "neighborhood-mode",
-                    "Node cannot run as --neighborhood-mode zero-hop if --ip is specified",
-                ))
-            } else {
-                if !neighbor_configs.is_empty() {
-                    let password_opt = value_m!(multi_config, "db-password", String);
-                    zero_hop_neighbors_configuration(
-                        password_opt,
-                        neighbor_configs,
-                        persistent_config,
-                    )?
-                }
-                Ok(NeighborhoodMode::ZeroHop)
-            }
+            process_zero_hop_mode(multi_config, neighbor_configs, persistent_config)
         }
         // These two cases are untestable
         Some(ref s) => panic!(
             "--neighborhood-mode {} has not been properly provided for in the code",
             s
         ),
-        None => Ok(NeighborhoodMode::ZeroHop),
+        None => process_zero_hop_mode(multi_config, neighbor_configs, persistent_config),
+    }
+}
+
+fn process_zero_hop_mode(
+    multi_config: &MultiConfig,
+    neighbor_configs: Vec<NodeDescriptor>,
+    persistent_config: &mut dyn PersistentConfiguration,
+) -> Result<NeighborhoodMode, ConfiguratorError> {
+    if value_m!(multi_config, "ip", IpAddr).is_some() {
+        Err(ConfiguratorError::required(
+            "neighborhood-mode",
+            "Node cannot run as --neighborhood-mode zero-hop if --ip is specified",
+        ))
+    } else {
+        if !neighbor_configs.is_empty() {
+            let password_opt = value_m!(multi_config, "db-password", String);
+            zero_hop_neighbors_configuration(password_opt, neighbor_configs, persistent_config)?
+        }
+        Ok(NeighborhoodMode::ZeroHop)
     }
 }
 
@@ -614,7 +618,6 @@ mod tests {
     use super::*;
     use crate::accountant::db_access_objects::utils::ThresholdUtils;
     use crate::apps::app_node;
-    use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
     use crate::bootstrapper::CryptDEPair;
     use crate::database::db_initializer::DbInitializationConfig;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
@@ -622,7 +625,7 @@ mod tests {
     use crate::db_config::persistent_configuration::PersistentConfigError::NotPresent;
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
     use crate::sub_lib::accountant::DEFAULT_PAYMENT_THRESHOLDS;
-    use crate::sub_lib::cryptde::{PlainData, PublicKey};
+    use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::neighborhood::{Hops, DEFAULT_RATE_PACK};
     use crate::sub_lib::utils::make_new_multi_config;
     use crate::sub_lib::wallet::Wallet;
@@ -1436,30 +1439,30 @@ mod tests {
     }
 
     #[test]
-    fn unprivileged_parse_args_dao_real_creates_configurations() {
+    fn unprivileged_parse_args_dao_real_creates_configurations_in_standard_mode() {
         let home_dir = ensure_node_home_directory_exists(
             "unprivileged_parse_args_configuration",
-            "unprivileged_parse_args_dao_real_creates_configurations",
+            "unprivileged_parse_args_dao_real_creates_configurations_in_standard_mode",
         );
-        assert_unprivileged_parse_args_creates_configurations(
+        assert_unprivileged_parse_args_creates_configurations_in_standard_mode(
             home_dir,
             &UnprivilegedParseArgsConfigurationDaoReal {},
         )
     }
 
     #[test]
-    fn unprivileged_parse_args_dao_null_creates_configurations() {
+    fn unprivileged_parse_args_dao_null_creates_configurations_in_standard_mode() {
         let home_dir = ensure_node_home_directory_exists(
             "unprivileged_parse_args_configuration",
-            "unprivileged_parse_args_dao_null_creates_configurations",
+            "unprivileged_parse_args_dao_null_creates_configurations_in_standard_mode",
         );
-        assert_unprivileged_parse_args_creates_configurations(
+        assert_unprivileged_parse_args_creates_configurations_in_standard_mode(
             home_dir,
             &UnprivilegedParseArgsConfigurationDaoNull {},
         )
     }
 
-    fn assert_unprivileged_parse_args_creates_configurations(
+    fn assert_unprivileged_parse_args_creates_configurations_in_standard_mode(
         home_dir: PathBuf,
         subject: &dyn UnprivilegedParseArgsConfiguration,
     ) {
@@ -1471,7 +1474,6 @@ mod tests {
         ));
         let consuming_private_key_text =
             "ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01";
-        let consuming_private_key = PlainData::from_str(consuming_private_key_text).unwrap();
         let mut persistent_config = PersistentConfigurationReal::new(config_dao);
         let password = "secret-db-password";
         let args = ArgsBuilder::new()
@@ -1488,6 +1490,7 @@ mod tests {
             .param("--blockchain-service-url", "http://127.0.0.1:8545")
             .param("--log-level", "trace")
             .param("--fake-public-key", "AQIDBA")
+            .param("--neighborhood-mode", "standard")
             .param("--db-password", password)
             .param(
                 "--earning-wallet",
@@ -1511,32 +1514,32 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            value_m!(multi_config, "config-file", PathBuf),
-            Some(PathBuf::from("specified_config.toml")),
+            config.neighborhood_config.mode,
+            NeighborhoodMode::Standard(
+                NodeAddr::new(&IpAddr::from_str("34.56.78.90").unwrap(), &[]),
+                vec![
+                    NodeDescriptor::try_from((
+                        CRYPTDE_PAIR.main.as_ref(),
+                        format!(
+                            "masq://{}:QmlsbA@1.2.3.4:1234/2345",
+                            DEFAULT_CHAIN.rec().literal_identifier
+                        )
+                        .as_str()
+                    ))
+                    .unwrap(),
+                    NodeDescriptor::try_from((
+                        CRYPTDE_PAIR.main.as_ref(),
+                        format!(
+                            "masq://{}:VGVk@2.3.4.5:3456/4567",
+                            DEFAULT_CHAIN.rec().literal_identifier
+                        )
+                        .as_str()
+                    ))
+                    .unwrap(),
+                ],
+                DEFAULT_RATE_PACK.clone()
+            )
         );
-        assert_eq!(
-            config.blockchain_bridge_config.blockchain_service_url_opt,
-            Some("http://127.0.0.1:8545".to_string())
-        );
-        assert_eq!(
-            config.earning_wallet,
-            Wallet::from_str("0x0123456789012345678901234567890123456789").unwrap()
-        );
-        assert_eq!(Some(1234u16), config.clandestine_port_opt);
-        assert_eq!(
-            config.earning_wallet,
-            Wallet::from_str("0x0123456789012345678901234567890123456789").unwrap()
-        );
-        assert_eq!(
-            config.consuming_wallet_opt,
-            Some(Wallet::from(
-                Bip32EncryptionKeyProvider::from_raw_secret(consuming_private_key.as_slice())
-                    .unwrap()
-            )),
-        );
-        assert_eq!(config.neighborhood_config.mode, NeighborhoodMode::ZeroHop);
-        assert_eq!(config.db_password_opt, Some(password.to_string()));
-        assert_eq!(config.mapping_protocol_opt, Some(AutomapProtocol::Pcp));
     }
 
     #[test]
@@ -1581,6 +1584,7 @@ mod tests {
         let args = ArgsBuilder::new()
             .param("--ip", "1.2.3.4")
             .param("--fake-public-key", "BORSCHT")
+            .param("--neighborhood-mode", "standard")
             .param("--db-password", "password");
         let mut config = BootstrapperConfig::new();
         config.db_password_opt = Some("password".to_string());
@@ -1618,7 +1622,21 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(config.neighborhood_config.mode.neighbor_configs(), &[]);
+        assert_eq!(
+            config.neighborhood_config.mode.neighbor_configs(),
+            &[
+                NodeDescriptor::try_from((
+                    CRYPTDE_PAIR.main.as_ref(),
+                    "masq://eth-ropsten:AQIDBA@1.2.3.4:1234"
+                ))
+                .unwrap(),
+                NodeDescriptor::try_from((
+                    CRYPTDE_PAIR.main.as_ref(),
+                    "masq://eth-ropsten:AgMEBQ@2.3.4.5:2345"
+                ))
+                .unwrap(),
+            ]
+        );
         let past_neighbors_params = past_neighbors_params_arc.lock().unwrap();
         assert_eq!(past_neighbors_params[0], "password".to_string());
         assert_eq!(config.mapping_protocol_opt, Some(AutomapProtocol::Pcp));
@@ -1700,6 +1718,7 @@ mod tests {
 
         let args = ArgsBuilder::new()
             .param("--blockchain-service-url", "booga.com")
+            .param("--neighborhood-mode", "standard")
             .param("--ip", "1.2.3.4")
             .param("--data-directory", home_directory.to_str().unwrap())
             .opt("--db-password");
@@ -1748,6 +1767,8 @@ mod tests {
             "booga.com",
             "--ip",
             "1.2.3.4",
+            "--neighborhood-mode",
+            "standard",
             "--scan-intervals",
             "180|150|130",
             "--payment-thresholds",
@@ -1826,6 +1847,8 @@ mod tests {
             "booga.com",
             "--ip",
             "1.2.3.4",
+            "--neighborhood-mode",
+            "standard",
             "--scan-intervals",
             "180|150|130",
             "--payment-thresholds",
@@ -2508,6 +2531,8 @@ mod tests {
             "booga.com",
             "--ip",
             "1.2.3.4",
+            "--neighborhood-mode",
+            "standard",
             "--scans",
             "off",
         ];
@@ -2536,6 +2561,8 @@ mod tests {
             "booga.com",
             "--ip",
             "1.2.3.4",
+            "--neighborhood-mode",
+            "standard",
             "--scans",
             "on",
         ];
@@ -2559,7 +2586,14 @@ mod tests {
     fn unprivileged_configuration_defaults_scans() {
         running_test();
         let subject = UnprivilegedParseArgsConfigurationDaoReal {};
-        let args = ["--blockchain-service-url", "booga.com", "--ip", "1.2.3.4"];
+        let args = [
+            "--blockchain-service-url",
+            "booga.com",
+            "--ip",
+            "1.2.3.4",
+            "--neighborhood-mode",
+            "standard",
+        ];
         let mut bootstrapper_config = BootstrapperConfig::new();
 
         subject

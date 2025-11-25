@@ -515,6 +515,8 @@ mod tests {
             "password",
             "--ip",
             "1.2.3.4",
+            "--neighborhood-mode",
+            "standard",
         ]);
         let mut privileged_config = BootstrapperConfig::default();
         privileged_config.data_directory = home_dir;
@@ -773,7 +775,8 @@ mod tests {
         let args = ArgsBuilder::new()
             .param("--blockchain-service-url", "https://booga.com")
             .param("--data-directory", home_dir.to_str().unwrap())
-            .param("--ip", "1.2.3.4");
+            .param("--ip", "1.2.3.4")
+            .param("--neighborhood-mode", "standard");
         let mut bootstrapper_config = BootstrapperConfig::new();
         let multi_config = make_new_multi_config(
             &app_node(),
@@ -1586,6 +1589,8 @@ mod tests {
             "https://booga.com",
             "--ip",
             "1.2.3.4",
+            "--neighborhood-mode",
+            "standard",
             "--gas-price",
             "57",
         ];
@@ -1614,6 +1619,8 @@ mod tests {
             "https://booga.com",
             "--ip",
             "1.2.3.4",
+            "--neighborhood-mode",
+            "standard",
         ];
 
         let config = subject
