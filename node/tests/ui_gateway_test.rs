@@ -30,6 +30,7 @@ fn ui_requests_something_and_gets_corresponding_response_integration() {
         Some(
             CommandConfig::new()
                 .pair("--ui-port", &port.to_string())
+                .pair("--neighborhood-mode", "standard")
                 .pair(
                     "--data-directory",
                     home_dir.into_os_string().to_str().unwrap(),
@@ -64,6 +65,7 @@ fn log_broadcasts_are_correctly_received_integration() {
         Some(
             CommandConfig::new()
                 .pair("--ui-port", &port.to_string())
+                .pair("--neighborhood-mode", "standard")
                 .pair("--chain", "polygon-mainnet"),
         ),
         true,
@@ -209,7 +211,8 @@ fn cleanup_after_deceased_clients_integration() {
         Some(
             CommandConfig::new()
                 .pair("--chain", DEFAULT_CHAIN.rec().literal_identifier)
-                .pair("--ui-port", &port.to_string()),
+                .pair("--ui-port", &port.to_string())
+                .pair("--neighborhood-mode", "standard"),
         ),
         true,
         true,
