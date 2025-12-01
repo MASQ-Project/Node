@@ -15,6 +15,8 @@ use serde_derive::{Deserialize, Serialize};
 use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;
 use std::convert::TryFrom;
+use std::fmt::{Display, Formatter};
+use itertools::Itertools;
 
 //TODO #584 create special serializer for NodeRecordInner_0v1
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -46,6 +48,35 @@ impl TryFrom<&GossipNodeRecord> for NodeRecordInner_0v1 {
 
     fn try_from(gnr_addr_ref: &GossipNodeRecord) -> Result<Self, Self::Error> {
         NodeRecordInner_0v1::try_from(gnr_addr_ref.clone())
+    }
+}
+
+impl Display for NodeRecordInner_0v1 {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let accepts_connections = if self.accepts_connections {"A"} else {"a"};
+        let routes_data = if self.routes_data {"R"} else {"r"};
+        let version = format!("v{}", self.version);
+        let country_code = match &self.country_code_opt {
+            Some(cc) => cc.clone(),
+            None => "ZZ".to_string(),
+        };
+        let wallet = self.earning_wallet.to_string();
+        let mut public_key = self.public_key.to_string();
+        public_key.truncate(8);
+        let rate_pack = self.rate_pack.rate_pack_parameter();
+        let neighbors = self.neighbors.iter()
+            .map(|it| {
+                let mut s = it.to_string();
+                s.truncate(8);
+                s
+            })
+            .collect_vec()
+            .join(", ");
+        write!(
+            f,
+            "{}{} {} {} {} {} {} [{}]",
+            accepts_connections, routes_data, version, country_code, public_key, wallet, rate_pack, neighbors
+        )
     }
 }
 
@@ -425,6 +456,50 @@ mod tests {
         assert_eq!(actual_node_record.inner.country_code_opt, Some(expected_cc));
         expected_node_record.metadata.last_update = actual_node_record.metadata.last_update;
         assert_eq!(actual_node_record, expected_node_record);
+    }
+
+    #[test]
+    fn node_record_inner_0v1_display_works_1() {
+        let mut subject = make_node_record(1234, true);
+        subject.inner.accepts_connections = false;
+        subject.inner.routes_data = false;
+        subject.inner.version = 19;
+        subject.inner.country_code_opt = None;
+        subject.inner.earning_wallet = Wallet::from_str("0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee").unwrap();
+        subject.inner.rate_pack = RatePack::new(100, 200, 300, 400);
+        let neighbor1 = PublicKey::new(&b"fiddle"[..]);
+        let neighbor2 = PublicKey::new(&b"diffle"[..]);
+        subject.inner.neighbors = vec![neighbor1, neighbor2]
+            .into_iter()
+            .collect::<BTreeSet<PublicKey>>();
+
+        let result = subject.inner.to_string();
+
+        assert_eq!(
+            result,
+            "ar v19 ZZ AQIDBA 0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee 100|200|300|400 [ZGlmZmxl, ZmlkZGxl]".to_string()
+        )
+    }
+
+    #[test]
+    fn node_record_inner_0v1_display_works_2() {
+        let mut subject = make_node_record(2345, true);
+        subject.inner.accepts_connections = true;
+        subject.inner.routes_data = true;
+        subject.inner.version = 91;
+        subject.inner.country_code_opt = Some("US".to_string());
+        subject.inner.earning_wallet = Wallet::from_str("0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee00").unwrap();
+        subject.inner.rate_pack = RatePack::new(400, 300, 200, 100);
+        subject.inner.neighbors = vec![]
+            .into_iter()
+            .collect::<BTreeSet<PublicKey>>();
+
+        let result = subject.inner.to_string();
+
+        assert_eq!(
+            result,
+            "AR v91 US AgMEBQ 0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee00 400|300|200|100 []".to_string()
+        )
     }
 
     #[test]

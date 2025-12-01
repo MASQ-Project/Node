@@ -15,7 +15,7 @@ use crate::db_config::persistent_configuration::{
     PersistentConfigError, PersistentConfiguration, PersistentConfigurationFactory,
     PersistentConfigurationFactoryReal, PersistentConfigurationInvalid,
 };
-use crate::neighborhood::gossip::{AccessibleGossipRecord, DotGossipEndpoint, Gossip_0v1};
+use crate::neighborhood::gossip::{agrs_to_string, AccessibleGossipRecord, DotGossipEndpoint, Gossip_0v1};
 use crate::neighborhood::gossip_acceptor::{GossipAcceptanceResult, GossipAcceptorInvalid};
 use crate::neighborhood::node_location::get_node_location;
 use crate::neighborhood::overall_connection_status::{
@@ -688,6 +688,8 @@ impl Neighborhood {
             self.announce_gossip_handling_completion(record_count);
             return;
         }
+
+        trace!(self.logger, "Contents: {}", agrs_to_string(agrs.as_slice()));
 
         self.handle_gossip_agrs(agrs, gossip_source, cpm_recipient);
         self.announce_gossip_handling_completion(record_count);

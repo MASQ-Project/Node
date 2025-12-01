@@ -94,6 +94,17 @@ impl RatePack {
     pub fn exit_charge(&self, payload_size: u64) -> u64 {
         self.exit_service_rate + (self.exit_byte_rate * payload_size)
     }
+
+    pub fn rate_pack_parameter(&self) -> String {
+        format!(
+            "{}|{}|{}|{}",
+            self.routing_byte_rate,
+            self.routing_service_rate,
+            self.exit_byte_rate,
+            self.exit_service_rate,
+        )
+    }
+
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

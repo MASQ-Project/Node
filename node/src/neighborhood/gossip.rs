@@ -14,11 +14,12 @@ use serde_cbor::Value;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::convert::{TryFrom, TryInto};
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::fmt::Error;
 use std::fmt::Formatter;
 use std::fmt::Write as _;
 use std::net::{IpAddr, SocketAddr};
+use itertools::Itertools;
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GossipNodeRecord {
@@ -472,6 +473,31 @@ pub struct AccessibleGossipRecord {
     pub inner: NodeRecordInner_0v1,
 }
 
+impl Display for AccessibleGossipRecord {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let inner_string = self.inner.to_string();
+        match self.node_addr_opt {
+            Some(ref addr) => {
+                let mut index_of_space_after_pk = 9;
+                while (index_of_space_after_pk < inner_string.len())
+                    && (&inner_string[index_of_space_after_pk..index_of_space_after_pk + 1] != " ") {
+                    index_of_space_after_pk += 1;
+                }
+                let addr_string = addr.ip_addr().to_string();
+                let pieces = vec![
+                    &inner_string[0..index_of_space_after_pk],
+                    addr_string.as_str(),
+                    &inner_string[index_of_space_after_pk + 1..],
+                ];
+                write!(f, "{}", pieces.join(" "))
+            }
+            None => {
+                write!(f, "{}", self.inner)
+            }
+        }
+    }
+}
+
 impl AccessibleGossipRecord {
     pub fn regenerate_signed_gossip(&mut self, cryptde: &dyn CryptDE) {
         let (signed_gossip, signature) = regenerate_signed_gossip(&self.inner, cryptde);
@@ -507,6 +533,11 @@ pub fn regenerate_signed_gossip(
         Err(e) => unimplemented!("TODO: Signing error: {:?}", e),
     };
     (signed_gossip, signature)
+}
+
+pub fn agrs_to_string(agrs: &[AccessibleGossipRecord]) -> String {
+    let elements = agrs.iter().map(|it| it.to_string()).join(", ");
+    format!("[{}]", elements)
 }
 
 #[cfg(test)]
@@ -603,6 +634,34 @@ mod tests {
 
         let mut gossip = builder.build();
         assert_eq!(gossip.node_records.remove(0).node_addr_opt, None)
+    }
+
+    #[test]
+    fn accessible_gossip_record_to_string_without_ip() {
+        let node_record = make_node_record (1234, true);
+        let db = db_from_node(&node_record);
+        let subject = AccessibleGossipRecord::from((&db, node_record.public_key(), false));
+
+        let result = subject.to_string();
+
+        assert_eq!(
+            result,
+            "AR v0 AD AQIDBA 0x546900db8d6e0937497133d1ae6fdf5f4b75bcd0 1235|1434|1237|1634 []"
+        );
+    }
+
+    #[test]
+    fn accessible_gossip_record_to_string_with_ip() {
+        let node_record = make_node_record (1234, true);
+        let db = db_from_node(&node_record);
+        let subject = AccessibleGossipRecord::from((&db, node_record.public_key(), true));
+
+        let result = subject.to_string();
+
+        assert_eq!(
+            result,
+            "AR v0 AD AQIDBA 1.2.3.4 0x546900db8d6e0937497133d1ae6fdf5f4b75bcd0 1235|1434|1237|1634 []"
+        );
     }
 
     #[test]
