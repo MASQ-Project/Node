@@ -209,7 +209,7 @@ fn cleanup_after_deceased_clients_integration() {
         Some(
             CommandConfig::new()
                 .pair("--chain", DEFAULT_CHAIN.rec().literal_identifier)
-                .pair("--ui-port", &port.to_string())
+                .pair("--ui-port", &port.to_string()),
         ),
         true,
         true,
