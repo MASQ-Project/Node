@@ -585,7 +585,8 @@ impl NamedType for PassHandler {
 }
 
 impl GossipHandler for PassHandler {
-    // A Pass must contain a single AGR representing the pass target; it must provide its IP address;
+    // A Pass must contain a single AGR representing the pass target; the pass target must
+    // accept connections; it must provide its IP address;
     // it must specify at least one port; and it must _not_ be sourced by the pass target.
     fn qualifies(
         &self,
@@ -1629,9 +1630,31 @@ impl GossipAcceptor for GossipAcceptorReal {
             Qualification::Unmatched => {
                 panic!("Nothing in gossip_handlers returned Matched or Malformed")
             }
-            Qualification::Malformed(reason) => vec![GossipAcceptanceResult::Ban(Malefactor::new(
-                None, None, None, None, reason,
-            ))],
+            Qualification::Malformed(reason) => {
+                let (
+                    public_key_opt,
+                    ip_address_opt,
+                    earning_wallet_opt,
+                ) = match agrs.iter().find(|agr| {
+                    agr.node_addr_opt.as_ref().map(|na| na.ip_addr()) == Some(gossip_source.ip())
+                }) {
+                    Some(agr) => (
+                        Some(agr.inner.public_key.clone()),
+                        Some(gossip_source.ip()),
+                        Some(agr.inner.earning_wallet.clone()),
+                    ),
+                    None => {
+                        (None, Some(gossip_source.ip()), None)
+                    },
+                };
+                vec![GossipAcceptanceResult::Ban(Malefactor::new(
+                    public_key_opt,
+                    ip_address_opt,
+                    earning_wallet_opt,
+                    None,
+                    reason,
+                ))]
+            },
         }
     }
 }
@@ -2198,7 +2221,7 @@ mod tests {
 
     #[test]
     fn proper_pass_is_identified_and_processed() {
-        let (gossip, pass_target, gossip_source) = make_pass(2345);
+        let (gossip, pass_target, gossip_source) = make_pass(2345, Mode::Standard);
         let subject = PassHandler::new();
         let mut dest_db = make_meaningless_db();
         let cryptde = CryptDENull::from(dest_db.root().public_key(), TEST_DEFAULT_CHAIN);
@@ -2227,9 +2250,25 @@ mod tests {
         );
     }
 
+    fn pass_with_node_that_does_not_accept_connections_is_rejected() {
+        let root_node = make_node_record(1234, true); // irrelevant
+        let mut db = db_from_node(&root_node); // irrelevant
+        let (mut gossip, pass_target, gossip_source) = make_pass(2345, Mode::OriginateOnly);
+        let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
+        let subject = PassHandler::new();
+
+        let result = subject.qualifies(
+            &mut db,
+            agrs_vec.as_slice(),
+            gossip_source,
+        );
+
+        assert_eq!(result, Qualification::Unmatched);
+    }
+
     #[test]
     fn pass_without_node_addr_is_rejected() {
-        let (mut gossip, _, gossip_source) = make_pass(2345);
+        let (mut gossip, _, gossip_source) = make_pass(2345, Mode::Standard);
         gossip.node_records[0].node_addr_opt = None;
         let subject = PassHandler::new();
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
@@ -2246,7 +2285,7 @@ mod tests {
 
     #[test]
     fn pass_without_node_addr_ports_is_rejected() {
-        let (mut gossip, _, gossip_source) = make_pass(2345);
+        let (mut gossip, _, gossip_source) = make_pass(2345, Mode::Standard);
         gossip.node_records[0].node_addr_opt =
             Some(NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[]));
         let subject = PassHandler::new();
@@ -3765,7 +3804,7 @@ mod tests {
         let reject_handler = subject.gossip_handlers.last().unwrap();
         let db = make_meaningless_db();
         let (debut, _, debut_gossip_source) = make_debut(1234, Mode::Standard);
-        let (pass, _, pass_gossip_source) = make_pass(2345);
+        let (pass, _, pass_gossip_source) = make_pass(2345, Mode::Standard);
         let (introduction, introduction_gossip_source) = make_introduction(3456, 4567);
         let (standard_gossip, _, standard_gossip_source) = make_debut(9898, Mode::Standard);
         let debut_vec: Vec<AccessibleGossipRecord> = debut.try_into().unwrap();
@@ -4436,7 +4475,7 @@ mod tests {
         // This test makes sure GossipAcceptor works correctly
         let root_node = make_node_record(1234, true);
         let mut db = db_from_node(&root_node);
-        let (gossip, pass_target, gossip_source) = make_pass(2345);
+        let (gossip, pass_target, gossip_source) = make_pass(2345, Mode::Standard);
         let subject = make_subject(GA_CRYPTDE_PAIR.main.as_ref());
 
         let result = subject.handle(
@@ -4466,7 +4505,7 @@ mod tests {
         let root_node = make_node_record(1234, true);
         let mut db = db_from_node(&root_node);
         let subject = PassHandler::new();
-        let (gossip, pass_target, gossip_source) = make_pass(2345);
+        let (gossip, pass_target, gossip_source) = make_pass(2345, Mode::Standard);
         let system = System::new("handles_a_new_pass_target");
         let (cpm_recipient, recording_arc) = make_cpm_recipient();
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
@@ -4513,7 +4552,7 @@ mod tests {
         let root_node = make_node_record(1234, true);
         let mut db = db_from_node(&root_node);
         let subject = PassHandler::new();
-        let (gossip, pass_target, gossip_source) = make_pass(2345);
+        let (gossip, pass_target, gossip_source) = make_pass(2345, Mode::Standard);
         let pass_target_ip_addr = pass_target.node_addr_opt().unwrap().ip_addr();
         subject.previous_pass_targets.borrow_mut().insert(
             pass_target_ip_addr,
@@ -4560,7 +4599,7 @@ mod tests {
         let root_node = make_node_record(1234, true);
         let mut db = db_from_node(&root_node);
         let subject = PassHandler::new();
-        let (gossip, pass_target, gossip_source) = make_pass(2345);
+        let (gossip, pass_target, gossip_source) = make_pass(2345, Mode::Standard);
         let pass_target_ip_addr = pass_target.node_addr_opt().unwrap().ip_addr();
         let system =
             System::new("handles_pass_target_that_is_a_part_of_a_different_connection_progress");
@@ -4597,7 +4636,7 @@ mod tests {
         let root_node = make_node_record(1234, true);
         let mut db = db_from_node(&root_node);
         let subject = PassHandler::new();
-        let (gossip, pass_target, gossip_source) = make_pass(2345);
+        let (gossip, pass_target, gossip_source) = make_pass(2345, Mode::Standard);
         let (cpm_recipient, recording_arc) = make_cpm_recipient();
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
         neighborhood_metadata.cpm_recipient = cpm_recipient;
@@ -4786,6 +4825,94 @@ mod tests {
         );
         assert_eq!(dest_db.node_by_key(node_e.public_key()), None);
         assert_eq!(dest_db.node_by_key(node_f.public_key()), None);
+    }
+
+    struct MalformedHandler{}
+    impl NamedType for MalformedHandler { fn type_name(&self) -> &'static str { "MalformedHandler" } }
+    impl GossipHandler for MalformedHandler {
+        fn qualifies(
+            &self,
+            _database: &NeighborhoodDatabase,
+            _agrs: &[AccessibleGossipRecord],
+            _gossip_source: SocketAddr
+        ) -> Qualification {
+            Qualification::Malformed("Malformed for test".to_string())
+        }
+
+        fn handle(
+            &self,
+            _cryptde: &dyn CryptDE,
+            _database: &mut NeighborhoodDatabase,
+            _agrs: Vec<AccessibleGossipRecord>,
+            _gossip_source: SocketAddr,
+            _neighborhood_metadata: NeighborhoodMetadata
+        ) -> Vec<GossipAcceptanceResult> {
+            unimplemented!("Should never be called")
+        }
+    }
+
+    #[test]
+    fn qualification_of_malformed_with_agr_produces_malefactor_ban() {
+        let malformed_handler = Box::new(MalformedHandler{});
+        let dest_root = make_node_record(1234, true);
+        let mut dest_db = db_from_node(&dest_root); // irrelevant
+        let src_root = make_node_record(2345, true);
+        let src_db = db_from_node(&src_root);
+        let gossip = GossipBuilder::new(&src_db)
+            .node(src_root.public_key(), true)
+            .build();
+        let mut subject = make_subject(GA_CRYPTDE_PAIR.main.as_ref());
+        subject.gossip_handlers = vec![malformed_handler];
+
+        let result = subject.handle(
+            &mut dest_db,
+            gossip.try_into().unwrap(),
+            src_root.node_addr_opt().unwrap().into(),
+            make_default_neighborhood_metadata(),
+        );
+
+        assert_eq!(
+            result,
+            vec![GossipAcceptanceResult::Ban(Malefactor::new(
+                Some(src_root.inner.public_key.clone()),
+                Some(src_root.node_addr_opt().unwrap().ip_addr()),
+                Some(src_root.earning_wallet()),
+                None,
+                "Malformed for test".to_string()
+            ))]
+        );
+    }
+
+    #[test]
+    fn qualification_of_malformed_without_agr_produces_malefactor_ban() {
+        let malformed_handler = Box::new(MalformedHandler{});
+        let dest_root = make_node_record(1234, true);
+        let mut dest_db = db_from_node(&dest_root); // irrelevant
+        let src_root = make_node_record(2345, true);
+        let src_db = db_from_node(&src_root);
+        let gossip = GossipBuilder::new(&src_db)
+            .build();
+        let mut subject = make_subject(GA_CRYPTDE_PAIR.main.as_ref());
+        subject.gossip_handlers = vec![malformed_handler];
+        let gossip_source = SocketAddr::from_str("5.5.5.5:5555").unwrap(); // not in Gossip
+
+        let result = subject.handle(
+            &mut dest_db,
+            gossip.try_into().unwrap(),
+            gossip_source, // not in Gossip
+            make_default_neighborhood_metadata(),
+        );
+
+        assert_eq!(
+            result,
+            vec![GossipAcceptanceResult::Ban(Malefactor::new(
+                None,
+                Some(gossip_source.ip()),
+                None,
+                None,
+                "Malformed for test".to_string()
+            ))]
+        );
     }
 
     fn fix_nodes_last_updates(
@@ -5257,8 +5384,8 @@ mod tests {
         (gossip, debut_node, gossip_source)
     }
 
-    fn make_pass(n: u16) -> (Gossip_0v1, NodeRecord, SocketAddr) {
-        let (gossip, debut_node) = make_single_node_gossip(n, Mode::Standard);
+    fn make_pass(n: u16, mode: Mode) -> (Gossip_0v1, NodeRecord, SocketAddr) {
+        let (gossip, debut_node) = make_single_node_gossip(n, mode);
         (
             gossip,
             debut_node,

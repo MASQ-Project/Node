@@ -818,6 +818,7 @@ impl Neighborhood {
         neighbor_keys_after: HashSet<PublicKey>,
     ) {
         self.curate_past_neighbors(neighbor_keys_before, neighbor_keys_after);
+        // TODO: This shouldn't be done if there were no changes to the database.
         self.check_connectedness();
     }
 
