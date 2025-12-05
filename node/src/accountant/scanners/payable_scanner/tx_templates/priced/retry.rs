@@ -47,6 +47,13 @@ impl PricedRetryTxTemplate {
     }
 
     fn compute_gas_price(latest_gas_price_wei: u128, prev_gas_price_wei: u128) -> u128 {
+        // TODO: GH-827: Test Me and Make me alive
+        // if latest_gas_price_wei >= prev_gas_price_wei {
+        //     increase_gas_price_by_margin(latest_gas_price_wei)
+        // } else {
+        //     prev_gas_price_wei + 1
+        // }
+
         let gas_price_wei = latest_gas_price_wei.max(prev_gas_price_wei);
 
         increase_gas_price_by_margin(gas_price_wei)
