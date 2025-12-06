@@ -611,30 +611,32 @@ mod tests {
     fn estimate_transaction_fee_total_works_for_retry_txs() {
         let consuming_wallet = make_wallet("efg");
         let consuming_wallet_balances = make_zeroed_consuming_wallet_balances();
-        let rpc_gas_price_wei = 444_555_666;
+        let latest_gas_price_wei = 444_555_666;
         let chain = TEST_DEFAULT_CHAIN;
+        let prev_gas_prices = vec![
+            latest_gas_price_wei - 1,
+            latest_gas_price_wei,
+            latest_gas_price_wei + 1,
+            latest_gas_price_wei - 123_456,
+            latest_gas_price_wei + 456_789,
+        ];
         let retry_tx_templates: Vec<RetryTxTemplate> = {
-            vec![
-                rpc_gas_price_wei - 1,
-                rpc_gas_price_wei,
-                rpc_gas_price_wei + 1,
-                rpc_gas_price_wei - 123_456,
-                rpc_gas_price_wei + 456_789,
-            ]
-            .into_iter()
-            .enumerate()
-            .map(|(idx, prev_gas_price_wei)| {
-                let account = make_payable_account((idx as u64 + 1) * 3_000);
-                RetryTxTemplate {
-                    base: BaseTxTemplate::from(&account),
-                    prev_gas_price_wei,
-                    prev_nonce: idx as u64,
-                }
-            })
-            .collect()
+            prev_gas_prices
+                .clone()
+                .into_iter()
+                .enumerate()
+                .map(|(idx, prev_gas_price_wei)| {
+                    let account = make_payable_account((idx as u64 + 1) * 3_000);
+                    RetryTxTemplate {
+                        base: BaseTxTemplate::from(&account),
+                        prev_gas_price_wei,
+                        prev_nonce: idx as u64,
+                    }
+                })
+                .collect()
         };
         let subject = BlockchainAgentWeb3::new(
-            rpc_gas_price_wei,
+            latest_gas_price_wei,
             77_777,
             consuming_wallet,
             consuming_wallet_balances,
@@ -645,18 +647,11 @@ mod tests {
 
         let result = subject.estimate_transaction_fee_total(&priced_qualified_payables);
 
-        let gas_prices_for_accounts_from_1_to_5 = vec![
-            PricedRetryTxTemplate::compute_gas_price(rpc_gas_price_wei, rpc_gas_price_wei - 1),
-            PricedRetryTxTemplate::compute_gas_price(rpc_gas_price_wei, rpc_gas_price_wei),
-            PricedRetryTxTemplate::compute_gas_price(rpc_gas_price_wei, rpc_gas_price_wei + 1),
-            PricedRetryTxTemplate::compute_gas_price(rpc_gas_price_wei, rpc_gas_price_wei),
-            PricedRetryTxTemplate::compute_gas_price(
-                rpc_gas_price_wei,
-                rpc_gas_price_wei + 456_789,
-            ),
-        ];
-        let expected_result = gas_prices_for_accounts_from_1_to_5
+        let expected_result = prev_gas_prices
             .into_iter()
+            .map(|prev_gas_price_wei| {
+                PricedRetryTxTemplate::compute_gas_price(latest_gas_price_wei, prev_gas_price_wei)
+            })
             .sum::<u128>()
             * (77_777 + WEB3_MAXIMAL_GAS_LIMIT_MARGIN);
         assert_eq!(result, expected_result)
