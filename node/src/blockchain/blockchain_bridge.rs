@@ -39,7 +39,7 @@ use actix::{Addr, Recipient};
 use futures::Future;
 use itertools::{Either, Itertools};
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::constants::DEFAULT_GAS_PRICE_MARGIN;
+use masq_lib::constants::DEFAULT_GAS_PRICE_RETRY_PERCENTAGE;
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use regex::Regex;
@@ -542,8 +542,8 @@ struct PendingTxInfo {
     when_sent: SystemTime,
 }
 
-pub fn increase_gas_price_by_margin(gas_price: u128) -> u128 {
-    (gas_price * (100 + DEFAULT_GAS_PRICE_MARGIN as u128)) / 100
+pub fn increase_by_percentage(gas_price: u128) -> u128 {
+    (gas_price * (100 + DEFAULT_GAS_PRICE_RETRY_PERCENTAGE as u128)) / 100
 }
 
 pub struct BlockchainBridgeSubsFactoryReal {}
@@ -775,7 +775,7 @@ mod tests {
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
         let blockchain_agent_with_context_msg_actual: &PricedTemplatesMessage =
             accountant_received_payment.get_record(0);
-        let computed_gas_price_wei = increase_gas_price_by_margin(0x230000000);
+        let computed_gas_price_wei = increase_by_percentage(0x230000000);
         let expected_tx_templates = tx_templates
             .iter()
             .map(|tx_template| PricedNewTxTemplate {
@@ -2239,7 +2239,7 @@ mod tests {
 
     #[test]
     fn increase_gas_price_by_margin_works() {
-        assert_eq!(increase_gas_price_by_margin(1_000_000_000), 1_300_000_000);
-        assert_eq!(increase_gas_price_by_margin(9_000_000_000), 11_700_000_000);
+        assert_eq!(increase_by_percentage(1_000_000_000), 1_300_000_000);
+        assert_eq!(increase_by_percentage(9_000_000_000), 11_700_000_000);
     }
 }

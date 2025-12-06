@@ -4,7 +4,7 @@ use crate::accountant::scanners::payable_scanner::tx_templates::initial::retry::
     RetryTxTemplate, RetryTxTemplates,
 };
 use crate::accountant::scanners::payable_scanner::tx_templates::BaseTxTemplate;
-use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
+use crate::blockchain::blockchain_bridge::increase_by_percentage;
 use masq_lib::constants::DEFAULT_GAS_PRICE_RETRY_CONSTANT;
 use masq_lib::logger::Logger;
 use std::ops::{Deref, DerefMut};
@@ -49,7 +49,7 @@ impl PricedRetryTxTemplate {
 
     fn compute_gas_price(latest_gas_price_wei: u128, prev_gas_price_wei: u128) -> u128 {
         if latest_gas_price_wei >= prev_gas_price_wei {
-            increase_gas_price_by_margin(latest_gas_price_wei)
+            increase_by_percentage(latest_gas_price_wei)
         } else {
             prev_gas_price_wei + DEFAULT_GAS_PRICE_RETRY_CONSTANT
         }
@@ -183,7 +183,7 @@ mod tests {
         let computed_gas_price =
             PricedRetryTxTemplate::compute_gas_price(latest_gas_price_wei, prev_gas_price_wei);
 
-        let expected_gas_price = increase_gas_price_by_margin(latest_gas_price_wei);
+        let expected_gas_price = increase_by_percentage(latest_gas_price_wei);
         assert_eq!(computed_gas_price, expected_gas_price);
     }
 
@@ -207,7 +207,7 @@ mod tests {
         let computed_gas_price =
             PricedRetryTxTemplate::compute_gas_price(latest_gas_price_wei, prev_gas_price_wei);
 
-        let expected_gas_price = increase_gas_price_by_margin(latest_gas_price_wei);
+        let expected_gas_price = increase_by_percentage(latest_gas_price_wei);
         assert_eq!(computed_gas_price, expected_gas_price);
     }
 }
