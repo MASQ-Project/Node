@@ -170,30 +170,32 @@ mod tests {
         let test_name = "returns_correct_priced_qualified_payables_for_retry_payable_scan";
         let consuming_wallet = make_wallet("efg");
         let consuming_wallet_balances = make_zeroed_consuming_wallet_balances();
-        let rpc_gas_price_wei = 444_555_666;
+        let latest_gas_price_wei = 444_555_666;
         let chain = TEST_DEFAULT_CHAIN;
+        let prev_gas_prices = vec![
+            latest_gas_price_wei - 1,
+            latest_gas_price_wei,
+            latest_gas_price_wei + 1,
+            latest_gas_price_wei - 123_456,
+            latest_gas_price_wei + 456_789,
+        ];
         let retry_tx_templates: Vec<RetryTxTemplate> = {
-            vec![
-                rpc_gas_price_wei - 1,
-                rpc_gas_price_wei,
-                rpc_gas_price_wei + 1,
-                rpc_gas_price_wei - 123_456,
-                rpc_gas_price_wei + 456_789,
-            ]
-            .into_iter()
-            .enumerate()
-            .map(|(idx, prev_gas_price_wei)| {
-                let account = make_payable_account((idx as u64 + 1) * 3_000);
-                RetryTxTemplate {
-                    base: BaseTxTemplate::from(&account),
-                    prev_gas_price_wei,
-                    prev_nonce: idx as u64,
-                }
-            })
-            .collect_vec()
+            prev_gas_prices
+                .clone()
+                .into_iter()
+                .enumerate()
+                .map(|(idx, prev_gas_price_wei)| {
+                    let account = make_payable_account((idx as u64 + 1) * 3_000);
+                    RetryTxTemplate {
+                        base: BaseTxTemplate::from(&account),
+                        prev_gas_price_wei,
+                        prev_nonce: idx as u64,
+                    }
+                })
+                .collect_vec()
         };
         let mut subject = BlockchainAgentWeb3::new(
-            rpc_gas_price_wei,
+            latest_gas_price_wei,
             77_777,
             consuming_wallet,
             consuming_wallet_balances,
@@ -205,23 +207,28 @@ mod tests {
             .price_qualified_payables(Either::Right(RetryTxTemplates(retry_tx_templates.clone())));
 
         let expected_result = {
-            let price_wei_for_accounts_from_1_to_5 = vec![
-                increase_by_percentage(rpc_gas_price_wei),
-                increase_by_percentage(rpc_gas_price_wei),
-                increase_by_percentage(rpc_gas_price_wei + 1),
-                increase_by_percentage(rpc_gas_price_wei),
-                increase_by_percentage(rpc_gas_price_wei + 456_789),
-            ];
-            if price_wei_for_accounts_from_1_to_5.len() != retry_tx_templates.len() {
+            let computed_gas_prices = prev_gas_prices
+                .into_iter()
+                .map(|prev_gas_price_wei| {
+                    PricedRetryTxTemplate::compute_gas_price(
+                        latest_gas_price_wei,
+                        prev_gas_price_wei,
+                    )
+                })
+                .collect::<Vec<u128>>();
+            if computed_gas_prices.len() != retry_tx_templates.len() {
                 panic!("Corrupted test")
             }
 
             Either::Right(PricedRetryTxTemplates(
                 retry_tx_templates
                     .iter()
-                    .zip(price_wei_for_accounts_from_1_to_5.into_iter())
-                    .map(|(retry_tx_template, increased_gas_price)| {
-                        PricedRetryTxTemplate::new(retry_tx_template.clone(), increased_gas_price)
+                    .zip(computed_gas_prices.into_iter())
+                    .map(|(retry_tx_template, computed_gas_price_wei)| {
+                        PricedRetryTxTemplate::new(
+                            retry_tx_template.clone(),
+                            computed_gas_price_wei,
+                        )
                     })
                     .collect_vec(),
             ))
