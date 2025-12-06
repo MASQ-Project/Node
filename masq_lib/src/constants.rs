@@ -84,6 +84,7 @@ pub const MASQ_TOTAL_SUPPLY: u64 = 37_500_000;
 
 pub const DEFAULT_GAS_PRICE: u64 = 1; //TODO ?? Really
 pub const DEFAULT_GAS_PRICE_MARGIN: u64 = 30;
+pub const DEFAULT_GAS_PRICE_RETRY_CONSTANT: u128 = 5_000; // TODO: GH-827: Test Me
 pub const DEFAULT_MAX_BLOCK_COUNT: u64 = 100_000;
 
 //chains
