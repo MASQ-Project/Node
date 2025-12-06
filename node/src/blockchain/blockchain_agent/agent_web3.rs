@@ -122,7 +122,9 @@ mod tests {
     use crate::test_utils::make_wallet;
     use itertools::{Either, Itertools};
     use masq_lib::blockchains::chains::Chain;
-    use masq_lib::constants::DEFAULT_GAS_PRICE_RETRY_PERCENTAGE;
+    use masq_lib::constants::{
+        DEFAULT_GAS_PRICE_RETRY_CONSTANT, DEFAULT_GAS_PRICE_RETRY_PERCENTAGE,
+    };
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
@@ -391,8 +393,7 @@ mod tests {
         let account_2 = make_payable_account(34);
         let ceiling_gas_price_wei = chain.rec().gas_price_safe_ceiling_minor;
         // This should be the value that would surplus the ceiling just slightly if the margin is applied
-        let border_gas_price_wei =
-            (ceiling_gas_price_wei * 100) / (DEFAULT_GAS_PRICE_RETRY_PERCENTAGE as u128 + 100) + 2;
+        let border_gas_price_wei = ceiling_gas_price_wei - DEFAULT_GAS_PRICE_RETRY_CONSTANT + 1;
         let rpc_gas_price_wei = border_gas_price_wei - 1;
         let check_value_wei = increase_by_percentage(border_gas_price_wei);
         let template_1 = RetryTxTemplateBuilder::new()
@@ -474,8 +475,8 @@ mod tests {
         let expected_log_msg = format!(
             "The computed gas price(s) in wei is above the ceil value of 50,000,000,000 wei computed by this Node.\n\
              Transaction(s) to following receivers are affected:\n\
-             0x00000000000000000000000077616c6c65743132 with gas price 64,999,999,998\n\
-             0x00000000000000000000000077616c6c65743334 with gas price 64,999,999,997"
+             0x00000000000000000000000077616c6c65743132 with gas price 50,000,004,999\n\
+             0x00000000000000000000000077616c6c65743334 with gas price 50,000,004,998"
         );
 
         test_gas_price_must_not_break_through_ceiling_value_in_the_retry_payable_mode(
