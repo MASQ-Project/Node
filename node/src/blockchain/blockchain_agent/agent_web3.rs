@@ -646,11 +646,14 @@ mod tests {
         let result = subject.estimate_transaction_fee_total(&priced_qualified_payables);
 
         let gas_prices_for_accounts_from_1_to_5 = vec![
-            increase_by_percentage(rpc_gas_price_wei),
-            increase_by_percentage(rpc_gas_price_wei),
-            increase_by_percentage(rpc_gas_price_wei + 1),
-            increase_by_percentage(rpc_gas_price_wei),
-            increase_by_percentage(rpc_gas_price_wei + 456_789),
+            PricedRetryTxTemplate::compute_gas_price(rpc_gas_price_wei, rpc_gas_price_wei - 1),
+            PricedRetryTxTemplate::compute_gas_price(rpc_gas_price_wei, rpc_gas_price_wei),
+            PricedRetryTxTemplate::compute_gas_price(rpc_gas_price_wei, rpc_gas_price_wei + 1),
+            PricedRetryTxTemplate::compute_gas_price(rpc_gas_price_wei, rpc_gas_price_wei),
+            PricedRetryTxTemplate::compute_gas_price(
+                rpc_gas_price_wei,
+                rpc_gas_price_wei + 456_789,
+            ),
         ];
         let expected_result = gas_prices_for_accounts_from_1_to_5
             .into_iter()
