@@ -392,17 +392,17 @@ mod tests {
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
         let ceiling_gas_price_wei = chain.rec().gas_price_safe_ceiling_minor;
-        // This should be the value that would surplus the ceiling just slightly if the margin is applied
-        let border_gas_price_wei = ceiling_gas_price_wei - DEFAULT_GAS_PRICE_RETRY_CONSTANT + 1;
-        let rpc_gas_price_wei = border_gas_price_wei - 1;
-        let check_value_wei = increase_by_percentage(border_gas_price_wei);
+        // Once the gas price is computed from latest and prev gas price values, it'll break the ceiling
+        let prev_gas_price_wei = ceiling_gas_price_wei + 1 - DEFAULT_GAS_PRICE_RETRY_CONSTANT;
+        let latest_gas_price_wei = prev_gas_price_wei - 100; // Any value lower than prev will work
+        let check_value_wei = increase_by_percentage(prev_gas_price_wei);
         let template_1 = RetryTxTemplateBuilder::new()
             .payable_account(&account_1)
-            .prev_gas_price_wei(border_gas_price_wei)
+            .prev_gas_price_wei(prev_gas_price_wei)
             .build();
         let template_2 = RetryTxTemplateBuilder::new()
             .payable_account(&account_2)
-            .prev_gas_price_wei(border_gas_price_wei)
+            .prev_gas_price_wei(prev_gas_price_wei)
             .build();
         let retry_tx_templates = vec![template_1, template_2];
         let expected_log_msg = format!(
@@ -415,7 +415,7 @@ mod tests {
         test_gas_price_must_not_break_through_ceiling_value_in_the_retry_payable_mode(
             test_name,
             chain,
-            rpc_gas_price_wei,
+            latest_gas_price_wei,
             Either::Right(RetryTxTemplates(retry_tx_templates)),
             &expected_log_msg,
         );
