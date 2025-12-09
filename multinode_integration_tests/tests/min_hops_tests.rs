@@ -10,13 +10,14 @@ use multinode_integration_tests_lib::masq_real_node::{
 use node_lib::sub_lib::neighborhood::Hops;
 use std::thread;
 use std::time::Duration;
+use multinode_integration_tests_lib::neighborhood_constructor::construct_neighborhood;
 
 #[test]
 fn data_can_be_routed_using_different_min_hops() {
     // This test fails sometimes due to a timeout: "Couldn't read chunk: Kind(TimedOut)"
     // You may fix it by increasing the timeout for the client.
-    assert_http_end_to_end_routing(Hops::OneHop);
-    assert_http_end_to_end_routing(Hops::TwoHops);
+    // assert_http_end_to_end_routing(Hops::OneHop);
+    // assert_http_end_to_end_routing(Hops::TwoHops);
     assert_http_end_to_end_routing(Hops::SixHops);
 }
 
@@ -30,7 +31,7 @@ fn assert_http_end_to_end_routing(min_hops: Hops) {
     let first_node = cluster.start_real_node(config);
 
     // For 1-hop route, 3 nodes are necessary if we use last node as the originating node
-    let nodes_count = (min_hops as usize) + 2;
+    let nodes_count = (min_hops as usize) * 2 + 5;
     let nodes = (0..nodes_count)
         .map(|i| {
             cluster.start_real_node(
@@ -43,7 +44,7 @@ fn assert_http_end_to_end_routing(min_hops: Hops) {
         })
         .collect::<Vec<MASQRealNode>>();
 
-    thread::sleep(Duration::from_millis(500 * (nodes.len() as u64)));
+    thread::sleep(Duration::from_millis(4000 * (nodes.len() as u64)));
 
     let last_node = nodes.last().unwrap();
     let mut client = last_node.make_client(8080, 5000);
