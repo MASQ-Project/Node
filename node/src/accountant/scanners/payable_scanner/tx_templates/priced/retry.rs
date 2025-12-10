@@ -176,8 +176,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn compute_gas_price_increases_by_percentage_if_latest_if_higher() {
-        let latest_gas_price_wei = 120;
+    fn compute_gas_price_increases_by_percentage_if_latest_is_higher() {
+        let latest_gas_price_wei = 101;
+        let prev_gas_price_wei = 100;
+
+        let computed_gas_price =
+            PricedRetryTxTemplate::compute_gas_price(latest_gas_price_wei, prev_gas_price_wei);
+
+        let expected_gas_price = increase_by_percentage(latest_gas_price_wei);
+        assert_eq!(computed_gas_price, expected_gas_price);
+    }
+
+    #[test]
+    fn compute_gas_price_increases_by_percentage_if_latest_is_equal() {
+        let latest_gas_price_wei = 100;
         let prev_gas_price_wei = 100;
 
         let computed_gas_price =
@@ -189,25 +201,13 @@ mod tests {
 
     #[test]
     fn compute_gas_price_increments_previous_by_constant_if_latest_is_lower() {
-        let latest_gas_price_wei = 80;
+        let latest_gas_price_wei = 99;
         let prev_gas_price_wei = 100;
 
         let computed_gas_price =
             PricedRetryTxTemplate::compute_gas_price(latest_gas_price_wei, prev_gas_price_wei);
 
         let expected_gas_price = prev_gas_price_wei + DEFAULT_GAS_PRICE_RETRY_CONSTANT;
-        assert_eq!(computed_gas_price, expected_gas_price);
-    }
-
-    #[test]
-    fn compute_gas_price_increases_by_percentage_if_latest_if_equal() {
-        let latest_gas_price_wei = 100;
-        let prev_gas_price_wei = 100;
-
-        let computed_gas_price =
-            PricedRetryTxTemplate::compute_gas_price(latest_gas_price_wei, prev_gas_price_wei);
-
-        let expected_gas_price = increase_by_percentage(latest_gas_price_wei);
         assert_eq!(computed_gas_price, expected_gas_price);
     }
 }

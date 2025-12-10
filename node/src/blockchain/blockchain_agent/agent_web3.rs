@@ -183,8 +183,8 @@ mod tests {
         ];
         let retry_tx_templates: Vec<RetryTxTemplate> = {
             prev_gas_prices
-                .clone()
-                .into_iter()
+                .iter()
+                .copied()
                 .enumerate()
                 .map(|(idx, prev_gas_price_wei)| {
                     let account = make_payable_account((idx as u64 + 1) * 3_000);
@@ -221,7 +221,6 @@ mod tests {
             if computed_gas_prices.len() != retry_tx_templates.len() {
                 panic!("Corrupted test")
             }
-
             Either::Right(PricedRetryTxTemplates(
                 retry_tx_templates
                     .iter()
@@ -394,8 +393,8 @@ mod tests {
         let ceiling_gas_price_wei = chain.rec().gas_price_safe_ceiling_minor;
         // Once the gas price is computed from latest and prev gas price values, it'll break the ceiling
         let prev_gas_price_wei = ceiling_gas_price_wei + 1 - DEFAULT_GAS_PRICE_RETRY_CONSTANT;
-        let latest_gas_price_wei = prev_gas_price_wei - 100; // Any value lower than prev will work
-        let check_value_wei = increase_by_percentage(prev_gas_price_wei);
+        let latest_gas_price_wei = prev_gas_price_wei - 1;
+        let check_value_wei = prev_gas_price_wei + DEFAULT_GAS_PRICE_RETRY_CONSTANT;
         let template_1 = RetryTxTemplateBuilder::new()
             .payable_account(&account_1)
             .prev_gas_price_wei(prev_gas_price_wei)
@@ -630,8 +629,8 @@ mod tests {
         ];
         let retry_tx_templates: Vec<RetryTxTemplate> = {
             prev_gas_prices
-                .clone()
-                .into_iter()
+                .iter()
+                .copied()
                 .enumerate()
                 .map(|(idx, prev_gas_price_wei)| {
                     let account = make_payable_account((idx as u64 + 1) * 3_000);

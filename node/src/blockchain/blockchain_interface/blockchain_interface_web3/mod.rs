@@ -928,7 +928,7 @@ mod tests {
             PricedRetryTxTemplate::new(retry_2, increase_by_percentage(latest_gas_price_wei)),
             PricedRetryTxTemplate::new(
                 retry_3,
-                latest_gas_price_wei + 1 + DEFAULT_GAS_PRICE_RETRY_CONSTANT,
+                (latest_gas_price_wei + 1) + DEFAULT_GAS_PRICE_RETRY_CONSTANT,
             ),
         ]);
 
