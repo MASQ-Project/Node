@@ -473,7 +473,6 @@ mod tests {
     use super::*;
     use crate::accountant::scanners::pending_payable_scanner::utils::TxHashByTable;
     use crate::accountant::test_utils::make_payable_account;
-    use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
         BlockchainInterfaceWeb3, CONTRACT_ABI, REQUESTS_IN_PARALLEL, TRANSACTION_LITERAL,
         TRANSFER_METHOD_ID,
@@ -505,10 +504,12 @@ mod tests {
     use itertools::Either;
     use web3::transports::Http;
     use web3::types::{H256, U256};
+    use masq_lib::constants::DEFAULT_GAS_PRICE_RETRY_CONSTANT;
     use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::NewTxTemplates;
     use crate::accountant::scanners::payable_scanner::tx_templates::initial::retry::RetryTxTemplates;
     use crate::accountant::scanners::payable_scanner::tx_templates::priced::retry::PricedRetryTxTemplate;
     use crate::accountant::scanners::payable_scanner::tx_templates::test_utils::RetryTxTemplateBuilder;
+    use crate::blockchain::blockchain_bridge::increase_by_percentage;
 
     #[test]
     fn constants_are_correct() {
@@ -888,7 +889,7 @@ mod tests {
         let gas_price_wei_from_rpc_u128_wei =
             u128::from_str_radix(&gas_price_wei_from_rpc_hex[2..], 16).unwrap();
         let gas_price_wei_from_rpc_u128_wei_with_margin =
-            increase_gas_price_by_margin(gas_price_wei_from_rpc_u128_wei);
+            increase_by_percentage(gas_price_wei_from_rpc_u128_wei);
         let expected_result = Either::Left(PricedNewTxTemplates::new(
             tx_templates.clone(),
             gas_price_wei_from_rpc_u128_wei_with_margin,
@@ -906,32 +907,32 @@ mod tests {
     #[test]
     fn blockchain_interface_web3_can_introduce_blockchain_agent_in_the_retry_payables_mode() {
         let gas_price_wei = "0x3B9ACA00"; // 1000000000
-        let gas_price_from_rpc = u128::from_str_radix(&gas_price_wei[2..], 16).unwrap();
+        let latest_gas_price_wei = u128::from_str_radix(&gas_price_wei[2..], 16).unwrap();
         let retry_1 = RetryTxTemplateBuilder::default()
             .payable_account(&make_payable_account(12))
-            .prev_gas_price_wei(gas_price_from_rpc - 1)
+            .prev_gas_price_wei(latest_gas_price_wei - 1)
             .build();
         let retry_2 = RetryTxTemplateBuilder::default()
             .payable_account(&make_payable_account(34))
-            .prev_gas_price_wei(gas_price_from_rpc)
+            .prev_gas_price_wei(latest_gas_price_wei)
             .build();
         let retry_3 = RetryTxTemplateBuilder::default()
             .payable_account(&make_payable_account(56))
-            .prev_gas_price_wei(gas_price_from_rpc + 1)
+            .prev_gas_price_wei(latest_gas_price_wei + 1)
             .build();
 
         let retry_tx_templates =
             RetryTxTemplates(vec![retry_1.clone(), retry_2.clone(), retry_3.clone()]);
         let expected_retry_tx_templates = PricedRetryTxTemplates(vec![
-            PricedRetryTxTemplate::new(retry_1, increase_gas_price_by_margin(gas_price_from_rpc)),
-            PricedRetryTxTemplate::new(retry_2, increase_gas_price_by_margin(gas_price_from_rpc)),
+            PricedRetryTxTemplate::new(retry_1, increase_by_percentage(latest_gas_price_wei)),
+            PricedRetryTxTemplate::new(retry_2, increase_by_percentage(latest_gas_price_wei)),
             PricedRetryTxTemplate::new(
                 retry_3,
-                increase_gas_price_by_margin(gas_price_from_rpc + 1),
+                (latest_gas_price_wei + 1) + DEFAULT_GAS_PRICE_RETRY_CONSTANT,
             ),
         ]);
 
-        let expected_estimated_transaction_fee_total = 285_979_200_073_328;
+        let expected_estimated_transaction_fee_total = 263_981_166_713_328;
 
         test_blockchain_interface_web3_can_introduce_blockchain_agent(
             Either::Right(retry_tx_templates),
