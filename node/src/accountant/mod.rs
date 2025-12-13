@@ -30,7 +30,7 @@ use crate::accountant::scanners::pending_payable_scanner::utils::{
     PendingPayableScanResult, TxHashByTable,
 };
 use crate::accountant::scanners::scan_schedulers::{
-    ScanReschedulingAfterEarlyStop, ScanSchedulers, StartScanFallibleScanner,
+    ScanReschedulingAfterEarlyStop, ScanSchedulers, StartFallibleScanner,
 };
 use crate::accountant::scanners::{Scanners, StartScanError};
 use crate::blockchain::blockchain_bridge::{
@@ -995,7 +995,9 @@ impl Accountant {
                     &self.logger,
                     self.scan_schedulers.automatic_scans_enabled,
                 ),
-                None => Err(StartScanError::NoConsumingWalletFound),
+                None => Err(StartScanError::no_consuming_wallet_found(
+                    response_skeleton_opt,
+                )),
             };
 
         self.scan_schedulers.payable.reset_scan_timer(&self.logger);
@@ -1009,8 +1011,8 @@ impl Accountant {
                     .expect("BlockchainBridge is dead");
                 ScanReschedulingAfterEarlyStop::DoNotSchedule
             }
-            Err(e) => self.handle_start_scan_error_and_prevent_scan_stall_point(
-                StartScanFallibleScanner::NewPayables,
+            Err(e) => self.handle_start_scan_error(
+                StartFallibleScanner::NewPayables,
                 e,
                 response_skeleton_opt,
             ),
@@ -1029,7 +1031,9 @@ impl Accountant {
                     response_skeleton_opt,
                     &self.logger,
                 ),
-                None => Err(StartScanError::NoConsumingWalletFound),
+                None => Err(StartScanError::no_consuming_wallet_found(
+                    response_skeleton_opt,
+                )),
             };
 
         match result {
@@ -1042,8 +1046,8 @@ impl Accountant {
             }
             Err(e) => {
                 // Any error here panics by design, so the return value is unreachable/ignored.
-                let _ = self.handle_start_scan_error_and_prevent_scan_stall_point(
-                    StartScanFallibleScanner::RetryPayables,
+                let _ = self.handle_start_scan_error(
+                    StartFallibleScanner::RetryPayables,
                     e,
                     response_skeleton_opt,
                 );
@@ -1064,7 +1068,9 @@ impl Accountant {
                     &self.logger,
                     self.scan_schedulers.automatic_scans_enabled,
                 ),
-                None => Err(StartScanError::NoConsumingWalletFound),
+                None => Err(StartScanError::no_consuming_wallet_found(
+                    response_skeleton_opt,
+                )),
             };
 
         let hint: ScanReschedulingAfterEarlyStop = match result {
@@ -1078,8 +1084,8 @@ impl Accountant {
             }
             Err(e) => {
                 let initial_pending_payable_scan = self.scanners.initial_pending_payable_scan();
-                self.handle_start_scan_error_and_prevent_scan_stall_point(
-                    StartScanFallibleScanner::PendingPayables {
+                self.handle_start_scan_error(
+                    StartFallibleScanner::PendingPayables {
                         initial_pending_payable_scan,
                     },
                     e,
@@ -1095,15 +1101,13 @@ impl Accountant {
         hint
     }
 
-    fn handle_start_scan_error_and_prevent_scan_stall_point(
+    fn handle_start_scan_error(
         &self,
-        scanner: StartScanFallibleScanner,
+        scanner: StartFallibleScanner,
         e: StartScanError,
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) -> ScanReschedulingAfterEarlyStop {
-        let is_externally_triggered = response_skeleton_opt.is_some();
-
-        e.log_error(&self.logger, scanner.into(), is_externally_triggered);
+        e.log_error(&self.logger, scanner.into());
 
         if let Some(skeleton) = response_skeleton_opt {
             self.ui_message_sub_opt
@@ -1118,7 +1122,7 @@ impl Accountant {
 
         self.scan_schedulers
             .reschedule_on_error_resolver
-            .resolve_rescheduling_on_error(scanner, &e, is_externally_triggered, &self.logger)
+            .resolve_rescheduling_on_error(scanner, &e, &self.logger)
     }
 
     fn handle_request_of_scan_for_receivable(
@@ -1146,8 +1150,8 @@ impl Accountant {
             Err(e) =>
             // Any error here panics by design, so the return value is unreachable/ignored.
             {
-                self.handle_start_scan_error_and_prevent_scan_stall_point(
-                    StartScanFallibleScanner::Receivables,
+                self.handle_start_scan_error(
+                    StartFallibleScanner::Receivables,
                     e,
                     response_skeleton_opt,
                 )
@@ -1332,7 +1336,7 @@ mod tests {
         MarkScanner, NewPayableScanIntervalComputerMock, PendingPayableCacheMock, ReplacementType,
         RescheduleScanOnErrorResolverMock, ScannerMock, ScannerReplacement,
     };
-    use crate::accountant::scanners::StartScanError;
+    use crate::accountant::scanners::{AutomaticError, CommonError, StartScanError};
     use crate::accountant::test_utils::DaoWithDestination::{
         ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,
     };
@@ -2237,7 +2241,7 @@ mod tests {
         let test_name = "externally_triggered_scan_for_pending_payables_is_prevented_if_all_payments_already_complete";
         let expected_log_msg = format!(
             "INFO: {test_name}: User requested PendingPayables scan was denied expecting zero \
-            findings. Run the Payable scanner first."
+            findings. Run Payable scanner first."
         );
 
         test_externally_triggered_scan_is_prevented_if(
@@ -2297,7 +2301,7 @@ mod tests {
         let (peer_actors, peer_addresses) = peer_actors_builder()
             .blockchain_bridge(blockchain_bridge)
             .ui_gateway(ui_gateway)
-            .build_providing_addresses();
+            .build_with_addresses();
         let subject_addr = subject.start();
         let system = System::new("test");
         let response_skeleton_opt = Some(ResponseSkeleton {
@@ -2469,7 +2473,9 @@ mod tests {
         let payable_scanner = ScannerMock::default()
             .scan_started_at_result(None)
             .scan_started_at_result(None)
-            .start_scan_result(Err(StartScanError::NothingToProcess));
+            .start_scan_result(Err(StartScanError::Automatic(AutomaticError::Common(
+                CommonError::NothingToProcess,
+            ))));
         subject
             .scanners
             .replace_scanner(ScannerReplacement::Payable(ReplacementType::Mock(
@@ -2745,7 +2751,9 @@ mod tests {
             ));
         let receivable_scanner = ScannerMock::default()
             .scan_started_at_result(None)
-            .start_scan_result(Err(StartScanError::NoConsumingWalletFound));
+            .start_scan_result(Err(StartScanError::Automatic(AutomaticError::Common(
+                CommonError::NoConsumingWalletFound,
+            ))));
         subject
             .scanners
             .replace_scanner(ScannerReplacement::Receivable(ReplacementType::Mock(
@@ -2899,11 +2907,15 @@ mod tests {
         let payable_scanner = ScannerMock::new()
             .scan_started_at_result(None)
             .start_scan_params(&scan_params.payable_start_scan)
-            .start_scan_result(Err(StartScanError::NothingToProcess));
+            .start_scan_result(Err(StartScanError::Automatic(AutomaticError::Common(
+                CommonError::NothingToProcess,
+            ))));
         let pending_payable_scanner = ScannerMock::new()
             .scan_started_at_result(None)
             .start_scan_params(&scan_params.pending_payable_start_scan)
-            .start_scan_result(Err(StartScanError::NothingToProcess));
+            .start_scan_result(Err(StartScanError::Automatic(AutomaticError::Common(
+                CommonError::NothingToProcess,
+            ))));
         let receivable_scanner = ScannerMock::new()
             .scan_started_at_result(None)
             .start_scan_params(&scan_params.receivable_start_scan)
@@ -3023,7 +3035,7 @@ mod tests {
                 pending_payable_scanner,
                 receivable_scanner,
             );
-        let (peer_actors, addresses) = peer_actors_builder().build_providing_addresses();
+        let (peer_actors, addresses) = peer_actors_builder().build_with_addresses();
         let subject_addr: Addr<Accountant> = subject.start();
         let subject_subs = Accountant::make_subs_from(&subject_addr);
         let expected_tx_receipts_msg = TxReceiptsMessage {
@@ -3683,7 +3695,7 @@ mod tests {
         let subject_subs = Accountant::make_subs_from(&subject_addr);
         let (peer_actors, peer_actors_addrs) = peer_actors_builder()
             .blockchain_bridge(blockchain_bridge)
-            .build_providing_addresses();
+            .build_with_addresses();
         send_bind_message!(subject_subs, peer_actors);
         let counter_msg = ReceivedPayments {
             timestamp: SystemTime::now(),

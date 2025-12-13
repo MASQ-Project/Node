@@ -643,7 +643,7 @@ impl PeerActorsBuilder {
     // This must be called after System.new and before System.run.
     //
     // The addresses may be helpful for setting up the Counter Messages.
-    pub fn build_providing_addresses(self) -> (PeerActors, PeerActorAddrs) {
+    pub fn build_with_addresses(self) -> (PeerActors, PeerActorAddrs) {
         let proxy_server_addr = self.proxy_server.start();
         let dispatcher_addr = self.dispatcher.start();
         let hopper_addr = self.hopper.start();
@@ -684,7 +684,7 @@ impl PeerActorsBuilder {
 
     // This must be called after System.new and before System.run
     pub fn build(self) -> PeerActors {
-        let (peer_actors, _) = self.build_providing_addresses();
+        let (peer_actors, _) = self.build_with_addresses();
         peer_actors
     }
 }
