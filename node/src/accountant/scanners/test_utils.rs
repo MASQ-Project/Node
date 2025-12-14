@@ -19,7 +19,7 @@ use crate::accountant::scanners::pending_payable_scanner::{
 };
 use crate::accountant::scanners::scan_schedulers::{
     NewPayableScanIntervalComputer, RescheduleScanOnErrorResolver, ScanReschedulingAfterEarlyStop,
-    ScanTiming, StartScanFallibleScanner,
+    ScanTiming, UnableToStartScanner,
 };
 use crate::accountant::scanners::{
     PendingPayableScanner, PrivateScanner, RealScannerMarker, ReceivableScanner, Scanner,
@@ -477,14 +477,14 @@ pub fn assert_timestamps_from_str(examined_str: &str, expected_timestamps: Vec<S
 #[derive(Default)]
 pub struct RescheduleScanOnErrorResolverMock {
     resolve_rescheduling_on_error_params:
-        Arc<Mutex<Vec<(StartScanFallibleScanner, StartScanError, bool, Logger)>>>,
+        Arc<Mutex<Vec<(UnableToStartScanner, StartScanError, bool, Logger)>>>,
     resolve_rescheduling_on_error_results: RefCell<Vec<ScanReschedulingAfterEarlyStop>>,
 }
 
 impl RescheduleScanOnErrorResolver for RescheduleScanOnErrorResolverMock {
     fn resolve_rescheduling_on_error(
         &self,
-        scanner: StartScanFallibleScanner,
+        scanner: UnableToStartScanner,
         error: &StartScanError,
         is_externally_triggered: bool,
         logger: &Logger,
@@ -507,7 +507,7 @@ impl RescheduleScanOnErrorResolver for RescheduleScanOnErrorResolverMock {
 impl RescheduleScanOnErrorResolverMock {
     pub fn resolve_rescheduling_on_error_params(
         mut self,
-        params: &Arc<Mutex<Vec<(StartScanFallibleScanner, StartScanError, bool, Logger)>>>,
+        params: &Arc<Mutex<Vec<(UnableToStartScanner, StartScanError, bool, Logger)>>>,
     ) -> Self {
         self.resolve_rescheduling_on_error_params = params.clone();
         self

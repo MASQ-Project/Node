@@ -51,31 +51,31 @@ pub enum ScanReschedulingAfterEarlyStop {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum StartScanFallibleScanner {
+pub enum UnableToStartScanner {
     NewPayables,
     RetryPayables,
     PendingPayables { initial_pending_payable_scan: bool },
     Receivables,
 }
 
-impl Display for StartScanFallibleScanner {
+impl Display for UnableToStartScanner {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            StartScanFallibleScanner::NewPayables => write!(f, "NewPayables"),
-            StartScanFallibleScanner::RetryPayables => write!(f, "RetryPayables"),
-            StartScanFallibleScanner::PendingPayables { .. } => write!(f, "PendingPayables"),
-            StartScanFallibleScanner::Receivables => write!(f, "Receivables"),
+            UnableToStartScanner::NewPayables => write!(f, "NewPayables"),
+            UnableToStartScanner::RetryPayables => write!(f, "RetryPayables"),
+            UnableToStartScanner::PendingPayables { .. } => write!(f, "PendingPayables"),
+            UnableToStartScanner::Receivables => write!(f, "Receivables"),
         }
     }
 }
 
-impl From<StartScanFallibleScanner> for ScanType {
-    fn from(scanner: StartScanFallibleScanner) -> Self {
+impl From<UnableToStartScanner> for ScanType {
+    fn from(scanner: UnableToStartScanner) -> Self {
         match scanner {
-            StartScanFallibleScanner::NewPayables => ScanType::Payables,
-            StartScanFallibleScanner::RetryPayables => ScanType::Payables,
-            StartScanFallibleScanner::PendingPayables { .. } => ScanType::PendingPayables,
-            StartScanFallibleScanner::Receivables => ScanType::Receivables,
+            UnableToStartScanner::NewPayables => ScanType::Payables,
+            UnableToStartScanner::RetryPayables => ScanType::Payables,
+            UnableToStartScanner::PendingPayables { .. } => ScanType::PendingPayables,
+            UnableToStartScanner::Receivables => ScanType::Receivables,
         }
     }
 }
@@ -253,7 +253,7 @@ where
 pub trait RescheduleScanOnErrorResolver {
     fn resolve_rescheduling_on_error(
         &self,
-        scanner: StartScanFallibleScanner,
+        scanner: UnableToStartScanner,
         error: &StartScanError,
         is_externally_triggered: bool,
         logger: &Logger,
@@ -266,26 +266,26 @@ pub struct RescheduleScanOnErrorResolverReal {}
 impl RescheduleScanOnErrorResolver for RescheduleScanOnErrorResolverReal {
     fn resolve_rescheduling_on_error(
         &self,
-        scanner: StartScanFallibleScanner,
+        scanner: UnableToStartScanner,
         error: &StartScanError,
         is_externally_triggered: bool,
         logger: &Logger,
     ) -> ScanReschedulingAfterEarlyStop {
         let reschedule_hint = match scanner {
-            StartScanFallibleScanner::NewPayables => {
+            UnableToStartScanner::NewPayables => {
                 Self::resolve_new_payables(error, is_externally_triggered)
             }
-            StartScanFallibleScanner::RetryPayables => {
+            UnableToStartScanner::RetryPayables => {
                 Self::resolve_retry_payables(error, is_externally_triggered)
             }
-            StartScanFallibleScanner::PendingPayables {
+            UnableToStartScanner::PendingPayables {
                 initial_pending_payable_scan,
             } => Self::resolve_pending_payables(
                 error,
                 initial_pending_payable_scan,
                 is_externally_triggered,
             ),
-            StartScanFallibleScanner::Receivables => {
+            UnableToStartScanner::Receivables => {
                 Self::resolve_receivables(error, is_externally_triggered)
             }
         };
@@ -395,7 +395,7 @@ impl RescheduleScanOnErrorResolverReal {
     }
 
     fn log_rescheduling(
-        scanner: StartScanFallibleScanner,
+        scanner: UnableToStartScanner,
         is_externally_triggered: bool,
         logger: &Logger,
         reschedule_hint: &ScanReschedulingAfterEarlyStop,
@@ -420,7 +420,7 @@ impl RescheduleScanOnErrorResolverReal {
 mod tests {
     use crate::accountant::scanners::scan_schedulers::{
         NewPayableScanIntervalComputer, NewPayableScanIntervalComputerReal,
-        ScanReschedulingAfterEarlyStop, ScanSchedulers, ScanTiming, StartScanFallibleScanner,
+        ScanReschedulingAfterEarlyStop, ScanSchedulers, ScanTiming, UnableToStartScanner,
     };
     use crate::accountant::scanners::test_utils::NewPayableScanIntervalComputerMock;
     use crate::accountant::scanners::{ManulTriggerError, StartScanError};
@@ -738,14 +738,14 @@ mod tests {
         test_what_if_externally_triggered(
             &format!("{}(initial_pending_payable_scan = false)", test_name),
             &subject,
-            StartScanFallibleScanner::PendingPayables {
+            UnableToStartScanner::PendingPayables {
                 initial_pending_payable_scan: false,
             },
         );
         test_what_if_externally_triggered(
             &format!("{}(initial_pending_payable_scan = true)", test_name),
             &subject,
-            StartScanFallibleScanner::PendingPayables {
+            UnableToStartScanner::PendingPayables {
                 initial_pending_payable_scan: true,
             },
         );
@@ -754,7 +754,7 @@ mod tests {
     fn test_what_if_externally_triggered(
         test_name: &str,
         subject: &ScanSchedulers,
-        scanner: StartScanFallibleScanner,
+        scanner: UnableToStartScanner,
     ) {
         init_test_logging();
         let logger = Logger::new(test_name);
@@ -793,7 +793,7 @@ mod tests {
         let result = subject
             .reschedule_on_error_resolver
             .resolve_rescheduling_on_error(
-                StartScanFallibleScanner::PendingPayables {
+                UnableToStartScanner::PendingPayables {
                     initial_pending_payable_scan: true,
                 },
                 &StartScanError::NothingToProcess,
@@ -826,7 +826,7 @@ mod tests {
         let _ = subject
             .reschedule_on_error_resolver
             .resolve_rescheduling_on_error(
-                StartScanFallibleScanner::PendingPayables {
+                UnableToStartScanner::PendingPayables {
                     initial_pending_payable_scan: false,
                 },
                 &StartScanError::NothingToProcess,
@@ -842,7 +842,7 @@ mod tests {
             "resolve_error_if_no_consuming_wallet_found_in_initial_pending_payable_scan";
         let logger = Logger::new(test_name);
         let subject = ScanSchedulers::new(*TEST_SCAN_INTERVALS, true);
-        let scanner = StartScanFallibleScanner::PendingPayables {
+        let scanner = UnableToStartScanner::PendingPayables {
             initial_pending_payable_scan: true,
         };
 
@@ -877,7 +877,7 @@ mod tests {
     fn pending_payable_scan_attempt_if_no_consuming_wallet_found_mustnt_happen_if_not_initial_scan()
     {
         let subject = ScanSchedulers::new(*TEST_SCAN_INTERVALS, true);
-        let scanner = StartScanFallibleScanner::PendingPayables {
+        let scanner = UnableToStartScanner::PendingPayables {
             initial_pending_payable_scan: false,
         };
 
@@ -894,12 +894,12 @@ mod tests {
     #[test]
     fn resolve_error_for_pending_payables_if_null_scanner_is_used_in_automatic_mode() {
         test_resolve_error_if_null_scanner_is_used_in_automatic_mode(
-            StartScanFallibleScanner::PendingPayables {
+            UnableToStartScanner::PendingPayables {
                 initial_pending_payable_scan: true,
             },
         );
         test_resolve_error_if_null_scanner_is_used_in_automatic_mode(
-            StartScanFallibleScanner::PendingPayables {
+            UnableToStartScanner::PendingPayables {
                 initial_pending_payable_scan: false,
             },
         );
@@ -917,7 +917,7 @@ mod tests {
                     subject
                         .reschedule_on_error_resolver
                         .resolve_rescheduling_on_error(
-                            StartScanFallibleScanner::PendingPayables {
+                            UnableToStartScanner::PendingPayables {
                                 initial_pending_payable_scan,
                             },
                             *error,
@@ -961,7 +961,7 @@ mod tests {
         test_what_if_externally_triggered(
             test_name,
             &subject,
-            StartScanFallibleScanner::RetryPayables {},
+            UnableToStartScanner::RetryPayables {},
         );
     }
 
@@ -974,7 +974,7 @@ mod tests {
                 subject
                     .reschedule_on_error_resolver
                     .resolve_rescheduling_on_error(
-                        StartScanFallibleScanner::RetryPayables,
+                        UnableToStartScanner::RetryPayables,
                         error,
                         false,
                         &Logger::new("test"),
@@ -1004,7 +1004,7 @@ mod tests {
         test_what_if_externally_triggered(
             test_name,
             &subject,
-            StartScanFallibleScanner::NewPayables {},
+            UnableToStartScanner::NewPayables {},
         );
     }
 
@@ -1019,7 +1019,7 @@ mod tests {
         let _ = subject
             .reschedule_on_error_resolver
             .resolve_rescheduling_on_error(
-                StartScanFallibleScanner::NewPayables,
+                UnableToStartScanner::NewPayables,
                 &StartScanError::ScanAlreadyRunning {
                     cross_scan_cause_opt: None,
                     started_at: SystemTime::now(),
@@ -1032,7 +1032,7 @@ mod tests {
     #[test]
     fn resolve_error_for_new_payables_if_null_scanner_is_used_in_automatic_mode() {
         test_resolve_error_if_null_scanner_is_used_in_automatic_mode(
-            StartScanFallibleScanner::NewPayables,
+            UnableToStartScanner::NewPayables,
         );
     }
 
@@ -1054,7 +1054,7 @@ mod tests {
             let result = subject
                 .reschedule_on_error_resolver
                 .resolve_rescheduling_on_error(
-                    StartScanFallibleScanner::NewPayables,
+                    UnableToStartScanner::NewPayables,
                     *error,
                     false,
                     &logger,
@@ -1078,17 +1078,13 @@ mod tests {
         let test_name = "resolve_rescheduling_on_error_for_receivables_if_externally_triggered";
         let subject = ScanSchedulers::new(*TEST_SCAN_INTERVALS, true);
 
-        test_what_if_externally_triggered(
-            test_name,
-            &subject,
-            StartScanFallibleScanner::Receivables,
-        );
+        test_what_if_externally_triggered(test_name, &subject, UnableToStartScanner::Receivables);
     }
 
     #[test]
     fn resolve_error_for_receivables_if_null_scanner_is_used_in_automatic_mode() {
         test_resolve_error_if_null_scanner_is_used_in_automatic_mode(
-            StartScanFallibleScanner::Receivables,
+            UnableToStartScanner::Receivables,
         );
     }
 
@@ -1103,7 +1099,7 @@ mod tests {
                 subject
                     .reschedule_on_error_resolver
                     .resolve_rescheduling_on_error(
-                        StartScanFallibleScanner::Receivables,
+                        UnableToStartScanner::Receivables,
                         *error,
                         false,
                         &Logger::new("test"),
@@ -1128,34 +1124,32 @@ mod tests {
     #[test]
     fn conversion_between_hintable_scanner_and_scan_type_works() {
         assert_eq!(
-            ScanType::from(StartScanFallibleScanner::NewPayables),
+            ScanType::from(UnableToStartScanner::NewPayables),
             ScanType::Payables
         );
         assert_eq!(
-            ScanType::from(StartScanFallibleScanner::RetryPayables),
+            ScanType::from(UnableToStartScanner::RetryPayables),
             ScanType::Payables
         );
         assert_eq!(
-            ScanType::from(StartScanFallibleScanner::PendingPayables {
+            ScanType::from(UnableToStartScanner::PendingPayables {
                 initial_pending_payable_scan: false
             }),
             ScanType::PendingPayables
         );
         assert_eq!(
-            ScanType::from(StartScanFallibleScanner::PendingPayables {
+            ScanType::from(UnableToStartScanner::PendingPayables {
                 initial_pending_payable_scan: true
             }),
             ScanType::PendingPayables
         );
         assert_eq!(
-            ScanType::from(StartScanFallibleScanner::Receivables),
+            ScanType::from(UnableToStartScanner::Receivables),
             ScanType::Receivables
         )
     }
 
-    fn test_resolve_error_if_null_scanner_is_used_in_automatic_mode(
-        scanner: StartScanFallibleScanner,
-    ) {
+    fn test_resolve_error_if_null_scanner_is_used_in_automatic_mode(scanner: UnableToStartScanner) {
         let subject = ScanSchedulers::new(*TEST_SCAN_INTERVALS, true);
 
         let result = subject

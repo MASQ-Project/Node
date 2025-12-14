@@ -122,7 +122,10 @@ impl Scanners {
             });
         }
 
-        Self::start_correct_payable_scanner::<ScanForNewPayables>(
+        <(dyn MultistageDualPayableScanner) as StartableScanner<
+            ScanForNewPayables,
+            InitialTemplatesMessage,
+        >>::start_scan(
             &mut *self.payable,
             wallet,
             timestamp,
@@ -150,7 +153,10 @@ impl Scanners {
             )
         }
 
-        Self::start_correct_payable_scanner::<ScanForRetryPayables>(
+        <(dyn MultistageDualPayableScanner) as StartableScanner<
+            ScanForRetryPayables,
+            InitialTemplatesMessage,
+        >>::start_scan(
             &mut *self.payable,
             wallet,
             timestamp,
@@ -297,28 +303,6 @@ impl Scanners {
 
     pub fn unset_initial_pending_payable_scan(&mut self) {
         self.initial_pending_payable_scan = false
-    }
-
-    // This is a helper function reducing a boilerplate of complex trait resolving where
-    // the compiler requires to specify which trigger message distinguishes the scan to run.
-    // The payable scanner offers two modes through doubled implementations of StartableScanner
-    // which uses the trigger message type as the only distinction between them.
-    fn start_correct_payable_scanner<'a, TriggerMessage>(
-        scanner: &'a mut (dyn MultistageDualPayableScanner + 'a),
-        wallet: &Wallet,
-        timestamp: SystemTime,
-        response_skeleton_opt: Option<ResponseSkeleton>,
-        logger: &Logger,
-    ) -> Result<InitialTemplatesMessage, StartScanError>
-    where
-        TriggerMessage: Message,
-        (dyn MultistageDualPayableScanner + 'a):
-            StartableScanner<TriggerMessage, InitialTemplatesMessage>,
-    {
-        <(dyn MultistageDualPayableScanner + 'a) as StartableScanner<
-            TriggerMessage,
-            InitialTemplatesMessage,
-        >>::start_scan(scanner, wallet, timestamp, response_skeleton_opt, logger)
     }
 
     fn check_general_conditions_for_pending_payable_scan(

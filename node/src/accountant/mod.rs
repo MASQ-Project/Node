@@ -30,7 +30,7 @@ use crate::accountant::scanners::pending_payable_scanner::utils::{
     PendingPayableScanResult, TxHashByTable,
 };
 use crate::accountant::scanners::scan_schedulers::{
-    ScanReschedulingAfterEarlyStop, ScanSchedulers, StartScanFallibleScanner,
+    ScanReschedulingAfterEarlyStop, ScanSchedulers, UnableToStartScanner,
 };
 use crate::accountant::scanners::{Scanners, StartScanError};
 use crate::blockchain::blockchain_bridge::{
@@ -416,15 +416,19 @@ impl Handler<ReceivedPayments> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ReceivedPayments, ctx: &mut Self::Context) -> Self::Result {
-        if let Some(node_to_ui_msg) = self.scanners.finish_receivable_scan(msg, &self.logger) {
-            self.ui_message_sub_opt
-                .as_ref()
-                .expect("UIGateway is not bound")
-                .try_send(node_to_ui_msg)
-                .expect("UIGateway is dead");
+        match self.scanners.finish_receivable_scan(msg, &self.logger) {
+            None => self.scan_schedulers.receivable.schedule(ctx, &self.logger),
+            Some(node_to_ui_msg) => {
+                self.ui_message_sub_opt
+                    .as_ref()
+                    .expect("UIGateway is not bound")
+                    .try_send(node_to_ui_msg)
+                    .expect("UIGateway is dead");
+                // Externally triggered scans are not allowed to provoke an unwinding scan sequence
+                // with intervals. The only exception is the PendingPayableScanner that is always
+                // followed by the retry-payable scanner in a tight tandem.
+            }
         }
-
-        self.scan_schedulers.receivable.schedule(ctx, &self.logger);
     }
 }
 
@@ -1009,8 +1013,8 @@ impl Accountant {
                     .expect("BlockchainBridge is dead");
                 ScanReschedulingAfterEarlyStop::DoNotSchedule
             }
-            Err(e) => self.handle_start_scan_error_and_prevent_scan_stall_point(
-                StartScanFallibleScanner::NewPayables,
+            Err(e) => self.handle_start_scan_error(
+                UnableToStartScanner::NewPayables,
                 e,
                 response_skeleton_opt,
             ),
@@ -1042,8 +1046,8 @@ impl Accountant {
             }
             Err(e) => {
                 // Any error here panics by design, so the return value is unreachable/ignored.
-                let _ = self.handle_start_scan_error_and_prevent_scan_stall_point(
-                    StartScanFallibleScanner::RetryPayables,
+                let _ = self.handle_start_scan_error(
+                    UnableToStartScanner::RetryPayables,
                     e,
                     response_skeleton_opt,
                 );
@@ -1078,8 +1082,8 @@ impl Accountant {
             }
             Err(e) => {
                 let initial_pending_payable_scan = self.scanners.initial_pending_payable_scan();
-                self.handle_start_scan_error_and_prevent_scan_stall_point(
-                    StartScanFallibleScanner::PendingPayables {
+                self.handle_start_scan_error(
+                    UnableToStartScanner::PendingPayables {
                         initial_pending_payable_scan,
                     },
                     e,
@@ -1095,9 +1099,9 @@ impl Accountant {
         hint
     }
 
-    fn handle_start_scan_error_and_prevent_scan_stall_point(
+    fn handle_start_scan_error(
         &self,
-        scanner: StartScanFallibleScanner,
+        scanner: UnableToStartScanner,
         e: StartScanError,
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) -> ScanReschedulingAfterEarlyStop {
@@ -1146,8 +1150,8 @@ impl Accountant {
             Err(e) =>
             // Any error here panics by design, so the return value is unreachable/ignored.
             {
-                self.handle_start_scan_error_and_prevent_scan_stall_point(
-                    StartScanFallibleScanner::Receivables,
+                self.handle_start_scan_error(
+                    UnableToStartScanner::Receivables,
                     e,
                     response_skeleton_opt,
                 )
@@ -2297,7 +2301,7 @@ mod tests {
         let (peer_actors, peer_addresses) = peer_actors_builder()
             .blockchain_bridge(blockchain_bridge)
             .ui_gateway(ui_gateway)
-            .build_providing_addresses();
+            .build_with_addresses();
         let subject_addr = subject.start();
         let system = System::new("test");
         let response_skeleton_opt = Some(ResponseSkeleton {
@@ -2774,7 +2778,7 @@ mod tests {
             receivable_scan_interval: Duration::from_millis(10_000),
         });
         config.automatic_scans_enabled = false;
-        let subject = AccountantBuilder::default()
+        let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .config_dao(
                 ConfigDaoMock::new()
@@ -2782,6 +2786,9 @@ mod tests {
                     .set_result(Ok(())),
             )
             .build();
+        // Another scan must not be scheduled
+        subject.scan_schedulers.receivable.handle =
+            Box::new(NotifyLaterHandleMock::default().panic_on_schedule_attempt());
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let subject_addr = subject.start();
         let system = System::new("test");
@@ -3023,7 +3030,7 @@ mod tests {
                 pending_payable_scanner,
                 receivable_scanner,
             );
-        let (peer_actors, addresses) = peer_actors_builder().build_providing_addresses();
+        let (peer_actors, addresses) = peer_actors_builder().build_with_addresses();
         let subject_addr: Addr<Accountant> = subject.start();
         let subject_subs = Accountant::make_subs_from(&subject_addr);
         let expected_tx_receipts_msg = TxReceiptsMessage {
@@ -3683,7 +3690,7 @@ mod tests {
         let subject_subs = Accountant::make_subs_from(&subject_addr);
         let (peer_actors, peer_actors_addrs) = peer_actors_builder()
             .blockchain_bridge(blockchain_bridge)
-            .build_providing_addresses();
+            .build_with_addresses();
         send_bind_message!(subject_subs, peer_actors);
         let counter_msg = ReceivedPayments {
             timestamp: SystemTime::now(),
