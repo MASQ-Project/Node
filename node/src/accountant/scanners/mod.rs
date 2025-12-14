@@ -174,10 +174,14 @@ impl Scanners {
         automatic_scans_enabled: bool,
     ) -> Result<RequestTransactionReceipts, StartScanError> {
         let triggered_manually = response_skeleton_opt.is_some();
-        self.check_general_conditions_for_pending_payable_scan(
-            triggered_manually,
-            automatic_scans_enabled,
-        )?;
+        if triggered_manually && automatic_scans_enabled {
+            return Err(StartScanError::ManualTriggerError(
+                ManulTriggerError::AutomaticScanConflict,
+            ));
+        }
+
+        self.check_pending_payable_existence(triggered_manually)?;
+
         match (
             self.pending_payable.scan_started_at(),
             self.payable.scan_started_at(),
@@ -305,19 +309,14 @@ impl Scanners {
         self.initial_pending_payable_scan = false
     }
 
-    fn check_general_conditions_for_pending_payable_scan(
+    fn check_pending_payable_existence(
         &mut self,
         triggered_manually: bool,
-        automatic_scans_enabled: bool,
     ) -> Result<(), StartScanError> {
-        if triggered_manually && automatic_scans_enabled {
-            return Err(StartScanError::ManualTriggerError(
-                ManulTriggerError::AutomaticScanConflict,
-            ));
-        }
         if self.initial_pending_payable_scan {
             return Ok(());
         }
+
         if triggered_manually && !self.aware_of_unresolved_pending_payable {
             return Err(StartScanError::ManualTriggerError(
                 ManulTriggerError::UnnecessaryRequest {
@@ -1327,8 +1326,8 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "internal error: entered unreachable code: Automatic pending payable \
-    scan should never start if there are no pending payables to process."
+        expected = "internal error: entered unreachable code: Automatic pending payable scan should \
+        never start if there are no pending payables to process."
     )]
     fn pending_payable_scanner_bumps_into_zero_pending_payable_awareness_in_the_automatic_mode() {
         let consuming_wallet = make_paying_wallet(b"consuming");
@@ -1347,11 +1346,12 @@ mod tests {
     }
 
     #[test]
-    fn check_general_conditions_for_pending_payable_scan_if_it_is_initial_pending_payable_scan() {
+    fn check_pending_payable_existence_for_initial_pending_payable_scan_and_zero_awareness() {
         let mut subject = make_dull_subject();
+        subject.aware_of_unresolved_pending_payable = false;
         subject.initial_pending_payable_scan = true;
 
-        let result = subject.check_general_conditions_for_pending_payable_scan(false, true);
+        let result = subject.check_pending_payable_existence(false);
 
         assert_eq!(result, Ok(()));
         assert_eq!(subject.initial_pending_payable_scan, true);
