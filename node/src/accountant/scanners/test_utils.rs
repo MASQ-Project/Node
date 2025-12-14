@@ -19,9 +19,12 @@ use crate::accountant::scanners::pending_payable_scanner::{
 };
 use crate::accountant::scanners::scan_schedulers::{
     NewPayableScanIntervalComputer, RescheduleScanOnErrorResolver, ScanReschedulingAfterEarlyStop,
-    ScanTiming, StartFallibleScanner,
+    ScanTiming, UnableToStartScanner,
 };
-use crate::accountant::scanners::{AutomaticError, CommonError, ManualError, PendingPayableScanner, PrivateScanner, RealScannerMarker, ReceivableScanner, Scanner, StartScanError, StartableScanner};
+use crate::accountant::scanners::{
+    PendingPayableScanner, PrivateScanner, RealScannerMarker, ReceivableScanner, Scanner,
+    StartScanError, StartableScanner,
+};
 use crate::accountant::{
     ReceivedPayments, RequestTransactionReceipts, ResponseSkeleton, SentPayables, TxReceiptsMessage,
 };
@@ -29,7 +32,7 @@ use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::sub_lib::blockchain_bridge::{ConsumingWalletBalances, OutboundPaymentsInstructions};
 use crate::sub_lib::wallet::Wallet;
 use actix::{Message, System};
-use itertools::{Either, Itertools};
+use itertools::Either;
 use masq_lib::logger::{Logger, TIME_FORMATTING_STRING};
 use masq_lib::ui_gateway::NodeToUiMessage;
 use regex::Regex;
@@ -38,9 +41,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use lazy_static::lazy_static;
 use time::{format_description, PrimitiveDateTime};
-use masq_lib::messages::ScanType;
 
 pub struct NullScanner {}
 
@@ -62,12 +63,10 @@ where
         &mut self,
         _wallet: &Wallet,
         _timestamp: SystemTime,
-        response_skeleton_opt: Option<ResponseSkeleton>,
+        _response_skeleton_opt: Option<ResponseSkeleton>,
         _logger: &Logger,
     ) -> Result<StartMessage, StartScanError> {
-        Err(StartScanError::no_consuming_wallet_found(
-            response_skeleton_opt,
-        ))
+        Err(StartScanError::CalledFromNullScanner)
     }
 }
 
@@ -478,21 +477,27 @@ pub fn assert_timestamps_from_str(examined_str: &str, expected_timestamps: Vec<S
 #[derive(Default)]
 pub struct RescheduleScanOnErrorResolverMock {
     resolve_rescheduling_on_error_params:
-        Arc<Mutex<Vec<(StartFallibleScanner, StartScanError, Logger)>>>,
+        Arc<Mutex<Vec<(UnableToStartScanner, StartScanError, bool, Logger)>>>,
     resolve_rescheduling_on_error_results: RefCell<Vec<ScanReschedulingAfterEarlyStop>>,
 }
 
 impl RescheduleScanOnErrorResolver for RescheduleScanOnErrorResolverMock {
     fn resolve_rescheduling_on_error(
         &self,
-        scanner: StartFallibleScanner,
+        scanner: UnableToStartScanner,
         error: &StartScanError,
+        is_externally_triggered: bool,
         logger: &Logger,
     ) -> ScanReschedulingAfterEarlyStop {
         self.resolve_rescheduling_on_error_params
             .lock()
             .unwrap()
-            .push((scanner, error.clone(), logger.clone()));
+            .push((
+                scanner,
+                error.clone(),
+                is_externally_triggered,
+                logger.clone(),
+            ));
         self.resolve_rescheduling_on_error_results
             .borrow_mut()
             .remove(0)
@@ -502,7 +507,7 @@ impl RescheduleScanOnErrorResolver for RescheduleScanOnErrorResolverMock {
 impl RescheduleScanOnErrorResolverMock {
     pub fn resolve_rescheduling_on_error_params(
         mut self,
-        params: &Arc<Mutex<Vec<(StartFallibleScanner, StartScanError, Logger)>>>,
+        params: &Arc<Mutex<Vec<(UnableToStartScanner, StartScanError, bool, Logger)>>>,
     ) -> Self {
         self.resolve_rescheduling_on_error_params = params.clone();
         self
@@ -585,51 +590,6 @@ impl<Record> PendingPayableCacheMock<Record> {
 
     pub fn ensure_empty_cache_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
         self.ensure_empty_cache_params = params.clone();
-        self
-    }
-}
-
-
-lazy_static! {
-        static ref ALL_START_SCAN_ERRORS: Vec<StartScanError> = vec![
-            StartScanError::Automatic(AutomaticError::ScanAlreadyRunning {
-                cross_scan_cause_opt: None,
-                started_at: SystemTime::now()
-            }),
-            StartScanError::Automatic(AutomaticError::ScanAlreadyRunning {
-                cross_scan_cause_opt: Some(ScanType::PendingPayables),
-                started_at: SystemTime::now()
-            }),
-            StartScanError::Automatic(AutomaticError::Common(CommonError::NoConsumingWalletFound)),
-            StartScanError::Automatic(AutomaticError::Common(CommonError::NothingToProcess)),
-            StartScanError::Manual(ManualError::AutomaticScanConflict),
-            StartScanError::Manual(ManualError::UnnecessaryRequest { hint_opt: None }),
-            StartScanError::Manual(ManualError::UnnecessaryRequest {
-                hint_opt: Some("bluh".to_string())
-            }),
-            StartScanError::Manual(ManualError::Common(CommonError::NoConsumingWalletFound)),
-            StartScanError::Manual(ManualError::Common(CommonError::NothingToProcess)),
-            StartScanError::Test,
-        ];
-    }
-
-pub struct ListOfStartScanErrors<'a> {
-    pub errors: Vec<&'a StartScanError>,
-}
-
-impl<'a> Default for ListOfStartScanErrors<'a> {
-    fn default() -> Self {
-        Self {
-            errors: ALL_START_SCAN_ERRORS.iter().collect_vec(),
-        }
-    }
-}
-
-type MatchesErrorVersion = fn(&StartScanError) -> bool;
-
-impl<'a> ListOfStartScanErrors<'a> {
-    pub fn exclude_variants(mut self, eliminate_errors_conditions: MatchesErrorVersion) -> Self {
-        self.errors.retain(|err| !eliminate_errors_conditions(*err));
         self
     }
 }

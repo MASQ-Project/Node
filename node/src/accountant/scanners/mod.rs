@@ -41,6 +41,7 @@ use std::rc::Rc;
 use std::time::SystemTime;
 use time::format_description::parse;
 use time::OffsetDateTime;
+use variant_count::VariantCount;
 
 // Leave the individual scanner objects private!
 pub struct Scanners {
@@ -110,16 +111,21 @@ impl Scanners {
     ) -> Result<InitialTemplatesMessage, StartScanError> {
         let triggered_manually = response_skeleton_opt.is_some();
         if triggered_manually && automatic_scans_enabled {
-            return Err(StartScanError::Manual(ManualError::AutomaticScanConflict));
+            return Err(StartScanError::ManualTriggerError(
+                ManulTriggerError::AutomaticScanConflict,
+            ));
         }
         if let Some(started_at) = self.payable.scan_started_at() {
-            return Err(StartScanError::scan_already_running(response_skeleton_opt,
-                    None,
-                    started_at)
-            );
+            return Err(StartScanError::ScanAlreadyRunning {
+                cross_scan_cause_opt: None,
+                started_at,
+            });
         }
 
-        Self::start_correct_payable_scanner::<ScanForNewPayables>(
+        <(dyn MultistageDualPayableScanner) as StartableScanner<
+            ScanForNewPayables,
+            InitialTemplatesMessage,
+        >>::start_scan(
             &mut *self.payable,
             wallet,
             timestamp,
@@ -147,7 +153,10 @@ impl Scanners {
             )
         }
 
-        Self::start_correct_payable_scanner::<ScanForRetryPayables>(
+        <(dyn MultistageDualPayableScanner) as StartableScanner<
+            ScanForRetryPayables,
+            InitialTemplatesMessage,
+        >>::start_scan(
             &mut *self.payable,
             wallet,
             timestamp,
@@ -165,10 +174,14 @@ impl Scanners {
         automatic_scans_enabled: bool,
     ) -> Result<RequestTransactionReceipts, StartScanError> {
         let triggered_manually = response_skeleton_opt.is_some();
-        self.check_initial_conditions_for_pending_payable_scan(
-            triggered_manually,
-            automatic_scans_enabled,
-        )?;
+        if triggered_manually && automatic_scans_enabled {
+            return Err(StartScanError::ManualTriggerError(
+                ManulTriggerError::AutomaticScanConflict,
+            ));
+        }
+
+        self.check_pending_payable_existence(triggered_manually)?;
+
         match (
             self.pending_payable.scan_started_at(),
             self.payable.scan_started_at(),
@@ -185,20 +198,16 @@ impl Scanners {
                 )
             }
             (Some(started_at), None) => {
-                return Err(StartScanError::Automatic(
-                    AutomaticError::ScanAlreadyRunning {
-                        cross_scan_cause_opt: None,
-                        started_at,
-                    },
-                ))
+                return Err(StartScanError::ScanAlreadyRunning {
+                    cross_scan_cause_opt: None,
+                    started_at,
+                })
             }
             (None, Some(started_at)) => {
-                return Err(StartScanError::Automatic(
-                    AutomaticError::ScanAlreadyRunning {
-                        cross_scan_cause_opt: Some(ScanType::Payables),
-                        started_at,
-                    },
-                ))
+                return Err(StartScanError::ScanAlreadyRunning {
+                    cross_scan_cause_opt: Some(ScanType::Payables),
+                    started_at,
+                })
             }
             (None, None) => (),
         }
@@ -217,15 +226,15 @@ impl Scanners {
     ) -> Result<RetrieveTransactions, StartScanError> {
         let triggered_manually = response_skeleton_opt.is_some();
         if triggered_manually && automatic_scans_enabled {
-            return Err(StartScanError::Manual(ManualError::AutomaticScanConflict));
+            return Err(StartScanError::ManualTriggerError(
+                ManulTriggerError::AutomaticScanConflict,
+            ));
         }
         if let Some(started_at) = self.receivable.scan_started_at() {
-            return Err(StartScanError::Automatic(
-                AutomaticError::ScanAlreadyRunning {
-                    cross_scan_cause_opt: None,
-                    started_at,
-                },
-            ));
+            return Err(StartScanError::ScanAlreadyRunning {
+                cross_scan_cause_opt: None,
+                started_at,
+            });
         }
 
         self.receivable
@@ -300,47 +309,24 @@ impl Scanners {
         self.initial_pending_payable_scan = false
     }
 
-    // This is a helper function reducing a boilerplate of complex trait resolving where
-    // the compiler requires to specify which trigger message distinguishes the scan to run.
-    // The payable scanner offers two modes through doubled implementations of StartableScanner
-    // which uses the trigger message type as the only distinction between them.
-    fn start_correct_payable_scanner<'a, TriggerMessage>(
-        scanner: &'a mut (dyn MultistageDualPayableScanner + 'a),
-        wallet: &Wallet,
-        timestamp: SystemTime,
-        response_skeleton_opt: Option<ResponseSkeleton>,
-        logger: &Logger,
-    ) -> Result<InitialTemplatesMessage, StartScanError>
-    where
-        TriggerMessage: Message,
-        (dyn MultistageDualPayableScanner + 'a):
-            StartableScanner<TriggerMessage, InitialTemplatesMessage>,
-    {
-        <(dyn MultistageDualPayableScanner + 'a) as StartableScanner<
-            TriggerMessage,
-            InitialTemplatesMessage,
-        >>::start_scan(scanner, wallet, timestamp, response_skeleton_opt, logger)
-    }
-
-    fn check_initial_conditions_for_pending_payable_scan(
+    fn check_pending_payable_existence(
         &mut self,
         triggered_manually: bool,
-        automatic_scans_enabled: bool,
     ) -> Result<(), StartScanError> {
-        if triggered_manually && automatic_scans_enabled {
-            return Err(StartScanError::Manual(ManualError::AutomaticScanConflict));
-        }
         if self.initial_pending_payable_scan {
             return Ok(());
         }
+
         if triggered_manually && !self.aware_of_unresolved_pending_payable {
-            return Err(StartScanError::Manual(ManualError::UnnecessaryRequest {
-                hint_opt: Some("Run Payable scanner first.".to_string()),
-            }));
+            return Err(StartScanError::ManualTriggerError(
+                ManulTriggerError::UnnecessaryRequest {
+                    hint_opt: Some("Run the Payable scanner first.".to_string()),
+                },
+            ));
         }
         if !self.aware_of_unresolved_pending_payable {
             unreachable!(
-                "The automatic scan for pending payables should only run when there are pending \
+                "Automatic pending payable scan should never start if there are no pending \
                 payables to process."
             )
         }
@@ -445,118 +431,69 @@ macro_rules! time_marking_methods {
     };
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, VariantCount)]
 pub enum StartScanError {
-    Automatic(AutomaticError),
-    Manual(ManualError),
-    Test,
-}
-
-impl StartScanError {
-    pub fn is_manual_error(&self) -> bool {
-        match self {
-            StartScanError::Automatic(_) => false,
-            StartScanError::Test => false,
-            StartScanError::Manual(_) => true,
-        }
-    }
-    pub fn no_consuming_wallet_found(response_skeleton_opt: Option<ResponseSkeleton>) -> Self {
-        match response_skeleton_opt {
-            Some(_) => StartScanError::Manual(ManualError::Common(CommonError::NoConsumingWalletFound)),
-            None => StartScanError::Automatic(AutomaticError::Common(CommonError::NoConsumingWalletFound))
-        }
-    }
-
-    pub fn nothing_to_process(response_skeleton_opt: Option<ResponseSkeleton>) -> Self {
-        match response_skeleton_opt {
-            Some(_) => StartScanError::Manual(ManualError::Common(CommonError::NothingToProcess)),
-            None => StartScanError::Automatic(AutomaticError::Common(CommonError::NothingToProcess))
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum AutomaticError {
-    Common(CommonError),
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum ManualError {
-    AutomaticScanConflict,
-    UnnecessaryRequest { hint_opt: Option<String> },
+    NothingToProcess,
+    NoConsumingWalletFound,
     ScanAlreadyRunning {
         cross_scan_cause_opt: Option<ScanType>,
         started_at: SystemTime,
     },
-    Common(CommonError),
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum CommonError {
-    NothingToProcess,
-    NoConsumingWalletFound,
+    CalledFromNullScanner, // Exclusive for tests
+    ManualTriggerError(ManulTriggerError),
 }
 
 impl StartScanError {
-    pub fn log_error(&self, logger: &Logger, scan_type: ScanType) {
+    pub fn log_error(&self, logger: &Logger, scan_type: ScanType, is_externally_triggered: bool) {
         enum ErrorType {
-            Temporary {
-                msg: String,
-                externally_triggered: bool,
-            },
+            Temporary(String),
             Permanent(String),
         }
+
         let log_message = match self {
-            StartScanError::Automatic(AutomaticError::Common(e)) | StartScanError::Manual(ManualError::Common(e))=> match e {
-                CommonError::NoConsumingWalletFound => ErrorType::Permanent(format!(
-                    "Cannot initiate {:?} scan because no consuming wallet was found.",
-                    scan_type
-                )),
-                CommonError::NothingToProcess => ErrorType::Temporary {
-                    msg: format!("There was nothing to process during {:?} scan.", scan_type),
-                    externally_triggered: self.is_manual_error(),
-                },
-            },
-            StartScanError::Manual(ManualError::AutomaticScanConflict) => {
-                ErrorType::Permanent(format!(
-                    "User requested {:?} scan was denied. Automatic mode prevents manual triggers.",
-                    scan_type
-                ))
-            }
-            StartScanError::Manual(ManualError::UnnecessaryRequest { hint_opt }) => {
-                ErrorType::Temporary {
-                    msg: format!(
-                        "User requested {:?} scan was denied expecting zero findings.{}",
-                        scan_type,
-                        match hint_opt {
-                            Some(hint) => format!(" {}", hint),
-                            None => "".to_string(),
-                        }
-                    ),
-                    externally_triggered: true,
-                }
-            }
-            StartScanError::Manual(ManualError::ScanAlreadyRunning {
-                                          cross_scan_cause_opt,
-                                          started_at,
-                                      }) => ErrorType::Temporary {
-                msg: Self::scan_already_running_msg(scan_type, *cross_scan_cause_opt, *started_at),
-                externally_triggered: false,
-            },
-            StartScanError::Test => match cfg!(test) {
+            StartScanError::NothingToProcess => ErrorType::Temporary(format!(
+                "There was nothing to process during {:?} scan.",
+                scan_type
+            )),
+            StartScanError::ScanAlreadyRunning {
+                cross_scan_cause_opt,
+                started_at,
+            } => ErrorType::Temporary(Self::scan_already_running_msg(
+                scan_type,
+                *cross_scan_cause_opt,
+                *started_at,
+            )),
+            StartScanError::NoConsumingWalletFound => ErrorType::Permanent(format!(
+                "Cannot initiate {:?} scan because no consuming wallet was found.",
+                scan_type
+            )),
+            StartScanError::CalledFromNullScanner => match cfg!(test) {
                 true => ErrorType::Permanent(format!(
                     "Called from NullScanner, not the {:?} scanner.",
                     scan_type
                 )),
                 false => panic!("Null Scanner shouldn't be running inside production code."),
             },
+            StartScanError::ManualTriggerError(e) => match e {
+                ManulTriggerError::AutomaticScanConflict => ErrorType::Permanent(format!(
+                    "User requested {:?} scan was denied. Automatic mode prevents manual triggers.",
+                    scan_type
+                )),
+                ManulTriggerError::UnnecessaryRequest { hint_opt } => {
+                    ErrorType::Temporary(format!(
+                        "User requested {:?} scan was denied expecting zero findings.{}",
+                        scan_type,
+                        match hint_opt {
+                            Some(hint) => format!(" {}", hint),
+                            None => "".to_string(),
+                        }
+                    ))
+                }
+            },
         };
 
         match log_message {
-            ErrorType::Temporary {
-                msg,
-                externally_triggered,
-            } => match externally_triggered {
+            ErrorType::Temporary(msg) => match is_externally_triggered {
                 true => info!(logger, "{}", msg),
                 false => debug!(logger, "{}", msg),
             },
@@ -595,6 +532,12 @@ impl StartScanError {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum ManulTriggerError {
+    AutomaticScanConflict,
+    UnnecessaryRequest { hint_opt: Option<String> },
+}
+
 pub trait RealScannerMarker {}
 
 macro_rules! impl_real_scanner_marker {
@@ -626,10 +569,13 @@ mod tests {
     };
     use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
     use crate::accountant::scanners::receivable_scanner::ReceivableScanner;
-    use crate::accountant::scanners::test_utils::{assert_timestamps_from_str, parse_system_time_from_str, trim_expected_timestamp_to_three_digits_nanos, ListOfStartScanErrors, MarkScanner, NullScanner, PendingPayableCacheMock, ReplacementType, ScannerReplacement};
+    use crate::accountant::scanners::test_utils::{
+        assert_timestamps_from_str, parse_system_time_from_str,
+        trim_expected_timestamp_to_three_digits_nanos, MarkScanner, NullScanner,
+        PendingPayableCacheMock, ReplacementType, ScannerReplacement,
+    };
     use crate::accountant::scanners::{
-        AutomaticError, CommonError, ManualError, Scanner, ScannerCommon, Scanners, StartScanError,
-        StartableScanner,
+        ManulTriggerError, Scanner, ScannerCommon, Scanners, StartScanError, StartableScanner,
     };
     use crate::accountant::test_utils::{
         make_custom_payment_thresholds, make_qualified_and_unqualified_payables,
@@ -913,7 +859,7 @@ mod tests {
     }
 
     #[test]
-    fn new_payable_scanner_cannot_be_initiated_if_it_is_already_running_in_manual_mode(){
+    fn new_payable_scanner_cannot_be_initiated_if_it_is_already_running() {
         let consuming_wallet = make_paying_wallet(b"consuming wallet");
         let (_, _, retrieved_payables) = make_qualified_and_unqualified_payables(
             SystemTime::now(),
@@ -931,7 +877,7 @@ mod tests {
             previous_scan_started_at,
             None,
             &Logger::new("test"),
-            false,
+            true,
         );
 
         let result = subject.start_new_payable_scan_guarded(
@@ -939,51 +885,17 @@ mod tests {
             SystemTime::now(),
             None,
             &Logger::new("test"),
-            false,
+            true,
         );
 
         let is_scan_running = subject.payable.scan_started_at().is_some();
         assert_eq!(is_scan_running, true);
         assert_eq!(
             result,
-            Err(StartScanError::Manual(
-                ManualError::ScanAlreadyRunning {
-                    cross_scan_cause_opt: None,
-                    started_at: previous_scan_started_at
-                })
-            )
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "bluhhh")]
-    fn new_payable_scanner_panics_if_it_is_already_running_in_automatic_mode() {
-        let consuming_wallet = make_paying_wallet(b"consuming wallet");
-        let (_, _, retrieved_payables) = make_qualified_and_unqualified_payables(
-            SystemTime::now(),
-            &PaymentThresholds::default(),
-        );
-        let payable_dao = PayableDaoMock::new().retrieve_payables_result(retrieved_payables);
-        let mut subject = make_dull_subject();
-        let payable_scanner = PayableScannerBuilder::new()
-            .payable_dao(payable_dao)
-            .build();
-        subject.payable = Box::new(payable_scanner);
-        let previous_scan_started_at = SystemTime::now();
-        let _ = subject.start_new_payable_scan_guarded(
-            &consuming_wallet,
-            previous_scan_started_at,
-            None,
-            &Logger::new("test"),
-            true,
-        );
-
-        let result = subject.start_new_payable_scan_guarded(
-            &consuming_wallet,
-            SystemTime::now(),
-            None,
-            &Logger::new("test"),
-            true,
+            Err(StartScanError::ScanAlreadyRunning {
+                cross_scan_cause_opt: None,
+                started_at: previous_scan_started_at
+            })
         );
     }
 
@@ -1012,12 +924,7 @@ mod tests {
 
         let is_scan_running = subject.scan_started_at(ScanType::Payables).is_some();
         assert_eq!(is_scan_running, false);
-        assert_eq!(
-            result,
-            Err(StartScanError::Automatic(AutomaticError::Common(
-                CommonError::NothingToProcess
-            )))
-        );
+        assert_eq!(result, Err(StartScanError::NothingToProcess));
     }
 
     #[test]
@@ -1283,7 +1190,7 @@ mod tests {
     }
 
     #[test]
-    fn pending_payable_scanner_cannot_be_initiated_if_it_itself_is_already_running_in_manual_mode() {
+    fn pending_payable_scanner_cannot_be_initiated_if_it_itself_is_already_running() {
         let now = SystemTime::now();
         let consuming_wallet = make_paying_wallet(b"consuming");
         let mut subject = make_dull_subject();
@@ -1318,51 +1225,14 @@ mod tests {
         assert_eq!(is_scan_running, true);
         assert_eq!(
             result,
-            Err( StartScanError::Manual(
-                ManualError::ScanAlreadyRunning {
-                    cross_scan_cause_opt: None,
-                    started_at: now
-                }
-            ))
+            Err(StartScanError::ScanAlreadyRunning {
+                cross_scan_cause_opt: None,
+                started_at: now
+            })
         );
     }
 
     #[test]
-    #[should_panic(expected = "bluhh")]
-    fn pending_payable_scanner_panics_if_it_itself_is_already_running_in_automatic_mode() {
-        let now = SystemTime::now();
-        let consuming_wallet = make_paying_wallet(b"consuming");
-        let mut subject = make_dull_subject();
-        let sent_payable_dao =
-            SentPayableDaoMock::new().retrieve_txs_result(btreeset![make_sent_tx(123)]);
-        let failed_payable_dao =
-            FailedPayableDaoMock::new().retrieve_txs_result(BTreeSet::from([make_failed_tx(456)]));
-        let pending_payable_scanner = PendingPayableScannerBuilder::new()
-            .sent_payable_dao(sent_payable_dao)
-            .failed_payable_dao(failed_payable_dao)
-            .sent_payable_cache(Box::new(CurrentPendingPayables::default()))
-            .failed_payable_cache(Box::new(RecheckRequiringFailures::default()))
-            .build();
-        // Important
-        subject.aware_of_unresolved_pending_payable = true;
-        subject.pending_payable = Box::new(pending_payable_scanner);
-        let payable_scanner = PayableScannerBuilder::new().build();
-        subject.payable = Box::new(payable_scanner);
-        let logger = Logger::new("test");
-        let _ =
-            subject.start_pending_payable_scan_guarded(&consuming_wallet, now, None, &logger, true);
-
-        let result = subject.start_pending_payable_scan_guarded(
-            &consuming_wallet,
-            SystemTime::now(),
-            None,
-            &logger,
-            true,
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "bluhhh")]
     fn pending_payable_scanner_cannot_be_initiated_if_payable_scanner_is_still_running() {
         let consuming_wallet = make_paying_wallet(b"consuming");
         let mut subject = make_dull_subject();
@@ -1383,18 +1253,16 @@ mod tests {
             &logger,
             true,
         );
-        //
-        // let is_scan_running = subject.pending_payable.scan_started_at().is_some();
-        // assert_eq!(is_scan_running, false);
-        // assert_eq!(
-        //     result,
-        //     Err(StartScanError::Automatic(
-        //         AutomaticError::ScanAlreadyRunning {
-        //             cross_scan_cause_opt: Some(ScanType::Payables),
-        //             started_at: previous_scan_started_at
-        //         }
-        //     ))
-        // );
+
+        let is_scan_running = subject.pending_payable.scan_started_at().is_some();
+        assert_eq!(is_scan_running, false);
+        assert_eq!(
+            result,
+            Err(StartScanError::ScanAlreadyRunning {
+                cross_scan_cause_opt: Some(ScanType::Payables),
+                started_at: previous_scan_started_at
+            })
+        );
     }
 
     #[test]
@@ -1458,8 +1326,8 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "internal error: entered unreachable code: The automatic scan for pending \
-        payables should only run when there are pending payables to process."
+        expected = "internal error: entered unreachable code: Automatic pending payable scan should \
+        never start if there are no pending payables to process."
     )]
     fn pending_payable_scanner_bumps_into_zero_pending_payable_awareness_in_the_automatic_mode() {
         let consuming_wallet = make_paying_wallet(b"consuming");
@@ -1478,11 +1346,12 @@ mod tests {
     }
 
     #[test]
-    fn check_initial_conditions_for_pending_payable_scan_if_it_is_initial_pending_payable_scan() {
+    fn check_pending_payable_existence_for_initial_pending_payable_scan_and_zero_awareness() {
         let mut subject = make_dull_subject();
+        subject.aware_of_unresolved_pending_payable = false;
         subject.initial_pending_payable_scan = true;
 
-        let result = subject.check_initial_conditions_for_pending_payable_scan(false, true);
+        let result = subject.check_pending_payable_existence(false);
 
         assert_eq!(result, Ok(()));
         assert_eq!(subject.initial_pending_payable_scan, true);
@@ -1711,7 +1580,7 @@ mod tests {
     }
 
     #[test]
-    fn receivable_scanner_throws_error_if_it_is_already_running_in_manual_mode() {
+    fn receivable_scanner_throws_error_in_case_scan_is_already_running() {
         let now = SystemTime::now();
         let receivable_dao = ReceivableDaoMock::new()
             .new_delinquencies_result(vec![])
@@ -1727,7 +1596,7 @@ mod tests {
             now,
             None,
             &Logger::new("test"),
-            false,
+            true,
         );
 
         let result = subject.start_receivable_scan_guarded(
@@ -1735,49 +1604,17 @@ mod tests {
             SystemTime::now(),
             None,
             &Logger::new("test"),
-            false,
+            true,
         );
 
         let is_scan_running = subject.receivable.scan_started_at().is_some();
         assert_eq!(is_scan_running, true);
         assert_eq!(
             result,
-            Err(StartScanError::Manual(
-                ManualError::ScanAlreadyRunning {
-                    cross_scan_cause_opt: None,
-                    started_at: now
-                })
-            )
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "bluh")]
-    fn receivable_scanner_panics_if_it_is_already_running_in_automatic_mode() {
-        let now = SystemTime::now();
-        let receivable_dao = ReceivableDaoMock::new()
-            .new_delinquencies_result(vec![])
-            .paid_delinquencies_result(vec![]);
-        let earning_wallet = make_wallet("earning");
-        let mut subject = make_dull_subject();
-        let receivable_scanner = ReceivableScannerBuilder::new()
-            .receivable_dao(receivable_dao)
-            .build();
-        subject.receivable = Box::new(receivable_scanner);
-        let _ = subject.start_receivable_scan_guarded(
-            &earning_wallet,
-            now,
-            None,
-            &Logger::new("test"),
-            true,
-        );
-
-        let _ = subject.start_receivable_scan_guarded(
-            &earning_wallet,
-            SystemTime::now(),
-            None,
-            &Logger::new("test"),
-            true,
+            Err(StartScanError::ScanAlreadyRunning {
+                cross_scan_cause_opt: None,
+                started_at: now
+            })
         );
     }
 
@@ -2325,156 +2162,103 @@ mod tests {
     }
 
     #[test]
-    fn logging_scan_error_works_for_automatic_errors() {
+    fn log_error_works_fine() {
         init_test_logging();
-        let test_name = "logging_scan_error_works_for_automatic_errors";
-        let input: Vec<(StartScanError, String)> = vec![
-            (
-                StartScanError::Automatic(AutomaticError::Common(CommonError::NoConsumingWalletFound)),
-                format!(
-                    "WARN: {test_name}: Cannot initiate Payables scan because no consuming wallet was found.",
-                )
-            ),
-            (
-                StartScanError::Automatic(AutomaticError::Common(CommonError::NothingToProcess)),
-                format!(
-                    "DEBUG: {test_name}: There was nothing to process during Payables scan.",
-                )
-            ),
-        ];
-        let logger = Logger::new(test_name);
-        let test_log_handler = TestLogHandler::new();
-
-        input.into_iter().for_each(|(err, expected_log_msg)| {
-            err.log_error(&logger, ScanType::Payables);
-
-            test_log_handler.exists_log_containing(&expected_log_msg);
-        });
-    }
-
-    #[test]
-    fn logging_scan_errors_works_for_manual_errors() {
-        init_test_logging();
-        let test_name = "logging_scan_errors_works_for_manual_errors";
+        let test_name = "log_error_works_fine";
         let now = SystemTime::now();
-        let input: Vec<(StartScanError, String)> = vec![
+        let input: Vec<(StartScanError, Box<dyn Fn(&str) -> String>, &str, &str)> = vec![
             (
-                StartScanError::Manual(ManualError::ScanAlreadyRunning {
+                StartScanError::ScanAlreadyRunning {
                     cross_scan_cause_opt: None,
                     started_at: now,
+                },
+                Box::new(|sev| {
+                    format!(
+                        "{sev}: {test_name}: Payables scan was already initiated at {}",
+                        StartScanError::timestamp_as_string(now)
+                    )
                 }),
-                format!(
-                    "DEBUG: {test_name}: Payables scan was already initiated at {}",
-                    StartScanError::timestamp_as_string(now)
-                )
+                "INFO",
+                "DEBUG",
             ),
             (
-                StartScanError::Manual(ManualError::AutomaticScanConflict),
-                format!("WARN: {test_name}: User requested Payables scan was denied. Automatic mode prevents manual triggers.")
+                StartScanError::ManualTriggerError(ManulTriggerError::AutomaticScanConflict),
+                Box::new(|sev| {
+                    format!("{sev}: {test_name}: User requested Payables scan was denied. Automatic mode prevents manual triggers.")
+                }),
+                "WARN",
+                "WARN",
             ),
             (
-                StartScanError::Manual(ManualError::UnnecessaryRequest {
+                StartScanError::ManualTriggerError(ManulTriggerError::UnnecessaryRequest {
                     hint_opt: Some("Wise words".to_string()),
                 }),
-                format!("INFO: {test_name}: User requested Payables scan was denied expecting zero findings. Wise words")
+                Box::new(|sev| {
+                    format!("{sev}: {test_name}: User requested Payables scan was denied expecting zero findings. Wise words")
+                }),
+                "INFO",
+                "DEBUG",
             ),
             (
-                StartScanError::Manual(ManualError::UnnecessaryRequest {
+                StartScanError::ManualTriggerError(ManulTriggerError::UnnecessaryRequest {
                     hint_opt: None,
                 }),
-                format!("INFO: {test_name}: User requested Payables scan was denied expecting zero findings.")
+                Box::new(|sev| {
+                    format!("{sev}: {test_name}: User requested Payables scan was denied expecting zero findings.")
+                }),
+                "INFO",
+                "DEBUG",
             ),
             (
-                StartScanError::Manual(ManualError::Common(CommonError::NoConsumingWalletFound)),
-                format!("WARN: {test_name}: Cannot initiate Payables scan because no consuming wallet was found.")
+                StartScanError::CalledFromNullScanner,
+                Box::new(|sev| {
+                    format!(
+                        "{sev}: {test_name}: Called from NullScanner, not the Payables scanner."
+                    )
+                }),
+                "WARN",
+                "WARN",
             ),
             (
-                StartScanError::Manual(ManualError::Common(CommonError::NothingToProcess)),
-                format!(
-                    "INFO: {test_name}: There was nothing to process during Payables scan."
-                ),
+                StartScanError::NoConsumingWalletFound,
+                Box::new(|sev| {
+                    format!("{sev}: {test_name}: Cannot initiate Payables scan because no consuming wallet was found.")
+                }),
+                "WARN",
+                "WARN",
+            ),
+            (
+                StartScanError::NothingToProcess,
+                Box::new(|sev| {
+                    format!(
+                        "{sev}: {test_name}: There was nothing to process during Payables scan."
+                    )
+                }),
+                "INFO",
+                "DEBUG",
             ),
         ];
         let logger = Logger::new(test_name);
         let test_log_handler = TestLogHandler::new();
 
-        input.into_iter().for_each(|(err, expected_log_msg)| {
-            err.log_error(&logger, ScanType::Payables);
+        input.into_iter().for_each(
+            |(
+                err,
+                form_expected_log_msg,
+                log_severity_for_externally_triggered_scans,
+                log_severity_for_automatic_scans,
+            )| {
+                let test_log_error_by_mode =
+                    |is_externally_triggered: bool, expected_severity: &str| {
+                        err.log_error(&logger, ScanType::Payables, is_externally_triggered);
+                        let expected_log_msg = form_expected_log_msg(expected_severity);
+                        test_log_handler.exists_log_containing(&expected_log_msg);
+                    };
 
-            test_log_handler.exists_log_containing(&expected_log_msg);
-        });
-    }
+                test_log_error_by_mode(true, log_severity_for_externally_triggered_scans);
 
-    #[test]
-    fn logging_scan_errors_works_for_null_scanner_error() {
-        init_test_logging();
-        let test_name = "logging_scan_errors_works_for_manual_errors";
-        let logger = Logger::new(test_name);
-        let error = StartScanError::Test;
-
-        error.log_error(&logger, ScanType::Payables);
-
-        let test_log_handler = TestLogHandler::new();
-        test_log_handler.exists_log_containing(&format!(
-            "WARN: {test_name}: Called from NullScanner, not the Payables scanner."
-        ));
-    }
-
-    #[test]
-    fn start_scan_error_is_externally_triggered_works_for_manual_errors() {
-        let errs = ListOfStartScanErrors::default().exclude_variants(|err|matches!(err, StartScanError::Automatic(_) | StartScanError::Test));
-
-        errs.errors.iter().for_each(|err| {
-            assert!(err.is_manual_error(), "Expected {:?} to be externally triggered", err);
-        })
-    }
-
-    #[test]
-    fn start_scan_error_is_externally_triggered_works_for_automatic_errors() {
-        let errs = ListOfStartScanErrors::default().exclude_variants(|err|matches!(err, StartScanError::Manual(_) | StartScanError::Test));
-
-        errs.errors.iter().for_each(|err| {
-            assert!(!err.is_manual_error(), "Expected {:?} to not be externally triggered", err);
-        })
-    }
-
-    #[test]
-    fn start_scan_error_is_externally_triggered_works_for_null_scanner_err() {
-        let err = StartScanError::Test;
-            assert!(!err.is_manual_error(), "Expected {:?} to not be externally triggered", err);
-    }
-
-    #[test]
-    fn start_scan_error_no_consuming_wallet_found_constructor_works(
-    ) {
-        assert_eq!(
-            StartScanError::no_consuming_wallet_found(None),
-            StartScanError::Automatic(AutomaticError::Common(
-                CommonError::NoConsumingWalletFound
-            ))
-        );
-        assert_eq!(
-            StartScanError::no_consuming_wallet_found(Some(ResponseSkeleton {
-                client_id: 123,
-                context_id: 456,
-            })),
-            StartScanError::Manual(ManualError::Common(CommonError::NoConsumingWalletFound))
-        );
-    }
-
-    #[test]
-    fn start_scan_error_nothing_to_process_constructor_works(
-    ) {
-        assert_eq!(
-            StartScanError::nothing_to_process(None),
-            StartScanError::Automatic(AutomaticError::Common(CommonError::NothingToProcess))
-        );
-        assert_eq!(
-            StartScanError::nothing_to_process(Some(ResponseSkeleton {
-                client_id: 123,
-                context_id: 456,
-            })),
-            StartScanError::Manual(ManualError::Common(CommonError::NothingToProcess))
+                test_log_error_by_mode(false, log_severity_for_automatic_scans);
+            },
         );
     }
 

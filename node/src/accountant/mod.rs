@@ -30,7 +30,7 @@ use crate::accountant::scanners::pending_payable_scanner::utils::{
     PendingPayableScanResult, TxHashByTable,
 };
 use crate::accountant::scanners::scan_schedulers::{
-    ScanReschedulingAfterEarlyStop, ScanSchedulers, StartFallibleScanner,
+    ScanReschedulingAfterEarlyStop, ScanSchedulers, UnableToStartScanner,
 };
 use crate::accountant::scanners::{Scanners, StartScanError};
 use crate::blockchain::blockchain_bridge::{
@@ -416,15 +416,19 @@ impl Handler<ReceivedPayments> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ReceivedPayments, ctx: &mut Self::Context) -> Self::Result {
-        if let Some(node_to_ui_msg) = self.scanners.finish_receivable_scan(msg, &self.logger) {
-            self.ui_message_sub_opt
-                .as_ref()
-                .expect("UIGateway is not bound")
-                .try_send(node_to_ui_msg)
-                .expect("UIGateway is dead");
+        match self.scanners.finish_receivable_scan(msg, &self.logger) {
+            None => self.scan_schedulers.receivable.schedule(ctx, &self.logger),
+            Some(node_to_ui_msg) => {
+                self.ui_message_sub_opt
+                    .as_ref()
+                    .expect("UIGateway is not bound")
+                    .try_send(node_to_ui_msg)
+                    .expect("UIGateway is dead");
+                // Externally triggered scans are not allowed to provoke an unwinding scan sequence
+                // with intervals. The only exception is the PendingPayableScanner that is always
+                // followed by the retry-payable scanner in a tight tandem.
+            }
         }
-
-        self.scan_schedulers.receivable.schedule(ctx, &self.logger);
     }
 }
 
@@ -995,9 +999,7 @@ impl Accountant {
                     &self.logger,
                     self.scan_schedulers.automatic_scans_enabled,
                 ),
-                None => Err(StartScanError::no_consuming_wallet_found(
-                    response_skeleton_opt,
-                )),
+                None => Err(StartScanError::NoConsumingWalletFound),
             };
 
         self.scan_schedulers.payable.reset_scan_timer(&self.logger);
@@ -1012,7 +1014,7 @@ impl Accountant {
                 ScanReschedulingAfterEarlyStop::DoNotSchedule
             }
             Err(e) => self.handle_start_scan_error(
-                StartFallibleScanner::NewPayables,
+                UnableToStartScanner::NewPayables,
                 e,
                 response_skeleton_opt,
             ),
@@ -1031,9 +1033,7 @@ impl Accountant {
                     response_skeleton_opt,
                     &self.logger,
                 ),
-                None => Err(StartScanError::no_consuming_wallet_found(
-                    response_skeleton_opt,
-                )),
+                None => Err(StartScanError::NoConsumingWalletFound),
             };
 
         match result {
@@ -1047,7 +1047,7 @@ impl Accountant {
             Err(e) => {
                 // Any error here panics by design, so the return value is unreachable/ignored.
                 let _ = self.handle_start_scan_error(
-                    StartFallibleScanner::RetryPayables,
+                    UnableToStartScanner::RetryPayables,
                     e,
                     response_skeleton_opt,
                 );
@@ -1068,9 +1068,7 @@ impl Accountant {
                     &self.logger,
                     self.scan_schedulers.automatic_scans_enabled,
                 ),
-                None => Err(StartScanError::no_consuming_wallet_found(
-                    response_skeleton_opt,
-                )),
+                None => Err(StartScanError::NoConsumingWalletFound),
             };
 
         let hint: ScanReschedulingAfterEarlyStop = match result {
@@ -1085,7 +1083,7 @@ impl Accountant {
             Err(e) => {
                 let initial_pending_payable_scan = self.scanners.initial_pending_payable_scan();
                 self.handle_start_scan_error(
-                    StartFallibleScanner::PendingPayables {
+                    UnableToStartScanner::PendingPayables {
                         initial_pending_payable_scan,
                     },
                     e,
@@ -1103,11 +1101,13 @@ impl Accountant {
 
     fn handle_start_scan_error(
         &self,
-        scanner: StartFallibleScanner,
+        scanner: UnableToStartScanner,
         e: StartScanError,
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) -> ScanReschedulingAfterEarlyStop {
-        e.log_error(&self.logger, scanner.into());
+        let is_externally_triggered = response_skeleton_opt.is_some();
+
+        e.log_error(&self.logger, scanner.into(), is_externally_triggered);
 
         if let Some(skeleton) = response_skeleton_opt {
             self.ui_message_sub_opt
@@ -1122,7 +1122,7 @@ impl Accountant {
 
         self.scan_schedulers
             .reschedule_on_error_resolver
-            .resolve_rescheduling_on_error(scanner, &e, &self.logger)
+            .resolve_rescheduling_on_error(scanner, &e, is_externally_triggered, &self.logger)
     }
 
     fn handle_request_of_scan_for_receivable(
@@ -1151,7 +1151,7 @@ impl Accountant {
             // Any error here panics by design, so the return value is unreachable/ignored.
             {
                 self.handle_start_scan_error(
-                    StartFallibleScanner::Receivables,
+                    UnableToStartScanner::Receivables,
                     e,
                     response_skeleton_opt,
                 )
@@ -1336,7 +1336,7 @@ mod tests {
         MarkScanner, NewPayableScanIntervalComputerMock, PendingPayableCacheMock, ReplacementType,
         RescheduleScanOnErrorResolverMock, ScannerMock, ScannerReplacement,
     };
-    use crate::accountant::scanners::{AutomaticError, CommonError, StartScanError};
+    use crate::accountant::scanners::StartScanError;
     use crate::accountant::test_utils::DaoWithDestination::{
         ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,
     };
@@ -2241,7 +2241,7 @@ mod tests {
         let test_name = "externally_triggered_scan_for_pending_payables_is_prevented_if_all_payments_already_complete";
         let expected_log_msg = format!(
             "INFO: {test_name}: User requested PendingPayables scan was denied expecting zero \
-            findings. Run Payable scanner first."
+            findings. Run the Payable scanner first."
         );
 
         test_externally_triggered_scan_is_prevented_if(
@@ -2473,9 +2473,7 @@ mod tests {
         let payable_scanner = ScannerMock::default()
             .scan_started_at_result(None)
             .scan_started_at_result(None)
-            .start_scan_result(Err(StartScanError::Automatic(AutomaticError::Common(
-                CommonError::NothingToProcess,
-            ))));
+            .start_scan_result(Err(StartScanError::NothingToProcess));
         subject
             .scanners
             .replace_scanner(ScannerReplacement::Payable(ReplacementType::Mock(
@@ -2751,9 +2749,7 @@ mod tests {
             ));
         let receivable_scanner = ScannerMock::default()
             .scan_started_at_result(None)
-            .start_scan_result(Err(StartScanError::Automatic(AutomaticError::Common(
-                CommonError::NoConsumingWalletFound,
-            ))));
+            .start_scan_result(Err(StartScanError::NoConsumingWalletFound));
         subject
             .scanners
             .replace_scanner(ScannerReplacement::Receivable(ReplacementType::Mock(
@@ -2782,7 +2778,7 @@ mod tests {
             receivable_scan_interval: Duration::from_millis(10_000),
         });
         config.automatic_scans_enabled = false;
-        let subject = AccountantBuilder::default()
+        let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .config_dao(
                 ConfigDaoMock::new()
@@ -2790,6 +2786,9 @@ mod tests {
                     .set_result(Ok(())),
             )
             .build();
+        // Another scan must not be scheduled
+        subject.scan_schedulers.receivable.handle =
+            Box::new(NotifyLaterHandleMock::default().panic_on_schedule_attempt());
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let subject_addr = subject.start();
         let system = System::new("test");
@@ -2907,15 +2906,11 @@ mod tests {
         let payable_scanner = ScannerMock::new()
             .scan_started_at_result(None)
             .start_scan_params(&scan_params.payable_start_scan)
-            .start_scan_result(Err(StartScanError::Automatic(AutomaticError::Common(
-                CommonError::NothingToProcess,
-            ))));
+            .start_scan_result(Err(StartScanError::NothingToProcess));
         let pending_payable_scanner = ScannerMock::new()
             .scan_started_at_result(None)
             .start_scan_params(&scan_params.pending_payable_start_scan)
-            .start_scan_result(Err(StartScanError::Automatic(AutomaticError::Common(
-                CommonError::NothingToProcess,
-            ))));
+            .start_scan_result(Err(StartScanError::NothingToProcess));
         let receivable_scanner = ScannerMock::new()
             .scan_started_at_result(None)
             .start_scan_params(&scan_params.receivable_start_scan)
