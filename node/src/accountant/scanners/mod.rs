@@ -36,11 +36,12 @@ use masq_lib::logger::TIME_FORMATTING_STRING;
 use masq_lib::messages::ScanType;
 use masq_lib::ui_gateway::NodeToUiMessage;
 use std::cell::RefCell;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display, Formatter};
 use std::rc::Rc;
 use std::time::SystemTime;
 use time::format_description::parse;
 use time::OffsetDateTime;
+use crate::accountant::scanners::scan_schedulers::{ScanReschedulingAfterEarlyStop, StartFallibleScanner};
 
 // Leave the individual scanner objects private!
 pub struct Scanners {
@@ -110,16 +111,26 @@ impl Scanners {
     ) -> Result<InitialTemplatesMessage, StartScanError> {
         let triggered_manually = response_skeleton_opt.is_some();
         if triggered_manually && automatic_scans_enabled {
-            return Err(StartScanError::Manual(ManualError::AutomaticScanConflict));
+            return Err(StartScanError::Manual(ManualError::new(DetailedScanType::NewPayables, ManualErrorVariant::AutomaticScanConflict)));
         }
         if let Some(started_at) = self.payable.scan_started_at() {
-            return Err(StartScanError::scan_already_running(response_skeleton_opt,
-                    None,
-                    started_at)
-            );
+            if triggered_manually {
+                todo!()
+                // return Err(StartScanError::Automatic(
+                //     AutomaticError::ScanAlreadyRunning {
+                //         cross_scan_cause_opt: None,
+                //         started_at,
+                //     },
+                // ));
+            } else {
+                todo!("panic")
+            }
         }
 
-        Self::start_correct_payable_scanner::<ScanForNewPayables>(
+        <(dyn MultistageDualPayableScanner) as StartableScanner<
+            ScanForNewPayables,
+            _,
+        >>::start_scan(
             &mut *self.payable,
             wallet,
             timestamp,
@@ -147,7 +158,10 @@ impl Scanners {
             )
         }
 
-        Self::start_correct_payable_scanner::<ScanForRetryPayables>(
+        <(dyn MultistageDualPayableScanner) as StartableScanner<
+            ScanForRetryPayables,
+            _,
+        >>::start_scan(
             &mut *self.payable,
             wallet,
             timestamp,
@@ -165,15 +179,22 @@ impl Scanners {
         automatic_scans_enabled: bool,
     ) -> Result<RequestTransactionReceipts, StartScanError> {
         let triggered_manually = response_skeleton_opt.is_some();
-        self.check_initial_conditions_for_pending_payable_scan(
+        if triggered_manually && automatic_scans_enabled {
+            return Err(StartScanError::Manual(ManualError::new(DetailedScanType::PendingPayables, ManualErrorVariant::AutomaticScanConflict)));
+        }
+
+        self.check_pending_payable_existence(
             triggered_manually,
             automatic_scans_enabled,
         )?;
+
         match (
             self.pending_payable.scan_started_at(),
             self.payable.scan_started_at(),
+            triggered_manually
         ) {
-            (Some(pp_timestamp), Some(p_timestamp)) =>
+            (_,_,false) => todo!(),
+            (Some(pp_timestamp), Some(p_timestamp),true) =>
             // If you're wondering, then yes, this condition should be the sacred truth between
             // PendingPayableScanner and NewPayableScanner.
             {
@@ -184,23 +205,26 @@ impl Scanners {
                     StartScanError::timestamp_as_string(p_timestamp)
                 )
             }
-            (Some(started_at), None) => {
-                return Err(StartScanError::Automatic(
-                    AutomaticError::ScanAlreadyRunning {
-                        cross_scan_cause_opt: None,
-                        started_at,
-                    },
-                ))
+            (Some(started_at), None,true) => {
+                todo!()
+                // return Err(StartScanError::Automatic(
+                //     AutomaticError::ScanAlreadyRunning {
+                //         cross_scan_cause_opt: None,
+                //         started_at,
+                //     },
+                // ))
             }
-            (None, Some(started_at)) => {
-                return Err(StartScanError::Automatic(
-                    AutomaticError::ScanAlreadyRunning {
-                        cross_scan_cause_opt: Some(ScanType::Payables),
-                        started_at,
-                    },
-                ))
+            (None, Some(started_at),true) => {
+                todo!()
+                // return Err(StartScanError::Automatic(
+                //     AutomaticError::ScanAlreadyRunning {
+                //         cross_scan_cause_opt: Some(ScanType::Payables),
+                //         started_at,
+                //     },
+                // ))
             }
-            (None, None) => (),
+            (None, None, true) => todo!(),
+            (None, None, false) => todo!(),
         }
 
         self.pending_payable
@@ -217,15 +241,20 @@ impl Scanners {
     ) -> Result<RetrieveTransactions, StartScanError> {
         let triggered_manually = response_skeleton_opt.is_some();
         if triggered_manually && automatic_scans_enabled {
-            return Err(StartScanError::Manual(ManualError::AutomaticScanConflict));
+            return Err(StartScanError::Manual(ManualError::new(DetailedScanType::Receivables, ManualErrorVariant::AutomaticScanConflict)));
         }
         if let Some(started_at) = self.receivable.scan_started_at() {
-            return Err(StartScanError::Automatic(
-                AutomaticError::ScanAlreadyRunning {
-                    cross_scan_cause_opt: None,
-                    started_at,
-                },
-            ));
+            if triggered_manually {
+                todo!()
+                // return Err(StartScanError::Automatic(
+                //     AutomaticError::ScanAlreadyRunning {
+                //         cross_scan_cause_opt: None,
+                //         started_at,
+                //     },
+                // ));
+            } else {
+                todo!("panic")
+            }
         }
 
         self.receivable
@@ -300,45 +329,41 @@ impl Scanners {
         self.initial_pending_payable_scan = false
     }
 
-    // This is a helper function reducing a boilerplate of complex trait resolving where
-    // the compiler requires to specify which trigger message distinguishes the scan to run.
-    // The payable scanner offers two modes through doubled implementations of StartableScanner
-    // which uses the trigger message type as the only distinction between them.
-    fn start_correct_payable_scanner<'a, TriggerMessage>(
-        scanner: &'a mut (dyn MultistageDualPayableScanner + 'a),
-        wallet: &Wallet,
-        timestamp: SystemTime,
-        response_skeleton_opt: Option<ResponseSkeleton>,
-        logger: &Logger,
-    ) -> Result<InitialTemplatesMessage, StartScanError>
-    where
-        TriggerMessage: Message,
-        (dyn MultistageDualPayableScanner + 'a):
-            StartableScanner<TriggerMessage, InitialTemplatesMessage>,
-    {
-        <(dyn MultistageDualPayableScanner + 'a) as StartableScanner<
-            TriggerMessage,
-            InitialTemplatesMessage,
-        >>::start_scan(scanner, wallet, timestamp, response_skeleton_opt, logger)
-    }
+    // TODO consider trying just inline technique with most parts omitted except "TriggerMessage"
+    // // This is a helper function reducing a boilerplate of complex trait resolving where
+    // // the compiler requires to specify which trigger message distinguishes the scan to run.
+    // // The payable scanner offers two modes through doubled implementations of StartableScanner
+    // // which uses the trigger message type as the only distinction between them.
+    // fn start_correct_payable_scanner<'a, TriggerMessage>(
+    //     scanner: &'a mut (dyn MultistageDualPayableScanner + 'a),
+    //     wallet: &Wallet,
+    //     timestamp: SystemTime,
+    //     response_skeleton_opt: Option<ResponseSkeleton>,
+    //     logger: &Logger,
+    // ) -> Result<InitialTemplatesMessage, StartScanError>
+    // where
+    //     TriggerMessage: Message,
+    //     (dyn MultistageDualPayableScanner + 'a):
+    //         StartableScanner<TriggerMessage, InitialTemplatesMessage>,
+    // {
+    //     <(dyn MultistageDualPayableScanner + 'a) as StartableScanner<
+    //         TriggerMessage,
+    //         InitialTemplatesMessage,
+    //     >>::start_scan(scanner, wallet, timestamp, response_skeleton_opt, logger)
+    // }
 
-    fn check_initial_conditions_for_pending_payable_scan(
+    fn check_pending_payable_existence(
         &mut self,
         triggered_manually: bool,
         automatic_scans_enabled: bool,
     ) -> Result<(), StartScanError> {
-        if triggered_manually && automatic_scans_enabled {
-            return Err(StartScanError::Manual(ManualError::AutomaticScanConflict));
-        }
-        if self.initial_pending_payable_scan {
-            return Ok(());
-        }
         if triggered_manually && !self.aware_of_unresolved_pending_payable {
-            return Err(StartScanError::Manual(ManualError::UnnecessaryRequest {
+            return Err(StartScanError::Manual(ManualError::new(DetailedScanType::PendingPayables, ManualErrorVariant::UnnecessaryRequest {
                 hint_opt: Some("Run Payable scanner first.".to_string()),
-            }));
+            })));
         }
-        if !self.aware_of_unresolved_pending_payable {
+
+        if !self.aware_of_unresolved_pending_payable && !self.initial_pending_payable_scan{
             unreachable!(
                 "The automatic scan for pending payables should only run when there are pending \
                 payables to process."
@@ -449,52 +474,100 @@ macro_rules! time_marking_methods {
 pub enum StartScanError {
     Automatic(AutomaticError),
     Manual(ManualError),
-    Test,
+    Test{scanner: StartFallibleScanner},
 }
 
 impl StartScanError {
-    pub fn is_manual_error(&self) -> bool {
-        match self {
-            StartScanError::Automatic(_) => false,
-            StartScanError::Test => false,
-            StartScanError::Manual(_) => true,
-        }
-    }
-    pub fn no_consuming_wallet_found(response_skeleton_opt: Option<ResponseSkeleton>) -> Self {
-        match response_skeleton_opt {
-            Some(_) => StartScanError::Manual(ManualError::Common(CommonError::NoConsumingWalletFound)),
-            None => StartScanError::Automatic(AutomaticError::Common(CommonError::NoConsumingWalletFound))
-        }
+    pub fn scan_type(&self) -> StartFallibleScanner {
+        todo!()
     }
 
-    pub fn nothing_to_process(response_skeleton_opt: Option<ResponseSkeleton>) -> Self {
-        match response_skeleton_opt {
-            Some(_) => StartScanError::Manual(ManualError::Common(CommonError::NothingToProcess)),
-            None => StartScanError::Automatic(AutomaticError::Common(CommonError::NothingToProcess))
-        }
+    pub fn is_manual_error(&self) -> bool {
+        todo!()
+        // match self {
+        //     StartScanError::Automatic(_) => false,
+        //     StartScanError::Test{scanner} => false,
+        //     StartScanError::Manual(_) => true,
+        // }
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum AutomaticError {
-    Common(CommonError),
+    NewPayables,
+    RetryPayables,
+    PendingPayables,
+    Receivables,
+}
+
+impl AutomaticError {
+    pub fn resolve(&self)-> ScanReschedulingAfterEarlyStop{
+        todo!()
+    }
+}
+
+pub enum NewPayablesError{
+    NoConsumingWalletFound,
+    NothingToProcess,
+}
+
+// Automatic error of this kind is not needed
+//pub enum RetryPayablesError{
+//}
+
+pub enum PendingPayablesError{
+
+}
+
+// impl StartScanError {
+//     pub fn is_manual_error(&self) -> bool {
+//         match self {
+//             StartScanError::Automatic(_) => false,
+//             StartScanError::Test => false,
+//             StartScanError::Manual(_) => true,
+//         }
+//     }
+//     pub fn no_consuming_wallet_found(response_skeleton_opt: Option<ResponseSkeleton>) -> Self {
+//         match response_skeleton_opt {
+//             Some(_) => StartScanError::Manual(ManualError::Common(CommonError::NoConsumingWalletFound)),
+//             None => StartScanError::Automatic(AutomaticError::Common(CommonError::NoConsumingWalletFound))
+//         }
+//     }
+//
+//     pub fn nothing_to_process(response_skeleton_opt: Option<ResponseSkeleton>) -> Self {
+//         match response_skeleton_opt {
+//             Some(_) => StartScanError::Manual(ManualError::Common(CommonError::NothingToProcess)),
+//             None => StartScanError::Automatic(AutomaticError::Common(CommonError::NothingToProcess))
+//         }
+//     }
+// }
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct ManualError{
+    scan_type: DetailedScanType,
+    error_variant: ManualErrorVariant,
+}
+
+impl ManualError {
+    pub fn new(scan_type: DetailedScanType, error_variant: ManualErrorVariant) -> Self {
+        todo!()//Self { scan_type, error_variant }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub enum ManualError {
+pub enum ManualErrorVariant {
     AutomaticScanConflict,
     UnnecessaryRequest { hint_opt: Option<String> },
     ScanAlreadyRunning {
         cross_scan_cause_opt: Option<ScanType>,
         started_at: SystemTime,
     },
-    Common(CommonError),
+    NothingToProcess,
+    WrongSetup,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum CommonError {
-    NothingToProcess,
-    NoConsumingWalletFound,
+pub struct TestError{
+    scan_type: DetailedScanType,
 }
 
 impl StartScanError {
@@ -628,7 +701,7 @@ mod tests {
     use crate::accountant::scanners::receivable_scanner::ReceivableScanner;
     use crate::accountant::scanners::test_utils::{assert_timestamps_from_str, parse_system_time_from_str, trim_expected_timestamp_to_three_digits_nanos, ListOfStartScanErrors, MarkScanner, NullScanner, PendingPayableCacheMock, ReplacementType, ScannerReplacement};
     use crate::accountant::scanners::{
-        AutomaticError, CommonError, ManualError, Scanner, ScannerCommon, Scanners, StartScanError,
+        AutomaticError, ManualError, Scanner, ScannerCommon, Scanners, StartScanError,
         StartableScanner,
     };
     use crate::accountant::test_utils::{
@@ -1478,11 +1551,13 @@ mod tests {
     }
 
     #[test]
-    fn check_initial_conditions_for_pending_payable_scan_if_it_is_initial_pending_payable_scan() {
+    fn check_pending_payable_existence_if_it_is_initial_pending_payable_scan_and_no_pending() {
         let mut subject = make_dull_subject();
+        subject.aware_of_unresolved_pending_payable = false;
         subject.initial_pending_payable_scan = true;
 
-        let result = subject.check_initial_conditions_for_pending_payable_scan(false, true);
+        let result_1 = subject.check_pending_payable_existence(false, true);
+        let result_2 = subject.check_pending_payable_existence(true, true);
 
         assert_eq!(result, Ok(()));
         assert_eq!(subject.initial_pending_payable_scan, true);

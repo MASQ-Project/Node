@@ -885,7 +885,7 @@ mod tests {
     use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
     use crate::accountant::scanners::test_utils::PendingPayableCacheMock;
     use crate::accountant::scanners::{
-        AutomaticError, CommonError, Scanner, StartScanError, StartableScanner,
+        AutomaticError, Scanner, StartScanError, StartableScanner,
     };
     use crate::accountant::test_utils::{
         make_transaction_block, FailedPayableDaoMock, PayableDaoMock, PendingPayableScannerBuilder,

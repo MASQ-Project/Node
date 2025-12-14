@@ -1,6 +1,6 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::scanners::{AutomaticError, CommonError, StartScanError};
+use crate::accountant::scanners::{AutomaticError, ManualError, StartScanError};
 use crate::accountant::{
     Accountant, ResponseSkeleton, ScanForNewPayables, ScanForPendingPayables, ScanForReceivables,
     ScanForRetryPayables,
@@ -54,8 +54,13 @@ pub enum ScanReschedulingAfterEarlyStop {
 pub enum StartFallibleScanner {
     NewPayables,
     RetryPayables,
-    PendingPayables { initial_pending_payable_scan: bool },
+    PendingPayables(Option<PendingPayablesSpecs>),
     Receivables,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct PendingPayablesSpecs {
+    pub initial_pending_payable_scan: bool,
 }
 
 impl Display for StartFallibleScanner {
@@ -269,17 +274,25 @@ impl RescheduleScanOnErrorResolver for RescheduleScanOnErrorResolverReal {
         error: &StartScanError,
         logger: &Logger,
     ) -> ScanReschedulingAfterEarlyStop {
-        let is_externally_triggered = error.is_manual_error();
-        let reschedule_hint = match scanner {
-            StartFallibleScanner::NewPayables => Self::resolve_new_payables(error),
-            StartFallibleScanner::RetryPayables => Self::resolve_retry_payables(error),
-            StartFallibleScanner::PendingPayables {
-                initial_pending_payable_scan,
-            } => Self::resolve_pending_payables(error, initial_pending_payable_scan),
-            StartFallibleScanner::Receivables => Self::resolve_receivables(error),
+        let reschedule_hint = match error {
+            StartScanError::Manual(manual_error) => todo!(),
+            StartScanError::Automatic(automatic_error) => {
+                automatic_error.resolve()
+            }
+            StartScanError::Test{scanner} => todo!()
         };
 
-        Self::log_rescheduling(scanner, is_externally_triggered, logger, &reschedule_hint);
+        // let is_externally_triggered = error.is_manual_error();
+        // let reschedule_hint = match scanner {
+        //     StartFallibleScanner::NewPayables => Self::resolve_new_payables(error),
+        //     StartFallibleScanner::RetryPayables => Self::resolve_retry_payables(error),
+        //     StartFallibleScanner::PendingPayables {
+        //         initial_pending_payable_scan,
+        //     } => Self::resolve_pending_payables(error, initial_pending_payable_scan),
+        //     StartFallibleScanner::Receivables => Self::resolve_receivables(error),
+        // };
+
+        Self::log_rescheduling(error, logger, &reschedule_hint);
 
         reschedule_hint
     }
@@ -376,24 +389,24 @@ impl RescheduleScanOnErrorResolverReal {
     }
 
     fn log_rescheduling(
-        scanner: StartFallibleScanner,
-        is_externally_triggered: bool,
+        error: &StartScanError,
         logger: &Logger,
         reschedule_hint: &ScanReschedulingAfterEarlyStop,
     ) {
-        let scan_mode = if is_externally_triggered {
-            "Manual"
-        } else {
-            "Automatic"
-        };
-
-        debug!(
-            logger,
-            "{} {} scan failed - rescheduling strategy: \"{:?}\"",
-            scan_mode,
-            scanner,
-            reschedule_hint
-        );
+        todo!()
+        // let scan_mode = if is_externally_triggered {
+        //     "Manual"
+        // } else {
+        //     "Automatic"
+        // };
+        //
+        // debug!(
+        //     logger,
+        //     "{} {} scan failed - rescheduling strategy: \"{:?}\"",
+        //     scan_mode,
+        //     scanner,
+        //     reschedule_hint
+        // );
     }
 }
 
@@ -404,7 +417,7 @@ mod tests {
         ScanReschedulingAfterEarlyStop, ScanSchedulers, ScanTiming, StartFallibleScanner,
     };
     use crate::accountant::scanners::test_utils::{ListOfStartScanErrors, NewPayableScanIntervalComputerMock};
-    use crate::accountant::scanners::{AutomaticError, CommonError, StartScanError};
+    use crate::accountant::scanners::{AutomaticError, StartScanError};
     use crate::sub_lib::accountant::ScanIntervals;
     use crate::test_utils::unshared_test_utils::TEST_SCAN_INTERVALS;
     use masq_lib::logger::Logger;

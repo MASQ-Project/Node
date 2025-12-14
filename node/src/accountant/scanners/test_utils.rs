@@ -21,7 +21,7 @@ use crate::accountant::scanners::scan_schedulers::{
     NewPayableScanIntervalComputer, RescheduleScanOnErrorResolver, ScanReschedulingAfterEarlyStop,
     ScanTiming, StartFallibleScanner,
 };
-use crate::accountant::scanners::{AutomaticError, CommonError, ManualError, PendingPayableScanner, PrivateScanner, RealScannerMarker, ReceivableScanner, Scanner, StartScanError, StartableScanner};
+use crate::accountant::scanners::{AutomaticError, ManualError, PendingPayableScanner, PrivateScanner, RealScannerMarker, ReceivableScanner, Scanner, StartScanError, StartableScanner};
 use crate::accountant::{
     ReceivedPayments, RequestTransactionReceipts, ResponseSkeleton, SentPayables, TxReceiptsMessage,
 };

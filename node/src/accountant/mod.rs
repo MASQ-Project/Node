@@ -1336,7 +1336,7 @@ mod tests {
         MarkScanner, NewPayableScanIntervalComputerMock, PendingPayableCacheMock, ReplacementType,
         RescheduleScanOnErrorResolverMock, ScannerMock, ScannerReplacement,
     };
-    use crate::accountant::scanners::{AutomaticError, CommonError, StartScanError};
+    use crate::accountant::scanners::{AutomaticError, StartScanError};
     use crate::accountant::test_utils::DaoWithDestination::{
         ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,
     };
