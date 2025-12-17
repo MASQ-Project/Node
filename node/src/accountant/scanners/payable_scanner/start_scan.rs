@@ -35,7 +35,7 @@ impl StartableScanner<ScanForNewPayables, InitialTemplatesMessage> for PayableSc
         match qualified_payables.is_empty() {
             true => {
                 self.mark_as_ended(logger);
-                Err(StartScanError::nothing_to_process(response_skeleton_opt))
+                Err(StartScanError::NothingToProcess)
             }
             false => {
                 info!(
