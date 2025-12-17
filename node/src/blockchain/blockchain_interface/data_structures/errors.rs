@@ -186,12 +186,14 @@ mod tests {
             actual_error_msgs,
             slice_of_strs_to_vec_of_strings(&[
                 "Missing consuming wallet to pay payable from",
-                "Unsuccessful gas price query: \"Blockchain error: Query failed: Gas halves shut, no drop left\"",
+                "Unsuccessful gas price query: \"Blockchain error: Query failed: Gas halves shut, \
+                no drop left\"",
                 "Transaction id fetching failed: Blockchain error: Invalid response",
-                "Sending error: \"Terrible error!!\". Signed and hashed transactions: \"FailedTx { hash: 0x00000000000000\
-                000000000000000000000000000000000000000000000001c8, receiver_address: 0x00000000000\
-                00000002556000000002556000000, amount_minor: 43237380096, timestamp: 29942784, gas_\
-                price_minor: 94818816, nonce: 456, reason: PendingTooLong, status: RetryRequired }\"",
+                "Sending error: \"Terrible error!!\". Signed and hashed transactions: \"FailedTx { \
+                hash: 0x00000000000000000000000000000000000000000000000000000000000001c8, \
+                receiver_address: 0x0000000000000000000c72000000c72000000c72, amount_minor: \
+                43237380096, timestamp: 29942784, gas_price_minor: 94818816, nonce: 456, reason: \
+                PendingTooLong, status: RetryRequired }\"",
                 BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED
             ])
         )

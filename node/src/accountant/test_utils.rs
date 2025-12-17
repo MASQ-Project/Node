@@ -21,6 +21,7 @@ use crate::accountant::db_access_objects::sent_payable_dao::{
 use crate::accountant::db_access_objects::utils::{
     from_unix_timestamp, to_unix_timestamp, CustomQuery, TxHash, TxIdentifiers,
 };
+use crate::accountant::logging_utils::msg_id_generator::MessageIdGenerator;
 use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdjuster};
 use crate::accountant::scanners::payable_scanner::msgs::PricedTemplatesMessage;
 use crate::accountant::scanners::payable_scanner::payment_adjuster_integration::PreparedAdjustment;
@@ -36,8 +37,8 @@ use crate::bootstrapper::BootstrapperConfig;
 use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
 use crate::db_config::mocks::ConfigDaoMock;
+use crate::sub_lib::accountant::PaymentThresholds;
 use crate::sub_lib::accountant::{DaoFactories, FinancialStatistics};
-use crate::sub_lib::accountant::{MessageIdGenerator, PaymentThresholds};
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
@@ -1281,7 +1282,7 @@ pub struct PendingPayableScannerBuilder {
     payment_thresholds: PaymentThresholds,
     financial_statistics: FinancialStatistics,
     current_sent_payables: Box<dyn PendingPayableCache<SentTx>>,
-    suspected_failed_payables: Box<dyn PendingPayableCache<FailedTx>>,
+    supposed_failed_payables: Box<dyn PendingPayableCache<FailedTx>>,
     clock: Box<dyn SimpleClock>,
 }
 
@@ -1294,7 +1295,7 @@ impl PendingPayableScannerBuilder {
             payment_thresholds: PaymentThresholds::default(),
             financial_statistics: FinancialStatistics::default(),
             current_sent_payables: Box::new(PendingPayableCacheMock::default()),
-            suspected_failed_payables: Box::new(PendingPayableCacheMock::default()),
+            supposed_failed_payables: Box::new(PendingPayableCacheMock::default()),
             clock: Box::new(SimpleClockMock::default()),
         }
     }
@@ -1323,7 +1324,7 @@ impl PendingPayableScannerBuilder {
         mut self,
         failures: Box<dyn PendingPayableCache<FailedTx>>,
     ) -> Self {
-        self.suspected_failed_payables = failures;
+        self.supposed_failed_payables = failures;
         self
     }
 
@@ -1341,7 +1342,7 @@ impl PendingPayableScannerBuilder {
             Rc::new(RefCell::new(self.financial_statistics)),
         );
         scanner.current_sent_payables = self.current_sent_payables;
-        scanner.suspected_failed_payables = self.suspected_failed_payables;
+        scanner.supposed_failed_payables = self.supposed_failed_payables;
         scanner.clock = self.clock;
         scanner
     }

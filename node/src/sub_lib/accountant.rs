@@ -21,7 +21,7 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::AtomicU32;
 use std::time::{Duration, SystemTime};
 
 lazy_static! {
@@ -179,21 +179,6 @@ pub enum SignConversionError {
     I128(String),
 }
 
-pub trait MessageIdGenerator {
-    fn id(&self) -> u32;
-    as_any_ref_in_trait!();
-}
-
-#[derive(Default)]
-pub struct MessageIdGeneratorReal {}
-
-impl MessageIdGenerator for MessageIdGeneratorReal {
-    fn id(&self) -> u32 {
-        MSG_ID_INCREMENTER.fetch_add(1, Ordering::Relaxed)
-    }
-    as_any_ref_in_trait_impl!();
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub enum DetailedScanType {
     NewPayables,
@@ -204,12 +189,12 @@ pub enum DetailedScanType {
 
 #[cfg(test)]
 mod tests {
+
     use crate::accountant::test_utils::AccountantBuilder;
     use crate::accountant::{checked_conversion, Accountant};
     use crate::sub_lib::accountant::{
-        AccountantSubsFactoryReal, DetailedScanType, MessageIdGenerator, MessageIdGeneratorReal,
-        PaymentThresholds, ScanIntervals, SubsFactory, DEFAULT_EARNING_WALLET,
-        DEFAULT_PAYMENT_THRESHOLDS, MSG_ID_INCREMENTER, TEMPORARY_CONSUMING_WALLET,
+        AccountantSubsFactoryReal, DetailedScanType, PaymentThresholds, ScanIntervals, SubsFactory,
+        DEFAULT_EARNING_WALLET, DEFAULT_PAYMENT_THRESHOLDS, TEMPORARY_CONSUMING_WALLET,
     };
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::recorder::{make_accountant_subs_from_recorder, Recorder};
@@ -217,8 +202,6 @@ mod tests {
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::messages::ScanType;
     use std::str::FromStr;
-    use std::sync::atomic::Ordering;
-    use std::sync::Mutex;
     use std::time::Duration;
 
     impl From<DetailedScanType> for ScanType {
@@ -231,8 +214,6 @@ mod tests {
             }
         }
     }
-
-    static MSG_ID_GENERATOR_TEST_GUARD: Mutex<()> = Mutex::new(());
 
     impl PaymentThresholds {
         pub fn sugg_thru_decreasing(&self, now: i64) -> i64 {
@@ -280,31 +261,6 @@ mod tests {
         let subs = subject.make(&addr);
 
         assert_eq!(subs, Accountant::make_subs_from(&addr))
-    }
-
-    #[test]
-    fn msg_id_generator_increments_by_one_with_every_call() {
-        let _guard = MSG_ID_GENERATOR_TEST_GUARD.lock().unwrap();
-        let subject = MessageIdGeneratorReal::default();
-
-        let id1 = subject.id();
-        let id2 = subject.id();
-        let id3 = subject.id();
-
-        assert_eq!(id2, id1 + 1);
-        assert_eq!(id3, id2 + 1)
-    }
-
-    #[test]
-    fn msg_id_generator_wraps_around_max_value() {
-        let _guard = MSG_ID_GENERATOR_TEST_GUARD.lock().unwrap();
-        MSG_ID_INCREMENTER.store(u32::MAX, Ordering::Relaxed);
-        let subject = MessageIdGeneratorReal::default();
-        subject.id(); //this returns the previous, not the newly incremented
-
-        let id = subject.id();
-
-        assert_eq!(id, 0)
     }
 
     #[test]
