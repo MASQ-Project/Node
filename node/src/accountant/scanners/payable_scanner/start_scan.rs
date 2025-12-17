@@ -35,7 +35,7 @@ impl StartableScanner<ScanForNewPayables, InitialTemplatesMessage> for PayableSc
         match qualified_payables.is_empty() {
             true => {
                 self.mark_as_ended(logger);
-                Err(StartScanError::NothingToProcess)
+                Err(StartScanError::nothing_to_process(response_skeleton_opt))
             }
             false => {
                 info!(
@@ -89,7 +89,7 @@ mod tests {
     use crate::accountant::scanners::payable_scanner::tx_templates::initial::retry::{
         RetryTxTemplate, RetryTxTemplates,
     };
-    use crate::accountant::scanners::Scanners;
+    use crate::accountant::scanners::payable_scanner::MultistageDualPayableScanner;
     use crate::accountant::test_utils::{
         make_payable_account, FailedPayableDaoMock, PayableDaoMock,
     };
@@ -144,7 +144,10 @@ mod tests {
             .payable_dao(payable_dao)
             .build();
 
-        let result = Scanners::start_correct_payable_scanner::<ScanForRetryPayables>(
+        let result = <(dyn MultistageDualPayableScanner) as StartableScanner<
+            ScanForRetryPayables,
+            InitialTemplatesMessage,
+        >>::start_scan(
             &mut subject,
             &consuming_wallet,
             timestamp,
