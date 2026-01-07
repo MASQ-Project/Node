@@ -73,7 +73,7 @@ impl ConnectionProgress {
         let new_stage = usize::try_from(&connection_stage);
 
         if let (Ok(current_stage_num), Ok(new_stage_num)) = (current_stage, new_stage) {
-            if new_stage_num != current_stage_num + 1 {
+            if (new_stage_num != current_stage_num) && (new_stage_num != current_stage_num + 1) {
                 panic!(
                     "Can't update the stage from {:?} to {:?}",
                     self.connection_stage, connection_stage
@@ -341,6 +341,64 @@ mod tests {
     use masq_lib::messages::{ToMessageBody, UiConnectionChangeBroadcast, UiConnectionStage};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::ui_gateway::MessageTarget;
+
+    #[test]
+    fn update_stage_tolerates_advancement() {
+        let cases = vec![
+            (ConnectionStage::StageZero, ConnectionStage::TcpConnectionEstablished),
+            (ConnectionStage::TcpConnectionEstablished, ConnectionStage::NeighborshipEstablished),
+            (ConnectionStage::StageZero, ConnectionStage::Failed(TcpConnectionFailed)),
+            (ConnectionStage::TcpConnectionEstablished, ConnectionStage::Failed(PassLoopFound)),
+            (ConnectionStage::NeighborshipEstablished, ConnectionStage::Failed(NoGossipResponseReceived)),
+        ];
+        cases.into_iter().for_each(|(from_stage, to_stage)| {
+            let mut subject = ConnectionProgress {
+                initial_node_descriptor: make_node_descriptor(make_ip(1)),
+                current_peer_addr: make_ip(1),
+                connection_stage: from_stage,
+            };
+
+            subject.update_stage(&Logger::new("update_stage_tolerates_advancement"), to_stage.clone());
+
+            assert_eq!(subject.connection_stage, to_stage);
+        })
+    }
+
+    #[test]
+    #[should_panic(expected = "Can't update the stage from StageZero to NeighborshipEstablished")]
+    fn update_stage_does_not_tolerate_skipping() {
+        let mut subject = ConnectionProgress {
+            initial_node_descriptor: make_node_descriptor(make_ip(1)),
+            current_peer_addr: make_ip(1),
+            connection_stage: ConnectionStage::StageZero,
+        };
+
+        subject.update_stage(
+            &Logger::new("update_stage_does_not_tolerate_skipping"),
+            ConnectionStage::NeighborshipEstablished
+        );
+    }
+
+    #[test]
+    fn update_stage_tolerates_stasis() {
+        let cases = vec![
+            ConnectionStage::StageZero,
+            ConnectionStage::TcpConnectionEstablished,
+            ConnectionStage::NeighborshipEstablished,
+            ConnectionStage::Failed(TcpConnectionFailed),
+        ];
+        cases.into_iter().for_each(|stage| {
+            let mut subject = ConnectionProgress {
+                initial_node_descriptor: make_node_descriptor(make_ip(1)),
+                current_peer_addr: make_ip(1),
+                connection_stage: stage.clone(),
+            };
+
+            subject.update_stage(&Logger::new("update_stage_tolerates_stasis"), stage.clone());
+
+            assert_eq!(subject.connection_stage, stage);
+        })
+    }
 
     #[test]
     #[should_panic(

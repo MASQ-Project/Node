@@ -10,7 +10,6 @@ use multinode_integration_tests_lib::masq_real_node::{
 use node_lib::sub_lib::neighborhood::Hops;
 use std::thread;
 use std::time::Duration;
-use multinode_integration_tests_lib::neighborhood_constructor::construct_neighborhood;
 
 #[test]
 fn data_can_be_routed_using_different_min_hops() {

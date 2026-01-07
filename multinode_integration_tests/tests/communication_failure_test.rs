@@ -241,7 +241,7 @@ fn dns_resolution_failure_with_real_nodes() {
             .chain(cluster.chain)
             .build(),
     );
-    let nodes = (0..5)
+    let nodes = (0..6)
         .map(|_| {
             cluster.start_real_node(
                 NodeStartupConfigBuilder::standard()
