@@ -117,6 +117,7 @@ impl StreamWriterSorted {
                                 &packet.data.len(),
                                 &packet.sequence_number
                             );
+debug!(self.logger, "'{}'", String::from_utf8_lossy(&packet.data));
                             if len != packet.data.len() {
                                 debug!(
                                     self.logger,

@@ -10,5 +10,58 @@
         <option value="get_errors" />
       </set>
     </option>
+    <option name="byokProviderConfigs">
+      <map>
+        <entry key="anthropic">
+          <value>
+            <BYOKProviderConfig>
+              <option name="eligibleModels">
+                <list>
+                  <option value="claude-sonnet-4-5-20250929" />
+                  <option value="claude-opus-4-5-20251101" />
+                  <option value="claude-haiku-4-5" />
+                </list>
+              </option>
+            </BYOKProviderConfig>
+          </value>
+        </entry>
+        <entry key="grok">
+          <value>
+            <BYOKProviderConfig>
+              <option name="eligibleModels">
+                <list>
+                  <option value="grok-code-fast-1" />
+                </list>
+              </option>
+            </BYOKProviderConfig>
+          </value>
+        </entry>
+        <entry key="openai">
+          <value>
+            <BYOKProviderConfig>
+              <option name="eligibleModels">
+                <list>
+                  <option value="gpt-5-2025-08-07" />
+                  <option value="gpt-5-codex" />
+                  <option value="gpt-5.1-2025-11-13" />
+                  <option value="gpt-5.2-2025-12-11" />
+                </list>
+              </option>
+            </BYOKProviderConfig>
+          </value>
+        </entry>
+        <entry key="z-ai">
+          <value>
+            <BYOKProviderConfig>
+              <option name="eligibleModels">
+                <list>
+                  <option value="z-ai/glm-4.7" />
+                </list>
+              </option>
+            </BYOKProviderConfig>
+          </value>
+        </entry>
+      </map>
+    </option>
   </component>
 </project>

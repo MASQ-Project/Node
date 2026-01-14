@@ -14,6 +14,7 @@ use node_lib::sub_lib::wallet::Wallet;
 use std::collections::HashMap;
 use std::thread;
 use std::time::{Duration, SystemTime};
+use itertools::Itertools;
 
 #[test]
 fn provided_and_consumed_services_are_recorded_in_databases() {
@@ -30,54 +31,63 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
 
     let mut client = originating_node.make_client(8080, STANDARD_CLIENT_TIMEOUT_MILLIS);
     client.set_timeout(Duration::from_secs(10));
-    let request = "GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n".as_bytes();
+    let request = "GET /index.html HTTP/1.1\r\nHost: www.testingmcafeesites.com\r\n\r\n".as_bytes();
 
     client.send_chunk(request);
     let response = String::from_utf8(client.wait_for_chunk()).unwrap();
     assert!(
-        response.contains("<h1>Example Domain</h1>"),
-        "Not from www.example.com:\n{}",
+        response.contains("<title>URL for testing.</title>"),
+        "Not from www.testingmcafeesites.com:\n{}",
         response
     );
+
+    // Waiting until everybody has finished generating payables and receivables
+    thread::sleep(Duration::from_secs(10));
 
     // get all payables from originating node
     let payables = non_pending_payables(&originating_node);
 
-    // Waiting until the serving nodes have finished accruing their receivables
-    thread::sleep(Duration::from_secs(10));
-
     // get all receivables from all other nodes
-    let receivable_balances = non_originating_nodes
+    let receivable_nodes = non_originating_nodes
         .iter()
         .flat_map(|node| {
             receivables(node)
                 .into_iter()
                 .map(move |receivable_account| {
-                    (node.earning_wallet(), receivable_account.balance_wei)
+                    (node.earning_wallet(), (node.name().to_string(), receivable_account.balance_wei))
                 })
         })
-        .collect::<HashMap<Wallet, i128>>();
+        .collect::<HashMap<Wallet, (String, i128)>>();
 
     // check that each payable has a receivable
     assert_eq!(
         payables.len(),
-        receivable_balances.len(),
+        receivable_nodes.len(),
         "Lengths of payables and receivables should match.\nPayables: {:?}\nReceivables: {:?}",
         payables,
-        receivable_balances
+        receivable_nodes
     );
     assert!(
-        receivable_balances.len() >= 3, // minimum service list: route, route, exit.
+        receivable_nodes.len() >= 3, // minimum service list: route, route, exit.
         "not enough receivables found {:?}",
-        receivable_balances
+        receivable_nodes
     );
 
-    payables.iter().for_each(|payable| {
-        assert_eq!(
-            payable.balance_wei,
-            *receivable_balances.get(&payable.wallet).unwrap() as u128,
-        );
-    });
+    let messages = payables.iter().flat_map(|payable| {
+        let payable_balance = payable.balance_wei;
+        let (non_originating_node_name, receivable_balance) = receivable_nodes.get(&payable.wallet).unwrap().clone();
+        if payable_balance != receivable_balance as u128 {
+            Some(format!(
+                "Payable for {} ({}) does not match receivable for {} ({})",
+                originating_node.name(), payable_balance, non_originating_node_name, receivable_balance
+            ))
+        } else {
+            None
+        }
+    })
+        .collect_vec();
+
+    assert!(messages.is_empty(), "{:#?}", messages);
 }
 
 fn non_pending_payables(node: &MASQRealNode) -> Vec<PayableAccount> {

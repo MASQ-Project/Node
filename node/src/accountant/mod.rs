@@ -485,12 +485,11 @@ impl Accountant {
         &self,
         service_rate: u64,
         byte_rate: u64,
+        total_charge: u128,
         timestamp: SystemTime,
         payload_size: usize,
         wallet: &Wallet,
     ) {
-        let byte_charge = byte_rate as u128 * (payload_size as u128);
-        let total_charge = service_rate as u128 + byte_charge;
         if !self.our_wallet(wallet) {
             match self.receivable_dao
                 .as_ref()
@@ -519,12 +518,11 @@ impl Accountant {
         &self,
         service_rate: u64,
         byte_rate: u64,
+        total_charge: u128,
         timestamp: SystemTime,
         payload_size: usize,
         wallet: &Wallet,
     ) {
-        let byte_charge = byte_rate as u128 * (payload_size as u128);
-        let total_charge = service_rate as u128 + byte_charge;
         if !self.our_wallet(wallet) {
             match self.payable_dao
                 .as_ref()
@@ -612,13 +610,19 @@ impl Accountant {
         &mut self,
         msg: ReportRoutingServiceProvidedMessage,
     ) {
+        let total_charge = Self::total_charge(
+            msg.byte_rate,
+            msg.service_rate,
+            msg.payload_size,
+        );
         debug!(
             self.logger,
-            "Charging routing of {} bytes to wallet {}", msg.payload_size, msg.paying_wallet
+            "Charging {} wei for routing of {} bytes to wallet {}", total_charge, msg.payload_size, msg.paying_wallet
         );
         self.record_service_provided(
             msg.service_rate,
             msg.byte_rate,
+            total_charge,
             msg.timestamp,
             msg.payload_size,
             &msg.paying_wallet,
@@ -629,9 +633,15 @@ impl Accountant {
         &mut self,
         msg: ReportExitServiceProvidedMessage,
     ) {
+        let total_charge = Self::total_charge(
+            msg.byte_rate,
+            msg.service_rate,
+            msg.payload_size,
+        );
         debug!(
             self.logger,
-            "Charging exit service for {} bytes to wallet {} at {} per service and {} per byte",
+            "Charging {} wei for exit service for {} bytes to wallet {} at {} per service and {} per byte",
+            total_charge,
             msg.payload_size,
             msg.paying_wallet,
             msg.service_rate,
@@ -640,6 +650,7 @@ impl Accountant {
         self.record_service_provided(
             msg.service_rate,
             msg.byte_rate,
+            total_charge,
             msg.timestamp,
             msg.payload_size,
             &msg.paying_wallet,
@@ -656,31 +667,45 @@ impl Accountant {
 
     fn handle_report_services_consumed_message(&mut self, msg: ReportServicesConsumedMessage) {
         let msg_id = self.msg_id();
+        let total_charge = Self::total_charge(
+            msg.exit.byte_rate,
+            msg.exit.service_rate,
+            msg.exit.payload_size
+        );
         debug!(
             self.logger,
-            "MsgId {}: Accruing debt to {} for consuming {} exited bytes",
+            "MsgId {}: Accruing {} wei of debt to {} for consuming {} exited bytes",
             msg_id,
+            total_charge,
             msg.exit.earning_wallet,
             msg.exit.payload_size
         );
         self.record_service_consumed(
             msg.exit.service_rate,
             msg.exit.byte_rate,
+            total_charge,
             msg.timestamp,
             msg.exit.payload_size,
             &msg.exit.earning_wallet,
         );
         msg.routing.iter().for_each(|routing_service| {
+            let total_charge = Self::total_charge(
+                routing_service.byte_rate,
+                routing_service.service_rate,
+                msg.routing_payload_size
+            );
             debug!(
                 self.logger,
-                "MsgId {}: Accruing debt to {} for consuming {} routed bytes",
+                "MsgId {}: Accruing {} wei of debt to {} for consuming {} routed bytes",
                 msg_id,
+                total_charge,
                 routing_service.earning_wallet,
                 msg.routing_payload_size
             );
             self.record_service_consumed(
                 routing_service.service_rate,
                 routing_service.byte_rate,
+                total_charge,
                 msg.timestamp,
                 msg.routing_payload_size,
                 &routing_service.earning_wallet,
@@ -962,6 +987,11 @@ impl Accountant {
                 serialize_hashes(&msg.hashes_and_balances)
             ),
         }
+    }
+
+    fn total_charge(byte_rate: u64, service_rate: u64, payload_size: usize) -> u128 {
+        let byte_charge = byte_rate as u128 * (payload_size as u128);
+        service_rate as u128 + byte_charge
     }
 
     fn financial_statistics(&self) -> Ref<'_, FinancialStatistics> {
@@ -2846,7 +2876,7 @@ mod tests {
             (now, make_wallet("booga"), (1 * 42) + (1234 * 24))
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "DEBUG: Accountant: Charging routing of 1234 bytes to wallet {}",
+            "DEBUG: Accountant: Charging 29658 wei for routing of 1234 bytes to wallet {}",
             paying_wallet
         ));
     }
@@ -2983,7 +3013,7 @@ mod tests {
             (now, make_wallet("booga"), (1 * 42) + (1234 * 24))
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "DEBUG: Accountant: Charging exit service for 1234 bytes to wallet {}",
+            "DEBUG: Accountant: Charging 29658 wei for exit service for 1234 bytes to wallet {}",
             paying_wallet
         ));
     }
@@ -3155,15 +3185,15 @@ mod tests {
         let test_log_handler = TestLogHandler::new();
 
         test_log_handler.exists_log_containing(&format!(
-            "DEBUG: Accountant: MsgId 123: Accruing debt to {} for consuming 1200 exited bytes",
+            "DEBUG: Accountant: MsgId 123: Accruing 36120 wei of debt to {} for consuming 1200 exited bytes",
             earning_wallet_exit
         ));
         test_log_handler.exists_log_containing(&format!(
-            "DEBUG: Accountant: MsgId 123: Accruing debt to {} for consuming 3456 routed bytes",
+            "DEBUG: Accountant: MsgId 123: Accruing 82986 wei of debt to {} for consuming 3456 routed bytes",
             earning_wallet_routing_1
         ));
         test_log_handler.exists_log_containing(&format!(
-            "DEBUG: Accountant: MsgId 123: Accruing debt to {} for consuming 3456 routed bytes",
+            "DEBUG: Accountant: MsgId 123: Accruing 114100 wei of debt to {} for consuming 3456 routed bytes",
             earning_wallet_routing_2
         ));
     }
@@ -3357,7 +3387,8 @@ mod tests {
             .receivable_daos(vec![ForAccountantBody(receivable_dao)])
             .build();
 
-        let _ = subject.record_service_provided(i64::MAX as u64, 1, SystemTime::now(), 2, &wallet);
+        let _ = subject.record_service_provided(i64::MAX as u64, 1, 1000,
+            SystemTime::now(), 2, &wallet);
     }
 
     #[test]
@@ -3370,7 +3401,8 @@ mod tests {
             .receivable_daos(vec![ForAccountantBody(receivable_dao)])
             .build();
 
-        subject.record_service_provided(i64::MAX as u64, 1, SystemTime::now(), 2, &wallet);
+        subject.record_service_provided(i64::MAX as u64, 1, 1000,
+            SystemTime::now(), 2, &wallet);
 
         TestLogHandler::new().exists_log_containing(&format!(
             "ERROR: Accountant: Overflow error recording service provided for {}: service rate {}, byte rate 1, payload size 2. Skipping",
@@ -3390,7 +3422,7 @@ mod tests {
             .build();
         let service_rate = i64::MAX as u64;
 
-        subject.record_service_consumed(service_rate, 1, SystemTime::now(), 2, &wallet);
+        subject.record_service_consumed(service_rate, 1, 9223372036854775809, SystemTime::now(), 2, &wallet);
 
         TestLogHandler::new().exists_log_containing(&format!(
             "ERROR: Accountant: Overflow error recording consumed services from {}: total charge {}, service rate {}, byte rate 1, payload size 2. Skipping",
@@ -3415,7 +3447,7 @@ mod tests {
             .payable_daos(vec![ForAccountantBody(payable_dao)])
             .build();
 
-        let _ = subject.record_service_consumed(i64::MAX as u64, 1, SystemTime::now(), 2, &wallet);
+        let _ = subject.record_service_consumed(i64::MAX as u64, 1, 1000, SystemTime::now(), 2, &wallet);
     }
 
     #[test]
