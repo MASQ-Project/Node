@@ -639,7 +639,8 @@ mod tests {
 
     #[test]
     fn accessible_gossip_record_to_string_without_ip() {
-        let node_record = make_node_record(1234, true);
+        let mut node_record = make_node_record(1234, true);
+        node_record.inner.country_code_opt = Some("AD".to_string());
         let db = db_from_node(&node_record);
         let subject = AccessibleGossipRecord::from((&db, node_record.public_key(), false));
 
@@ -653,7 +654,8 @@ mod tests {
 
     #[test]
     fn accessible_gossip_record_to_string_with_ip() {
-        let node_record = make_node_record(1234, true);
+        let mut node_record = make_node_record(1234, true);
+        node_record.inner.country_code_opt = Some("AD".to_string());
         let db = db_from_node(&node_record);
         let subject = AccessibleGossipRecord::from((&db, node_record.public_key(), true));
 
