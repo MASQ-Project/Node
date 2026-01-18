@@ -9,17 +9,17 @@ use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData, PublicKey};
 use crate::sub_lib::hopper::MessageType;
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::versioned_data::StepError;
+use itertools::Itertools;
 use pretty_hex::PrettyHex;
 use serde_cbor::Value;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::convert::{TryFrom, TryInto};
-use std::fmt::{Debug, Display};
 use std::fmt::Error;
 use std::fmt::Formatter;
 use std::fmt::Write as _;
+use std::fmt::{Debug, Display};
 use std::net::{IpAddr, SocketAddr};
-use itertools::Itertools;
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GossipNodeRecord {
@@ -480,7 +480,8 @@ impl Display for AccessibleGossipRecord {
             Some(ref addr) => {
                 let mut index_of_space_after_pk = 9;
                 while (index_of_space_after_pk < inner_string.len())
-                    && (&inner_string[index_of_space_after_pk..index_of_space_after_pk + 1] != " ") {
+                    && (&inner_string[index_of_space_after_pk..index_of_space_after_pk + 1] != " ")
+                {
                     index_of_space_after_pk += 1;
                 }
                 let addr_string = addr.ip_addr().to_string();
@@ -638,7 +639,7 @@ mod tests {
 
     #[test]
     fn accessible_gossip_record_to_string_without_ip() {
-        let node_record = make_node_record (1234, true);
+        let node_record = make_node_record(1234, true);
         let db = db_from_node(&node_record);
         let subject = AccessibleGossipRecord::from((&db, node_record.public_key(), false));
 
@@ -652,7 +653,7 @@ mod tests {
 
     #[test]
     fn accessible_gossip_record_to_string_with_ip() {
-        let node_record = make_node_record (1234, true);
+        let node_record = make_node_record(1234, true);
         let db = db_from_node(&node_record);
         let subject = AccessibleGossipRecord::from((&db, node_record.public_key(), true));
 

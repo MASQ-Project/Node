@@ -610,14 +610,13 @@ impl Accountant {
         &mut self,
         msg: ReportRoutingServiceProvidedMessage,
     ) {
-        let total_charge = Self::total_charge(
-            msg.byte_rate,
-            msg.service_rate,
-            msg.payload_size,
-        );
+        let total_charge = Self::total_charge(msg.byte_rate, msg.service_rate, msg.payload_size);
         debug!(
             self.logger,
-            "Charging {} wei for routing of {} bytes to wallet {}", total_charge, msg.payload_size, msg.paying_wallet
+            "Charging {} wei for routing of {} bytes to wallet {}",
+            total_charge,
+            msg.payload_size,
+            msg.paying_wallet
         );
         self.record_service_provided(
             msg.service_rate,
@@ -633,11 +632,7 @@ impl Accountant {
         &mut self,
         msg: ReportExitServiceProvidedMessage,
     ) {
-        let total_charge = Self::total_charge(
-            msg.byte_rate,
-            msg.service_rate,
-            msg.payload_size,
-        );
+        let total_charge = Self::total_charge(msg.byte_rate, msg.service_rate, msg.payload_size);
         debug!(
             self.logger,
             "Charging {} wei for exit service for {} bytes to wallet {} at {} per service and {} per byte",
@@ -670,7 +665,7 @@ impl Accountant {
         let total_charge = Self::total_charge(
             msg.exit.byte_rate,
             msg.exit.service_rate,
-            msg.exit.payload_size
+            msg.exit.payload_size,
         );
         debug!(
             self.logger,
@@ -692,7 +687,7 @@ impl Accountant {
             let total_charge = Self::total_charge(
                 routing_service.byte_rate,
                 routing_service.service_rate,
-                msg.routing_payload_size
+                msg.routing_payload_size,
             );
             debug!(
                 self.logger,
@@ -3387,8 +3382,14 @@ mod tests {
             .receivable_daos(vec![ForAccountantBody(receivable_dao)])
             .build();
 
-        let _ = subject.record_service_provided(i64::MAX as u64, 1, 1000,
-            SystemTime::now(), 2, &wallet);
+        let _ = subject.record_service_provided(
+            i64::MAX as u64,
+            1,
+            1000,
+            SystemTime::now(),
+            2,
+            &wallet,
+        );
     }
 
     #[test]
@@ -3401,8 +3402,7 @@ mod tests {
             .receivable_daos(vec![ForAccountantBody(receivable_dao)])
             .build();
 
-        subject.record_service_provided(i64::MAX as u64, 1, 1000,
-            SystemTime::now(), 2, &wallet);
+        subject.record_service_provided(i64::MAX as u64, 1, 1000, SystemTime::now(), 2, &wallet);
 
         TestLogHandler::new().exists_log_containing(&format!(
             "ERROR: Accountant: Overflow error recording service provided for {}: service rate {}, byte rate 1, payload size 2. Skipping",
@@ -3422,7 +3422,14 @@ mod tests {
             .build();
         let service_rate = i64::MAX as u64;
 
-        subject.record_service_consumed(service_rate, 1, 9223372036854775809, SystemTime::now(), 2, &wallet);
+        subject.record_service_consumed(
+            service_rate,
+            1,
+            9223372036854775809,
+            SystemTime::now(),
+            2,
+            &wallet,
+        );
 
         TestLogHandler::new().exists_log_containing(&format!(
             "ERROR: Accountant: Overflow error recording consumed services from {}: total charge {}, service rate {}, byte rate 1, payload size 2. Skipping",
@@ -3447,7 +3454,14 @@ mod tests {
             .payable_daos(vec![ForAccountantBody(payable_dao)])
             .build();
 
-        let _ = subject.record_service_consumed(i64::MAX as u64, 1, 1000, SystemTime::now(), 2, &wallet);
+        let _ = subject.record_service_consumed(
+            i64::MAX as u64,
+            1,
+            1000,
+            SystemTime::now(),
+            2,
+            &wallet,
+        );
     }
 
     #[test]

@@ -320,7 +320,10 @@ impl MASQNodeCluster {
                 }
             }
         }
-        Err(format!("Errors trying to create Docker network:\n  {}\n", errors.join("\n  ")))
+        Err(format!(
+            "Errors trying to create Docker network:\n  {}\n",
+            errors.join("\n  ")
+        ))
     }
 
     fn create_network_attempt() -> Result<(), String> {

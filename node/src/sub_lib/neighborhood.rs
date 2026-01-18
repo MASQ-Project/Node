@@ -104,7 +104,6 @@ impl RatePack {
             self.exit_service_rate,
         )
     }
-
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

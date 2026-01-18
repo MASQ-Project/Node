@@ -74,9 +74,7 @@ fn debut_target_does_not_introduce_already_known_neighbors() {
     let standard_gossip = Standard::from(&agrs);
     assert_eq!(
         standard_gossip.key_set(),
-        vec_to_set(vec![
-            subject_real_node.main_public_key().clone(),
-        ])
+        vec_to_set(vec![subject_real_node.main_public_key().clone(),])
     );
 }
 

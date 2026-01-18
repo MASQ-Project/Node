@@ -345,11 +345,26 @@ mod tests {
     #[test]
     fn update_stage_tolerates_advancement() {
         let cases = vec![
-            (ConnectionStage::StageZero, ConnectionStage::TcpConnectionEstablished),
-            (ConnectionStage::TcpConnectionEstablished, ConnectionStage::NeighborshipEstablished),
-            (ConnectionStage::StageZero, ConnectionStage::Failed(TcpConnectionFailed)),
-            (ConnectionStage::TcpConnectionEstablished, ConnectionStage::Failed(PassLoopFound)),
-            (ConnectionStage::NeighborshipEstablished, ConnectionStage::Failed(NoGossipResponseReceived)),
+            (
+                ConnectionStage::StageZero,
+                ConnectionStage::TcpConnectionEstablished,
+            ),
+            (
+                ConnectionStage::TcpConnectionEstablished,
+                ConnectionStage::NeighborshipEstablished,
+            ),
+            (
+                ConnectionStage::StageZero,
+                ConnectionStage::Failed(TcpConnectionFailed),
+            ),
+            (
+                ConnectionStage::TcpConnectionEstablished,
+                ConnectionStage::Failed(PassLoopFound),
+            ),
+            (
+                ConnectionStage::NeighborshipEstablished,
+                ConnectionStage::Failed(NoGossipResponseReceived),
+            ),
         ];
         cases.into_iter().for_each(|(from_stage, to_stage)| {
             let mut subject = ConnectionProgress {
@@ -358,7 +373,10 @@ mod tests {
                 connection_stage: from_stage,
             };
 
-            subject.update_stage(&Logger::new("update_stage_tolerates_advancement"), to_stage.clone());
+            subject.update_stage(
+                &Logger::new("update_stage_tolerates_advancement"),
+                to_stage.clone(),
+            );
 
             assert_eq!(subject.connection_stage, to_stage);
         })
@@ -375,7 +393,7 @@ mod tests {
 
         subject.update_stage(
             &Logger::new("update_stage_does_not_tolerate_skipping"),
-            ConnectionStage::NeighborshipEstablished
+            ConnectionStage::NeighborshipEstablished,
         );
     }
 
