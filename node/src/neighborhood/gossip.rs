@@ -390,7 +390,7 @@ impl Gossip_0v1 {
                     country_code,
                 }),
                 public_key: nri.public_key.clone(),
-                node_addr: addr.clone(),
+                node_addr_opt: addr.clone(),
                 known_source: nri.public_key == source.public_key,
                 known_target: nri.public_key == target.public_key,
                 is_present: true,
@@ -400,7 +400,7 @@ impl Gossip_0v1 {
             node_renderables.push(NodeRenderable {
                 inner: None,
                 public_key: k.clone(),
-                node_addr: None,
+                node_addr_opt: None,
                 known_source: false,
                 known_target: false,
                 is_present: false,

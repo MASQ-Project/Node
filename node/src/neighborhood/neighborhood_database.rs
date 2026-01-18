@@ -313,7 +313,7 @@ impl NeighborhoodDatabase {
                         country_code,
                     }),
                     public_key: public_key.clone(),
-                    node_addr: nr.node_addr_opt(),
+                    node_addr_opt: nr.node_addr_opt(),
                     known_source: public_key == self.root().public_key(),
                     known_target: false,
                     is_present: true,
@@ -323,7 +323,7 @@ impl NeighborhoodDatabase {
             node_renderables.push(NodeRenderable {
                 inner: None,
                 public_key: k.clone(),
-                node_addr: None,
+                node_addr_opt: None,
                 known_source: false,
                 known_target: false,
                 is_present: false,
