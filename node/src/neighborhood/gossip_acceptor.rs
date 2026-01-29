@@ -30,6 +30,7 @@ pub const MAX_DEGREE: usize = 5;
 const PASS_GOSSIP_EXPIRED_TIME: Duration = Duration::from_secs(60);
 
 #[derive(Clone, PartialEq, Eq, Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum GossipAcceptanceResult {
     // The incoming Gossip produced database changes. Generate standard Gossip and broadcast.
     Accepted,
@@ -42,11 +43,11 @@ pub enum GossipAcceptanceResult {
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
+#[allow(clippy::large_enum_variant)]
 enum Qualification {
     Matched,
     Unmatched(String),
-    // TODO: Malformed will need to be modified to carry a Malefactor instead of a String
-    Malformed(String),
+    Malformed(Malefactor),
 }
 
 trait NamedType {
@@ -103,9 +104,12 @@ impl GossipHandler for DebutHandler {
         match &agrs[0].node_addr_opt {
             None => {
                 if agrs[0].inner.accepts_connections {
-                    Qualification::Malformed(format!(
-                        "Debut from {} for {} contained no NodeAddr",
-                        gossip_source, agrs[0].inner.public_key
+                    Qualification::Malformed(Malefactor::new(
+                        Some(agrs[0].inner.public_key.clone()),
+                        Some(gossip_source.ip()),
+                        Some(agrs[0].inner.earning_wallet.clone()),
+                        None,
+                        "Debut contained no NodeAddr".to_string(),
                     ))
                 } else {
                     Qualification::Matched
@@ -114,9 +118,12 @@ impl GossipHandler for DebutHandler {
             Some(node_addr) => {
                 if agrs[0].inner.accepts_connections {
                     if node_addr.ports().is_empty() {
-                        Qualification::Malformed(format!(
-                            "Debut from {} for {} contained NodeAddr with no ports",
-                            gossip_source, agrs[0].inner.public_key
+                        Qualification::Malformed(Malefactor::new(
+                            Some(agrs[0].inner.public_key.clone()),
+                            Some(gossip_source.ip()),
+                            Some(agrs[0].inner.earning_wallet.clone()),
+                            None,
+                            "Debut contained NodeAddr with no ports".to_string(),
                         ))
                     } else if node_addr.ip_addr() == gossip_source.ip() {
                         Qualification::Matched
@@ -124,9 +131,12 @@ impl GossipHandler for DebutHandler {
                         Qualification::Unmatched("Node record is not Gossip source".to_string())
                     }
                 } else {
-                    Qualification::Malformed(format!(
-                        "Debut from {} for {} does not accept connections, yet contained NodeAddr",
-                        gossip_source, agrs[0].inner.public_key
+                    Qualification::Malformed(Malefactor::new(
+                        Some(agrs[0].inner.public_key.clone()),
+                        Some(gossip_source.ip()),
+                        Some(agrs[0].inner.earning_wallet.clone()),
+                        None,
+                        "Debut does not accept connections, yet contained NodeAddr".to_string(),
                     ))
                 }
             }
@@ -637,11 +647,12 @@ impl GossipHandler for PassHandler {
             None => Qualification::Unmatched("Pass Node record always has a NodeAddr".to_string()),
             Some(node_addr) => {
                 if node_addr.ports().is_empty() {
-                    Qualification::Malformed(format!(
-                        "Pass from {} to {} at {} contained NodeAddr with no ports",
-                        gossip_source,
-                        agrs[0].inner.public_key,
-                        node_addr.ip_addr()
+                    Qualification::Malformed(Malefactor::new(
+                        Some(agrs[0].inner.public_key.clone()),
+                        Some(gossip_source.ip()),
+                        Some(agrs[0].inner.earning_wallet.clone()),
+                        None,
+                        "Pass contained NodeAddr with no ports".to_string(),
                     ))
                 } else if node_addr.ip_addr() == gossip_source.ip() {
                     Qualification::Unmatched(
@@ -766,7 +777,7 @@ impl GossipHandler for IntroductionHandler {
                 Ok(true) => (&agrs[0], &agrs[1]),
                 Ok(false) => (&agrs[1], &agrs[0]),
             };
-        if let Some(qual) = Self::verify_introducer(introducer, database.root()) {
+        if let Some(qual) = Self::verify_introducer(gossip_source, introducer, database.root()) {
             return qual;
         };
         if let Some(qual) = Self::verify_introducee(database, introducer, introducee, gossip_source)
@@ -792,69 +803,52 @@ impl GossipHandler for IntroductionHandler {
         }
         let (introducer, introducee) = Self::identify_players(agrs, gossip_source)
             .expect("Introduction not properly qualified");
-        // TODO: Think about some outboard methods.
-        let mut introducer_ban_message_opt = GossipAcceptorReal::validate_new_version(
-            &introducer,
-            format!(
-                "Introducer {} from {}",
-                introducer.inner.public_key, gossip_source
-            ),
-            &self.rate_pack_limits,
-            &self.logger,
-        )
-        .err();
-        // TODO: Should be _opt
-        let introducee_ban_message_opt = GossipAcceptorReal::validate_new_version(
-            &introducee,
-            format!(
-                "Introducee {} at {}",
-                introducee.inner.public_key,
-                introducee
+        let introducer_ban_message_opt =
+            self.make_introducer_ban_message_if_appropriate(gossip_source, &introducer);
+        let (introducer_ban_message_opt, introducer_updated) = self
+            .update_introducer_if_appropriate(
+                cryptde,
+                database,
+                &neighborhood_metadata,
+                &introducer,
+                introducer_ban_message_opt,
+            );
+        let introducee_ban_message_opt =
+            self.make_introducee_ban_message_if_appropriate(&introducee);
+        let mut results = vec![];
+        if let Some(ref introducer_ban_message) = introducer_ban_message_opt {
+            let ban_result = Self::make_ban_result(&introducer, introducer_ban_message);
+            results.push(ban_result);
+        }
+        if let Some(ref introducee_ban_message) = introducee_ban_message_opt {
+            let ban_result = Self::make_ban_result(&introducee, introducee_ban_message);
+            results.push(ban_result);
+        }
+        if introducer_ban_message_opt.is_some() {
+            // If the introducer is banned, we're stopping right here
+            return results;
+        }
+        if introducer_updated {
+            // If we found out something new about the introducer, gossip it around
+            results.push(GossipAcceptanceResult::Accepted);
+        }
+        if introducee_ban_message_opt.is_none() {
+            // If the introducee is good, we'll want to debut to it
+            let (debut, target_key, target_node_addr) =
+                GossipAcceptorReal::make_debut_triple(database, &introducee)
+                    .expect("Introduction not properly qualified");
+            let introducee_ip_addr = target_node_addr.ip_addr();
+            results.push(GossipAcceptanceResult::Reply(
+                debut,
+                target_key,
+                target_node_addr,
+            ));
+            let connection_progress_message = ConnectionProgressMessage {
+                peer_addr: introducer
                     .node_addr_opt
                     .as_ref()
-                    .expect("NodeAddr disappeared")
+                    .expect("Introducer IP address disappeared")
                     .ip_addr(),
-            ),
-            &self.rate_pack_limits,
-            &self.logger,
-        )
-        .err();
-        // TODO: We shouldn't have to extract all this unless we're doing a ban.
-        let introducer_key = introducer.inner.public_key.clone();
-        let introducer_wallet = introducer.inner.earning_wallet.clone();
-        let introducer_ip_addr = introducer
-            .node_addr_opt
-            .as_ref()
-            .expect("Introducer IP address disappeared")
-            .ip_addr();
-        let introducee_ip_addr = introducee
-            .node_addr_opt
-            .as_ref()
-            .expect("Introducee IP address disappeared")
-            .ip_addr();
-        let introducer_updated = if introducer_ban_message_opt.is_none() {
-            match self.update_database(
-                database,
-                cryptde,
-                introducer,
-                neighborhood_metadata.user_exit_preferences_opt,
-            ) {
-                Ok(updated) => updated,
-                Err(e) => {
-                    introducer_ban_message_opt = Some(format!(
-                        "Introducer {} tried changing immutable characteristic: {}",
-                        introducer_key, e
-                    ));
-                    false
-                }
-            }
-        } else {
-            false
-        };
-
-        if introducee_ban_message_opt.is_none() {
-            let connection_progress_message = ConnectionProgressMessage {
-                peer_addr: introducer_ip_addr,
                 event: ConnectionProgressEvent::IntroductionGossipReceived(introducee_ip_addr),
             };
             neighborhood_metadata
@@ -862,59 +856,7 @@ impl GossipHandler for IntroductionHandler {
                 .try_send(connection_progress_message)
                 .expect("Neighborhood is dead");
         }
-
-        let introducer_ban_opt = introducer_ban_message_opt.as_ref().map(|message| {
-            GossipAcceptanceResult::Ban(Malefactor::new(
-                Some(introducer_key),
-                Some(introducer_ip_addr),
-                Some(introducer_wallet),
-                None,
-                message.clone(),
-            ))
-        });
-        let introducee_ban_opt = introducee_ban_message_opt.as_ref().map(|message| {
-            GossipAcceptanceResult::Ban(Malefactor::new(
-                Some(introducee.inner.public_key.clone()),
-                Some(introducee_ip_addr),
-                Some(introducee.inner.earning_wallet.clone()),
-                None,
-                message.clone(),
-            ))
-        });
-        match (introducer_updated, introducer_ban_opt, introducee_ban_opt) {
-            // Nothing new about the introducer, but we want to debut to the introducee
-            (false, None, None) => {
-                let (debut, target_key, target_node_addr) =
-                    GossipAcceptorReal::make_debut_triple(database, &introducee)
-                        .expect("Introduction not properly qualified");
-                vec![GossipAcceptanceResult::Reply(
-                    debut,
-                    target_key,
-                    target_node_addr,
-                )]
-            }
-            // Both the introducer and introducee are interesting. Gossip the introducer
-            // changes and debut to the introducee.
-            (true, None, None) => {
-                let (debut, target_key, target_node_addr) =
-                    GossipAcceptorReal::make_debut_triple(database, &introducee)
-                        .expect("Introduction not properly qualified");
-                vec![
-                    GossipAcceptanceResult::Accepted,
-                    GossipAcceptanceResult::Reply(debut, target_key, target_node_addr),
-                ]
-            }
-            // Ban the introducer and distrust (ignore) but don't ban the introducee
-            (_, Some(introducer_ban), None) => vec![introducer_ban],
-            // Gossip the introducer changes, but ban the introducee
-            (true, None, Some(introducee_ban)) => {
-                vec![GossipAcceptanceResult::Accepted, introducee_ban]
-            }
-            // No introducer changes, but ban the introducee
-            (false, None, Some(introducee_ban)) => vec![introducee_ban],
-            // Ban both of them
-            (_, Some(introducer_ban), Some(introducee_ban)) => vec![introducer_ban, introducee_ban],
-        }
+        results
     }
 }
 
@@ -963,13 +905,12 @@ impl IntroductionHandler {
         } else if second_ip == gossip_source.ip() {
             Ok(false)
         } else {
-            Err(Qualification::Malformed(format!(
-                "In Introduction, neither {} from {} nor {} from {} claims the source IP {}",
-                first_agr.inner.public_key,
-                first_ip,
-                second_agr.inner.public_key,
-                second_ip,
-                gossip_source.ip()
+            Err(Qualification::Malformed(Malefactor::new(
+                None,
+                Some(gossip_source.ip()),
+                None,
+                None,
+                "In Introduction, neither Node record claims the source IP".to_string(),
             )))
         }
     }
@@ -992,13 +933,17 @@ impl IntroductionHandler {
     }
 
     fn verify_introducer(
+        gossip_source: SocketAddr,
         introducer: &AccessibleGossipRecord,
         root_node: &NodeRecord,
     ) -> Option<Qualification> {
         if &introducer.inner.public_key == root_node.public_key() {
-            return Some(Qualification::Malformed(format!(
-                "Introducer {} claims local Node's public key",
-                introducer.inner.public_key
+            return Some(Qualification::Malformed(Malefactor::new(
+                Some(introducer.inner.public_key.clone()),
+                Some(gossip_source.ip()),
+                Some(introducer.inner.earning_wallet.clone()),
+                None,
+                "Introducer claims local Node's public key".to_string(),
             )));
         }
         let introducer_node_addr = introducer
@@ -1006,17 +951,22 @@ impl IntroductionHandler {
             .as_ref()
             .expect("NodeAddr disappeared");
         if introducer_node_addr.ports().is_empty() {
-            return Some(Qualification::Malformed(format!(
-                "Introducer {} from {} has no ports",
-                &introducer.inner.public_key,
-                introducer_node_addr.ip_addr()
+            return Some(Qualification::Malformed(Malefactor::new(
+                Some(introducer.inner.public_key.clone()),
+                Some(introducer_node_addr.ip_addr()),
+                Some(introducer.inner.earning_wallet.clone()),
+                None,
+                "Introducer has no ports".to_string(),
             )));
         }
         if let Some(root_node_addr) = root_node.node_addr_opt() {
             if introducer_node_addr.ip_addr() == root_node_addr.ip_addr() {
-                return Some(Qualification::Malformed(format!(
-                    "Introducer {} claims to be at local Node's IP address",
-                    introducer.inner.public_key
+                return Some(Qualification::Malformed(Malefactor::new(
+                    Some(introducer.inner.public_key.clone()),
+                    Some(introducer_node_addr.ip_addr()),
+                    Some(introducer.inner.earning_wallet.clone()),
+                    None,
+                    "Introducer claims to be at local Node's IP address".to_string(),
                 )));
             }
         }
@@ -1038,15 +988,12 @@ impl IntroductionHandler {
             Some(node_addr) => node_addr,
         };
         if introducee_node_addr.ports().is_empty() {
-            return Some(Qualification::Malformed(format!(
-                "Introducer {} from {} introduced {} from {} with no ports",
-                &introducer.inner.public_key,
-                match &introducer.node_addr_opt {
-                    Some(node_addr) => node_addr.ip_addr().to_string(),
-                    None => "?.?.?.?".to_string(),
-                },
-                &introducee.inner.public_key,
-                introducee_node_addr.ip_addr()
+            return Some(Qualification::Malformed(Malefactor::new(
+                Some(introducer.inner.public_key.clone()),
+                introducer.node_addr_opt.as_ref().map(|na| na.ip_addr()),
+                Some(introducer.inner.earning_wallet.clone()),
+                None,
+                "Introducer introduced introducee with no ports".to_string(),
             )));
         }
         if introducee
@@ -1056,11 +1003,12 @@ impl IntroductionHandler {
             .ip_addr()
             == gossip_source.ip()
         {
-            return Some(Qualification::Malformed(format!(
-                "Introducer {} and introducee {} both claim {}",
-                introducer.inner.public_key,
-                introducee.inner.public_key,
-                gossip_source.ip()
+            return Some(Qualification::Malformed(Malefactor::new(
+                Some(introducer.inner.public_key.clone()),
+                Some(gossip_source.ip()),
+                Some(introducer.inner.earning_wallet.clone()),
+                None,
+                "Introducer claims the same IP address as its introducee".to_string(),
             )));
         }
         None
@@ -1138,6 +1086,93 @@ impl IntroductionHandler {
         trace!(self.logger, "Current database: {}", database.to_dot_graph());
         Ok(true)
     }
+
+    fn make_introducer_ban_message_if_appropriate(
+        &self,
+        gossip_source: SocketAddr,
+        introducer: &AccessibleGossipRecord,
+    ) -> Option<String> {
+        GossipAcceptorReal::validate_new_version(
+            introducer,
+            format!(
+                "Introducer {} from {}",
+                introducer.inner.public_key, gossip_source
+            ),
+            &self.rate_pack_limits,
+            &self.logger,
+        )
+        .err()
+    }
+
+    fn make_introducee_ban_message_if_appropriate(
+        &self,
+        introducee: &AccessibleGossipRecord,
+    ) -> Option<String> {
+        GossipAcceptorReal::validate_new_version(
+            introducee,
+            format!(
+                "Introducee {} at {}",
+                introducee.inner.public_key,
+                introducee
+                    .node_addr_opt
+                    .as_ref()
+                    .expect("NodeAddr disappeared")
+                    .ip_addr(),
+            ),
+            &self.rate_pack_limits,
+            &self.logger,
+        )
+        .err()
+    }
+
+    fn update_introducer_if_appropriate(
+        &self,
+        cryptde: &dyn CryptDE,
+        database: &mut NeighborhoodDatabase,
+        neighborhood_metadata: &NeighborhoodMetadata,
+        introducer: &AccessibleGossipRecord,
+        introducer_ban_message_opt: Option<String>,
+    ) -> (Option<String>, bool) {
+        if introducer_ban_message_opt.is_none() {
+            match self.update_database(
+                database,
+                cryptde,
+                introducer.clone(),
+                neighborhood_metadata.user_exit_preferences_opt.clone(),
+            ) {
+                Ok(updated) => (None, updated),
+                Err(e) => {
+                    let message = format!(
+                        "Introducer {} tried changing immutable characteristic: {}",
+                        introducer.inner.public_key, e
+                    );
+                    (Some(message), false)
+                }
+            }
+        } else {
+            (introducer_ban_message_opt, false)
+        }
+    }
+
+    fn make_ban_result(
+        agr: &AccessibleGossipRecord,
+        agr_ban_message: &str,
+    ) -> GossipAcceptanceResult {
+        let agr_key = agr.inner.public_key.clone();
+        let agr_wallet = agr.inner.earning_wallet.clone();
+        let agr_ip_address = agr
+            .node_addr_opt
+            .as_ref()
+            .expect("AGR IP address disappeared")
+            .ip_addr();
+        GossipAcceptanceResult::Ban(Malefactor::new(
+            Some(agr_key),
+            Some(agr_ip_address),
+            Some(agr_wallet),
+            None,
+            agr_ban_message.to_string(),
+        ))
+    }
 }
 
 struct StandardGossipHandler {
@@ -1176,20 +1211,29 @@ impl GossipHandler for StandardGossipHandler {
                         .expect("Root Node that accepts connections must have NodeAddr")
                         .ip_addr()
             }) {
-                return Qualification::Malformed(
-                    format!("Standard Gossip from {} contains a record claiming that {} resides at this Node's IP address",
-                            gossip_source,
-                            impostor.inner.public_key));
+                return Qualification::Malformed(Malefactor::new(
+                    None,
+                    Some(gossip_source.ip()),
+                    None,
+                    None,
+                    format!(
+                        "Standard Gossip contains a record claiming that {} resides at this Node's IP address",
+                        impostor.inner.public_key
+                    )
+                ));
             }
         }
         // Check to make sure no record claims this Node's public key
-        if agrs
+        if let Some(impostor) = agrs
             .iter()
-            .any(|agr| &agr.inner.public_key == root_node.public_key())
+            .find(|agr| &agr.inner.public_key == root_node.public_key())
         {
-            return Qualification::Malformed(format!(
-                "Standard Gossip from {} contains a record claiming this Node's public key",
-                gossip_source
+            return Qualification::Malformed(Malefactor::new(
+                Some(impostor.inner.public_key.clone()),
+                None,
+                Some(impostor.inner.earning_wallet.clone()),
+                None,
+                "Standard Gossip contains a record claiming this Node's public key".to_string(),
             ));
         }
         // Check for duplicate IP addresses in the Gossip
@@ -1207,15 +1251,20 @@ impl GossipHandler for StandardGossipHandler {
                 }
             })
             .1;
-
         if dup_set.is_empty() {
             Qualification::Matched
         } else {
             let dup_vec = dup_set.into_iter().take(1).collect::<Vec<IpAddr>>();
             let first_dup_ip = dup_vec.first().expect("Duplicate IP address disappeared");
-            Qualification::Malformed(format!(
-                "Standard Gossip from {} contains multiple records claiming to be from {}",
-                gossip_source, first_dup_ip
+            Qualification::Malformed(Malefactor::new(
+                None,
+                Some(gossip_source.ip()),
+                None,
+                None,
+                format!(
+                    "Standard Gossip contains multiple records claiming to be from {}",
+                    first_dup_ip
+                ),
             ))
         }
     }
@@ -1229,9 +1278,7 @@ impl GossipHandler for StandardGossipHandler {
         neighborhood_metadata: NeighborhoodMetadata,
     ) -> Vec<GossipAcceptanceResult> {
         // TODO:
-        // The first thing we should verify is the signature. If the signature fails, there should
-        // be an instant Malefactor ban.
-        // Next, we should look up the source Node in the database by gossip_source and validate all
+        // We should look up the source Node in the database by gossip_source and validate all
         // its immutable data (public key, earning wallet, maybe others). If any of that has changed,
         // another Malefactor ban.
         let initial_neighborship_status =
@@ -1652,10 +1699,15 @@ impl GossipHandler for RejectHandler {
         agrs: &[AccessibleGossipRecord],
         gossip_source: SocketAddr,
     ) -> Qualification {
-        Qualification::Malformed(format!(
-            "Gossip with {} records from {} is unclassifiable by any qualifier",
-            agrs.len(),
-            gossip_source
+        Qualification::Malformed(Malefactor::new(
+            None,
+            Some(gossip_source.ip()),
+            None,
+            None,
+            format!(
+                "Gossip with {} records is unclassifiable by any qualifier",
+                agrs.len(),
+            ),
         ))
     }
 
@@ -1737,7 +1789,7 @@ impl GossipAcceptor for GossipAcceptorReal {
             Qualification::Unmatched(_) => {
                 panic!("Nothing in gossip_handlers returned Matched or Malformed")
             }
-            Qualification::Malformed(reason) => {
+            Qualification::Malformed(malefactor) => {
                 let (public_key_opt, ip_address_opt, earning_wallet_opt) =
                     match agrs.iter().find(|agr| {
                         agr.node_addr_opt.as_ref().map(|na| na.ip_addr())
@@ -1755,7 +1807,7 @@ impl GossipAcceptor for GossipAcceptorReal {
                     ip_address_opt,
                     earning_wallet_opt,
                     None,
-                    reason,
+                    malefactor.reason,
                 ))]
             }
         }
@@ -2103,9 +2155,13 @@ mod tests {
 
         assert_eq!(
             result,
-            Qualification::Malformed(
-                "Debut from 2.3.4.5:2345 for AgMEBQ does not accept connections, yet contained NodeAddr".to_string()
-            ),
+            Qualification::Malformed(Malefactor::new(
+                Some(agrs_vec[0].inner.public_key.clone()),
+                Some(gossip_source.ip()),
+                Some(agrs_vec[0].inner.earning_wallet.clone()),
+                None,
+                "Debut does not accept connections, yet contained NodeAddr".to_string()
+            )),
         );
     }
 
@@ -2121,9 +2177,13 @@ mod tests {
 
         assert_eq!(
             result,
-            Qualification::Malformed(
-                "Debut from 2.3.4.5:2345 for AgMEBQ contained no NodeAddr".to_string()
-            ),
+            Qualification::Malformed(Malefactor::new(
+                Some(agrs_vec[0].inner.public_key.clone()),
+                Some(gossip_source.ip()),
+                Some(agrs_vec[0].inner.earning_wallet.clone()),
+                None,
+                "Debut contained no NodeAddr".to_string()
+            )),
         );
     }
 
@@ -2140,9 +2200,13 @@ mod tests {
 
         assert_eq!(
             result,
-            Qualification::Malformed(
-                "Debut from 2.3.4.5:2345 for AgMEBQ contained NodeAddr with no ports".to_string()
-            ),
+            Qualification::Malformed(Malefactor::new(
+                Some(agrs_vec[0].inner.public_key.clone()),
+                Some(gossip_source.ip()),
+                Some(agrs_vec[0].inner.earning_wallet.clone()),
+                None,
+                "Debut contained NodeAddr with no ports".to_string()
+            )),
         );
     }
 
@@ -2506,10 +2570,13 @@ mod tests {
 
         assert_eq!(
             result,
-            Qualification::Malformed(
-                "Pass from 200.200.200.200:2000 to AgMEBQ at 1.2.3.4 contained NodeAddr with no ports"
-                    .to_string()
-            ),
+            Qualification::Malformed(Malefactor::new(
+                Some(agrs_vec[0].inner.public_key.clone()),
+                Some(gossip_source.ip()),
+                Some(agrs_vec[0].inner.earning_wallet.clone()),
+                None,
+                "Pass contained NodeAddr with no ports".to_string()
+            )),
         );
     }
 
@@ -2635,8 +2702,14 @@ mod tests {
         let result = subject.qualifies(&dest_db, agrs_vec.as_slice(), gossip_source);
 
         assert_eq!(
-            Qualification::Malformed("Introducer AgMEBQ from 2.3.4.5 has no ports".to_string()),
-            result
+            result,
+            Qualification::Malformed(Malefactor::new(
+                Some(agrs_vec[0].inner.public_key.clone()),
+                Some(gossip_source.ip()),
+                Some(agrs_vec[0].inner.earning_wallet.clone()),
+                None,
+                "Introducer has no ports".to_string()
+            )),
         );
     }
 
@@ -2674,11 +2747,14 @@ mod tests {
         let result = subject.qualifies(&dest_db, agrs_vec.as_slice(), gossip_source);
 
         assert_eq!(
-            Qualification::Malformed(
-                "Introducer AgMEBQ from 2.3.4.5 introduced AwQFBg from 3.4.5.6 with no ports"
-                    .to_string()
-            ),
-            result
+            result,
+            Qualification::Malformed(Malefactor::new(
+                Some(agrs_vec[0].inner.public_key.clone()),
+                Some(gossip_source.ip()),
+                Some(agrs_vec[0].inner.earning_wallet.clone()),
+                None,
+                "Introducer introduced introducee with no ports".to_string()
+            )),
         );
     }
 
@@ -2697,7 +2773,16 @@ mod tests {
 
         let result = subject.qualifies(&dest_db, agrs_vec.as_slice(), gossip_source);
 
-        assert_eq!(Qualification::Malformed("In Introduction, neither AgMEBQ from 4.5.6.7 nor AwQFBg from 3.4.5.6 claims the source IP 2.3.4.5".to_string()), result);
+        assert_eq!(
+            result,
+            Qualification::Malformed(Malefactor::new(
+                None,
+                Some(gossip_source.ip()),
+                None,
+                None,
+                "In Introduction, neither Node record claims the source IP".to_string()
+            )),
+        );
     }
 
     #[test]
@@ -2716,10 +2801,14 @@ mod tests {
         let result = subject.qualifies(&dest_db, agrs_vec.as_slice(), gossip_source);
 
         assert_eq!(
-            Qualification::Malformed(
-                "Introducer AgMEBQ and introducee AwQFBg both claim 2.3.4.5".to_string()
-            ),
-            result
+            result,
+            Qualification::Malformed(Malefactor::new(
+                Some(agrs_vec[0].inner.public_key.clone()),
+                Some(gossip_source.ip()),
+                Some(agrs_vec[0].inner.earning_wallet.clone()),
+                None,
+                "Introducer claims the same IP address as its introducee".to_string()
+            )),
         );
     }
 
@@ -2737,11 +2826,14 @@ mod tests {
         let result = subject.qualifies(&dest_db, &agrs, gossip_source);
 
         assert_eq!(
-            Qualification::Malformed(format!(
-                "Introducer {} claims local Node's public key",
-                introducer_key
+            result,
+            Qualification::Malformed(Malefactor::new(
+                Some(introducer_key.clone()),
+                Some(gossip_source.ip()),
+                Some(agrs[0].inner.earning_wallet.clone()),
+                None,
+                "Introducer claims local Node's public key".to_string()
             )),
-            result
         );
     }
 
@@ -2754,16 +2846,18 @@ mod tests {
             IntroductionHandler::new(&RatePackLimits::test_default(), Logger::new("test"));
         let mut agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
         agrs[0].node_addr_opt = dest_root.node_addr_opt();
-        let introducer_key = &agrs[0].inner.public_key;
 
         let result = subject.qualifies(&dest_db, &agrs, dest_root.node_addr_opt().unwrap().into());
 
         assert_eq!(
-            Qualification::Malformed(format!(
-                "Introducer {} claims to be at local Node's IP address",
-                introducer_key
+            result,
+            Qualification::Malformed(Malefactor::new(
+                Some(agrs[0].inner.public_key.clone()),
+                Some(dest_root.node_addr_opt().unwrap().ip_addr()),
+                Some(agrs[0].inner.earning_wallet.clone()),
+                None,
+                "Introducer claims to be at local Node's IP address".to_string()
             )),
-            result
         );
     }
 
@@ -3182,10 +3276,13 @@ mod tests {
 
         assert_eq!(
             result,
-            Qualification::Malformed(
-                "Standard Gossip from 1.2.3.4:1234 contains a record claiming this Node's public key"
-                    .to_string()
-            ),
+            Qualification::Malformed(Malefactor::new(
+                Some(dest_node.public_key().clone()),
+                None,
+                Some(dest_node.earning_wallet().clone()),
+                None,
+                "Standard Gossip contains a record claiming this Node's public key".to_string()
+            )),
         );
     }
 
@@ -3218,9 +3315,15 @@ mod tests {
 
         assert_eq!(
             result,
-            Qualification::Malformed(format!(
-                "Standard Gossip from 1.2.3.4:1234 contains a record claiming that {} resides at this Node's IP address",
-                node_b.public_key()
+            Qualification::Malformed(Malefactor::new(
+                None,
+                Some(gossip_source.ip()),
+                None,
+                None,
+                format!(
+                    "Standard Gossip contains a record claiming that {} resides at this Node's IP address",
+                    node_b.public_key()
+                )
             )),
         );
     }
@@ -3257,9 +3360,13 @@ mod tests {
 
         assert_eq!(
             result,
-            Qualification::Malformed(
-                "Standard Gossip from 1.2.3.4:1234 contains multiple records claiming to be from 3.4.5.6".to_string()
-            ),
+            Qualification::Malformed(Malefactor::new(
+                None,
+                Some(gossip_source.ip()),
+                None,
+                None,
+                "Standard Gossip contains multiple records claiming to be from 3.4.5.6".to_string()
+            )),
         );
     }
 
@@ -4141,31 +4248,43 @@ mod tests {
 
         assert_eq!(
             debut_result,
-            Qualification::Malformed(
-                "Gossip with 1 records from 1.2.3.4:1234 is unclassifiable by any qualifier"
-                    .to_string()
-            )
+            Qualification::Malformed(Malefactor::new(
+                None,
+                Some(debut_gossip_source.ip()),
+                None,
+                None,
+                "Gossip with 1 records is unclassifiable by any qualifier".to_string()
+            ))
         );
         assert_eq!(
             pass_result,
-            Qualification::Malformed(
-                "Gossip with 1 records from 200.200.200.200:2000 is unclassifiable by any qualifier"
-                    .to_string()
-            )
+            Qualification::Malformed(Malefactor::new(
+                None,
+                Some(pass_gossip_source.ip()),
+                None,
+                None,
+                "Gossip with 1 records is unclassifiable by any qualifier".to_string()
+            ))
         );
         assert_eq!(
             introduction_result,
-            Qualification::Malformed(
-                "Gossip with 2 records from 3.4.5.6:3456 is unclassifiable by any qualifier"
-                    .to_string()
-            )
+            Qualification::Malformed(Malefactor::new(
+                None,
+                Some(introduction_gossip_source.ip()),
+                None,
+                None,
+                "Gossip with 2 records is unclassifiable by any qualifier".to_string()
+            ))
         );
         assert_eq!(
             standard_gossip_result,
-            Qualification::Malformed(
-                "Gossip with 1 records from 9.8.9.8:9898 is unclassifiable by any qualifier"
-                    .to_string()
-            )
+            Qualification::Malformed(Malefactor::new(
+                None,
+                Some(standard_gossip_source.ip()),
+                None,
+                None,
+                "Gossip with 1 records is unclassifiable by any qualifier".to_string()
+            ))
         );
     }
 
@@ -5240,7 +5359,13 @@ mod tests {
             _agrs: &[AccessibleGossipRecord],
             _gossip_source: SocketAddr,
         ) -> Qualification {
-            Qualification::Malformed("Malformed for test".to_string())
+            Qualification::Malformed(Malefactor::new(
+                None,
+                Some(_gossip_source.ip()),
+                None,
+                None,
+                "Malformed for test".to_string(),
+            ))
         }
 
         fn handle(

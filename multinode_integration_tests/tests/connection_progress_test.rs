@@ -44,7 +44,7 @@ fn connection_progress_is_properly_broadcast() {
     let ui_client = subject.make_ui(ui_port);
 
     // Hook up enough new Nodes to make the subject fully connected
-    let _additional_nodes = (0..4)
+    let _additional_nodes = (0..3)
         .into_iter()
         .map(|i| {
             cluster.start_real_node(

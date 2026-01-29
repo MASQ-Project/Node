@@ -53,18 +53,54 @@ impl TryFrom<&GossipNodeRecord> for NodeRecordInner_0v1 {
 
 impl Display for NodeRecordInner_0v1 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} {} {} {} {} {} {}",
+            self.behavior_string(),
+            self.version_string(),
+            self.country_code_string(),
+            self.public_key_string(),
+            self.wallet_string(),
+            self.rate_pack_string(),
+            self.neighbors_string()
+        )
+    }
+}
+
+impl NodeRecordInner_0v1 {
+    pub fn behavior_string(&self) -> String {
         let accepts_connections = if self.accepts_connections { "A" } else { "a" };
         let routes_data = if self.routes_data { "R" } else { "r" };
-        let version = format!("v{}", self.version);
-        let country_code = match &self.country_code_opt {
+        format!("{}{}", accepts_connections, routes_data)
+    }
+
+    pub fn version_string(&self) -> String {
+        format!("v{}", self.version)
+    }
+
+    pub fn country_code_string(&self) -> String {
+        match &self.country_code_opt {
             Some(cc) => cc.clone(),
             None => "ZZ".to_string(),
-        };
-        let wallet = self.earning_wallet.to_string();
+        }
+    }
+
+    pub fn public_key_string(&self) -> String {
         let mut public_key = self.public_key.to_string();
         public_key.truncate(8);
-        let rate_pack = self.rate_pack.rate_pack_parameter();
-        let neighbors = self
+        public_key
+    }
+
+    pub fn wallet_string(&self) -> String {
+        self.earning_wallet.to_string()
+    }
+
+    pub fn rate_pack_string(&self) -> String {
+        self.rate_pack.rate_pack_parameter()
+    }
+
+    pub fn neighbors_string(&self) -> String {
+        let filling = self
             .neighbors
             .iter()
             .map(|it| {
@@ -74,18 +110,7 @@ impl Display for NodeRecordInner_0v1 {
             })
             .collect_vec()
             .join(", ");
-        write!(
-            f,
-            "{}{} {} {} {} {} {} [{}]",
-            accepts_connections,
-            routes_data,
-            version,
-            country_code,
-            public_key,
-            wallet,
-            rate_pack,
-            neighbors
-        )
+        format!("[{}]", filling)
     }
 }
 

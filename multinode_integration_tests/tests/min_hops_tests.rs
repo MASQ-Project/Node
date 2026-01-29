@@ -15,8 +15,8 @@ use std::time::Duration;
 fn data_can_be_routed_using_different_min_hops() {
     // This test fails sometimes due to a timeout: "Couldn't read chunk: Kind(TimedOut)"
     // You may fix it by increasing the timeout for the client.
-    // assert_http_end_to_end_routing(Hops::OneHop);
-    // assert_http_end_to_end_routing(Hops::TwoHops);
+    assert_http_end_to_end_routing(Hops::OneHop);
+    assert_http_end_to_end_routing(Hops::TwoHops);
     assert_http_end_to_end_routing(Hops::SixHops);
 }
 
@@ -30,7 +30,7 @@ fn assert_http_end_to_end_routing(min_hops: Hops) {
     let first_node = cluster.start_real_node(config);
 
     // For 1-hop route, 3 nodes are necessary if we use last node as the originating node
-    let nodes_count = (min_hops as usize) * 2 + 5;
+    let nodes_count = (min_hops as usize) * 2 + 1;
     let nodes = (0..nodes_count)
         .map(|i| {
             cluster.start_real_node(

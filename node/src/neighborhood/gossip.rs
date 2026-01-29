@@ -25,7 +25,11 @@ use std::net::{IpAddr, SocketAddr};
 pub struct GossipNodeRecord {
     pub signed_data: PlainData,
     pub signature: CryptData,
-    pub node_addr_opt: Option<NodeAddr>, // TODO: Think about the implications of not signing this.
+    // This field should probably not exist. If the Gossip source is our next-door neighbor,
+    // we can get its IP address from the network stack, which is more reliable than an
+    // unsigned data field. If the Gossip source is not our next-door neighbor, we should
+    // not know its IP address anyway.
+    pub node_addr_opt: Option<NodeAddr>,
 }
 
 impl Debug for GossipNodeRecord {
@@ -475,26 +479,22 @@ pub struct AccessibleGossipRecord {
 
 impl Display for AccessibleGossipRecord {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let inner_string = self.inner.to_string();
         match self.node_addr_opt {
             Some(ref addr) => {
-                let mut index_of_space_after_pk = 9;
-                while (index_of_space_after_pk < inner_string.len())
-                    && (&inner_string[index_of_space_after_pk..index_of_space_after_pk + 1] != " ")
-                {
-                    index_of_space_after_pk += 1;
-                }
-                let addr_string = addr.ip_addr().to_string();
-                let pieces = vec![
-                    &inner_string[0..index_of_space_after_pk],
-                    addr_string.as_str(),
-                    &inner_string[index_of_space_after_pk + 1..],
-                ];
-                write!(f, "{}", pieces.join(" "))
+                write!(
+                    f,
+                    "{} {} {} {} {} {} {} {}",
+                    self.inner.behavior_string(),
+                    self.inner.version_string(),
+                    self.inner.country_code_string(),
+                    self.inner.public_key_string(),
+                    addr.ip_addr(),
+                    self.inner.wallet_string(),
+                    self.inner.rate_pack_string(),
+                    self.inner.neighbors_string()
+                )
             }
-            None => {
-                write!(f, "{}", self.inner)
-            }
+            None => write!(f, "{}", self.inner),
         }
     }
 }
@@ -664,6 +664,22 @@ mod tests {
         assert_eq!(
             result,
             "AR v0 AD AQIDBA 1.2.3.4 0x546900db8d6e0937497133d1ae6fdf5f4b75bcd0 1235|1434|1237|1634 []"
+        );
+    }
+
+    #[test]
+    fn accessible_gossip_record_to_string_with_ip_and_really_big_version() {
+        let mut node_record = make_node_record(1234, true);
+        node_record.inner.country_code_opt = Some("AD".to_string());
+        let db = db_from_node(&node_record);
+        let mut subject = AccessibleGossipRecord::from((&db, node_record.public_key(), true));
+        subject.inner.version = 4_000_000_000;
+
+        let result = subject.to_string();
+
+        assert_eq!(
+            result,
+            "AR v4000000000 AD AQIDBA 1.2.3.4 0x546900db8d6e0937497133d1ae6fdf5f4b75bcd0 1235|1434|1237|1634 []"
         );
     }
 
