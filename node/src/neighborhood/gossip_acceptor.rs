@@ -1297,7 +1297,7 @@ impl GossipHandler for StandardGossipHandler {
                 }
             }
         }) {
-            Some(agr) => agr.clone(), // TODO: Why clone? Why not just reference?
+            Some(agr) => agr.clone(),
             None => {
                 let message = format!(
                     "Node at {} sent Standard gossip without a record describing itself",
@@ -1336,9 +1336,8 @@ impl GossipHandler for StandardGossipHandler {
         db_changed |= !obsolete_agrs.is_empty();
         self.update_obsolete_nodes(database, obsolete_agrs);
 
-        // TODO: I don't think we need || db_changed at the end of the next statement
         db_changed |=
-            self.add_src_node_as_half_neighbor(cryptde, database, gossip_source) || db_changed;
+            self.add_src_node_as_half_neighbor(cryptde, database, gossip_source);
         let final_neighborship_status =
             StandardGossipHandler::check_full_neighbor(database, gossip_source.ip());
         // If no Nodes need updating, return ::Ignored and don't change the database.
@@ -1364,10 +1363,7 @@ impl GossipHandler for StandardGossipHandler {
             );
             vec![]
         };
-        // TODO: Probably don't need the .is_empty() check
-        if !malefactor_bans.is_empty() {
-            response.extend(malefactor_bans);
-        }
+        response.extend(malefactor_bans);
         response
     }
 }
@@ -1442,18 +1438,6 @@ impl StandardGossipHandler {
     fn contained_by_patch(&self, agr: &AccessibleGossipRecord, patch: &HashSet<PublicKey>) -> bool {
         patch.contains(&agr.inner.public_key)
     }
-
-    /*
-           // TODO: A node that tells us the IP Address of the node that isn't in our database should be malefactor banned
-           // Note: The below code doesn't really do what the above comment says
-           .filter(|agr| match &agr.node_addr_opt {
-               None => true,
-               Some(node_addr) => {
-                   let socket_addrs: Vec<SocketAddr> = node_addr.clone().into();
-                   socket_addrs.contains(&gossip_source)
-               }
-           })
-    */
 
     fn extract_malefactors(
         &self,
