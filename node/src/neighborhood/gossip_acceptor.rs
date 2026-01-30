@@ -1336,8 +1336,7 @@ impl GossipHandler for StandardGossipHandler {
         db_changed |= !obsolete_agrs.is_empty();
         self.update_obsolete_nodes(database, obsolete_agrs);
 
-        db_changed |=
-            self.add_src_node_as_half_neighbor(cryptde, database, gossip_source);
+        db_changed |= self.add_src_node_as_half_neighbor(cryptde, database, gossip_source);
         let final_neighborship_status =
             StandardGossipHandler::check_full_neighbor(database, gossip_source.ip());
         // If no Nodes need updating, return ::Ignored and don't change the database.
