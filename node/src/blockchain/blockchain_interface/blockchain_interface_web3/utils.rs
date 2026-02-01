@@ -406,7 +406,7 @@ mod tests {
             result,
             HashAndAmount {
                 hash: H256::from_str(
-                    "94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2"
+                    "1931f78f7ce5b43ffae11a2c22f18765508a2b2d4810e84744f53b10f7072c7f"
                 )
                 .unwrap(),
                 amount: account.balance_wei
@@ -453,14 +453,14 @@ mod tests {
             vec![
                 HashAndAmount {
                     hash: H256::from_str(
-                        "94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2"
+                        "1931f78f7ce5b43ffae11a2c22f18765508a2b2d4810e84744f53b10f7072c7f"
                     )
                     .unwrap(),
                     amount: 1000000000
                 },
                 HashAndAmount {
                     hash: H256::from_str(
-                        "3811874d2b73cecd51234c94af46bcce918d0cb4de7d946c01d7da606fe761b5"
+                        "0d6daf751e62b89e79cac26d6376cf259d58e996cfccd63f3f43bb6408d1bae8"
                     )
                     .unwrap(),
                     amount: 2000000000
@@ -648,14 +648,14 @@ mod tests {
             Correct(PendingPayable {
                 recipient_wallet: accounts[0].wallet.clone(),
                 hash: H256::from_str(
-                    "35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4",
+                    "7bff7fd8e627d317203742a40f77be1a4155b4c3a29dfd4f96088775f0237023",
                 )
                 .unwrap(),
             }),
             Correct(PendingPayable {
                 recipient_wallet: accounts[1].wallet.clone(),
                 hash: H256::from_str(
-                    "7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3",
+                    "5bc60cce367d9698b8dbdb340e2af3a3166bb4469e69db899f5074938ea0d61b",
                 )
                 .unwrap(),
             }),
@@ -678,8 +678,8 @@ mod tests {
         let expected_result = Err(Sending {
             msg: format!("Transport error: Error(Connect, Os {{ code: {}, kind: ConnectionRefused, message: {:?} }})", os_code, os_msg).to_string(),
             hashes: vec![
-                H256::from_str("35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4").unwrap(),
-                H256::from_str("7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3").unwrap()
+                H256::from_str("7bff7fd8e627d317203742a40f77be1a4155b4c3a29dfd4f96088775f0237023").unwrap(),
+                H256::from_str("5bc60cce367d9698b8dbdb340e2af3a3166bb4469e69db899f5074938ea0d61b").unwrap()
             ],
         });
 
@@ -719,7 +719,7 @@ mod tests {
                     data: None,
                 }),
                 recipient_wallet: accounts[0].wallet.clone(),
-                hash: H256::from_str("35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4").unwrap(),
+                hash: H256::from_str("7bff7fd8e627d317203742a40f77be1a4155b4c3a29dfd4f96088775f0237023").unwrap(),
             }),
             Failed(RpcPayableFailure {
                 rpc_error: Rpc(Error {
@@ -728,7 +728,7 @@ mod tests {
                     data: None,
                 }),
                 recipient_wallet: accounts[1].wallet.clone(),
-                hash: H256::from_str("7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3").unwrap(),
+                hash: H256::from_str("5bc60cce367d9698b8dbdb340e2af3a3166bb4469e69db899f5074938ea0d61b").unwrap(),
             }),
         ]);
 
@@ -758,7 +758,7 @@ mod tests {
         let expected_result = Ok(vec![
             Correct(PendingPayable {
                 recipient_wallet: accounts[0].wallet.clone(),
-                hash: H256::from_str("35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4").unwrap(),
+                hash: H256::from_str("7bff7fd8e627d317203742a40f77be1a4155b4c3a29dfd4f96088775f0237023").unwrap(),
             }),
             Failed(RpcPayableFailure {
                 rpc_error: Rpc(Error {
@@ -767,7 +767,7 @@ mod tests {
                     data: None,
                 }),
                 recipient_wallet: accounts[1].wallet.clone(),
-                hash: H256::from_str("7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3").unwrap(),
+                hash: H256::from_str("5bc60cce367d9698b8dbdb340e2af3a3166bb4469e69db899f5074938ea0d61b").unwrap(),
             }),
         ]);
 

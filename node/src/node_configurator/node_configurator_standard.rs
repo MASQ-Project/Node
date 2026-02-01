@@ -491,6 +491,8 @@ mod tests {
                 .unwrap();
         }
         let multi_config = make_simplified_multi_config([
+            "--blockchain-service-url",
+            "https://booga.com",
             "--chain",
             "eth-mainnet",
             "--db-password",
@@ -533,6 +535,8 @@ mod tests {
             PersistentConfigurationReal::from(conn)
         };
         let multi_config = make_simplified_multi_config([
+            "--blockchain-service-url",
+            "https://booga.com",
             "--chain",
             "eth-mainnet",
             "--db-password",
@@ -935,6 +939,7 @@ mod tests {
             );
         }
         let args = ArgsBuilder::new()
+            .param("--blockchain-service-url", "https://booga.com")
             .param("--data-directory", home_dir.to_str().unwrap())
             .param("--ip", "1.2.3.4");
         let mut bootstrapper_config = BootstrapperConfig::new();
@@ -1269,7 +1274,7 @@ mod tests {
         #[cfg(target_os = "windows")]
         assert_eq!(
             value_m!(env_multiconfig, "data-directory", String).unwrap(),
-            "generated/test/node_configurator_standard/server_initializer_collected_params_handle_dot_config_file_path_and_reads_arguments_from_cf/home\\data_dir\\MASQ\\polygon-mainnet".to_string()
+            "generated/test/node_configurator_standard/server_initializer_collected_params_handle_dot_config_file_path_and_reads_arguments_from_cf/home\\data_dir\\MASQ\\base-mainnet".to_string()
         );
     }
 
@@ -1380,7 +1385,7 @@ mod tests {
         #[cfg(target_os = "windows")]
         assert_eq!(
             value_m!(env_multiconfig, "data-directory", String).unwrap(),
-            "/home/booga\\data_dir\\MASQ\\polygon-mainnet".to_string()
+            "/home/booga\\data_dir\\MASQ\\base-mainnet".to_string()
         );
     }
 
@@ -1441,7 +1446,7 @@ mod tests {
         #[cfg(target_os = "windows")]
         assert_eq!(
             value_m!(env_multiconfig, "data-directory", String).unwrap(),
-            "/home/booga\\data_dir\\MASQ\\polygon-mainnet".to_string()
+            "/home/booga\\data_dir\\MASQ\\base-mainnet".to_string()
         );
     }
 
@@ -1766,7 +1771,14 @@ mod tests {
         let mut subject = NodeConfiguratorStandardUnprivileged::new(&BootstrapperConfig::new());
         subject.privileged_config = BootstrapperConfig::new();
         subject.privileged_config.data_directory = data_dir;
-        let args = ["--ip", "1.2.3.4", "--gas-price", "57"];
+        let args = [
+            "--blockchain-service-url",
+            "https://booga.com",
+            "--ip",
+            "1.2.3.4",
+            "--gas-price",
+            "57",
+        ];
 
         let config = subject
             .configure(&make_simplified_multi_config(args))
@@ -1787,7 +1799,12 @@ mod tests {
         let mut subject = NodeConfiguratorStandardUnprivileged::new(&BootstrapperConfig::new());
         subject.privileged_config = BootstrapperConfig::new();
         subject.privileged_config.data_directory = data_dir;
-        let args = ["--ip", "1.2.3.4"];
+        let args = [
+            "--blockchain-service-url",
+            "https://booga.com",
+            "--ip",
+            "1.2.3.4",
+        ];
 
         let config = subject
             .configure(&make_simplified_multi_config(args))
@@ -1963,16 +1980,21 @@ mod tests {
 
         let args = match (chain_opt, data_directory_opt) {
             (Some(chain_opt), Some(data_directory_opt)) => ArgsBuilder::new()
+                .param("--blockchain-service-url", "https://booga.com")
                 .param("--chain", chain_opt)
                 .param("--real-user", "999:999:/home/cooga")
                 .param("--data-directory", data_directory_opt),
             (None, Some(data_directory_opt)) => ArgsBuilder::new()
+                .param("--blockchain-service-url", "https://booga.com")
                 .param("--data-directory", data_directory_opt)
                 .param("--real-user", "999:999:/home/cooga"),
             (Some(chain_opt), None) => ArgsBuilder::new()
+                .param("--blockchain-service-url", "https://booga.com")
                 .param("--chain", chain_opt)
                 .param("--real-user", "999:999:/home/cooga"),
-            (None, None) => ArgsBuilder::new().param("--real-user", "999:999:/home/cooga"),
+            (None, None) => ArgsBuilder::new()
+                .param("--real-user", "999:999:/home/cooga")
+                .param("--blockchain-service-url", "https://booga.com"),
         };
         let args_vec: Vec<String> = args.into();
         let dir_wrapper = match data_directory_opt {
@@ -2000,7 +2022,7 @@ mod tests {
         let _clap_guard = ClapGuard::new();
         running_test();
         let home_dir = Path::new("/home/cooga");
-        let home_dir_poly_main = home_dir.join(".local").join("MASQ").join("polygon-mainnet");
+        let home_dir_poly_main = home_dir.join(".local").join("MASQ").join("base-mainnet");
         let home_dir_poly_amoy = home_dir.join(".local").join("MASQ").join("polygon-amoy");
         vec![
             (None, None, Some(home_dir_poly_main.to_str().unwrap())),
@@ -2018,8 +2040,8 @@ mod tests {
             ),
             (
                 None,
-                Some("/cooga/polygon-amoy/polygon-mainnet"),
-                Some("/cooga/polygon-amoy/polygon-mainnet"),
+                Some("/cooga/polygon-amoy/base-mainnet"),
+                Some("/cooga/polygon-amoy/base-mainnet"),
             ),
             (
                 Some("polygon-amoy"),
