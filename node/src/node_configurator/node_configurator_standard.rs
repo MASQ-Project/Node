@@ -578,6 +578,8 @@ mod tests {
             "off",
             "--ip",
             "1.2.3.4",
+            "--blockchain-service-url",
+            "https://booga.com",
         ]);
         let mut privileged_config = BootstrapperConfig::default();
         privileged_config.data_directory = home_dir;
