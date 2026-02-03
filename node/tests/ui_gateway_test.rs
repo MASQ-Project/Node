@@ -30,6 +30,7 @@ async fn ui_requests_something_and_gets_corresponding_response() {
             CommandConfig::new()
                 .pair("--ui-port", &port.to_string())
                 .pair(
+
                     "--data-directory",
                     home_dir.into_os_string().to_str().unwrap(),
                 ),
