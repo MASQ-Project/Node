@@ -734,7 +734,7 @@ impl PersistentConfigurationReal {
         u64::from_str(
             captures
                 .get(index)
-                .expect("Internal error: regex needs four captures")
+                .expect("Internal error: regex needs eight captures")
                 .as_str(),
         )
         .expect("Internal error: regex must require u64")

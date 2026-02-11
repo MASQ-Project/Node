@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use std::any::Any;
 use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::neighborhood::gossip::{
     AccessibleGossipRecord, GossipBuilder, GossipNodeRecord, Gossip_0v1,
@@ -69,6 +70,8 @@ trait GossipHandler: NamedType + Send /* Send because lazily-written tests requi
         gossip_source: SocketAddr,
         neighborhood_metadata: NeighborhoodMetadata,
     ) -> Vec<GossipAcceptanceResult>;
+
+    fn as_any(&self) -> &dyn Any;
 }
 
 struct DebutHandler {
@@ -158,7 +161,7 @@ impl GossipHandler for DebutHandler {
             }
             agr
         };
-        if let Err(message) = GossipAcceptorReal::validate_new_version(
+        if let Err(message) = GossipAcceptorReal::validate_incoming_agr(
             &source_agr,
             format!(
                 "Debut from {} at {}",
@@ -257,6 +260,10 @@ impl GossipHandler for DebutHandler {
             source_key,
             source_node_addr,
         )]
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 
@@ -736,6 +743,10 @@ impl GossipHandler for PassHandler {
         };
         gossip_acceptance_results
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 impl PassHandler {
@@ -857,6 +868,10 @@ impl GossipHandler for IntroductionHandler {
                 .expect("Neighborhood is dead");
         }
         results
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 
@@ -1092,7 +1107,7 @@ impl IntroductionHandler {
         gossip_source: SocketAddr,
         introducer: &AccessibleGossipRecord,
     ) -> Option<String> {
-        GossipAcceptorReal::validate_new_version(
+        GossipAcceptorReal::validate_incoming_agr(
             introducer,
             format!(
                 "Introducer {} from {}",
@@ -1108,7 +1123,7 @@ impl IntroductionHandler {
         &self,
         introducee: &AccessibleGossipRecord,
     ) -> Option<String> {
-        GossipAcceptorReal::validate_new_version(
+        GossipAcceptorReal::validate_incoming_agr(
             introducee,
             format!(
                 "Introducee {} at {}",
@@ -1365,6 +1380,10 @@ impl GossipHandler for StandardGossipHandler {
         response.extend(malefactor_bans);
         response
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 impl StandardGossipHandler {
@@ -1452,7 +1471,7 @@ impl StandardGossipHandler {
         // below if it used a for loop with mutation.
         let (valid_agrs, bans) = agrs.into_iter().fold((vec![], vec![]), |so_far, agr| {
             let (mut valid_agrs, mut bans) = so_far;
-            match GossipAcceptorReal::validate_new_version(
+            match GossipAcceptorReal::validate_incoming_agr(
                 &agr,
                 format!(
                     "Node {} from Standard gossip received from {}",
@@ -1484,8 +1503,6 @@ impl StandardGossipHandler {
             valid_agrs.into_iter().fold((vec![], bans), |so_far, agr| {
             let (mut valid_agrs, mut bans) = so_far;
             if &agr.inner.public_key == database.root_key() {
-                // Shouldn't ever happen; but an evil Node could try it
-                // valid_agrs.push(agr);
                 let ip_addr_opt = agr.node_addr_opt.map(|na| na.ip_addr());
                 bans.push(GossipAcceptanceResult::Ban(Malefactor::new(
                     Some(agr.inner.public_key.clone()),
@@ -1704,6 +1721,10 @@ impl GossipHandler for RejectHandler {
     ) -> Vec<GossipAcceptanceResult> {
         panic!("Should never be called")
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 impl RejectHandler {
@@ -1813,7 +1834,7 @@ impl GossipAcceptorReal {
                 Box::new(PassHandler::new()),
                 Box::new(IntroductionHandler::new(rate_pack_limits, logger.clone())),
                 Box::new(StandardGossipHandler::new(
-                    &DEFAULT_RATE_PACK_LIMITS,
+                    rate_pack_limits,
                     logger.clone(),
                 )),
                 Box::new(RejectHandler::new()),
@@ -1855,7 +1876,7 @@ impl GossipAcceptorReal {
         ))
     }
 
-    fn validate_new_version(
+    fn validate_incoming_agr(
         agr: &AccessibleGossipRecord,
         agr_description: String,
         rate_pack_limits: &RatePackLimits,
@@ -1951,12 +1972,6 @@ mod tests {
         static ref GA_CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
     }
 
-    #[test]
-    fn constants_have_correct_values() {
-        assert_eq!(MAX_DEGREE, 5);
-        assert_eq!(PASS_GOSSIP_EXPIRED_TIME, Duration::from_secs(60));
-    }
-
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     struct Mode {
         pub accepts_connections: bool,
@@ -2001,6 +2016,40 @@ mod tests {
                 hi: RatePack::new(u64::MAX, u64::MAX, u64::MAX, u64::MAX),
             }
         }
+    }
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(MAX_DEGREE, 5);
+        assert_eq!(PASS_GOSSIP_EXPIRED_TIME, Duration::from_secs(60));
+    }
+
+    #[test]
+    fn gossip_acceptor_constructor_creates_handlers_properly() {
+        let subject = GossipAcceptorReal::new(
+            GA_CRYPTDE_PAIR.main.dup(),
+            &PersistentConfigurationMock::new()
+                .rate_pack_limits_result(Ok(RatePackLimits::test_default())),
+        );
+
+        let debut_handler: &DebutHandler = subject.gossip_handlers[0].as_any().downcast_ref::<DebutHandler>().unwrap();
+        assert_eq!(debut_handler.rate_pack_limits, RatePackLimits::test_default());
+        assert_eq!(debut_handler.logger.name(), "GossipAcceptor");
+
+        let pass_handler: &PassHandler = subject.gossip_handlers[1].as_any().downcast_ref::<PassHandler>().unwrap();
+        // The fact that the downcast didn't panic is assertion enough
+
+        let introduction_handler: &IntroductionHandler = subject.gossip_handlers[2].as_any().downcast_ref::<IntroductionHandler>().unwrap();
+        assert_eq!(introduction_handler.rate_pack_limits, RatePackLimits::test_default());
+        assert_eq!(introduction_handler.logger.name(), "GossipAcceptor");
+
+        let standard_gossip_handler: &StandardGossipHandler = subject.gossip_handlers[3].as_any().downcast_ref::<StandardGossipHandler>().unwrap();
+        assert_eq!(standard_gossip_handler.rate_pack_limits, RatePackLimits::test_default());
+        assert_eq!(standard_gossip_handler.logger.name(), "GossipAcceptor");
+
+        let reject_handler: &RejectHandler = subject.gossip_handlers[4].as_any().downcast_ref::<RejectHandler>().unwrap();
+        // The fact that the downcast didn't panic is assertion enough
+        assert_eq!(subject.gossip_handlers.len(), 5);
     }
 
     #[test]
@@ -5361,6 +5410,10 @@ mod tests {
         ) -> Vec<GossipAcceptanceResult> {
             unimplemented!("Should never be called")
         }
+
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
     }
 
     #[test]
@@ -5709,7 +5762,7 @@ mod tests {
         node.inner.rate_pack = DEFAULT_RATE_PACK.clone();
         let agr = AccessibleGossipRecord::from(&node);
 
-        let result = GossipAcceptorReal::validate_new_version(
+        let result = GossipAcceptorReal::validate_incoming_agr(
             &agr,
             "description".to_string(),
             &DEFAULT_RATE_PACK_LIMITS,
@@ -5727,7 +5780,7 @@ mod tests {
         node.inner.rate_pack = ZERO_RATE_PACK.clone();
         let agr = AccessibleGossipRecord::from(&node);
 
-        let result = GossipAcceptorReal::validate_new_version(
+        let result = GossipAcceptorReal::validate_incoming_agr(
             &agr,
             "description".to_string(),
             &DEFAULT_RATE_PACK_LIMITS,
@@ -5745,7 +5798,7 @@ mod tests {
         node.inner.rate_pack = ZERO_RATE_PACK.clone();
         let agr = AccessibleGossipRecord::from(&node);
 
-        let result = GossipAcceptorReal::validate_new_version(
+        let result = GossipAcceptorReal::validate_incoming_agr(
             &agr,
             "description".to_string(),
             &DEFAULT_RATE_PACK_LIMITS,

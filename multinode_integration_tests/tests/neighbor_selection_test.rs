@@ -21,7 +21,7 @@ use std::convert::TryInto;
 use std::time::Duration;
 
 #[test]
-fn debut_target_does_not_introduce_already_known_neighbors() {
+fn if_debuter_already_knows_all_of_recipients_neighbors_recipient_redebuts() {
     let mut cluster = MASQNodeCluster::start().unwrap();
     let one_common_neighbor = make_node_record(1234, true);
     let another_common_neighbor = make_node_record(2435, true);
