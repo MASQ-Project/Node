@@ -16,7 +16,7 @@ use crate::db_config::persistent_configuration::{
     PersistentConfigurationFactoryReal, PersistentConfigurationInvalid,
 };
 use crate::neighborhood::gossip::{
-    agrs_to_string, AccessibleGossipRecord, DotGossipEndpoint, Gossip_0v1,
+    AccessibleGossipRecord, DotGossipEndpoint, Gossip_0v1,
 };
 use crate::neighborhood::gossip_acceptor::{GossipAcceptanceResult, GossipAcceptorInvalid};
 use crate::neighborhood::node_location::get_node_location;
@@ -79,7 +79,6 @@ use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::net::{IpAddr, SocketAddr};
-// use std::path::PathBuf;
 use std::string::ToString;
 
 pub const CRASH_KEY: &str = "NEIGHBORHOOD";
@@ -109,7 +108,6 @@ pub struct Neighborhood {
     overall_connection_status: OverallConnectionStatus,
     chain: Chain,
     crashable: bool,
-    // data_directory: PathBuf,
     persistent_config_factory: Box<dyn PersistentConfigurationFactory>,
     persistent_config: Box<dyn PersistentConfiguration>,
     db_password_opt: Option<String>,
@@ -435,7 +433,6 @@ impl Neighborhood {
             overall_connection_status,
             chain: config.blockchain_bridge_config.chain,
             crashable: config.crash_point == CrashPoint::Message,
-            // data_directory: config.data_directory.clone(),
             persistent_config_factory: Box::new(PersistentConfigurationFactoryReal::new(
                 config.data_directory.clone(),
             )),
@@ -691,8 +688,6 @@ impl Neighborhood {
             return;
         }
 
-        trace!(self.logger, "Contents: {}", agrs_to_string(agrs.as_slice()));
-
         self.handle_gossip_agrs(agrs, gossip_source, cpm_recipient);
         self.announce_gossip_handling_completion(record_count);
     }
@@ -819,48 +814,46 @@ impl Neighborhood {
         neighbor_keys_before: HashSet<PublicKey>,
         neighbor_keys_after: HashSet<PublicKey>,
     ) {
-        self.curate_past_neighbors(neighbor_keys_before, neighbor_keys_after);
-        // TODO: This shouldn't be done if there were no changes to the database.
-        self.check_connectedness();
+        if neighbor_keys_after != neighbor_keys_before {
+            self.curate_past_neighbors(neighbor_keys_after);
+            self.check_connectedness();
+        } else {
+            debug!(self.logger, "No neighbor changes; database is unchanged")
+        }
     }
 
     fn curate_past_neighbors(
         &mut self,
-        neighbor_keys_before: HashSet<PublicKey>,
-        neighbor_keys_after: HashSet<PublicKey>,
+        neighbor_keys: HashSet<PublicKey>,
     ) {
-        if neighbor_keys_after != neighbor_keys_before {
-            if let Some(db_password) = &self.db_password_opt {
-                let nds = self
-                    .to_node_descriptors(neighbor_keys_after.into_iter().collect_vec().as_slice());
-                let node_descriptors_opt = if nds.is_empty() { None } else { Some(nds) };
-                debug!(
-                    self.logger,
-                    "Saving neighbor list: {:?}", node_descriptors_opt
-                );
-                match self
-                    .persistent_config
-                    .set_past_neighbors(node_descriptors_opt, db_password)
+        if let Some(db_password) = &self.db_password_opt {
+            let nds = self
+                .to_node_descriptors(neighbor_keys.into_iter().collect_vec().as_slice());
+            let node_descriptors_opt = if nds.is_empty() { None } else { Some(nds) };
+            debug!(
+                self.logger,
+                "Saving neighbor list: {:?}", node_descriptors_opt
+            );
+            match self
+                .persistent_config
+                .set_past_neighbors(node_descriptors_opt, db_password)
+            {
+                Ok(_) => info!(self.logger, "Persisted neighbor changes for next run"),
+                Err(PersistentConfigError::DatabaseError(msg))
+                    if &msg == "database is locked" =>
                 {
-                    Ok(_) => info!(self.logger, "Persisted neighbor changes for next run"),
-                    Err(PersistentConfigError::DatabaseError(msg))
-                        if &msg == "database is locked" =>
-                    {
-                        warning!(
-                        self.logger,
-                        "Could not persist immediate-neighbor changes: database locked - skipping"
-                    )
-                    }
-                    Err(e) => error!(
-                        self.logger,
-                        "Could not persist immediate-neighbor changes: {:?}", e
-                    ),
-                };
-            } else {
-                info!(self.logger, "Declining to persist neighbor changes for next run: no database password supplied")
-            }
+                    warning!(
+                    self.logger,
+                    "Could not persist immediate-neighbor changes: database locked - skipping"
+                )
+                }
+                Err(e) => error!(
+                    self.logger,
+                    "Could not persist immediate-neighbor changes: {:?}", e
+                ),
+            };
         } else {
-            debug!(self.logger, "No neighbor changes; database is unchanged")
+            info!(self.logger, "Declining to persist neighbor changes for next run: no database password supplied")
         }
     }
 
@@ -5570,14 +5563,15 @@ mod tests {
         let (ui_gateway, _, _) = make_recorder();
         let mut subject = make_neighborhood_with_linearly_connected_nodes(4);
         subject.node_to_ui_recipient_opt = Some(ui_gateway.start().recipient());
+        subject.db_password_opt = None;
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         bind_subject(&mut subject, peer_actors);
         let system = System::new("neighborhood_does_not_start_accountant_if_no_route_can_be_made");
 
-        subject.handle_gossip_agrs(
-            vec![],
-            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
-            make_cpm_recipient().0,
+        subject.handle_database_changes(
+            // Just different HashSets; the values don't mean anything
+            vec![subject.neighborhood_database.root().public_key().clone()].into_iter().collect(),
+            vec![].into_iter().collect(),
         );
 
         System::current().stop();
@@ -5646,12 +5640,13 @@ mod tests {
         subject.logger = Logger::new(test_name);
         subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
         subject.connected_signal_opt = Some(connected_signal);
+        subject.db_password_opt = None;
         let system = System::new(test_name);
 
-        subject.handle_gossip_agrs(
-            vec![],
-            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
-            make_cpm_recipient().0,
+        subject.handle_database_changes(
+            // Just different HashSets; the values don't mean anything
+            vec![subject.neighborhood_database.root().public_key().clone()].into_iter().collect(),
+            vec![].into_iter().collect(),
         );
 
         System::current().stop();
@@ -5703,12 +5698,13 @@ mod tests {
         subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
         subject.connected_signal_opt = Some(connected_signal);
         subject.min_hops = Hops::FiveHops;
+        subject.db_password_opt = None;
         let system = System::new(test_name);
 
-        subject.handle_gossip_agrs(
-            vec![],
-            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
-            make_cpm_recipient().0,
+        subject.handle_database_changes(
+            // Just different HashSets; the values don't mean anything
+            vec![subject.neighborhood_database.root().public_key().clone()].into_iter().collect(),
+            vec![].into_iter().collect(),
         );
 
         System::current().stop();
@@ -7584,7 +7580,7 @@ mod tests {
     }
 
     #[test]
-    fn curate_past_neighbors_does_not_write_to_database_if_neighbors_are_same_but_order_has_changed(
+    fn handle_database_changes_does_not_write_to_database_if_neighbors_are_same_but_order_has_changed(
     ) {
         let mut subject = make_standard_subject();
         // This mock is completely unprepared: any call to it should cause a panic
@@ -7597,7 +7593,7 @@ mod tests {
             .into_iter()
             .collect();
 
-        subject.curate_past_neighbors(neighbor_keys_before, neighbor_keys_after);
+        subject.handle_database_changes(neighbor_keys_before, neighbor_keys_after);
 
         // No panic; therefore no attempt was made to persist: test passes!
     }

@@ -1519,7 +1519,14 @@ impl StandardGossipHandler {
                     )
                 )));
             }
-            else if (agr.node_addr_opt.as_ref().map(|addr| addr.ip_addr()) != Some(gossip_source_ip)) && !next_door_neighbor_keys.contains(&&agr.inner.public_key) && agr.node_addr_opt.is_some() {
+            else if
+              // the AGR has an IP address
+              agr.node_addr_opt.is_some() &&
+              // the AGR's IP address doesn't match the gossip source's IP address
+              (agr.node_addr_opt.as_ref().expect("NodeAddr disappeared").ip_addr() != gossip_source_ip) &&
+              // the AGR's public key isn't a next-door neighbor
+              !next_door_neighbor_keys.contains(&&agr.inner.public_key)
+            {
                 bans.push(GossipAcceptanceResult::Ban(Malefactor::new(
                     Some(gossip_source_agr.inner.public_key.clone()),
                     Some(gossip_source_ip),
@@ -1794,6 +1801,10 @@ impl GossipAcceptor for GossipAcceptorReal {
                 panic!("Nothing in gossip_handlers returned Matched or Malformed")
             }
             Qualification::Malformed(malefactor) => {
+                // TODO: A lot of effort is being spent here making a new Malefactor when we've
+                // got exactly what we need passed in.
+                // TODO: Split this method into a couple of smaller methods, and write a test for
+                // at least this part of one of the smaller methods.
                 let (public_key_opt, ip_address_opt, earning_wallet_opt) =
                     match agrs.iter().find(|agr| {
                         agr.node_addr_opt.as_ref().map(|na| na.ip_addr())
@@ -2036,7 +2047,7 @@ mod tests {
         assert_eq!(debut_handler.rate_pack_limits, RatePackLimits::test_default());
         assert_eq!(debut_handler.logger.name(), "GossipAcceptor");
 
-        let pass_handler: &PassHandler = subject.gossip_handlers[1].as_any().downcast_ref::<PassHandler>().unwrap();
+        let _: &PassHandler = subject.gossip_handlers[1].as_any().downcast_ref::<PassHandler>().unwrap();
         // The fact that the downcast didn't panic is assertion enough
 
         let introduction_handler: &IntroductionHandler = subject.gossip_handlers[2].as_any().downcast_ref::<IntroductionHandler>().unwrap();
@@ -2047,7 +2058,7 @@ mod tests {
         assert_eq!(standard_gossip_handler.rate_pack_limits, RatePackLimits::test_default());
         assert_eq!(standard_gossip_handler.logger.name(), "GossipAcceptor");
 
-        let reject_handler: &RejectHandler = subject.gossip_handlers[4].as_any().downcast_ref::<RejectHandler>().unwrap();
+        let _: &RejectHandler = subject.gossip_handlers[4].as_any().downcast_ref::<RejectHandler>().unwrap();
         // The fact that the downcast didn't panic is assertion enough
         assert_eq!(subject.gossip_handlers.len(), 5);
     }
@@ -3055,7 +3066,6 @@ mod tests {
         let (gossip, gossip_source) = make_introduction(2345, 3456);
         let dest_root = make_node_record(7878, true);
         let mut dest_db = db_from_node(&dest_root);
-        // These don't count because they're half-only neighbors. Will they be ignored?
         for idx in 0..MAX_DEGREE {
             let half_neighbor_key = &dest_db
                 .add_node(make_node_record(4000 + idx as u16, true))
@@ -3114,7 +3124,6 @@ mod tests {
         let (gossip, gossip_source) = make_introduction(2345, 3456);
         let dest_root = make_node_record(7878, true);
         let mut dest_db = db_from_node(&dest_root);
-        // These don't count because they're half-only neighbors. Will they be ignored?
         for idx in 0..MAX_DEGREE {
             let half_neighbor_key = &dest_db
                 .add_node(make_node_record(4000 + idx as u16, true))
@@ -3476,20 +3485,20 @@ mod tests {
         );
 
         assert_eq!(
-            0u32,
             dest_db
                 .node_by_key(node_a.public_key())
                 .unwrap()
                 .metadata
                 .country_undesirability,
+            0u32,
         );
         assert_eq!(
-            UNREACHABLE_COUNTRY_PENALTY,
             dest_db
                 .node_by_key(node_b.public_key())
                 .unwrap()
                 .metadata
                 .country_undesirability,
+            UNREACHABLE_COUNTRY_PENALTY,
         );
         assert_eq!(qualifies_result, Qualification::Matched);
         assert_eq!(handle_result, vec![GossipAcceptanceResult::Accepted]);
@@ -5532,7 +5541,6 @@ mod tests {
         let mut src_db = db_from_node(&src_node);
         let third_node = make_node_record(3456, false);
         let disconnected_node = make_node_record(4567, false);
-        // These are only half neighbors. Will they be ignored in degree calculation?
         for idx in 0..MAX_DEGREE {
             let failed_node_key = &dest_db
                 .add_node(make_node_record(4000 + idx as u16, true))
@@ -5554,8 +5562,7 @@ mod tests {
             .node_by_key_mut(third_node.public_key())
             .unwrap()
             .increment_version();
-        // Why are we resigning dest_node?
-        resign_nodes(&mut src_db, vec![&src_node, &dest_node, &third_node]);
+        resign_nodes(&mut src_db, vec![&src_node, &third_node]);
         let gossip = GossipBuilder::new(&src_db)
             .node(src_node.public_key(), true)
             .node(third_node.public_key(), true)
@@ -5573,7 +5580,6 @@ mod tests {
 
         let after = time_t_timestamp();
         let mut expected_dest_db = src_db.clone();
-        // why half neighborship?
         expected_dest_db.add_arbitrary_half_neighbor(dest_node.public_key(), src_node.public_key());
         expected_dest_db
             .remove_neighbor(disconnected_node.public_key())
@@ -5651,7 +5657,6 @@ mod tests {
             .build();
         let subject = make_subject(GA_CRYPTDE_PAIR.main.as_ref());
         let original_dest_db = dest_db.clone();
-        // Ww shouldn't be changing anything, so timestamps shouldn't matter
         let before = time_t_timestamp() - 3600;
 
         let result = subject.handle(

@@ -66,9 +66,9 @@ impl PartialEq for Malefactor {
             && self.earning_wallet_opt == other.earning_wallet_opt
             && self.consuming_wallet_opt == other.consuming_wallet_opt
             && self.reason == other.reason;
-        let plus_one_second = self.timestamp.saturating_add(*FUDGE_FACTOR);
-        let minus_one_second = self.timestamp.saturating_sub(*FUDGE_FACTOR);
-        equal && (other.timestamp >= minus_one_second && other.timestamp <= plus_one_second)
+        let plus_fudge_factor = self.timestamp.saturating_add(*FUDGE_FACTOR);
+        let minus_fudge_factor = self.timestamp.saturating_sub(*FUDGE_FACTOR);
+        equal && (other.timestamp >= minus_fudge_factor && other.timestamp <= plus_fudge_factor)
     }
 }
 
