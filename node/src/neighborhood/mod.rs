@@ -2260,7 +2260,7 @@ mod tests {
     use crate::neighborhood::overall_connection_status::{
         ConnectionProgress, ConnectionStage, OverallConnectionStage,
     };
-    use crate::test_utils::database_utils::PersistentConfigurationFactoryTest;
+    use crate::test_utils::database_utils::PersistentConfigurationFactoryMock;
     use crate::test_utils::unshared_test_utils::notify_handlers::NotifyLaterHandleMock;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
@@ -2596,7 +2596,7 @@ mod tests {
                 "node_with_zero_hop_config_ignores_start_message",
             ),
         );
-        subject.persistent_config_factory = Box::new(PersistentConfigurationFactoryTest::new(
+        subject.persistent_config_factory = Box::new(PersistentConfigurationFactoryMock::new(
             PersistentConfigurationMock::new()
                 .min_hops_result(Ok(MIN_HOPS_FOR_TEST))
                 .rate_pack_limits_result(Ok(RatePackLimits::test_default())),
@@ -6460,12 +6460,11 @@ mod tests {
                 "node_gossips_to_neighbors_on_startup",
             ),
         );
-        subject.persistent_config_factory = Box::new(PersistentConfigurationFactoryTest::new(
+        subject.persistent_config_factory = Box::new(PersistentConfigurationFactoryMock::new(
             PersistentConfigurationMock::new()
                 .min_hops_result(Ok(MIN_HOPS_FOR_TEST))
                 .rate_pack_limits_result(Ok(RatePackLimits::test_default())),
         ));
-        // subject.data_directory = data_dir;
         subject.logger = Logger::new("node_gossips_to_neighbors_on_startup");
         let this_node = subject.neighborhood_database.root().clone();
         let system = System::new("node_gossips_to_neighbors_on_startup");
@@ -6519,7 +6518,7 @@ mod tests {
                 test_name,
             ),
         );
-        subject.persistent_config_factory = Box::new(PersistentConfigurationFactoryTest::new(
+        subject.persistent_config_factory = Box::new(PersistentConfigurationFactoryMock::new(
             PersistentConfigurationMock::new()
                 .min_hops_result(Ok(min_hops_in_persistent_configuration))
                 .rate_pack_limits_result(Ok(RatePackLimits::test_default())),
@@ -6564,7 +6563,7 @@ mod tests {
             ),
         );
         subject.logger = Logger::new(test_name);
-        subject.persistent_config_factory = Box::new(PersistentConfigurationFactoryTest::new(
+        subject.persistent_config_factory = Box::new(PersistentConfigurationFactoryMock::new(
             PersistentConfigurationMock::new()
                 .min_hops_result(Ok(min_hops_in_db))
                 .rate_pack_limits_result(Ok(RatePackLimits::test_default())),
@@ -7610,7 +7609,6 @@ mod tests {
                 N_CRYPTDE_PAIR.clone(),
                 &bc_from_earning_wallet(make_wallet("earning_wallet")),
             );
-            // subject.data_directory = data_dir.to_path_buf();
             subject.persistent_config_factory = Box::new(PersistentConfigurationFactoryReal::new(
                 data_dir.to_path_buf(),
             ));

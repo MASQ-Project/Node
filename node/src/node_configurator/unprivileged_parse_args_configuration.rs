@@ -305,7 +305,6 @@ fn make_neighborhood_mode(
             s
         ),
         None => {
-            // TODO: This default is now zero-hop rather than standard. This code should change.
             let rate_pack = configure_rate_pack(multi_config, persistent_config)?;
             neighborhood_mode_standard(multi_config, neighbor_configs, rate_pack)
         }

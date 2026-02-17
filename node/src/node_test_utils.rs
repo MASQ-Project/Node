@@ -319,16 +319,3 @@ impl Masquerader for FailingMasquerader {
         ))
     }
 }
-
-impl NodeRecord {
-    pub fn but_no_node_addr(&self) -> NodeRecord {
-        let mut modified = NodeRecord {
-            inner: self.inner.clone(),
-            metadata: self.metadata.clone(),
-            signed_gossip: PlainData::new(&[]),
-            signature: CryptData::new(&[]),
-        };
-        modified.resign();
-        modified
-    }
-}

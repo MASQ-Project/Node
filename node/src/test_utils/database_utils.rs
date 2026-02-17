@@ -307,11 +307,11 @@ pub fn make_external_data() -> ExternalData {
     }
 }
 
-pub struct PersistentConfigurationFactoryTest {
+pub struct PersistentConfigurationFactoryMock {
     mock_opt: RefCell<Option<PersistentConfigurationMock>>,
 }
 
-impl PersistentConfigurationFactory for PersistentConfigurationFactoryTest {
+impl PersistentConfigurationFactory for PersistentConfigurationFactoryMock {
     fn make(&self) -> Box<dyn PersistentConfiguration> {
         Box::new(
             self.mock_opt
@@ -322,7 +322,7 @@ impl PersistentConfigurationFactory for PersistentConfigurationFactoryTest {
     }
 }
 
-impl PersistentConfigurationFactoryTest {
+impl PersistentConfigurationFactoryMock {
     pub fn new(mock: PersistentConfigurationMock) -> Self {
         Self {
             mock_opt: RefCell::new(Some(mock)),
