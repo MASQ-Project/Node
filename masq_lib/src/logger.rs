@@ -117,7 +117,7 @@ impl Logger {
     }
 
     pub fn name(&self) -> &str {
-       &self.name
+        &self.name
     }
 
     pub fn trace<F>(&self, log_function: F)

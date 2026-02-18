@@ -1,6 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::any::Any;
 use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::neighborhood::gossip::{
     AccessibleGossipRecord, GossipBuilder, GossipNodeRecord, Gossip_0v1,
@@ -17,6 +16,7 @@ use crate::sub_lib::neighborhood::{
 use crate::sub_lib::node_addr::NodeAddr;
 use itertools::Itertools;
 use masq_lib::logger::Logger;
+use std::any::Any;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
@@ -1844,10 +1844,7 @@ impl GossipAcceptorReal {
                 Box::new(DebutHandler::new(rate_pack_limits, logger.clone())),
                 Box::new(PassHandler::new()),
                 Box::new(IntroductionHandler::new(rate_pack_limits, logger.clone())),
-                Box::new(StandardGossipHandler::new(
-                    rate_pack_limits,
-                    logger.clone(),
-                )),
+                Box::new(StandardGossipHandler::new(rate_pack_limits, logger.clone())),
                 Box::new(RejectHandler::new()),
             ],
             cryptde,
@@ -2043,22 +2040,46 @@ mod tests {
                 .rate_pack_limits_result(Ok(RatePackLimits::test_default())),
         );
 
-        let debut_handler: &DebutHandler = subject.gossip_handlers[0].as_any().downcast_ref::<DebutHandler>().unwrap();
-        assert_eq!(debut_handler.rate_pack_limits, RatePackLimits::test_default());
+        let debut_handler: &DebutHandler = subject.gossip_handlers[0]
+            .as_any()
+            .downcast_ref::<DebutHandler>()
+            .unwrap();
+        assert_eq!(
+            debut_handler.rate_pack_limits,
+            RatePackLimits::test_default()
+        );
         assert_eq!(debut_handler.logger.name(), "GossipAcceptor");
 
-        let _: &PassHandler = subject.gossip_handlers[1].as_any().downcast_ref::<PassHandler>().unwrap();
+        let _: &PassHandler = subject.gossip_handlers[1]
+            .as_any()
+            .downcast_ref::<PassHandler>()
+            .unwrap();
         // The fact that the downcast didn't panic is assertion enough
 
-        let introduction_handler: &IntroductionHandler = subject.gossip_handlers[2].as_any().downcast_ref::<IntroductionHandler>().unwrap();
-        assert_eq!(introduction_handler.rate_pack_limits, RatePackLimits::test_default());
+        let introduction_handler: &IntroductionHandler = subject.gossip_handlers[2]
+            .as_any()
+            .downcast_ref::<IntroductionHandler>()
+            .unwrap();
+        assert_eq!(
+            introduction_handler.rate_pack_limits,
+            RatePackLimits::test_default()
+        );
         assert_eq!(introduction_handler.logger.name(), "GossipAcceptor");
 
-        let standard_gossip_handler: &StandardGossipHandler = subject.gossip_handlers[3].as_any().downcast_ref::<StandardGossipHandler>().unwrap();
-        assert_eq!(standard_gossip_handler.rate_pack_limits, RatePackLimits::test_default());
+        let standard_gossip_handler: &StandardGossipHandler = subject.gossip_handlers[3]
+            .as_any()
+            .downcast_ref::<StandardGossipHandler>()
+            .unwrap();
+        assert_eq!(
+            standard_gossip_handler.rate_pack_limits,
+            RatePackLimits::test_default()
+        );
         assert_eq!(standard_gossip_handler.logger.name(), "GossipAcceptor");
 
-        let _: &RejectHandler = subject.gossip_handlers[4].as_any().downcast_ref::<RejectHandler>().unwrap();
+        let _: &RejectHandler = subject.gossip_handlers[4]
+            .as_any()
+            .downcast_ref::<RejectHandler>()
+            .unwrap();
         // The fact that the downcast didn't panic is assertion enough
         assert_eq!(subject.gossip_handlers.len(), 5);
     }

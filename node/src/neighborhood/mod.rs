@@ -15,9 +15,7 @@ use crate::db_config::persistent_configuration::{
     PersistentConfigError, PersistentConfiguration, PersistentConfigurationFactory,
     PersistentConfigurationFactoryReal, PersistentConfigurationInvalid,
 };
-use crate::neighborhood::gossip::{
-    AccessibleGossipRecord, DotGossipEndpoint, Gossip_0v1,
-};
+use crate::neighborhood::gossip::{AccessibleGossipRecord, DotGossipEndpoint, Gossip_0v1};
 use crate::neighborhood::gossip_acceptor::{GossipAcceptanceResult, GossipAcceptorInvalid};
 use crate::neighborhood::node_location::get_node_location;
 use crate::neighborhood::overall_connection_status::{
@@ -817,18 +815,17 @@ impl Neighborhood {
         if neighbor_keys_after != neighbor_keys_before {
             self.curate_past_neighbors(&neighbor_keys_after);
         } else {
-            debug!(self.logger, "No neighbor changes; leaving past_neighbors alone")
+            debug!(
+                self.logger,
+                "No neighbor changes; leaving past_neighbors alone"
+            )
         }
         self.check_connectedness();
     }
 
-    fn curate_past_neighbors(
-        &mut self,
-        neighbor_keys: &HashSet<PublicKey>,
-    ) {
+    fn curate_past_neighbors(&mut self, neighbor_keys: &HashSet<PublicKey>) {
         if let Some(db_password) = &self.db_password_opt {
-            let nds = self
-                .to_node_descriptors(neighbor_keys.iter().collect_vec().as_slice());
+            let nds = self.to_node_descriptors(neighbor_keys.iter().collect_vec().as_slice());
             let node_descriptors_opt = if nds.is_empty() { None } else { Some(nds) };
             debug!(
                 self.logger,
@@ -839,13 +836,11 @@ impl Neighborhood {
                 .set_past_neighbors(node_descriptors_opt, db_password)
             {
                 Ok(_) => info!(self.logger, "Persisted neighbor changes for next run"),
-                Err(PersistentConfigError::DatabaseError(msg))
-                    if &msg == "database is locked" =>
-                {
+                Err(PersistentConfigError::DatabaseError(msg)) if &msg == "database is locked" => {
                     warning!(
-                    self.logger,
-                    "Could not persist immediate-neighbor changes: database locked - skipping"
-                )
+                        self.logger,
+                        "Could not persist immediate-neighbor changes: database locked - skipping"
+                    )
                 }
                 Err(e) => error!(
                     self.logger,
@@ -853,7 +848,10 @@ impl Neighborhood {
                 ),
             };
         } else {
-            info!(self.logger, "Declining to persist neighbor changes for next run: no database password supplied")
+            info!(
+                self.logger,
+                "Declining to persist neighbor changes for next run: no database password supplied"
+            )
         }
     }
 
@@ -5570,7 +5568,9 @@ mod tests {
 
         subject.handle_database_changes(
             // Just different HashSets; the values don't mean anything
-            vec![subject.neighborhood_database.root().public_key().clone()].into_iter().collect(),
+            vec![subject.neighborhood_database.root().public_key().clone()]
+                .into_iter()
+                .collect(),
             vec![].into_iter().collect(),
         );
 
@@ -5631,7 +5631,10 @@ mod tests {
         assert_connectivity_check_with_neighbor_changes_specified(hops, true);
     }
 
-    fn assert_connectivity_check_with_neighbor_changes_specified(hops: Hops, neighbor_changes: bool) {
+    fn assert_connectivity_check_with_neighbor_changes_specified(
+        hops: Hops,
+        neighbor_changes: bool,
+    ) {
         init_test_logging();
         let test_name = &format!("connectivity_check_for_{}_hops", hops as usize);
         let nodes_count = hops as u16 + 1;
@@ -5648,16 +5651,15 @@ mod tests {
         subject.db_password_opt = None;
         let neighbor_keys_before: HashSet<PublicKey> = match neighbor_changes {
             // Just make neighbors before different from neighbors after; the actual keys don't matter
-            true => vec![subject.neighborhood_database.root().public_key().clone()].into_iter().collect(),
+            true => vec![subject.neighborhood_database.root().public_key().clone()]
+                .into_iter()
+                .collect(),
             // Just make neighboooors before the same as neighbors after; the actual keys don't matter
             false => HashSet::new(),
         };
         let system = System::new(test_name);
 
-        subject.handle_database_changes(
-            neighbor_keys_before,
-            vec![].into_iter().collect(),
-        );
+        subject.handle_database_changes(neighbor_keys_before, vec![].into_iter().collect());
 
         System::current().stop();
         system.run();
@@ -5713,7 +5715,9 @@ mod tests {
 
         subject.handle_database_changes(
             // Just different HashSets; the values don't mean anything
-            vec![subject.neighborhood_database.root().public_key().clone()].into_iter().collect(),
+            vec![subject.neighborhood_database.root().public_key().clone()]
+                .into_iter()
+                .collect(),
             vec![].into_iter().collect(),
         );
 
