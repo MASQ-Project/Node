@@ -9,7 +9,6 @@ use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData, PublicKey};
 use crate::sub_lib::hopper::MessageType;
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::versioned_data::StepError;
-use itertools::Itertools;
 use pretty_hex::PrettyHex;
 use serde_cbor::Value;
 use serde_derive::{Deserialize, Serialize};
@@ -534,11 +533,6 @@ pub fn regenerate_signed_gossip(
         Err(e) => unimplemented!("TODO: Signing error: {:?}", e),
     };
     (signed_gossip, signature)
-}
-
-pub fn agrs_to_string(agrs: &[AccessibleGossipRecord]) -> String {
-    let elements = agrs.iter().map(|it| it.to_string()).join(", ");
-    format!("[{}]", elements)
 }
 
 #[cfg(test)]

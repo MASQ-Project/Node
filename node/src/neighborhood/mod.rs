@@ -723,12 +723,12 @@ impl Neighborhood {
         };
     }
 
-    fn to_node_descriptors(&self, keys: &[PublicKey]) -> Vec<NodeDescriptor> {
+    fn to_node_descriptors(&self, keys: &[&PublicKey]) -> Vec<NodeDescriptor> {
         keys.iter()
             .map(|k| {
                 NodeDescriptor::from((
                     self.neighborhood_database
-                        .node_by_key(k)
+                        .node_by_key(*k)
                         .expectv("NodeRecord"),
                     self.chain,
                     self.cryptde.as_ref(),
@@ -815,20 +815,20 @@ impl Neighborhood {
         neighbor_keys_after: HashSet<PublicKey>,
     ) {
         if neighbor_keys_after != neighbor_keys_before {
-            self.curate_past_neighbors(neighbor_keys_after);
-            self.check_connectedness();
+            self.curate_past_neighbors(&neighbor_keys_after);
         } else {
-            debug!(self.logger, "No neighbor changes; database is unchanged")
+            debug!(self.logger, "No neighbor changes; leaving past_neighbors alone")
         }
+        self.check_connectedness();
     }
 
     fn curate_past_neighbors(
         &mut self,
-        neighbor_keys: HashSet<PublicKey>,
+        neighbor_keys: &HashSet<PublicKey>,
     ) {
         if let Some(db_password) = &self.db_password_opt {
             let nds = self
-                .to_node_descriptors(neighbor_keys.into_iter().collect_vec().as_slice());
+                .to_node_descriptors(neighbor_keys.iter().collect_vec().as_slice());
             let node_descriptors_opt = if nds.is_empty() { None } else { Some(nds) };
             debug!(
                 self.logger,
@@ -5627,6 +5627,11 @@ mod tests {
     }
 
     fn assert_connectivity_check(hops: Hops) {
+        assert_connectivity_check_with_neighbor_changes_specified(hops, false);
+        assert_connectivity_check_with_neighbor_changes_specified(hops, true);
+    }
+
+    fn assert_connectivity_check_with_neighbor_changes_specified(hops: Hops, neighbor_changes: bool) {
         init_test_logging();
         let test_name = &format!("connectivity_check_for_{}_hops", hops as usize);
         let nodes_count = hops as u16 + 1;
@@ -5641,11 +5646,16 @@ mod tests {
         subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
         subject.connected_signal_opt = Some(connected_signal);
         subject.db_password_opt = None;
+        let neighbor_keys_before: HashSet<PublicKey> = match neighbor_changes {
+            // Just make neighbors before different from neighbors after; the actual keys don't matter
+            true => vec![subject.neighborhood_database.root().public_key().clone()].into_iter().collect(),
+            // Just make neighboooors before the same as neighbors after; the actual keys don't matter
+            false => HashSet::new(),
+        };
         let system = System::new(test_name);
 
         subject.handle_database_changes(
-            // Just different HashSets; the values don't mean anything
-            vec![subject.neighborhood_database.root().public_key().clone()].into_iter().collect(),
+            neighbor_keys_before,
             vec![].into_iter().collect(),
         );
 
