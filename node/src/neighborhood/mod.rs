@@ -5654,7 +5654,7 @@ mod tests {
             true => vec![subject.neighborhood_database.root().public_key().clone()]
                 .into_iter()
                 .collect(),
-            // Just make neighboooors before the same as neighbors after; the actual keys don't matter
+            // Just make neighbors before the same as neighbors after; the actual keys don't matter
             false => HashSet::new(),
         };
         let system = System::new(test_name);
