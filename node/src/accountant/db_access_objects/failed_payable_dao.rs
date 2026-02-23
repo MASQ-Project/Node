@@ -664,7 +664,7 @@ mod tests {
         );
         assert_eq!(
             FailureRetrieveCondition::EveryRecheckRequiredRecord.to_string(),
-            "WHERE status LIKE 'RecheckRequired%'"
+            "WHERE status LIKE '%RecheckRequired%'"
         );
     }
 
