@@ -11,7 +11,7 @@ use crate::neighborhood::UserExitPreferences;
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::neighborhood::{
     ConnectionProgressEvent, ConnectionProgressMessage, GossipFailure_0v1, NeighborhoodMetadata,
-    RatePackLimits, DEFAULT_RATE_PACK_LIMITS,
+    RatePackLimits,
 };
 use crate::sub_lib::node_addr::NodeAddr;
 use itertools::Itertools;
@@ -1801,29 +1801,7 @@ impl GossipAcceptor for GossipAcceptorReal {
                 panic!("Nothing in gossip_handlers returned Matched or Malformed")
             }
             Qualification::Malformed(malefactor) => {
-                // TODO: A lot of effort is being spent here making a new Malefactor when we've
-                // got exactly what we need passed in.
-                // TODO: Split this method into a couple of smaller methods, and write a test for
-                // at least this part of one of the smaller methods.
-                let (public_key_opt, ip_address_opt, earning_wallet_opt) =
-                    match agrs.iter().find(|agr| {
-                        agr.node_addr_opt.as_ref().map(|na| na.ip_addr())
-                            == Some(gossip_source.ip())
-                    }) {
-                        Some(agr) => (
-                            Some(agr.inner.public_key.clone()),
-                            Some(gossip_source.ip()),
-                            Some(agr.inner.earning_wallet.clone()),
-                        ),
-                        None => (None, Some(gossip_source.ip()), None),
-                    };
-                vec![GossipAcceptanceResult::Ban(Malefactor::new(
-                    public_key_opt,
-                    ip_address_opt,
-                    earning_wallet_opt,
-                    None,
-                    malefactor.reason,
-                ))]
+                vec![GossipAcceptanceResult::Ban(malefactor)]
             }
         }
     }
@@ -1954,6 +1932,7 @@ mod tests {
         ZERO_RATE_PACK,
     };
     use crate::sub_lib::utils::time_t_timestamp;
+    use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::neighborhood_test_utils::{
         db_from_node, gossip_about_nodes_from_database, linearly_connect_nodes,
         make_meaningless_db, make_node_record, make_node_record_cc, make_node_record_f,
@@ -5408,7 +5387,10 @@ mod tests {
         assert_eq!(dest_db.node_by_key(node_f.public_key()), None);
     }
 
-    struct MalformedHandler {}
+    struct MalformedHandler {
+        malefactor: Malefactor,
+    }
+
     impl NamedType for MalformedHandler {
         fn type_name(&self) -> &'static str {
             "MalformedHandler"
@@ -5421,13 +5403,7 @@ mod tests {
             _agrs: &[AccessibleGossipRecord],
             _gossip_source: SocketAddr,
         ) -> Qualification {
-            Qualification::Malformed(Malefactor::new(
-                None,
-                Some(_gossip_source.ip()),
-                None,
-                None,
-                "Malformed for test".to_string(),
-            ))
+            Qualification::Malformed(self.malefactor.clone())
         }
 
         fn handle(
@@ -5446,9 +5422,16 @@ mod tests {
         }
     }
 
+    impl MalformedHandler {
+        fn new(malefactor: &Malefactor) -> Self {
+            MalformedHandler {
+                malefactor: malefactor.clone(),
+            }
+        }
+    }
+
     #[test]
     fn qualification_of_malformed_with_agr_produces_malefactor_ban() {
-        let malformed_handler = Box::new(MalformedHandler {});
         let dest_root = make_node_record(1234, true);
         let mut dest_db = db_from_node(&dest_root); // irrelevant
         let src_root = make_node_record(2345, true);
@@ -5456,6 +5439,14 @@ mod tests {
         let gossip = GossipBuilder::new(&src_db)
             .node(src_root.public_key(), true)
             .build();
+        let malefactor = Malefactor::new(
+            Some(src_root.inner.public_key.clone()),
+            Some(src_root.node_addr_opt().unwrap().ip_addr()),
+            Some(src_root.earning_wallet()),
+            Some(Wallet::new("consuming_wallet")),
+            "Malformed for test".to_string(),
+        );
+        let malformed_handler = Box::new(MalformedHandler::new(&malefactor));
         let mut subject = make_subject(GA_CRYPTDE_PAIR.main.as_ref());
         subject.gossip_handlers = vec![malformed_handler];
 
@@ -5466,26 +5457,24 @@ mod tests {
             make_default_neighborhood_metadata(),
         );
 
-        assert_eq!(
-            result,
-            vec![GossipAcceptanceResult::Ban(Malefactor::new(
-                Some(src_root.inner.public_key.clone()),
-                Some(src_root.node_addr_opt().unwrap().ip_addr()),
-                Some(src_root.earning_wallet()),
-                None,
-                "Malformed for test".to_string()
-            ))]
-        );
+        assert_eq!(result, vec![GossipAcceptanceResult::Ban(malefactor)]);
     }
 
     #[test]
     fn qualification_of_malformed_without_agr_produces_malefactor_ban() {
-        let malformed_handler = Box::new(MalformedHandler {});
         let dest_root = make_node_record(1234, true);
         let mut dest_db = db_from_node(&dest_root); // irrelevant
         let src_root = make_node_record(2345, true);
         let src_db = db_from_node(&src_root);
         let gossip = GossipBuilder::new(&src_db).build();
+        let malefactor = Malefactor::new(
+            Some(src_root.inner.public_key.clone()),
+            Some(src_root.node_addr_opt().unwrap().ip_addr()),
+            Some(src_root.earning_wallet()),
+            Some(Wallet::new("consuming_wallet")),
+            "Malformed for test".to_string(),
+        );
+        let malformed_handler = Box::new(MalformedHandler::new(&malefactor));
         let mut subject = make_subject(GA_CRYPTDE_PAIR.main.as_ref());
         subject.gossip_handlers = vec![malformed_handler];
         let gossip_source = SocketAddr::from_str("5.5.5.5:5555").unwrap(); // not in Gossip
@@ -5497,16 +5486,7 @@ mod tests {
             make_default_neighborhood_metadata(),
         );
 
-        assert_eq!(
-            result,
-            vec![GossipAcceptanceResult::Ban(Malefactor::new(
-                None,
-                Some(gossip_source.ip()),
-                None,
-                None,
-                "Malformed for test".to_string()
-            ))]
-        );
+        assert_eq!(result, vec![GossipAcceptanceResult::Ban(malefactor)]);
     }
 
     fn fix_nodes_last_updates(
