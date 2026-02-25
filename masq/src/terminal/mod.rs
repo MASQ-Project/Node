@@ -156,8 +156,8 @@ impl FlushHandle {
         if !panicking() {
             let inner_arc_opt = self.inner_arc_opt.take();
             let handle = tokio::task::spawn(async move {
-                // Spawn come across as neat as it allows to leave the drop impl and handle
-                // an eventual panic outside
+                // Spawning a task here is neat because it allows us to keep the Drop implementation
+                // simple and handle any potential panic outside of it.
 
                 let inner_arc = inner_arc_opt.expect("Flush handle with missing guts!");
 
@@ -207,10 +207,10 @@ mod tests {
 
     #[test]
     fn does_not_flush_if_thread_is_panicking() {
-        // Because the drop impl for this handle uses tokio::spawn, the runtime is important
-        // to be present. The test doesn't contain one though. We make a hypothesis that if we don't
-        // kill the whole test we couldn't reach the spawn because it was observed as a cause of
-        // nested unwinding panics which, furthermore, would make cargo abort the test.
+        // The Drop impl for FlushHandle uses tokio::spawn, which requires a Tokio runtime.
+        // This test doesn't have one. We hypothesize that if the test completes without aborting
+        // (due to nested unwinding panics observed when spawning without a runtime), it means
+        // we didn't reach the spawn call—confirming no flush occurs during panic.
         let flush_during_drop_params_arc = Arc::new(Mutex::new(vec![]));
         let inner =
             FlushHandleInnerMock::default().flush_during_drop_params(&flush_during_drop_params_arc);

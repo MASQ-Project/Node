@@ -55,7 +55,7 @@ impl RWTermInterface for InteractiveRWTermInterface {
             Response::Unknown(_) => Ok(ReadInput::Ignored {
                 msg_opt: Some(UNINTERPRETABLE_COMMAND.to_string()),
             }),
-            // They declared the enum as non-exhaustive. As to my knowledge, this is untestable
+            // They declare the enum as non-exhaustive. As to my knowledge, this is untestable
             _ => Ok(ReadInput::Ignored {
                 msg_opt: Some(UNIMPLEMENTED_INSTRUCTION.to_string()),
             }),
@@ -83,10 +83,10 @@ impl WTermInterface for InteractiveRWTermInterface {
 
 pub struct InteractiveWTermInterface {
     write_liso_arc: Arc<dyn LisoOutputWrapper>,
-    // Be aware that both writing utils contain a shared handle to Stdout (Liso doesn't operate in
-    // Stderr). Having them separate prevents mixing message fragments from provided stdout and
-    // stderr handles that are used on the higher level. (This division is meaningful to
-    // the non-interactive terminal interface.)
+    // Note: Both writing utilities share a handle to Stdout since Liso does not support Stderr.
+    // Keeping them separate prevents interleaving of message fragments from the stdout and stderr
+    // handles used at higher levels. This separation is particularly important for
+    // the non-interactive terminal interface.
     stdout_utils: WritingUtils,
     stderr_utils: WritingUtils,
 }
@@ -247,7 +247,7 @@ mod tests {
         );
         let cloned_terminal_prompt_params = cloned_terminal_prompt_params_arc.lock().unwrap();
         assert_eq!(*cloned_terminal_prompt_params, vec![]);
-        // Emptying the container to make the next assertions brighter
+        // Emptying the container to clarify the next assertions
         initial_terminal_prompt_params.drain(..);
         drop(initial_terminal_prompt_params);
         drop(cloned_terminal_prompt_params);
@@ -379,7 +379,8 @@ mod tests {
                     expected, result
                 )
             });
-        // We use the same Liso handle for both standard output streams, hence only a single assertion
+        // Shared Liso handle for stdout/stderr (no separate stderr support), so only one assertion
+        // is needed for flushed strings.
         let flushed_strings = liso_println_params.get_string();
         assert_eq!(flushed_strings, String::new())
     }

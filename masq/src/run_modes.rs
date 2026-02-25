@@ -53,8 +53,8 @@ impl Main {
             .parse_initialization_args(args, &mut incidental_streams)
             .await
         {
-            EntryCheck::Enter(init_args) => init_args,
-            EntryCheck::Exit(exit_code) => return exit_code,
+            InitArgsCheck::EnterApp(init_args) => init_args,
+            InitArgsCheck::Exit(exit_code) => return exit_code,
         };
         let initial_subcommand_opt = Self::extract_subcommand(args);
         let term_interface = self
@@ -149,8 +149,8 @@ impl Main {
 }
 
 #[derive(Debug)]
-pub enum EntryCheck {
-    Enter(InitializationArgs),
+pub enum InitArgsCheck {
+    EnterApp(InitializationArgs),
     Exit(u8),
 }
 
@@ -199,7 +199,7 @@ mod tests {
         let make_command_params_arc = Arc::new(Mutex::new(vec![]));
         let close_params_arc = Arc::new(Mutex::new(vec![]));
         let initial_args_parser_mock = InitialArgsParserMock::default()
-            .parse_initialization_args_result(EntryCheck::Enter(InitializationArgs::new(
+            .parse_initialization_args_result(InitArgsCheck::EnterApp(InitializationArgs::new(
                 DEFAULT_UI_PORT,
             )));
         let (processor_aspiring_std_streams, processor_aspiring_std_stream_handles) =
@@ -339,7 +339,7 @@ mod tests {
         let make_command_params_arc = Arc::new(Mutex::new(vec![]));
         let close_params_arc = Arc::new(Mutex::new(vec![]));
         let initial_args_parser_mock = InitialArgsParserMock::default()
-            .parse_initialization_args_result(EntryCheck::Enter(InitializationArgs::new(
+            .parse_initialization_args_result(InitArgsCheck::EnterApp(InitializationArgs::new(
                 DEFAULT_UI_PORT,
             )));
         let (incidental_std_streams, incidental_std_stream_handles) =
@@ -415,7 +415,7 @@ mod tests {
         let make_command_context_factory_params_arc = Arc::new(Mutex::new(vec![]));
         let execute_command_params_arc = Arc::new(Mutex::new(vec![]));
         let initial_args_parser_mock = InitialArgsParserMock::default()
-            .parse_initialization_args_result(EntryCheck::Enter(InitializationArgs::new(
+            .parse_initialization_args_result(InitArgsCheck::EnterApp(InitializationArgs::new(
                 DEFAULT_UI_PORT,
             )));
         let command_arbitrary_id_stamp = ArbitraryIdStamp::new();
@@ -490,7 +490,7 @@ mod tests {
     async fn go_works_when_daemon_is_not_running() {
         let make_command_context_params_arc = Arc::new(Mutex::new(vec![]));
         let initial_args_parser_mock = InitialArgsParserMock::default()
-            .parse_initialization_args_result(EntryCheck::Enter(InitializationArgs::new(
+            .parse_initialization_args_result(InitArgsCheck::EnterApp(InitializationArgs::new(
                 DEFAULT_UI_PORT,
             )));
         let (processor_aspiring_std_streams, processor_aspiring_std_stream_handles) =
@@ -705,7 +705,7 @@ mod tests {
         let make_command_params_arc = Arc::new(Mutex::new(vec![]));
         let make_command_context_params_arc = Arc::new(Mutex::new(vec![]));
         let initial_args_parser_mock = InitialArgsParserMock::default()
-            .parse_initialization_args_result(EntryCheck::Enter(InitializationArgs::new(
+            .parse_initialization_args_result(InitArgsCheck::EnterApp(InitializationArgs::new(
                 DEFAULT_UI_PORT,
             )));
         let (processor_aspiring_std_streams, processor_aspiring_std_stream_handles) =
@@ -808,7 +808,7 @@ mod tests {
         let make_command_context_params_arc = Arc::new(Mutex::new(vec![]));
         let close_params_arc = Arc::new(Mutex::new(vec![]));
         let initial_args_parser_mock = InitialArgsParserMock::default()
-            .parse_initialization_args_result(EntryCheck::Enter(InitializationArgs::new(
+            .parse_initialization_args_result(InitArgsCheck::EnterApp(InitializationArgs::new(
                 DEFAULT_UI_PORT,
             )));
         let (incidental_std_streams, incidental_std_stream_handles) =
@@ -906,7 +906,7 @@ mod tests {
             .queue_response(descriptor_response);
         let _server_handle = node.start().await;
         let initial_args_parser_mock = InitialArgsParserMock::default()
-            .parse_initialization_args_result(EntryCheck::Enter(InitializationArgs::new(
+            .parse_initialization_args_result(InitArgsCheck::EnterApp(InitializationArgs::new(
                 node_ui_port,
             )));
         let (processor_aspiring_std_streams, processor_aspiring_std_stream_handles) =

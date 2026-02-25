@@ -277,9 +277,9 @@ impl LisoFlushedAssertableStrings {
 pub struct FlushHandleInnerMock {
     flush_during_drop_params: Arc<Mutex<Vec<()>>>,
     flush_during_drop_results: Arc<Mutex<Vec<Result<(), WriteResult>>>>,
-    // Once specified, it should always return the same value
+    // Once specified, this should always return the same value
     stream_type_result: Option<WriteStreamType>,
-    // For tests with requirement on real connection with the TerminalWriter
+    // For tests that require verifying the real connection with the TerminalWriter
     terminal_writer_connection_opt: Option<TerminalWriterLinkToFlushHandleInnerMock>,
 }
 
@@ -317,11 +317,11 @@ impl FlushHandleInner for FlushHandleInnerMock {
                     .push(output_to_be_flushed)
             }
         }
-        // I think this is a better solution than the standard layout because this utility can also
-        // be found in some nested test utils, and it'd be quite hard to supply the expected result
-        // for each successful write. It also isn't clearly discoverable and so this makes it easy.
-        // In the rare cases when you need the result be different you don't have to miss out, also
-        // possible.
+        // This design defaults to a successful flush (Ok(())) unless a specific result is explicitly
+        // provided.
+        // It's preferable because this mock appears in various nested test utilities, where
+        // requiring a result for every successful write would be cumbersome and hard to discover.
+        // In rare cases needing a different result, you can still supply one without issue.
         if let Some(prepared_result) = self.flush_during_drop_results.lock().unwrap().pop() {
             prepared_result
         } else {
@@ -367,9 +367,9 @@ pub async fn allow_flushed_writings_to_finish(
     stdout_flush_handle_opt: Option<FlushHandle>,
     stderr_flush_handle_opt: Option<FlushHandle>,
 ) {
-    // If none, it means that handles are already gone and hence flushing has begun
+    // None means the handles are already gone and flush is in progress
     drop(stderr_flush_handle_opt);
     drop(stdout_flush_handle_opt);
-    // Giving up execution on behalf of the spawned flushing tasks in the background
+    // Deferring execution to the spawned flush tasks in the background
     tokio::time::sleep(Duration::from_millis(1)).await
 }

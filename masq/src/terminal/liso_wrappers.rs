@@ -50,7 +50,7 @@ impl LisoOutputWrapper for LisoOutputWrapperReal {
 
     fn prompt(&self, appearance: &str, input_allowed: bool, clear_input: bool) {
         //self.handle.prompt(appearance, input_allowed, clear_input)
-        todo!()
+        todo!("drive in by integration tests")
     }
 
     fn clone_output(&self) -> Box<dyn LisoOutputWrapper> {

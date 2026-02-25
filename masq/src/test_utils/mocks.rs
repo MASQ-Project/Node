@@ -9,7 +9,7 @@ use crate::commands::commands_common::CommandError::Transmission;
 use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handlers::BroadcastHandle;
 use crate::communications::websockets_client::WSSenderWrapper;
-use crate::run_modes::EntryCheck;
+use crate::run_modes::InitArgsCheck;
 use crate::terminal::terminal_interface_factory::TerminalInterfaceFactory;
 use crate::terminal::test_utils::FlushHandleInnerMock;
 use crate::terminal::{
@@ -290,7 +290,7 @@ impl<Message> BroadcastHandleMock<Message> {
 
 #[derive(Default)]
 pub struct InitialArgsParserMock {
-    parse_initialization_args_results: RefCell<Vec<EntryCheck>>,
+    parse_initialization_args_results: RefCell<Vec<InitArgsCheck>>,
 }
 
 #[async_trait(?Send)]
@@ -299,7 +299,7 @@ impl InitialArgsParser for InitialArgsParserMock {
         &self,
         _args: &[String],
         _std_streams: &mut AsyncStdStreams,
-    ) -> EntryCheck {
+    ) -> InitArgsCheck {
         self.parse_initialization_args_results
             .borrow_mut()
             .remove(0)
@@ -307,7 +307,7 @@ impl InitialArgsParser for InitialArgsParserMock {
 }
 
 impl InitialArgsParserMock {
-    pub fn parse_initialization_args_result(self, result: EntryCheck) -> Self {
+    pub fn parse_initialization_args_result(self, result: InitArgsCheck) -> Self {
         self.parse_initialization_args_results
             .borrow_mut()
             .push(result);
