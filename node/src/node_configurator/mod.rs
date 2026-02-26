@@ -233,8 +233,7 @@ pub fn determine_user_specific_data(
         Box::new(CommandLineVcl::new(args.to_vec())),
     );
     /* We create multiconfig to retrieve chain, real-user, data-directory and config file, to establish ConfigVcl */
-    let first_multi_config =
-        make_new_multi_config(app, vec![orientation_args])?;
+    let first_multi_config = make_new_multi_config(app, vec![orientation_args])?;
     let initialization_data =
         config_file_data_dir_real_user_chain_from_mc(dirs_wrapper, first_multi_config);
 
@@ -351,7 +350,9 @@ mod tests {
     use super::*;
     use crate::node_test_utils::DirsWrapperMock;
     use crate::test_utils::ArgsBuilder;
-    use masq_lib::shared_schema::{config_file_arg, data_directory_arg, ParamError, DATA_DIRECTORY_HELP};
+    use masq_lib::shared_schema::{
+        config_file_arg, data_directory_arg, ParamError, DATA_DIRECTORY_HELP,
+    };
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::utils::find_free_port;
@@ -390,11 +391,7 @@ mod tests {
 
     #[test]
     fn determine_user_specific_data_detects_bad_parameter() {
-        let args = ArgsBuilder::new()
-            .param(
-                "--booga-booga",
-                "bad-parameter",
-            );
+        let args = ArgsBuilder::new().param("--booga-booga", "bad-parameter");
         let args_vec: Vec<String> = args.into();
         let app = determine_config_file_path_app();
 
