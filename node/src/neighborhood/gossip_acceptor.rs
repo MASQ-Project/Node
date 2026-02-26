@@ -1924,12 +1924,12 @@ mod tests {
     use crate::neighborhood::node_record::NodeRecord;
     use crate::neighborhood::{
         FallbackPreference, UserExitPreferences, COUNTRY_UNDESIRABILITY_FACTOR,
-        UNREACHABLE_COUNTRY_PENALTY,
+        UNREACHABLE_COUNTRY_PENALTY
     };
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::neighborhood::{
         ConnectionProgressEvent, ConnectionProgressMessage, RatePack, DEFAULT_RATE_PACK,
-        ZERO_RATE_PACK,
+        ZERO_RATE_PACK, DEFAULT_RATE_PACK_LIMITS
     };
     use crate::sub_lib::utils::time_t_timestamp;
     use crate::sub_lib::wallet::Wallet;
