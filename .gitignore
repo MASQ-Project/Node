@@ -5,6 +5,7 @@
 .idea/azure/
 .idea/inspectionProfiles/Project_Default.xml
 .idea/copilot.*
+.idea/SweepConfig.xml
 
 ### Node
 node_modules

@@ -582,14 +582,9 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn rate_pack_limits(&self) -> Result<RatePackLimits, PersistentConfigError> {
-        let limits_string = self
-            .get("rate_pack_limits")
-            .expect(
-                "Required value rate_pack_limits missing from CONFIG table: database is corrupt!",
-            )
-            .expect(
-                "Required value rate_pack_limits is NULL in CONFIG table: database is corrupt!",
-            );
+        let limits_string = self.get("rate_pack_limits")?.expect(
+            "Required value rate_pack_limits is NULL in CONFIG table: database is corrupt!",
+        );
         let captures = RATE_PACK_LIMIT_FORMAT.captures(limits_string.as_str())
             .unwrap_or_else(|| panic!("Syntax error in rate_pack_limits value '{}': should be <LRBR>-<HRBR>|<LRSR>-<HRSR>|<LEBR>-<HEBR>|<LESR>-<HESR> where L is low, H is high, R is routing, E is exit, BR is byte rate, and SR is service rate. All numbers should be in wei.", limits_string));
         let candidate = RatePackLimits::new(
@@ -2585,6 +2580,20 @@ mod tests {
                     exit_service_rate: 800,
                 }
             )
+        );
+    }
+
+    #[test]
+    fn rate_pack_limits_complains_about_database_error() {
+        let config_dao = ConfigDaoMock::new()
+            .get_result(Err(ConfigDaoError::DatabaseError("booga".to_string())));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.rate_pack_limits();
+
+        assert_eq!(
+            result,
+            Err(PersistentConfigError::DatabaseError("booga".to_string()))
         );
     }
 
