@@ -16,8 +16,8 @@ use tokio::net::TcpStream;
 mod sys_call {
     use super::*;
 
-    #[no_mangle]
     extern "C" {
+        #[no_mangle]
         pub fn setsockopt(
             socket: c_int,
             level: c_int,
