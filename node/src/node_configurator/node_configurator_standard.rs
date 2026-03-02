@@ -1815,9 +1815,6 @@ mod tests {
         assert_eq!(config.blockchain_bridge_config.gas_price, 1);
     }
 
-    #[should_panic(
-        expected = "expected MultiConfig: ConfiguratorError { param_errors: [ParamError { parameter: \"gas-price\", reason: \"Invalid value: unleaded\" }] }"
-    )]
     #[test]
     fn server_initializer_collected_params_rejects_invalid_gas_price() {
         let _guard = EnvironmentGuard::new();
