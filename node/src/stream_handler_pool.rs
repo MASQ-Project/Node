@@ -1271,10 +1271,10 @@ mod tests {
         );
     }
 
-    #[test]
-    fn handle_remove_stream_msg_handles_stream_waiting_for_connect_scenario() {
+    #[actix_rt::test]
+    async fn handle_remove_stream_msg_handles_stream_waiting_for_connect_scenario() {
         let (recorder, _, recording_arc) = make_recorder();
-        let system = System::new();
+        // running under actix runtime provided by the attribute
         let sub = recorder.start().recipient::<StreamShutdownMsg>();
         let mut subject = StreamHandlerPool::new(vec![], false);
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -1289,8 +1289,9 @@ mod tests {
             sub,
         });
 
-        System::current().stop_with_code(0);
-        system.run();
+        // let actors process messages; actor internals are scheduled on the actix runtime
+        actix_rt::task::yield_now().await;
+
         assert_eq!(subject.stream_writers.contains_key(&sw_key), false);
         let recording = recording_arc.lock().unwrap();
         let record = recording.get_record::<StreamShutdownMsg>(0);
@@ -1304,8 +1305,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn when_stream_handler_pool_fails_to_create_nonexistent_stream_for_write_then_it_logs_and_notifies_neighborhood(
+    #[actix_rt::test]
+    async fn when_stream_handler_pool_fails_to_create_nonexistent_stream_for_write_then_it_logs_and_notifies_neighborhood(
     ) {
         init_test_logging();
         let public_key = PublicKey::from(vec![0, 1, 2, 3]);
