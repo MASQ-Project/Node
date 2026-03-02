@@ -660,7 +660,6 @@ mod tests {
         UiNewPasswordBroadcast, UiNodeCrashedBroadcast, NODE_UI_PROTOCOL,
     };
     use crate::test_utils::ui_connection::UiConnection;
-    use crate::test_utils::utils::make_rt;
     use crate::utils::find_free_port;
 
     #[tokio::test]
@@ -842,6 +841,7 @@ mod tests {
             .transact::<UiChangePasswordRequest, UiChangePasswordResponse>(conversation_request)
             .await
             .unwrap();
+        server_handle.stop().await;
     }
 
     #[tokio::test]
@@ -850,13 +850,13 @@ mod tests {
         let cluster_count = 100;
         let mut actual_request_counts: Vec<usize> = vec![];
         let mut expected_request_counts: Vec<usize> = vec![];
-        for i in 0..attempt_count {
+        for _i in 0..attempt_count {
             let port = find_free_port();
             let server = MockWebSocketsServer::new(port);
             let server_handle = server.start().await;
             let mut conn = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
 
-            for j in 0..cluster_count {
+            for _j in 0..cluster_count {
                 conn.send_string("Booga!".to_string()).await;
             }
             let result = server_handle.stop().await;

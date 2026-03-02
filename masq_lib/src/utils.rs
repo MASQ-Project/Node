@@ -939,7 +939,7 @@ mod tests {
         assert_eq!(
             NeighborhoodMode::from_str("blah"),
             Err(String::from(
-                "Invalid value read for neighborhood mode: blah"
+                "Unrecognized neighborhood-mode value 'blah'"
             ))
         )
     }

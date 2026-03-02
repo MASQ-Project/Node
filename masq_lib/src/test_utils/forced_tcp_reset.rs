@@ -17,7 +17,6 @@ mod sys_call {
     use super::*;
 
     extern "C" {
-        #[no_mangle]
         pub fn setsockopt(
             socket: c_int,
             level: c_int,

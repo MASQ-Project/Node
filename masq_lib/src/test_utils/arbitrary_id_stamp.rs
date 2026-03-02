@@ -109,13 +109,16 @@ mod example {
     use std::sync::Arc;
 
     pub(in crate::test_utils) trait FirstTrait {
+        #[allow(dead_code)]
         fn whatever_method(&self) -> String;
         arbitrary_id_stamp_in_trait!();
     }
 
+    #[allow(dead_code)]
     struct FirstTraitReal {}
 
     impl FirstTrait for FirstTraitReal {
+        #[allow(dead_code)]
         fn whatever_method(&self) -> String {
             unimplemented!("example-irrelevant")
         }
