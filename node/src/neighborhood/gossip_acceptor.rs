@@ -1929,7 +1929,7 @@ mod tests {
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::neighborhood::{
         ConnectionProgressEvent, ConnectionProgressMessage, RatePack, DEFAULT_RATE_PACK,
-        ZERO_RATE_PACK,
+        DEFAULT_RATE_PACK_LIMITS, ZERO_RATE_PACK,
     };
     use crate::sub_lib::utils::time_t_timestamp;
     use crate::sub_lib::wallet::Wallet;
