@@ -116,6 +116,10 @@ impl Logger {
         }
     }
 
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
     pub fn trace<F>(&self, log_function: F)
     where
         F: FnOnce() -> String,

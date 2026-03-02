@@ -18,7 +18,7 @@ pub struct NodeRenderableInner {
 pub struct NodeRenderable {
     pub inner: Option<NodeRenderableInner>,
     pub public_key: PublicKey,
-    pub node_addr: Option<NodeAddr>,
+    pub node_addr_opt: Option<NodeAddr>,
     pub known_source: bool,
     pub known_target: bool,
     pub is_present: bool,
@@ -60,7 +60,7 @@ impl NodeRenderable {
         } else {
             &public_key_str
         };
-        let node_addr_string = match self.node_addr {
+        let node_addr_string = match self.node_addr_opt {
             None => String::new(),
             Some(ref na) => format!("\\n{}", na),
         };
@@ -112,7 +112,7 @@ mod tests {
                 country_code: "ZZ".to_string(),
             }),
             public_key: public_key.clone(),
-            node_addr: None,
+            node_addr_opt: None,
             known_source: false,
             known_target: false,
             is_present: true,
@@ -141,7 +141,7 @@ mod tests {
                 country_code: "ZZ".to_string(),
             }),
             public_key: public_key.clone(),
-            node_addr: None,
+            node_addr_opt: None,
             known_source: false,
             known_target: false,
             is_present: true,

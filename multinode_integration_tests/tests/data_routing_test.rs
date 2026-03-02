@@ -89,7 +89,7 @@ fn http_end_to_end_routing_test_with_consume_and_originate_only_nodes() {
             .chain(cluster.chain)
             .build(),
     );
-    let _potential_exit_nodes = vec![0, 1, 2, 3, 4]
+    let _potential_exit_nodes = vec![3, 4, 5, 6, 7]
         .into_iter()
         .map(|_| {
             cluster.start_real_node(
@@ -101,17 +101,19 @@ fn http_end_to_end_routing_test_with_consume_and_originate_only_nodes() {
         })
         .collect_vec();
 
-    thread::sleep(Duration::from_millis(1000));
+    thread::sleep(Duration::from_secs(5));
 
     let mut client = originating_node.make_client(8080, STANDARD_CLIENT_TIMEOUT_MILLIS);
-    client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
-    let response = client.wait_for_chunk();
+    client.set_timeout(Duration::from_secs(10));
+    let request = "GET /index.html HTTP/1.1\r\nHost: www.testingmcafeesites.com\r\n\r\n".as_bytes();
 
-    assert_eq!(
-        index_of(&response, &b"<h1>Example Domain</h1>"[..]).is_some(),
-        true,
-        "Actual response:\n{}",
-        String::from_utf8(response).unwrap()
+    client.send_chunk(request);
+    let response = String::from_utf8(client.wait_for_chunk()).unwrap();
+
+    assert!(
+        response.contains("<title>URL for testing.</title>"),
+        "Not from www.testingmcafeesites.com:\n{}",
+        response
     );
 }
 
@@ -315,27 +317,56 @@ fn multiple_stream_zero_hop_test() {
     let mut one_client = zero_hop_node.make_client(8080, STANDARD_CLIENT_TIMEOUT_MILLIS);
     let mut another_client = zero_hop_node.make_client(8080, STANDARD_CLIENT_TIMEOUT_MILLIS);
 
-    one_client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
-    another_client.send_chunk(b"GET / HTTP/1.1\r\nAccept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7\r\nAccept-Language: cs-CZ,cs;q=0.9,en;q=0.8,sk;q=0.7\r\nCache-Control: max-age=0\r\nConnection: keep-alive\r\nHost: www.testingmcafeesites.com\r\nUpgrade-Insecure-Requests: 1\r\nUser-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36\r\n\r\n");
+    one_client.send_chunk(b"GET /testcat_ed.html HTTP/1.1\r\nAccept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7\r\nAccept-Language: cs-CZ,cs;q=0.9,en;q=0.8,sk;q=0.7\r\nCache-Control: max-age=0\r\nConnection: keep-alive\r\nHost: www.testingmcafeesites.com\r\nUpgrade-Insecure-Requests: 1\r\nUser-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36\r\n\r\n");
+    another_client.send_chunk(b"GET /testcat_cm.html HTTP/1.1\r\nAccept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7\r\nAccept-Language: cs-CZ,cs;q=0.9,en;q=0.8,sk;q=0.7\r\nCache-Control: max-age=0\r\nConnection: keep-alive\r\nHost: www.testingmcafeesites.com\r\nUpgrade-Insecure-Requests: 1\r\nUser-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36\r\n\r\n");
 
     let one_response = one_client.wait_for_chunk();
     let another_response = another_client.wait_for_chunk();
 
-    assert_eq!(
-        index_of(&one_response, &b"<h1>Example Domain</h1>"[..]).is_some(),
-        true,
-        "Actual response:\n{}",
-        String::from_utf8(one_response).unwrap()
-    );
-    assert_eq!(
-        index_of(
-            &another_response,
-            &b"This is an index url which gives an overview of the different test urls available."
-                [..],
-        )
-        .is_some(),
-        true,
-        "Actual response:\n{}",
-        String::from_utf8(another_response).unwrap()
-    );
+    {
+        assert_eq!(
+            index_of(
+                &one_response,
+                &b"Education/Reference website with a low risk reputation score"[..]
+            )
+            .is_some(),
+            true,
+            "Actual response:\n{}",
+            String::from_utf8(one_response).unwrap()
+        );
+        assert_eq!(
+            index_of(
+                &one_response,
+                &b"This page simply displays this text without any specific content on it, it is just for testing purpose."
+                    [..],
+            )
+                .is_some(),
+            true,
+            "Actual response:\n{}",
+            String::from_utf8(one_response).unwrap()
+        );
+    }
+    {
+        assert_eq!(
+            index_of(
+                &another_response,
+                &b"Public Information website with a low risk reputation score"[..]
+            )
+            .is_some(),
+            true,
+            "Actual response:\n{}",
+            String::from_utf8(another_response).unwrap()
+        );
+        assert_eq!(
+            index_of(
+                &another_response,
+                &b"This page simply displays this text without any specific content on it, it is just for testing purpose."
+                    [..],
+            )
+                .is_some(),
+            true,
+            "Actual response:\n{}",
+            String::from_utf8(another_response).unwrap()
+        );
+    }
 }

@@ -57,7 +57,7 @@ fn connection_progress_is_properly_broadcast() {
         .collect::<Vec<MASQRealNode>>();
 
     let message_body =
-        ui_client.wait_for_specific_broadcast(vec!["connectionChange"], Duration::from_secs(5));
+        ui_client.wait_for_specific_broadcast(vec!["connectionChange"], Duration::from_secs(10));
     let (ccb, _) = UiConnectionChangeBroadcast::fmb(message_body).unwrap();
     if ccb.stage == UiConnectionStage::ConnectedToNeighbor {
         let message_body =

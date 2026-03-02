@@ -14,16 +14,20 @@ use serde_cbor::Value;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::convert::{TryFrom, TryInto};
-use std::fmt::Debug;
 use std::fmt::Error;
 use std::fmt::Formatter;
 use std::fmt::Write as _;
+use std::fmt::{Debug, Display};
 use std::net::{IpAddr, SocketAddr};
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GossipNodeRecord {
     pub signed_data: PlainData,
     pub signature: CryptData,
+    // This field should probably not exist. If the Gossip source is our next-door neighbor,
+    // we can get its IP address from the network stack, which is more reliable than an
+    // unsigned data field. If the Gossip source is not our next-door neighbor, we should
+    // not know its IP address anyway.
     pub node_addr_opt: Option<NodeAddr>,
 }
 
@@ -389,7 +393,7 @@ impl Gossip_0v1 {
                     country_code,
                 }),
                 public_key: nri.public_key.clone(),
-                node_addr: addr.clone(),
+                node_addr_opt: addr.clone(),
                 known_source: nri.public_key == source.public_key,
                 known_target: nri.public_key == target.public_key,
                 is_present: true,
@@ -399,7 +403,7 @@ impl Gossip_0v1 {
             node_renderables.push(NodeRenderable {
                 inner: None,
                 public_key: k.clone(),
-                node_addr: None,
+                node_addr_opt: None,
                 known_source: false,
                 known_target: false,
                 is_present: false,
@@ -470,6 +474,28 @@ pub struct AccessibleGossipRecord {
     pub signature: CryptData,
     pub node_addr_opt: Option<NodeAddr>,
     pub inner: NodeRecordInner_0v1,
+}
+
+impl Display for AccessibleGossipRecord {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self.node_addr_opt {
+            Some(ref addr) => {
+                write!(
+                    f,
+                    "{} {} {} {} {} {} {} {}",
+                    self.inner.behavior_string(),
+                    self.inner.version_string(),
+                    self.inner.country_code_string(),
+                    self.inner.public_key_string(),
+                    addr.ip_addr(),
+                    self.inner.wallet_string(),
+                    self.inner.rate_pack_string(),
+                    self.inner.neighbors_string()
+                )
+            }
+            None => write!(f, "{}", self.inner),
+        }
+    }
 }
 
 impl AccessibleGossipRecord {
@@ -603,6 +629,52 @@ mod tests {
 
         let mut gossip = builder.build();
         assert_eq!(gossip.node_records.remove(0).node_addr_opt, None)
+    }
+
+    #[test]
+    fn accessible_gossip_record_to_string_without_ip() {
+        let mut node_record = make_node_record(1234, true);
+        node_record.inner.country_code_opt = Some("AD".to_string());
+        let db = db_from_node(&node_record);
+        let subject = AccessibleGossipRecord::from((&db, node_record.public_key(), false));
+
+        let result = subject.to_string();
+
+        assert_eq!(
+            result,
+            "AR v0 AD AQIDBA 0x546900db8d6e0937497133d1ae6fdf5f4b75bcd0 1235|1434|1237|1634 []"
+        );
+    }
+
+    #[test]
+    fn accessible_gossip_record_to_string_with_ip() {
+        let mut node_record = make_node_record(1234, true);
+        node_record.inner.country_code_opt = Some("AD".to_string());
+        let db = db_from_node(&node_record);
+        let subject = AccessibleGossipRecord::from((&db, node_record.public_key(), true));
+
+        let result = subject.to_string();
+
+        assert_eq!(
+            result,
+            "AR v0 AD AQIDBA 1.2.3.4 0x546900db8d6e0937497133d1ae6fdf5f4b75bcd0 1235|1434|1237|1634 []"
+        );
+    }
+
+    #[test]
+    fn accessible_gossip_record_to_string_with_ip_and_really_big_version() {
+        let mut node_record = make_node_record(1234, true);
+        node_record.inner.country_code_opt = Some("AD".to_string());
+        let db = db_from_node(&node_record);
+        let mut subject = AccessibleGossipRecord::from((&db, node_record.public_key(), true));
+        subject.inner.version = 4_000_000_000;
+
+        let result = subject.to_string();
+
+        assert_eq!(
+            result,
+            "AR v4000000000 AD AQIDBA 1.2.3.4 0x546900db8d6e0937497133d1ae6fdf5f4b75bcd0 1235|1434|1237|1634 []"
+        );
     }
 
     #[test]
