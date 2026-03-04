@@ -986,7 +986,7 @@ impl ValueRetriever for NeighborhoodMode {
         _persistent_config: &dyn PersistentConfiguration,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
-        Some(("standard".to_string(), Default))
+        Some(("zero-hop".to_string(), Default))
     }
 
     fn is_required(&self, _params: &SetupCluster) -> bool {
@@ -1423,6 +1423,7 @@ mod tests {
             ("data-directory", data_dir.to_str().unwrap()),
             ("db-password", "password"),
             ("ip", "4.3.2.1"),
+            ("neighborhood-mode", "standard"),
         ]
         .into_iter()
         .map(|(name, value)| UiSetupRequestValue::new(name, value))
@@ -1469,7 +1470,7 @@ mod tests {
             ("log-level", "warn", Default),
             ("mapping-protocol", "", Blank),
             ("min-hops", &DEFAULT_MIN_HOPS.to_string(), Default),
-            ("neighborhood-mode", "standard", Default),
+            ("neighborhood-mode", "standard", Set),
             (
                 "neighbors",
                 "masq://eth-mainnet:QUJDRDU2Nzg5MDEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-mainnet:RUZHSDU2Nzg5MDEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678",
@@ -2399,7 +2400,7 @@ mod tests {
                 Default,
             ),
         ]);
-        let incoming_setup = vec![("ip", "1.2.3.4")]
+        let incoming_setup = vec![("ip", "1.2.3.4"), ("neighborhood-mode", "standard")]
             .into_iter()
             .map(|(name, value)| UiSetupRequestValue::new(name, value))
             .collect_vec();
@@ -2689,6 +2690,7 @@ mod tests {
                     ),
                     UiSetupRequestValue::new("blockchain-service-url", "https://booga.com"),
                     UiSetupRequestValue::new("ip", "1.2.3.4"),
+                    UiSetupRequestValue::new("neighborhood-mode", "standard"),
                     UiSetupRequestValue::clear("chain"),
                 ],
             )
@@ -3324,7 +3326,7 @@ mod tests {
             &None,
         );
 
-        assert_eq!(result, Some(("standard".to_string(), Default)))
+        assert_eq!(result, Some(("zero-hop".to_string(), Default)))
     }
 
     #[test]

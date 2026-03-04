@@ -1165,6 +1165,8 @@ mod tests {
                     "5123",
                     "--data-directory",
                     data_dir.to_str().unwrap(),
+                    "--neighborhood-mode",
+                    "standard",
                 ]),
                 &mut FakeStreamHolder::new().streams(),
             )
@@ -1287,6 +1289,8 @@ mod tests {
                     "1.2.3.4",
                     "--clandestine-port",
                     "5123",
+                    "--neighborhood-mode",
+                    "standard",
                 ]),
                 &mut FakeStreamHolder::new().streams(),
             )
@@ -1340,6 +1344,8 @@ mod tests {
                     data_dir.to_str().unwrap(),
                     "--clandestine-port",
                     "5124",
+                    "--neighborhood-mode",
+                    "standard",
                 ]),
                 &mut holder.streams(),
             )
@@ -1379,6 +1385,8 @@ mod tests {
                     "https://booga.com",
                     "--ip",
                     "1.2.3.4",
+                    "--neighborhood-mode",
+                    "standard",
                     "--gas-price",
                     "11",
                 ]),
@@ -1462,6 +1470,8 @@ mod tests {
             "1.2.3.4,2.3.4.5",
             "--ip",
             "111.111.111.111",
+            "--neighborhood-mode",
+            "standard",
             "--clandestine-port",
             "1234",
             "--data-directory",
@@ -1657,6 +1667,8 @@ mod tests {
                     "1.2.3.4",
                     "--data-directory",
                     data_dir.to_str().unwrap(),
+                    "--neighborhood-mode",
+                    "standard",
                 ]),
                 &mut holder.streams(),
             )
@@ -1682,6 +1694,8 @@ mod tests {
             "https://booga.com",
             "--ip",
             "111.111.111.111",
+            "--neighborhood-mode",
+            "standard",
             "--data-directory",
             data_dir.to_str().unwrap(),
         ];
