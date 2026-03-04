@@ -59,6 +59,7 @@ Temporary Items
 **/.idea/markdown-navigator/**
 **/.idea/aws.xml
 **/.idea/scopes/*.xml
+**/.idea/copilot*
 
 # Sensitive or high-churn files:
 **/.idea/**/dataSources/
