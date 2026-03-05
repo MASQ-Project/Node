@@ -1,7 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::proxy_server::protocol_pack::{Host, ProtocolPack, ServerImpersonator};
+use crate::proxy_server::protocol_pack::{ProtocolPack, ServerImpersonator};
 use crate::proxy_server::server_impersonator_http::ServerImpersonatorHttp;
 use crate::sub_lib::cryptde::PlainData;
+use crate::sub_lib::host::Host;
 use crate::sub_lib::proxy_server::ProxyProtocol;
 use lazy_static::lazy_static;
 use masq_lib::constants::HTTP_PORT;
@@ -12,6 +13,7 @@ lazy_static! {
     static ref HOST_PATTERN: Regex = Regex::new(r"^(?:https?://)?([^\s/]+)").expect("bad regex");
 }
 
+#[derive(Clone, Copy)]
 pub struct HttpProtocolPack {}
 
 impl ProtocolPack for HttpProtocolPack {

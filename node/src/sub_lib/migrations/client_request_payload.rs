@@ -49,7 +49,7 @@ impl TryFrom<&Value> for ClientRequestPayload_0v1 {
             Value::Map(map) => {
                 let mut stream_key_opt: Option<StreamKey> = None;
                 let mut sequenced_packet_opt: Option<SequencedPacket> = None;
-                let mut target_hostname_opt: Option<Option<String>> = None;
+                let mut target_hostname: Option<String> = None;
                 let mut target_port_opt: Option<u16> = None;
                 let mut protocol_opt: Option<ProxyProtocol> = None;
                 let mut originator_public_key_opt: Option<PublicKey> = None;
@@ -61,9 +61,7 @@ impl TryFrom<&Value> for ClientRequestPayload_0v1 {
                             "sequenced_packet" => {
                                 sequenced_packet_opt = value_to_type::<SequencedPacket>(v)
                             }
-                            "target_hostname" => {
-                                target_hostname_opt = value_to_type::<Option<String>>(v)
-                            }
+                            "target_hostname" => target_hostname = value_to_type::<String>(v),
                             "target_port" => target_port_opt = value_to_type::<u16>(v),
                             "protocol" => protocol_opt = value_to_type::<ProxyProtocol>(v),
                             "originator_public_key" => {
@@ -89,7 +87,7 @@ impl TryFrom<&Value> for ClientRequestPayload_0v1 {
                     "sequenced_packet",
                     &sequenced_packet_opt,
                 );
-                check_field(&mut missing_fields, "target_hostname", &target_hostname_opt);
+                check_field(&mut missing_fields, "target_hostname", &target_hostname);
                 check_field(&mut missing_fields, "target_port", &target_port_opt);
                 check_field(&mut missing_fields, "protocol", &protocol_opt);
                 check_field(
@@ -103,7 +101,7 @@ impl TryFrom<&Value> for ClientRequestPayload_0v1 {
                 Ok(ClientRequestPayload_0v1 {
                     stream_key: stream_key_opt.expect("stream_key disappeared"),
                     sequenced_packet: sequenced_packet_opt.expect("sequenced_packet disappeared"),
-                    target_hostname: target_hostname_opt.expect("target_hostname disappeared"),
+                    target_hostname: target_hostname.expect("target_hostname disappeared"),
                     target_port: target_port_opt.expect("target_port disappeared"),
                     protocol: protocol_opt.expect("protocol disappeared"),
                     originator_public_key: originator_public_key_opt
@@ -131,7 +129,7 @@ mod tests {
         struct ExampleFutureCRP {
             pub stream_key: StreamKey,
             pub sequenced_packet: SequencedPacket,
-            pub target_hostname: Option<String>,
+            pub target_hostname: String,
             pub target_port: u16,
             pub protocol: ProxyProtocol,
             pub originator_public_key: PublicKey,
@@ -141,7 +139,7 @@ mod tests {
         let expected_crp = ClientRequestPayload_0v1 {
             stream_key: StreamKey::make_meaningful_stream_key("All Things Must Pass"),
             sequenced_packet: SequencedPacket::new(vec![4, 3, 2, 1], 4321, false),
-            target_hostname: Some("target.hostname.com".to_string()),
+            target_hostname: "target.hostname.com".to_string(),
             target_port: 1234,
             protocol: ProxyProtocol::HTTP,
             originator_public_key: PublicKey::new(&[2, 3, 4, 5]),
