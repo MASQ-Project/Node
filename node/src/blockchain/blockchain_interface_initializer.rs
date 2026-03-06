@@ -47,7 +47,7 @@ mod tests {
     use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::NewTxTemplates;
     use crate::accountant::scanners::payable_scanner::tx_templates::priced::new::PricedNewTxTemplates;
     use crate::accountant::test_utils::make_payable_account;
-    use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
+    use crate::blockchain::blockchain_bridge::increase_by_percentage;
     use crate::blockchain::blockchain_interface_initializer::BlockchainInterfaceInitializer;
     use crate::test_utils::make_wallet;
     use futures::Future;
@@ -88,7 +88,7 @@ mod tests {
             .unwrap();
         assert_eq!(blockchain_agent.consuming_wallet(), &payable_wallet);
         let result = blockchain_agent.price_qualified_payables(Either::Left(tx_templates.clone()));
-        let gas_price_with_margin = increase_gas_price_by_margin(1_000_000_000);
+        let gas_price_with_margin = increase_by_percentage(1_000_000_000);
         let expected_result = Either::Left(PricedNewTxTemplates::new(
             tx_templates,
             gas_price_with_margin,

@@ -4,7 +4,8 @@ use crate::accountant::scanners::payable_scanner::tx_templates::initial::retry::
     RetryTxTemplate, RetryTxTemplates,
 };
 use crate::accountant::scanners::payable_scanner::tx_templates::BaseTxTemplate;
-use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
+use crate::blockchain::blockchain_bridge::increase_by_percentage;
+use masq_lib::constants::DEFAULT_GAS_PRICE_RETRY_CONSTANT;
 use masq_lib::logger::Logger;
 use std::ops::{Deref, DerefMut};
 use thousands::Separable;
@@ -34,7 +35,7 @@ impl PricedRetryTxTemplate {
     ) -> PricedRetryTxTemplate {
         let receiver = retry_tx_template.base.receiver_address;
         let computed_gas_price_wei =
-            Self::compute_gas_price(retry_tx_template.prev_gas_price_wei, latest_gas_price_wei);
+            Self::compute_gas_price(latest_gas_price_wei, retry_tx_template.prev_gas_price_wei);
 
         let safe_gas_price_wei = if computed_gas_price_wei > ceil {
             log_builder.push(receiver, computed_gas_price_wei);
@@ -46,10 +47,12 @@ impl PricedRetryTxTemplate {
         PricedRetryTxTemplate::new(retry_tx_template, safe_gas_price_wei)
     }
 
-    fn compute_gas_price(latest_gas_price_wei: u128, prev_gas_price_wei: u128) -> u128 {
-        let gas_price_wei = latest_gas_price_wei.max(prev_gas_price_wei);
-
-        increase_gas_price_by_margin(gas_price_wei)
+    pub fn compute_gas_price(latest_gas_price_wei: u128, prev_gas_price_wei: u128) -> u128 {
+        if latest_gas_price_wei >= prev_gas_price_wei {
+            increase_by_percentage(latest_gas_price_wei)
+        } else {
+            prev_gas_price_wei + DEFAULT_GAS_PRICE_RETRY_CONSTANT
+        }
     }
 }
 
@@ -165,5 +168,46 @@ impl RetryLogBuilder {
                 )
             ))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compute_gas_price_increases_by_percentage_if_latest_is_higher() {
+        let latest_gas_price_wei = 101;
+        let prev_gas_price_wei = 100;
+
+        let computed_gas_price =
+            PricedRetryTxTemplate::compute_gas_price(latest_gas_price_wei, prev_gas_price_wei);
+
+        let expected_gas_price = increase_by_percentage(latest_gas_price_wei);
+        assert_eq!(computed_gas_price, expected_gas_price);
+    }
+
+    #[test]
+    fn compute_gas_price_increases_by_percentage_if_latest_is_equal() {
+        let latest_gas_price_wei = 100;
+        let prev_gas_price_wei = 100;
+
+        let computed_gas_price =
+            PricedRetryTxTemplate::compute_gas_price(latest_gas_price_wei, prev_gas_price_wei);
+
+        let expected_gas_price = increase_by_percentage(latest_gas_price_wei);
+        assert_eq!(computed_gas_price, expected_gas_price);
+    }
+
+    #[test]
+    fn compute_gas_price_increments_previous_by_constant_if_latest_is_lower() {
+        let latest_gas_price_wei = 99;
+        let prev_gas_price_wei = 100;
+
+        let computed_gas_price =
+            PricedRetryTxTemplate::compute_gas_price(latest_gas_price_wei, prev_gas_price_wei);
+
+        let expected_gas_price = prev_gas_price_wei + DEFAULT_GAS_PRICE_RETRY_CONSTANT;
+        assert_eq!(computed_gas_price, expected_gas_price);
     }
 }

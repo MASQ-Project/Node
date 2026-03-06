@@ -1041,6 +1041,26 @@ impl ValueRetriever for Neighbors {
     }
 }
 
+struct NewPublicKey {}
+impl ValueRetriever for NewPublicKey {
+    fn value_name(&self) -> &'static str {
+        "new-public-key"
+    }
+
+    fn computed_default(
+        &self,
+        _bootstrapper_config: &BootstrapperConfig,
+        _persistent_config: &dyn PersistentConfiguration,
+        _db_password_opt: &Option<String>,
+    ) -> Option<(String, UiSetupResponseValueStatus)> {
+        Some(("".to_string(), Blank))
+    }
+
+    fn is_required(&self, _params: &SetupCluster) -> bool {
+        false
+    }
+}
+
 struct PaymentThresholds {}
 impl ValueRetriever for PaymentThresholds {
     fn value_name(&self) -> &'static str {
@@ -1216,6 +1236,7 @@ fn value_retrievers(dirs_wrapper: &dyn DirsWrapper) -> Vec<Box<dyn ValueRetrieve
         Box::new(MinHops::new()),
         Box::new(NeighborhoodMode {}),
         Box::new(Neighbors {}),
+        Box::new(NewPublicKey {}),
         Box::new(PaymentThresholds {}),
         Box::new(RatePack {}),
         Box::new(ScanIntervals {}),
@@ -1464,6 +1485,7 @@ mod tests {
                 "masq://eth-mainnet:QUJDRDU2Nzg5MDEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-mainnet:RUZHSDU2Nzg5MDEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678",
                 Configured,
             ),
+            ("new-public-key", "", Blank),
             (
                 "payment-thresholds",
                 &DEFAULT_PAYMENT_THRESHOLDS.to_string(),
@@ -1527,6 +1549,7 @@ mod tests {
             ("min-hops", "2", Set),
             ("neighborhood-mode", "originate-only", Set),
             ("neighbors", "masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
+            ("new-public-key", "on", Set),
             ("payment-thresholds","1234|50000|1000|1000|20000|20000",Set),
             ("rate-pack","1|3|3|8",Set),
             #[cfg(not(target_os = "windows"))]
@@ -1557,6 +1580,7 @@ mod tests {
             ("min-hops", "2", Set),
             ("neighborhood-mode", "originate-only", Set),
             ("neighbors", "masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
+            ("new-public-key", "on", Set),
             ("payment-thresholds","1234|50000|1000|1000|20000|20000",Set),
             ("rate-pack","1|3|3|8",Set),
             #[cfg(not(target_os = "windows"))]
@@ -1597,6 +1621,7 @@ mod tests {
             ("min-hops", "2"),
             ("neighborhood-mode", "originate-only"),
             ("neighbors", "masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
+            ("new-public-key", "on"),
             ("payment-thresholds","1234|50000|1000|1000|15000|15000"),
             ("rate-pack","1|3|3|8"),
             #[cfg(not(target_os = "windows"))]
@@ -1632,6 +1657,7 @@ mod tests {
             ("min-hops", "2", Set),
             ("neighborhood-mode", "originate-only", Set),
             ("neighbors", "masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
+            ("new-public-key", "on", Set),
             ("payment-thresholds","1234|50000|1000|1000|15000|15000",Set),
             ("rate-pack","1|3|3|8",Set),
             #[cfg(not(target_os = "windows"))]
@@ -1673,6 +1699,7 @@ mod tests {
             ("MASQ_MIN_HOPS", "2"),
             ("MASQ_NEIGHBORHOOD_MODE", "originate-only"),
             ("MASQ_NEIGHBORS", "masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
+            ("MASQ_NEW_PUBLIC_KEY", "on"),
             ("MASQ_PAYMENT_THRESHOLDS","12345|50000|1000|1234|19000|20000"),
             ("MASQ_RATE_PACK","1|3|3|8"),
             #[cfg(not(target_os = "windows"))]
@@ -1705,6 +1732,7 @@ mod tests {
             ("min-hops", "2", Configured),
             ("neighborhood-mode", "originate-only", Configured),
             ("neighbors", "masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Configured),
+            ("new-public-key", "on", Configured),
             ("payment-thresholds","12345|50000|1000|1234|19000|20000",Configured),
             ("rate-pack","1|3|3|8",Configured),
             #[cfg(not(target_os = "windows"))]
@@ -1765,6 +1793,7 @@ mod tests {
             config_file
                 .write_all(b"neighborhood-mode = \"standard\"\n")
                 .unwrap();
+            config_file.write_all(b"new-public-key = \"on\"\n").unwrap();
             config_file.write_all(b"scans = \"off\"\n").unwrap();
             config_file.write_all(b"rate-pack = \"2|2|2|2\"\n").unwrap();
             config_file
@@ -1807,7 +1836,10 @@ mod tests {
             config_file
                 .write_all(b"neighborhood-mode = \"zero-hop\"\n")
                 .unwrap();
-            config_file.write_all(b"scans = \"off\"\n").unwrap();
+            config_file
+                .write_all(b"new-public-key = \"off\"\n")
+                .unwrap();
+            config_file.write_all(b"scans = \"on\"\n").unwrap();
             config_file
                 .write_all(b"rate-pack = \"55|50|60|61\"\n")
                 .unwrap();
@@ -1869,6 +1901,7 @@ mod tests {
             ("min-hops", "2", Configured),
             ("neighborhood-mode", "zero-hop", Configured),
             ("neighbors", "", Blank),
+            ("new-public-key", "off", Configured),
             (
                 "payment-thresholds",
                 "4000|1000|3000|3333|10000|20000",
@@ -1884,7 +1917,7 @@ mod tests {
                 Default,
             ),
             ("scan-intervals", "555|555|555", Configured),
-            ("scans", "off", Configured),
+            ("scans", "on", Configured),
         ]
         .into_iter()
         .map(|(name, value, status)| {
@@ -1923,6 +1956,7 @@ mod tests {
             ("MASQ_MIN_HOPS", "2"),
             ("MASQ_NEIGHBORHOOD_MODE", "originate-only"),
             ("MASQ_NEIGHBORS", "masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
+            ("MASQ_NEW_PUBLIC_KEY", "on"),
             ("MASQ_PAYMENT_THRESHOLDS","1234|50000|1000|1000|20000|20000"),
             ("MASQ_RATE_PACK","1|3|3|8"),
             #[cfg(not(target_os = "windows"))]
@@ -1948,6 +1982,7 @@ mod tests {
             "min-hops",
             "neighborhood-mode",
             "neighbors",
+            "new-public-key",
             "payment-thresholds",
             "rate-pack",
             #[cfg(not(target_os = "windows"))]
@@ -1986,6 +2021,7 @@ mod tests {
                 "masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@9.10.11.12:9101",
                 Set,
             ),
+            ("new-public-key", "off", Set),
             ("payment-thresholds", "4321|66666|777|987|123456|124444", Set),
             ("rate-pack", "10|30|13|28", Set),
             #[cfg(not(target_os = "windows"))]
@@ -2020,6 +2056,7 @@ mod tests {
             ("min-hops", "2", Configured),
             ("neighborhood-mode", "originate-only", Configured),
             ("neighbors", "masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Configured),
+            ("new-public-key", "on", Configured),
             ("payment-thresholds","1234|50000|1000|1000|20000|20000",Configured),
             ("rate-pack","1|3|3|8",Configured),
             #[cfg(not(target_os = "windows"))]
@@ -3394,6 +3431,19 @@ mod tests {
         assert_eq!(result, None);
     }
 
+    #[test]
+    fn new_public_key_computed_default() {
+        let subject = NewPublicKey {};
+
+        let result = subject.computed_default(
+            &BootstrapperConfig::new(),
+            &PersistentConfigurationMock::new(),
+            &None,
+        );
+
+        assert_eq!(result, Some(("".to_string(), Blank)));
+    }
+
     #[cfg(not(target_os = "windows"))]
     #[test]
     fn real_user_computed_default() {
@@ -3745,6 +3795,7 @@ mod tests {
         assert_eq!(MinHops::new().is_required(&params), false);
         assert_eq!(NeighborhoodMode {}.is_required(&params), true);
         assert_eq!(Neighbors {}.is_required(&params), true);
+        assert_eq!(NewPublicKey {}.is_required(&params), false);
         assert_eq!(
             setup_reporter::PaymentThresholds {}.is_required(&params),
             true
@@ -3778,6 +3829,7 @@ mod tests {
         assert_eq!(MinHops::new().value_name(), "min-hops");
         assert_eq!(NeighborhoodMode {}.value_name(), "neighborhood-mode");
         assert_eq!(Neighbors {}.value_name(), "neighbors");
+        assert_eq!(NewPublicKey {}.value_name(), "new-public-key");
         assert_eq!(
             setup_reporter::PaymentThresholds {}.value_name(),
             "payment-thresholds"

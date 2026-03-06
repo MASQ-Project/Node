@@ -73,6 +73,9 @@ cmake-build-debug/
 # IntelliJ
 out/
 
+# Local IDE database configuration
+.idea/db-forest-config.xml
+
 # mpeltonen/sbt-idea plugin
 .idea_modules/
 

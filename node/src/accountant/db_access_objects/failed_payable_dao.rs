@@ -163,7 +163,7 @@ impl Display for FailureRetrieveCondition {
                 )
             }
             FailureRetrieveCondition::EveryRecheckRequiredRecord => {
-                write!(f, "WHERE status LIKE 'RecheckRequired%'")
+                write!(f, "WHERE status LIKE '%RecheckRequired%'")
             }
         }
     }
@@ -658,8 +658,13 @@ mod tests {
             "WHERE status = '{\"RecheckRequired\":\"Waiting\"}'"
         );
         assert_eq!(
+            FailureRetrieveCondition::ByReceiverAddresses(BTreeSet::from([make_address(1), make_address(2)]))
+                .to_string(),
+            "WHERE receiver_address IN ('0x0000000000000000000003000000000003000000', '0x0000000000000000000006000000000006000000')"
+        );
+        assert_eq!(
             FailureRetrieveCondition::EveryRecheckRequiredRecord.to_string(),
-            "WHERE status LIKE 'RecheckRequired%'"
+            "WHERE status LIKE '%RecheckRequired%'"
         );
     }
 
@@ -737,19 +742,6 @@ mod tests {
             FailureStatus::from_str("not a failure status").unwrap_err(),
             "expected value at line 1 column 1 in 'not a failure status'"
         );
-    }
-
-    #[test]
-    fn retrieve_condition_display_works() {
-        assert_eq!(
-            FailureRetrieveCondition::ByStatus(RetryRequired).to_string(),
-            "WHERE status = '\"RetryRequired\"'"
-        );
-        assert_eq!(
-            FailureRetrieveCondition::ByReceiverAddresses(BTreeSet::from([make_address(1), make_address(2)]))
-                .to_string(),
-            "WHERE receiver_address IN ('0x0000000000000000000003000000000003000000', '0x0000000000000000000006000000000006000000')"
-        )
     }
 
     #[test]
@@ -902,6 +894,63 @@ mod tests {
         assert!(result.contains(&tx2));
         assert!(result.contains(&tx3));
         assert!(!result.contains(&tx4));
+    }
+
+    #[test]
+    fn can_retrieve_every_recheck_required() {
+        let home_dir = ensure_node_home_directory_exists(
+            "failed_payable_dao",
+            "can_retrieve_every_recheck_required",
+        );
+        let wrapped_conn = DbInitializerReal::default()
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
+        let subject = FailedPayableDaoReal::new(wrapped_conn);
+        let address1 = make_address(1);
+        let address2 = make_address(2);
+        let address3 = make_address(3);
+        let address4 = make_address(4);
+        let tx1 = FailedTxBuilder::default()
+            .hash(make_tx_hash(1))
+            .receiver_address(address1)
+            .nonce(1)
+            .status(RetryRequired)
+            .build();
+        let tx2 = FailedTxBuilder::default()
+            .hash(make_tx_hash(2))
+            .receiver_address(address2)
+            .nonce(2)
+            .status(RecheckRequired(ValidationStatus::Waiting))
+            .build();
+        let tx3 = FailedTxBuilder::default()
+            .hash(make_tx_hash(3))
+            .receiver_address(address3)
+            .nonce(3)
+            .status(Concluded)
+            .build();
+        let tx4 = FailedTxBuilder::default()
+            .hash(make_tx_hash(4))
+            .receiver_address(address4)
+            .nonce(4)
+            .status(RecheckRequired(ValidationStatus::Reattempting(
+                PreviousAttempts::new(
+                    BlockchainErrorKind::AppRpc(AppRpcErrorKind::Remote(
+                        RemoteErrorKind::Unreachable,
+                    )),
+                    &SimpleClockReal::default(),
+                ),
+            )))
+            .build();
+        subject
+            .insert_new_records(&BTreeSet::from([tx1, tx2.clone(), tx3, tx4.clone()]))
+            .unwrap();
+
+        let result =
+            subject.retrieve_txs(Some(FailureRetrieveCondition::EveryRecheckRequiredRecord));
+
+        assert_eq!(result.len(), 2);
+        assert!(result.contains(&tx2));
+        assert!(result.contains(&tx4));
     }
 
     #[test]

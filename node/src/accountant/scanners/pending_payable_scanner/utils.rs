@@ -38,7 +38,9 @@ impl ReceiptScanReport {
         confirmation_type: ConfirmationType,
     ) {
         match confirmation_type {
-            ConfirmationType::Normal => self.confirmations.normal_confirmations.push(confirmed_tx),
+            ConfirmationType::Normal => {
+                self.confirmations.standard_confirmations.push(confirmed_tx)
+            }
             ConfirmationType::Reclaim => self.confirmations.reclaims.push(confirmed_tx),
         }
     }
@@ -49,7 +51,7 @@ impl ReceiptScanReport {
             .push(PresortedTxFailure::NewEntry(failed_tx));
     }
 
-    pub(super) fn register_finalization_of_unproven_failure(&mut self, tx_hash: TxHash) {
+    pub(super) fn register_finalization_of_suspected_failure(&mut self, tx_hash: TxHash) {
         self.failures
             .tx_failures
             .push(PresortedTxFailure::RecheckCompleted(tx_hash));
@@ -62,13 +64,13 @@ impl ReceiptScanReport {
 
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
 pub struct DetectedConfirmations {
-    pub normal_confirmations: Vec<SentTx>,
+    pub standard_confirmations: Vec<SentTx>,
     pub reclaims: Vec<SentTx>,
 }
 
 impl DetectedConfirmations {
     pub(super) fn is_empty(&self) -> bool {
-        self.normal_confirmations.is_empty() && self.reclaims.is_empty()
+        self.standard_confirmations.is_empty() && self.reclaims.is_empty()
     }
 }
 
@@ -410,7 +412,7 @@ mod tests {
     #[test]
     fn detected_confirmations_is_empty_works() {
         let subject = DetectedConfirmations {
-            normal_confirmations: vec![],
+            standard_confirmations: vec![],
             reclaims: vec![],
         };
 
@@ -462,19 +464,19 @@ mod tests {
         ];
         let detected_confirmations_feeding = vec![
             DetectedConfirmations {
-                normal_confirmations: vec![],
+                standard_confirmations: vec![],
                 reclaims: vec![],
             },
             DetectedConfirmations {
-                normal_confirmations: vec![make_sent_tx(456)],
+                standard_confirmations: vec![make_sent_tx(456)],
                 reclaims: vec![make_sent_tx(999)],
             },
             DetectedConfirmations {
-                normal_confirmations: vec![make_sent_tx(777)],
+                standard_confirmations: vec![make_sent_tx(777)],
                 reclaims: vec![],
             },
             DetectedConfirmations {
-                normal_confirmations: vec![],
+                standard_confirmations: vec![],
                 reclaims: vec![make_sent_tx(999)],
             },
         ];
@@ -550,19 +552,19 @@ mod tests {
         ];
         let detected_confirmations_feeding = vec![
             DetectedConfirmations {
-                normal_confirmations: vec![],
+                standard_confirmations: vec![],
                 reclaims: vec![],
             },
             DetectedConfirmations {
-                normal_confirmations: vec![make_sent_tx(777)],
+                standard_confirmations: vec![make_sent_tx(777)],
                 reclaims: vec![make_sent_tx(999)],
             },
             DetectedConfirmations {
-                normal_confirmations: vec![make_sent_tx(777)],
+                standard_confirmations: vec![make_sent_tx(777)],
                 reclaims: vec![],
             },
             DetectedConfirmations {
-                normal_confirmations: vec![],
+                standard_confirmations: vec![],
                 reclaims: vec![make_sent_tx(999)],
             },
         ];
@@ -594,15 +596,15 @@ mod tests {
     fn requires_payments_retry_says_no() {
         let detected_confirmations_feeding = vec![
             DetectedConfirmations {
-                normal_confirmations: vec![make_sent_tx(777)],
+                standard_confirmations: vec![make_sent_tx(777)],
                 reclaims: vec![make_sent_tx(999)],
             },
             DetectedConfirmations {
-                normal_confirmations: vec![make_sent_tx(777)],
+                standard_confirmations: vec![make_sent_tx(777)],
                 reclaims: vec![],
             },
             DetectedConfirmations {
-                normal_confirmations: vec![],
+                standard_confirmations: vec![],
                 reclaims: vec![make_sent_tx(999)],
             },
         ];
@@ -638,7 +640,7 @@ mod tests {
                 tx_receipt_rpc_failures: vec![],
             },
             confirmations: DetectedConfirmations {
-                normal_confirmations: vec![],
+                standard_confirmations: vec![],
                 reclaims: vec![],
             },
         };

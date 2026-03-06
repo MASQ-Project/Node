@@ -9,7 +9,7 @@ use futures::Future;
 use serde_json::Value;
 use web3::contract::{Contract, Options};
 use web3::transports::{Batch, Http};
-use web3::types::{Address, BlockNumber, Filter, Log};
+use web3::types::{Address, Filter, Log};
 use web3::{Error, Web3};
 
 pub struct LowBlockchainIntWeb3 {
@@ -68,7 +68,7 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
         Box::new(
             self.web3
                 .eth()
-                .transaction_count(address, Some(BlockNumber::Pending))
+                .transaction_count(address, None)
                 .map_err(move |e| QueryFailed(format!("{} for wallet {}", e, address))),
         )
     }
