@@ -133,7 +133,10 @@ fn masq_erc20_contract_exists_on_polygon_mainnet_integration() {
 
 #[test]
 fn masq_erc20_contract_exists_on_ethereum_mainnet_integration() {
-    let blockchain_urls = vec!["https://mainnet.infura.io/v3/0ead23143b174f6983c76f69ddcf4026"];
+    let blockchain_urls = vec![
+        "https://eth.llamarpc.com",
+        "https://mainnet.infura.io/v3/0ead23143b174f6983c76f69ddcf4026",
+    ];
     let chain = Chain::EthMainnet;
 
     let assertion_body = |url, chain| assert_contract_existence(url, chain, "MASQ", 18);
@@ -207,7 +210,10 @@ fn assert_total_supply(
 
 #[test]
 fn max_token_supply_matches_corresponding_constant_integration() {
-    let blockchain_urls = vec!["https://mainnet.infura.io/v3/0ead23143b174f6983c76f69ddcf4026"];
+    let blockchain_urls = vec![
+        "https://eth.llamarpc.com",
+        "https://mainnet.infura.io/v3/0ead23143b174f6983c76f69ddcf4026",
+    ];
     let chain = Chain::EthMainnet;
 
     let assertion_body = |url, chain| assert_total_supply(url, chain, MASQ_TOTAL_SUPPLY);

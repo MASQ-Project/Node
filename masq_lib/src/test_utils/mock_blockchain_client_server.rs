@@ -220,7 +220,7 @@ impl MockBlockchainClientServer {
                     Err(e) if e.kind() == ErrorKind::TimedOut => (),
                     Err(e) => panic!("MBCS accept() failed: {:?}", e),
                 };
-                thread::sleep(Duration::from_millis(100));
+                thread::sleep(Duration::from_millis(50));
             };
             drop(listener);
             conn.set_nonblocking(true).unwrap();

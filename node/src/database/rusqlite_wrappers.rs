@@ -5,15 +5,15 @@ use crate::masq_lib::utils::ExpectValue;
 use rusqlite::{Connection, Error, Statement, ToSql, Transaction};
 use std::fmt::Debug;
 
-// We were challenged multiple times to device mocks for testing stubborn, hard to tame, data
+// We were challenged multiple times to devise mocks for testing stubborn, hard to tame, data
 // structures from the 'rusqlite' library. After all, we've adopted two of them, the Connection,
 // that came first, and the Transaction to come much later. Of these, only the former complies
 // with the standard policy we follow for mock designs.
 //
 // The delay until the second one became a thing, even though we would've been glad having it
-// on hand much earlier, was caused by vacuum of ideas on how we could create a mock of these
+// on hand much earlier, was caused by a vacuum of ideas on how we could create a mock of these
 // parameters and have it accepted by the compiler. Passing a lot of time, we came up with a hybrid,
-// at least. That said, it has costed us a considerably high price of giving up on simplicity.
+// at least. That said, it has cost us a considerably high price of giving up on simplicity.
 //
 // The firmest blocker of the design has always rooted in a relationship of serialized lifetimes,
 // affecting each other, that has been so hard to maintain right. Yet the choices made
@@ -74,12 +74,12 @@ impl ConnectionWrapperReal {
     }
 }
 
-// Whole point of this outer wrapper, that is common to both the real and mock transactions, is to
+// The whole point of this outer wrapper that is common to both the real and mock transactions is to
 // make a chance to deconstruct all components of a transaction in place. It plays a crucial role
-// during the final commit. Note that an usual mock based on the direct use of a trait object
+// during the final commit. Note that a usual mock based on the direct use of a trait object
 // cannot be consumed by any of its methods because of the Rust rules for trait objects. They say
 // clearly that we can access it via '&self', '&mut self' but not 'self'. However, to have a thing
-// consume itself we need to be provided with the full ownership.
+// consume itself, we need to be provided with the full ownership.
 //
 // Leaving remains of an already committed transaction around would expose us to a risk. Let's
 // imagine somebody trying to make use of it the second time, while the inner element providing

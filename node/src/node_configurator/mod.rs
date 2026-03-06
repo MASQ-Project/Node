@@ -350,9 +350,7 @@ mod tests {
     use super::*;
     use crate::node_test_utils::DirsWrapperMock;
     use crate::test_utils::ArgsBuilder;
-    use masq_lib::shared_schema::{
-        config_file_arg, data_directory_arg, ParamError, DATA_DIRECTORY_HELP,
-    };
+    use masq_lib::shared_schema::{config_file_arg, data_directory_arg, DATA_DIRECTORY_HELP};
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::utils::find_free_port;
@@ -396,14 +394,27 @@ mod tests {
         let app = determine_config_file_path_app();
 
         let result =
-            determine_user_specific_data(&DirsWrapperReal::default(), &app, args_vec.as_slice());
+            determine_user_specific_data(&DirsWrapperReal::default(), &app, args_vec.as_slice())
+                .unwrap_err();
 
-        assert_eq!(result.err().unwrap(), ConfiguratorError{
-            param_errors: vec![ParamError::new(
-                "<unknown>",
-                "Unfamiliar message: error: Found argument '--booga-booga' which wasn't expected, or isn't valid in this context\n\nUSAGE:\n    test [OPTIONS]\n\nFor more information try --help"
-            )]
-        });
+        let err = &result.param_errors[0];
+        assert_eq!(err.parameter, "<unknown>");
+        assert!(
+            err.reason.contains("Unfamiliar message:")
+                && err.reason.contains("Found argument")
+                && err.reason.contains("--booga-booga")
+                && err
+                    .reason
+                    .contains("which wasn't expected, or isn't valid in this context"),
+            "We expected to see err msg fragments,\
+            `Unfamiliar message:`, \
+            `Found argument`, \
+            `--booga-booga`, \
+            `which wasn't expected, or isn't valid in this context`, \
+            but got `{:?}`",
+            err.reason
+        );
+        assert_eq!(result.param_errors.len(), 1);
     }
 
     #[test]

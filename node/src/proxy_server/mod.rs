@@ -1355,7 +1355,7 @@ impl Hostname {
 mod tests {
     use super::*;
     use crate::bootstrapper::CryptDEPair;
-    use crate::match_every_type_id;
+    use crate::match_lazily_every_type_id;
     use crate::proxy_server::protocol_pack::ServerImpersonator;
     use crate::proxy_server::server_impersonator_http::ServerImpersonatorHttp;
     use crate::proxy_server::server_impersonator_tls::ServerImpersonatorTls;
@@ -1384,7 +1384,7 @@ mod tests {
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
-    use crate::test_utils::recorder_stop_conditions::{StopCondition, StopConditions};
+    use crate::test_utils::recorder_stop_conditions::StopConditions;
     use crate::test_utils::unshared_test_utils::{
         make_request_payload, prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
     };
@@ -2620,8 +2620,8 @@ mod tests {
         let test_name = "proxy_server_sends_a_message_when_dns_retry_cannot_find_a_route";
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
         let (proxy_server_mock, _, proxy_server_recording_arc) = make_recorder();
-        let proxy_server_mock =
-            proxy_server_mock.system_stop_conditions(match_every_type_id!(AddRouteResultMessage));
+        let proxy_server_mock = proxy_server_mock
+            .system_stop_conditions(match_lazily_every_type_id!(AddRouteResultMessage));
         let route_query_response = None;
         let (neighborhood_mock, _, _) = make_recorder();
         let neighborhood_mock =
@@ -5189,7 +5189,7 @@ mod tests {
             ),
         };
         let neighborhood_mock = neighborhood_mock
-            .system_stop_conditions(match_every_type_id!(RouteQueryMessage))
+            .system_stop_conditions(match_lazily_every_type_id!(RouteQueryMessage))
             .route_query_response(Some(route_query_response_expected.clone()));
         let cryptde = CRYPTDE_PAIR.main.as_ref();
         let mut subject = ProxyServer::new(
@@ -5357,7 +5357,7 @@ mod tests {
             ),
         };
         let neighborhood_mock = neighborhood_mock
-            .system_stop_conditions(match_every_type_id!(
+            .system_stop_conditions(match_lazily_every_type_id!(
                 RouteQueryMessage,
                 RouteQueryMessage,
                 RouteQueryMessage

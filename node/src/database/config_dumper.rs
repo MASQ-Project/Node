@@ -169,7 +169,8 @@ mod tests {
     use crate::db_config::typed_config_layer::encode_bytes;
     use crate::node_configurator::DirsWrapperReal;
     use crate::node_test_utils::DirsWrapperMock;
-    use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
+    use crate::sub_lib::accountant;
+    use crate::sub_lib::accountant::DEFAULT_PAYMENT_THRESHOLDS;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::neighborhood::{NodeDescriptor, DEFAULT_RATE_PACK};
     use crate::test_utils::database_utils::bring_db_0_back_to_life_and_return_connection;
@@ -332,6 +333,7 @@ mod tests {
             .initialize(&database_path, DbInitializationConfig::panic_on_migration())
             .unwrap();
         let dao = ConfigDaoReal::new(conn);
+        let chain = DEFAULT_CHAIN;
         assert_value("blockchainServiceUrl", "https://infura.io/ID", &map);
         assert_value("clandestinePort", "3456", &map);
         assert_encrypted_value(
@@ -345,7 +347,7 @@ mod tests {
             "0x0123456789012345678901234567890123456789",
             &map,
         );
-        assert_value("chainName", DEFAULT_CHAIN.rec().literal_identifier, &map);
+        assert_value("chainName", chain.rec().literal_identifier, &map);
         assert_value("gasPrice", "1", &map);
         assert_value(
             "pastNeighbors",
@@ -366,8 +368,12 @@ mod tests {
             &map,
         );
         assert_value("ratePack", &DEFAULT_RATE_PACK.to_string(), &map);
-        assert_value("scanIntervals", &DEFAULT_SCAN_INTERVALS.to_string(), &map);
-        assert!(output.ends_with("\n}\n")) //asserting that there is a blank line at the end
+        assert_value(
+            "scanIntervals",
+            &accountant::ScanIntervals::compute_default(chain).to_string(),
+            &map,
+        );
+        assert!(output.ends_with("\n}\n")) // To assert a blank line at the end
     }
 
     #[test]
@@ -514,7 +520,11 @@ mod tests {
             &map,
         );
         assert_value("ratePack", &DEFAULT_RATE_PACK.to_string(), &map);
-        assert_value("scanIntervals", &DEFAULT_SCAN_INTERVALS.to_string(), &map);
+        assert_value(
+            "scanIntervals",
+            &accountant::ScanIntervals::compute_default(Chain::PolyMainnet).to_string(),
+            &map,
+        );
     }
 
     #[test]
@@ -591,6 +601,7 @@ mod tests {
             .initialize(&data_dir, DbInitializationConfig::panic_on_migration())
             .unwrap();
         let dao = Box::new(ConfigDaoReal::new(conn));
+        let chain = Chain::PolyMainnet;
         assert_value("blockchainServiceUrl", "https://infura.io/ID", &map);
         assert_value("clandestinePort", "3456", &map);
         assert_encrypted_value(
@@ -604,11 +615,7 @@ mod tests {
             "0x0123456789012345678901234567890123456789",
             &map,
         );
-        assert_value(
-            "chainName",
-            Chain::PolyMainnet.rec().literal_identifier,
-            &map,
-        );
+        assert_value("chainName", chain.rec().literal_identifier, &map);
         assert_value("gasPrice", "1", &map);
         assert_value(
             "pastNeighbors",
@@ -629,7 +636,11 @@ mod tests {
             &map,
         );
         assert_value("ratePack", &DEFAULT_RATE_PACK.to_string(), &map);
-        assert_value("scanIntervals", &DEFAULT_SCAN_INTERVALS.to_string(), &map);
+        assert_value(
+            "scanIntervals",
+            &accountant::ScanIntervals::compute_default(chain).to_string(),
+            &map,
+        );
     }
 
     #[test]

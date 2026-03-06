@@ -527,10 +527,10 @@ pub struct UiRatePack {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiScanIntervals {
-    #[serde(rename = "pendingPayableSec")]
-    pub pending_payable_sec: u64,
     #[serde(rename = "payableSec")]
     pub payable_sec: u64,
+    #[serde(rename = "pendingPayableSec")]
+    pub pending_payable_sec: u64,
     #[serde(rename = "receivableSec")]
     pub receivable_sec: u64,
 }
@@ -783,8 +783,8 @@ conversation_message!(UiRecoverWalletsResponse, "recoverWallets");
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum ScanType {
     Payables,
-    Receivables,
     PendingPayables,
+    Receivables,
 }
 
 impl FromStr for ScanType {
@@ -793,8 +793,8 @@ impl FromStr for ScanType {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             s if &s.to_lowercase() == "payables" => Ok(ScanType::Payables),
-            s if &s.to_lowercase() == "receivables" => Ok(ScanType::Receivables),
             s if &s.to_lowercase() == "pendingpayables" => Ok(ScanType::PendingPayables),
+            s if &s.to_lowercase() == "receivables" => Ok(ScanType::Receivables),
             s => Err(format!("Unrecognized ScanType: '{}'", s)),
         }
     }
@@ -1237,10 +1237,10 @@ mod tests {
         let result: Vec<ScanType> = vec![
             "Payables",
             "pAYABLES",
-            "Receivables",
-            "rECEIVABLES",
             "PendingPayables",
             "pENDINGpAYABLES",
+            "Receivables",
+            "rECEIVABLES",
         ]
         .into_iter()
         .map(|s| ScanType::from_str(s).unwrap())
@@ -1251,10 +1251,10 @@ mod tests {
             vec![
                 ScanType::Payables,
                 ScanType::Payables,
-                ScanType::Receivables,
-                ScanType::Receivables,
                 ScanType::PendingPayables,
                 ScanType::PendingPayables,
+                ScanType::Receivables,
+                ScanType::Receivables,
             ]
         )
     }
