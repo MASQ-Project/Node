@@ -330,7 +330,7 @@ fn multiple_stream_zero_hop_test() {
             .is_some(),
             true,
             "Actual response:\n{}",
-            String::from_utf8(one_response).unwrap()
+            String::from_utf8(one_response.clone()).unwrap()
         );
         assert_eq!(
             index_of(
@@ -341,7 +341,7 @@ fn multiple_stream_zero_hop_test() {
                 .is_some(),
             true,
             "Actual response:\n{}",
-            String::from_utf8(one_response).unwrap()
+            String::from_utf8(one_response.clone()).unwrap()
         );
     }
     {
@@ -353,7 +353,7 @@ fn multiple_stream_zero_hop_test() {
             .is_some(),
             true,
             "Actual response:\n{}",
-            String::from_utf8(another_response).unwrap()
+            String::from_utf8(another_response.clone()).unwrap()
         );
         assert_eq!(
             index_of(
@@ -364,7 +364,7 @@ fn multiple_stream_zero_hop_test() {
                 .is_some(),
             true,
             "Actual response:\n{}",
-            String::from_utf8(another_response).unwrap()
+            String::from_utf8(another_response.clone()).unwrap()
         );
     }
 }
