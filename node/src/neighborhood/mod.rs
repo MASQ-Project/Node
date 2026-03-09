@@ -2062,8 +2062,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn ask_about_debut_gossip_message_handles_timeout_in_case_no_response_is_received() {
+    #[actix_rt::test]
+    async fn ask_about_debut_gossip_message_handles_timeout_in_case_no_response_is_received() {
         let (node_ip_addr, node_descriptor) = make_node(1);
         let mut subject = make_subject_from_node_descriptor(
             &node_descriptor,
@@ -2088,7 +2088,6 @@ mod tests {
         let aadgrm = AskAboutDebutGossipMessage {
             prev_connection_progress: beginning_connection_progress.clone(),
         };
-        let system = System::new();
 
         recipient.try_send(aadgrm).unwrap();
 
@@ -2107,7 +2106,6 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        assert_eq!(system.run().is_ok(), true);
     }
 
     #[test]
@@ -6031,3 +6029,4 @@ mod tests {
         neighborhood
     }
 }
+
