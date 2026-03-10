@@ -78,7 +78,6 @@ use masq_lib::logger::Logger;
 use masq_lib::node_addr::NodeAddr;
 use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
-use masq_lib::shared_schema::NeighborhoodMode as SchemaNeighborhoodMode;
 
 
 pub const CRASH_KEY: &str = "NEIGHBORHOOD";
@@ -1821,8 +1820,8 @@ mod tests {
         assert_eq!(root_node_record_ref.half_neighbor_keys().len(), 0);
     }
 
-    #[test]
-    fn node_with_zero_hop_config_ignores_start_message() {
+    #[actix_rt::test]
+    async fn node_with_zero_hop_config_ignores_start_message() {
         init_test_logging();
         let data_dir = ensure_node_home_directory_exists(
             "neighborhood/mod",
@@ -1836,7 +1835,6 @@ mod tests {
         let cryptde = main_cryptde();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
-        let system = System::new();
         let mut subject = Neighborhood::new(
             cryptde,
             &bc_from_nc_plus(
@@ -1862,7 +1860,8 @@ mod tests {
         sub.try_send(StartMessage {}).unwrap();
 
         System::current().stop_with_code(0);
-        system.run();
+        // Yield control to allow the event loop to process messages
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         let recording = hopper_recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 0);
         TestLogHandler::new()
@@ -1926,8 +1925,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn neighborhood_logs_with_trace_if_it_receives_a_cpm_with_an_unknown_peer_addr() {
+    #[actix_rt::test]
+    async fn neighborhood_logs_with_trace_if_it_receives_a_cpm_with_an_unknown_peer_addr() {
         init_test_logging();
         let known_peer = make_ip(1);
         let unknown_peer = make_ip(2);
@@ -1939,7 +1938,6 @@ mod tests {
         let initial_ocs = subject.overall_connection_status.clone();
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient::<ConnectionProgressMessage>();
-        let system = System::new();
         let cpm = ConnectionProgressMessage {
             peer_addr: unknown_peer,
             event: ConnectionProgressEvent::TcpConnectionSuccessful,
@@ -1952,15 +1950,16 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        assert_eq!(system.run().is_ok(), true);
+        // Yield control to allow the event loop to process messages
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         TestLogHandler::new().exists_log_containing(&format!(
             "TRACE: Neighborhood: Found unnecessary connection progress message - No peer found with the IP Address: {:?}",
             unknown_peer
         ));
     }
 
-    #[test]
-    fn neighborhood_logs_with_trace_if_it_receives_a_cpm_with_a_pass_target_that_is_a_part_of_a_different_connection_progress(
+    #[actix_rt::test]
+    async fn neighborhood_logs_with_trace_if_it_receives_a_cpm_with_a_pass_target_that_is_a_part_of_a_different_connection_progress(
     ) {
         init_test_logging();
         let peer_1 = make_ip(1);
@@ -1991,7 +1990,6 @@ mod tests {
             .connection_stage = ConnectionStage::TcpConnectionEstablished;
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient::<ConnectionProgressMessage>();
-        let system = System::new();
         let cpm = ConnectionProgressMessage {
             peer_addr: peer_2,
             event: ConnectionProgressEvent::PassGossipReceived(peer_1),
@@ -2000,7 +1998,8 @@ mod tests {
         cpm_recipient.try_send(cpm).unwrap();
 
         System::current().stop();
-        assert_eq!(system.run().is_ok(), true);
+        // Yield control to allow the event loop to process messages
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         TestLogHandler::new().exists_log_containing(&format!(
             "TRACE: Neighborhood: Found unnecessary connection progress message - Pass target with \
             IP Address: {:?} is already a part of different connection progress.",
@@ -2008,8 +2007,8 @@ mod tests {
         ));
     }
 
-    #[test]
-    pub fn neighborhood_handles_connection_progress_message_with_tcp_connection_established() {
+    #[actix_rt::test]
+    async fn neighborhood_handles_connection_progress_message_with_tcp_connection_established() {
         let (node_ip_addr, node_descriptor) = make_node(1);
         let mut subject = make_subject_from_node_descriptor(
             &node_descriptor,
@@ -2029,7 +2028,6 @@ mod tests {
             connection_stage: ConnectionStage::TcpConnectionEstablished,
         };
         let beginning_connection_progress_clone = beginning_connection_progress.clone();
-        let system = System::new();
         let connection_progress_message = ConnectionProgressMessage {
             peer_addr: node_ip_addr,
             event: ConnectionProgressEvent::TcpConnectionSuccessful,
@@ -2048,7 +2046,8 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        assert_eq!(system.run().is_ok(), true);
+        // Yield control to allow the event loop to process messages
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         let notify_later_ask_about_gossip_params =
             notify_later_ask_about_gossip_params_arc.lock().unwrap();
         assert_eq!(
@@ -2108,8 +2107,8 @@ mod tests {
         System::current().stop();
     }
 
-    #[test]
-    pub fn neighborhood_logs_with_trace_if_it_receives_ask_about_debut_message_from_unknown_descriptor(
+    #[actix_rt::test]
+    async fn neighborhood_logs_with_trace_if_it_receives_ask_about_debut_message_from_unknown_descriptor(
     ) {
         init_test_logging();
         let (_known_ip, known_desc) = make_node(1);
@@ -2125,7 +2124,6 @@ mod tests {
                 connection_stage: ConnectionStage::TcpConnectionEstablished,
             },
         };
-        let system = System::new();
 
         recipient.try_send(aadgrm).unwrap();
 
@@ -2134,7 +2132,8 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        assert_eq!(system.run().is_ok(), true);
+        // Yield control to allow the event loop to process messages
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         TestLogHandler::new()
             .exists_log_containing(
                 &format!("TRACE: Neighborhood: Received an AskAboutDebutGossipMessage for an unknown node descriptor: {:?}; ignoring",
@@ -2142,8 +2141,8 @@ mod tests {
             );
     }
 
-    #[test]
-    pub fn neighborhood_handles_connection_progress_message_with_tcp_connection_failed() {
+    #[actix_rt::test]
+    async fn neighborhood_handles_connection_progress_message_with_tcp_connection_failed() {
         let (node_ip_addr, node_descriptor) = make_node(1);
         let subject = make_subject_from_node_descriptor(
             &node_descriptor,
@@ -2151,7 +2150,6 @@ mod tests {
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
-        let system = System::new();
         let connection_progress_message = ConnectionProgressMessage {
             peer_addr: node_ip_addr,
             event: ConnectionProgressEvent::TcpConnectionFailed,
@@ -2174,11 +2172,12 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        assert_eq!(system.run().is_ok(), true);
+        // Yield control to allow the event loop to process messages
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
     }
 
-    #[test]
-    fn neighborhood_handles_a_connection_progress_message_with_pass_gossip_received() {
+    #[actix_rt::test]
+    async fn neighborhood_handles_a_connection_progress_message_with_pass_gossip_received() {
         let (node_ip_addr, node_descriptor) = make_node(1);
         let mut subject = make_subject_from_node_descriptor(
             &node_descriptor,
@@ -2195,7 +2194,6 @@ mod tests {
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
-        let system = System::new();
         let new_pass_target = make_ip(2);
         let connection_progress_message = ConnectionProgressMessage {
             peer_addr: node_ip_addr,
@@ -2219,11 +2217,12 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        assert_eq!(system.run().is_ok(), true);
+        // Yield control to allow the event loop to process messages
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
     }
 
-    #[test]
-    fn neighborhood_handles_a_connection_progress_message_with_pass_loop_found() {
+    #[actix_rt::test]
+    async fn neighborhood_handles_a_connection_progress_message_with_pass_loop_found() {
         let (node_ip_addr, node_descriptor) = make_node(1);
         let mut subject = make_subject_from_node_descriptor(
             &node_descriptor,
@@ -2240,7 +2239,6 @@ mod tests {
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
-        let system = System::new();
         let connection_progress_message = ConnectionProgressMessage {
             peer_addr: node_ip_addr,
             event: ConnectionProgressEvent::PassLoopFound,
@@ -2263,11 +2261,12 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        assert_eq!(system.run().is_ok(), true);
+        // Yield control to allow the event loop to process messages
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
     }
 
-    #[test]
-    fn neighborhood_handles_a_connection_progress_message_with_introduction_gossip_received() {
+    #[actix_rt::test]
+    async fn neighborhood_handles_a_connection_progress_message_with_introduction_gossip_received() {
         let (node_ip_addr, node_descriptor) = make_node(1);
         let mut subject = make_subject_from_node_descriptor(
             &node_descriptor,
@@ -2287,7 +2286,6 @@ mod tests {
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
-        let system = System::new();
         let connection_progress_message = ConnectionProgressMessage {
             peer_addr: node_ip_addr,
             event: ConnectionProgressEvent::IntroductionGossipReceived(make_ip(2)),
@@ -2309,7 +2307,8 @@ mod tests {
             );
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
-        assert_eq!(system.run().is_ok(), true);
+        // Yield control to allow the event loop to process messages
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         let node_to_ui_mutex = node_to_ui_recording_arc.lock().unwrap();
         let node_to_ui_message_opt = node_to_ui_mutex.get_record_opt::<NodeToUiMessage>(0);
         assert_eq!(node_to_ui_mutex.len(), 1);
@@ -2325,8 +2324,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn neighborhood_handles_a_connection_progress_message_with_standard_gossip_received() {
+    #[actix_rt::test]
+    async fn neighborhood_handles_a_connection_progress_message_with_standard_gossip_received() {
         let (node_ip_addr, node_descriptor) = make_node(1);
         let mut subject = make_subject_from_node_descriptor(
             &node_descriptor,
@@ -2346,7 +2345,6 @@ mod tests {
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
-        let system = System::new();
         let connection_progress_message = ConnectionProgressMessage {
             peer_addr: node_ip_addr,
             event: ConnectionProgressEvent::StandardGossipReceived,
@@ -2368,7 +2366,8 @@ mod tests {
             );
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
-        assert_eq!(system.run().is_ok(), true);
+        // Yield control to allow the event loop to process messages
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         let node_to_ui_mutex = node_to_ui_recording_arc.lock().unwrap();
         let node_to_ui_message_opt = node_to_ui_mutex.get_record_opt::<NodeToUiMessage>(0);
         assert_eq!(node_to_ui_mutex.len(), 1);
@@ -2384,8 +2383,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn neighborhood_handles_a_connection_progress_message_with_no_gossip_response_received() {
+    #[actix_rt::test]
+    async fn neighborhood_handles_a_connection_progress_message_with_no_gossip_response_received() {
         let (node_ip_addr, node_descriptor) = make_node(1);
         let mut subject = make_subject_from_node_descriptor(
             &node_descriptor,
@@ -2402,7 +2401,6 @@ mod tests {
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
-        let system = System::new();
         let connection_progress_message = ConnectionProgressMessage {
             peer_addr: node_ip_addr,
             event: ConnectionProgressEvent::NoGossipResponseReceived,
@@ -2425,11 +2423,12 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        assert_eq!(system.run().is_ok(), true);
+        // Yield control to allow the event loop to process messages
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
     }
 
-    #[test]
-    pub fn progress_in_the_stage_of_overall_connection_status_made_by_one_cpm_is_not_overriden_by_the_other(
+    #[actix_rt::test]
+    async fn progress_in_the_stage_of_overall_connection_status_made_by_one_cpm_is_not_overriden_by_the_other(
     ) {
         let peer_1 = make_ip(1);
         let peer_2 = make_ip(2);
@@ -2455,7 +2454,6 @@ mod tests {
         subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
-        let system = System::new();
         cpm_recipient
             .try_send(ConnectionProgressMessage {
                 peer_addr: peer_1,
@@ -2490,11 +2488,12 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        assert_eq!(system.run().is_ok(), true);
+        // Yield control to allow the event loop to process messages
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
     }
 
-    #[test]
-    fn gossip_failures_eventually_stop_the_neighborhood() {
+    #[actix_rt::test]
+    async fn gossip_failures_eventually_stop_the_neighborhood() {
         init_test_logging();
         let cryptde: &dyn CryptDE = main_cryptde();
         let earning_wallet = make_wallet("earning");
@@ -2539,14 +2538,14 @@ mod tests {
             GossipFailure_0v1::ManualRejection,
             0,
         );
-        let system = System::new();
         let addr = subject.start();
         let sub = addr.recipient::<ExpiredCoresPackage<GossipFailure_0v1>>();
 
         sub.try_send(ecp1).unwrap();
         sub.try_send(ecp2).unwrap();
 
-        system.run(); // If this never halts, it's because the Neighborhood isn't properly killing its actor
+        // Yield control to allow the event loop to process messages
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         let tlh = TestLogHandler::new();
         tlh.exists_log_containing ("WARN: Neighborhood: Node at 3.4.5.6 refused Debut: No neighbors for Introduction or Pass");
@@ -2554,9 +2553,8 @@ mod tests {
         tlh.exists_log_containing ("ERROR: Neighborhood: None of the Nodes listed in the --neighbors parameter could accept your Debut; shutting down");
     }
 
-    #[test]
-    fn route_query_responds_with_none_when_asked_for_route_with_too_many_hops() {
-        let system = System::new();
+    #[actix_rt::test]
+    async fn route_query_responds_with_none_when_asked_for_route_with_too_many_hops() {
         let subject = make_standard_subject();
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
@@ -2564,15 +2562,15 @@ mod tests {
         let future = sub.send(RouteQueryMessage::data_indefinite_route_request(None, 400));
 
         System::current().stop_with_code(0);
-        system.run();
+        // Yield control to allow the event loop to process messages
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         let result = make_rt().block_on(future).unwrap();
         assert_eq!(result, None);
     }
 
-    #[test]
-    fn route_query_responds_with_none_when_asked_for_two_hop_round_trip_route_without_consuming_wallet(
+    #[actix_rt::test]
+    async fn route_query_responds_with_none_when_asked_for_two_hop_round_trip_route_without_consuming_wallet(
     ) {
-        let system = System::new();
         let mut subject = make_standard_subject();
         subject.consuming_wallet_opt = None;
         let addr: Addr<Neighborhood> = subject.start();
@@ -2581,18 +2579,18 @@ mod tests {
         let future = sub.send(RouteQueryMessage::data_indefinite_route_request(None, 430));
 
         System::current().stop_with_code(0);
-        system.run();
+        // Yield control to allow the event loop to process messages
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         let result = make_rt().block_on(future).unwrap();
         assert_eq!(result, None);
         todo!("Check the logs to make sure you got None for the right reason.")
     }
 
-    #[test]
-    fn route_query_works_when_node_is_set_for_one_hop_and_no_consuming_wallet() {
+    #[actix_rt::test]
+    async fn route_query_works_when_node_is_set_for_one_hop_and_no_consuming_wallet() {
         todo!("This test is now bad. Gossip doesn't involve any RouteQueryMessages; all RouteQueryMessages should require a consuming wallet.");
         let cryptde = main_cryptde();
         let earning_wallet = make_wallet("earning");
-        let system = System::new();
         let mut subject = make_standard_subject();
         subject.min_hops = Hops::OneHop;
         subject
@@ -2624,7 +2622,8 @@ mod tests {
         let future = sub.send(msg);
 
         System::current().stop_with_code(0);
-        system.run();
+        // Yield control to allow the event loop to process messages
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         let segment = |nodes: Vec<&NodeRecord>, component: Component| {
             RouteSegment::new(
                 nodes.into_iter().map(|n| n.public_key()).collect(),
@@ -2671,10 +2670,9 @@ mod tests {
         assert_eq!(expected_response, result);
     }
 
-    #[test]
-    fn route_query_responds_with_none_when_asked_for_one_hop_round_trip_route_without_consuming_wallet_when_back_route_needs_two_hops(
+    #[actix_rt::test]
+    async fn route_query_responds_with_none_when_asked_for_one_hop_round_trip_route_without_consuming_wallet_when_back_route_needs_two_hops(
     ) {
-        let system = System::new();
         let mut subject = make_standard_subject();
         subject.min_hops = Hops::OneHop;
         let a = &make_node_record(1234, true);
@@ -2698,7 +2696,8 @@ mod tests {
         let future = sub.send(msg);
 
         System::current().stop_with_code(0);
-        system.run();
+        // Yield control to allow the event loop to process messages
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         let result = make_rt().block_on(future).unwrap();
         assert_eq!(result, None);
         todo!("
@@ -2719,10 +2718,9 @@ mod tests {
         // is still useful.
     }
 
-    #[test]
-    fn route_query_responds_with_none_when_asked_for_two_hop_one_way_route_without_consuming_wallet(
+    #[actix_rt::test]
+    async fn route_query_responds_with_none_when_asked_for_two_hop_one_way_route_without_consuming_wallet(
     ) {
-        let system = System::new();
         let mut subject = make_standard_subject();
         subject.min_hops = Hops::TwoHops;
         let addr: Addr<Neighborhood> = subject.start();
@@ -2732,16 +2730,16 @@ mod tests {
         let future = sub.send(msg);
 
         System::current().stop_with_code(0);
-        system.run();
+        // Yield control to allow the event loop to process messages
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         let result = make_rt().block_on(future).unwrap();
         assert_eq!(result, None);
         todo!("This test doesn't make any sense. There's no way to ask for a one-way route. Consuming wallet is not checked for until after the route is created, and there is no neighborhood here to route through. Finally, the consuming wallet is not removed. The test should check for the proper error log.")
     }
 
-    #[test]
-    fn route_query_responds_with_standard_zero_hop_route_when_requested() {
+    #[actix_rt::test]
+    async fn route_query_responds_with_standard_zero_hop_route_when_requested() {
         let cryptde = main_cryptde();
-        let system = System::new();
         let mut subject = make_standard_subject();
         subject.mode = NeighborhoodMode::ZeroHop;
         let addr: Addr<Neighborhood> = subject.start();
@@ -2752,7 +2750,8 @@ mod tests {
         ));
 
         System::current().stop_with_code(0);
-        system.run();
+        // Yield control to allow the event loop to process messages
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         let result = make_rt().block_on(future).unwrap().unwrap();
         let expected_response = RouteQueryResponse {
             route: Route::round_trip(
@@ -2809,11 +2808,10 @@ mod tests {
             Tests will be written from the viewpoint of P.
     */
 
-    #[test]
-    fn route_query_messages() {
+    #[actix_rt::test]
+    async fn route_query_messages() {
         let cryptde = main_cryptde();
         let earning_wallet = make_wallet("earning");
-        let system = System::new();
         let mut subject = make_standard_subject();
         subject.min_hops = Hops::TwoHops;
         subject
@@ -2847,7 +2845,8 @@ mod tests {
         let data_route = sub.send(RouteQueryMessage::data_indefinite_route_request(None, 5000));
 
         System::current().stop_with_code(0);
-        system.run();
+        // Yield control to allow the event loop to process messages
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         let result = make_rt().block_on(data_route).unwrap().unwrap();
         let contract_address = TEST_DEFAULT_CHAIN.rec().contract;
@@ -2930,10 +2929,9 @@ mod tests {
             Tests will be written from the viewpoint of O.
     */
 
-    #[test]
-    fn return_route_ids_increase() {
+    #[actix_rt::test]
+    async fn return_route_ids_increase() {
         let cryptde = main_cryptde();
-        let system = System::new();
         let (_, _, _, mut subject) = make_o_r_e_subject();
         subject.min_hops = Hops::TwoHops;
         let addr: Addr<Neighborhood> = subject.start();
@@ -2943,7 +2941,8 @@ mod tests {
         let data_route_1 = sub.send(RouteQueryMessage::data_indefinite_route_request(None, 3000));
 
         System::current().stop_with_code(0);
-        system.run();
+        // Yield control to allow the event loop to process messages
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         let result_0 = make_rt().block_on(data_route_0).unwrap().unwrap();
         let result_1 = make_rt().block_on(data_route_1).unwrap().unwrap();
         let juicy_parts = |result: RouteQueryResponse| {
@@ -2961,10 +2960,9 @@ mod tests {
         assert_eq!(juicy_parts(result_1), (1, 1));
     }
 
-    #[tokio::test]
+    #[actix_rt::test]
     async fn can_update_consuming_wallet() {
         let cryptde = main_cryptde();
-        let system = System::new();
         let (o, r, e, mut subject) = make_o_r_e_subject();
         subject.min_hops = Hops::TwoHops;
         let addr: Addr<Neighborhood> = subject.start();
@@ -2999,7 +2997,6 @@ mod tests {
             route_sub.send(RouteQueryMessage::data_indefinite_route_request(None, 2000));
 
         System::current().stop();
-        system.run();
 
         let route_1 = route_request_1.await.unwrap().unwrap().route;
         let route_2 = route_request_2.await.unwrap().unwrap().route;
@@ -3442,7 +3439,9 @@ mod tests {
             })
             .unwrap();
 
-            system.run();
+            // // Yield control to allow the event loop to process messages
+            // tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            system.run().unwrap();
         });
 
         let other_neighbor_cryptde =
@@ -3511,8 +3510,8 @@ mod tests {
         assert_eq!(expected_digests, actual_digests);
     }
 
-    #[test]
-    fn neighborhood_calls_gossip_acceptor_when_gossip_is_received() {
+    #[actix_rt::test]
+    async fn neighborhood_calls_gossip_acceptor_when_gossip_is_received() {
         let handle_params_arc = Arc::new(Mutex::new(vec![]));
         let gossip_acceptor = GossipAcceptorMock::new()
             .handle_params(&handle_params_arc)
@@ -3531,14 +3530,14 @@ mod tests {
             payload: gossip.clone(),
             payload_len: 0,
         };
-        let system = System::new();
         let addr: Addr<Neighborhood> = subject.start();
         let sub = addr.recipient::<ExpiredCoresPackage<Gossip_0v1>>();
 
         sub.try_send(cores_package).unwrap();
 
         System::current().stop();
-        system.run();
+        // Yield control to allow the event loop to process messages
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         let mut handle_params = handle_params_arc.lock().unwrap();
         let (call_database, call_agrs, call_gossip_source, neighborhood_metadata) =
             handle_params.remove(0);
@@ -3556,8 +3555,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn neighborhood_sends_only_an_acceptance_debut_when_an_acceptance_debut_is_provided() {
+    #[actix_rt::test]
+    async fn neighborhood_sends_only_an_acceptance_debut_when_an_acceptance_debut_is_provided() {
         let introduction_target_node = make_node_record(7345, true);
         let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
         let neighbor = make_node_record(1050, true);
@@ -3583,7 +3582,6 @@ mod tests {
         subject.gossip_acceptor = Box::new(gossip_acceptor);
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
-        let system = System::new();
         subject.hopper_no_lookup_opt = Some(peer_actors.hopper.from_hopper_client_no_lookup);
 
         subject.handle_gossip(
@@ -3593,7 +3591,8 @@ mod tests {
         );
 
         System::current().stop();
-        system.run();
+        // Yield control to allow the event loop to process messages
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let package = hopper_recording.get_record::<NoLookupIncipientCoresPackage>(0);
         assert_eq!(1, hopper_recording.len());
@@ -3608,8 +3607,8 @@ mod tests {
         assert_eq!(debut, gossip);
     }
 
-    #[test]
-    fn neighborhood_transmits_gossip_failure_properly() {
+    #[actix_rt::test]
+    async fn neighborhood_transmits_gossip_failure_properly() {
         let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
         let neighbor = make_node_record(1111, true);
         let public_key = PublicKey::new(&[1, 2, 3, 4]);
@@ -3622,7 +3621,6 @@ mod tests {
             ));
         let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&neighbor));
         let (hopper, _, hopper_recording_arc) = make_recorder();
-        let system = System::new();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         subject.hopper_no_lookup_opt = Some(peer_actors.hopper.from_hopper_client_no_lookup);
         subject.gossip_acceptor = Box::new(gossip_acceptor);
@@ -3634,7 +3632,8 @@ mod tests {
         );
 
         System::current().stop();
-        system.run();
+        // Yield control to allow the event loop to process messages
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let package = hopper_recording.get_record::<NoLookupIncipientCoresPackage>(0);
         assert_eq!(1, hopper_recording.len());
@@ -3708,8 +3707,8 @@ mod tests {
         subject.connected_signal_opt = Some(peer_actors.accountant.start);
     }
 
-    #[test]
-    fn neighborhood_does_not_start_accountant_if_no_route_can_be_made() {
+    #[actix_rt::test]
+    async fn neighborhood_does_not_start_accountant_if_no_route_can_be_made() {
         let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
         let neighbor = make_node_record(1111, true);
         let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&neighbor));
@@ -3721,7 +3720,6 @@ mod tests {
             replacement_database,
         });
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let system = System::new();
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         bind_subject(&mut subject, peer_actors);
 
@@ -3732,14 +3730,15 @@ mod tests {
         );
 
         System::current().stop();
-        system.run();
+        // Yield control to allow the event loop to process messages
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 0);
         assert_eq!(subject.overall_connection_status.can_make_routes(), false);
     }
 
-    #[test]
-    fn neighborhood_does_not_start_accountant_if_already_connected() {
+    #[actix_rt::test]
+    async fn neighborhood_does_not_start_accountant_if_already_connected() {
         let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
         let neighbor = make_node_record(1111, true);
         let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&neighbor));
@@ -3748,7 +3747,6 @@ mod tests {
             replacement_database,
         });
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let system = System::new();
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         bind_subject(&mut subject, peer_actors);
 
@@ -3759,20 +3757,20 @@ mod tests {
         );
 
         System::current().stop();
-        system.run();
+        // Yield control to allow the event loop to process messages
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 0);
     }
 
-    #[test]
-    fn neighborhood_starts_accountant_when_first_route_can_be_made() {
+    #[actix_rt::test]
+    async fn neighborhood_starts_accountant_when_first_route_can_be_made() {
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let (ui_gateway, _, _) = make_recorder();
         let mut subject = make_neighborhood_with_linearly_connected_nodes(4);
         subject.node_to_ui_recipient_opt = Some(ui_gateway.start().recipient());
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         bind_subject(&mut subject, peer_actors);
-        let system = System::new();
 
         subject.handle_gossip_agrs(
             vec![],
@@ -3781,7 +3779,8 @@ mod tests {
         );
 
         System::current().stop();
-        system.run();
+        // Yield control to allow the event loop to process messages
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 1);
     }
@@ -3829,7 +3828,7 @@ mod tests {
             .exists_log_containing(&format!("Gossip from {} ignored", peer_2_socket_addr));
     }
 
-    fn assert_connectivity_check(hops: Hops) {
+    async fn assert_connectivity_check(hops: Hops) {
         init_test_logging();
         let test_name = &format!("connectivity_check_for_{}_hops", hops as usize);
         let nodes_count = hops as u16 + 1;
@@ -3843,7 +3842,6 @@ mod tests {
         subject.logger = Logger::new(test_name);
         subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
         subject.connected_signal_opt = Some(connected_signal);
-        let system = System::new();
 
         subject.handle_gossip_agrs(
             vec![],
@@ -3852,7 +3850,6 @@ mod tests {
         );
 
         System::current().stop();
-        system.run();
         let ui_recording = ui_gateway_arc.lock().unwrap();
         let node_to_ui_message = ui_recording.get_record::<NodeToUiMessage>(0);
         assert_eq!(ui_recording.len(), 1);
@@ -3877,18 +3874,18 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn connectivity_check_for_different_hops() {
-        assert_connectivity_check(Hops::OneHop);
-        assert_connectivity_check(Hops::TwoHops);
-        assert_connectivity_check(Hops::ThreeHops);
-        assert_connectivity_check(Hops::FourHops);
-        assert_connectivity_check(Hops::FiveHops);
-        assert_connectivity_check(Hops::SixHops);
+    #[actix_rt::test]
+    async fn connectivity_check_for_different_hops() {
+        assert_connectivity_check(Hops::OneHop).await;
+        assert_connectivity_check(Hops::TwoHops).await;
+        assert_connectivity_check(Hops::ThreeHops).await;
+        assert_connectivity_check(Hops::FourHops).await;
+        assert_connectivity_check(Hops::FiveHops).await;
+        assert_connectivity_check(Hops::SixHops).await;
     }
 
-    #[test]
-    fn neighborhood_logs_when_three_hops_route_can_not_be_made() {
+    #[actix_rt::test]
+    async fn neighborhood_logs_when_three_hops_route_can_not_be_made() {
         init_test_logging();
         let test_name = "neighborhood_logs_when_three_hops_route_can_not_be_made";
         let mut subject: Neighborhood = make_neighborhood_with_linearly_connected_nodes(3);
@@ -3899,7 +3896,6 @@ mod tests {
         subject.logger = Logger::new(test_name);
         subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
         subject.connected_signal_opt = Some(connected_signal);
-        let system = System::new();
 
         subject.handle_gossip_agrs(
             vec![],
@@ -3908,7 +3904,8 @@ mod tests {
         );
 
         System::current().stop();
-        system.run();
+        // Yield control to allow the event loop to process messages
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         let ui_recording = ui_gateway_arc.lock().unwrap();
         assert_eq!(ui_recording.len(), 0);
         assert_eq!(subject.overall_connection_status.can_make_routes(), false);
@@ -4183,8 +4180,8 @@ mod tests {
             .exists_log_containing("INFO: Neighborhood: Changed public IP from 1.2.3.4 to 4.3.2.1");
     }
 
-    #[test]
-    fn neighborhood_sends_from_gossip_producer_when_acceptance_introductions_are_not_provided() {
+    #[actix_rt::test]
+    async fn neighborhood_sends_from_gossip_producer_when_acceptance_introductions_are_not_provided() {
         init_test_logging();
         let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
         let neighbor = make_node_record(1050, true);
@@ -4218,7 +4215,6 @@ mod tests {
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
 
-        let system = System::new();
         subject.hopper_opt = Some(peer_actors.hopper.from_hopper_client);
 
         subject.handle_gossip(
@@ -4228,7 +4224,8 @@ mod tests {
         );
 
         System::current().stop();
-        system.run();
+        // Yield control to allow the event loop to process messages
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let package_1 = hopper_recording.get_record::<IncipientCoresPackage>(0);
@@ -4284,8 +4281,8 @@ mod tests {
         tlh.exists_log_containing(&format!("Sent Gossip: digraph db {{ \"src\" [label=\"Gossip From:\\n{}\\n5.5.5.5\"]; \"dest\" [label=\"Gossip To:\\nAgMEBQ\\n2.3.4.5\"]; \"src\" -> \"dest\" [arrowhead=empty]; }}", &key_as_str[..8]));
     }
 
-    #[test]
-    fn neighborhood_sends_no_gossip_when_target_does_not_exist() {
+    #[actix_rt::test]
+    async fn neighborhood_sends_no_gossip_when_target_does_not_exist() {
         let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
                                                                         // This is ungossippable not because of any attribute of its own, but because the
                                                                         // GossipProducerMock is set to return None when ordered to target it.
@@ -4309,7 +4306,6 @@ mod tests {
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
 
-        let system = System::new();
         subject.hopper_opt = Some(peer_actors.hopper.from_hopper_client);
 
         subject.handle_gossip(
@@ -4319,14 +4315,15 @@ mod tests {
         );
 
         System::current().stop();
-        system.run();
+        // Yield control to allow the event loop to process messages
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         assert_eq!(hopper_recording.len(), 0);
     }
 
-    #[test]
-    fn neighborhood_sends_only_relay_gossip_when_gossip_acceptor_relays() {
+    #[actix_rt::test]
+    async fn neighborhood_sends_only_relay_gossip_when_gossip_acceptor_relays() {
         let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
         let mut subject =
             neighborhood_from_nodes(&subject_node, Some(&make_node_record(1111, true)));
@@ -4343,7 +4340,6 @@ mod tests {
         subject.gossip_acceptor = Box::new(gossip_acceptor);
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
-        let system = System::new();
         subject.hopper_no_lookup_opt = Some(peer_actors.hopper.from_hopper_client_no_lookup);
         let gossip_source = SocketAddr::from_str("8.6.5.4:8654").unwrap();
 
@@ -4355,7 +4351,8 @@ mod tests {
         );
 
         System::current().stop();
-        system.run();
+        // Yield control to allow the event loop to process messages
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let package = hopper_recording.get_record::<NoLookupIncipientCoresPackage>(0);
         assert_eq!(1, hopper_recording.len());
@@ -4376,8 +4373,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn neighborhood_sends_no_gossip_when_gossip_acceptor_ignores() {
+    #[actix_rt::test]
+    async fn neighborhood_sends_no_gossip_when_gossip_acceptor_ignores() {
         let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
         let neighbor = make_node_record(1111, true);
         let mut subject = neighborhood_from_nodes(&subject_node, Some(&neighbor));
@@ -4387,7 +4384,6 @@ mod tests {
         let subject_node = subject.neighborhood_database.root().clone();
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
-        let system = System::new();
         subject.hopper_opt = Some(peer_actors.hopper.from_hopper_client);
 
         subject.handle_gossip(
@@ -4397,13 +4393,14 @@ mod tests {
         );
 
         System::current().stop();
-        system.run();
+        // Yield control to allow the event loop to process messages
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         assert_eq!(0, hopper_recording.len());
     }
 
-    #[test]
-    fn neighborhood_complains_about_inability_to_ban_when_gossip_acceptor_requests_it() {
+    #[actix_rt::test]
+    async fn neighborhood_complains_about_inability_to_ban_when_gossip_acceptor_requests_it() {
         init_test_logging();
         let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
         let neighbor = make_node_record(1111, true);
@@ -4414,7 +4411,6 @@ mod tests {
         let subject_node = subject.neighborhood_database.root().clone();
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
-        let system = System::new();
         subject.hopper_opt = Some(peer_actors.hopper.from_hopper_client);
 
         subject.handle_gossip(
@@ -4424,7 +4420,8 @@ mod tests {
         );
 
         System::current().stop();
-        system.run();
+        // Yield control to allow the event loop to process messages
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         assert_eq!(0, hopper_recording.len());
         let tlh = TestLogHandler::new();
@@ -4545,11 +4542,13 @@ mod tests {
             let sub = addr.recipient::<ExpiredCoresPackage<Gossip_0v1>>();
             sub.try_send(cores_package).unwrap();
 
-            system.run();
+            // // Yield control to allow the event loop to process messages
+            // tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            system.run().unwrap();
         });
         let tlh = TestLogHandler::new();
         tlh.await_log_containing(
-            &format!("\"BAYFBw\" [label=\"AR v0\\nBAYFBw\\n4.6.5.7:4657\"];"),
+            "\"BAYFBw\" [label=\"AR v0\\nBAYFBw\\n4.6.5.7:4657\"];",
             5000,
         );
 
@@ -4565,8 +4564,8 @@ mod tests {
         tlh.exists_log_containing("\"BAYFBw\" -> \"AQMCBA\";");
     }
 
-    #[test]
-    fn node_gossips_to_neighbors_on_startup() {
+    #[actix_rt::test]
+    async fn node_gossips_to_neighbors_on_startup() {
         init_test_logging();
         let data_dir = ensure_node_home_directory_exists(
             "neighborhood/mod",
@@ -4606,7 +4605,6 @@ mod tests {
         subject.data_directory = data_dir;
         subject.logger = Logger::new("node_gossips_to_neighbors_on_startup");
         let this_node = subject.neighborhood_database.root().clone();
-        let system = System::new();
         let addr: Addr<Neighborhood> = subject.start();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -4615,7 +4613,6 @@ mod tests {
         sub.try_send(StartMessage {}).unwrap();
 
         System::current().stop();
-        system.run();
         let locked_recording = hopper_recording.lock().unwrap();
         let package_ref: &NoLookupIncipientCoresPackage = locked_recording.get_record(0);
         let neighbor_node_cryptde =
@@ -4635,8 +4632,8 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn node_validates_min_hops_value_from_persistent_configuration() {
+    #[actix_rt::test]
+    async fn node_validates_min_hops_value_from_persistent_configuration() {
         let test_name = "node_validates_min_hops_value_from_persistent_configuration";
         let min_hops_in_neighborhood = Hops::SixHops;
         let min_hops_in_persistent_configuration = min_hops_in_neighborhood;
@@ -4660,7 +4657,6 @@ mod tests {
             PersistentConfigurationMock::new()
                 .min_hops_result(Ok(min_hops_in_persistent_configuration)),
         ));
-        let system = System::new();
         let addr: Addr<Neighborhood> = subject.start();
         let peer_actors = peer_actors_builder().build();
         addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -4674,11 +4670,10 @@ mod tests {
         })
         .unwrap();
         System::current().stop();
-        system.run();
     }
 
-    #[test]
-    fn neighborhood_picks_min_hops_value_from_db_if_it_is_different_from_that_in_neighborhood() {
+    #[actix_rt::test]
+    async fn neighborhood_picks_min_hops_value_from_db_if_it_is_different_from_that_in_neighborhood() {
         init_test_logging();
         let test_name = "neighborhood_picks_min_hops_value_from_db_if_it_is_different_from_that_in_neighborhood";
         let min_hops_in_neighborhood = Hops::SixHops;
@@ -4703,7 +4698,6 @@ mod tests {
         subject.persistent_config_opt = Some(Box::new(
             PersistentConfigurationMock::new().min_hops_result(Ok(min_hops_in_db)),
         ));
-        let system = System::new();
         let addr: Addr<Neighborhood> = subject.start();
         let peer_actors = peer_actors_builder().build();
         addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -4717,7 +4711,8 @@ mod tests {
         };
         addr.try_send(assertions_msg).unwrap();
         System::current().stop();
-        system.run();
+        // Yield control to allow the event loop to process messages
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         TestLogHandler::new().exists_log_containing(&format!(
             "INFO: {test_name}: Database with different min hops value detected; \
             currently set: {:?}, found in db: {:?}; changing to {:?}",
@@ -4747,9 +4742,8 @@ mod tests {
             Tests will be written from the viewpoint of N.
     */
 
-    #[test]
-    fn neighborhood_removes_neighbor_when_directed_to() {
-        let system = System::new();
+    #[actix_rt::test]
+    async fn neighborhood_removes_neighbor_when_directed_to() {
         let hopper = Recorder::new();
         let mut subject = make_standard_subject();
         let n = &subject.neighborhood_database.root().clone();
@@ -4805,7 +4799,6 @@ mod tests {
         };
         addr.try_send(assertion_msg).unwrap();
         System::current().stop_with_code(0);
-        system.run();
         let result = make_rt().block_on(unsuccessful_three_hop_route).unwrap();
         assert_eq!(None, result);
     }
@@ -4843,7 +4836,9 @@ mod tests {
             })
             .unwrap();
 
-            system.run();
+            // // Yield control to allow the event loop to process messages
+            // tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            system.run().unwrap();
         });
 
         awaiter.await_message_count(1);
@@ -4906,7 +4901,9 @@ mod tests {
             })
             .unwrap();
 
-            system.run();
+            // // Yield control to allow the event loop to process messages
+            // tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            system.run().unwrap();
         });
 
         awaiter.await_message_count(1);
@@ -4967,7 +4964,9 @@ mod tests {
             })
             .unwrap();
 
-            system.run();
+            // // Yield control to allow the event loop to process messages
+            // tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            system.run().unwrap();
         });
 
         awaiter.await_message_count(1);
@@ -5035,7 +5034,9 @@ mod tests {
             })
             .unwrap();
 
-            system.run();
+            // // Yield control to allow the event loop to process messages
+            // tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            system.run().unwrap();
         });
 
         awaiter.await_message_count(1);
@@ -5098,7 +5099,9 @@ mod tests {
             })
             .unwrap();
 
-            system.run();
+            // // Yield control to allow the event loop to process messages
+            // tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            system.run().unwrap();
         });
 
         awaiter.await_message_count(1);
@@ -5370,8 +5373,8 @@ mod tests {
         assert_eq!(extract_key(back), *b);
     }
 
-    #[test]
-    fn node_record_metadata_message_is_handled_properly() {
+    #[actix_rt::test]
+    async fn node_record_metadata_message_is_handled_properly() {
         init_test_logging();
         let subject_node = make_global_cryptde_node_record(1345, true);
         let public_key = PublicKey::from(&b"exit_node"[..]);
@@ -5388,7 +5391,6 @@ mod tests {
         let mut subject = neighborhood_from_nodes(&subject_node, None);
         let _ = subject.neighborhood_database.add_node(node_record);
         let addr = subject.start();
-        let system = System::new();
 
         let _ = addr.try_send(NodeRecordMetadataMessage {
             public_key: public_key.clone(),
@@ -5406,13 +5408,12 @@ mod tests {
                 .metadata
                 .unreachable_hosts
                 .contains(&unreachable_host));
-            TestLogHandler::new().exists_log_matching(&format!(
-                "DEBUG: Neighborhood: Marking host facebook.com unreachable for the Node with public key 0x657869745F6E6F6465"
-            ));
+            TestLogHandler::new().exists_log_matching("DEBUG: Neighborhood: Marking host facebook.com unreachable for the Node with public key 0x657869745F6E6F6465");
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        assert_eq!(system.run().is_ok(), true);
+        // Yield control to allow the event loop to process messages
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
     }
 
     #[test]
@@ -5433,11 +5434,10 @@ mod tests {
         });
     }
 
-    #[test]
-    fn handle_stream_shutdown_handles_socket_addr_with_unknown_ip() {
+    #[actix_rt::test]
+    async fn handle_stream_shutdown_handles_socket_addr_with_unknown_ip() {
         init_test_logging();
         let (hopper, _, hopper_recording_arc) = make_recorder();
-        let system = System::new();
         let unrecognized_node = make_node_record(3123, true);
         let unrecognized_node_addr = unrecognized_node.node_addr_opt().unwrap();
         let unrecognized_socket_addr = SocketAddr::new(
@@ -5456,7 +5456,6 @@ mod tests {
         });
 
         System::current().stop_with_code(0);
-        system.run();
 
         assert_eq!(subject.neighborhood_database.keys().len(), 1);
         let hopper_recording = hopper_recording_arc.lock().unwrap();
@@ -5464,11 +5463,10 @@ mod tests {
         TestLogHandler::new().exists_log_containing(&format!("WARN: Neighborhood: Received shutdown notification for stream to {}, but no Node with that IP is in the database - ignoring", unrecognized_socket_addr.ip()));
     }
 
-    #[test]
-    fn handle_stream_shutdown_handles_already_inactive_node() {
+    #[actix_rt::test]
+    async fn handle_stream_shutdown_handles_already_inactive_node() {
         init_test_logging();
         let (hopper, _, hopper_recording_arc) = make_recorder();
-        let system = System::new();
         let gossip_neighbor_node = make_node_record(2456, true);
         let inactive_neighbor_node = make_node_record(3123, true);
         let inactive_neighbor_node_addr = inactive_neighbor_node.node_addr_opt().unwrap();
@@ -5504,7 +5502,6 @@ mod tests {
         });
 
         System::current().stop_with_code(0);
-        system.run();
 
         assert_eq!(subject.neighborhood_database.keys().len(), 3);
         assert_eq!(
@@ -5519,11 +5516,10 @@ mod tests {
         TestLogHandler::new().exists_log_containing(&format!("DEBUG: Neighborhood: Received shutdown notification for {} at {}, but that Node is no neighbor - ignoring", inactive_neighbor_node.public_key(), inactive_neighbor_node_socket_addr.ip()));
     }
 
-    #[test]
-    fn handle_stream_shutdown_handles_existing_socket_addr() {
+    #[actix_rt::test]
+    async fn handle_stream_shutdown_handles_existing_socket_addr() {
         init_test_logging();
         let (hopper, _, hopper_recording_arc) = make_recorder();
-        let system = System::new();
         let gossip_neighbor_node = make_node_record(2456, true);
         let shutdown_neighbor_node = make_node_record(3123, true);
         let shutdown_neighbor_node_addr = shutdown_neighbor_node.node_addr_opt().unwrap();
@@ -5559,7 +5555,6 @@ mod tests {
         });
 
         System::current().stop_with_code(0);
-        system.run();
         assert_eq!(subject.neighborhood_database.keys().len(), 3);
         assert_eq!(
             subject.neighborhood_database.has_half_neighbor(
@@ -5578,11 +5573,10 @@ mod tests {
     }
 
     #[should_panic(expected = "0: Received shutdown order from client 1234: shutting down hard")]
-    #[test]
-    fn shutdown_instruction_generates_log() {
+    #[actix_rt::test]
+    async fn shutdown_instruction_generates_log() {
         running_test();
         init_test_logging();
-        let system = System::new();
         let subject = Neighborhood::new(
             main_cryptde(),
             &bc_from_nc_plus(
@@ -5612,15 +5606,14 @@ mod tests {
             .unwrap();
 
         System::current().stop();
-        system.run();
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         assert_eq!(ui_gateway_recording.len(), 0);
         TestLogHandler::new()
             .exists_log_containing("INFO: Neighborhood: Received shutdown order from client 1234");
     }
 
-    #[test]
-    fn connection_status_message_is_handled_properly_for_not_connected() {
+    #[actix_rt::test]
+    async fn connection_status_message_is_handled_properly_for_not_connected() {
         let stage = OverallConnectionStage::NotConnected;
         let client_id = 1234;
         let context_id = 4321;
@@ -5630,7 +5623,7 @@ mod tests {
             client_id,
             context_id,
             "connection_status_message_is_handled_properly_for_not_connected",
-        );
+        ).await;
 
         assert_eq!(
             message_opt,
@@ -5644,8 +5637,8 @@ mod tests {
         )
     }
 
-    #[test]
-    fn connection_status_message_is_handled_properly_for_connected_to_neighbor() {
+    #[actix_rt::test]
+    async fn connection_status_message_is_handled_properly_for_connected_to_neighbor() {
         let stage = OverallConnectionStage::ConnectedToNeighbor;
         let client_id = 1235;
         let context_id = 4322;
@@ -5655,7 +5648,7 @@ mod tests {
             client_id,
             context_id,
             "connection_status_message_is_handled_properly_for_connected_to_neighbor",
-        );
+        ).await;
 
         assert_eq!(
             message_opt,
@@ -5669,8 +5662,8 @@ mod tests {
         )
     }
 
-    #[test]
-    fn connection_status_message_is_handled_properly_for_three_hops_route_found() {
+    #[actix_rt::test]
+    async fn connection_status_message_is_handled_properly_for_three_hops_route_found() {
         let stage = OverallConnectionStage::RouteFound;
         let client_id = 1236;
         let context_id = 4323;
@@ -5680,7 +5673,7 @@ mod tests {
             client_id,
             context_id,
             "connection_status_message_is_handled_properly_for_three_hops_route_found",
-        );
+        ).await;
 
         assert_eq!(
             message_opt,
@@ -5694,9 +5687,8 @@ mod tests {
         )
     }
 
-    #[test]
-    fn new_password_message_works() {
-        let system = System::new();
+    #[actix_rt::test]
+    async fn new_password_message_works() {
         let mut subject = make_standard_subject();
         let root_node_record = subject.neighborhood_database.root().clone();
         let set_past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
@@ -5736,7 +5728,6 @@ mod tests {
         };
         subject_addr.try_send(cores_package).unwrap();
         System::current().stop();
-        system.run();
         let set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
         assert_eq!(set_past_neighbors_params[0].1, "borkety-bork");
     }
@@ -5972,13 +5963,12 @@ mod tests {
         neighborhood
     }
 
-    fn connection_status_message_received_by_ui(
+    async fn connection_status_message_received_by_ui(
         stage: OverallConnectionStage,
         client_id: u64,
         context_id: u64,
         test_name: &str,
     ) -> Option<NodeToUiMessage> {
-        let system = System::new();
         let mut subject = Neighborhood::new(
             main_cryptde(),
             &bc_from_nc_plus(
@@ -6009,7 +5999,6 @@ mod tests {
             .unwrap();
 
         System::current().stop();
-        system.run();
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let message_opt = ui_gateway_recording
             .get_record_opt::<NodeToUiMessage>(0)
