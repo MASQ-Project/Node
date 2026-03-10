@@ -1610,7 +1610,7 @@ mod tests {
     use std::thread;
     use std::time::Duration;
     use std::time::Instant;
-
+    use tokio::task::yield_now;
     use masq_lib::constants::{DEFAULT_CHAIN, TLS_PORT};
     use masq_lib::messages::{ToMessageBody, UiConnectionChangeBroadcast, UiConnectionStage};
     use masq_lib::test_utils::utils::{
@@ -1860,8 +1860,7 @@ mod tests {
         sub.try_send(StartMessage {}).unwrap();
 
         System::current().stop_with_code(0);
-        // Yield control to allow the event loop to process messages
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        yield_now().await;
         let recording = hopper_recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 0);
         TestLogHandler::new()
@@ -1950,8 +1949,7 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        // Yield control to allow the event loop to process messages
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        yield_now().await;
         TestLogHandler::new().exists_log_containing(&format!(
             "TRACE: Neighborhood: Found unnecessary connection progress message - No peer found with the IP Address: {:?}",
             unknown_peer
@@ -1998,8 +1996,7 @@ mod tests {
         cpm_recipient.try_send(cpm).unwrap();
 
         System::current().stop();
-        // Yield control to allow the event loop to process messages
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        yield_now().await;
         TestLogHandler::new().exists_log_containing(&format!(
             "TRACE: Neighborhood: Found unnecessary connection progress message - Pass target with \
             IP Address: {:?} is already a part of different connection progress.",
@@ -2046,8 +2043,7 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        // Yield control to allow the event loop to process messages
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        yield_now().await;
         let notify_later_ask_about_gossip_params =
             notify_later_ask_about_gossip_params_arc.lock().unwrap();
         assert_eq!(
@@ -2132,8 +2128,7 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        // Yield control to allow the event loop to process messages
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        yield_now().await;
         TestLogHandler::new()
             .exists_log_containing(
                 &format!("TRACE: Neighborhood: Received an AskAboutDebutGossipMessage for an unknown node descriptor: {:?}; ignoring",
@@ -2172,8 +2167,7 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        // Yield control to allow the event loop to process messages
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        yield_now().await;
     }
 
     #[actix_rt::test]
@@ -2217,8 +2211,7 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        // Yield control to allow the event loop to process messages
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        yield_now().await;
     }
 
     #[actix_rt::test]
@@ -2261,8 +2254,7 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        // Yield control to allow the event loop to process messages
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        yield_now().await;
     }
 
     #[actix_rt::test]
@@ -2307,8 +2299,7 @@ mod tests {
             );
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
-        // Yield control to allow the event loop to process messages
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        yield_now().await;
         let node_to_ui_mutex = node_to_ui_recording_arc.lock().unwrap();
         let node_to_ui_message_opt = node_to_ui_mutex.get_record_opt::<NodeToUiMessage>(0);
         assert_eq!(node_to_ui_mutex.len(), 1);
@@ -2366,8 +2357,7 @@ mod tests {
             );
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
-        // Yield control to allow the event loop to process messages
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        yield_now().await;
         let node_to_ui_mutex = node_to_ui_recording_arc.lock().unwrap();
         let node_to_ui_message_opt = node_to_ui_mutex.get_record_opt::<NodeToUiMessage>(0);
         assert_eq!(node_to_ui_mutex.len(), 1);
@@ -2423,8 +2413,7 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        // Yield control to allow the event loop to process messages
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        yield_now().await;
     }
 
     #[actix_rt::test]
@@ -2488,8 +2477,7 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        // Yield control to allow the event loop to process messages
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        yield_now().await;
     }
 
     #[actix_rt::test]
@@ -2544,8 +2532,7 @@ mod tests {
         sub.try_send(ecp1).unwrap();
         sub.try_send(ecp2).unwrap();
 
-        // Yield control to allow the event loop to process messages
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        yield_now().await;
 
         let tlh = TestLogHandler::new();
         tlh.exists_log_containing ("WARN: Neighborhood: Node at 3.4.5.6 refused Debut: No neighbors for Introduction or Pass");
@@ -2562,8 +2549,7 @@ mod tests {
         let future = sub.send(RouteQueryMessage::data_indefinite_route_request(None, 400));
 
         System::current().stop_with_code(0);
-        // Yield control to allow the event loop to process messages
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        yield_now().await;
         let result = make_rt().block_on(future).unwrap();
         assert_eq!(result, None);
     }
@@ -2579,8 +2565,7 @@ mod tests {
         let future = sub.send(RouteQueryMessage::data_indefinite_route_request(None, 430));
 
         System::current().stop_with_code(0);
-        // Yield control to allow the event loop to process messages
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        yield_now().await;
         let result = make_rt().block_on(future).unwrap();
         assert_eq!(result, None);
         todo!("Check the logs to make sure you got None for the right reason.")
@@ -2622,8 +2607,7 @@ mod tests {
         let future = sub.send(msg);
 
         System::current().stop_with_code(0);
-        // Yield control to allow the event loop to process messages
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        yield_now().await;
         let segment = |nodes: Vec<&NodeRecord>, component: Component| {
             RouteSegment::new(
                 nodes.into_iter().map(|n| n.public_key()).collect(),
@@ -2696,8 +2680,7 @@ mod tests {
         let future = sub.send(msg);
 
         System::current().stop_with_code(0);
-        // Yield control to allow the event loop to process messages
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        yield_now().await;
         let result = make_rt().block_on(future).unwrap();
         assert_eq!(result, None);
         todo!("
@@ -2730,8 +2713,7 @@ mod tests {
         let future = sub.send(msg);
 
         System::current().stop_with_code(0);
-        // Yield control to allow the event loop to process messages
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        yield_now().await;
         let result = make_rt().block_on(future).unwrap();
         assert_eq!(result, None);
         todo!("This test doesn't make any sense. There's no way to ask for a one-way route. Consuming wallet is not checked for until after the route is created, and there is no neighborhood here to route through. Finally, the consuming wallet is not removed. The test should check for the proper error log.")
@@ -2750,8 +2732,7 @@ mod tests {
         ));
 
         System::current().stop_with_code(0);
-        // Yield control to allow the event loop to process messages
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        yield_now().await;
         let result = make_rt().block_on(future).unwrap().unwrap();
         let expected_response = RouteQueryResponse {
             route: Route::round_trip(
@@ -2845,8 +2826,7 @@ mod tests {
         let data_route = sub.send(RouteQueryMessage::data_indefinite_route_request(None, 5000));
 
         System::current().stop_with_code(0);
-        // Yield control to allow the event loop to process messages
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        yield_now().await;
 
         let result = make_rt().block_on(data_route).unwrap().unwrap();
         let contract_address = TEST_DEFAULT_CHAIN.rec().contract;
@@ -2941,8 +2921,7 @@ mod tests {
         let data_route_1 = sub.send(RouteQueryMessage::data_indefinite_route_request(None, 3000));
 
         System::current().stop_with_code(0);
-        // Yield control to allow the event loop to process messages
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        yield_now().await;
         let result_0 = make_rt().block_on(data_route_0).unwrap().unwrap();
         let result_1 = make_rt().block_on(data_route_1).unwrap().unwrap();
         let juicy_parts = |result: RouteQueryResponse| {
@@ -3439,8 +3418,7 @@ mod tests {
             })
             .unwrap();
 
-            // // Yield control to allow the event loop to process messages
-            // tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            // yield_now().await;
             system.run().unwrap();
         });
 
@@ -3536,8 +3514,7 @@ mod tests {
         sub.try_send(cores_package).unwrap();
 
         System::current().stop();
-        // Yield control to allow the event loop to process messages
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        yield_now().await;
         let mut handle_params = handle_params_arc.lock().unwrap();
         let (call_database, call_agrs, call_gossip_source, neighborhood_metadata) =
             handle_params.remove(0);
@@ -3591,8 +3568,7 @@ mod tests {
         );
 
         System::current().stop();
-        // Yield control to allow the event loop to process messages
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        yield_now().await;
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let package = hopper_recording.get_record::<NoLookupIncipientCoresPackage>(0);
         assert_eq!(1, hopper_recording.len());
@@ -3632,8 +3608,7 @@ mod tests {
         );
 
         System::current().stop();
-        // Yield control to allow the event loop to process messages
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        yield_now().await;
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let package = hopper_recording.get_record::<NoLookupIncipientCoresPackage>(0);
         assert_eq!(1, hopper_recording.len());
@@ -3730,8 +3705,7 @@ mod tests {
         );
 
         System::current().stop();
-        // Yield control to allow the event loop to process messages
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        yield_now().await;
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 0);
         assert_eq!(subject.overall_connection_status.can_make_routes(), false);
@@ -3757,8 +3731,7 @@ mod tests {
         );
 
         System::current().stop();
-        // Yield control to allow the event loop to process messages
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        yield_now().await;
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 0);
     }
@@ -3779,8 +3752,7 @@ mod tests {
         );
 
         System::current().stop();
-        // Yield control to allow the event loop to process messages
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        yield_now().await;
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 1);
     }
@@ -3904,8 +3876,7 @@ mod tests {
         );
 
         System::current().stop();
-        // Yield control to allow the event loop to process messages
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        yield_now().await;
         let ui_recording = ui_gateway_arc.lock().unwrap();
         assert_eq!(ui_recording.len(), 0);
         assert_eq!(subject.overall_connection_status.can_make_routes(), false);
@@ -4224,8 +4195,7 @@ mod tests {
         );
 
         System::current().stop();
-        // Yield control to allow the event loop to process messages
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        yield_now().await;
 
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let package_1 = hopper_recording.get_record::<IncipientCoresPackage>(0);
@@ -4315,8 +4285,7 @@ mod tests {
         );
 
         System::current().stop();
-        // Yield control to allow the event loop to process messages
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        yield_now().await;
 
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         assert_eq!(hopper_recording.len(), 0);
@@ -4351,8 +4320,7 @@ mod tests {
         );
 
         System::current().stop();
-        // Yield control to allow the event loop to process messages
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        yield_now().await;
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let package = hopper_recording.get_record::<NoLookupIncipientCoresPackage>(0);
         assert_eq!(1, hopper_recording.len());
@@ -4393,8 +4361,7 @@ mod tests {
         );
 
         System::current().stop();
-        // Yield control to allow the event loop to process messages
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        yield_now().await;
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         assert_eq!(0, hopper_recording.len());
     }
@@ -4420,8 +4387,7 @@ mod tests {
         );
 
         System::current().stop();
-        // Yield control to allow the event loop to process messages
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        yield_now().await;
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         assert_eq!(0, hopper_recording.len());
         let tlh = TestLogHandler::new();
@@ -4542,8 +4508,7 @@ mod tests {
             let sub = addr.recipient::<ExpiredCoresPackage<Gossip_0v1>>();
             sub.try_send(cores_package).unwrap();
 
-            // // Yield control to allow the event loop to process messages
-            // tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            // yield_now().await;
             system.run().unwrap();
         });
         let tlh = TestLogHandler::new();
@@ -4711,8 +4676,7 @@ mod tests {
         };
         addr.try_send(assertions_msg).unwrap();
         System::current().stop();
-        // Yield control to allow the event loop to process messages
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        yield_now().await;
         TestLogHandler::new().exists_log_containing(&format!(
             "INFO: {test_name}: Database with different min hops value detected; \
             currently set: {:?}, found in db: {:?}; changing to {:?}",
@@ -4836,8 +4800,7 @@ mod tests {
             })
             .unwrap();
 
-            // // Yield control to allow the event loop to process messages
-            // tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            // yield_now().await;
             system.run().unwrap();
         });
 
@@ -4901,8 +4864,7 @@ mod tests {
             })
             .unwrap();
 
-            // // Yield control to allow the event loop to process messages
-            // tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            // yield_now().await;
             system.run().unwrap();
         });
 
@@ -4964,8 +4926,7 @@ mod tests {
             })
             .unwrap();
 
-            // // Yield control to allow the event loop to process messages
-            // tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            // yield_now().await;
             system.run().unwrap();
         });
 
@@ -5034,8 +4995,7 @@ mod tests {
             })
             .unwrap();
 
-            // // Yield control to allow the event loop to process messages
-            // tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            // yield_now().await;
             system.run().unwrap();
         });
 
@@ -5099,8 +5059,7 @@ mod tests {
             })
             .unwrap();
 
-            // // Yield control to allow the event loop to process messages
-            // tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            // yield_now().await;
             system.run().unwrap();
         });
 
@@ -5412,8 +5371,7 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        // Yield control to allow the event loop to process messages
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        yield_now().await;
     }
 
     #[test]
@@ -5999,8 +5957,7 @@ mod tests {
             .unwrap();
 
         System::current().stop();
-        // Yield control to allow the event loop to process messages
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        yield_now().await;
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let message_opt = ui_gateway_recording
             .get_record_opt::<NodeToUiMessage>(0)
