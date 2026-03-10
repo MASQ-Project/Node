@@ -714,7 +714,6 @@ mod tests {
             wallet: make_wallet("hi"),
             balance_wei: balance,
             last_paid_timestamp,
-            pending_payable_opt: None,
         };
         let custom_payment_thresholds = PaymentThresholds {
             maturity_threshold_sec: 1111,
@@ -779,7 +778,6 @@ mod tests {
             wallet: make_wallet("wallet0"),
             balance_wei: debt,
             last_paid_timestamp: from_unix_timestamp(time),
-            pending_payable_opt: None,
         }];
         let subject = PayableScannerBuilder::new()
             .payment_thresholds(payment_thresholds)
@@ -808,7 +806,6 @@ mod tests {
             wallet: make_wallet("wallet0"),
             balance_wei: debt,
             last_paid_timestamp: from_unix_timestamp(time),
-            pending_payable_opt: None,
         };
         let subject = PayableScannerBuilder::new()
             .payment_thresholds(payment_thresholds)
@@ -842,7 +839,6 @@ mod tests {
             last_paid_timestamp: from_unix_timestamp(
                 to_unix_timestamp(now) - payment_thresholds.maturity_threshold_sec as i64 + 1,
             ),
-            pending_payable_opt: None,
         }];
         let subject = PayableScannerBuilder::new()
             .payment_thresholds(payment_thresholds)
