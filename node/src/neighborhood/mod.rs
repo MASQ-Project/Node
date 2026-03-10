@@ -5999,6 +5999,8 @@ mod tests {
             .unwrap();
 
         System::current().stop();
+        // Yield control to allow the event loop to process messages
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let message_opt = ui_gateway_recording
             .get_record_opt::<NodeToUiMessage>(0)
