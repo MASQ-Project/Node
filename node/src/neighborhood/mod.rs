@@ -3785,8 +3785,8 @@ mod tests {
         assert_eq!(accountant_recording.len(), 1);
     }
 
-    #[test]
-    fn neighborhood_ignores_gossip_if_it_receives_a_pass_target_which_is_a_part_of_a_different_connection_progress(
+    #[actix_rt::test]
+    async fn neighborhood_ignores_gossip_if_it_receives_a_pass_target_which_is_a_part_of_a_different_connection_progress(
     ) {
         init_test_logging();
         let handle_params_arc = Arc::new(Mutex::new(vec![]));
@@ -3945,8 +3945,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn neighborhood_updates_past_neighbors_when_neighbor_list_changes() {
+    #[actix_rt::test]
+    async fn neighborhood_updates_past_neighbors_when_neighbor_list_changes() {
         let cryptde: &dyn CryptDE = main_cryptde();
         let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
         let old_neighbor = make_node_record(1111, true);
@@ -3990,8 +3990,8 @@ mod tests {
         assert_eq!(db_password, "password".to_string());
     }
 
-    #[test]
-    fn neighborhood_removes_past_neighbors_when_neighbor_list_goes_empty() {
+    #[actix_rt::test]
+    async fn neighborhood_removes_past_neighbors_when_neighbor_list_goes_empty() {
         let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
         let neighbor = make_node_record(1111, true);
         let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&neighbor));
@@ -4024,8 +4024,8 @@ mod tests {
         assert_eq!(db_password, "password".to_string());
     }
 
-    #[test]
-    fn neighborhood_does_not_update_past_neighbors_when_neighbor_list_does_not_change() {
+    #[actix_rt::test]
+    async fn neighborhood_does_not_update_past_neighbors_when_neighbor_list_does_not_change() {
         let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
         let steadfast_neighbor = make_node_record(1111, true);
         let mut subject: Neighborhood =
@@ -4057,8 +4057,8 @@ mod tests {
         assert!(set_past_neighbors_params.is_empty());
     }
 
-    #[test]
-    fn neighborhood_does_not_update_past_neighbors_without_password_even_when_neighbor_list_changes(
+    #[actix_rt::test]
+    async fn neighborhood_does_not_update_past_neighbors_without_password_even_when_neighbor_list_changes(
     ) {
         let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
         let old_neighbor = make_node_record(1111, true);
@@ -4091,8 +4091,8 @@ mod tests {
         assert!(set_past_neighbors_params.is_empty());
     }
 
-    #[test]
-    fn neighborhood_warns_when_past_neighbors_update_fails_because_of_database_lock() {
+    #[actix_rt::test]
+    async fn neighborhood_warns_when_past_neighbors_update_fails_because_of_database_lock() {
         init_test_logging();
         let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
         let old_neighbor = make_node_record(1111, true);
@@ -4123,8 +4123,8 @@ mod tests {
         TestLogHandler::new().exists_log_containing("WARN: Neighborhood: Could not persist immediate-neighbor changes: database locked - skipping");
     }
 
-    #[test]
-    fn neighborhood_logs_error_when_past_neighbors_update_fails_for_another_reason() {
+    #[actix_rt::test]
+    async fn neighborhood_logs_error_when_past_neighbors_update_fails_for_another_reason() {
         init_test_logging();
         let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
         let old_neighbor = make_node_record(1111, true);
@@ -4428,8 +4428,8 @@ mod tests {
         tlh.exists_log_containing("WARN: Neighborhood: Malefactor detected at 5.5.5.5:5555, but malefactor bans not yet implemented; ignoring: Bad guy");
     }
 
-    #[test]
-    fn neighborhood_does_not_accept_gossip_if_a_record_is_non_deserializable() {
+    #[actix_rt::test]
+    async fn neighborhood_does_not_accept_gossip_if_a_record_is_non_deserializable() {
         init_test_logging();
         let mut subject = make_standard_subject();
         let db = &mut subject.neighborhood_database;
@@ -4451,8 +4451,8 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn neighborhood_does_not_accept_gossip_if_a_record_signature_is_invalid() {
+    #[actix_rt::test]
+    async fn neighborhood_does_not_accept_gossip_if_a_record_signature_is_invalid() {
         init_test_logging();
         let mut subject = make_standard_subject();
         let db = &mut subject.neighborhood_database;
