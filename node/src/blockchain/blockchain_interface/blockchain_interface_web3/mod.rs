@@ -461,7 +461,7 @@ mod tests {
     use std::str::FromStr;
     use web3::transports::Http;
     use web3::types::{H256, U256};
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt, TxStatus};
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt, TxStatus, GAS_PRICE_INCREASE_PERCENTAGE};
 
     #[test]
     fn constants_are_correct() {
@@ -857,7 +857,9 @@ mod tests {
 
         let expected_transaction_fee_balance = U256::from(65_520);
         let expected_masq_balance = U256::from(65_535);
-        let expected_gas_price_wei = 1_000_000_000;
+        let gas_price_from_rpc = 1_000_000_000;
+        let gas_price_increase = (gas_price_from_rpc * GAS_PRICE_INCREASE_PERCENTAGE) / 100;
+        let expected_gas_price_wei = gas_price_from_rpc + gas_price_increase;
         assert_eq!(result.consuming_wallet(), &wallet);
         assert_eq!(
             result.consuming_wallet_balances(),

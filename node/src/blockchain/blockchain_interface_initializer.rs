@@ -58,6 +58,7 @@ mod tests {
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
     use masq_lib::utils::find_free_port;
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::GAS_PRICE_INCREASE_PERCENTAGE;
 
     #[test]
     fn initialize_web3_interface_works() {
@@ -83,10 +84,12 @@ mod tests {
             .wait()
             .unwrap();
 
+        let gas_price_from_rpc = 1_000_000_000;
+        let gas_price_increase = (gas_price_from_rpc * GAS_PRICE_INCREASE_PERCENTAGE) / 100;
         assert_eq!(blockchain_agent.consuming_wallet(), &wallet);
         assert_eq!(
             blockchain_agent.agreed_fee_per_computation_unit(),
-            1_000_000_000
+            gas_price_from_rpc + gas_price_increase
         );
     }
 
