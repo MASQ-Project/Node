@@ -2733,7 +2733,7 @@ mod tests {
 
         System::current().stop_with_code(0);
         yield_now().await;
-        let result = make_rt().block_on(future).unwrap().unwrap();
+        let result = future.await.unwrap().unwrap();
         let expected_response = RouteQueryResponse {
             route: Route::round_trip(
                 RouteSegment::new(
@@ -4752,7 +4752,8 @@ mod tests {
         };
         addr.try_send(assertion_msg).unwrap();
         System::current().stop_with_code(0);
-        let result = make_rt().block_on(unsuccessful_three_hop_route).unwrap();
+        yield_now().await;
+        let result = unsuccessful_three_hop_route.await.unwrap();
         assert_eq!(None, result);
     }
 
