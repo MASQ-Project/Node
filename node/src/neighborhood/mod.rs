@@ -521,7 +521,10 @@ impl Neighborhood {
         let route_result = if self.mode == NeighborhoodMode::ZeroHop {
             Ok(self.zero_hop_route_response())
         } else {
-            todo!("I think that we ought to require a consuming wallet right here before we waste any time making route segments.");
+            if self.consuming_wallet_opt.is_none() {
+                error!(self.logger, "Cannot provide route for data because no consuming wallet is set");
+                return None;
+            }
             self.make_round_trip_route(msg)
         };
         match route_result {
@@ -2550,7 +2553,7 @@ mod tests {
 
         System::current().stop_with_code(0);
         yield_now().await;
-        let result = make_rt().block_on(future).unwrap();
+        let result = future.await.unwrap();
         assert_eq!(result, None);
     }
 
@@ -2566,7 +2569,7 @@ mod tests {
 
         System::current().stop_with_code(0);
         yield_now().await;
-        let result = make_rt().block_on(future).unwrap();
+        let result = future.await.unwrap();
         assert_eq!(result, None);
         todo!("Check the logs to make sure you got None for the right reason.")
     }
@@ -2614,7 +2617,7 @@ mod tests {
                 component,
             )
         };
-        let result = make_rt().block_on(future).unwrap().unwrap();
+        let result = future.await.unwrap().unwrap();
         let expected_response = RouteQueryResponse {
             route: Route::round_trip(
                 segment(
@@ -2681,7 +2684,7 @@ mod tests {
 
         System::current().stop_with_code(0);
         yield_now().await;
-        let result = make_rt().block_on(future).unwrap();
+        let result = future.await.unwrap();
         assert_eq!(result, None);
         todo!("
             This test makes no sense.
@@ -2714,7 +2717,7 @@ mod tests {
 
         System::current().stop_with_code(0);
         yield_now().await;
-        let result = make_rt().block_on(future).unwrap();
+        let result = future.await.unwrap();
         assert_eq!(result, None);
         todo!("This test doesn't make any sense. There's no way to ask for a one-way route. Consuming wallet is not checked for until after the route is created, and there is no neighborhood here to route through. Finally, the consuming wallet is not removed. The test should check for the proper error log.")
     }
@@ -2828,7 +2831,7 @@ mod tests {
         System::current().stop_with_code(0);
         yield_now().await;
 
-        let result = make_rt().block_on(data_route).unwrap().unwrap();
+        let result = data_route.await.unwrap().unwrap();
         let contract_address = TEST_DEFAULT_CHAIN.rec().contract;
         let expected_response = RouteQueryResponse {
             route: Route::round_trip(
@@ -2871,6 +2874,34 @@ mod tests {
             ),
         };
         assert_eq!(expected_response, result);
+    }
+
+    /*
+            Database: Irrelevant
+    */
+
+    #[actix_rt::test]
+    async fn route_query_message_requires_consuming_wallet() {
+        let cryptde = main_cryptde();
+        let earning_wallet = make_wallet("earning");
+        let mut subject = make_standard_subject();
+        subject
+            .neighborhood_database
+            .root_mut()
+            .set_earning_wallet(earning_wallet);
+        subject.consuming_wallet_opt = None;
+
+        let addr: Addr<Neighborhood> = subject.start();
+        let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
+
+        let refusal_future = sub.send(RouteQueryMessage::data_indefinite_route_request(None, 5000));
+
+        System::current().stop_with_code(0);
+        yield_now().await;
+
+        let result = refusal_future.await.unwrap();
+        assert!(result.is_none());
+        TestLogHandler::new().exists_log_containing("ERROR: Neighborhood: Cannot provide route for data because no consuming wallet is set");
     }
 
     #[test]
@@ -2922,8 +2953,8 @@ mod tests {
 
         System::current().stop_with_code(0);
         yield_now().await;
-        let result_0 = make_rt().block_on(data_route_0).unwrap().unwrap();
-        let result_1 = make_rt().block_on(data_route_1).unwrap().unwrap();
+        let result_0 = data_route_0.await.unwrap().unwrap();
+        let result_1 = data_route_1.await.unwrap().unwrap();
         let juicy_parts = |result: RouteQueryResponse| {
             let last_element = result.route.hops.last().unwrap();
             let last_element_dec = cryptde.decode(last_element).unwrap();
@@ -3817,6 +3848,7 @@ mod tests {
         );
 
         System::current().stop();
+        yield_now().await;
         let ui_recording = ui_gateway_arc.lock().unwrap();
         let node_to_ui_message = ui_recording.get_record::<NodeToUiMessage>(0);
         assert_eq!(ui_recording.len(), 1);
