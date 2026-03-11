@@ -4772,39 +4772,34 @@ mod tests {
         NodeDescriptor::from((node_record_ref, Chain::EthRopsten, cryptde))
     }
 
-    #[test]
-    fn neighborhood_sends_node_query_response_with_none_when_initially_configured_with_no_data() {
+    #[actix_rt::test]
+    async fn neighborhood_sends_node_query_response_with_none_when_initially_configured_with_no_data() {
         let cryptde = main_cryptde();
-        let (recorder, awaiter, recording_arc) = make_recorder();
-        thread::spawn(move || {
-            let system = System::new();
+        let (recorder, _, recording_arc) = make_recorder();
 
-            let addr: Addr<Recorder> = recorder.start();
-            let recipient: Recipient<DispatcherNodeQueryResponse> =
-                addr.recipient::<DispatcherNodeQueryResponse>();
+        let addr: Addr<Recorder> = recorder.start();
+        let dnmqr_recipient: Recipient<DispatcherNodeQueryResponse> =
+            addr.recipient::<DispatcherNodeQueryResponse>();
 
-            let subject = make_standard_subject();
-            let addr: Addr<Neighborhood> = subject.start();
-            let sub: Recipient<DispatcherNodeQueryMessage> =
-                addr.recipient::<DispatcherNodeQueryMessage>();
+        let subject = make_standard_subject();
+        let addr: Addr<Neighborhood> = subject.start();
+        let dnmqr_sender: Recipient<DispatcherNodeQueryMessage> =
+            addr.recipient::<DispatcherNodeQueryMessage>();
 
-            sub.try_send(DispatcherNodeQueryMessage {
-                query: NodeQueryMessage::PublicKey(PublicKey::new(&b"booga"[..])),
-                context: TransmitDataMsg {
-                    endpoint: Endpoint::Key(cryptde.public_key().clone()),
-                    last_data: false,
-                    sequence_number: None,
-                    data: Vec::new(),
-                },
-                recipient,
-            })
-            .unwrap();
+        dnmqr_sender.try_send(DispatcherNodeQueryMessage {
+            query: NodeQueryMessage::PublicKey(PublicKey::new(&b"booga"[..])),
+            context: TransmitDataMsg {
+                endpoint: Endpoint::Key(cryptde.public_key().clone()),
+                last_data: false,
+                sequence_number: None,
+                data: Vec::new(),
+            },
+            recipient: dnmqr_recipient,
+        })
+        .unwrap();
 
-            // yield_now().await;
-            system.run().unwrap();
-        });
+        yield_now().await;
 
-        awaiter.await_message_count(1);
         let recording = recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 1);
         let message = recording.get_record::<DispatcherNodeQueryResponse>(0);
