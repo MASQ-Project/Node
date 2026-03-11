@@ -3351,9 +3351,9 @@ mod tests {
         );
     }
 
-    #[test]
-    fn gossips_after_removing_a_neighbor() {
-        let (hopper, hopper_awaiter, hopper_recording) = make_recorder();
+    #[actix_rt::test]
+    async fn gossips_after_removing_a_neighbor() {
+        let (hopper, _, hopper_recording) = make_recorder();
         let cryptde = main_cryptde();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
@@ -3373,58 +3373,53 @@ mod tests {
         let other_neighbor = make_node_record(3456, true);
         let other_neighbor_inside = other_neighbor.clone();
 
-        thread::spawn(move || {
-            let system = System::new();
-            let mut subject = Neighborhood::new(
-                cryptde,
-                &bc_from_nc_plus(
-                    NeighborhoodConfig {
-                        mode: NeighborhoodMode::Standard(
-                            this_node_inside.node_addr_opt().unwrap(),
-                            vec![],
-                            rate_pack(100),
-                        ),
-                        min_hops: MIN_HOPS_FOR_TEST,
-                    },
-                    earning_wallet.clone(),
-                    consuming_wallet.clone(),
-                    "gossips_after_removing_a_neighbor",
-                ),
-            );
-            let db = &mut subject.neighborhood_database;
+        let mut subject = Neighborhood::new(
+            cryptde,
+            &bc_from_nc_plus(
+                NeighborhoodConfig {
+                    mode: NeighborhoodMode::Standard(
+                        this_node_inside.node_addr_opt().unwrap(),
+                        vec![],
+                        rate_pack(100),
+                    ),
+                    min_hops: MIN_HOPS_FOR_TEST,
+                },
+                earning_wallet.clone(),
+                consuming_wallet.clone(),
+                "gossips_after_removing_a_neighbor",
+            ),
+        );
+        let db = &mut subject.neighborhood_database;
 
-            db.add_node(removed_neighbor_inside.clone()).unwrap();
-            db.add_node(other_neighbor_inside.clone()).unwrap();
-            db.add_arbitrary_full_neighbor(
-                &cryptde.public_key(),
-                removed_neighbor_inside.public_key(),
-            );
-            db.add_arbitrary_full_neighbor(
-                &cryptde.public_key(),
-                other_neighbor_inside.public_key(),
-            );
-            db.add_arbitrary_full_neighbor(
-                removed_neighbor_inside.public_key(),
-                other_neighbor_inside.public_key(),
-            );
+        db.add_node(removed_neighbor_inside.clone()).unwrap();
+        db.add_node(other_neighbor_inside.clone()).unwrap();
+        db.add_arbitrary_full_neighbor(
+            &cryptde.public_key(),
+            removed_neighbor_inside.public_key(),
+        );
+        db.add_arbitrary_full_neighbor(
+            &cryptde.public_key(),
+            other_neighbor_inside.public_key(),
+        );
+        db.add_arbitrary_full_neighbor(
+            removed_neighbor_inside.public_key(),
+            other_neighbor_inside.public_key(),
+        );
 
-            let addr: Addr<Neighborhood> = subject.start();
-            let peer_actors = peer_actors_builder().hopper(hopper).build();
-            addr.try_send(BindMessage { peer_actors }).unwrap();
+        let addr: Addr<Neighborhood> = subject.start();
+        let peer_actors = peer_actors_builder().hopper(hopper).build();
+        addr.try_send(BindMessage { peer_actors }).unwrap();
 
-            let sub: Recipient<RemoveNeighborMessage> = addr.recipient::<RemoveNeighborMessage>();
-            sub.try_send(RemoveNeighborMessage {
-                public_key: removed_neighbor_inside.public_key().clone(),
-            })
-            .unwrap();
+        let sub: Recipient<RemoveNeighborMessage> = addr.recipient::<RemoveNeighborMessage>();
+        sub.try_send(RemoveNeighborMessage {
+            public_key: removed_neighbor_inside.public_key().clone(),
+        })
+        .unwrap();
 
-            // yield_now().await;
-            system.run().unwrap();
-        });
+        yield_now().await;
 
         let other_neighbor_cryptde =
             CryptDENull::from(other_neighbor.public_key(), TEST_DEFAULT_CHAIN);
-        hopper_awaiter.await_message_count(1);
         let locked_recording = hopper_recording.lock().unwrap();
         let package: &IncipientCoresPackage = locked_recording.get_record(0);
         let gossip = match decodex(&other_neighbor_cryptde, &package.payload).unwrap() {
@@ -4440,8 +4435,8 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn neighborhood_logs_received_gossip_in_dot_graph_format() {
+    #[actix_rt::test]
+    async fn neighborhood_logs_received_gossip_in_dot_graph_format() {
         init_test_logging();
         let cryptde = main_cryptde();
         let this_node = NodeRecord::new_for_tests(
@@ -4482,41 +4477,34 @@ mod tests {
         };
         let hopper = Recorder::new();
         let this_node_inside = this_node.clone();
-        thread::spawn(move || {
-            let system = System::new();
-            let subject = Neighborhood::new(
-                cryptde,
-                &bc_from_nc_plus(
-                    NeighborhoodConfig {
-                        mode: NeighborhoodMode::Standard(
-                            this_node_inside.node_addr_opt().unwrap(),
-                            vec![],
-                            rate_pack(100),
-                        ),
-                        min_hops: MIN_HOPS_FOR_TEST,
-                    },
-                    this_node_inside.earning_wallet(),
-                    None,
-                    "neighborhood_logs_received_gossip_in_dot_graph_format",
-                ),
-            );
-
-            let addr: Addr<Neighborhood> = subject.start();
-            let peer_actors = peer_actors_builder().hopper(hopper).build();
-            addr.try_send(BindMessage { peer_actors }).unwrap();
-
-            let sub = addr.recipient::<ExpiredCoresPackage<Gossip_0v1>>();
-            sub.try_send(cores_package).unwrap();
-
-            // yield_now().await;
-            system.run().unwrap();
-        });
-        let tlh = TestLogHandler::new();
-        tlh.await_log_containing(
-            "\"BAYFBw\" [label=\"AR v0\\nBAYFBw\\n4.6.5.7:4657\"];",
-            5000,
+        let subject = Neighborhood::new(
+            cryptde,
+            &bc_from_nc_plus(
+                NeighborhoodConfig {
+                    mode: NeighborhoodMode::Standard(
+                        this_node_inside.node_addr_opt().unwrap(),
+                        vec![],
+                        rate_pack(100),
+                    ),
+                    min_hops: MIN_HOPS_FOR_TEST,
+                },
+                this_node_inside.earning_wallet(),
+                None,
+                "neighborhood_logs_received_gossip_in_dot_graph_format",
+            ),
         );
 
+        let addr: Addr<Neighborhood> = subject.start();
+        let peer_actors = peer_actors_builder().hopper(hopper).build();
+        addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        let sub = addr.recipient::<ExpiredCoresPackage<Gossip_0v1>>();
+        sub.try_send(cores_package).unwrap();
+
+        yield_now().await;
+
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_containing("\"BAYFBw\" [label=\"AR v0\\nBAYFBw\\n4.6.5.7:4657\"];");
         tlh.exists_log_containing("Received Gossip: digraph db { ");
         tlh.exists_log_containing("\"AQMCBA\" [label=\"AR v0\\nAQMCBA\"];");
         tlh.exists_log_containing(&format!(
@@ -4578,6 +4566,7 @@ mod tests {
         sub.try_send(StartMessage {}).unwrap();
 
         System::current().stop();
+        yield_now().await;
         let locked_recording = hopper_recording.lock().unwrap();
         let package_ref: &NoLookupIncipientCoresPackage = locked_recording.get_record(0);
         let neighbor_node_cryptde =
@@ -4806,76 +4795,71 @@ mod tests {
         assert_eq!(message.result, None);
     }
 
-    #[test]
-    fn neighborhood_sends_node_query_response_with_none_when_key_query_matches_no_configured_data()
+    #[actix_rt::test]
+    async fn neighborhood_sends_node_query_response_with_none_when_key_query_matches_no_configured_data()
     {
         let cryptde: &dyn CryptDE = main_cryptde();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
-        let (recorder, awaiter, recording_arc) = make_recorder();
-        thread::spawn(move || {
-            let system = System::new();
-            let addr: Addr<Recorder> = recorder.start();
-            let recipient: Recipient<DispatcherNodeQueryResponse> =
-                addr.recipient::<DispatcherNodeQueryResponse>();
+        let (recorder, _, recording_arc) = make_recorder();
+        let addr: Addr<Recorder> = recorder.start();
+        let recipient: Recipient<DispatcherNodeQueryResponse> =
+            addr.recipient::<DispatcherNodeQueryResponse>();
 
-            let subject = Neighborhood::new(
-                cryptde,
-                &bc_from_nc_plus(
-                    NeighborhoodConfig {
-                        mode: NeighborhoodMode::Standard(
-                            NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
-                            vec![NodeDescriptor::from((
-                                &PublicKey::new(&b"booga"[..]),
-                                &NodeAddr::new(
-                                    &IpAddr::from_str("1.2.3.4").unwrap(),
-                                    &[1234, 2345],
-                                ),
-                                Chain::EthRopsten,
-                                cryptde,
-                            ))],
-                            rate_pack(100),
-                        ),
-                        min_hops: MIN_HOPS_FOR_TEST,
-                    },
-                    earning_wallet.clone(),
-                    consuming_wallet.clone(),
-                    "neighborhood_sends_node_query_response_with_none_when_key_query_matches_no_configured_data"
-                ),
-            );
-            let addr: Addr<Neighborhood> = subject.start();
-            let sub: Recipient<DispatcherNodeQueryMessage> =
-                addr.recipient::<DispatcherNodeQueryMessage>();
-
-            sub.try_send(DispatcherNodeQueryMessage {
-                query: NodeQueryMessage::PublicKey(PublicKey::new(&b"blah"[..])),
-                context: TransmitDataMsg {
-                    endpoint: Endpoint::Key(cryptde.public_key().clone()),
-                    last_data: false,
-                    sequence_number: None,
-                    data: Vec::new(),
+        let subject = Neighborhood::new(
+            cryptde,
+            &bc_from_nc_plus(
+                NeighborhoodConfig {
+                    mode: NeighborhoodMode::Standard(
+                        NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
+                        vec![NodeDescriptor::from((
+                            &PublicKey::new(&b"booga"[..]),
+                            &NodeAddr::new(
+                                &IpAddr::from_str("1.2.3.4").unwrap(),
+                                &[1234, 2345],
+                            ),
+                            Chain::EthRopsten,
+                            cryptde,
+                        ))],
+                        rate_pack(100),
+                    ),
+                    min_hops: MIN_HOPS_FOR_TEST,
                 },
-                recipient,
-            })
-            .unwrap();
+                earning_wallet.clone(),
+                consuming_wallet.clone(),
+                "neighborhood_sends_node_query_response_with_none_when_key_query_matches_no_configured_data"
+            ),
+        );
+        let addr: Addr<Neighborhood> = subject.start();
+        let sub: Recipient<DispatcherNodeQueryMessage> =
+            addr.recipient::<DispatcherNodeQueryMessage>();
 
-            // yield_now().await;
-            system.run().unwrap();
-        });
+        sub.try_send(DispatcherNodeQueryMessage {
+            query: NodeQueryMessage::PublicKey(PublicKey::new(&b"blah"[..])),
+            context: TransmitDataMsg {
+                endpoint: Endpoint::Key(cryptde.public_key().clone()),
+                last_data: false,
+                sequence_number: None,
+                data: Vec::new(),
+            },
+            recipient,
+        })
+        .unwrap();
 
-        awaiter.await_message_count(1);
+        yield_now().await;
+
         let recording = recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 1);
         let message = recording.get_record::<DispatcherNodeQueryResponse>(0);
         assert_eq!(message.result, None);
     }
 
-    #[test]
-    fn neighborhood_sends_node_query_response_with_result_when_key_query_matches_configured_data() {
+    #[actix_rt::test]
+    async fn neighborhood_sends_node_query_response_with_result_when_key_query_matches_configured_data() {
         let cryptde = main_cryptde();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
-        let (recorder, awaiter, recording_arc) = make_recorder();
+        let (recorder, _, recording_arc) = make_recorder();
         let one_neighbor = make_node_record(2345, true);
         let another_neighbor = make_node_record(3456, true);
         let another_neighbor_a = another_neighbor.clone();
@@ -4886,46 +4870,41 @@ mod tests {
             data: Vec::new(),
         };
         let context_a = context.clone();
-        thread::spawn(move || {
-            let system = System::new();
-            let addr: Addr<Recorder> = recorder.start();
-            let recipient = addr.recipient::<DispatcherNodeQueryResponse>();
-            let mut subject = Neighborhood::new(
-                cryptde,
-                &bc_from_nc_plus(
-                    NeighborhoodConfig {
-                        mode: NeighborhoodMode::Standard(
-                            NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
-                            vec![node_record_to_neighbor_config(&one_neighbor)],
-                            rate_pack(100),
-                        ),
-                        min_hops: MIN_HOPS_FOR_TEST,
-                    },
-                    earning_wallet.clone(),
-                    consuming_wallet.clone(),
-                    "neighborhood_sends_node_query_response_with_result_when_key_query_matches_configured_data"
-                ),
-            );
-            subject
-                .neighborhood_database
-                .add_node(another_neighbor.clone())
-                .unwrap();
-            let addr: Addr<Neighborhood> = subject.start();
-            let sub: Recipient<DispatcherNodeQueryMessage> =
-                addr.recipient::<DispatcherNodeQueryMessage>();
-
-            sub.try_send(DispatcherNodeQueryMessage {
-                query: NodeQueryMessage::PublicKey(another_neighbor.public_key().clone()),
-                context,
-                recipient,
-            })
+        let addr: Addr<Recorder> = recorder.start();
+        let recipient = addr.recipient::<DispatcherNodeQueryResponse>();
+        let mut subject = Neighborhood::new(
+            cryptde,
+            &bc_from_nc_plus(
+                NeighborhoodConfig {
+                    mode: NeighborhoodMode::Standard(
+                        NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
+                        vec![node_record_to_neighbor_config(&one_neighbor)],
+                        rate_pack(100),
+                    ),
+                    min_hops: MIN_HOPS_FOR_TEST,
+                },
+                earning_wallet.clone(),
+                consuming_wallet.clone(),
+                "neighborhood_sends_node_query_response_with_result_when_key_query_matches_configured_data"
+            ),
+        );
+        subject
+            .neighborhood_database
+            .add_node(another_neighbor.clone())
             .unwrap();
+        let addr: Addr<Neighborhood> = subject.start();
+        let sub: Recipient<DispatcherNodeQueryMessage> =
+            addr.recipient::<DispatcherNodeQueryMessage>();
 
-            // yield_now().await;
-            system.run().unwrap();
-        });
+        sub.try_send(DispatcherNodeQueryMessage {
+            query: NodeQueryMessage::PublicKey(another_neighbor.public_key().clone()),
+            context,
+            recipient,
+        })
+        .unwrap();
 
-        awaiter.await_message_count(1);
+        yield_now().await;
+
         let message = Recording::get_clone::<DispatcherNodeQueryResponse>(&recording_arc, 0);
         assert_eq!(
             message.result.unwrap(),
@@ -4938,74 +4917,69 @@ mod tests {
         assert_eq!(message.context, context_a);
     }
 
-    #[test]
-    fn neighborhood_sends_node_query_response_with_none_when_ip_address_query_matches_no_configured_data(
+    #[actix_rt::test]
+    async fn neighborhood_sends_node_query_response_with_none_when_ip_address_query_matches_no_configured_data(
     ) {
         let cryptde: &dyn CryptDE = main_cryptde();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
-        let (recorder, awaiter, recording_arc) = make_recorder();
-        thread::spawn(move || {
-            let system = System::new();
-            let addr: Addr<Recorder> = recorder.start();
-            let recipient: Recipient<DispatcherNodeQueryResponse> =
-                addr.recipient::<DispatcherNodeQueryResponse>();
-            let subject = Neighborhood::new(
-                cryptde,
-                &bc_from_nc_plus(
-                    NeighborhoodConfig {
-                        mode: NeighborhoodMode::Standard(
-                            NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
-                            vec![NodeDescriptor::from((
-                                &PublicKey::new(&b"booga"[..]),
-                                &NodeAddr::new(
-                                    &IpAddr::from_str("1.2.3.4").unwrap(),
-                                    &[1234, 2345],
-                                ),
-                                Chain::EthRopsten,
-                                cryptde,
-                            ))],
-                            rate_pack(100),
-                        ),
-                        min_hops: MIN_HOPS_FOR_TEST,
-                    },
-                    earning_wallet.clone(),
-                    consuming_wallet.clone(),
-                    "neighborhood_sends_node_query_response_with_none_when_ip_address_query_matches_no_configured_data"
-                ),
-            );
-            let addr: Addr<Neighborhood> = subject.start();
-            let sub: Recipient<DispatcherNodeQueryMessage> =
-                addr.recipient::<DispatcherNodeQueryMessage>();
-
-            sub.try_send(DispatcherNodeQueryMessage {
-                query: NodeQueryMessage::IpAddress(IpAddr::from_str("2.3.4.5").unwrap()),
-                context: TransmitDataMsg {
-                    endpoint: Endpoint::Key(cryptde.public_key().clone()),
-                    last_data: false,
-                    sequence_number: None,
-                    data: Vec::new(),
+        let (recorder, _, recording_arc) = make_recorder();
+        let addr: Addr<Recorder> = recorder.start();
+        let recipient: Recipient<DispatcherNodeQueryResponse> =
+            addr.recipient::<DispatcherNodeQueryResponse>();
+        let subject = Neighborhood::new(
+            cryptde,
+            &bc_from_nc_plus(
+                NeighborhoodConfig {
+                    mode: NeighborhoodMode::Standard(
+                        NodeAddr::new(&IpAddr::from_str("5.4.3.2").unwrap(), &[5678]),
+                        vec![NodeDescriptor::from((
+                            &PublicKey::new(&b"booga"[..]),
+                            &NodeAddr::new(
+                                &IpAddr::from_str("1.2.3.4").unwrap(),
+                                &[1234, 2345],
+                            ),
+                            Chain::EthRopsten,
+                            cryptde,
+                        ))],
+                        rate_pack(100),
+                    ),
+                    min_hops: MIN_HOPS_FOR_TEST,
                 },
-                recipient,
-            })
-            .unwrap();
+                earning_wallet.clone(),
+                consuming_wallet.clone(),
+                "neighborhood_sends_node_query_response_with_none_when_ip_address_query_matches_no_configured_data"
+            ),
+        );
+        let addr: Addr<Neighborhood> = subject.start();
+        let sub: Recipient<DispatcherNodeQueryMessage> =
+            addr.recipient::<DispatcherNodeQueryMessage>();
 
-            // yield_now().await;
-            system.run().unwrap();
-        });
+        sub.try_send(DispatcherNodeQueryMessage {
+            query: NodeQueryMessage::IpAddress(IpAddr::from_str("2.3.4.5").unwrap()),
+            context: TransmitDataMsg {
+                endpoint: Endpoint::Key(cryptde.public_key().clone()),
+                last_data: false,
+                sequence_number: None,
+                data: Vec::new(),
+            },
+            recipient,
+        })
+        .unwrap();
 
-        awaiter.await_message_count(1);
+        yield_now().await;
+
         let recording = recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 1);
         let message = recording.get_record::<DispatcherNodeQueryResponse>(0);
         assert_eq!(message.result, None);
     }
 
-    #[test]
-    fn neighborhood_sends_node_query_response_with_result_when_ip_address_query_matches_configured_data(
+    #[actix_rt::test]
+    async fn neighborhood_sends_node_query_response_with_result_when_ip_address_query_matches_configured_data(
     ) {
         let cryptde: &dyn CryptDE = main_cryptde();
-        let (recorder, awaiter, recording_arc) = make_recorder();
+        let (recorder, _, recording_arc) = make_recorder();
         let node_record = make_node_record(1234, true);
         let another_node_record = make_node_record(2345, true);
         let another_node_record_a = another_node_record.clone();
@@ -5016,51 +4990,45 @@ mod tests {
             data: Vec::new(),
         };
         let context_a = context.clone();
-        thread::spawn(move || {
-            let system = System::new();
-            let addr: Addr<Recorder> = recorder.start();
-            let recipient: Recipient<DispatcherNodeQueryResponse> =
-                addr.recipient::<DispatcherNodeQueryResponse>();
-            let config = bc_from_nc_plus(
-                NeighborhoodConfig {
-                    mode: NeighborhoodMode::Standard(
-                        node_record.node_addr_opt().unwrap(),
-                        vec![NodeDescriptor::from((
-                            &node_record,
-                            Chain::EthRopsten,
-                            cryptde,
-                        ))],
-                        rate_pack(100),
-                    ),
-                    min_hops: MIN_HOPS_FOR_TEST,
-                },
-                node_record.earning_wallet(),
-                None,
-                "neighborhood_sends_node_query_response_with_result_when_ip_address_query_matches_configured_data"
-            );
-            let mut subject = Neighborhood::new(cryptde, &config);
-            subject
-                .neighborhood_database
-                .add_node(another_node_record_a)
-                .unwrap();
-            let addr: Addr<Neighborhood> = subject.start();
-            let sub: Recipient<DispatcherNodeQueryMessage> =
-                addr.recipient::<DispatcherNodeQueryMessage>();
-
-            sub.try_send(DispatcherNodeQueryMessage {
-                query: NodeQueryMessage::IpAddress(IpAddr::from_str("2.3.4.5").unwrap()),
-                context,
-                recipient,
-            })
+        let addr: Addr<Recorder> = recorder.start();
+        let recipient: Recipient<DispatcherNodeQueryResponse> =
+            addr.recipient::<DispatcherNodeQueryResponse>();
+        let config = bc_from_nc_plus(
+            NeighborhoodConfig {
+                mode: NeighborhoodMode::Standard(
+                    node_record.node_addr_opt().unwrap(),
+                    vec![NodeDescriptor::from((
+                        &node_record,
+                        Chain::EthRopsten,
+                        cryptde,
+                    ))],
+                    rate_pack(100),
+                ),
+                min_hops: MIN_HOPS_FOR_TEST,
+            },
+            node_record.earning_wallet(),
+            None,
+            "neighborhood_sends_node_query_response_with_result_when_ip_address_query_matches_configured_data"
+        );
+        let mut subject = Neighborhood::new(cryptde, &config);
+        subject
+            .neighborhood_database
+            .add_node(another_node_record_a)
             .unwrap();
+        let addr: Addr<Neighborhood> = subject.start();
+        let sub: Recipient<DispatcherNodeQueryMessage> =
+            addr.recipient::<DispatcherNodeQueryMessage>();
 
-            // yield_now().await;
-            system.run().unwrap();
-        });
+        sub.try_send(DispatcherNodeQueryMessage {
+            query: NodeQueryMessage::IpAddress(IpAddr::from_str("2.3.4.5").unwrap()),
+            context,
+            recipient,
+        })
+        .unwrap();
 
-        awaiter.await_message_count(1);
+        yield_now().await;
+
         let message = Recording::get_clone::<DispatcherNodeQueryResponse>(&recording_arc, 0);
-
         assert_eq!(
             message.result.unwrap(),
             NodeQueryResponseMetadata::new(
@@ -5508,6 +5476,8 @@ mod tests {
         });
 
         System::current().stop_with_code(0);
+        yield_now().await;
+
         assert_eq!(subject.neighborhood_database.keys().len(), 3);
         assert_eq!(
             subject.neighborhood_database.has_half_neighbor(
@@ -5525,7 +5495,6 @@ mod tests {
         ));
     }
 
-    #[should_panic(expected = "0: Received shutdown order from client 1234: shutting down hard")]
     #[actix_rt::test]
     async fn shutdown_instruction_generates_log() {
         running_test();
@@ -5559,6 +5528,8 @@ mod tests {
             .unwrap();
 
         System::current().stop();
+        yield_now().await;
+
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         assert_eq!(ui_gateway_recording.len(), 0);
         TestLogHandler::new()
@@ -5681,6 +5652,7 @@ mod tests {
         };
         subject_addr.try_send(cores_package).unwrap();
         System::current().stop();
+        yield_now().await;
         let set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
         assert_eq!(set_past_neighbors_params[0].1, "borkety-bork");
     }
