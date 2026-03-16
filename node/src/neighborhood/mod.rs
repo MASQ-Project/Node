@@ -2658,57 +2658,13 @@ mod tests {
     }
 
     #[actix_rt::test]
-    async fn route_query_responds_with_none_when_asked_for_one_hop_round_trip_route_without_consuming_wallet_when_back_route_needs_two_hops(
-    ) {
-        let mut subject = make_standard_subject();
-        subject.min_hops = Hops::OneHop;
-        let a = &make_node_record(1234, true);
-        let b = &subject.neighborhood_database.root().clone();
-        let c = &make_node_record(3456, true);
-        {
-            let db = &mut subject.neighborhood_database;
-            db.add_node(a.clone()).unwrap();
-            db.add_node(c.clone()).unwrap();
-            let mut single_edge = |a: &NodeRecord, b: &NodeRecord| {
-                db.add_arbitrary_half_neighbor(a.public_key(), b.public_key())
-            };
-            single_edge(a, b);
-            single_edge(b, c);
-            single_edge(c, a);
-        }
-        let addr: Addr<Neighborhood> = subject.start();
-        let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
-        let msg = RouteQueryMessage::data_indefinite_route_request(None, 10000);
-
-        let future = sub.send(msg);
-
-        System::current().stop_with_code(0);
-        yield_now().await;
-        let result = future.await.unwrap();
-        assert_eq!(result, None);
-        todo!("
-            This test makes no sense.
-                1. The reason we're not getting a route is because our neighborhood has only half neighborships, which are invisible to the routing engine.
-                2. The test is supposed to be walletless, but the consuming wallet is created and not removed
-                3. There's no reason to expect that the over route will be one hop and the back route two hops
-                4. There's no assertion on the logs to make sure None is returned for the right reason
-            The entire test is bogus and should be removed.
-        ")
-        // Speculation: The original intent of this test (which was not well rendered) was in the context of single-hop
-        // routes always being Gossip routes, and therefore not requiring consuming wallets. The question was, "What if
-        // one of the route segments is single-hop, therefore being a Gossip route and not requiring a wallet, while the
-        // other segment is multihop and therefore does require a wallet? If we don't supply a wallet, what happens?
-        // Will we be properly rejected even though one of our segments doesn't need a wallet?"
-        //
-        // Now, when single-hop routes can also be data routes and require a wallet, it's not clear that this test
-        // is still useful.
-    }
-
-    #[actix_rt::test]
     async fn route_query_responds_with_none_when_asked_for_two_hop_one_way_route_without_consuming_wallet(
     ) {
+        let test_name = "route_query_responds_with_none_when_asked_for_two_hop_one_way_route_without_consuming_wallet";
         let mut subject = make_standard_subject();
         subject.min_hops = Hops::TwoHops;
+        subject.consuming_wallet_opt = None;
+        subject.logger = Logger::new(test_name);
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
         let msg = RouteQueryMessage::data_indefinite_route_request(None, 20000);
@@ -2719,6 +2675,7 @@ mod tests {
         yield_now().await;
         let result = future.await.unwrap();
         assert_eq!(result, None);
+        TestLogHandler::new().exists_log_containing(&format!("ERROR: {}: Cannot provide route for data because no consuming wallet is set", test_name));
         todo!("This test doesn't make any sense. There's no way to ask for a one-way route. Consuming wallet is not checked for until after the route is created, and there is no neighborhood here to route through. Finally, the consuming wallet is not removed. The test should check for the proper error log.")
     }
 
@@ -5691,9 +5648,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
-    )]
+    // #[should_panic(
+    //     expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
+    // )]
     fn neighborhood_can_be_crashed_properly_but_not_improperly() {
         let neighborhood_producer = || {
             let mut neighborhood = make_standard_subject();

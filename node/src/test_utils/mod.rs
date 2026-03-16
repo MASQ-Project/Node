@@ -797,30 +797,81 @@ pub mod unshared_test_utils {
         actor_producer: F,
         crash_key: &str,
     ) {
-        let make_check_future = |actor: T, crash_key: String| async move {
-            let addr: Addr<T> = actor.start();
+        test_actor_crash_behavior(
+            actor_producer,
+            vec![
+                (crash_key.to_string(), true),
+                (format!("{}_X", crash_key), false),
+            ]
+        );
+        //
+        //
+        // let make_check_future = |actor: T, crash_key: String| async move {
+        //     let addr: Addr<T> = actor.start();
+        //     let killer = SystemKillerActor::new(Duration::from_millis(2000));
+        //     killer.start();
+        //
+        //     addr.try_send(NodeFromUiMessage {
+        //         client_id: 0,
+        //         body: UiCrashRequest::new(crash_key.as_str(), "panic message").tmb(0),
+        //     })
+        //     .unwrap();
+        // };
+        //
+        // // Crashes when the correct crash key is used
+        // let system = System::new();
+        // system.block_on(make_check_future(actor_producer(), crash_key.to_string()));
+        // let result = system.run();
+        // assert_eq!(result.is_err(), true);
+        //
+        // // Does not crash when the incorrect crash key is used
+        // let system = System::new();
+        // system.block_on(make_check_future(actor_producer(), format!("{}_X", crash_key)));
+        // System::current().stop();
+        // let result = system.run();
+        // assert_eq!(result.is_ok(), true);
+    }
+
+    /// More flexible version that allows testing multiple crash scenarios in sequence
+    pub fn test_actor_crash_behavior<
+        T: Actor<Context = actix::Context<T>> + actix::Handler<NodeFromUiMessage>,
+        F: Fn() -> T,
+    >(
+        actor_producer: F,
+        test_cases: Vec<(String, bool)>, // (crash_key, should_crash)
+    ) {
+        for (crash_key, should_crash) in test_cases {
+            let system = actix_rt::System::new();
+            let actor = actor_producer();
+            let addr: Addr<T> = system.block_on(async {
+                actor.start()
+            });
             let killer = SystemKillerActor::new(Duration::from_millis(2000));
-            killer.start();
+            system.block_on(async {
+                killer.start();
+            });
 
-            addr.try_send(NodeFromUiMessage {
-                client_id: 0,
-                body: UiCrashRequest::new(crash_key.as_str(), "panic message").tmb(0),
-            })
-            .unwrap();
-        };
+            system.block_on(async {
+                addr.try_send(NodeFromUiMessage {
+                    client_id: 0,
+                    body: UiCrashRequest::new(&crash_key, "test message").tmb(0),
+                })
+                .unwrap();
+            });
 
-        // Crashes when the correct crash key is used
-        let system = System::new();
-        system.block_on(make_check_future(actor_producer(), crash_key.to_string()));
-        let result = system.run();
-        assert_eq!(result.is_err(), true);
+            if !should_crash {
+                system.block_on(async {
+                    System::current().stop();
+                });
+            }
 
-        // Does not crash when the incorrect crash key is used
-        let system = System::new();
-        system.block_on(make_check_future(actor_producer(), format!("{}_X", crash_key)));
-        System::current().stop();
-        let result = system.run();
-        assert_eq!(result.is_ok(), true);
+            let result = system.run();
+            if should_crash {
+                assert_eq!(result.is_err(), true, "Expected system to crash with crash key '{}'", crash_key);
+            } else {
+                assert_eq!(result.is_ok(), true, "Expected system to run normally with crash key '{}'", crash_key);
+            }
+        }
     }
 
     pub fn make_pre_populated_mocked_directory_wrapper() -> DirsWrapperMock {
