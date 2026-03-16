@@ -58,11 +58,11 @@ fn http_end_to_end_routing_test() {
     thread::sleep(Duration::from_millis(500));
 
     let mut client = last_node.make_client(8080, 5000);
-    client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
+    client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.testingmcafeesites.com\r\n\r\n");
     let response = client.wait_for_chunk();
 
     assert_eq!(
-        index_of(&response, &b"<h1>Example Domain</h1>"[..]).is_some(),
+        index_of(&response, &b"<title>URL for testing.</title>"[..]).is_some(),
         true,
         "Actual response:\n{}",
         String::from_utf8(response).unwrap()
