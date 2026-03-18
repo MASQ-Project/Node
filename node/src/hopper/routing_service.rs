@@ -189,7 +189,7 @@ impl RoutingService {
             reception_port_opt: ibcd_but_data.reception_port_opt,
             last_data: ibcd_but_data.last_data,
             is_clandestine: ibcd_but_data.is_clandestine,
-            sequence_number: ibcd_but_data.sequence_number,
+            sequence_number_opt: ibcd_but_data.sequence_number_opt,
             data: payload.into(),
         };
         self.routing_service_subs
@@ -495,7 +495,7 @@ impl RoutingService {
             endpoint: Endpoint::Key(next_hop.public_key),
             last_data,
             data: next_live_package_enc.into(),
-            sequence_number: None,
+            sequence_number_opt: None,
         })
     }
 }
@@ -571,7 +571,7 @@ mod tests {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port_opt: None,
-            sequence_number: None,
+            sequence_number_opt: None,
             last_data: false,
             is_clandestine: false,
             data: data_enc.into(),
@@ -632,7 +632,7 @@ mod tests {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port_opt: None,
-            sequence_number: None,
+            sequence_number_opt: None,
             last_data: false,
             is_clandestine: false,
             data: data_enc.into(),
@@ -675,7 +675,7 @@ mod tests {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port_opt: None,
-            sequence_number: None,
+            sequence_number_opt: None,
             last_data: false,
             is_clandestine: false,
             data: data_enc.into(),
@@ -727,7 +727,7 @@ mod tests {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port_opt: None,
-            sequence_number: None,
+            sequence_number_opt: None,
             last_data: false,
             is_clandestine: false,
             data: data_enc.into(),
@@ -777,7 +777,7 @@ mod tests {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port_opt: None,
-            sequence_number: None,
+            sequence_number_opt: None,
             last_data: true,
             is_clandestine: false,
             data: data_enc.into(),
@@ -846,7 +846,7 @@ mod tests {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port_opt: None,
-            sequence_number: None,
+            sequence_number_opt: None,
             last_data: true,
             is_clandestine: false,
             data: data_enc.into(),
@@ -904,7 +904,7 @@ mod tests {
             reception_port_opt: None,
             last_data: false,
             is_clandestine: true,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: lcp_enc.into(),
         };
 
@@ -981,7 +981,7 @@ mod tests {
             reception_port_opt: None,
             last_data: false,
             is_clandestine: true,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: data_enc.into(),
         };
 
@@ -1054,7 +1054,7 @@ mod tests {
             reception_port_opt: None,
             last_data: false,
             is_clandestine: true,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: data_enc.into(),
         };
 
@@ -1130,7 +1130,7 @@ mod tests {
             reception_port_opt: None,
             last_data: true,
             is_clandestine: true,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: data_enc.into(),
         };
 
@@ -1170,7 +1170,7 @@ mod tests {
             TransmitDataMsg {
                 endpoint: Endpoint::Key(next_key.clone()),
                 last_data: true,
-                sequence_number: None,
+                sequence_number_opt: None,
                 data: expected_lcp_enc.into(),
             }
         );
@@ -1222,7 +1222,7 @@ mod tests {
             reception_port_opt: None,
             last_data: true,
             is_clandestine: true,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: data_enc.into(),
         };
 
@@ -1265,7 +1265,7 @@ mod tests {
                 reception_port_opt: None,
                 last_data: true,
                 is_clandestine: true,
-                sequence_number: None,
+                sequence_number_opt: None,
                 data: expected_lcp_enc.into()
             }
         );
@@ -1304,7 +1304,7 @@ mod tests {
             reception_port_opt: None,
             last_data: true,
             is_clandestine: true,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: data_enc.into(),
         };
         let system = System::new(
@@ -1401,7 +1401,7 @@ mod tests {
             reception_port_opt: None,
             last_data: true,
             is_clandestine: true,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: data_enc.into(),
         };
         let system = System::new(
@@ -1577,7 +1577,7 @@ mod tests {
             reception_port_opt: None,
             last_data: true,
             is_clandestine: true,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: data_enc.into(),
         };
         let system = System::new("test");
@@ -1647,7 +1647,7 @@ mod tests {
             reception_port_opt: None,
             last_data: true,
             is_clandestine: true,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: data_enc.into(),
         };
         let system = System::new("test");
@@ -1691,7 +1691,7 @@ mod tests {
             reception_port_opt: None,
             last_data: true,
             is_clandestine: true,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: vec![],
         };
         let system = System::new("consume_logs_error_when_given_bad_input_data");
@@ -1748,7 +1748,7 @@ mod tests {
             reception_port_opt: None,
             last_data: true,
             is_clandestine: true,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: data_enc.into(),
         };
         let system = System::new("consume_logs_error_when_given_bad_input_data");
@@ -1815,7 +1815,7 @@ mod tests {
             reception_port_opt: None,
             last_data: true,
             is_clandestine: true,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: vec![],
         };
 

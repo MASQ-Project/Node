@@ -103,7 +103,7 @@ impl ConsumingService {
             reception_port_opt: None,
             last_data: false,
             is_clandestine: true,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: encrypted_package.into(),
         };
         debug!(
@@ -119,7 +119,7 @@ impl ConsumingService {
             endpoint: next_stop,
             last_data: false, // Hopper-to-Hopper clandestine streams are never remotely killed
             data: encrypted_package.into(),
-            sequence_number: None,
+            sequence_number_opt: None,
         };
 
         debug!(
@@ -193,7 +193,7 @@ mod tests {
             &TransmitDataMsg {
                 endpoint: Endpoint::Socket(SocketAddr::from_str("1.2.1.2:1212").unwrap()),
                 last_data: false,
-                sequence_number: None,
+                sequence_number_opt: None,
                 data: encodex(CRYPTDE_PAIR.main.as_ref(), &target_key, &lcp)
                     .unwrap()
                     .into(),
@@ -267,7 +267,7 @@ mod tests {
             TransmitDataMsg {
                 endpoint: Endpoint::Key(destination_key.clone()),
                 last_data: false,
-                sequence_number: None,
+                sequence_number_opt: None,
                 data: expected_lcp_enc.into(),
             },
             *record,
@@ -321,7 +321,7 @@ mod tests {
                 reception_port_opt: None,
                 last_data: false,
                 is_clandestine: true,
-                sequence_number: None,
+                sequence_number_opt: None,
                 data: expected_lcp_enc.into(),
             },
         );

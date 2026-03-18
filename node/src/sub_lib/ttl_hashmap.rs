@@ -94,8 +94,8 @@ where
                 .collect()
         };
 
+        let mut data = self.data.borrow_mut();
         expired.iter().for_each(|key| {
-            let mut data = self.data.borrow_mut();
             match data.remove(key) {
                 Some((value, _)) => {
                     if !(self.retire_closure)(key, value.as_ref()) {

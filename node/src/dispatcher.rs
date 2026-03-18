@@ -277,7 +277,7 @@ mod tests {
             timestamp: SystemTime::now(),
             client_addr,
             reception_port_opt,
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             last_data: false,
             is_clandestine: false,
             data: data.clone(),
@@ -318,7 +318,7 @@ mod tests {
             reception_port_opt,
             last_data: false,
             is_clandestine: true,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: data.clone(),
         };
         let mut peer_actors = peer_actors_builder().hopper(hopper).build();
@@ -358,7 +358,7 @@ mod tests {
             reception_port_opt,
             last_data: false,
             is_clandestine: false,
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             data: data.clone(),
         };
 
@@ -384,7 +384,7 @@ mod tests {
             reception_port_opt,
             last_data: false,
             is_clandestine: true,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: data.clone(),
         };
 
@@ -406,7 +406,7 @@ mod tests {
         let obcd = TransmitDataMsg {
             endpoint: Endpoint::Socket(socket_addr),
             last_data: false,
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             data: data.clone(),
         };
 
@@ -430,7 +430,7 @@ mod tests {
         let obcd = TransmitDataMsg {
             endpoint: Endpoint::Socket(socket_addr),
             last_data: false,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: data.clone(),
         };
         let mut peer_actors = peer_actors_builder().build();

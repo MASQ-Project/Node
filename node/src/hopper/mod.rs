@@ -199,7 +199,7 @@ mod tests {
             reception_port_opt: None,
             last_data: false,
             is_clandestine: false,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: encrypted_package,
         };
         let system = System::new("panics_if_routing_service_is_unbound");
