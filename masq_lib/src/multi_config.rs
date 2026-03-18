@@ -3,7 +3,7 @@
 use crate::shared_schema::{ConfiguratorError, ParamError};
 #[allow(unused_imports)]
 use clap::{value_t, values_t};
-use clap::{App, ArgMatches};
+use clap::{App, ArgMatches, Error};
 use regex::Regex;
 use std::collections::HashSet;
 use std::fmt::{Debug, Display, Formatter};
@@ -102,7 +102,7 @@ impl<'a> MultiConfig<'a> {
         }
     }
 
-    pub fn make_configurator_error(e: clap::Error) -> ConfiguratorError {
+    pub fn make_configurator_error(e: Error) -> ConfiguratorError {
         let invalid_value_patterns = vec![
             ("Invalid value for '--(.*?) <.*>': (.*)$", 1, 2),
             ("error: (.*) isn't a valid value for '--(.*?) <.*>'", 2, 1),

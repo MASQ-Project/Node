@@ -18,10 +18,15 @@ fn connection_progress_is_properly_broadcast() {
     let ui_port = find_free_port();
     let mut cluster = MASQNodeCluster::start().unwrap();
     // Set up small preexisting network that is much too small to route
-    let relay_2 = cluster.start_real_node(NodeStartupConfigBuilder::standard().build());
+    let relay_2 = cluster.start_real_node(
+        NodeStartupConfigBuilder::standard()
+            .db_password(Some("relay_2"))
+            .build(),
+    );
     let relay_1 = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
             .neighbor(relay_2.node_reference())
+            .db_password(Some("relay_1"))
             .build(),
     );
     // Set up Node from which we will get connection-progress information
@@ -32,6 +37,7 @@ fn connection_progress_is_properly_broadcast() {
                 "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF".to_string(),
             ))
             .neighbor(relay_1.node_reference())
+            .db_password(Some("subject"))
             .ui_port(ui_port)
             .build(),
     );
@@ -40,10 +46,11 @@ fn connection_progress_is_properly_broadcast() {
     // Hook up enough new Nodes to make the subject fully connected
     let _additional_nodes = (0..3)
         .into_iter()
-        .map(|_| {
+        .map(|i| {
             cluster.start_real_node(
                 NodeStartupConfigBuilder::standard()
                     .neighbor(relay_2.node_reference())
+                    .db_password(Some(format!("additional_{}", i).as_str()))
                     .build(),
             )
         })

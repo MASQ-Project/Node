@@ -233,8 +233,7 @@ pub fn determine_user_specific_data(
         Box::new(CommandLineVcl::new(args.to_vec())),
     );
     /* We create multiconfig to retrieve chain, real-user, data-directory and config file, to establish ConfigVcl */
-    let first_multi_config =
-        make_new_multi_config(app, vec![orientation_args]).expect("expected MultiConfig");
+    let first_multi_config = make_new_multi_config(app, vec![orientation_args])?;
     let initialization_data =
         config_file_data_dir_real_user_chain_from_mc(dirs_wrapper, first_multi_config);
 
@@ -244,11 +243,23 @@ pub fn determine_user_specific_data(
 pub fn initialize_database(
     data_directory: &Path,
     migrator_config: DbInitializationConfig,
+    db_password_opt: &Option<String>,
 ) -> Box<dyn PersistentConfiguration> {
     let conn = DbInitializerReal::default()
         .initialize(data_directory, migrator_config)
         .unwrap_or_else(|e| db_connection_launch_panic(e, data_directory));
-    Box::new(PersistentConfigurationReal::from(conn))
+    let mut persistent_config = Box::new(PersistentConfigurationReal::from(conn));
+    if let Some(password) = db_password_opt {
+        if persistent_config
+            .check_password(None)
+            .expect("Failed to check password")
+        {
+            persistent_config
+                .change_password(None, password)
+                .expect("Failed to establish password")
+        }
+    }
+    persistent_config
 }
 
 pub fn real_user_from_multi_config_or_populate(
@@ -338,8 +349,10 @@ impl Default for DirsWrapperReal {
 mod tests {
     use super::*;
     use crate::node_test_utils::DirsWrapperMock;
-    use crate::test_utils::ArgsBuilder;
-    use masq_lib::shared_schema::{config_file_arg, data_directory_arg, DATA_DIRECTORY_HELP};
+    use crate::test_utils::{assert_string_contains, ArgsBuilder};
+    use masq_lib::shared_schema::{
+        config_file_arg, data_directory_arg, DATA_DIRECTORY_HELP,
+    };
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::utils::find_free_port;
@@ -377,10 +390,28 @@ mod tests {
     }
 
     #[test]
-    fn determine_config_file_path_finds_path_in_args() {
+    fn determine_user_specific_data_detects_bad_parameter() {
+        let args = ArgsBuilder::new().param("--booga-booga", "bad-parameter");
+        let args_vec: Vec<String> = args.into();
+        let app = determine_config_file_path_app();
+
+        let result =
+            determine_user_specific_data(&DirsWrapperReal::default(), &app, args_vec.as_slice());
+
+        let param_error = &result.err().unwrap().param_errors[0];
+        assert_eq!(&param_error.parameter, "<unknown>");
+        assert_string_contains(&param_error.reason, "Unfamiliar message:");
+        assert_string_contains(&param_error.reason, "error:");
+        assert_string_contains(&param_error.reason, "Found argument '");
+        assert_string_contains(&param_error.reason, "--booga-booga");
+        assert_string_contains(&param_error.reason, "' which wasn't expected, or isn't valid in this context");
+    }
+
+    #[test]
+    fn determine_user_specific_data_finds_path_in_args() {
         let data_directory = ensure_node_home_directory_exists(
             "node_configurator",
-            "determine_config_file_path_finds_path_in_args",
+            "determine_user_specific_data_finds_path_in_args",
         );
         let _guard = EnvironmentGuard::new();
         let args = ArgsBuilder::new()
@@ -391,6 +422,7 @@ mod tests {
             .param("--config-file", "booga.toml");
         let args_vec: Vec<String> = args.into();
         let app = determine_config_file_path_app();
+
         let user_specific_data =
             determine_user_specific_data(&DirsWrapperReal::default(), &app, args_vec.as_slice())
                 .unwrap();
@@ -419,10 +451,10 @@ mod tests {
     }
 
     #[test]
-    fn determine_config_file_path_finds_path_in_environment() {
+    fn determine_user_specific_data_finds_path_in_environment() {
         let data_directory = ensure_node_home_directory_exists(
             "node_configurator",
-            "determine_config_file_path_finds_path_in_environment",
+            "determine_user_specific_data_finds_path_in_environment",
         );
         let _guard = EnvironmentGuard::new();
         let args = ArgsBuilder::new();
@@ -433,6 +465,7 @@ mod tests {
         );
         std::env::set_var("MASQ_CONFIG_FILE", "booga.toml");
         let app = determine_config_file_path_app();
+
         let user_specific_data =
             determine_user_specific_data(&DirsWrapperReal::default(), &app, args_vec.as_slice())
                 .unwrap();
@@ -462,7 +495,7 @@ mod tests {
 
     #[cfg(not(target_os = "windows"))]
     #[test]
-    fn determine_config_file_path_ignores_data_dir_if_config_file_has_root() {
+    fn determine_user_specific_data_ignores_data_dir_if_config_file_has_root() {
         let _guard = EnvironmentGuard::new();
         let args = ArgsBuilder::new()
             .param("--data-directory", "data-dir")
@@ -484,7 +517,7 @@ mod tests {
 
     #[cfg(target_os = "windows")]
     #[test]
-    fn determine_config_file_path_ignores_data_dir_if_config_file_has_separator_root() {
+    fn determine_user_specific_data_ignores_data_dir_if_config_file_has_separator_root() {
         let _guard = EnvironmentGuard::new();
         let args = ArgsBuilder::new()
             .param("--data-directory", "data-dir")
@@ -508,7 +541,7 @@ mod tests {
 
     #[cfg(target_os = "windows")]
     #[test]
-    fn determine_config_file_path_ignores_data_dir_if_config_file_has_drive_root() {
+    fn determine_user_specific_data_ignores_data_dir_if_config_file_has_drive_root() {
         let _guard = EnvironmentGuard::new();
         let args = ArgsBuilder::new()
             .param("--data-directory", "data-dir")
@@ -531,7 +564,7 @@ mod tests {
 
     #[cfg(target_os = "windows")]
     #[test]
-    fn determine_config_file_path_ignores_data_dir_if_config_file_has_network_root() {
+    fn determine_user_specific_data_ignores_data_dir_if_config_file_has_network_root() {
         let _guard = EnvironmentGuard::new();
         let args = ArgsBuilder::new()
             .param("--data-directory", "data-dir")
@@ -554,7 +587,7 @@ mod tests {
 
     #[cfg(target_os = "windows")]
     #[test]
-    fn determine_config_file_path_ignores_data_dir_if_config_file_has_drive_letter_but_no_separator(
+    fn determine_user_specific_data_ignores_data_dir_if_config_file_has_drive_letter_but_no_separator(
     ) {
         let _guard = EnvironmentGuard::new();
         let args = ArgsBuilder::new()
@@ -574,6 +607,65 @@ mod tests {
             &format!("{}", user_specific_data.config_file.item.display())
         );
         assert_eq!(user_specific_data.real_user.user_specified, false);
+    }
+
+    #[test]
+    fn initialize_database_handles_preexisting_database_with_existing_password() {
+        let data_directory = ensure_node_home_directory_exists(
+            "node_configurator",
+            "initialize_database_handles_preexisting_database_with_existing_password",
+        );
+        {
+            let conn = DbInitializerReal::default()
+                .initialize(&data_directory, DbInitializationConfig::test_default())
+                .unwrap();
+            let mut persistent_config = Box::new(PersistentConfigurationReal::from(conn));
+            persistent_config
+                .change_password(None, "existing password")
+                .unwrap();
+        }
+        let db_password = Some("command-line password".to_string());
+
+        let persistent_config = initialize_database(
+            &data_directory,
+            DbInitializationConfig::test_default(),
+            &db_password,
+        );
+
+        assert_eq!(
+            persistent_config.check_password(Some("existing password".to_string())),
+            Ok(true)
+        );
+    }
+
+    #[test]
+    fn initialize_database_handles_preexisting_database_with_existing_password_but_nothing_on_the_command_line(
+    ) {
+        let data_directory = ensure_node_home_directory_exists(
+            "node_configurator",
+            "initialize_database_handles_preexisting_database_with_existing_password_but_nothing_on_the_command_line",
+        );
+        {
+            let conn = DbInitializerReal::default()
+                .initialize(&data_directory, DbInitializationConfig::test_default())
+                .unwrap();
+            let mut persistent_config = Box::new(PersistentConfigurationReal::from(conn));
+            persistent_config
+                .change_password(None, "existing password")
+                .unwrap();
+        }
+        let db_password = None;
+
+        let persistent_config = initialize_database(
+            &data_directory,
+            DbInitializationConfig::test_default(),
+            &db_password,
+        );
+
+        assert_eq!(
+            persistent_config.check_password(Some("existing password".to_string())),
+            Ok(true)
+        );
     }
 
     #[test]

@@ -139,7 +139,7 @@ fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
     let _: UiSetupResponse = daemon_client
         .transact(UiSetupRequest::new(vec![
             ("ip", Some("100.80.1.1")),
-            ("chain", Some("polygon-mainnet")),
+            ("chain", Some("base-mainnet")),
             ("neighborhood-mode", Some("standard")),
             ("log-level", Some("trace")),
             ("blockchain-service-url", Some("https://www.example.com")),

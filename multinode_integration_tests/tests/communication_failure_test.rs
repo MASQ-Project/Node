@@ -236,6 +236,7 @@ fn dns_resolution_failure_with_real_nodes() {
     let mut cluster = MASQNodeCluster::start().unwrap();
     let first_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
+            .db_password(None)
             .consuming_wallet_info(make_consuming_wallet_info("first_node"))
             .chain(cluster.chain)
             .build(),
@@ -244,6 +245,7 @@ fn dns_resolution_failure_with_real_nodes() {
         .map(|_| {
             cluster.start_real_node(
                 NodeStartupConfigBuilder::standard()
+                    .db_password(None)
                     .neighbor(first_node.node_reference())
                     .chain(cluster.chain)
                     .build(),
@@ -280,6 +282,7 @@ fn dns_resolution_failure_for_wildcard_ip_with_real_nodes() {
     let mut cluster = MASQNodeCluster::start().unwrap();
     let exit_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
+            .db_password(None)
             .chain(cluster.chain)
             .consuming_wallet_info(make_consuming_wallet_info("exit_node"))
             .dns_servers(vec![dns_server_that_fails])
@@ -287,6 +290,7 @@ fn dns_resolution_failure_for_wildcard_ip_with_real_nodes() {
     );
     let originating_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
+            .db_password(None)
             .neighbor(exit_node.node_reference())
             .consuming_wallet_info(make_consuming_wallet_info("originating_node"))
             .chain(cluster.chain)

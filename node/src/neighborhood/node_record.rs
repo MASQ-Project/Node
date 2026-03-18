@@ -75,7 +75,7 @@ pub struct NodeRecordInputs {
 impl NodeRecord {
     pub fn new(
         public_key: &PublicKey,
-        cryptde: &dyn CryptDE, // Must be the new NodeRecord's CryptDE: used for signing
+        cryptde: &dyn CryptDE,
         node_record_inputs: NodeRecordInputs,
     ) -> NodeRecord {
         let country_opt = node_record_inputs
@@ -372,15 +372,21 @@ impl NodeRecordMetadata {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bootstrapper::CryptDEPair;
     use crate::neighborhood::gossip::GossipBuilder;
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::neighborhood::ZERO_RATE_PACK;
     use crate::test_utils::make_wallet;
     use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
-    use crate::test_utils::{assert_contains, main_cryptde, rate_pack};
+    use crate::test_utils::{assert_contains, rate_pack};
+    use lazy_static::lazy_static;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::net::IpAddr;
     use std::str::FromStr;
+
+    lazy_static! {
+        static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
+    }
 
     #[test]
     fn can_create_node_record_with_node_location_opt_none() {
@@ -456,7 +462,7 @@ mod tests {
 
     #[test]
     fn node_descriptor_works_when_node_addr_is_present() {
-        let cryptde: &dyn CryptDE = main_cryptde();
+        let cryptde: &dyn CryptDE = CRYPTDE_PAIR.main.as_ref();
         let mut subject = make_node_record(1234, true);
         subject.metadata.node_addr_opt = Some(NodeAddr::new(
             &subject.metadata.node_addr_opt.unwrap().ip_addr(),
@@ -467,24 +473,21 @@ mod tests {
 
         assert_eq!(
             result,
-            NodeDescriptor::try_from((
-                main_cryptde(),
-                "masq://base-sepolia:AQIDBA@1.2.3.4:1234/2345"
-            ))
-            .unwrap()
+            NodeDescriptor::try_from((cryptde, "masq://base-sepolia:AQIDBA@1.2.3.4:1234/2345"))
+                .unwrap()
         );
     }
 
     #[test]
     fn node_descriptor_works_when_node_addr_is_not_present() {
-        let cryptde: &dyn CryptDE = main_cryptde();
+        let cryptde: &dyn CryptDE = CRYPTDE_PAIR.main.as_ref();
         let subject: NodeRecord = make_node_record(1234, false);
 
         let result = subject.node_descriptor(TEST_DEFAULT_CHAIN, cryptde);
 
         assert_eq!(
             result,
-            NodeDescriptor::try_from((main_cryptde(), "masq://base-sepolia:AQIDBA@:")).unwrap()
+            NodeDescriptor::try_from((cryptde, "masq://base-sepolia:AQIDBA@:")).unwrap()
         );
     }
 
@@ -653,22 +656,22 @@ mod tests {
         };
         let exemplar = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
-            main_cryptde(),
+            CRYPTDE_PAIR.main.as_ref(),
             node_record_data.clone(),
         );
         let duplicate = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
-            main_cryptde(),
+            CRYPTDE_PAIR.main.as_ref(),
             node_record_data.clone(),
         );
         let mut with_neighbor = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
-            main_cryptde(),
+            CRYPTDE_PAIR.main.as_ref(),
             node_record_data.clone(),
         );
         let mod_key = NodeRecord::new(
             &PublicKey::new(&b"kope"[..]),
-            main_cryptde(),
+            CRYPTDE_PAIR.main.as_ref(),
             node_record_data.clone(),
         );
         with_neighbor
@@ -676,7 +679,7 @@ mod tests {
             .unwrap();
         let mut mod_node_addr = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
-            main_cryptde(),
+            CRYPTDE_PAIR.main.as_ref(),
             node_record_data.clone(),
         );
         mod_node_addr
@@ -689,39 +692,39 @@ mod tests {
         node_record_data_mod_earning_wallet.earning_wallet = make_wallet("booga");
         let mod_earning_wallet = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
-            main_cryptde(),
+            CRYPTDE_PAIR.main.as_ref(),
             node_record_data_mod_earning_wallet,
         );
         let mut node_record_data_mod_rate_pack = node_record_data.clone();
         node_record_data_mod_rate_pack.rate_pack = rate_pack(200);
         let mod_rate_pack = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
-            main_cryptde(),
+            CRYPTDE_PAIR.main.as_ref(),
             node_record_data_mod_rate_pack,
         );
         let mut node_record_data_mod_accepts_connections = node_record_data.clone();
         node_record_data_mod_accepts_connections.accepts_connections = false;
         let mod_accepts_connections = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
-            main_cryptde(),
+            CRYPTDE_PAIR.main.as_ref(),
             node_record_data_mod_accepts_connections,
         );
         let mut node_record_data_mod_routes_data = node_record_data.clone();
         node_record_data_mod_routes_data.routes_data = false;
         let mod_routes_data = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
-            main_cryptde(),
+            CRYPTDE_PAIR.main.as_ref(),
             node_record_data_mod_routes_data,
         );
         let mut mod_signed_gossip = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
-            main_cryptde(),
+            CRYPTDE_PAIR.main.as_ref(),
             node_record_data.clone(),
         );
         mod_signed_gossip.signed_gossip = mod_rate_pack.signed_gossip.clone();
         let mut mod_signature = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
-            main_cryptde(),
+            CRYPTDE_PAIR.main.as_ref(),
             node_record_data.clone(),
         );
         mod_signature.signature = CryptData::new(&[]);
@@ -729,7 +732,7 @@ mod tests {
         node_record_data_mod_version.version = 1;
         let mod_version = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
-            main_cryptde(),
+            CRYPTDE_PAIR.main.as_ref(),
             node_record_data_mod_version,
         );
 

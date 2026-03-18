@@ -130,14 +130,18 @@ fn add_socket_addr_to_hash(mut hash: sha1::Sha1, client_addr: SocketAddr) -> sha
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::main_cryptde;
+    use crate::bootstrapper::CryptDEPair;
     use itertools::Itertools;
     use std::net::IpAddr;
     use std::str::FromStr;
 
+    lazy_static! {
+        static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
+    }
+
     #[test]
     fn stream_keys_with_different_host_names_are_different() {
-        let public_key = main_cryptde().public_key();
+        let public_key = CRYPTDE_PAIR.main.public_key();
         let stream_key_count = 100;
         let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
         let client_addrs = (0..stream_key_count).map(|i| SocketAddr::new(ip_addr, 1024 + i as u16));
@@ -167,7 +171,7 @@ mod tests {
 
     #[test]
     fn stream_keys_are_salted() {
-        let public_key = main_cryptde().public_key();
+        let public_key = CRYPTDE_PAIR.main.public_key();
         let client_addr = SocketAddr::new(IpAddr::from_str("1.2.3.4").unwrap(), 1024);
 
         let result = StreamKey::new(&public_key, client_addr);
