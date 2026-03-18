@@ -61,7 +61,6 @@ impl ClientRequestPayloadFactory for ClientRequestPayloadFactoryReal {
                 } else {
                     error!(logger, "{}", e);
                 }
-                error!(logger, "{}", e);
                 return None;
             }
         };
