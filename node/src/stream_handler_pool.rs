@@ -516,7 +516,7 @@ impl StreamHandlerPool {
             sw_key
         );
         debug!(self.logger, "Masking {} bytes", msg.context.data.len());
-        let packet = if msg.context.sequence_number.is_none() {
+        let packet = if msg.context.sequence_number_opt.is_none() {
             let masquerader = self.traffic_analyzer.get_masquerader();
             match masquerader.mask(msg.context.data.as_slice()) {
                 Ok(masked_data) => SequencedPacket::new(masked_data, 0, false),
@@ -849,7 +849,7 @@ mod tests {
         let peer_addr = SocketAddr::from_str("1.2.3.4:80").unwrap();
         let peer_addr_a = peer_addr.clone();
         let local_addr = SocketAddr::from_str("1.2.3.5:80").unwrap();
-        let reception_port = Some(8081);
+        let reception_port_opt = Some(8081);
         let is_clandestine = false;
         let one_http_req = b"GET http://here.com HTTP/1.1\r\n\r\n".to_vec();
         let one_http_req_a = one_http_req.clone();
@@ -901,7 +901,7 @@ mod tests {
                 .add_sub
                 .try_send(AddStreamMsg::new(
                     connection_info, // the stream splitter mock will return mocked reader/writer
-                    reception_port,
+                    reception_port_opt,
                     PortConfiguration::new(
                         vec![Box::new(HttpRequestDiscriminatorFactory::new())],
                         is_clandestine,
@@ -922,10 +922,10 @@ mod tests {
             &dispatcher::InboundClientData {
                 timestamp: dispatcher_record.timestamp,
                 client_addr: peer_addr_a,
-                reception_port,
+                reception_port_opt,
                 last_data: false,
                 is_clandestine,
-                sequence_number: Some(0),
+                sequence_number_opt: Some(0),
                 data: one_http_req_a,
             }
         );
@@ -936,10 +936,10 @@ mod tests {
             &dispatcher::InboundClientData {
                 timestamp: dispatcher_record.timestamp,
                 client_addr: peer_addr_a,
-                reception_port,
+                reception_port_opt,
                 last_data: false,
                 is_clandestine,
-                sequence_number: Some(1),
+                sequence_number_opt: Some(1),
                 data: another_http_req_a,
             }
         );
@@ -950,10 +950,10 @@ mod tests {
             &dispatcher::InboundClientData {
                 timestamp: dispatcher_record.timestamp,
                 client_addr: peer_addr_a,
-                reception_port,
+                reception_port_opt,
                 last_data: false,
                 is_clandestine,
-                sequence_number: Some(2),
+                sequence_number_opt: Some(2),
                 data: a_third_http_req_a,
             }
         );
@@ -963,7 +963,7 @@ mod tests {
             &dispatcher::StreamShutdownMsg {
                 peer_addr: peer_addr_a,
                 stream_type: RemovedStreamType::NonClandestine(NonClandestineAttributes {
-                    reception_port: reception_port.unwrap(),
+                    reception_port: reception_port_opt.unwrap(),
                     sequence_number: 3
                 }),
                 report_to_counterpart: true,
@@ -1025,7 +1025,7 @@ mod tests {
                 .try_send(TransmitDataMsg {
                     endpoint: Endpoint::Socket(peer_addr),
                     last_data: true,
-                    sequence_number: Some(0),
+                    sequence_number_opt: Some(0),
                     data: b"hello".to_vec(),
                 })
                 .unwrap();
@@ -1107,7 +1107,7 @@ mod tests {
             .try_send(TransmitDataMsg {
                 endpoint: Endpoint::Socket(peer_addr),
                 last_data: true,
-                sequence_number: Some(0),
+                sequence_number_opt: Some(0),
                 data: vec![0x12, 0x34],
             })
             .unwrap();
@@ -1130,7 +1130,7 @@ mod tests {
             .try_send(TransmitDataMsg {
                 endpoint: Endpoint::Socket(peer_addr),
                 last_data: true,
-                sequence_number: Some(0),
+                sequence_number_opt: Some(0),
                 data: vec![0x56, 0x78],
             })
             .unwrap();
@@ -1209,7 +1209,7 @@ mod tests {
                 .try_send(TransmitDataMsg {
                     endpoint: Endpoint::Socket(peer_addr),
                     last_data: true,
-                    sequence_number: Some(0),
+                    sequence_number_opt: Some(0),
                     data: vec![0x12, 0x34],
                 })
                 .unwrap();
@@ -1381,7 +1381,7 @@ mod tests {
                     context: TransmitDataMsg {
                         endpoint: Endpoint::Key(public_key),
                         last_data: false,
-                        sequence_number: None,
+                        sequence_number_opt: None,
                         data: b"hello".to_vec(),
                     },
                 })
@@ -1470,7 +1470,7 @@ mod tests {
             .try_send(TransmitDataMsg {
                 endpoint: Endpoint::Key(public_key.clone()),
                 last_data: false,
-                sequence_number: None,
+                sequence_number_opt: None,
                 data: outgoing_unmasked,
             })
             .unwrap();
@@ -1505,10 +1505,10 @@ mod tests {
             &InboundClientData {
                 timestamp: ibcd.timestamp,
                 client_addr: SocketAddr::from_str("1.2.3.5:7000").unwrap(),
-                reception_port: Some(54321),
+                reception_port_opt: Some(54321),
                 last_data: false,
                 is_clandestine: true,
-                sequence_number: None,
+                sequence_number_opt: None,
                 data: incoming_unmasked,
             }
         );
@@ -1586,7 +1586,7 @@ mod tests {
             .try_send(TransmitDataMsg {
                 endpoint: Endpoint::Key(key.clone()),
                 last_data: false,
-                sequence_number: Some(0),
+                sequence_number_opt: Some(0),
                 data: b"hello".to_vec(),
             })
             .unwrap();
@@ -1646,7 +1646,7 @@ mod tests {
                     context: TransmitDataMsg {
                         endpoint: Endpoint::Key(key.clone()),
                         last_data: false,
-                        sequence_number: Some(0),
+                        sequence_number_opt: Some(0),
                         data: b"hello".to_vec(),
                     },
                 })
@@ -1698,7 +1698,7 @@ mod tests {
                     context: TransmitDataMsg {
                         endpoint: Endpoint::Key(key.clone()),
                         last_data: false,
-                        sequence_number: None,
+                        sequence_number_opt: None,
                         data: b"hello".to_vec(),
                     },
                 })
@@ -1728,7 +1728,7 @@ mod tests {
         let msg = TransmitDataMsg {
             endpoint: Endpoint::Socket(peer_addr.clone()),
             last_data: false,
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             data: b"hello".to_vec(),
         };
         let msg_a = msg.clone();
@@ -1840,7 +1840,7 @@ mod tests {
             context: TransmitDataMsg {
                 endpoint: Endpoint::Socket(peer_addr.clone()),
                 last_data: true,
-                sequence_number: Some(0),
+                sequence_number_opt: Some(0),
                 data: b"hello".to_vec(),
             },
         };
@@ -1869,13 +1869,13 @@ mod tests {
         let msg = TransmitDataMsg {
             endpoint: Endpoint::Socket(peer_addr.clone()),
             last_data: false,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: b"hello".to_vec(),
         };
         let msg_a = TransmitDataMsg {
             endpoint: Endpoint::Socket(peer_addr.clone()),
             last_data: false,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: b"worlds".to_vec(),
         };
         let expected_data = JsonMasquerader::new().mask(&msg_a.data).unwrap();
@@ -1995,7 +1995,7 @@ mod tests {
             context: TransmitDataMsg {
                 endpoint: Endpoint::Socket(peer_addr.clone()),
                 last_data: true,
-                sequence_number: Some(0),
+                sequence_number_opt: Some(0),
                 data: b"hello".to_vec(),
             },
         });
@@ -2035,7 +2035,7 @@ mod tests {
         let msg = TransmitDataMsg {
             endpoint: Endpoint::Socket(peer_addr.clone()),
             last_data: false,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: b"hello".to_vec(),
         };
 
@@ -2126,7 +2126,7 @@ mod tests {
                 .try_send(TransmitDataMsg {
                     endpoint: Endpoint::Socket(peer_addr),
                     last_data: false,
-                    sequence_number: None,
+                    sequence_number_opt: None,
                     data: hello,
                 })
                 .unwrap();
@@ -2136,7 +2136,7 @@ mod tests {
                 .try_send(TransmitDataMsg {
                     endpoint: Endpoint::Socket(peer_addr),
                     last_data: false,
-                    sequence_number: None,
+                    sequence_number_opt: None,
                     data: worlds,
                 })
                 .unwrap();
@@ -2200,7 +2200,7 @@ mod tests {
                 .try_send(TransmitDataMsg {
                     endpoint: Endpoint::Socket(peer_addr),
                     last_data: false,
-                    sequence_number: None,
+                    sequence_number_opt: None,
                     data: b"hello".to_vec(),
                 })
                 .unwrap();
@@ -2249,7 +2249,7 @@ mod tests {
             .try_send(TransmitDataMsg {
                 endpoint: Endpoint::Socket(local_addr),
                 last_data: false,
-                sequence_number: Some(0),
+                sequence_number_opt: Some(0),
                 data: outgoing_unmasked,
             })
             .unwrap();
