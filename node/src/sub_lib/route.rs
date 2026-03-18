@@ -1,5 +1,4 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::sub_lib::cryptde::encodex;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::PublicKey;
@@ -67,23 +66,6 @@ impl Route {
         )
     }
 
-    pub fn return_route_id(&self, cryptde: &dyn CryptDE) -> Result<u32, String> {
-        if let Some(first) = self.hops.first() {
-            match decodex(cryptde, first) {
-                Ok(n) => Ok(n),
-                Err(e) => Err(format!("{:?}", e)),
-            }
-        } else {
-            Err("Response route did not contain a return route ID".to_string())
-        }
-    }
-
-    pub fn set_return_route_id(mut self, cryptde: &dyn CryptDE, return_route_id: u32) -> Self {
-        let return_route_id_enc = Self::encrypt_return_route_id(return_route_id, cryptde);
-        self.hops.push(return_route_id_enc);
-        self
-    }
-
     // This cryptde must be the CryptDE of the next hop to come off the Route.
     pub fn next_hop(&self, cryptde: &dyn CryptDE) -> Result<LiveHop, CodexError> {
         match self.hops.first() {
@@ -134,15 +116,7 @@ impl Route {
                 last_cryptde.public_key(),
                 live_hop
             ),
-            Err(outside) => match decodex::<u32>(last_cryptde, &last_hop_enc) {
-                Ok(return_route_id) => format!(
-                    "{}\nEncrypted with {:?}: Return Route ID: {}\n",
-                    most_strings,
-                    last_cryptde.public_key(),
-                    return_route_id
-                ),
-                Err(inside) => format!("{}\nError: {:?} / {:?}", most_strings, outside, inside),
-            },
+            Err(error) => format!("{}\nError: {:?}", most_strings, error),
         }
     }
 
@@ -305,11 +279,6 @@ impl Route {
         }
         Ok(Route { hops: hops_enc })
     }
-
-    fn encrypt_return_route_id(return_route_id: u32, cryptde: &dyn CryptDE) -> CryptData {
-        encodex(cryptde, cryptde.public_key(), &return_route_id)
-            .expect("Internal error encrypting u32 return_route_id")
-    }
 }
 
 pub struct RouteSegment {
@@ -354,66 +323,6 @@ mod tests {
 
     lazy_static! {
         static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
-    }
-
-    #[test]
-    fn return_route_id_works() {
-        let cryptde = CRYPTDE_PAIR.main.as_ref();
-
-        let subject = Route {
-            hops: vec![Route::encrypt_return_route_id(42, cryptde)],
-        };
-
-        assert_eq!(subject.return_route_id(cryptde), Ok(42));
-    }
-
-    #[test]
-    fn return_route_id_returns_empty_route_error_when_the_route_is_empty() {
-        let cryptde = CRYPTDE_PAIR.main.as_ref();
-
-        let subject = Route { hops: vec![] };
-
-        assert_eq!(
-            subject.return_route_id(cryptde),
-            Err("Response route did not contain a return route ID".to_string())
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "Could not decrypt with ebe5f9a0e2 data beginning with ebe5f9a0e1")]
-    fn return_route_id_returns_error_when_the_id_fails_to_decrypt() {
-        let cryptde1 = CryptDENull::from(&PublicKey::new(b"key a"), TEST_DEFAULT_CHAIN);
-        let cryptde2 = CryptDENull::from(&PublicKey::new(b"key b"), TEST_DEFAULT_CHAIN);
-        let subject = Route {
-            hops: vec![Route::encrypt_return_route_id(42, &cryptde1)],
-        };
-
-        let _ = subject.return_route_id(&cryptde2);
-    }
-
-    #[test]
-    fn route_segments_are_represented_in_base64_by_debug() {
-        let public_key_data_1: Vec<u8> = vec![12, 34, 56, 78, 90];
-        let public_key_data_2: Vec<u8> = vec![34, 56, 78, 90, 12];
-        let public_key_data_3: Vec<u8> = vec![56, 78, 90, 12, 34];
-        let subject = RouteSegment::new(
-            vec![
-                &PublicKey::new(public_key_data_1.as_slice()),
-                &PublicKey::new(public_key_data_2.as_slice()),
-                &PublicKey::new(public_key_data_3.as_slice()),
-            ],
-            Component::ProxyClient,
-        );
-
-        let result = format!("{:?}", subject);
-
-        let base64_1 = base64::encode_config(&public_key_data_1, base64::STANDARD_NO_PAD);
-        let base64_2 = base64::encode_config(&public_key_data_2, base64::STANDARD_NO_PAD);
-        let base64_3 = base64::encode_config(&public_key_data_3, base64::STANDARD_NO_PAD);
-        assert_eq!(
-            result,
-            format!("{} -> {} -> {} : ProxyClient", base64_1, base64_2, base64_3)
-        );
     }
 
     #[test]
@@ -492,7 +401,6 @@ mod tests {
         let f_key = PublicKey::new(&[70, 70, 70]);
         let cryptde = CRYPTDE_PAIR.main.as_ref();
         let paying_wallet = make_paying_wallet(b"wallet");
-        let return_route_id = 4321;
         let contract_address = TEST_DEFAULT_CHAIN.rec().contract;
 
         let subject = Route::round_trip(
@@ -503,7 +411,6 @@ mod tests {
             Some(contract_address.clone()),
         )
         .unwrap();
-        let subject = subject.set_return_route_id(cryptde, return_route_id);
 
         assert_eq!(
             subject.hops[0],
@@ -588,12 +495,6 @@ mod tests {
             .encode(&a_key, cryptde)
             .unwrap(),
             "seventh hop"
-        );
-
-        assert_eq!(
-            subject.hops[7],
-            Route::encrypt_return_route_id(return_route_id, cryptde),
-            "eighth hop"
         );
     }
 
@@ -776,7 +677,6 @@ mod tests {
             Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
-        let original = original.set_return_route_id(cryptde, 1234);
 
         let serialized = serde_cbor::ser::to_vec(&original).unwrap();
 
@@ -832,7 +732,6 @@ Encrypted with 0x03040506: LiveHop { public_key: 0x, payer: Some(Payer { wallet:
             Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
-        let subject = subject.set_return_route_id(&cryptde, 1234);
 
         let result = subject.to_string(vec![
             &CryptDENull::from(&key1, TEST_DEFAULT_CHAIN),
@@ -852,7 +751,6 @@ Encrypted with 0x02030405: LiveHop { public_key: 0x03040506, payer: Some(Payer {
 Encrypted with 0x03040506: LiveHop { public_key: 0x02030405, payer: Some(Payer { wallet: Wallet { kind: Address(0x71d0fc7d1c570b1ed786382b551a09391c91e33d) }, proof: Signature { v: 1, r: "8649b8f6db6232cb1e4f1f04786ad4ef33488c968e64bec74ecd893d6d05c1b9", s: "8649b8f6db6232cb1e4f1f04786ad4ef33488c968e64bec74ecd893d6d05c1b9" } }), component: ProxyClient }
 Encrypted with 0x02030405: LiveHop { public_key: 0x01020304, payer: Some(Payer { wallet: Wallet { kind: Address(0x71d0fc7d1c570b1ed786382b551a09391c91e33d) }, proof: Signature { v: 0, r: "4324a40295bb36ef2b927fb24250fe42397a57b861ea152bbbe4f84150d4ff5a", s: "4324a40295bb36ef2b927fb24250fe42397a57b861ea152bbbe4f84150d4ff5a" } }), component: Hopper }
 Encrypted with 0x01020304: LiveHop { public_key: 0x, payer: Some(Payer { wallet: Wallet { kind: Address(0x71d0fc7d1c570b1ed786382b551a09391c91e33d) }, proof: Signature { v: 0, r: "3e3a92d7284c2c2ff7119e9f7a7e183b062a335a598e965a47c36a2f288b6f8d", s: "3e3a92d7284c2c2ff7119e9f7a7e183b062a335a598e965a47c36a2f288b6f8d" } }), component: ProxyServer }
-Encrypted with 0x01020304: Return Route ID: 1234
 "#
             )
         );

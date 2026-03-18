@@ -849,7 +849,7 @@ mod tests {
         let peer_addr = SocketAddr::from_str("1.2.3.4:80").unwrap();
         let peer_addr_a = peer_addr.clone();
         let local_addr = SocketAddr::from_str("1.2.3.5:80").unwrap();
-        let reception_port = Some(8081);
+        let reception_port_opt = Some(8081);
         let is_clandestine = false;
         let one_http_req = b"GET http://here.com HTTP/1.1\r\n\r\n".to_vec();
         let one_http_req_a = one_http_req.clone();
@@ -901,7 +901,7 @@ mod tests {
                 .add_sub
                 .try_send(AddStreamMsg::new(
                     connection_info, // the stream splitter mock will return mocked reader/writer
-                    reception_port,
+                    reception_port_opt,
                     PortConfiguration::new(
                         vec![Box::new(HttpRequestDiscriminatorFactory::new())],
                         is_clandestine,
@@ -922,7 +922,7 @@ mod tests {
             &dispatcher::InboundClientData {
                 timestamp: dispatcher_record.timestamp,
                 client_addr: peer_addr_a,
-                reception_port,
+                reception_port_opt,
                 last_data: false,
                 is_clandestine,
                 sequence_number: Some(0),
@@ -936,7 +936,7 @@ mod tests {
             &dispatcher::InboundClientData {
                 timestamp: dispatcher_record.timestamp,
                 client_addr: peer_addr_a,
-                reception_port,
+                reception_port_opt,
                 last_data: false,
                 is_clandestine,
                 sequence_number: Some(1),
@@ -950,7 +950,7 @@ mod tests {
             &dispatcher::InboundClientData {
                 timestamp: dispatcher_record.timestamp,
                 client_addr: peer_addr_a,
-                reception_port,
+                reception_port_opt,
                 last_data: false,
                 is_clandestine,
                 sequence_number: Some(2),
@@ -963,7 +963,7 @@ mod tests {
             &dispatcher::StreamShutdownMsg {
                 peer_addr: peer_addr_a,
                 stream_type: RemovedStreamType::NonClandestine(NonClandestineAttributes {
-                    reception_port: reception_port.unwrap(),
+                    reception_port: reception_port_opt.unwrap(),
                     sequence_number: 3
                 }),
                 report_to_counterpart: true,
@@ -1505,7 +1505,7 @@ mod tests {
             &InboundClientData {
                 timestamp: ibcd.timestamp,
                 client_addr: SocketAddr::from_str("1.2.3.5:7000").unwrap(),
-                reception_port: Some(54321),
+                reception_port_opt: Some(54321),
                 last_data: false,
                 is_clandestine: true,
                 sequence_number: None,

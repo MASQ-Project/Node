@@ -114,11 +114,7 @@ impl StreamHandlerPoolReal {
         let inner_arc_1 = inner_arc.clone();
         let logger = Self::make_logger_copy(&inner_arc);
         let data_len = payload.sequenced_packet.data.len();
-        let hostname = payload
-            .target_hostname
-            .as_ref()
-            .unwrap_or(&"<unknown>".to_string())
-            .to_string();
+        let hostname = payload.target_hostname.clone();
         let target_port = payload.target_port;
         match Self::find_stream_with_key(&stream_key, &inner_arc) {
             Some(sender_wrapper) => {
@@ -315,27 +311,14 @@ impl StreamHandlerPoolReal {
             "No stream to {:?} exists; resolving host", &payload.target_hostname
         );
 
-        match payload.target_hostname {
-            Some(ref target_hostname) => match Self::parse_ip(target_hostname) {
-                Ok(socket_addr) => Self::handle_ip(
-                    payload.clone(),
-                    socket_addr,
-                    inner_arc,
-                    target_hostname.to_string(),
-                ),
-                Err(_) => Self::lookup_dns(inner_arc, target_hostname.to_string(), payload.clone()),
-            },
-            None => {
-                error!(
-                    logger,
-                    "Cannot open new stream with key {:?}: no hostname supplied",
-                    payload.stream_key
-                );
-                Box::new(err::<
-                    Box<dyn SenderWrapper<SequencedPacket> + 'static>,
-                    String,
-                >("No hostname provided".to_string()))
-            }
+        match Self::parse_ip(&payload.target_hostname) {
+            Ok(socket_addr) => Self::handle_ip(
+                payload.clone(),
+                socket_addr,
+                inner_arc,
+                payload.target_hostname.clone(),
+            ),
+            Err(_) => Self::lookup_dns(inner_arc, payload.target_hostname.clone(), payload.clone()),
         }
     }
 
@@ -732,7 +715,7 @@ mod tests {
             let payload = ClientRequestPayload_0v1 {
                 stream_key,
                 sequenced_packet: SequencedPacket::new(b"booga".to_vec(), 0, false),
-                target_hostname: Some("www.example.com".to_string()),
+                target_hostname: "www.example.com".to_string(),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: cryptde.public_key().clone(),
@@ -765,7 +748,7 @@ mod tests {
                 sequence_number: 0,
                 last_data: false,
             },
-            target_hostname: None,
+            target_hostname: "booga.com".to_string(),
             target_port: HTTP_PORT,
             protocol: ProxyProtocol::HTTP,
             originator_public_key: PublicKey::new(&b"men's souls"[..]),
@@ -820,18 +803,20 @@ mod tests {
         init_test_logging();
         let test_name = "write_failure_for_nonexistent_stream_generates_termination_message";
         let cryptde = CRYPTDE_PAIR.main.as_ref();
+        let stream_key = StreamKey::make_meaningless_stream_key();
+        let stream_key_inner = stream_key.clone();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let originator_key = PublicKey::new(&b"men's souls"[..]);
         let (reader_shutdown_tx, reader_shutdown_rx) = unbounded();
         thread::spawn(move || {
             let client_request_payload = ClientRequestPayload_0v1 {
-                stream_key: StreamKey::make_meaningless_stream_key(),
+                stream_key: stream_key_inner,
                 sequenced_packet: SequencedPacket {
                     data: b"These are the times".to_vec(),
                     sequence_number: 0,
                     last_data: false,
                 },
-                target_hostname: Some(String::from("that.try")),
+                target_hostname: String::from("that.try"),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: originator_key,
@@ -879,7 +864,7 @@ mod tests {
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(0),
             &InboundServerData {
-                stream_key: StreamKey::make_meaningless_stream_key(),
+                stream_key: stream_key.clone(),
                 last_data: true,
                 sequence_number: 0,
                 source: SocketAddr::from_str("2.3.4.5:80").unwrap(),
@@ -888,7 +873,8 @@ mod tests {
         );
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: A shutdown signal was sent to the StreamReader \
-            for stream key AAAAAAAAAAAAAAAAAAAAAAAAAAA."
+            for stream key {}.",
+            stream_key
         ));
     }
 
@@ -897,17 +883,19 @@ mod tests {
         let cryptde = CRYPTDE_PAIR.main.as_ref();
         let write_parameters = Arc::new(Mutex::new(vec![]));
         let expected_write_parameters = write_parameters.clone();
+        let stream_key = StreamKey::make_meaningless_stream_key();
+        let stream_key_inner = stream_key.clone();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         thread::spawn(move || {
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             let client_request_payload = ClientRequestPayload_0v1 {
-                stream_key: StreamKey::make_meaningless_stream_key(),
+                stream_key: stream_key_inner,
                 sequenced_packet: SequencedPacket {
                     data: b"These are the times".to_vec(),
                     sequence_number: 0,
                     last_data: false,
                 },
-                target_hostname: Some(String::from("3.4.5.6:80")),
+                target_hostname: String::from("3.4.5.6:80"),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: PublicKey::new(&b"men's souls"[..]),
@@ -980,7 +968,7 @@ mod tests {
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(0),
             &InboundServerData {
-                stream_key: StreamKey::make_meaningless_stream_key(),
+                stream_key,
                 last_data: false,
                 sequence_number: 0,
                 source: SocketAddr::from_str("3.4.5.6:80").unwrap(),
@@ -1003,7 +991,7 @@ mod tests {
                     sequence_number: 0,
                     last_data: true,
                 },
-                target_hostname: Some(String::from("3.4.5.6:80")),
+                target_hostname: String::from("3.4.5.6:80"),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: PublicKey::new(&b"brutal death"[..]),
@@ -1064,7 +1052,7 @@ mod tests {
                     sequence_number: 0,
                     last_data: true,
                 },
-                target_hostname: Some(String::from("3.4.5.6:80")),
+                target_hostname: String::from("3.4.5.6:80"),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: PublicKey::new(&b"brutal death"[..]),
@@ -1116,17 +1104,19 @@ mod tests {
         let expected_lookup_ip_parameters = lookup_ip_parameters.clone();
         let write_parameters = Arc::new(Mutex::new(vec![]));
         let expected_write_parameters = write_parameters.clone();
+        let stream_key = StreamKey::make_meaningless_stream_key();
+        let stream_key_inner = stream_key.clone();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         thread::spawn(move || {
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             let client_request_payload = ClientRequestPayload_0v1 {
-                stream_key: StreamKey::make_meaningless_stream_key(),
+                stream_key: stream_key_inner,
                 sequenced_packet: SequencedPacket {
                     data: b"These are the times".to_vec(),
                     sequence_number: 0,
                     last_data: false,
                 },
-                target_hostname: Some(String::from("3.4.5.6")),
+                target_hostname: String::from("3.4.5.6"),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: PublicKey::new(&b"men's souls"[..]),
@@ -1209,77 +1199,12 @@ mod tests {
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(0),
             &InboundServerData {
-                stream_key: StreamKey::make_meaningless_stream_key(),
+                stream_key,
                 last_data: false,
                 sequence_number: 0,
                 source: SocketAddr::from_str("3.4.5.6:80").unwrap(),
                 data: b"HTTP/1.1 200 OK\r\n\r\n".to_vec(),
             }
-        );
-    }
-
-    #[test]
-    fn missing_hostname_for_nonexistent_stream_generates_log_and_termination_message() {
-        init_test_logging();
-        let test_name =
-            "missing_hostname_for_nonexistent_stream_generates_log_and_termination_message";
-        let cryptde = CRYPTDE_PAIR.main.as_ref();
-        let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
-        let originator_key = PublicKey::new(&b"men's souls"[..]);
-        let stream_key = StreamKey::make_meaningful_stream_key(test_name);
-        thread::spawn(move || {
-            let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
-            let client_request_payload = ClientRequestPayload_0v1 {
-                stream_key: stream_key.clone(),
-                sequenced_packet: SequencedPacket {
-                    data: b"These are the times".to_vec(),
-                    sequence_number: 0,
-                    last_data: false,
-                },
-                target_hostname: None,
-                target_port: HTTP_PORT,
-                protocol: ProxyProtocol::HTTP,
-                originator_public_key: originator_key,
-            };
-            let package = ExpiredCoresPackage::new(
-                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
-                Some(make_wallet("consuming")),
-                make_meaningless_route(&CRYPTDE_PAIR),
-                client_request_payload.into(),
-                0,
-            );
-            let resolver =
-                ResolverWrapperMock::new().lookup_ip_failure(ResolveErrorKind::Io.into());
-            let subject = StreamHandlerPoolReal::new(
-                Box::new(resolver),
-                cryptde,
-                peer_actors.accountant.report_exit_service_provided.clone(),
-                peer_actors.proxy_client_opt.unwrap().clone(),
-                100,
-                200,
-            );
-
-            run_process_package_in_actix(subject, package);
-        });
-
-        proxy_client_awaiter.await_message_count(1);
-        let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
-        assert_eq!(
-            proxy_client_recording.get_record::<InboundServerData>(0),
-            &InboundServerData {
-                stream_key: stream_key.clone(),
-                last_data: true,
-                sequence_number: 0,
-                source: error_socket_addr(),
-                data: vec![],
-            }
-        );
-        TestLogHandler::new().exists_log_containing(
-            format!(
-                "ERROR: ProxyClient: Cannot open new stream with key {:?}: no hostname supplied",
-                stream_key
-            )
-            .as_str(),
         );
     }
 
@@ -1290,6 +1215,8 @@ mod tests {
         let expected_lookup_ip_parameters = lookup_ip_parameters.clone();
         let write_parameters = Arc::new(Mutex::new(vec![]));
         let expected_write_parameters = write_parameters.clone();
+        let stream_key = StreamKey::make_meaningless_stream_key();
+        let stream_key_inner = stream_key.clone();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let (accountant, accountant_awaiter, accountant_recording_arc) = make_recorder();
         let before = SystemTime::now();
@@ -1299,13 +1226,13 @@ mod tests {
                 .accountant(accountant)
                 .build();
             let client_request_payload = ClientRequestPayload_0v1 {
-                stream_key: StreamKey::make_meaningless_stream_key(),
+                stream_key: stream_key_inner,
                 sequenced_packet: SequencedPacket {
                     data: b"These are the times".to_vec(),
                     sequence_number: 0,
                     last_data: false,
                 },
-                target_hostname: Some(String::from("that.try")),
+                target_hostname: String::from("that.try"),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: PublicKey::new(&b"men's souls"[..]),
@@ -1390,7 +1317,7 @@ mod tests {
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(0),
             &InboundServerData {
-                stream_key: StreamKey::make_meaningless_stream_key(),
+                stream_key,
                 last_data: false,
                 sequence_number: 0,
                 source: SocketAddr::from_str("3.4.5.6:80").unwrap(),
@@ -1418,7 +1345,7 @@ mod tests {
                     sequence_number: 0,
                     last_data: false,
                 },
-                target_hostname: Some(String::from("that.try")),
+                target_hostname: String::from("that.try"),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: originator_key,
@@ -1540,7 +1467,7 @@ mod tests {
                     sequence_number: 0,
                     last_data: false,
                 },
-                target_hostname: Some(String::from("blockedwebsite.com")),
+                target_hostname: String::from("blockedwebsite.com"),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: originator_key,
@@ -1637,7 +1564,7 @@ mod tests {
             let client_request_payload = ClientRequestPayload_0v1 {
                 stream_key,
                 sequenced_packet: sequenced_packet.clone(),
-                target_hostname: Some(String::from("that.try")),
+                target_hostname: String::from("that.try"),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: PublicKey::new(&b"men's souls"[..]),
@@ -1750,7 +1677,7 @@ mod tests {
                     sequence_number: 0,
                     last_data: true,
                 },
-                target_hostname: Some(String::from("that.try")),
+                target_hostname: String::from("that.try"),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: originator_key,
@@ -1812,7 +1739,7 @@ mod tests {
         let client_request_payload = ClientRequestPayload_0v1 {
             stream_key: stream_key.clone(),
             sequenced_packet: sequenced_packet.clone(),
-            target_hostname: Some(String::from("that.try")),
+            target_hostname: String::from("that.try"),
             target_port: HTTP_PORT,
             protocol: ProxyProtocol::HTTP,
             originator_public_key: PublicKey::new(&b"men's souls"[..]),
@@ -1883,7 +1810,7 @@ mod tests {
                     sequence_number: 0,
                     last_data: false,
                 },
-                target_hostname: None,
+                target_hostname: "booga.com".to_string(),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: PublicKey::new(&b"booga"[..]),
