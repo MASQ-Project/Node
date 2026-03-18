@@ -350,9 +350,7 @@ mod tests {
     use super::*;
     use crate::node_test_utils::DirsWrapperMock;
     use crate::test_utils::{assert_string_contains, ArgsBuilder};
-    use masq_lib::shared_schema::{
-        config_file_arg, data_directory_arg, DATA_DIRECTORY_HELP,
-    };
+    use masq_lib::shared_schema::{config_file_arg, data_directory_arg, DATA_DIRECTORY_HELP};
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::utils::find_free_port;
@@ -404,7 +402,10 @@ mod tests {
         assert_string_contains(&param_error.reason, "error:");
         assert_string_contains(&param_error.reason, "Found argument '");
         assert_string_contains(&param_error.reason, "--booga-booga");
-        assert_string_contains(&param_error.reason, "' which wasn't expected, or isn't valid in this context");
+        assert_string_contains(
+            &param_error.reason,
+            "' which wasn't expected, or isn't valid in this context",
+        );
     }
 
     #[test]

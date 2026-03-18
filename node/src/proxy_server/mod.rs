@@ -5910,10 +5910,7 @@ mod tests {
         system.run();
         let recording = hopper_recording_arc.lock().unwrap();
         let record = recording.get_record::<IncipientCoresPackage>(0);
-        assert_eq!(
-            record.route,
-            affected_route
-        );
+        assert_eq!(record.route, affected_route);
         let payload = decodex::<MessageType>(&affected_cryptde, &record.payload).unwrap();
         match payload {
             MessageType::ClientRequest(vd) => assert_eq!(
@@ -6043,10 +6040,7 @@ mod tests {
         system.run();
         let recording = hopper_recording_arc.lock().unwrap();
         let record = recording.get_record::<IncipientCoresPackage>(0);
-        assert_eq!(
-            record.route,
-            affected_route
-        );
+        assert_eq!(record.route, affected_route);
         let payload = decodex::<MessageType>(&affected_cryptde, &record.payload).unwrap();
         match payload {
             MessageType::ClientRequest(vd) => assert_eq!(
@@ -6390,7 +6384,8 @@ mod tests {
 
     #[test]
     fn new_http_request_creates_new_exhausted_entry_inside_dns_retries_hashmap_zero_hop() {
-        let test_name = "new_http_request_creates_new_exhausted_entry_inside_dns_retries_hashmap_zero_hop";
+        let test_name =
+            "new_http_request_creates_new_exhausted_entry_inside_dns_retries_hashmap_zero_hop";
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
         let (neighborhood_mock, _, _) = make_recorder();
         let destination_key = PublicKey::from(&b"our destination"[..]);

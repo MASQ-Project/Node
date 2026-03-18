@@ -2216,8 +2216,7 @@ mod tests {
     use crate::sub_lib::host::Host;
     use crate::sub_lib::neighborhood::ExpectedServices::OneWay;
     use crate::sub_lib::neighborhood::{
-        AskAboutDebutGossipMessage, ConfigChange, ConfigChangeMsg,
-        NeighborhoodMode, WalletPair,
+        AskAboutDebutGossipMessage, ConfigChange, ConfigChangeMsg, NeighborhoodMode, WalletPair,
     };
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, DEFAULT_RATE_PACK};
     use crate::sub_lib::neighborhood::{NeighborhoodMetadata, RatePack};
