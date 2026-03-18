@@ -40,8 +40,10 @@ impl ClientRequestPayloadFactory for ClientRequestPayloadFactoryReal {
                 // So far we've only looked in the client packet; but this message will evaporate
                 // unless there's no host information in host_opt (from ProxyServer's StreamInfo) either.
                 None => Err(format!(
-                    "No hostname information found in either client packet or ProxyServer for protocol {:?}",
-                    protocol_pack.proxy_protocol()
+                    "No hostname information found in either client packet ({}) or ProxyServer for protocol {:?}, with StreamKey {}",
+                    protocol_pack.describe_packet(&data),
+                    protocol_pack.proxy_protocol(),
+                    stream_key
                 )),
             }
         });
@@ -49,6 +51,16 @@ impl ClientRequestPayloadFactory for ClientRequestPayloadFactoryReal {
             (Ok(host), _) => host,
             (Err(_), Some(host)) => host,
             (Err(e), None) => {
+                if ibcd.last_data && ibcd.data.is_empty() {
+                    warning!(
+                        logger,
+                        "Client opened {:?} connection and immediately closed it without sending any data, with StreamKey {}",
+                        protocol_pack.proxy_protocol(),
+                        stream_key
+                    );
+                } else {
+                    error!(logger, "{}", e);
+                }
                 error!(logger, "{}", e);
                 return None;
             }
@@ -187,7 +199,32 @@ mod tests {
         let result = subject.make(&ibcd, stream_key, None, cryptde.as_ref(), &logger);
 
         assert_eq!(result, None);
-        TestLogHandler::new().exists_log_containing(&format!("ERROR: {test_name}: No hostname information found in either client packet or ProxyServer for protocol HTTP"));
+        TestLogHandler::new().exists_log_containing(&format!("ERROR: {test_name}: No hostname information found in either client packet (Malformed HTTP request: '') or ProxyServer for protocol HTTP"));
+    }
+
+    #[test]
+    fn logs_different_error_and_returns_none_if_connection_is_opened_and_immediately_closed() {
+        init_test_logging();
+        let test_name =
+            "logs_different_error_and_returns_none_if_connection_is_opened_and_immediately_closed";
+        let ibcd = InboundClientData {
+            timestamp: SystemTime::now(),
+            client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            reception_port_opt: Some(HTTP_PORT),
+            sequence_number_opt: Some(1),
+            last_data: true,
+            is_clandestine: false,
+            data: vec![],
+        };
+        let cryptde = CRYPTDE_PAIR.main.dup();
+        let stream_key = StreamKey::make_meaningful_stream_key(test_name);
+        let logger = Logger::new(test_name);
+        let subject = Box::new(ClientRequestPayloadFactoryReal::new());
+
+        let result = subject.make(&ibcd, stream_key, None, cryptde.as_ref(), &logger);
+
+        assert_eq!(result, None);
+        TestLogHandler::new().exists_log_containing(&format!("WARN: {test_name}: Client opened HTTP connection and immediately closed it without sending any data"));
     }
 
     #[test]
@@ -353,7 +390,7 @@ mod tests {
         let result = subject.make(&ibcd, stream_key, None, cryptde, &logger);
 
         assert_eq!(result, None);
-        TestLogHandler::new().exists_log_containing(&format!("ERROR: {test_name}: No hostname information found in either client packet or ProxyServer for protocol TLS"));
+        TestLogHandler::new().exists_log_containing(&format!("ERROR: {test_name}: No hostname information found in either client packet (ClientHello with no SNI extension) or ProxyServer for protocol TLS"));
     }
 
     #[test]
