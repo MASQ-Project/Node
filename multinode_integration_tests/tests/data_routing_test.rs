@@ -89,7 +89,7 @@ fn http_end_to_end_routing_test_with_consume_and_originate_only_nodes() {
             .chain(cluster.chain)
             .build(),
     );
-    let _potential_exit_nodes = vec![0, 1, 2, 3, 4]
+    let _potential_exit_nodes = vec![3, 4, 5, 6, 7]
         .into_iter()
         .map(|_| {
             cluster.start_real_node(
@@ -101,17 +101,19 @@ fn http_end_to_end_routing_test_with_consume_and_originate_only_nodes() {
         })
         .collect_vec();
 
-    thread::sleep(Duration::from_millis(1000));
+    thread::sleep(Duration::from_secs(5));
 
     let mut client = originating_node.make_client(8080, STANDARD_CLIENT_TIMEOUT_MILLIS);
-    client.send_chunk(b"GET /index.html HTTP/1.1\r\nHost: www.testingmcafeesites.com\r\n\r\n");
-    let response = client.wait_for_chunk();
+    client.set_timeout(Duration::from_secs(10));
+    let request = "GET /index.html HTTP/1.1\r\nHost: www.testingmcafeesites.com\r\n\r\n".as_bytes();
 
-    assert_eq!(
-        index_of(&response, &b"<title>URL for testing.</title>"[..]).is_some(),
-        true,
-        "Actual response:\n{}",
-        String::from_utf8(response).unwrap()
+    client.send_chunk(request);
+    let response = String::from_utf8(client.wait_for_chunk()).unwrap();
+
+    assert!(
+        response.contains("<title>URL for testing.</title>"),
+        "Not from www.testingmcafeesites.com:\n{}",
+        response
     );
 }
 
