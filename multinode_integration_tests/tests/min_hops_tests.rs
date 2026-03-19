@@ -84,14 +84,14 @@ fn min_hops_can_be_changed_during_runtime() {
     thread::sleep(Duration::from_millis(1000));
 
     let mut client = first_node.make_client(8080, 5000);
-    client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
+    client.send_chunk(b"GET /index.html HTTP/1.1\r\nHost: www.testingmcafeesites.com\r\n\r\n");
     let response = client.wait_for_chunk();
 
     // Client shutdown is necessary to re-initialize stream keys for old requests
     client.shutdown();
 
     assert_eq!(
-        index_of(&response, &b"<h1>Example Domain</h1>"[..]).is_some(),
+        index_of(&response, &b"<title>URL for testing.</title>"[..]).is_some(),
         true,
         "Actual response:\n{}",
         String::from_utf8(response).unwrap()
@@ -108,12 +108,12 @@ fn min_hops_can_be_changed_during_runtime() {
     assert!(response.payload.is_ok());
 
     let mut client = first_node.make_client(8080, 5000);
-    client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
+    client.send_chunk(b"GET /index.html HTTP/1.1\r\nHost: www.testingmcafeesites.com\r\n\r\n");
     let response = client.wait_for_chunk();
     assert_eq!(
         index_of(
             &response,
-            &b"<h3>Subtitle: Can't find a route to www.example.com</h3>"[..]
+            &b"<h3>Subtitle: Can't find a route to www.testingmcafeesites.com</h3>"[..]
         )
         .is_some(),
         true,

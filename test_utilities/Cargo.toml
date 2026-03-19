@@ -1,6 +1,6 @@
 [package]
 name = "test_utilities"
-version = "0.1.0"
+version = "0.9.1"
 edition = "2021"
 authors = ["Dan Wiebe <dnwiebe@gmail.com>", "MASQ"]
 license = "GPL-3.0-only"

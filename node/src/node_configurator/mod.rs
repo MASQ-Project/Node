@@ -233,8 +233,7 @@ pub fn determine_user_specific_data(
         Box::new(CommandLineVcl::new(args.to_vec())),
     );
     /* We create multiconfig to retrieve chain, real-user, data-directory and config file, to establish ConfigVcl */
-    let first_multi_config =
-        make_new_multi_config(app, vec![orientation_args]).expect("expected MultiConfig");
+    let first_multi_config = make_new_multi_config(app, vec![orientation_args])?;
     let initialization_data =
         config_file_data_dir_real_user_chain_from_mc(dirs_wrapper, first_multi_config);
 
@@ -350,7 +349,7 @@ impl Default for DirsWrapperReal {
 mod tests {
     use super::*;
     use crate::node_test_utils::DirsWrapperMock;
-    use crate::test_utils::ArgsBuilder;
+    use crate::test_utils::{assert_string_contains, ArgsBuilder};
     use masq_lib::shared_schema::{config_file_arg, data_directory_arg, DATA_DIRECTORY_HELP};
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
@@ -389,10 +388,31 @@ mod tests {
     }
 
     #[test]
-    fn determine_config_file_path_finds_path_in_args() {
+    fn determine_user_specific_data_detects_bad_parameter() {
+        let args = ArgsBuilder::new().param("--booga-booga", "bad-parameter");
+        let args_vec: Vec<String> = args.into();
+        let app = determine_config_file_path_app();
+
+        let result =
+            determine_user_specific_data(&DirsWrapperReal::default(), &app, args_vec.as_slice());
+
+        let param_error = &result.err().unwrap().param_errors[0];
+        assert_eq!(param_error.parameter, "<unknown>");
+        assert_string_contains(&param_error.reason, "Unfamiliar message: ");
+        assert_string_contains(&param_error.reason, "error:");
+        assert_string_contains(&param_error.reason, "Found argument '");
+        assert_string_contains(&param_error.reason, "--booga-booga");
+        assert_string_contains(
+            &param_error.reason,
+            "' which wasn't expected, or isn't valid in this context",
+        );
+    }
+
+    #[test]
+    fn determine_user_specific_data_finds_path_in_args() {
         let data_directory = ensure_node_home_directory_exists(
             "node_configurator",
-            "determine_config_file_path_finds_path_in_args",
+            "determine_user_specific_data_finds_path_in_args",
         );
         let _guard = EnvironmentGuard::new();
         let args = ArgsBuilder::new()
@@ -432,10 +452,10 @@ mod tests {
     }
 
     #[test]
-    fn determine_config_file_path_finds_path_in_environment() {
+    fn determine_user_specific_data_finds_path_in_environment() {
         let data_directory = ensure_node_home_directory_exists(
             "node_configurator",
-            "determine_config_file_path_finds_path_in_environment",
+            "determine_user_specific_data_finds_path_in_environment",
         );
         let _guard = EnvironmentGuard::new();
         let args = ArgsBuilder::new();
@@ -476,7 +496,7 @@ mod tests {
 
     #[cfg(not(target_os = "windows"))]
     #[test]
-    fn determine_config_file_path_ignores_data_dir_if_config_file_has_root() {
+    fn determine_user_specific_data_ignores_data_dir_if_config_file_has_root() {
         let _guard = EnvironmentGuard::new();
         let args = ArgsBuilder::new()
             .param("--data-directory", "data-dir")
@@ -498,7 +518,7 @@ mod tests {
 
     #[cfg(target_os = "windows")]
     #[test]
-    fn determine_config_file_path_ignores_data_dir_if_config_file_has_separator_root() {
+    fn determine_user_specific_data_ignores_data_dir_if_config_file_has_separator_root() {
         let _guard = EnvironmentGuard::new();
         let args = ArgsBuilder::new()
             .param("--data-directory", "data-dir")
@@ -522,7 +542,7 @@ mod tests {
 
     #[cfg(target_os = "windows")]
     #[test]
-    fn determine_config_file_path_ignores_data_dir_if_config_file_has_drive_root() {
+    fn determine_user_specific_data_ignores_data_dir_if_config_file_has_drive_root() {
         let _guard = EnvironmentGuard::new();
         let args = ArgsBuilder::new()
             .param("--data-directory", "data-dir")
@@ -545,7 +565,7 @@ mod tests {
 
     #[cfg(target_os = "windows")]
     #[test]
-    fn determine_config_file_path_ignores_data_dir_if_config_file_has_network_root() {
+    fn determine_user_specific_data_ignores_data_dir_if_config_file_has_network_root() {
         let _guard = EnvironmentGuard::new();
         let args = ArgsBuilder::new()
             .param("--data-directory", "data-dir")
@@ -568,7 +588,7 @@ mod tests {
 
     #[cfg(target_os = "windows")]
     #[test]
-    fn determine_config_file_path_ignores_data_dir_if_config_file_has_drive_letter_but_no_separator(
+    fn determine_user_specific_data_ignores_data_dir_if_config_file_has_drive_letter_but_no_separator(
     ) {
         let _guard = EnvironmentGuard::new();
         let args = ArgsBuilder::new()

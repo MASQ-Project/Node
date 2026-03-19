@@ -58,7 +58,7 @@ fn http_end_to_end_routing_test() {
     thread::sleep(Duration::from_millis(500));
 
     let mut client = last_node.make_client(8080, 5000);
-    client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.testingmcafeesites.com\r\n\r\n");
+    client.send_chunk(b"GET /index.html HTTP/1.1\r\nHost: www.testingmcafeesites.com\r\n\r\n");
     let response = client.wait_for_chunk();
 
     assert_eq!(
@@ -237,7 +237,7 @@ fn http_routing_failure_produces_internal_error_response() {
 
     let mut client = originating_node.make_client(8080, STANDARD_CLIENT_TIMEOUT_MILLIS);
 
-    client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.testingmcafeesites.com\r\n\r\n");
+    client.send_chunk(b"GET /index.html HTTP/1.1\r\nHost: www.testingmcafeesites.com\r\n\r\n");
     let response = client.wait_for_chunk();
 
     let expected_response =
