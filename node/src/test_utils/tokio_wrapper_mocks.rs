@@ -109,7 +109,7 @@ impl WriteHalfWrapperMock {
         self
     }
 
-    pub fn write_result(mut self, result: io::Result<usize>) -> WriteHalfWrapperMock {
+    pub fn write_result(self, result: io::Result<usize>) -> WriteHalfWrapperMock {
         self.write_results.borrow_mut().push(result);
         self
     }

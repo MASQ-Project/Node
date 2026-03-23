@@ -13,7 +13,7 @@ use crate::sub_lib::utils::{supervisor_restarting, NODE_MAILBOX_CAPACITY};
 use crate::ui_gateway::websocket_supervisor::{
     WebSocketSupervisor, WebSocketSupervisorFactory, WebsocketSupervisorFactoryReal,
 };
-use actix::Addr;
+use actix::{Addr, ResponseActFuture};
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
@@ -25,6 +25,7 @@ use masq_lib::ui_gateway::{MessageBody, NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::ExpectValue;
 use std::sync::{Arc, Mutex};
 use std::thread::panicking;
+use actix::{ActorFutureExt, WrapFuture};
 
 pub const CRASH_KEY: &str = "UIGATEWAY";
 
@@ -161,15 +162,24 @@ impl Handler<DaemonBindMessage> for UiGateway {
 }
 
 impl Handler<NodeToUiMessage> for UiGateway {
-    type Result = ();
+    type Result = ResponseActFuture<Self, Result<(), ()>>;
 
     fn handle(&mut self, msg: NodeToUiMessage, _ctx: &mut Self::Context) -> Self::Result {
-        self.websocket_supervisor_or_factory
-            .as_ref()
-            .right()
-            .as_ref()
-            .expect("WebSocketSupervisor is uninitialized")
-            .send_msg(msg);
+        Box::pin(
+            async move {
+                self.websocket_supervisor_or_factory
+                    .as_ref()
+                    .right()
+                    .as_ref()
+                    .expect("WebSocketSupervisor is uninitialized")
+                    .send_msg(msg)
+                    .await
+            }
+            .into_actor(self)
+            .map(|res, _actor, _ctx| {
+                res.map(|_| ())
+            }),
+        )
     }
 }
 
@@ -262,7 +272,7 @@ mod tests {
         subject_addr.try_send(check).unwrap();
 
         System::current().stop();
-        system.run();
+        system.run().unwrap();
         let capacity = rx.recv().unwrap();
         assert_eq!(capacity, 0);
     }

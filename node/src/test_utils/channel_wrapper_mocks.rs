@@ -73,12 +73,12 @@ impl<T> ReceiverWrapperMock<T> {
         }
     }
 
-    pub fn recv_result(mut self, result: Option<T>) -> Self {
+    pub fn recv_result(self, result: Option<T>) -> Self {
         self.recv_results.borrow_mut().push(result);
         self
     }
 
-    pub fn try_recv_result(mut self, result: Result<T, TryRecvError>) -> Self {
+    pub fn try_recv_result(self, result: Result<T, TryRecvError>) -> Self {
         self.try_recv_results.borrow_mut().push(result);
         self
     }

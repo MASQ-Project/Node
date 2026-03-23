@@ -253,7 +253,7 @@ impl ClientBuilderWrapper for ClientBuilderWrapperReal {
         Ok(())
     }
 
-    fn add_protocol(&self, protocol: &str) {
+    fn add_protocol(&self, _protocol: &str) {
         todo!("Figure out how to do protocols with workflow-websockets")
     }
 

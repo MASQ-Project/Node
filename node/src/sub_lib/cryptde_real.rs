@@ -139,7 +139,7 @@ impl CryptDE for CryptDEReal {
         signature_data.copy_from_slice(signature.as_slice());
         let data_to_verify = [data.as_slice(), &self.pre_shared_data[..]].concat();
         let signature = match Signature::from_bytes(&signature_data) {
-            Err(e) => {
+            Err(_e) => {
                 todo! ("Signature came in from outside. Not allowed to panic. Drive in an error log here");
                 return false;
             }
