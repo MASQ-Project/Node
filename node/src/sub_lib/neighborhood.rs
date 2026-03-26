@@ -8,6 +8,7 @@ use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::ExpiredCoresPackage;
+use crate::sub_lib::host::Host;
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp, StartMessage};
 use crate::sub_lib::route::Route;
@@ -473,7 +474,7 @@ pub struct RouteQueryMessage {
     pub target_component: Component,
     pub return_component_opt: Option<Component>,
     pub payload_size: usize,
-    pub hostname_opt: Option<String>,
+    pub host: Host,
 }
 
 impl Message for RouteQueryMessage {
@@ -481,16 +482,13 @@ impl Message for RouteQueryMessage {
 }
 
 impl RouteQueryMessage {
-    pub fn data_indefinite_route_request(
-        hostname_opt: Option<String>,
-        payload_size: usize,
-    ) -> RouteQueryMessage {
+    pub fn data_indefinite_route_request(host: Host, payload_size: usize) -> RouteQueryMessage {
         RouteQueryMessage {
             target_key_opt: None,
             target_component: Component::ProxyClient,
             return_component_opt: Some(Component::ProxyServer),
             payload_size,
-            hostname_opt,
+            host,
         }
     }
 }
@@ -502,16 +500,53 @@ pub enum ExpectedService {
     Nothing,
 }
 
+impl ExpectedService {
+    pub fn exit_node_key_opt(&self) -> Option<PublicKey> {
+        match self {
+            ExpectedService::Exit(key, _, _) => Some(key.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn public_key_opt(&self) -> Option<PublicKey> {
+        match self {
+            ExpectedService::Exit(key, _, _) | ExpectedService::Routing(key, _, _) => {
+                Some(key.clone())
+            }
+            _ => None,
+        }
+    }
+
+    pub fn wallet_opt(&self) -> Option<&Wallet> {
+        match self {
+            ExpectedService::Exit(_, wallet, _) | ExpectedService::Routing(_, wallet, _) => {
+                Some(wallet)
+            }
+            _ => None,
+        }
+    }
+
+    pub fn rate_pack_opt(&self) -> Option<&RatePack> {
+        match self {
+            ExpectedService::Exit(_, _, rate_pack) | ExpectedService::Routing(_, _, rate_pack) => {
+                Some(rate_pack)
+            }
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExpectedServices {
     OneWay(Vec<ExpectedService>),
-    RoundTrip(Vec<ExpectedService>, Vec<ExpectedService>, u32),
+    RoundTrip(Vec<ExpectedService>, Vec<ExpectedService>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RouteQueryResponse {
     pub route: Route,
     pub expected_services: ExpectedServices,
+    pub host: Host,
 }
 
 #[derive(Clone, Debug, Message, PartialEq, Eq)]
@@ -1060,7 +1095,8 @@ mod tests {
 
     #[test]
     fn data_indefinite_route_request() {
-        let result = RouteQueryMessage::data_indefinite_route_request(None, 7500);
+        let result =
+            RouteQueryMessage::data_indefinite_route_request(Host::new("booga.com", 1234), 7500);
 
         assert_eq!(
             result,
@@ -1069,7 +1105,7 @@ mod tests {
                 target_component: Component::ProxyClient,
                 return_component_opt: Some(Component::ProxyServer),
                 payload_size: 7500,
-                hostname_opt: None,
+                host: Host::new("booga.com", 1234),
             }
         );
     }

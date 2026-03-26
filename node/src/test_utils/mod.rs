@@ -21,7 +21,6 @@ use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
 use crate::blockchain::payer::Payer;
 use crate::bootstrapper::CryptDEPair;
 use crate::sub_lib::cryptde::CryptDE;
-use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::dispatcher::Component;
@@ -52,8 +51,10 @@ use std::iter::repeat;
 use std::net::{Shutdown, TcpStream};
 
 use crate::sub_lib::hopper::MessageType;
+use crate::sub_lib::host::Host;
 use crate::sub_lib::proxy_client::DnsResolveFailure_0v1;
 use crate::sub_lib::stream_key::StreamKey;
+use masq_lib::constants::{HTTP_PORT, TLS_PORT};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -195,25 +196,26 @@ pub fn make_meaningless_wallet_private_key() -> PlainData {
 }
 
 // TODO: The three functions below should use only one argument, cryptde
-pub fn route_to_proxy_client(main_key: &PublicKey, main_cryptde: &dyn CryptDE) -> Route {
+pub fn route_to_proxy_client(main_key: &PublicKey, main_cryptde: &dyn CryptDE, tls: bool) -> Route {
     shift_one_hop(
-        zero_hop_route_response(main_key, main_cryptde).route,
+        zero_hop_route_response(main_key, main_cryptde, tls).route,
         main_cryptde,
     )
 }
 
-pub fn route_from_proxy_client(key: &PublicKey, cryptde: &dyn CryptDE) -> Route {
+pub fn route_from_proxy_client(key: &PublicKey, cryptde: &dyn CryptDE, tls: bool) -> Route {
     // Happens to be the same
-    route_to_proxy_client(key, cryptde)
+    route_to_proxy_client(key, cryptde, tls)
 }
 
-pub fn route_to_proxy_server(key: &PublicKey, cryptde: &dyn CryptDE) -> Route {
-    shift_one_hop(route_from_proxy_client(key, cryptde), cryptde)
+pub fn route_to_proxy_server(key: &PublicKey, cryptde: &dyn CryptDE, tls: bool) -> Route {
+    shift_one_hop(route_from_proxy_client(key, cryptde, tls), cryptde)
 }
 
 pub fn zero_hop_route_response(
     public_key: &PublicKey,
     cryptde: &dyn CryptDE,
+    tls: bool,
 ) -> RouteQueryResponse {
     RouteQueryResponse {
         route: Route::round_trip(
@@ -221,28 +223,20 @@ pub fn zero_hop_route_response(
             RouteSegment::new(vec![public_key, public_key], Component::ProxyServer),
             cryptde,
             None,
-            0,
             None,
         )
         .unwrap(),
         expected_services: ExpectedServices::RoundTrip(
             vec![ExpectedService::Nothing, ExpectedService::Nothing],
             vec![ExpectedService::Nothing, ExpectedService::Nothing],
-            0,
         ),
+        host: Host::new("booga.com", if tls { TLS_PORT } else { HTTP_PORT }),
     }
 }
 
 fn shift_one_hop(mut route: Route, cryptde: &dyn CryptDE) -> Route {
     route.shift(cryptde).unwrap();
     route
-}
-
-pub fn encrypt_return_route_id(return_route_id: u32, cryptde: &dyn CryptDE) -> CryptData {
-    let return_route_id_ser = serde_cbor::ser::to_vec(&return_route_id).unwrap();
-    cryptde
-        .encode(cryptde.public_key(), &PlainData::from(return_route_id_ser))
-        .unwrap()
 }
 
 pub fn make_garbage_data(bytes: usize) -> Vec<u8> {
@@ -429,8 +423,8 @@ pub fn read_until_timeout(stream: &mut dyn Read) -> Vec<u8> {
     response
 }
 
-pub fn make_meaningless_message_type() -> MessageType {
-    DnsResolveFailure_0v1::new(StreamKey::make_meaningless_stream_key()).into()
+pub fn make_meaningless_message_type(stream_key: StreamKey) -> MessageType {
+    DnsResolveFailure_0v1::new(stream_key).into()
 }
 
 pub fn handle_connection_error(stream: TcpStream) {
@@ -694,7 +688,7 @@ pub mod unshared_test_utils {
         ClientRequestPayload_0v1 {
             stream_key: StreamKey::make_meaningful_stream_key("request"),
             sequenced_packet: SequencedPacket::new(make_garbage_data(bytes), 0, true),
-            target_hostname: Some("www.example.com".to_string()),
+            target_hostname: "www.example.com".to_string(),
             target_port: HTTP_PORT,
             protocol: ProxyProtocol::HTTP,
             originator_public_key: cryptde.public_key().clone(),
@@ -1231,7 +1225,7 @@ mod tests {
         let cryptde = CRYPTDE_PAIR.main.as_ref();
         let key = cryptde.public_key();
 
-        let subject = zero_hop_route_response(&key, cryptde);
+        let subject = zero_hop_route_response(&key, cryptde, false);
 
         assert_eq!(
             subject.route.hops,
@@ -1245,7 +1239,6 @@ mod tests {
                 LiveHop::new(&PublicKey::new(b""), None, Component::ProxyServer)
                     .encode(&key, cryptde)
                     .unwrap(),
-                encrypt_return_route_id(0, cryptde),
             )
         );
         assert_eq!(
@@ -1253,7 +1246,6 @@ mod tests {
             ExpectedServices::RoundTrip(
                 vec![ExpectedService::Nothing, ExpectedService::Nothing,],
                 vec![ExpectedService::Nothing, ExpectedService::Nothing,],
-                0
             )
         );
     }
@@ -1263,7 +1255,7 @@ mod tests {
         let cryptde = CRYPTDE_PAIR.main.as_ref();
         let key = cryptde.public_key();
 
-        let subject = route_to_proxy_client(&key, cryptde);
+        let subject = route_to_proxy_client(&key, cryptde, false);
 
         let mut garbage_can: Vec<u8> = iter::repeat(0u8).take(96).collect();
         cryptde.random(&mut garbage_can[..]);
@@ -1276,7 +1268,6 @@ mod tests {
                 LiveHop::new(&PublicKey::new(b""), None, Component::ProxyServer)
                     .encode(&key, cryptde)
                     .unwrap(),
-                encrypt_return_route_id(0, cryptde),
                 CryptData::new(&garbage_can[..])
             )
         );
@@ -1287,7 +1278,7 @@ mod tests {
         let cryptde = CRYPTDE_PAIR.main.as_ref();
         let key = cryptde.public_key();
 
-        let subject = route_from_proxy_client(&key, cryptde);
+        let subject = route_from_proxy_client(&key, cryptde, false);
 
         let mut garbage_can: Vec<u8> = iter::repeat(0u8).take(96).collect();
         cryptde.random(&mut garbage_can[..]);
@@ -1300,7 +1291,6 @@ mod tests {
                 LiveHop::new(&PublicKey::new(b""), None, Component::ProxyServer)
                     .encode(&key, cryptde)
                     .unwrap(),
-                encrypt_return_route_id(0, cryptde),
                 CryptData::new(&garbage_can[..])
             )
         );
@@ -1311,7 +1301,7 @@ mod tests {
         let cryptde = CRYPTDE_PAIR.main.as_ref();
         let key = cryptde.public_key();
 
-        let subject = route_to_proxy_server(&key, cryptde);
+        let subject = route_to_proxy_server(&key, cryptde, false);
 
         let mut first_garbage_can: Vec<u8> = iter::repeat(0u8).take(96).collect();
         let mut second_garbage_can: Vec<u8> = iter::repeat(0u8).take(96).collect();
@@ -1323,7 +1313,6 @@ mod tests {
                 LiveHop::new(&PublicKey::new(b""), None, Component::ProxyServer)
                     .encode(&key, cryptde)
                     .unwrap(),
-                encrypt_return_route_id(0, cryptde),
                 CryptData::new(&first_garbage_can[..]),
                 CryptData::new(&second_garbage_can[..]),
             )
