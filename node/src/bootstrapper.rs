@@ -750,7 +750,7 @@ mod tests {
     use tokio::prelude::Async;
 
     lazy_static! {
-        static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
+        static ref BS_CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
         pub static ref INITIALIZATION: Mutex<bool> = Mutex::new(false);
     }
 
@@ -1536,13 +1536,13 @@ mod tests {
         );
         let cryptde_ref = {
             let descriptor = Bootstrapper::make_local_descriptor(
-                CRYPTDE_PAIR.main.as_ref(),
+                BS_CRYPTDE_PAIR.main.as_ref(),
                 Some(node_addr),
                 TEST_DEFAULT_CHAIN,
             );
-            Bootstrapper::report_local_descriptor(CRYPTDE_PAIR.main.as_ref(), &descriptor);
+            Bootstrapper::report_local_descriptor(BS_CRYPTDE_PAIR.main.as_ref(), &descriptor);
 
-            CRYPTDE_PAIR.main.as_ref()
+            BS_CRYPTDE_PAIR.main.as_ref()
         };
         let expected_descriptor = format!(
             "masq://base-sepolia:{}@2.3.4.5:3456/4567",
@@ -1578,13 +1578,13 @@ mod tests {
         init_test_logging();
         let cryptdes = {
             let descriptor = Bootstrapper::make_local_descriptor(
-                CRYPTDE_PAIR.main.as_ref(),
+                BS_CRYPTDE_PAIR.main.as_ref(),
                 None,
                 TEST_DEFAULT_CHAIN,
             );
-            Bootstrapper::report_local_descriptor(CRYPTDE_PAIR.main.as_ref(), &descriptor);
+            Bootstrapper::report_local_descriptor(BS_CRYPTDE_PAIR.main.as_ref(), &descriptor);
 
-            CRYPTDE_PAIR.clone()
+            BS_CRYPTDE_PAIR.clone()
         };
         let expected_descriptor = format!(
             "masq://base-sepolia:{}@:",

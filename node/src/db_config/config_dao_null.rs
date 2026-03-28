@@ -5,7 +5,7 @@ use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoRecord};
 use crate::neighborhood::DEFAULT_MIN_HOPS;
 use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
-use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
+use crate::sub_lib::neighborhood::{DEFAULT_RATE_PACK, DEFAULT_RATE_PACK_LIMITS};
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{CURRENT_SCHEMA_VERSION, DEFAULT_GAS_PRICE};
@@ -137,6 +137,13 @@ impl Default for ConfigDaoNull {
         data.insert(
             "rate_pack".to_string(),
             (Some(DEFAULT_RATE_PACK.to_string()), false),
+        );
+        data.insert(
+            "rate_pack_limits".to_string(),
+            (
+                Some(DEFAULT_RATE_PACK_LIMITS.rate_pack_limits_parameter()),
+                false,
+            ),
         );
         data.insert(
             "scan_intervals".to_string(),

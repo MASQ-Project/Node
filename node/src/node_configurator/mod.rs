@@ -397,8 +397,8 @@ mod tests {
             determine_user_specific_data(&DirsWrapperReal::default(), &app, args_vec.as_slice());
 
         let param_error = &result.err().unwrap().param_errors[0];
-        assert_eq!(&param_error.parameter, "<unknown>");
-        assert_string_contains(&param_error.reason, "Unfamiliar message:");
+        assert_eq!(param_error.parameter, "<unknown>");
+        assert_string_contains(&param_error.reason, "Unfamiliar message: ");
         assert_string_contains(&param_error.reason, "error:");
         assert_string_contains(&param_error.reason, "Found argument '");
         assert_string_contains(&param_error.reason, "--booga-booga");

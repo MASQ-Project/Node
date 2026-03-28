@@ -2,6 +2,7 @@
 
 pub mod migration_0_to_1;
 pub mod migration_10_to_11;
+pub mod migration_11_to_12;
 pub mod migration_1_to_2;
 pub mod migration_2_to_3;
 pub mod migration_3_to_4;

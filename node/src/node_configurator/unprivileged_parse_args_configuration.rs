@@ -556,14 +556,82 @@ fn configure_rate_pack(
     multi_config: &MultiConfig,
     persist_config: &mut dyn PersistentConfiguration,
 ) -> Result<RatePack, ConfiguratorError> {
-    process_combined_params(
+    let check_min_and_max = |candidate: u64,
+                             min: u64,
+                             max: u64,
+                             name: &str,
+                             error: ConfiguratorError|
+     -> ConfiguratorError {
+        let mut result = error;
+        if candidate < min {
+            result = result.another_required(
+                "rate-pack",
+                &format!(
+                    "Value of {} ({}) is below the minimum allowed ({})",
+                    name, candidate, min
+                ),
+            );
+        } else if candidate > max {
+            result = result.another_required(
+                "rate-pack",
+                &format!(
+                    "Value of {} ({}) is above the maximum allowed ({})",
+                    name, candidate, max
+                ),
+            );
+        }
+        result
+    };
+    match process_combined_params(
         "rate-pack",
         multi_config,
         persist_config,
         |str: &str| RatePack::try_from(str),
         |pc: &dyn PersistentConfiguration| pc.rate_pack(),
         |pc: &mut dyn PersistentConfiguration, rate_pack| pc.set_rate_pack(rate_pack),
-    )
+    ) {
+        Ok(rate_pack) => {
+            let rate_pack_limits = match persist_config.rate_pack_limits() {
+                Ok(rpl) => rpl,
+                Err(e) => return Err(e.into_configurator_error("rate-pack")),
+            };
+            let mut error = ConfiguratorError::new(vec![]);
+            error = check_min_and_max(
+                rate_pack.routing_byte_rate,
+                rate_pack_limits.lo.routing_byte_rate,
+                rate_pack_limits.hi.routing_byte_rate,
+                "routing_byte_rate",
+                error,
+            );
+            error = check_min_and_max(
+                rate_pack.routing_service_rate,
+                rate_pack_limits.lo.routing_service_rate,
+                rate_pack_limits.hi.routing_service_rate,
+                "routing_service_rate",
+                error,
+            );
+            error = check_min_and_max(
+                rate_pack.exit_byte_rate,
+                rate_pack_limits.lo.exit_byte_rate,
+                rate_pack_limits.hi.exit_byte_rate,
+                "exit_byte_rate",
+                error,
+            );
+            error = check_min_and_max(
+                rate_pack.exit_service_rate,
+                rate_pack_limits.lo.exit_service_rate,
+                rate_pack_limits.hi.exit_service_rate,
+                "exit_service_rate",
+                error,
+            );
+            if !error.is_empty() {
+                Err(error)
+            } else {
+                Ok(rate_pack)
+            }
+        }
+        Err(e) => Err(e),
+    }
 }
 
 fn process_combined_params<'a, T: PartialEq, C1, C2>(
@@ -626,7 +694,7 @@ mod tests {
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
     use crate::sub_lib::accountant::DEFAULT_PAYMENT_THRESHOLDS;
     use crate::sub_lib::cryptde::{PlainData, PublicKey};
-    use crate::sub_lib::neighborhood::{Hops, DEFAULT_RATE_PACK};
+    use crate::sub_lib::neighborhood::{Hops, RatePackLimits, DEFAULT_RATE_PACK};
     use crate::sub_lib::utils::make_new_multi_config;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::neighborhood_test_utils::MIN_HOPS_FOR_TEST;
@@ -2422,6 +2490,76 @@ mod tests {
     }
 
     #[test]
+    fn configure_rate_pack_complains_when_minimums_are_transgressed() {
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .rate_pack_result(Ok(RatePack::new(0, 0, 0, 0)))
+            .set_rate_pack_result(Ok(()))
+            .rate_pack_limits_result(Ok(RatePackLimits::new(
+                RatePack::new(5, 5, 5, 5),
+                RatePack::new(7, 7, 7, 7),
+            )));
+
+        let result = configure_rate_pack(
+            &make_simplified_multi_config(["--rate-pack", "4|4|4|4"]),
+            &mut persistent_config,
+        );
+
+        let expected_error = ConfiguratorError::new(vec![])
+            .another_required(
+                "rate-pack",
+                "Value of routing_byte_rate (4) is below the minimum allowed (5)",
+            )
+            .another_required(
+                "rate-pack",
+                "Value of routing_service_rate (4) is below the minimum allowed (5)",
+            )
+            .another_required(
+                "rate-pack",
+                "Value of exit_byte_rate (4) is below the minimum allowed (5)",
+            )
+            .another_required(
+                "rate-pack",
+                "Value of exit_service_rate (4) is below the minimum allowed (5)",
+            );
+        assert_eq!(result, Err(expected_error));
+    }
+
+    #[test]
+    fn configure_rate_pack_complains_when_maximums_are_transgressed() {
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .rate_pack_result(Ok(RatePack::new(0, 0, 0, 0)))
+            .set_rate_pack_result(Ok(()))
+            .rate_pack_limits_result(Ok(RatePackLimits::new(
+                RatePack::new(5, 5, 5, 5),
+                RatePack::new(7, 7, 7, 7),
+            )));
+
+        let result = configure_rate_pack(
+            &make_simplified_multi_config(["--rate-pack", "8|8|8|8"]),
+            &mut persistent_config,
+        );
+
+        let expected_error = ConfiguratorError::new(vec![])
+            .another_required(
+                "rate-pack",
+                "Value of routing_byte_rate (8) is above the maximum allowed (7)",
+            )
+            .another_required(
+                "rate-pack",
+                "Value of routing_service_rate (8) is above the maximum allowed (7)",
+            )
+            .another_required(
+                "rate-pack",
+                "Value of exit_byte_rate (8) is above the maximum allowed (7)",
+            )
+            .another_required(
+                "rate-pack",
+                "Value of exit_service_rate (8) is above the maximum allowed (7)",
+            );
+        assert_eq!(result, Err(expected_error));
+    }
+
+    #[test]
     fn compute_mapping_protocol_returns_saved_value_if_nothing_supplied() {
         let multi_config = make_new_multi_config(
             &app_node(),
@@ -2661,6 +2799,10 @@ mod tests {
             .past_neighbors_result(past_neighbors_result)
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Pcp)))
             .rate_pack_result(Ok(rate_pack))
+            .rate_pack_limits_result(Ok(RatePackLimits::new(
+                RatePack::new(u64::MIN, u64::MIN, u64::MIN, u64::MIN),
+                RatePack::new(u64::MAX, u64::MAX, u64::MAX, u64::MAX),
+            )))
             .min_hops_result(Ok(min_hops))
     }
 }
