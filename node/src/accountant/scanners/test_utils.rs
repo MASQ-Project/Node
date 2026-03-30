@@ -18,8 +18,8 @@ use crate::accountant::scanners::pending_payable_scanner::{
     CachesEmptiableScanner, ExtendedPendingPayablePrivateScanner,
 };
 use crate::accountant::scanners::scan_schedulers::{
-    NewPayableScanIntervalComputer, PayableSequenceScanner, RescheduleScanOnErrorResolver,
-    ScanReschedulingAfterEarlyStop, ScanTiming,
+    NewPayableScanIntervalComputer, RescheduleScanOnErrorResolver, ScanReschedulingAfterEarlyStop,
+    ScanTiming, UnableToStartScanner,
 };
 use crate::accountant::scanners::{
     PendingPayableScanner, PrivateScanner, RealScannerMarker, ReceivableScanner, Scanner,
@@ -336,15 +336,20 @@ impl<StartMsg, EndMsg, ScanResult> ScannerMockMarker for ScannerMock<StartMsg, E
 
 #[derive(Default)]
 pub struct NewPayableScanIntervalComputerMock {
-    time_until_next_scan_params: Arc<Mutex<Vec<()>>>,
-    time_until_next_scan_results: RefCell<Vec<ScanTiming>>,
+    compute_time_to_next_scan_params: Arc<Mutex<Vec<()>>>,
+    compute_time_to_next_scan_results: RefCell<Vec<ScanTiming>>,
     reset_last_scan_timestamp_params: Arc<Mutex<Vec<()>>>,
 }
 
 impl NewPayableScanIntervalComputer for NewPayableScanIntervalComputerMock {
-    fn time_until_next_scan(&self) -> ScanTiming {
-        self.time_until_next_scan_params.lock().unwrap().push(());
-        self.time_until_next_scan_results.borrow_mut().remove(0)
+    fn compute_time_to_next_scan(&self) -> ScanTiming {
+        self.compute_time_to_next_scan_params
+            .lock()
+            .unwrap()
+            .push(());
+        self.compute_time_to_next_scan_results
+            .borrow_mut()
+            .remove(0)
     }
 
     fn reset_last_scan_timestamp(&mut self) {
@@ -358,13 +363,15 @@ impl NewPayableScanIntervalComputer for NewPayableScanIntervalComputerMock {
 }
 
 impl NewPayableScanIntervalComputerMock {
-    pub fn time_until_next_scan_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
-        self.time_until_next_scan_params = params.clone();
+    pub fn compute_time_to_next_scan_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+        self.compute_time_to_next_scan_params = params.clone();
         self
     }
 
-    pub fn time_until_next_scan_result(self, result: ScanTiming) -> Self {
-        self.time_until_next_scan_results.borrow_mut().push(result);
+    pub fn compute_time_to_next_scan_result(self, result: ScanTiming) -> Self {
+        self.compute_time_to_next_scan_results
+            .borrow_mut()
+            .push(result);
         self
     }
 
@@ -470,14 +477,14 @@ pub fn assert_timestamps_from_str(examined_str: &str, expected_timestamps: Vec<S
 #[derive(Default)]
 pub struct RescheduleScanOnErrorResolverMock {
     resolve_rescheduling_on_error_params:
-        Arc<Mutex<Vec<(PayableSequenceScanner, StartScanError, bool, Logger)>>>,
+        Arc<Mutex<Vec<(UnableToStartScanner, StartScanError, bool, Logger)>>>,
     resolve_rescheduling_on_error_results: RefCell<Vec<ScanReschedulingAfterEarlyStop>>,
 }
 
 impl RescheduleScanOnErrorResolver for RescheduleScanOnErrorResolverMock {
     fn resolve_rescheduling_on_error(
         &self,
-        scanner: PayableSequenceScanner,
+        scanner: UnableToStartScanner,
         error: &StartScanError,
         is_externally_triggered: bool,
         logger: &Logger,
@@ -500,7 +507,7 @@ impl RescheduleScanOnErrorResolver for RescheduleScanOnErrorResolverMock {
 impl RescheduleScanOnErrorResolverMock {
     pub fn resolve_rescheduling_on_error_params(
         mut self,
-        params: &Arc<Mutex<Vec<(PayableSequenceScanner, StartScanError, bool, Logger)>>>,
+        params: &Arc<Mutex<Vec<(UnableToStartScanner, StartScanError, bool, Logger)>>>,
     ) -> Self {
         self.resolve_rescheduling_on_error_params = params.clone();
         self

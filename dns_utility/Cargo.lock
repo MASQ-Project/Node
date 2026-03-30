@@ -457,7 +457,7 @@ dependencies = [
 
 [[package]]
 name = "dns_utility"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "core-foundation",
  "ipconfig 0.2.2",
@@ -757,7 +757,7 @@ dependencies = [
 
 [[package]]
 name = "ip_country"
-version = "0.1.0"
+version = "0.9.1"
 dependencies = [
  "csv",
  "ipnetwork",
@@ -919,7 +919,7 @@ dependencies = [
 
 [[package]]
 name = "masq_lib"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "actix",
  "clap",
@@ -1775,7 +1775,7 @@ dependencies = [
 
 [[package]]
 name = "test_utilities"
-version = "0.1.0"
+version = "0.9.1"
 
 [[package]]
 name = "textwrap"

@@ -4,6 +4,7 @@
 **/*.rs.bk
 .idea/azure/
 .idea/inspectionProfiles/Project_Default.xml
+.idea/copilot*
 
 ### Node
 node_modules
@@ -57,8 +58,10 @@ Temporary Items
 **/.idea/jsLibraryMappings.xml
 **/.idea/markdown-navigator.xml
 **/.idea/markdown-navigator/**
+**/idea/db-forest-config.xml
 **/.idea/aws.xml
 **/.idea/scopes/*.xml
+**/.idea/copilot*
 
 # Sensitive or high-churn files:
 **/.idea/**/dataSources/

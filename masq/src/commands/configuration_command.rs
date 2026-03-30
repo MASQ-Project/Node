@@ -166,8 +166,8 @@ impl ConfigurationCommand {
         let scan_intervals = Self::preprocess_combined_parameters({
             let s_i = &configuration.scan_intervals;
             &[
-                ("Pending payable:", &s_i.pending_payable_sec, "s"),
                 ("Payable:", &s_i.payable_sec, "s"),
+                ("Pending payable:", &s_i.pending_payable_sec, "s"),
                 ("Receivable:", &s_i.receivable_sec, "s"),
             ]
         });
@@ -397,8 +397,8 @@ mod tests {
 |                                  Exit byte rate:                   129,000,000 wei\n\
 |                                  Exit service rate:                160,000,000 wei\n\
 |Scan intervals:                   \n\
-|                                  Pending payable:                  150,500 s\n\
 |                                  Payable:                          155,000 s\n\
+|                                  Pending payable:                  150,500 s\n\
 |                                  Receivable:                       250,666 s\n"
             )
             .replace('|', "")
@@ -494,8 +494,8 @@ mod tests {
 |                                  Exit byte rate:                   20 wei\n\
 |                                  Exit service rate:                30 wei\n\
 |Scan intervals:                   \n\
-|                                  Pending payable:                  1,000 s\n\
 |                                  Payable:                          1,000 s\n\
+|                                  Pending payable:                  1,000 s\n\
 |                                  Receivable:                       1,000 s\n",
             )
             .replace('|', "")

@@ -21,7 +21,7 @@ use std::convert::TryInto;
 use std::time::Duration;
 
 #[test]
-fn debut_target_does_not_introduce_known_neighbors() {
+fn if_debuter_already_knows_all_of_recipients_neighbors_recipient_redebuts() {
     let mut cluster = MASQNodeCluster::start().unwrap();
     let one_common_neighbor = make_node_record(1234, true);
     let another_common_neighbor = make_node_record(2435, true);
@@ -74,11 +74,7 @@ fn debut_target_does_not_introduce_known_neighbors() {
     let standard_gossip = Standard::from(&agrs);
     assert_eq!(
         standard_gossip.key_set(),
-        vec_to_set(vec![
-            subject_real_node.main_public_key().clone(),
-            one_common_neighbor.public_key().clone(),
-            another_common_neighbor.public_key().clone(),
-        ])
+        vec_to_set(vec![subject_real_node.main_public_key().clone(),])
     );
 }
 

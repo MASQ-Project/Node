@@ -66,7 +66,7 @@ impl StartableScanner<ScanForRetryPayables, InitialTemplatesMessage> for Payable
         info!(logger, "Scanning for retry payables");
         let failed_txs = self.get_txs_to_retry();
         let amount_from_payables = self.find_amount_from_payables(&failed_txs);
-        let retry_tx_templates = RetryTxTemplates::new(&failed_txs, &amount_from_payables);
+        let retry_tx_templates = RetryTxTemplates::new(&failed_txs, &amount_from_payables, logger);
 
         Ok(InitialTemplatesMessage {
             initial_templates: Either::Right(retry_tx_templates),
@@ -89,7 +89,7 @@ mod tests {
     use crate::accountant::scanners::payable_scanner::tx_templates::initial::retry::{
         RetryTxTemplate, RetryTxTemplates,
     };
-    use crate::accountant::scanners::Scanners;
+    use crate::accountant::scanners::payable_scanner::MultistageDualPayableScanner;
     use crate::accountant::test_utils::{
         make_payable_account, FailedPayableDaoMock, PayableDaoMock,
     };
@@ -144,7 +144,10 @@ mod tests {
             .payable_dao(payable_dao)
             .build();
 
-        let result = Scanners::start_correct_payable_scanner::<ScanForRetryPayables>(
+        let result = <(dyn MultistageDualPayableScanner) as StartableScanner<
+            ScanForRetryPayables,
+            InitialTemplatesMessage,
+        >>::start_scan(
             &mut subject,
             &consuming_wallet,
             timestamp,
@@ -157,11 +160,8 @@ mod tests {
         let retrieve_payables_params = retrieve_payables_params_arc.lock().unwrap();
         let expected_tx_templates = {
             let mut tx_template_1 = RetryTxTemplate::from(&failed_tx_1);
-            tx_template_1.base.amount_in_wei =
-                tx_template_1.base.amount_in_wei + payable_account_1.balance_wei;
-
+            tx_template_1.base.amount_in_wei = payable_account_1.balance_wei;
             let tx_template_2 = RetryTxTemplate::from(&failed_tx_2);
-
             RetryTxTemplates(vec![tx_template_1, tx_template_2])
         };
         assert_eq!(

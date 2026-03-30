@@ -1,6 +1,6 @@
 [package]
 name = "ip_country"
-version = "0.1.0"
+version = "0.9.1"
 edition = "2021"
 license = "GPL-3.0-only"
 authors = ["Dan Wiebe <dnwiebe@gmail.com>", "MASQ"]

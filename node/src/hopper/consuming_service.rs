@@ -100,10 +100,10 @@ impl ConsumingService {
         let ibcd = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0),
-            reception_port: None,
+            reception_port_opt: None,
             last_data: false,
             is_clandestine: true,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: encrypted_package.into(),
         };
         debug!(
@@ -119,7 +119,7 @@ impl ConsumingService {
             endpoint: next_stop,
             last_data: false, // Hopper-to-Hopper clandestine streams are never remotely killed
             data: encrypted_package.into(),
-            sequence_number: None,
+            sequence_number_opt: None,
         };
 
         debug!(
@@ -143,6 +143,7 @@ mod tests {
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::route::Route;
     use crate::sub_lib::route::RouteSegment;
+    use crate::sub_lib::stream_key::StreamKey;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::{make_meaningless_message_type, make_paying_wallet};
@@ -168,7 +169,7 @@ mod tests {
             CRYPTDE_PAIR.main.as_ref(),
             &target_key,
             &target_node_addr,
-            make_meaningless_message_type(),
+            make_meaningless_message_type(StreamKey::make_meaningless_stream_key()),
         )
         .unwrap();
         let system = System::new("");
@@ -192,7 +193,7 @@ mod tests {
             &TransmitDataMsg {
                 endpoint: Endpoint::Socket(SocketAddr::from_str("1.2.1.2:1212").unwrap()),
                 last_data: false,
-                sequence_number: None,
+                sequence_number_opt: None,
                 data: encodex(CRYPTDE_PAIR.main.as_ref(), &target_key, &lcp)
                     .unwrap()
                     .into(),
@@ -242,7 +243,7 @@ mod tests {
             Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
-        let payload = make_meaningless_message_type();
+        let payload = make_meaningless_message_type(StreamKey::make_meaningless_stream_key());
         let incipient_cores_package =
             IncipientCoresPackage::new(cryptde, route.clone(), payload, &destination_key).unwrap();
         let system = System::new("converts_incipient_message_to_live_and_sends_to_dispatcher");
@@ -266,7 +267,7 @@ mod tests {
             TransmitDataMsg {
                 endpoint: Endpoint::Key(destination_key.clone()),
                 last_data: false,
-                sequence_number: None,
+                sequence_number_opt: None,
                 data: expected_lcp_enc.into(),
             },
             *record,
@@ -289,7 +290,7 @@ mod tests {
             Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
-        let payload = make_meaningless_message_type();
+        let payload = make_meaningless_message_type(StreamKey::make_meaningless_stream_key());
         let incipient_cores_package =
             IncipientCoresPackage::new(cryptde, route.clone(), payload, &destination_key).unwrap();
         let system = System::new("consume_sends_zero_hop_incipient_directly_to_hopper");
@@ -317,10 +318,10 @@ mod tests {
             InboundClientData {
                 timestamp: record.timestamp,
                 client_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0),
-                reception_port: None,
+                reception_port_opt: None,
                 last_data: false,
                 is_clandestine: true,
-                sequence_number: None,
+                sequence_number_opt: None,
                 data: expected_lcp_enc.into(),
             },
         );
@@ -340,7 +341,7 @@ mod tests {
             IncipientCoresPackage::new(
                 CRYPTDE_PAIR.main.as_ref(),
                 Route { hops: vec![] },
-                make_meaningless_message_type(),
+                make_meaningless_message_type(StreamKey::make_meaningless_stream_key()),
                 &PublicKey::new(&[1, 2]),
             )
             .unwrap(),

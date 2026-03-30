@@ -1142,6 +1142,7 @@ mod tests {
             data_directory: PathBuf::new(),
             node_descriptor: NodeDescriptor::default(),
             mapping_protocol_opt: None,
+            new_public_key_opt: None,
             real_user: RealUser::null(),
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::Standard(
@@ -1213,6 +1214,7 @@ mod tests {
             cryptde_pair: CRYPTDE_PAIR.clone(),
             mapping_protocol_opt: Some(Igdp),
             real_user: RealUser::null(),
+            new_public_key_opt: None,
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::Standard(
                     NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), &[1234, 2345]),
@@ -1509,6 +1511,7 @@ mod tests {
             cryptde_pair: CRYPTDE_PAIR.clone(),
             mapping_protocol_opt: None,
             real_user: RealUser::null(),
+            new_public_key_opt: None,
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::ConsumeOnly(vec![]),
                 min_hops: MIN_HOPS_FOR_TEST,
@@ -1692,6 +1695,7 @@ mod tests {
             cryptde_pair: CRYPTDE_PAIR.clone(),
             mapping_protocol_opt: None,
             real_user: RealUser::null(),
+            new_public_key_opt: None,
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::Standard(
                     NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), &[]),

@@ -13,7 +13,7 @@ use std::fmt;
 use std::fmt::Display;
 use std::time::Duration;
 
-macro_rules! initiate_struct{
+macro_rules! initialize_struct{
     ($struct_type: ident, $hash_map: expr, $($field:literal),+) =>{
         paste!{
             $struct_type{
@@ -119,32 +119,29 @@ impl CombinedParams {
         delimiter: char,
         expected_collection: &[(&str, CombinedParamsDataTypes)],
     ) -> Result<HashMap<String, CombinedParamsValueRetriever>, String> {
-        let check = |count: usize| {
-            if count != expected_collection.len() {
-                return Err(format!(
-                    "Wrong number of values: expected {} but {} supplied{}",
-                    expected_collection.len(),
-                    count,
-                    if count == 1 {
-                        format!(". Did you use the correct delimiter '{}'?", delimiter)
-                    } else {
-                        "".to_string()
-                    }
-                ));
-            }
-            Ok(())
-        };
         let pieces: Vec<&str> = input.split(delimiter).collect();
-        check(pieces.len())?;
+        let param_count = pieces.len();
+        let expected_param_count = expected_collection.len();
+        if param_count != expected_param_count {
+            return Err(format!(
+                "Wrong number of values: expected {} but {} supplied{}",
+                expected_param_count,
+                param_count,
+                if param_count == 1 {
+                    format!(". Did you use the correct delimiter '{}'?", delimiter)
+                } else {
+                    "".to_string()
+                }
+            ));
+        }
         let zipped = pieces.into_iter().zip(expected_collection.iter());
-        Ok(zipped
-            .map(|(piece, (param_name, data_type))| {
-                (
-                    param_name.to_string(),
-                    CombinedParamsValueRetriever::parse(piece, data_type).expectv("numeric value"),
-                )
-            })
-            .collect())
+        let remapped_pairs = zipped.map(|(piece, (param_name, data_type))| {
+            (
+                param_name.to_string(),
+                CombinedParamsValueRetriever::parse(piece, data_type).expectv("numeric value"),
+            )
+        });
+        Ok(HashMap::from_iter(remapped_pairs))
     }
 
     fn initialize_objects(
@@ -152,7 +149,7 @@ impl CombinedParams {
         parsed_values: HashMap<String, CombinedParamsValueRetriever>,
     ) -> Self {
         match self {
-            Self::RatePack(Uninitialized) => Self::RatePack(Initialized(initiate_struct!(
+            Self::RatePack(Uninitialized) => Self::RatePack(Initialized(initialize_struct!(
                 RatePack,
                 &parsed_values,
                 "routing_byte_rate",
@@ -161,7 +158,7 @@ impl CombinedParams {
                 "exit_service_rate"
             ))),
             Self::PaymentThresholds(Uninitialized) => {
-                Self::PaymentThresholds(Initialized(initiate_struct!(
+                Self::PaymentThresholds(Initialized(initialize_struct!(
                     PaymentThresholds,
                     &parsed_values,
                     "maturity_threshold_sec",
@@ -173,7 +170,7 @@ impl CombinedParams {
                 )))
             }
             Self::ScanIntervals(Uninitialized) => {
-                Self::ScanIntervals(Initialized(initiate_struct!(
+                Self::ScanIntervals(Initialized(initialize_struct!(
                     ScanIntervals,
                     &parsed_values,
                     Duration::from_secs,
@@ -183,7 +180,7 @@ impl CombinedParams {
                 )))
             }
             _ => panic!(
-                "should be called only on uninitialized object, not: {:?}",
+                "should be called only on an uninitialized object, not: {:?}",
                 self
             ),
         }
@@ -213,7 +210,7 @@ impl From<&CombinedParams> for &[(&str, CombinedParamsDataTypes)] {
                 ("receivable_scan_interval", U64),
             ],
             _ => panic!(
-                "should be called only on uninitialized object, not: {:?}",
+                "should be called only on an uninitialized object, not: {:?}",
                 params
             ),
         }
@@ -433,7 +430,7 @@ mod tests {
         assert_eq!(
             panic_1_msg,
             &format!(
-                "should be called only on uninitialized object, not: RatePack(Initialized({:?}))",
+                "should be called only on an uninitialized object, not: RatePack(Initialized({:?}))",
                 DEFAULT_RATE_PACK
             )
         );
@@ -449,7 +446,7 @@ mod tests {
         assert_eq!(
             panic_2_msg,
             &format!(
-                "should be called only on uninitialized object, not: PaymentThresholds(Initialized({:?}))",
+                "should be called only on an uninitialized object, not: PaymentThresholds(Initialized({:?}))",
                 PaymentThresholds::default()
             )
         );
@@ -464,7 +461,7 @@ mod tests {
         assert_eq!(
             panic_3_msg,
             &format!(
-                "should be called only on uninitialized object, not: ScanIntervals(Initialized({:?}))",
+                "should be called only on an uninitialized object, not: ScanIntervals(Initialized({:?}))",
                 *TEST_SCAN_INTERVALS
             )
         );
@@ -482,7 +479,7 @@ mod tests {
         assert_eq!(
             panic_1_msg,
             &format!(
-                "should be called only on uninitialized object, not: RatePack(Initialized({:?}))",
+                "should be called only on an uninitialized object, not: RatePack(Initialized({:?}))",
                 DEFAULT_RATE_PACK
             )
         );
@@ -497,7 +494,7 @@ mod tests {
         assert_eq!(
             panic_2_msg,
             &format!(
-                "should be called only on uninitialized object, not: PaymentThresholds(Initialized({:?}))",
+                "should be called only on an uninitialized object, not: PaymentThresholds(Initialized({:?}))",
                 PaymentThresholds::default()
             )
         );
@@ -512,7 +509,7 @@ mod tests {
         assert_eq!(
             panic_3_msg,
             &format!(
-                "should be called only on uninitialized object, not: ScanIntervals(Initialized({:?}))",
+                "should be called only on an uninitialized object, not: ScanIntervals(Initialized({:?}))",
                 *TEST_SCAN_INTERVALS
             )
         );

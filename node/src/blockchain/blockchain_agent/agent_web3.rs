@@ -118,11 +118,13 @@ mod tests {
         BlockchainAgentWeb3, WEB3_MAXIMAL_GAS_LIMIT_MARGIN,
     };
     use crate::blockchain::blockchain_agent::BlockchainAgent;
-    use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
+    use crate::blockchain::blockchain_bridge::increase_by_percentage;
     use crate::test_utils::make_wallet;
     use itertools::{Either, Itertools};
     use masq_lib::blockchains::chains::Chain;
-    use masq_lib::constants::DEFAULT_GAS_PRICE_MARGIN;
+    use masq_lib::constants::{
+        DEFAULT_GAS_PRICE_RETRY_CONSTANT, DEFAULT_GAS_PRICE_RETRY_PERCENTAGE,
+    };
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
@@ -155,7 +157,7 @@ mod tests {
 
         let result = subject.price_qualified_payables(Either::Left(new_tx_templates.clone()));
 
-        let gas_price_with_margin_wei = increase_gas_price_by_margin(rpc_gas_price_wei);
+        let gas_price_with_margin_wei = increase_by_percentage(rpc_gas_price_wei);
         let expected_result = Either::Left(PricedNewTxTemplates::new(
             new_tx_templates,
             gas_price_with_margin_wei,
@@ -170,30 +172,32 @@ mod tests {
         let test_name = "returns_correct_priced_qualified_payables_for_retry_payable_scan";
         let consuming_wallet = make_wallet("efg");
         let consuming_wallet_balances = make_zeroed_consuming_wallet_balances();
-        let rpc_gas_price_wei = 444_555_666;
+        let latest_gas_price_wei = 444_555_666;
         let chain = TEST_DEFAULT_CHAIN;
+        let prev_gas_prices = vec![
+            latest_gas_price_wei - 1,
+            latest_gas_price_wei,
+            latest_gas_price_wei + 1,
+            latest_gas_price_wei - 123_456,
+            latest_gas_price_wei + 456_789,
+        ];
         let retry_tx_templates: Vec<RetryTxTemplate> = {
-            vec![
-                rpc_gas_price_wei - 1,
-                rpc_gas_price_wei,
-                rpc_gas_price_wei + 1,
-                rpc_gas_price_wei - 123_456,
-                rpc_gas_price_wei + 456_789,
-            ]
-            .into_iter()
-            .enumerate()
-            .map(|(idx, prev_gas_price_wei)| {
-                let account = make_payable_account((idx as u64 + 1) * 3_000);
-                RetryTxTemplate {
-                    base: BaseTxTemplate::from(&account),
-                    prev_gas_price_wei,
-                    prev_nonce: idx as u64,
-                }
-            })
-            .collect_vec()
+            prev_gas_prices
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(idx, prev_gas_price_wei)| {
+                    let account = make_payable_account((idx as u64 + 1) * 3_000);
+                    RetryTxTemplate {
+                        base: BaseTxTemplate::from(&account),
+                        prev_gas_price_wei,
+                        prev_nonce: idx as u64,
+                    }
+                })
+                .collect_vec()
         };
         let mut subject = BlockchainAgentWeb3::new(
-            rpc_gas_price_wei,
+            latest_gas_price_wei,
             77_777,
             consuming_wallet,
             consuming_wallet_balances,
@@ -205,23 +209,27 @@ mod tests {
             .price_qualified_payables(Either::Right(RetryTxTemplates(retry_tx_templates.clone())));
 
         let expected_result = {
-            let price_wei_for_accounts_from_1_to_5 = vec![
-                increase_gas_price_by_margin(rpc_gas_price_wei),
-                increase_gas_price_by_margin(rpc_gas_price_wei),
-                increase_gas_price_by_margin(rpc_gas_price_wei + 1),
-                increase_gas_price_by_margin(rpc_gas_price_wei),
-                increase_gas_price_by_margin(rpc_gas_price_wei + 456_789),
-            ];
-            if price_wei_for_accounts_from_1_to_5.len() != retry_tx_templates.len() {
+            let computed_gas_prices = prev_gas_prices
+                .into_iter()
+                .map(|prev_gas_price_wei| {
+                    PricedRetryTxTemplate::compute_gas_price(
+                        latest_gas_price_wei,
+                        prev_gas_price_wei,
+                    )
+                })
+                .collect::<Vec<u128>>();
+            if computed_gas_prices.len() != retry_tx_templates.len() {
                 panic!("Corrupted test")
             }
-
             Either::Right(PricedRetryTxTemplates(
                 retry_tx_templates
                     .iter()
-                    .zip(price_wei_for_accounts_from_1_to_5.into_iter())
-                    .map(|(retry_tx_template, increased_gas_price)| {
-                        PricedRetryTxTemplate::new(retry_tx_template.clone(), increased_gas_price)
+                    .zip(computed_gas_prices.into_iter())
+                    .map(|(retry_tx_template, computed_gas_price_wei)| {
+                        PricedRetryTxTemplate::new(
+                            retry_tx_template.clone(),
+                            computed_gas_price_wei,
+                        )
                     })
                     .collect_vec(),
             ))
@@ -238,9 +246,10 @@ mod tests {
         // This should be the value that would surplus the ceiling just slightly if the margin is
         // applied.
         // Adding just 1 didn't work, therefore 2
-        let rpc_gas_price_wei =
-            ((ceiling_gas_price_wei * 100) / (DEFAULT_GAS_PRICE_MARGIN as u128 + 100)) + 2;
-        let check_value_wei = increase_gas_price_by_margin(rpc_gas_price_wei);
+        let rpc_gas_price_wei = ((ceiling_gas_price_wei * 100)
+            / (DEFAULT_GAS_PRICE_RETRY_PERCENTAGE as u128 + 100))
+            + 2;
+        let check_value_wei = increase_by_percentage(rpc_gas_price_wei);
 
         test_gas_price_must_not_break_through_ceiling_value_in_the_new_payable_mode(
             test_name,
@@ -340,8 +349,8 @@ mod tests {
         // applied.
         // Adding just 1 didn't work, therefore 2
         let rpc_gas_price_wei =
-            (ceiling_gas_price_wei * 100) / (DEFAULT_GAS_PRICE_MARGIN as u128 + 100) + 2;
-        let check_value_wei = increase_gas_price_by_margin(rpc_gas_price_wei);
+            (ceiling_gas_price_wei * 100) / (DEFAULT_GAS_PRICE_RETRY_PERCENTAGE as u128 + 100) + 2;
+        let check_value_wei = increase_by_percentage(rpc_gas_price_wei);
         let template_1 = RetryTxTemplateBuilder::new()
             .payable_account(&account_1)
             .prev_gas_price_wei(rpc_gas_price_wei - 1)
@@ -382,18 +391,17 @@ mod tests {
         let account_1 = make_payable_account(12);
         let account_2 = make_payable_account(34);
         let ceiling_gas_price_wei = chain.rec().gas_price_safe_ceiling_minor;
-        // This should be the value that would surplus the ceiling just slightly if the margin is applied
-        let border_gas_price_wei =
-            (ceiling_gas_price_wei * 100) / (DEFAULT_GAS_PRICE_MARGIN as u128 + 100) + 2;
-        let rpc_gas_price_wei = border_gas_price_wei - 1;
-        let check_value_wei = increase_gas_price_by_margin(border_gas_price_wei);
+        // Once the gas price is computed from latest and prev gas price values, it'll break the ceiling
+        let prev_gas_price_wei = ceiling_gas_price_wei + 1 - DEFAULT_GAS_PRICE_RETRY_CONSTANT;
+        let latest_gas_price_wei = prev_gas_price_wei - 1;
+        let check_value_wei = prev_gas_price_wei + DEFAULT_GAS_PRICE_RETRY_CONSTANT;
         let template_1 = RetryTxTemplateBuilder::new()
             .payable_account(&account_1)
-            .prev_gas_price_wei(border_gas_price_wei)
+            .prev_gas_price_wei(prev_gas_price_wei)
             .build();
         let template_2 = RetryTxTemplateBuilder::new()
             .payable_account(&account_2)
-            .prev_gas_price_wei(border_gas_price_wei)
+            .prev_gas_price_wei(prev_gas_price_wei)
             .build();
         let retry_tx_templates = vec![template_1, template_2];
         let expected_log_msg = format!(
@@ -406,7 +414,7 @@ mod tests {
         test_gas_price_must_not_break_through_ceiling_value_in_the_retry_payable_mode(
             test_name,
             chain,
-            rpc_gas_price_wei,
+            latest_gas_price_wei,
             Either::Right(RetryTxTemplates(retry_tx_templates)),
             &expected_log_msg,
         );
@@ -466,8 +474,8 @@ mod tests {
         let expected_log_msg = format!(
             "The computed gas price(s) in wei is above the ceil value of 50,000,000,000 wei computed by this Node.\n\
              Transaction(s) to following receivers are affected:\n\
-             0x00000000000000000000000077616c6c65743132 with gas price 64,999,999,998\n\
-             0x00000000000000000000000077616c6c65743334 with gas price 64,999,999,997"
+             0x00000000000000000000000077616c6c65743132 with gas price 50,000,004,999\n\
+             0x00000000000000000000000077616c6c65743334 with gas price 50,000,004,998"
         );
 
         test_gas_price_must_not_break_through_ceiling_value_in_the_retry_payable_mode(
@@ -602,8 +610,7 @@ mod tests {
 
         assert_eq!(
             result,
-            (2 * (77_777 + WEB3_MAXIMAL_GAS_LIMIT_MARGIN))
-                * increase_gas_price_by_margin(444_555_666)
+            (2 * (77_777 + WEB3_MAXIMAL_GAS_LIMIT_MARGIN)) * increase_by_percentage(444_555_666)
         );
     }
 
@@ -611,30 +618,32 @@ mod tests {
     fn estimate_transaction_fee_total_works_for_retry_txs() {
         let consuming_wallet = make_wallet("efg");
         let consuming_wallet_balances = make_zeroed_consuming_wallet_balances();
-        let rpc_gas_price_wei = 444_555_666;
+        let latest_gas_price_wei = 444_555_666;
         let chain = TEST_DEFAULT_CHAIN;
+        let prev_gas_prices = vec![
+            latest_gas_price_wei - 1,
+            latest_gas_price_wei,
+            latest_gas_price_wei + 1,
+            latest_gas_price_wei - 123_456,
+            latest_gas_price_wei + 456_789,
+        ];
         let retry_tx_templates: Vec<RetryTxTemplate> = {
-            vec![
-                rpc_gas_price_wei - 1,
-                rpc_gas_price_wei,
-                rpc_gas_price_wei + 1,
-                rpc_gas_price_wei - 123_456,
-                rpc_gas_price_wei + 456_789,
-            ]
-            .into_iter()
-            .enumerate()
-            .map(|(idx, prev_gas_price_wei)| {
-                let account = make_payable_account((idx as u64 + 1) * 3_000);
-                RetryTxTemplate {
-                    base: BaseTxTemplate::from(&account),
-                    prev_gas_price_wei,
-                    prev_nonce: idx as u64,
-                }
-            })
-            .collect()
+            prev_gas_prices
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(idx, prev_gas_price_wei)| {
+                    let account = make_payable_account((idx as u64 + 1) * 3_000);
+                    RetryTxTemplate {
+                        base: BaseTxTemplate::from(&account),
+                        prev_gas_price_wei,
+                        prev_nonce: idx as u64,
+                    }
+                })
+                .collect()
         };
         let subject = BlockchainAgentWeb3::new(
-            rpc_gas_price_wei,
+            latest_gas_price_wei,
             77_777,
             consuming_wallet,
             consuming_wallet_balances,
@@ -645,15 +654,11 @@ mod tests {
 
         let result = subject.estimate_transaction_fee_total(&priced_qualified_payables);
 
-        let gas_prices_for_accounts_from_1_to_5 = vec![
-            increase_gas_price_by_margin(rpc_gas_price_wei),
-            increase_gas_price_by_margin(rpc_gas_price_wei),
-            increase_gas_price_by_margin(rpc_gas_price_wei + 1),
-            increase_gas_price_by_margin(rpc_gas_price_wei),
-            increase_gas_price_by_margin(rpc_gas_price_wei + 456_789),
-        ];
-        let expected_result = gas_prices_for_accounts_from_1_to_5
+        let expected_result = prev_gas_prices
             .into_iter()
+            .map(|prev_gas_price_wei| {
+                PricedRetryTxTemplate::compute_gas_price(latest_gas_price_wei, prev_gas_price_wei)
+            })
             .sum::<u128>()
             * (77_777 + WEB3_MAXIMAL_GAS_LIMIT_MARGIN);
         assert_eq!(result, expected_result)

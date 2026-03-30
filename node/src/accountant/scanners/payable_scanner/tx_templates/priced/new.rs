@@ -4,7 +4,7 @@ use crate::accountant::scanners::payable_scanner::tx_templates::initial::new::{
     NewTxTemplate, NewTxTemplates,
 };
 use crate::accountant::scanners::payable_scanner::tx_templates::BaseTxTemplate;
-use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
+use crate::blockchain::blockchain_bridge::increase_by_percentage;
 use masq_lib::logger::Logger;
 use std::ops::Deref;
 use thousands::Separable;
@@ -63,7 +63,7 @@ impl PricedNewTxTemplates {
         ceil: u128,
         logger: &Logger,
     ) -> Self {
-        let computed_gas_price_wei = increase_gas_price_by_margin(latest_gas_price_wei);
+        let computed_gas_price_wei = increase_by_percentage(latest_gas_price_wei);
 
         let safe_gas_price_wei = if computed_gas_price_wei > ceil {
             warning!(

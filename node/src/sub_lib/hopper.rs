@@ -173,6 +173,7 @@ mod tests {
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::dispatcher::Component;
     use crate::sub_lib::route::RouteSegment;
+    use crate::sub_lib::stream_key::StreamKey;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::{make_meaningless_message_type, make_paying_wallet};
     use actix::Actor;
@@ -205,7 +206,7 @@ mod tests {
         let cryptde = CRYPTDE_PAIR.main.as_ref();
         let public_key = PublicKey::new(&[1, 2]);
         let node_addr = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1, 2, 3, 4]);
-        let payload = make_meaningless_message_type();
+        let payload = make_meaningless_message_type(StreamKey::make_meaningless_stream_key());
 
         let result =
             NoLookupIncipientCoresPackage::new(cryptde, &public_key, &node_addr, payload.clone());
@@ -231,7 +232,7 @@ mod tests {
             cryptde,
             &PublicKey::new(&[]),
             &NodeAddr::new(&IpAddr::from_str("1.1.1.1").unwrap(), &[]),
-            make_meaningless_message_type(),
+            make_meaningless_message_type(StreamKey::make_meaningless_stream_key()),
         );
         assert_eq!(
             result,
@@ -255,7 +256,7 @@ mod tests {
             Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
-        let payload = make_meaningless_message_type();
+        let payload = make_meaningless_message_type(StreamKey::make_meaningless_stream_key());
 
         let result = IncipientCoresPackage::new(cryptde, route.clone(), payload.clone(), &key56);
         let subject = result.unwrap();
@@ -278,7 +279,7 @@ mod tests {
         let result = IncipientCoresPackage::new(
             cryptde,
             Route { hops: vec![] },
-            make_meaningless_message_type(),
+            make_meaningless_message_type(StreamKey::make_meaningless_stream_key()),
             &PublicKey::new(&[]),
         );
 
@@ -304,7 +305,7 @@ mod tests {
             Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
-        let payload = make_meaningless_message_type();
+        let payload = make_meaningless_message_type(StreamKey::make_meaningless_stream_key());
 
         let subject: ExpiredCoresPackage<MessageType> = ExpiredCoresPackage::new(
             immediate_neighbor,

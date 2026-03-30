@@ -39,10 +39,8 @@ use crate::sub_lib::peer_actors::PeerActors;
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp, StartMessage};
 use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, InboundServerData};
 use crate::sub_lib::proxy_client::{DnsResolveFailure_0v1, ProxyClientSubs};
-use crate::sub_lib::proxy_server::{
-    AddReturnRouteMessage, ClientRequestPayload_0v1, StreamKeyPurge,
-};
 use crate::sub_lib::proxy_server::{AddRouteResultMessage, ProxyServerSubs};
+use crate::sub_lib::proxy_server::{ClientRequestPayload_0v1, StreamKeyPurge};
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
@@ -127,7 +125,6 @@ macro_rules! recorder_message_handler_t_p {
     };
 }
 
-recorder_message_handler_t_m_p!(AddReturnRouteMessage);
 recorder_message_handler_t_m_p!(AddRouteResultMessage);
 recorder_message_handler_t_p!(AddStreamMsg);
 recorder_message_handler_t_m_p!(BindMessage);
@@ -462,7 +459,6 @@ pub fn make_proxy_server_subs_from_recorder(addr: &Addr<Recorder>) -> ProxyServe
         from_dispatcher: recipient!(addr, InboundClientData),
         from_hopper: recipient!(addr, ExpiredCoresPackage<ClientResponsePayload_0v1>),
         dns_failure_from_hopper: recipient!(addr, ExpiredCoresPackage<DnsResolveFailure_0v1>),
-        add_return_route: recipient!(addr, AddReturnRouteMessage),
         stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
         node_from_ui: recipient!(addr, NodeFromUiMessage),
         route_result_sub: recipient!(addr, AddRouteResultMessage),
@@ -641,8 +637,9 @@ impl PeerActorsBuilder {
     }
 
     // This must be called after System.new and before System.run.
-    // These addresses may be helpful for setting up the Counter Messages.
-    pub fn build_and_provide_addresses(self) -> (PeerActors, PeerActorAddrs) {
+    //
+    // The addresses may be helpful for setting up the Counter Messages.
+    pub fn build_with_addresses(self) -> (PeerActors, PeerActorAddrs) {
         let proxy_server_addr = self.proxy_server.start();
         let dispatcher_addr = self.dispatcher.start();
         let hopper_addr = self.hopper.start();
@@ -683,7 +680,7 @@ impl PeerActorsBuilder {
 
     // This must be called after System.new and before System.run
     pub fn build(self) -> PeerActors {
-        let (peer_actors, _) = self.build_and_provide_addresses();
+        let (peer_actors, _) = self.build_with_addresses();
         peer_actors
     }
 }

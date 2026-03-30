@@ -1,6 +1,6 @@
 [package]
 name = "node"
-version = "0.9.0"
+version = "0.9.1"
 license = "GPL-3.0-only"
 authors = ["Dan Wiebe <dnwiebe@gmail.com>", "MASQ"]
 description = "MASQ Node is the foundation of MASQ Network, an open-source network that allows anyone to allocate spare computing resources to make the internet a free and fair place for the entire world."
@@ -15,7 +15,7 @@ automap = { path = "../automap"}
 backtrace = "0.3.57"
 base64 = "0.13.0"
 bytes = "0.4.12"
-time = {version = "0.3.11", features = [ "macros", "parsing" ]}
+time = { version = "0.3.11", features = ["macros", "local-offset", "parsing"] }
 clap = "2.33.3"
 crossbeam-channel = "0.5.1"
 dirs = "4.0.0"
