@@ -6,7 +6,7 @@ use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
 use crate::sub_lib::cryptde::CryptDE;
-use crate::sub_lib::neighborhood::{Hops, NodeDescriptor, RatePack};
+use crate::sub_lib::neighborhood::{Hops, NodeDescriptor, RatePack, RatePackLimits};
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use crate::{arbitrary_id_stamp_in_trait_impl, set_arbitrary_id_stamp_in_mock_impl};
@@ -76,6 +76,7 @@ pub struct PersistentConfigurationMock {
     set_payment_thresholds_params: Arc<Mutex<Vec<String>>>,
     set_payment_thresholds_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     rate_pack_results: RefCell<Vec<Result<RatePack, PersistentConfigError>>>,
+    rate_pack_limits_results: RefCell<Vec<Result<RatePackLimits, PersistentConfigError>>>,
     set_rate_pack_params: Arc<Mutex<Vec<String>>>,
     set_rate_pack_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     scan_intervals_results: RefCell<Vec<Result<ScanIntervals, PersistentConfigError>>>,
@@ -152,6 +153,7 @@ impl Clone for PersistentConfigurationMock {
             set_payment_thresholds_params: self.set_payment_thresholds_params.clone(),
             set_payment_thresholds_results: self.set_payment_thresholds_results.clone(),
             rate_pack_results: self.rate_pack_results.clone(),
+            rate_pack_limits_results: self.rate_pack_limits_results.clone(),
             set_rate_pack_params: self.set_rate_pack_params.clone(),
             set_rate_pack_results: self.set_rate_pack_results.clone(),
             scan_intervals_results: self.scan_intervals_results.clone(),
@@ -400,6 +402,10 @@ impl PersistentConfiguration for PersistentConfigurationMock {
     fn set_rate_pack(&mut self, rate_pack: String) -> Result<(), PersistentConfigError> {
         self.set_rate_pack_params.lock().unwrap().push(rate_pack);
         self.set_rate_pack_results.borrow_mut().remove(0)
+    }
+
+    fn rate_pack_limits(&self) -> Result<RatePackLimits, PersistentConfigError> {
+        self.rate_pack_limits_results.borrow_mut().remove(0)
     }
 
     fn scan_intervals(&self) -> Result<ScanIntervals, PersistentConfigError> {
@@ -756,6 +762,14 @@ impl PersistentConfigurationMock {
 
     pub fn rate_pack_result(self, result: Result<RatePack, PersistentConfigError>) -> Self {
         self.rate_pack_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn rate_pack_limits_result(
+        self,
+        result: Result<RatePackLimits, PersistentConfigError>,
+    ) -> Self {
+        self.rate_pack_limits_results.borrow_mut().push(result);
         self
     }
 

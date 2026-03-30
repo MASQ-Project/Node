@@ -349,7 +349,7 @@ impl Default for DirsWrapperReal {
 mod tests {
     use super::*;
     use crate::node_test_utils::DirsWrapperMock;
-    use crate::test_utils::ArgsBuilder;
+    use crate::test_utils::{assert_string_contains, ArgsBuilder};
     use masq_lib::shared_schema::{config_file_arg, data_directory_arg, DATA_DIRECTORY_HELP};
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
@@ -397,22 +397,15 @@ mod tests {
             determine_user_specific_data(&DirsWrapperReal::default(), &app, args_vec.as_slice())
                 .unwrap_err();
 
-        let err = &result.param_errors[0];
-        assert_eq!(err.parameter, "<unknown>");
-        assert!(
-            err.reason.contains("Unfamiliar message:")
-                && err.reason.contains("Found argument")
-                && err.reason.contains("--booga-booga")
-                && err
-                    .reason
-                    .contains("which wasn't expected, or isn't valid in this context"),
-            "We expected to see err msg fragments,\
-            `Unfamiliar message:`, \
-            `Found argument`, \
-            `--booga-booga`, \
-            `which wasn't expected, or isn't valid in this context`, \
-            but got `{:?}`",
-            err.reason
+        let param_error = &result.param_errors[0];
+        assert_eq!(param_error.parameter, "<unknown>");
+        assert_string_contains(&param_error.reason, "Unfamiliar message: ");
+        assert_string_contains(&param_error.reason, "error:");
+        assert_string_contains(&param_error.reason, "Found argument '");
+        assert_string_contains(&param_error.reason, "--booga-booga");
+        assert_string_contains(
+            &param_error.reason,
+            "' which wasn't expected, or isn't valid in this context",
         );
         assert_eq!(result.param_errors.len(), 1);
     }

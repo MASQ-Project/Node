@@ -1551,7 +1551,7 @@ mod tests {
             ("neighbors", "masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
             ("new-public-key", "on", Set),
             ("payment-thresholds","1234|50000|1000|1000|20000|20000",Set),
-            ("rate-pack","1|3|3|8",Set),
+            ("rate-pack","100|300|300|800",Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Set),
             ("scan-intervals","150|150|150",Set),
@@ -1582,7 +1582,7 @@ mod tests {
             ("neighbors", "masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
             ("new-public-key", "on", Set),
             ("payment-thresholds","1234|50000|1000|1000|20000|20000",Set),
-            ("rate-pack","1|3|3|8",Set),
+            ("rate-pack","100|300|300|800",Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Set),
             ("scan-intervals","150|150|150",Set),
@@ -1623,7 +1623,7 @@ mod tests {
             ("neighbors", "masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
             ("new-public-key", "on"),
             ("payment-thresholds","1234|50000|1000|1000|15000|15000"),
-            ("rate-pack","1|3|3|8"),
+            ("rate-pack","100|300|300|800"),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga"),
             ("scan-intervals","140|130|150"),
@@ -1659,7 +1659,7 @@ mod tests {
             ("neighbors", "masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
             ("new-public-key", "on", Set),
             ("payment-thresholds","1234|50000|1000|1000|15000|15000",Set),
-            ("rate-pack","1|3|3|8",Set),
+            ("rate-pack","100|300|300|800",Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Set),
             ("scan-intervals","140|130|150",Set),
@@ -1701,7 +1701,7 @@ mod tests {
             ("MASQ_NEIGHBORS", "masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
             ("MASQ_NEW_PUBLIC_KEY", "on"),
             ("MASQ_PAYMENT_THRESHOLDS","12345|50000|1000|1234|19000|20000"),
-            ("MASQ_RATE_PACK","1|3|3|8"),
+            ("MASQ_RATE_PACK","100|300|300|800"),
             #[cfg(not(target_os = "windows"))]
             ("MASQ_REAL_USER", "9999:9999:booga"),
             ("MASQ_SCANS", "off"),
@@ -1734,7 +1734,7 @@ mod tests {
             ("neighbors", "masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Configured),
             ("new-public-key", "on", Configured),
             ("payment-thresholds","12345|50000|1000|1234|19000|20000",Configured),
-            ("rate-pack","1|3|3|8",Configured),
+            ("rate-pack","100|300|300|800",Configured),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Configured),
             ("scan-intervals","133|133|111",Configured),
@@ -1795,7 +1795,9 @@ mod tests {
                 .unwrap();
             config_file.write_all(b"new-public-key = \"on\"\n").unwrap();
             config_file.write_all(b"scans = \"off\"\n").unwrap();
-            config_file.write_all(b"rate-pack = \"2|2|2|2\"\n").unwrap();
+            config_file
+                .write_all(b"rate-pack = \"200|200|200|200\"\n")
+                .unwrap();
             config_file
                 .write_all(b"payment-thresholds = \"3333|55|33|646|999|999\"\n")
                 .unwrap();
@@ -1841,7 +1843,7 @@ mod tests {
                 .unwrap();
             config_file.write_all(b"scans = \"on\"\n").unwrap();
             config_file
-                .write_all(b"rate-pack = \"55|50|60|61\"\n")
+                .write_all(b"rate-pack = \"5500|5000|6000|6100\"\n")
                 .unwrap();
             config_file
                 .write_all(b"payment-thresholds = \"4000|1000|3000|3333|10000|20000\"\n")
@@ -1907,7 +1909,7 @@ mod tests {
                 "4000|1000|3000|3333|10000|20000",
                 Configured,
             ),
-            ("rate-pack", "55|50|60|61", Configured),
+            ("rate-pack", "5500|5000|6000|6100", Configured),
             #[cfg(not(target_os = "windows"))]
             (
                 "real-user",
@@ -1958,7 +1960,7 @@ mod tests {
             ("MASQ_NEIGHBORS", "masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
             ("MASQ_NEW_PUBLIC_KEY", "on"),
             ("MASQ_PAYMENT_THRESHOLDS","1234|50000|1000|1000|20000|20000"),
-            ("MASQ_RATE_PACK","1|3|3|8"),
+            ("MASQ_RATE_PACK","100|300|300|800"),
             #[cfg(not(target_os = "windows"))]
             ("MASQ_REAL_USER", "9999:9999:booga"),
             ("MASQ_SCANS", "off"),
@@ -2023,7 +2025,7 @@ mod tests {
             ),
             ("new-public-key", "off", Set),
             ("payment-thresholds", "4321|66666|777|987|123456|124444", Set),
-            ("rate-pack", "10|30|13|28", Set),
+            ("rate-pack", "1000|3000|1300|2800", Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "6666:6666:agoob", Set),
             ("scan-intervals", "111|111|111", Set),
@@ -2058,7 +2060,7 @@ mod tests {
             ("neighbors", "masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Configured),
             ("new-public-key", "on", Configured),
             ("payment-thresholds","1234|50000|1000|1000|20000|20000",Configured),
-            ("rate-pack","1|3|3|8",Configured),
+            ("rate-pack","100|300|300|800",Configured),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Configured),
             ("scan-intervals","150|150|155",Configured),
