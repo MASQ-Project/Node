@@ -95,10 +95,12 @@ impl StartableScanner<ScanForPendingPayables, RequestTransactionReceipts>
 
         info!(logger, "Scanning for pending payable");
 
-        let tx_hashes = self.harvest_tables(logger).map_err(|e| {
-            self.mark_as_ended(logger);
-            e
-        })?;
+        let tx_hashes = self
+            .harvest_tables(logger, response_skeleton_opt)
+            .map_err(|e| {
+                self.mark_as_ended(logger);
+                e
+            })?;
 
         Ok(RequestTransactionReceipts {
             tx_hashes,
@@ -162,7 +164,11 @@ impl PendingPayableScanner {
         }
     }
 
-    fn harvest_tables(&mut self, logger: &Logger) -> Result<Vec<TxHashByTable>, StartScanError> {
+    fn harvest_tables(
+        &mut self,
+        logger: &Logger,
+        response_skeleton_opt: Option<ResponseSkeleton>,
+    ) -> Result<Vec<TxHashByTable>, StartScanError> {
         debug!(logger, "Harvesting sent_payable and failed_payable tables");
 
         let pending_tx_hashes_opt = self.harvest_pending_payables();
@@ -172,7 +178,7 @@ impl PendingPayableScanner {
             pending_tx_hashes_opt.as_ref(),
             failure_hashes_opt.as_ref(),
         ) {
-            return Err(StartScanError::NothingToProcess);
+            return Err(StartScanError::nothing_to_process(response_skeleton_opt));
         }
 
         Self::log_records_for_receipt_check(
@@ -878,7 +884,9 @@ mod tests {
     };
     use crate::accountant::scanners::pending_payable_scanner::PendingPayableScanner;
     use crate::accountant::scanners::test_utils::PendingPayableCacheMock;
-    use crate::accountant::scanners::{Scanner, StartScanError, StartableScanner};
+    use crate::accountant::scanners::{
+        AutomaticError, CommonError, Scanner, StartScanError, StartableScanner,
+    };
     use crate::accountant::test_utils::{
         make_transaction_block, FailedPayableDaoMock, PayableDaoMock, PendingPayableScannerBuilder,
         SentPayableDaoMock,
@@ -1230,7 +1238,12 @@ mod tests {
         let result = subject.start_scan(&consuming_wallet, now, None, &Logger::new("test"));
 
         let is_scan_running = subject.scan_started_at().is_some();
-        assert_eq!(result, Err(StartScanError::NothingToProcess));
+        assert_eq!(
+            result,
+            Err(StartScanError::Automatic(AutomaticError::Common(
+                CommonError::NothingToProcess
+            )))
+        );
         assert_eq!(is_scan_running, false);
     }
 
