@@ -333,7 +333,7 @@ pub fn partition(s: &str, partition_size: usize) -> Result<Vec<String>, String> 
     if partition_size == 0 {
         return Err(String::from("partition_size must be greater than 0"));
     }
-    if s.len() % partition_size != 0 {
+    if !s.len().is_multiple_of(partition_size) {
         return Err(format!(
             "5-character string '{}' cannot be partitioned into {}-character substrings",
             s, partition_size
@@ -371,16 +371,12 @@ pub fn hex_to_u128(digits: &str) -> Result<u128, String> {
         }
         None
     }
-    let value_opt = digits
-        .chars()
-        .fold(Some(0u128), |so_far_opt, c| match so_far_opt {
-            Some(so_far) => digit_value(c).map(|dv| (so_far << 4) + (dv as u128)),
-            None => None,
-        });
-    match value_opt {
-        Some(v) => Ok(v),
-        None => Err(format!("Illegal hexadecimal number: '{}'", digits)),
-    }
+    let value = digits.chars().try_fold(0u128, |so_far, c| {
+        digit_value(c)
+            .map(|dv| (so_far << 4) + (dv as u128))
+            .ok_or_else(|| format!("Hex string contains non-hex symbols: '{}'", digits))
+    })?;
+    Ok(value)
 }
 
 pub fn plus<T>(mut source: Vec<T>, item: T) -> Vec<T> {
@@ -473,7 +469,7 @@ fn expect_value_panic(subject: &str, found: Option<&dyn fmt::Debug>) -> ! {
         subject,
         found
             .map(|cause| format!(", got: {:?}", cause))
-            .unwrap_or_else(|| "".to_string())
+            .unwrap_or_default()
     )
 }
 
@@ -845,7 +841,7 @@ mod tests {
     fn hex_to_u128_complains_about_illegal_hex_digits() {
         let result = hex_to_u128("xy");
 
-        assert_eq!(result, Err("Illegal hexadecimal number: 'xy'".to_string()))
+        assert_eq!(result, Err("Hex string contains non-hex symbols: 'xy'".to_string()))
     }
 
     #[test]

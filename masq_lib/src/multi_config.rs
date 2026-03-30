@@ -76,7 +76,7 @@ impl MultiConfig {
             .fold(initial, |so_far, vcl| merge(so_far, vcl));
         let arg_matches = match schema
             .clone()
-            .try_get_matches_from(merged.args().into_iter())
+            .try_get_matches_from(merged.args())
         {
             Ok(matches) => matches,
             Err(e) => match e.kind() {
@@ -249,7 +249,7 @@ pub fn merge(
     let combined_vcl_args = higher_priority
         .vcl_args()
         .into_iter()
-        .chain(lower_priority.vcl_args().into_iter())
+        .chain(lower_priority.vcl_args())
         .collect::<Vec<&dyn VclArg>>();
     let mut names = combined_vcl_args
         .iter()

@@ -49,7 +49,7 @@ impl ByteArrayWriterInner {
 
     fn drain_flushed_strings(&mut self) -> Option<Vec<FlushableByteOutput>> {
         match &mut self.captured_writes {
-            Either::Right(flushables) => Some(flushables.drain(..).collect()),
+            Either::Right(flushables) => Some(mem::take(flushables)),
             _ => None,
         }
     }
@@ -141,6 +141,7 @@ impl Write for ByteArrayWriter {
         if let Either::Right(container_with_buffers) =
             self.inner_arc.lock().unwrap().captured_writes.as_mut()
         {
+            #[allow(clippy::option_map_unit_fn)]
             container_with_buffers
                 .last_mut()
                 .map(|output| output.already_flushed_opt = Some(SystemTime::now()));
@@ -392,6 +393,7 @@ impl AsyncRead for AsyncByteArrayReader {
 }
 
 impl AsyncByteArrayReader {
+    #[allow(clippy::type_complexity)]
     pub fn new(read_inputs: Either<Vec<Vec<u8>>, Vec<Result<Vec<u8>, Error>>>) -> Self {
         Self {
             byte_array_reader_inner: Arc::new(Mutex::new(ByteArrayReaderInner::new(read_inputs))),
@@ -412,6 +414,7 @@ impl HandleToCountReads for ByteArrayReaderInner {
 }
 
 impl ByteArrayReaderInner {
+    #[allow(clippy::type_complexity)]
     pub fn new(inputs: Either<Vec<Vec<u8>>, Vec<Result<Vec<u8>, Error>>>) -> Self {
         let read_results = match inputs {
             Either::Left(byte_arrays) => byte_arrays.into_iter().map(Ok).collect_vec(),

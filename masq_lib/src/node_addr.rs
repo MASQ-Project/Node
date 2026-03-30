@@ -1,6 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
-use crate::utils::plus;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::Debug;
@@ -116,7 +115,7 @@ impl FromStr for NodeAddr {
             }
             Ok(ip_addr) => ip_addr,
         };
-        let ports: Vec<u16> = match pieces[1]
+        let ports: Vec<u16> = pieces[1]
             .split(Self::PORTS_SEPARATOR)
             .map(|s| match s.parse::<u16>() {
                 Err(_) => Err(format!(
@@ -129,16 +128,11 @@ impl FromStr for NodeAddr {
                 )),
                 Ok(port) => Ok(port),
             })
-            .fold(Ok(vec![]), |so_far, parse_result| {
-                match (so_far, parse_result) {
-                    (Err(e), _) => Err(e),
-                    (Ok(_), Err(e)) => Err(e),
-                    (Ok(ports), Ok(port)) => Ok(plus(ports, port)),
-                }
-            }) {
-            Ok(ports) => ports,
-            Err(msg) => return Err(msg),
-        };
+            .try_fold(vec![], |mut ports, parse_result| {
+                    let port = parse_result?;
+                    ports.push(port);
+                    Ok::<Vec<u16>, String>(ports)
+            })?;
         Ok(NodeAddr::new(&ip_addr, &ports))
     }
 }

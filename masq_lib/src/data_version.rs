@@ -40,18 +40,16 @@ impl FromStr for DataVersion {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let parts = s.split('.');
-        let numbers_opt: Option<Vec<u16>> = parts.fold(Some(vec![]), |sofar, part| {
-            match (sofar, part.parse::<u16>()) {
-                (None, _) => None,
-                (Some(_), Err(_)) => None,
-                (Some(prefix), Ok(n)) => {
-                    let mut whole = prefix;
-                    whole.push(n);
-                    Some(whole)
+        let mut parts = s.split('.');
+        let numbers_opt: Option<Vec<u16>> = parts
+            .try_fold(vec![], |mut sofar, part| match part.parse::<u16>() {
+                Ok(n) => {
+                    sofar.push(n);
+                    Ok(sofar)
                 }
-            }
-        });
+                Err(_) => Err(()),
+            })
+            .ok();
         match numbers_opt {
             None => Err(format!(
                 "DataVersion syntax is <major>.<minor>, not '{}'",

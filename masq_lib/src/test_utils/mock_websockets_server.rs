@@ -377,7 +377,7 @@ impl MockWebSocketsServer {
                         replace_correct_websocket_key_with_opt,
                     } => Response::Accept {
                         key: if let Some(key) = replace_correct_websocket_key_with_opt {
-                            key.clone()
+                            *key
                         } else {
                             websocket_key
                         },
@@ -405,18 +405,9 @@ impl MockWebSocketsServer {
     }
 
     fn arbitrary_protocol_opt(&self) -> Option<&str> {
-        if let Some(response) = &self.edge_cases.specific_handshake_response_opt {
-            if let MockServerHandshakeResponse::Accept {
-                accepted_protocol_opt,
-                ..
-            } = response
-            {
-                if let Some(protocol) = accepted_protocol_opt {
-                    return Some(protocol.as_str());
-                }
-            }
+        if let Some(MockServerHandshakeResponse::Accept { accepted_protocol_opt: Some(protocol), .. }) = &self.edge_cases.specific_handshake_response_opt {
+            return Some(protocol.as_str());
         }
-
         None
     }
 
@@ -545,7 +536,7 @@ impl MockWebSocketsServer {
         };
 
         let timeout = Duration::from_millis(1_500);
-        if let Err(_) = tokio::time::timeout(timeout, fut).await {
+        if tokio::time::timeout(timeout, fut).await.is_err() {
             panic!(
                 "Timeout elapsed waiting for the Client to finish the Close handshake after: {}ms",
                 timeout.as_millis()
@@ -596,6 +587,7 @@ pub enum MockServerHandshakeResponse {
     },
 }
 
+#[derive(Default)]
 struct EdgeCaseConfig {
     opening_faf_triggered_by_msg: bool,
     await_close_handshake_completion: bool,
@@ -603,19 +595,6 @@ struct EdgeCaseConfig {
     set_socket_to_no_linger: bool,
     specific_handshake_response_opt: Option<MockServerHandshakeResponse>,
     unexpected_http_when_tcp_established_opt: Option<String>,
-}
-
-impl Default for EdgeCaseConfig {
-    fn default() -> Self {
-        Self {
-            opening_faf_triggered_by_msg: false,
-            await_close_handshake_completion: false,
-            drop_conn_during_handshake: false,
-            set_socket_to_no_linger: false,
-            specific_handshake_response_opt: None,
-            unexpected_http_when_tcp_established_opt: None,
-        }
-    }
 }
 
 enum ConnectionResult {

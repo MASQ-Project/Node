@@ -26,6 +26,7 @@ use tokio_util::compat::TokioAsyncReadCompatExt;
 pub struct UiConnection {
     context_id: u64,
     local_addr: SocketAddr,
+    #[allow(dead_code)]
     accepted_protocol_opt: Option<String>,
     sender: WSSender,
     receiver: WSReceiver,
@@ -117,13 +118,8 @@ impl UiConnection {
     ) -> Result<(SokettoDataType, Vec<u8>), soketto::connection::Error> {
         let mut message = Vec::new();
         let data_type = self.receiver.receive_data(&mut message).await?;
-        match data_type {
-            SokettoDataType::Binary(_) => {
-                if message.as_slice() == b"EMPTY_QUEUE" {
-                    panic!("The queue is empty; all messages are gone.")
-                }
-            }
-            _ => (),
+        if matches!(data_type, SokettoDataType::Binary(_)) && message.as_slice() == b"EMPTY_QUEUE" {
+            panic!("The queue is empty; all messages are gone.")
         }
         Ok((data_type, message))
     }
@@ -193,7 +189,7 @@ impl UiConnection {
                 message.to_hex::<String>()
             ),
             Ok(Err(e)) => panic!("Error verifying no waiting message: {}", e),
-            Err(_) => return,
+            Err(_) => (),
         }
     }
 
@@ -282,10 +278,6 @@ impl UiConnection {
 
     pub async fn shutdown(&self) -> io::Result<()> {
         todo!("Drive this in, if necessary");
-    }
-
-    pub fn accepted_protocol(&self) -> Option<&str> {
-        self.accepted_protocol_opt.as_ref().map(|p| p.as_str())
     }
 
     fn standard_result_resolution<T>(

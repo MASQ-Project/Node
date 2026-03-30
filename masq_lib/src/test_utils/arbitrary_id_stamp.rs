@@ -38,6 +38,12 @@ pub struct ArbitraryIdStamp {
     id: usize,
 }
 
+impl Default for ArbitraryIdStamp {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ArbitraryIdStamp {
     pub fn new() -> Self {
         ArbitraryIdStamp {
@@ -63,11 +69,11 @@ macro_rules! arbitrary_id_stamp_in_trait {
 
 // The following macros might be handy but your mock object must contain this field:
 //
-///  struct SomeMock{
-///     ...
-///     arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
-///     ...
-///  }
+//  struct SomeMock{
+//     ...
+//     arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
+//     ...
+//  }
 //
 // Refcell is omitted because ArbitraryIdStamp is Copy
 
