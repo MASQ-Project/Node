@@ -267,7 +267,7 @@ impl Default for PcpTransactor {
 }
 
 impl PcpTransactor {
-    fn inner(&self) -> MutexGuard<PcpTransactorInner> {
+    fn inner(&self) -> MutexGuard<'_, PcpTransactorInner> {
         self.inner_arc
             .lock()
             .expect("PCP Housekeeping Thread is dead")

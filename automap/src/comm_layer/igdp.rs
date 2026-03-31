@@ -189,11 +189,11 @@ impl Transactor for IgdpTransactor {
         inner
             .mapping_adder
             .add_mapping(gateway.as_ref(), hole_port, lifetime)
-            .map(|remap_interval| {
+            .inspect(|remap_interval| {
                 let mapping_config = MappingConfig {
                     hole_port,
                     next_lifetime: Duration::from_secs(lifetime as u64),
-                    remap_interval: Duration::from_secs(remap_interval as u64),
+                    remap_interval: Duration::from_secs(*remap_interval as u64),
                 };
                 if let Some(commander) = inner.housekeeping_commander_opt.as_ref() {
                     commander
@@ -204,7 +204,6 @@ impl Transactor for IgdpTransactor {
                 } else {
                     panic!("Start housekeeping thread before calling add_mapping()");
                 }
-                remap_interval
             })
     }
 
@@ -374,7 +373,7 @@ impl IgdpTransactor {
         Ok(())
     }
 
-    fn inner(&self) -> MutexGuard<IgdpTransactorInner> {
+    fn inner(&self) -> MutexGuard<'_, IgdpTransactorInner> {
         self.inner_arc.lock().expect("Housekeeping thread died")
     }
 

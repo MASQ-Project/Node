@@ -68,9 +68,8 @@ impl UdpSocketWrapper for UdpSocketWrapperMock {
                 let set_read_timeout_params_locked = self.set_read_timeout_params.lock().unwrap();
                 if !set_read_timeout_params_locked.is_empty() {
                     let duration_opt = &set_read_timeout_params_locked[0];
-                    match &duration_opt {
-                        Some(duration) => thread::sleep(*duration),
-                        None => (),
+                    if let Some(duration) = duration_opt {
+                        thread::sleep(*duration);
                     }
                 }
             }

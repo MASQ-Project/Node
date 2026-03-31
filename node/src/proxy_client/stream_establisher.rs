@@ -85,7 +85,7 @@ impl StreamEstablisher {
         read_stream: Box<dyn ReadHalfWrapper>,
         peer_addr: SocketAddr,
     ) {
-        let mut stream_reader = StreamReader::new(
+        let stream_reader = StreamReader::new(
             payload.stream_key,
             self.proxy_client_sub.clone(),
             read_stream,

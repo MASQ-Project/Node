@@ -132,6 +132,7 @@ impl StreamHandlerPoolReal {
                             match Self::make_stream_with_key(&payload, inner_arc_2).await {
                                 Ok(sw) => sw,
                                 Err(msg) => {
+                                    todo!("Find a way to log this message");
                                     return;
                                 }
                             };

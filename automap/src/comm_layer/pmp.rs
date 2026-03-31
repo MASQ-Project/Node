@@ -124,7 +124,7 @@ impl Transactor for PmpTransactor {
                 SocketAddr::new(router_ip, self.router_port),
                 &mut mapping_config,
             )
-            .map(|remap_interval| {
+            .inspect(|_remap_interval| {
                 self.housekeeper_commander_opt
                     .as_ref()
                     .expect("Housekeeping thread is dead")
@@ -132,7 +132,6 @@ impl Transactor for PmpTransactor {
                         mapping_config,
                     ))
                     .expect("Housekeeping thread is dead");
-                remap_interval
             })
     }
 
@@ -364,8 +363,11 @@ impl ThreadGuts {
         match self.housekeeper_flunkie.try_recv() {
             Ok(HousekeepingThreadCommand::Stop) => return false,
             Ok(HousekeepingThreadCommand::SetRemapIntervalMs(remap_after)) => {
+                #[allow(unused_assignments)]
                 mapping_config_opt
-                    .map(|mut mc| mc.remap_interval = Duration::from_millis(remap_after));
+                    .map(|mut _mc|
+                        _mc.remap_interval = Duration::from_millis(remap_after)
+                    );
             }
             Ok(HousekeepingThreadCommand::InitializeMappingConfig(mapping_config)) => {
                 mapping_config_opt.replace(mapping_config);
