@@ -112,7 +112,6 @@ impl QualifierFactory for DynamicStoreQualifierFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::any::type_name_of_val;
 
     #[test]
     fn resolv_conf_qualifier_factory_works_on_this_os() {
