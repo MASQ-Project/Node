@@ -324,8 +324,8 @@ mod tests {
     use crate::test_utils::mocks::CommandContextMock;
     use atty::Stream;
     use masq_lib::messages::{
-        ToMessageBody, TopRecordsOrdering, UiFinancialStatistics, UiFinancialsResponse,
-        UiPayableAccount, UiReceivableAccount,
+        ToMessageBody, TopRecordsOrdering, TxProcessingInfo, UiFinancialStatistics,
+        UiFinancialsResponse, UiPayableAccount, UiReceivableAccount,
     };
     use masq_lib::ui_gateway::MessageBody;
     use masq_lib::utils::slice_of_strs_to_vec_of_strings;
@@ -1028,15 +1028,27 @@ mod tests {
                             wallet: "0xA884A2F1A5Ec6C2e499644666a5E6af97B966888".to_string(),
                             age_s: 5645405400,
                             balance_gwei: 68843325667,
-                            pending_payable_hash_opt: None,
+                            tx_processing_info_opt: None,
                         },
                         UiPayableAccount {
                             wallet: "0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440".to_string(),
                             age_s: 150000,
-                            balance_gwei: 8,
-                            pending_payable_hash_opt: Some(
-                                "0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e"
-                                    .to_string(),
+                            balance_gwei: 999888777,
+                            tx_processing_info_opt: Some(TxProcessingInfo{pending_tx_hash_opt: Some("0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e".to_string()),failures: 0}
+                            ),
+                        },
+                        UiPayableAccount {
+                            wallet: "0x563cCaC5596b7ac986ff8F7ca056789a122c3230".to_string(),
+                            age_s: 12055,
+                            balance_gwei: 33444555,
+                            tx_processing_info_opt: Some(TxProcessingInfo{pending_tx_hash_opt: None,failures: 3}
+                            ),
+                        },
+                        UiPayableAccount {
+                            wallet: "0xeF456a11A5Ec6C2e499655787a5E6af97c961123".to_string(),
+                            age_s: 161514,
+                            balance_gwei: 1111,
+                            tx_processing_info_opt: Some(TxProcessingInfo{pending_tx_hash_opt: Some("0xb45a663d56121112f4d45c1c3a245be32eAA6afd20b759b762f1dba945ec2f41".to_string()),failures: 1}
                             ),
                         },
                     ]),
@@ -1059,9 +1071,9 @@ mod tests {
                         wallet: "0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440".to_string(),
                         age_s: 150000,
                         balance_gwei: 8,
-                        pending_payable_hash_opt: Some(
+                        tx_processing_info_opt: Some(TxProcessingInfo{pending_tx_hash_opt: Some(
                             "0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e"
-                                .to_string(),
+                                .to_string()),failures: 0}
                         ),
                     }]),
                     receivable_opt: None,
@@ -1117,9 +1129,11 @@ mod tests {
                 \n\
                 Payable\n\
                 \n\
-                #   Wallet                                       Age [s]         Balance [MASQ]   Pending tx                                                        \n\
-                1   0xA884A2F1A5Ec6C2e499644666a5E6af97B966888   5,645,405,400   68.84            None                                                              \n\
-                2   0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440   150,000         < 0.01           0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e\n\
+                #   Wallet                                       Age [s]         Balance [MASQ]   Pending tx                                                                           \n\
+                1   0xA884A2F1A5Ec6C2e499644666a5E6af97B966888   5,645,405,400   68.84            None                                                                                 \n\
+                2   0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440   150,000         0.99             0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e                   \n\
+                3   0x563cCaC5596b7ac986ff8F7ca056789a122c3230   12,055          0.03             Processing... 3 failed attempts                                                      \n\
+                4   0xeF456a11A5Ec6C2e499655787a5E6af97c961123   161,514         < 0.01           0xb45a663d56121112f4d45c1c3a245be32eAA6afd20b759b762f1dba945ec2f41 (1 failed attempt)\n\
                 \n\
                 \n\
                 \n\
@@ -1253,9 +1267,11 @@ mod tests {
                 \n\
                 Payable\n\
                 \n\
-                #   Wallet                                       Age [s]         Balance [gwei]   Pending tx                                                        \n\
-                1   0xA884A2F1A5Ec6C2e499644666a5E6af97B966888   5,645,405,400   68,843,325,667   None                                                              \n\
-                2   0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440   150,000         8                0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e\n\
+                #   Wallet                                       Age [s]         Balance [gwei]   Pending tx                                                                           \n\
+                1   0xA884A2F1A5Ec6C2e499644666a5E6af97B966888   5,645,405,400   68,843,325,667   None                                                                                 \n\
+                2   0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440   150,000         999,888,777      0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e                   \n\
+                3   0x563cCaC5596b7ac986ff8F7ca056789a122c3230   12,055          33,444,555       Processing... 3 failed attempts                                                      \n\
+                4   0xeF456a11A5Ec6C2e499655787a5E6af97c961123   161,514         1,111            0xb45a663d56121112f4d45c1c3a245be32eAA6afd20b759b762f1dba945ec2f41 (1 failed attempt)\n\
                 \n\
                 \n\
                 \n\
@@ -1345,25 +1361,26 @@ mod tests {
     #[test]
     fn custom_query_balance_range_can_be_shorthanded() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
-        let expected_response = UiFinancialsResponse {
-            stats_opt: None,
-            query_results_opt: Some(QueryResults {
-                payable_opt: Some(vec![UiPayableAccount {
+        let expected_response =
+            UiFinancialsResponse {
+                stats_opt: None,
+                query_results_opt: Some(QueryResults {
+                    payable_opt: Some(vec![UiPayableAccount {
                     wallet: "0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440".to_string(),
                     age_s: 150000,
                     balance_gwei: 1200000000000,
-                    pending_payable_hash_opt: Some(
+                    tx_processing_info_opt: Some(TxProcessingInfo{pending_tx_hash_opt: Some(
                         "0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e"
-                            .to_string(),
+                            .to_string()),failures: 4}
                     ),
                 }]),
-                receivable_opt: Some(vec![UiReceivableAccount {
-                    wallet: "0x8bA50675e590b545D2128905b89039256Eaa24F6".to_string(),
-                    age_s: 45700,
-                    balance_gwei: 5050330000,
-                }]),
-            }),
-        };
+                    receivable_opt: Some(vec![UiReceivableAccount {
+                        wallet: "0x8bA50675e590b545D2128905b89039256Eaa24F6".to_string(),
+                        age_s: 45700,
+                        balance_gwei: 5050330000,
+                    }]),
+                }),
+            };
         let args = slice_of_strs_to_vec_of_strings(&[
             "financials",
             "--payable",
@@ -1411,8 +1428,8 @@ mod tests {
                    "\n\
             Specific payable query: 0-350000 sec 5-UNLIMITED MASQ\n\
             \n\
-            #   Wallet                                       Age [s]   Balance [MASQ]   Pending tx                                                        \n\
-            1   0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440   150,000   1,200.00         0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e\n\
+            #   Wallet                                       Age [s]   Balance [MASQ]   Pending tx                                                                            \n\
+            1   0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440   150,000   1,200.00         0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e (4 failed attempts)\n\
             \n\
             \n\
             \n\
@@ -1603,16 +1620,16 @@ mod tests {
                         wallet: "0xA884A2F1A5Ec6C2e499644666a5E6af97B966888".to_string(),
                         age_s: 5405400,
                         balance_gwei: 644000000,
-                        pending_payable_hash_opt: Some(
+                        tx_processing_info_opt: Some(TxProcessingInfo{pending_tx_hash_opt: Some(
                             "0x3648c8b8c7e067ac30b80b6936159326d564dd13b7ae465b26647154ada2c638"
-                                .to_string(),
+                                .to_string()), failures: 0}
                         ),
                     },
                     UiPayableAccount {
                         wallet: "0xEA674fdac714fd979de3EdF0F56AA9716B198ec8".to_string(),
                         age_s: 28120444,
                         balance_gwei: 97524120,
-                        pending_payable_hash_opt: None,
+                        tx_processing_info_opt: None,
                     },
                 ]),
                 receivable_opt: Some(vec![
@@ -1689,22 +1706,22 @@ mod tests {
                         wallet: "0x6e250504DdfFDb986C4F0bb8Df162503B4118b05".to_string(),
                         age_s: 4445,
                         balance_gwei: 3862654858938090,
-                        pending_payable_hash_opt: Some(
+                        tx_processing_info_opt: Some( TxProcessingInfo{pending_tx_hash_opt: Some(
                             "0x5fe272ed1e941cc05fbd624ec4b1546cd03c25d53e24ba2c18b11feb83cd4581"
-                                .to_string(),
+                                .to_string()),failures: 0}
                         ),
                     },
                     UiPayableAccount {
                         wallet: "0xA884A2F1A5Ec6C2e499644666a5E6af97B966888".to_string(),
                         age_s: 70000,
                         balance_gwei: 708090,
-                        pending_payable_hash_opt: None,
+                        tx_processing_info_opt: Some(TxProcessingInfo{pending_tx_hash_opt: None, failures: 3}),
                     },
                     UiPayableAccount {
                         wallet: "0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440".to_string(),
                         age_s: 6089909,
                         balance_gwei: 66658,
-                        pending_payable_hash_opt: None,
+                        tx_processing_info_opt: None,
                     },
                 ]),
                 receivable_opt: None,
@@ -1754,7 +1771,7 @@ mod tests {
                 \n\
                 #   Wallet                                       Age [s]     Balance [MASQ]   Pending tx                                                        \n\
                 1   0x6e250504DdfFDb986C4F0bb8Df162503B4118b05   4,445       3,862,654.85     0x5fe272ed1e941cc05fbd624ec4b1546cd03c25d53e24ba2c18b11feb83cd4581\n\
-                2   0xA884A2F1A5Ec6C2e499644666a5E6af97B966888   70,000      < 0.01           None                                                              \n\
+                2   0xA884A2F1A5Ec6C2e499644666a5E6af97B966888   70,000      < 0.01           Processing... 3 failed attempts                                   \n\
                 3   0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440   6,089,909   < 0.01           None                                                              \n"
         );
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());

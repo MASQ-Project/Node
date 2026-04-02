@@ -737,7 +737,6 @@ mod tests {
                 last_paid_timestamp: SystemTime::now()
                     .checked_sub(Duration::from_secs(1000))
                     .unwrap(),
-                pending_payable_opt: None,
             },
             PayableAccount {
                 wallet: wallet_2.clone(),
@@ -745,7 +744,6 @@ mod tests {
                 last_paid_timestamp: SystemTime::now()
                     .checked_sub(Duration::from_secs(500))
                     .unwrap(),
-                pending_payable_opt: None,
             },
         ];
         let mut subject = BlockchainBridge::new(
@@ -905,7 +903,6 @@ mod tests {
             wallet: wallet_account,
             balance_wei: 111_420_204,
             last_paid_timestamp: from_unix_timestamp(150_000_000),
-            pending_payable_opt: None,
         };
         let agent_id_stamp = ArbitraryIdStamp::new();
         let agent = BlockchainAgentMock::default()
@@ -998,7 +995,6 @@ mod tests {
             wallet: account_wallet.clone(),
             balance_wei: 111_420_204,
             last_paid_timestamp: from_unix_timestamp(150_000_000),
-            pending_payable_opt: None,
         };
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
         let agent = BlockchainAgentMock::default()

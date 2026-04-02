@@ -100,7 +100,7 @@ fn financials_command_retrieves_payable_and_receivable_records_integration() {
     let receivable = query_results.receivable_opt.unwrap();
     assert_eq!(payable[0].wallet, wallet_payable.to_string());
     assert_eq!(payable[0].balance_gwei, 45678357_u64);
-    assert_eq!(payable[0].pending_payable_hash_opt, None);
+    assert_eq!(payable[0].tx_processing_info_opt, None);
     let act_period = after.duration_since(before).unwrap().as_secs();
     let age_payable = payable[0].age_s;
     assert!(age_payable >= 678 && age_payable <= (age_payable + act_period));
