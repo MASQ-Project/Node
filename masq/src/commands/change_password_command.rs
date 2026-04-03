@@ -2,7 +2,7 @@
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
-    transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
+    clap_error_to_string, transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use crate::masq_short_writeln;
 use crate::terminal::TerminalWriter;
@@ -37,7 +37,7 @@ impl ChangePasswordCommand {
                     .expect("new-db-password is not properly required")
                     .to_string(),
             }),
-            Err(e) => Err(format!("{}", e)),
+            Err(e) => Err(clap_error_to_string(e)),
         }
     }
 
@@ -55,7 +55,7 @@ impl ChangePasswordCommand {
                     .expect("new-db-password is not properly required")
                     .to_string(),
             }),
-            Err(e) => Err(format!("{}", e)),
+            Err(e) => Err(clap_error_to_string(e)),
         }
     }
 

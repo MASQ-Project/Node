@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_context::CommandContext;
-use crate::commands::commands_common::{transaction, Command, CommandError};
+use crate::commands::commands_common::{clap_error_to_string, transaction, Command, CommandError};
 use crate::terminal::TerminalWriter;
 use async_trait::async_trait;
 use clap::builder::PossibleValuesParser;
@@ -63,7 +63,7 @@ impl ScanCommand {
     pub fn new(pieces: &[String]) -> Result<Self, String> {
         let matches = match scan_subcommand().try_get_matches_from(pieces) {
             Ok(matches) => matches,
-            Err(e) => return Err(format!("{}", e)),
+            Err(e) => return Err(clap_error_to_string(e)),
         };
         Ok(Self {
             name: matches

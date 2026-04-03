@@ -1,5 +1,5 @@
 use crate::command_context::CommandContext;
-use crate::commands::commands_common::{transaction, Command, CommandError};
+use crate::commands::commands_common::{clap_error_to_string, transaction, Command, CommandError};
 use crate::masq_short_writeln;
 use crate::terminal::TerminalWriter;
 use async_trait::async_trait;
@@ -32,7 +32,7 @@ impl SetConfigurationCommand {
                 })
             }
 
-            Err(e) => Err(format!("{}", e)),
+            Err(e) => Err(clap_error_to_string(e)),
         }
     }
 }

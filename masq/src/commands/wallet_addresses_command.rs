@@ -2,7 +2,7 @@
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
-    transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
+    clap_error_to_string, transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use crate::masq_short_writeln;
 use crate::terminal::TerminalWriter;
@@ -22,7 +22,7 @@ impl WalletAddressesCommand {
     pub fn new(pieces: &[String]) -> Result<Self, String> {
         let matches = match wallet_addresses_subcommand().try_get_matches_from(pieces) {
             Ok(matches) => matches,
-            Err(e) => return Err(format!("{}", e)),
+            Err(e) => return Err(clap_error_to_string(e)),
         };
         Ok(Self {
             db_password: matches

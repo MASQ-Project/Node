@@ -306,8 +306,9 @@ mod tests {
             CommandSyntax(msg) => msg,
             x => panic!("Expected syntax error, got {:?}", x),
         };
+        assert_eq!(msg.contains("error:"), true, "{}", msg);
         assert_eq!(
-            msg.contains("error: unexpected argument '"),
+            msg.contains("unexpected argument '"),
             true,
             "{}",
             msg

@@ -3,7 +3,7 @@
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::CommandError::Payload;
 use crate::commands::commands_common::{
-    transaction, Command, CommandError, STANDARD_COLUMN_WIDTH, STANDARD_COMMAND_TIMEOUT_MILLIS,
+    clap_error_to_string, transaction, Command, CommandError, STANDARD_COLUMN_WIDTH, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use crate::commands::configuration_command::value_list_interface::ValueList;
 use crate::commands::parameter_columns_formatting::{
@@ -80,7 +80,7 @@ impl ConfigurationCommand {
     pub fn new(pieces: &[String]) -> Result<Self, String> {
         let matches = match configuration_subcommand().try_get_matches_from(pieces) {
             Ok(matches) => matches,
-            Err(e) => return Err(format!("{}", e)),
+            Err(e) => return Err(clap_error_to_string(e)),
         };
 
         Ok(ConfigurationCommand {

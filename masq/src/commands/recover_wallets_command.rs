@@ -2,7 +2,7 @@
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
-    transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
+    clap_error_to_string, transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use crate::masq_short_writeln;
 use crate::terminal::TerminalWriter;
@@ -34,7 +34,7 @@ impl RecoverWalletsCommand {
     pub fn new(pieces: &[String]) -> Result<Self, String> {
         let matches = match recover_wallets_subcommand().try_get_matches_from(pieces) {
             Ok(matches) => matches,
-            Err(e) => return Err(format!("{}", e)),
+            Err(e) => return Err(clap_error_to_string(e)),
         };
 
         let mnemonic_phrase_opt = matches.get_one::<String>("mnemonic-phrase").map(|mpv| {

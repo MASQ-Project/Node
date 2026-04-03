@@ -9,7 +9,7 @@ pub mod test_utils;
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
-    transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
+    clap_error_to_string, transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use crate::commands::financials_command::args_validation::{
     financials_subcommand, NonZeroU16, TwoRanges,
@@ -32,7 +32,6 @@ use masq_lib::messages::{
 };
 use masq_lib::utils::ExpectValue;
 use num::ToPrimitive;
-use atty::Stream;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct FinancialsCommand {
@@ -75,14 +74,7 @@ impl FinancialsCommand {
     pub fn new(pieces: &[String]) -> Result<Self, String> {
         let matches = match financials_subcommand().try_get_matches_from(pieces) {
             Ok(matches) => matches,
-            Err(e) => {
-                let rendered = e.render();
-                return Err(if atty::is(Stream::Stderr) {
-                    rendered.ansi().to_string()
-                } else {
-                    rendered.to_string()
-                });
-            }
+            Err(e) => return Err(clap_error_to_string(e)),
         };
         let stats_required = !matches.get_flag("no-stats");
         let top_records_opt = Self::parse_top_records_args(&matches);

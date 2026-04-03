@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_context::CommandContext;
-use crate::commands::commands_common::{send_non_conversational_msg, Command, CommandError};
+use crate::commands::commands_common::{clap_error_to_string, send_non_conversational_msg, Command, CommandError};
 use crate::terminal::TerminalWriter;
 use async_trait::async_trait;
 use clap::builder::PossibleValuesParser;
@@ -78,7 +78,7 @@ impl CrashCommand {
     pub fn new(pieces: &[String]) -> Result<Self, String> {
         let matches = match crash_subcommand().try_get_matches_from(pieces) {
             Ok(matches) => matches,
-            Err(e) => return Err(format!("{}", e)),
+            Err(e) => return Err(clap_error_to_string(e)),
         };
         Ok(Self {
             actor: matches

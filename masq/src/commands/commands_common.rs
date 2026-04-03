@@ -7,6 +7,7 @@ use crate::commands::commands_common::CommandError::{
 use crate::masq_short_writeln;
 use crate::terminal::TerminalWriter;
 use async_trait::async_trait;
+use atty::Stream;
 use masq_lib::declare_as_any;
 use masq_lib::messages::{FromMessageBody, ToMessageBody, UiMessageError};
 use masq_lib::ui_gateway::MessageBody;
@@ -17,6 +18,15 @@ use std::fmt::Display;
 
 pub const STANDARD_COMMAND_TIMEOUT_MILLIS: u64 = 1000;
 pub const STANDARD_COLUMN_WIDTH: usize = 33;
+
+pub fn clap_error_to_string(e: clap::Error) -> String {
+    let rendered = e.render();
+    if atty::is(Stream::Stderr) {
+        rendered.ansi().to_string()
+    } else {
+        rendered.to_string()
+    }
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum CommandError {
