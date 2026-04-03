@@ -42,7 +42,7 @@ pub fn crash_subcommand() -> ClapCommand {
             Arg::new("actor")
                 .help(ACTOR_ARG_HELP)
                 .index(1)
-                .value_parser(PossibleValuesParser::new(&ACTOR_ARG_POSSIBLE_VALUES))
+                .value_parser(PossibleValuesParser::new(ACTOR_ARG_POSSIBLE_VALUES))
                 .ignore_case(true)
                 .default_value(ACTOR_ARG_DEFAULT_VALUE),
         )

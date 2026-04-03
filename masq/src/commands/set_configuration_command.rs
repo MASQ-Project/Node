@@ -86,7 +86,7 @@ pub fn set_configuration_subcommand() -> ClapCommand {
         )
         .group(
             ArgGroup::new("parameter")
-                .args(&["gas-price", "start-block"])
+                .args(["gas-price", "start-block"])
                 .required(true),
         )
 }

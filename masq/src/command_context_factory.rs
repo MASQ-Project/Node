@@ -15,13 +15,8 @@ pub trait CommandContextFactory {
     ) -> Result<Box<dyn CommandContext>, CommandError>;
 }
 
+#[derive(Default)]
 pub struct CommandContextFactoryReal {}
-
-impl Default for CommandContextFactoryReal {
-    fn default() -> Self {
-        Self {}
-    }
-}
 
 #[async_trait(?Send)]
 impl CommandContextFactory for CommandContextFactoryReal {

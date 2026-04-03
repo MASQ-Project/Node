@@ -32,6 +32,7 @@ use masq_lib::messages::{
 };
 use masq_lib::utils::ExpectValue;
 use num::ToPrimitive;
+use atty::Stream;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct FinancialsCommand {
@@ -52,7 +53,7 @@ impl Command for FinancialsCommand {
         let input = UiFinancialsRequest {
             stats_required: self.stats_required,
             top_records_opt: self.top_records_opt,
-            custom_queries_opt: self.custom_queries_opt.as_ref().map(|cq| cq.clone()),
+            custom_queries_opt: self.custom_queries_opt.clone(),
         };
         let queries_opt = input.custom_queries_opt.clone();
         let output: Result<UiFinancialsResponse, CommandError> =
@@ -74,7 +75,14 @@ impl FinancialsCommand {
     pub fn new(pieces: &[String]) -> Result<Self, String> {
         let matches = match financials_subcommand().try_get_matches_from(pieces) {
             Ok(matches) => matches,
-            Err(e) => return Err(e.to_string()),
+            Err(e) => {
+                let rendered = e.render();
+                return Err(if atty::is(Stream::Stderr) {
+                    rendered.ansi().to_string()
+                } else {
+                    rendered.to_string()
+                });
+            }
         };
         let stats_required = !matches.get_flag("no-stats");
         let top_records_opt = Self::parse_top_records_args(&matches);
@@ -269,20 +277,18 @@ impl FinancialsCommand {
         matches: &ArgMatches,
         parameter_name: &str,
     ) -> Option<Result<RangeQuery<u64>, String>> {
-        match matches.get_one::<TwoRanges>(parameter_name) {
-            None => None,
-            Some(two_ranges) => Some(two_ranges.try_convert_with_limit_u(i64::MAX as i128)),
-        }
+        matches
+            .get_one::<TwoRanges>(parameter_name)
+            .map(|two_ranges| two_ranges.try_convert_with_limit_u(i64::MAX as i128))
     }
 
     fn parse_range_for_query_i(
         matches: &ArgMatches,
         parameter_name: &str,
     ) -> Option<Result<RangeQuery<i64>, String>> {
-        match matches.get_one::<TwoRanges>(parameter_name) {
-            None => None,
-            Some(two_ranges) => Some(two_ranges.try_convert_with_limit_i(i64::MAX as i128)),
-        }
+        matches
+            .get_one::<TwoRanges>(parameter_name)
+            .map(|two_ranges| two_ranges.try_convert_with_limit_i(i64::MAX as i128))
     }
 }
 

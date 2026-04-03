@@ -87,7 +87,7 @@ impl Main {
             .await?;
 
         let result = command_processor
-            .process_command_line(initial_subcommand_opt.as_deref())
+            .process_command_line(initial_subcommand_opt)
             .await;
 
         command_processor.close().await;

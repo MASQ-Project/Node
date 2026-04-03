@@ -206,7 +206,7 @@ pub fn recover_wallets_subcommand() -> ClapCommand {
                 .required(false)
                 .default_value(LANGUAGE_ARG_DEFAULT_VALUE)
                 .num_args(ValueRange::new(1..=1))
-                .value_parser(PossibleValuesParser::new(&LANGUAGE_ARG_POSSIBLE_VALUES)),
+                .value_parser(PossibleValuesParser::new(LANGUAGE_ARG_POSSIBLE_VALUES)),
         )
         .arg(
             Arg::new("consuming-path")

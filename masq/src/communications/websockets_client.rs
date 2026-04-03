@@ -20,7 +20,7 @@ use tokio_util::compat::TokioAsyncReadCompatExt;
 #[derive(Debug, PartialEq, Eq)]
 pub enum WSHandshakeError {
     TcpConnect(String),
-    Socketto(String),
+    Soketto(String),
     ServerResponse(String),
     Timeout,
 }
@@ -49,13 +49,13 @@ pub async fn make_connection_with_timeout(
 
         let server_response = match result {
             Ok(res) => res,
-            Err(e) => return Err(WSHandshakeError::Socketto(format!("{:?}", e))),
+            Err(e) => return Err(WSHandshakeError::Soketto(format!("{:?}", e))),
         };
 
         match server_response {
             ServerResponse::Accepted { protocol } => {
-                if let Some(_) = protocol {
-                    // Socketto catches unsolicited protocols on its own, no need to test
+                if protocol.is_some() {
+                    // Soketto catches unsolicited protocols on its own, no need to test
                     Ok(client.into_builder().finish())
                 } else {
                     Err(WSHandshakeError::ServerResponse(
@@ -371,7 +371,13 @@ mod tests {
                 .await
                 .unwrap();
             let (stream, _) = listener.accept().await.unwrap();
-            let socket_handle = SocketHandle::new(&stream);
+
+            // Set socket options before using it
+            {
+                let handle = SocketHandle::new(&stream);
+                handle.set_socket_to_no_linger();
+            }
+
             let mut server = Server::new(BufReader::new(BufWriter::new(stream.compat())));
             server.add_protocol(NODE_UI_PROTOCOL);
             let req = server.receive_request().await.unwrap();
@@ -383,7 +389,6 @@ mod tests {
                 })
                 .await
                 .unwrap();
-            socket_handle.set_socket_to_no_linger();
             front_thread_ready_for_act_rx.await.unwrap();
             // Dropping the server which closes the stream
         });

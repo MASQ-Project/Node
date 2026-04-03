@@ -26,7 +26,7 @@ pub fn scan_subcommand() -> ClapCommand {
         Arg::new("name")
             .help(SCAN_SUBCOMMAND_HELP)
             .index(1)
-            .value_parser(PossibleValuesParser::new(&[
+            .value_parser(PossibleValuesParser::new([
                 "payables",
                 "receivables",
                 "pendingpayables",

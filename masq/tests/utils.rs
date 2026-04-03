@@ -75,7 +75,7 @@ impl MasqProcess {
         }
     }
 
-    pub fn start_interactive(self, port: u16, fake_terminal: bool) -> StopHandle {
+    pub fn start_interactive(self, port: u16, _fake_terminal: bool) -> StopHandle {
         // TODO delete these lines
         // if fake_terminal {
         //     std::env::set_var(MASQ_TEST_INTEGRATION_KEY, MASQ_TEST_INTEGRATION_VALUE)

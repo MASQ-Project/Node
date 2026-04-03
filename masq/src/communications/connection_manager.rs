@@ -14,13 +14,13 @@ use async_channel::RecvError;
 use futures::future::join_all;
 use masq_lib::messages::{CrashReason, UiNodeCrashedBroadcast};
 use masq_lib::ui_gateway::{MessageBody, MessagePath};
-use std::cell::{RefCell, RefMut};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::broadcast::Sender as BroadcastSender;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tokio::sync::{Mutex, MutexGuard};
 use tokio::task::JoinHandle;
 
 pub const COMPONENT_RESPONSE_TIMEOUT_MILLIS: u64 = 100;
@@ -161,12 +161,11 @@ impl CMBootstrapper {
 
 struct CMChannelsToSubordinates {
     demand_tx: UnboundedSender<Demand>,
-    response_receivers: RefCell<CMReceivers>,
+    response_receivers: Mutex<CMReceivers>,
 }
 
 struct CMReceivers {
     conversation_return_rx: UnboundedReceiver<NodeConversation>,
-
     active_port_response_rx: UnboundedReceiver<Option<u16>>,
 }
 
@@ -176,7 +175,7 @@ impl CMChannelsToSubordinates {
         conversation_return_rx: UnboundedReceiver<NodeConversation>,
         active_port_response_rx: UnboundedReceiver<Option<u16>>,
     ) -> Self {
-        let receivers = RefCell::new(CMReceivers {
+        let receivers = Mutex::new(CMReceivers {
             conversation_return_rx,
             active_port_response_rx,
         });
@@ -186,8 +185,8 @@ impl CMChannelsToSubordinates {
         }
     }
 
-    pub fn receivers_mut(&self) -> RefMut<'_, CMReceivers> {
-        self.response_receivers.borrow_mut()
+    pub async fn receivers_mut(&self) -> MutexGuard<'_, CMReceivers> {
+        self.response_receivers.lock().await
     }
 }
 
@@ -218,7 +217,7 @@ impl ConnectionManager {
             .demand_tx
             .send(Demand::ActivePort)
             .expect("ConnectionManagerThread is dead");
-        let mut receivers = self.internal_communications.receivers_mut();
+        let mut receivers = self.internal_communications.receivers_mut().await;
         let request_fut = receivers.active_port_response_rx.recv();
         let timeout = self.timeouts.component_response_millis;
 
@@ -239,6 +238,7 @@ impl ConnectionManager {
             .expect("ConnectionManager is not connected");
         self.internal_communications
             .receivers_mut()
+            .await
             .conversation_return_rx
             .recv()
             .await
@@ -430,7 +430,7 @@ impl CentralEventLoop {
             Err(_) => panic!("Conversations to manager channel died unexpectedly"),
             Ok(OutgoingMessageType::ConversationMessage (message_body)) => match message_body.path {
                 MessagePath::Conversation(context_id) => {
-                    if let Some(_) = services.conversations.get(&context_id){
+                    if services.conversations.contains_key(&context_id) {
                         let send_message_result = services.ws_client_handle.send_msg(message_body).await;
                         match send_message_result {
                             Ok(_) => {
@@ -588,8 +588,8 @@ impl CentralEventLoop {
         join_all(
             services
                 .conversations
-                .iter()
-                .map(|(_, sender)| sender.send(Err(error))),
+                .values()
+                .map(|sender| sender.send(Err(error))),
         )
         .await;
         services.conversations.clear();
@@ -1045,7 +1045,7 @@ mod tests {
     async fn handles_listener_fallback_from_node() {
         let daemon_port = find_free_port();
         let daemon = MockWebSocketsServer::new(daemon_port);
-        let deamon_stop_handle = daemon.start().await;
+        let daemon_stop_handle = daemon.start().await;
         let node_port = find_free_port();
         let (conversation_tx, conversation_rx) = async_channel::unbounded();
         let (decoy_tx, decoy_rx) = async_channel::unbounded();
@@ -1076,7 +1076,7 @@ mod tests {
             )),
         )
         .await;
-        let requests = deamon_stop_handle.stop().await;
+        let requests = daemon_stop_handle.stop().await;
         assert_eq!(
             requests.requests,
             vec![MWSSMessage::MessageBody(
@@ -1231,7 +1231,7 @@ mod tests {
     async fn handles_fatal_reception_failure() {
         let daemon_port = find_free_port();
         let daemon = MockWebSocketsServer::new(daemon_port);
-        let deamon_stop_handle = daemon.start().await;
+        let daemon_stop_handle = daemon.start().await;
         let node_port = find_free_port();
         let (conversation_tx, conversation_rx) = async_channel::unbounded();
         let (decoy_tx, decoy_rx) = async_channel::unbounded();
@@ -1266,7 +1266,7 @@ mod tests {
             )),
         )
         .await;
-        let mut outgoing_messages = deamon_stop_handle.stop().await;
+        let mut outgoing_messages = daemon_stop_handle.stop().await;
         let request = outgoing_messages.requests.remove(0);
         assert_eq!(
             UiSetupRequest::fmb(request.message_body()).unwrap(),
@@ -1771,13 +1771,13 @@ mod tests {
         match result {
             Err(ClientListenerError::Broken(msg)) => {
                 assert!(
-                    msg.contains("Socketto(\"Io(")
+                    msg.contains("Soketto(\"Io(")
                         && msg.contains("kind: ConnectionReset, message:"),
                     "We expected ConnectionReset error but got {}",
                     msg
                 )
             }
-            Err(e) => panic!("We expected WSHandshakeError::Socketto but got {:?}", e),
+            Err(e) => panic!("We expected WSHandshakeError::Soketto but got {:?}", e),
             Ok(_) => {
                 panic!("We expected ConnectionReset error but got Ok()")
             }
@@ -1819,7 +1819,7 @@ mod tests {
 
         let result = establish_client_listener(port, tx, close_rx, 5000).await;
 
-        assert_error_msg(result, "Socketto(\"UnsolicitedProtocol\")")
+        assert_error_msg(result, "Soketto(\"UnsolicitedProtocol\")")
     }
 
     #[tokio::test]
@@ -1876,7 +1876,7 @@ mod tests {
                     expected_err_msg, msg
                 )
             }
-            Err(e) => panic!("We expected WSHandshakeError::Socketto but got {:?}", e),
+            Err(e) => panic!("We expected WSHandshakeError::Soketto but got {:?}", e),
             Ok(_) => {
                 panic!("We expected ConnectionReset error but got Ok()")
             }
@@ -1911,7 +1911,8 @@ mod tests {
         connection_manager
             .internal_communications
             .response_receivers
-            .borrow_mut()
+            .lock()
+            .await
             .active_port_response_rx = active_port_response_rx;
         connection_manager.timeouts.component_response_millis = 10;
 
@@ -1919,9 +1920,9 @@ mod tests {
     }
 
     fn make_disconnected_subject() -> ConnectionManager {
-        let (demand_tx, _) = tokio::sync::mpsc::unbounded_channel();
-        let (_, conversation_return_rx) = tokio::sync::mpsc::unbounded_channel();
-        let (_, active_port_response_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (demand_tx, _) = unbounded_channel();
+        let (_, conversation_return_rx) = unbounded_channel();
+        let (_, active_port_response_rx) = unbounded_channel();
         let internal_communications = CMChannelsToSubordinates::new(
             demand_tx,
             conversation_return_rx,

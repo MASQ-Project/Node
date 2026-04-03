@@ -15,12 +15,12 @@ pub trait LisoOutputWrapper: Send + Sync {
 }
 
 pub struct LisoInputWrapperReal {
-    handle: InputOutput,
+    _handle: InputOutput,
 }
 
 impl LisoInputWrapperReal {
     pub fn new(handle: InputOutput) -> Self {
-        Self { handle }
+        Self { _handle: handle }
     }
 }
 
@@ -33,22 +33,22 @@ impl LisoInputWrapper for LisoInputWrapperReal {
 }
 
 pub struct LisoOutputWrapperReal {
-    handle: OutputOnly,
+    _handle: OutputOnly,
 }
 
 impl LisoOutputWrapperReal {
     pub fn new(handle: OutputOnly) -> Self {
-        Self { handle }
+        Self { _handle: handle }
     }
 }
 
 impl LisoOutputWrapper for LisoOutputWrapperReal {
-    fn println(&self, formatted_text: &str) {
+    fn println(&self, _formatted_text: &str) {
         //self.handle.println(formatted_text)
         todo!("drive in by integration tests")
     }
 
-    fn prompt(&self, appearance: &str, input_allowed: bool, clear_input: bool) {
+    fn prompt(&self, _appearance: &str, _input_allowed: bool, _clear_input: bool) {
         //self.handle.prompt(appearance, input_allowed, clear_input)
         todo!()
     }

@@ -70,7 +70,7 @@ impl CheckPasswordCommand {
             Err(e) => return Err(format!("{}", e)),
         };
         Ok(Self {
-            db_password_opt: matches.get_one::<String>("db-password").map(|r| r.clone()),
+            db_password_opt: matches.get_one::<String>("db-password").cloned(),
         })
     }
 }

@@ -33,6 +33,7 @@ pub fn setup_subcommand() -> ClapCommand {
         .get_arguments()
         .filter(|arg| arg.get_long() != Some("data-directory"))
         .collect_vec();
+    #[allow(clippy::let_and_return)]
     let command_with_new_data_directory = ClapCommand::new("setup")
         .about(SETUP_COMMAND_ABOUT)
         .args(args_except_data_directory)

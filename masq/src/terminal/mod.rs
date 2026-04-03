@@ -110,11 +110,8 @@ pub trait FlushHandleInner: Send + Sync {
 
     async fn buffered_distinct_strings(&mut self) -> Vec<String> {
         let mut vec = vec![];
-        loop {
-            match self.output_chunks_receiver_ref_mut().try_recv() {
-                Ok(output_fragment) => vec.push(output_fragment),
-                Err(_) => break,
-            }
+        while let Ok(output_fragment) = self.output_chunks_receiver_ref_mut().try_recv() {
+            vec.push(output_fragment);
         }
         vec
     }

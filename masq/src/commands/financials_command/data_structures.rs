@@ -4,12 +4,14 @@ pub(in crate::commands::financials_command) mod restricted {
     use masq_lib::messages::CustomQueries;
 
     #[derive(Debug, PartialEq, Eq)]
+    #[allow(dead_code)]
     pub struct CustomQueryInput {
         pub query: CustomQueries,
         pub users_payable_format_opt: Option<UserOriginalTypingOfRanges>,
         pub users_receivable_format_opt: Option<UserOriginalTypingOfRanges>,
     }
 
+    #[allow(dead_code)]
     pub type UserOriginalTypingOfRanges = ((String, String), (String, String));
 
     pub struct ProcessAccountsMetadata {

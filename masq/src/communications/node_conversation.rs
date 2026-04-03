@@ -35,9 +35,10 @@ pub struct NodeConversation {
 
 impl Drop for NodeConversation {
     fn drop(&mut self) {
-        let _ = self
+        drop(self
             .conversations_to_manager_tx
-            .send(OutgoingMessageType::SignOff(self.context_id()));
+            .send(OutgoingMessageType::SignOff(self.context_id()))
+        );
     }
 }
 

@@ -9,10 +9,6 @@ use crate::utils::DaemonProcess;
 use crate::utils::MasqProcess;
 use masq_lib::utils::find_free_port;
 use nix::libc::{kill, pid_t, SIGINT};
-use std::env::current_dir;
-use std::fs::File;
-use std::io::Read;
-use std::ops::Not;
 use std::thread;
 use std::time::Duration;
 

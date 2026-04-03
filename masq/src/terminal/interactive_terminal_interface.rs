@@ -127,7 +127,7 @@ impl InteractiveWTermInterface {
         };
 
         let stdout_utils = WritingUtils::new(
-            construct_flush_handle_inner.clone(),
+            construct_flush_handle_inner,
             WriteStreamType::Stdout,
         );
         let stderr_utils = WritingUtils::new(construct_flush_handle_inner, WriteStreamType::Stderr);

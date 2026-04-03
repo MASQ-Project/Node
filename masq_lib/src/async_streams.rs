@@ -35,7 +35,7 @@ impl AsyncStdStreamsFactory for AsyncStdStreamsFactoryReal {
 macro_rules! write_async_stream_and_flush {
     ( $stream: expr, $($arg:tt)*) => {
          {
-             $stream.write(format!($($arg)*).as_bytes()).await.expect("Write failed");
+             $stream.write_all(format!($($arg)*).as_bytes()).await.expect("Write failed");
              $stream.flush().await.expect("Flush failed");
          };
     }

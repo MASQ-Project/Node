@@ -95,16 +95,16 @@ pub fn financials_subcommand() -> ClapCommand {
         )
         .groups(&[
             ArgGroup::new("at_least_one_query")
-                .args(&["receivable", "payable", "top"])
+                .args(["receivable", "payable", "top"])
                 .multiple(true),
             ArgGroup::new("no-stats-requirement-group")
                 .arg("no-stats")
                 .requires("at_least_one_query"),
             ArgGroup::new("custom-queries")
-                .args(&["payable", "receivable"])
+                .args(["payable", "receivable"])
                 .multiple(true),
             ArgGroup::new("top-records-conflicts")
-                .args(&["top"])
+                .args(["top"])
                 .conflicts_with("custom-queries"),
             ArgGroup::new("ordered-conflicts")
                 .arg("ordered")
@@ -138,7 +138,7 @@ impl FromStr for TwoRanges {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (age_range_str, balance_range_str) = Self::checked_split(&s, '|', |wrong_input| {
+        let (age_range_str, balance_range_str) = Self::checked_split(s, '|', |wrong_input| {
             format!("Vertical delimiter | should be used between age and balance ranges and only there. Example: '1234-2345|3456-4567', not '{}'", wrong_input)
         })?;
         let (min_age_str, max_age_str) = Self::checked_split(age_range_str, '-', |wrong_input| {
@@ -263,7 +263,7 @@ impl TwoRanges {
         }
         let decimal_shift_to_gwei = |parse_result: i128, exponent: u32| {
             let gwei_result = parse_result
-                .checked_mul(i128::try_from(10_i64.pow(exponent)).expect("no fear"))
+                .checked_mul(i128::from(10_i64.pow(exponent)))
                 .ok_or_else(|| {
                     format!(
                         "Amount bigger than the MASQ total supply: {}, total supply: {}",

@@ -26,9 +26,7 @@ impl TerminalInterfaceFactory for TerminalInterfaceFactoryReal {
         streams_factory: Arc<dyn AsyncStdStreamsFactory>,
     ) -> Either<Box<dyn WTermInterface>, Box<dyn RWTermInterface>> {
         if !is_interactive {
-            Either::Left(Box::new(NonInteractiveWTermInterface::new(Arc::from(
-                streams_factory,
-            ))))
+            Either::Left(Box::new(NonInteractiveWTermInterface::new(streams_factory)))
         } else {
             let read_liso = liso::InputOutput::new();
             let write_liso = read_liso.clone_output();

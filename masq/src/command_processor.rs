@@ -205,7 +205,7 @@ impl CommandProcessor for CommandProcessorInteractive {
                 }
             }
 
-            if let Err(_) = self.handle_command_common(&args).await {
+            if self.handle_command_common(&args).await.is_err() {
                 return Err(());
             }
         }

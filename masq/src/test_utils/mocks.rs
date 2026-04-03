@@ -360,7 +360,7 @@ impl MockCommand {
         self
     }
 
-    pub fn use_sentinel_request(mut self) -> Self {
+    pub fn use_sentinel_request(self) -> Self {
         self.request(MessageBody {
             opcode: "blahRequest".to_string(),
             path: MessagePath::Conversation(1),

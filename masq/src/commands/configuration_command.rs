@@ -264,7 +264,7 @@ pub mod value_list_interface {
         where
             Formatter: FnMut(&UnformattedValue) -> String,
         {
-            self.prepared_formatted_values = unformatted_list.into_iter().map(formatter).collect();
+            self.prepared_formatted_values = unformatted_list.iter().map(formatter).collect();
             self
         }
 
@@ -286,7 +286,7 @@ pub mod value_list_interface {
                 .umbrella_parameter_name_opt
                 .as_ref()
                 .expect("Trying to dump an unnamed parameter list while list empty");
-            dump_parameter_line(stream, &header, Some(':'), "[?]").await;
+            dump_parameter_line(stream, header, Some(':'), "[?]").await;
         }
 
         async fn dump_list_internal(&self, stream: &TerminalWriter) {
@@ -324,7 +324,7 @@ pub mod value_list_interface {
                 dump_already_formatted_parameter_line(
                     stream,
                     STANDARD_COLUMN_WIDTH + 1,
-                    &formatted_value,
+                    formatted_value,
                 )
             }))
             .await;
