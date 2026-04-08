@@ -45,7 +45,7 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
     thread::sleep(Duration::from_secs(10));
 
     // get all payables from originating node
-    let payables = non_pending_payables(&originating_node);
+    let payables = retrieve_payables(&originating_node);
 
     // get all receivables from all other nodes
     let receivable_nodes = non_originating_nodes
@@ -99,9 +99,9 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
     assert!(messages.is_empty(), "{:#?}", messages);
 }
 
-fn non_pending_payables(node: &MASQRealNode) -> Vec<PayableAccount> {
+fn retrieve_payables(node: &MASQRealNode) -> Vec<PayableAccount> {
     let payable_dao = payable_dao(node.name());
-    payable_dao.non_pending_payables()
+    payable_dao.retrieve_payables(None)
 }
 
 fn receivables(node: &MASQRealNode) -> Vec<ReceivableAccount> {

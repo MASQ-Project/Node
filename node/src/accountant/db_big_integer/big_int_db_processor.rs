@@ -322,6 +322,7 @@ pub trait DisplayableParamValue: ToSql + Display {}
 
 impl DisplayableParamValue for i64 {}
 impl DisplayableParamValue for &str {}
+impl DisplayableParamValue for String {}
 impl DisplayableParamValue for Wallet {}
 
 #[derive(Default)]

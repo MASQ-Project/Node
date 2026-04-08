@@ -16,7 +16,7 @@ use serde_derive::Deserialize;
 use std::fmt::Debug;
 use std::net::Ipv4Addr;
 use web3::transports::{EventLoopHandle, Http};
-use web3::types::{Index, Log, SignedTransaction, TransactionReceipt, H2048, U256};
+use web3::types::{Address, Index, Log, SignedTransaction, TransactionReceipt, H2048, U256};
 
 lazy_static! {
     static ref BIG_MEANINGLESS_PHRASE: Vec<&'static str> = vec![
@@ -185,8 +185,29 @@ pub fn make_default_signed_transaction() -> SignedTransaction {
     }
 }
 
-pub fn make_tx_hash(base: u32) -> H256 {
+fn make_hash(base: u32) -> H256 {
     H256::from_uint(&U256::from(base))
+}
+
+pub fn make_tx_hash(base: u32) -> H256 {
+    make_hash(base)
+}
+
+pub fn make_block_hash(base: u32) -> H256 {
+    make_hash(base + 1000000000)
+}
+
+pub fn make_address(base: u32) -> Address {
+    let base = base % 0xfff;
+    let value = U256::from(base * 3);
+    let shifted = value << 72;
+    let value = U256::from(value) << 24;
+    let value = value | shifted;
+    let mut full_bytes = [0u8; 32];
+    value.to_big_endian(&mut full_bytes);
+    let mut bytes = [0u8; 20];
+    bytes.copy_from_slice(&full_bytes[12..]);
+    H160(bytes)
 }
 
 pub fn all_chains() -> [Chain; 4] {
@@ -215,5 +236,54 @@ pub fn transport_error_message() -> String {
         "No connection could be made because the target machine actively refused it.".to_string()
     } else {
         "Connection refused".to_string()
+    }
+}
+
+pub struct TransactionReceiptBuilder {
+    status_opt: Option<U64>,
+    block_hash_opt: Option<H256>,
+    block_number_opt: Option<U64>,
+    transaction_hash: H256,
+}
+
+impl TransactionReceiptBuilder {
+    pub fn new(transaction_hash: H256) -> Self {
+        Self {
+            status_opt: None,
+            block_hash_opt: None,
+            block_number_opt: None,
+            transaction_hash,
+        }
+    }
+
+    pub fn status(mut self, status: U64) -> Self {
+        self.status_opt = Some(status);
+        self
+    }
+
+    pub fn block_hash(mut self, block_hash: H256) -> Self {
+        self.block_hash_opt = Some(block_hash);
+        self
+    }
+
+    pub fn block_number(mut self, block_number: U64) -> Self {
+        self.block_number_opt = Some(block_number);
+        self
+    }
+
+    pub fn build(self) -> TransactionReceipt {
+        TransactionReceipt {
+            status: self.status_opt,
+            root: None,
+            block_hash: self.block_hash_opt,
+            block_number: self.block_number_opt,
+            cumulative_gas_used: Default::default(),
+            gas_used: None,
+            contract_address: None,
+            transaction_hash: self.transaction_hash,
+            transaction_index: Default::default(),
+            logs: vec![],
+            logs_bloom: Default::default(),
+        }
     }
 }

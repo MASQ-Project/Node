@@ -43,21 +43,22 @@ mod tests {
         let _ = bring_db_0_back_to_life_and_return_connection(&db_path);
         let subject = DbInitializerReal::default();
 
-        let result = subject.initialize_to_version(
-            &dir_path,
-            9,
-            DbInitializationConfig::create_or_migrate(make_external_data()),
-        );
+        let _prev_connection = subject
+            .initialize_to_version(
+                &dir_path,
+                9,
+                DbInitializationConfig::create_or_migrate(make_external_data()),
+            )
+            .unwrap();
 
-        assert!(result.is_ok());
+        let connection = subject
+            .initialize_to_version(
+                &dir_path,
+                10,
+                DbInitializationConfig::create_or_migrate(make_external_data()),
+            )
+            .unwrap();
 
-        let result = subject.initialize_to_version(
-            &dir_path,
-            10,
-            DbInitializationConfig::create_or_migrate(make_external_data()),
-        );
-
-        let connection = result.unwrap();
         let (mp_value, mp_encrypted) = retrieve_config_row(connection.as_ref(), "max_block_count");
         let (cs_value, cs_encrypted) = retrieve_config_row(connection.as_ref(), "schema_version");
         assert_eq!(mp_value, Some(100_000u64.to_string()));

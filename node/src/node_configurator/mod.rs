@@ -394,9 +394,10 @@ mod tests {
         let app = determine_config_file_path_app();
 
         let result =
-            determine_user_specific_data(&DirsWrapperReal::default(), &app, args_vec.as_slice());
+            determine_user_specific_data(&DirsWrapperReal::default(), &app, args_vec.as_slice())
+                .unwrap_err();
 
-        let param_error = &result.err().unwrap().param_errors[0];
+        let param_error = &result.param_errors[0];
         assert_eq!(param_error.parameter, "<unknown>");
         assert_string_contains(&param_error.reason, "Unfamiliar message: ");
         assert_string_contains(&param_error.reason, "error:");
@@ -406,6 +407,7 @@ mod tests {
             &param_error.reason,
             "' which wasn't expected, or isn't valid in this context",
         );
+        assert_eq!(result.param_errors.len(), 1);
     }
 
     #[test]

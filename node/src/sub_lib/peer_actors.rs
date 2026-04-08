@@ -14,6 +14,8 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::net::IpAddr;
 
+// TODO This file should be test only
+
 #[derive(Clone, PartialEq, Eq)]
 pub struct PeerActors {
     pub proxy_server: ProxyServerSubs,

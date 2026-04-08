@@ -222,6 +222,7 @@ impl NLSpawnHandleHolder for NLSpawnHandleHolderReal {
     }
 }
 
+#[derive(Default)]
 pub struct NotifyHandleReal<M> {
     phantom: PhantomData<M>,
 }

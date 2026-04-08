@@ -1,4 +1,4 @@
-// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::database::db_migrations::db_migrator::DatabaseMigration;
 use crate::database::db_migrations::migrator_utils::DBMigDeclarator;

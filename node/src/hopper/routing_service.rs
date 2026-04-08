@@ -608,6 +608,7 @@ mod tests {
     #[test]
     fn logs_and_ignores_message_that_cannot_be_deserialized() {
         init_test_logging();
+        let test_name = "logs_and_ignores_message_that_cannot_be_deserialized";
         let route = route_from_proxy_client(
             &CRYPTDE_PAIR.main.public_key(),
             CRYPTDE_PAIR.main.as_ref(),
@@ -638,7 +639,7 @@ mod tests {
             data: data_enc.into(),
         };
         let peer_actors = peer_actors_builder().build();
-        let subject = RoutingService::new(
+        let mut subject = RoutingService::new(
             CRYPTDE_PAIR.clone(),
             RoutingServiceSubs {
                 proxy_client_subs_opt: peer_actors.proxy_client_opt,
@@ -652,17 +653,19 @@ mod tests {
             200,
             false,
         );
+        subject.logger = Logger::new(test_name);
 
         subject.route(inbound_client_data);
 
         TestLogHandler::new().exists_log_containing(
-            "ERROR: RoutingService: Couldn't expire CORES package with 35-byte payload to ProxyClient using main key",
+            &format!("ERROR: {test_name}: Couldn't expire CORES package with 35-byte payload to ProxyClient using main key"),
         );
     }
 
     #[test]
     fn logs_and_ignores_message_that_cannot_be_decrypted() {
         init_test_logging();
+        let test_name = "logs_and_ignores_message_that_cannot_be_decrypted";
         let main_cryptde = CryptDEReal::new(TEST_DEFAULT_CHAIN);
         let rogue_cryptde = CryptDEReal::new(TEST_DEFAULT_CHAIN);
         let route = route_from_proxy_client(main_cryptde.public_key(), &main_cryptde, false);
@@ -685,7 +688,7 @@ mod tests {
             main_cryptde.dup(),
             Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN)),
         );
-        let subject = RoutingService::new(
+        let mut subject = RoutingService::new(
             cryptde_pair,
             RoutingServiceSubs {
                 proxy_client_subs_opt: peer_actors.proxy_client_opt,
@@ -699,11 +702,12 @@ mod tests {
             200,
             false,
         );
+        subject.logger = Logger::new(test_name);
 
         subject.route(inbound_client_data);
 
         TestLogHandler::new().exists_log_containing(
-            "ERROR: RoutingService: Couldn't expire CORES package with 51-byte payload to ProxyClient using main key: DecryptionError(OpeningFailed)",
+            &format!("ERROR: {test_name}: Couldn't expire CORES package with 51-byte payload to ProxyClient using main key: DecryptionError(OpeningFailed)")
         );
     }
 
@@ -826,6 +830,7 @@ mod tests {
         let _eg = EnvironmentGuard::new();
         init_test_logging();
         BAN_CACHE.clear();
+        let test_name = "complains_about_live_message_for_nonexistent_proxy_client";
         let main_cryptde = CRYPTDE_PAIR.main.as_ref();
         let route = route_to_proxy_client(&main_cryptde.public_key(), main_cryptde, false);
         let payload = make_request_payload(0, main_cryptde);
@@ -854,7 +859,7 @@ mod tests {
 
         let system = System::new("converts_live_message_to_expired_for_proxy_client");
         let peer_actors = peer_actors_builder().build();
-        let subject = RoutingService::new(
+        let mut subject = RoutingService::new(
             CRYPTDE_PAIR.clone(),
             RoutingServiceSubs {
                 proxy_client_subs_opt: None,
@@ -868,6 +873,7 @@ mod tests {
             0,
             false,
         );
+        subject.logger = Logger::new(test_name);
 
         subject.route(inbound_client_data);
 
@@ -875,7 +881,7 @@ mod tests {
         system.run();
         let tlh = TestLogHandler::new();
         tlh.exists_no_log_containing("Couldn't decode CORES package in 8-byte buffer");
-        tlh.exists_log_containing("WARN: RoutingService: Received CORES package from 1.2.3.4:5678 for Proxy Client, but Proxy Client isn't running");
+        tlh.exists_log_containing(&format!("WARN: {test_name}: Received CORES package from 1.2.3.4:5678 for Proxy Client, but Proxy Client isn't running"));
     }
 
     #[test]
@@ -1276,6 +1282,8 @@ mod tests {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
         init_test_logging();
+        let test_name =
+            "route_logs_and_ignores_cores_package_that_demands_routing_without_paying_wallet";
         let main_cryptde = CRYPTDE_PAIR.main.as_ref();
         let origin_key = PublicKey::new(&[1, 2]);
         let origin_cryptde = CryptDENull::from(&origin_key, TEST_DEFAULT_CHAIN);
@@ -1307,9 +1315,7 @@ mod tests {
             sequence_number_opt: None,
             data: data_enc.into(),
         };
-        let system = System::new(
-            "route_logs_and_ignores_cores_package_that_demands_routing_without_paying_wallet",
-        );
+        let system = System::new(test_name);
         let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
         let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
@@ -1322,7 +1328,7 @@ mod tests {
             .dispatcher(dispatcher)
             .accountant(accountant)
             .build();
-        let subject = RoutingService::new(
+        let mut subject = RoutingService::new(
             CRYPTDE_PAIR.clone(),
             RoutingServiceSubs {
                 proxy_client_subs_opt: peer_actors.proxy_client_opt,
@@ -1336,13 +1342,14 @@ mod tests {
             200,
             true,
         );
+        subject.logger = Logger::new(test_name);
 
         subject.route(inbound_client_data);
 
         System::current().stop_with_code(0);
         system.run();
         TestLogHandler::new().exists_log_matching(
-            "WARN: RoutingService: Refusing to route Live CORES package with \\d+-byte payload without paying wallet",
+            &format!("WARN: {test_name}: Refusing to route Live CORES package with \\d+-byte payload without paying wallet"),
         );
         assert_eq!(proxy_client_recording_arc.lock().unwrap().len(), 0);
         assert_eq!(proxy_server_recording_arc.lock().unwrap().len(), 0);
@@ -1357,6 +1364,7 @@ mod tests {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
         init_test_logging();
+        let test_name = "route_logs_and_ignores_cores_package_that_demands_proxy_client_routing_with_paying_wallet_that_cant_pay";
         let main_cryptde = CRYPTDE_PAIR.main.as_ref();
         let public_key = main_cryptde.public_key();
         let payload = ClientRequest(VersionedData::new(
@@ -1404,9 +1412,7 @@ mod tests {
             sequence_number_opt: None,
             data: data_enc.into(),
         };
-        let system = System::new(
-            "route_logs_and_ignores_cores_package_that_demands_proxy_client_routing_with_paying_wallet_that_cant_pay",
-        );
+        let system = System::new(test_name);
         let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
         let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
@@ -1419,7 +1425,7 @@ mod tests {
             .dispatcher(dispatcher)
             .accountant(accountant)
             .build();
-        let subject = RoutingService::new(
+        let mut subject = RoutingService::new(
             CRYPTDE_PAIR.clone(),
             RoutingServiceSubs {
                 proxy_client_subs_opt: peer_actors.proxy_client_opt,
@@ -1433,13 +1439,14 @@ mod tests {
             200,
             true,
         );
+        subject.logger = Logger::new(test_name);
 
         subject.route(inbound_client_data);
 
         System::current().stop_with_code(0);
         system.run();
         TestLogHandler::new().exists_log_matching(
-            "WARN: RoutingService: Refusing to route Expired CORES package with \\d+-byte payload without proof of 0x0a26dc9ebb2124baf1efe9d460f1ce59cd7944bd paying wallet ownership.",
+            &format!("WARN: {test_name}: Refusing to route Expired CORES package with \\d+-byte payload without proof of 0x0a26dc9ebb2124baf1efe9d460f1ce59cd7944bd paying wallet ownership."),
         );
         assert_eq!(proxy_client_recording_arc.lock().unwrap().len(), 0);
         assert_eq!(proxy_server_recording_arc.lock().unwrap().len(), 0);
@@ -1454,6 +1461,7 @@ mod tests {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
         init_test_logging();
+        let test_name = "route_logs_and_ignores_cores_package_that_demands_hopper_routing_with_paying_wallet_that_cant_pay";
         let main_cryptde = CRYPTDE_PAIR.main.as_ref();
         let current_key = main_cryptde.public_key();
         let origin_key = PublicKey::new(&[1, 2]);
@@ -1498,9 +1506,7 @@ mod tests {
             encodex(main_cryptde, &destination_key, &payload).unwrap(),
         );
 
-        let system = System::new(
-            "route_logs_and_ignores_cores_package_that_demands_hopper_routing_with_paying_wallet_that_cant_pay",
-        );
+        let system = System::new(test_name);
         let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
         let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
@@ -1513,7 +1519,7 @@ mod tests {
             .dispatcher(dispatcher)
             .accountant(accountant)
             .build();
-        let subject = RoutingService::new(
+        let mut subject = RoutingService::new(
             CRYPTDE_PAIR.clone(),
             RoutingServiceSubs {
                 proxy_client_subs_opt: peer_actors.proxy_client_opt,
@@ -1527,6 +1533,7 @@ mod tests {
             200,
             true,
         );
+        subject.logger = Logger::new(test_name);
 
         subject.route_data_externally(
             lcp,
@@ -1537,7 +1544,7 @@ mod tests {
         System::current().stop_with_code(0);
         system.run();
         TestLogHandler::new().exists_log_matching(
-            "WARN: RoutingService: Refusing to route Live CORES package with \\d+-byte payload without proof of 0x0a26dc9ebb2124baf1efe9d460f1ce59cd7944bd paying wallet ownership.",
+            &format!("WARN: {test_name}: Refusing to route Live CORES package with \\d+-byte payload without proof of 0x0a26dc9ebb2124baf1efe9d460f1ce59cd7944bd paying wallet ownership."),
         );
         assert_eq!(proxy_client_recording_arc.lock().unwrap().len(), 0);
         assert_eq!(proxy_server_recording_arc.lock().unwrap().len(), 0);
@@ -1551,6 +1558,8 @@ mod tests {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
         init_test_logging();
+        let test_name =
+            "route_logs_and_ignores_cores_package_from_delinquent_that_demands_external_routing";
         let main_cryptde = CRYPTDE_PAIR.main.as_ref();
         let paying_wallet = make_paying_wallet(b"wallet");
         let contract_address = TEST_DEFAULT_CHAIN.rec().contract;
@@ -1585,7 +1594,7 @@ mod tests {
             .dispatcher(dispatcher)
             .accountant(accountant)
             .build();
-        let subject = RoutingService::new(
+        let mut subject = RoutingService::new(
             CRYPTDE_PAIR.clone(),
             RoutingServiceSubs {
                 proxy_client_subs_opt: peer_actors.proxy_client_opt,
@@ -1599,6 +1608,7 @@ mod tests {
             rate_pack_routing_byte(103),
             false,
         );
+        subject.logger = Logger::new(test_name);
 
         subject.route(inbound_client_data);
 
@@ -1609,7 +1619,7 @@ mod tests {
         assert_eq!(dispatcher_recording.len(), 0);
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 0);
-        TestLogHandler::new().exists_log_containing("WARN: RoutingService: Node with consuming wallet 0x71d0fc7d1c570b1ed786382b551a09391c91e33d is delinquent; electing not to route 7-byte payload further");
+        TestLogHandler::new().exists_log_containing(&format!("WARN: {test_name}: Node with consuming wallet 0x71d0fc7d1c570b1ed786382b551a09391c91e33d is delinquent; electing not to route 7-byte payload further"));
     }
 
     #[test]
@@ -1617,6 +1627,8 @@ mod tests {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
         init_test_logging();
+        let test_name =
+            "route_logs_and_ignores_cores_package_from_delinquent_that_demands_internal_routing";
         let main_cryptde = CRYPTDE_PAIR.main.as_ref();
         let paying_wallet = make_paying_wallet(b"wallet");
         BAN_CACHE.insert(paying_wallet.clone());
@@ -1655,7 +1667,7 @@ mod tests {
             .dispatcher(dispatcher)
             .accountant(accountant)
             .build();
-        let subject = RoutingService::new(
+        let mut subject = RoutingService::new(
             CRYPTDE_PAIR.clone(),
             RoutingServiceSubs {
                 proxy_client_subs_opt: peer_actors.proxy_client_opt,
@@ -1669,6 +1681,7 @@ mod tests {
             rate_pack_routing_byte(103),
             false,
         );
+        subject.logger = Logger::new(test_name);
 
         subject.route(inbound_client_data);
 
@@ -1679,12 +1692,14 @@ mod tests {
         assert_eq!(dispatcher_recording.len(), 0);
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 0);
-        TestLogHandler::new().exists_log_containing("WARN: RoutingService: Node with consuming wallet 0x71d0fc7d1c570b1ed786382b551a09391c91e33d is delinquent; electing not to route 36-byte payload to ProxyServer");
+        TestLogHandler::new().exists_log_containing(&format!("WARN: {test_name}: Node with consuming wallet 0x71d0fc7d1c570b1ed786382b551a09391c91e33d is delinquent; electing not to route 36-byte payload to ProxyServer"));
     }
 
     #[test]
     fn route_logs_and_ignores_inbound_client_data_that_doesnt_deserialize_properly() {
         init_test_logging();
+        let test_name =
+            "route_logs_and_ignores_inbound_client_data_that_doesnt_deserialize_properly";
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
@@ -1705,7 +1720,7 @@ mod tests {
             .neighborhood(neighborhood)
             .dispatcher(dispatcher)
             .build();
-        let subject = RoutingService::new(
+        let mut subject = RoutingService::new(
             CRYPTDE_PAIR.clone(),
             RoutingServiceSubs {
                 proxy_client_subs_opt: peer_actors.proxy_client_opt,
@@ -1719,13 +1734,14 @@ mod tests {
             200,
             false,
         );
+        subject.logger = Logger::new(test_name);
 
         subject.route(inbound_client_data);
 
         System::current().stop_with_code(0);
         system.run();
         TestLogHandler::new().exists_log_containing(
-            "ERROR: RoutingService: Couldn't decode CORES package in 0-byte buffer from 1.2.3.4:5678: DecryptionError(EmptyData)",
+            &format!("ERROR: {test_name}: Couldn't decode CORES package in 0-byte buffer from 1.2.3.4:5678: DecryptionError(EmptyData)"),
         );
         assert_eq!(proxy_client_recording_arc.lock().unwrap().len(), 0);
         assert_eq!(proxy_server_recording_arc.lock().unwrap().len(), 0);
@@ -1736,6 +1752,7 @@ mod tests {
     #[test]
     fn route_logs_and_ignores_invalid_live_cores_package() {
         init_test_logging();
+        let test_name = "route_logs_and_ignores_invalid_live_cores_package";
         let main_cryptde = CRYPTDE_PAIR.main.as_ref();
         let lcp = LiveCoresPackage::new(Route { hops: vec![] }, CryptData::new(&[]));
         let data_ser = PlainData::new(&serde_cbor::ser::to_vec(&lcp).unwrap()[..]);
@@ -1762,7 +1779,7 @@ mod tests {
             .neighborhood(neighborhood)
             .dispatcher(dispatcher)
             .build();
-        let subject = RoutingService::new(
+        let mut subject = RoutingService::new(
             CRYPTDE_PAIR.clone(),
             RoutingServiceSubs {
                 proxy_client_subs_opt: peer_actors.proxy_client_opt,
@@ -1776,14 +1793,15 @@ mod tests {
             200,
             false,
         );
+        subject.logger = Logger::new(test_name);
 
         subject.route(inbound_client_data);
 
         System::current().stop_with_code(0);
         system.run();
-        TestLogHandler::new().exists_log_containing(
-            "ERROR: RoutingService: Invalid 67-byte CORES package: RoutingError(EmptyRoute)",
-        );
+        TestLogHandler::new().exists_log_containing(&format!(
+            "ERROR: {test_name}: Invalid 67-byte CORES package: RoutingError(EmptyRoute)"
+        ));
         assert_eq!(proxy_client_recording_arc.lock().unwrap().len(), 0);
         assert_eq!(proxy_server_recording_arc.lock().unwrap().len(), 0);
         assert_eq!(neighborhood_recording_arc.lock().unwrap().len(), 0);
@@ -1793,8 +1811,9 @@ mod tests {
     #[test]
     fn route_data_around_again_logs_and_ignores_bad_lcp() {
         init_test_logging();
+        let test_name = "route_data_around_again_logs_and_ignores_bad_lcp";
         let peer_actors = peer_actors_builder().build();
-        let subject = RoutingService::new(
+        let mut subject = RoutingService::new(
             CRYPTDE_PAIR.clone(),
             RoutingServiceSubs {
                 proxy_client_subs_opt: peer_actors.proxy_client_opt,
@@ -1808,6 +1827,7 @@ mod tests {
             200,
             false,
         );
+        subject.logger = Logger::new(test_name);
         let lcp = LiveCoresPackage::new(Route { hops: vec![] }, CryptData::new(&[]));
         let ibcd = InboundClientData {
             timestamp: SystemTime::now(),
@@ -1821,9 +1841,9 @@ mod tests {
 
         subject.route_data_around_again(lcp, &ibcd);
 
-        TestLogHandler::new().exists_log_containing(
-            "ERROR: RoutingService: bad zero-hop route: RoutingError(EmptyRoute)",
-        );
+        TestLogHandler::new().exists_log_containing(&format!(
+            "ERROR: {test_name}: bad zero-hop route: RoutingError(EmptyRoute)"
+        ));
     }
 
     fn make_routing_service_subs(peer_actors: PeerActors) -> RoutingServiceSubs {
@@ -1957,9 +1977,10 @@ mod tests {
     #[test]
     fn route_expired_package_handles_unmigratable_gossip() {
         init_test_logging();
+        let test_name = "route_expired_package_handles_unmigratable_gossip";
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().neighborhood(neighborhood).build();
-        let subject = RoutingService::new(
+        let mut subject = RoutingService::new(
             CRYPTDE_PAIR.clone(),
             RoutingServiceSubs {
                 proxy_client_subs_opt: peer_actors.proxy_client_opt,
@@ -1973,6 +1994,7 @@ mod tests {
             200,
             false,
         );
+        subject.logger = Logger::new(test_name);
         let expired_package = ExpiredCoresPackage::new(
             SocketAddr::from_str("1.2.3.4:1234").unwrap(),
             None,
@@ -1980,7 +2002,7 @@ mod tests {
             MessageType::Gossip(VersionedData::test_new(dv!(0, 0), vec![])),
             0,
         );
-        let system = System::new("route_expired_package_handles_unmigratable_gossip");
+        let system = System::new(test_name);
 
         subject.route_expired_package(Component::Neighborhood, expired_package, true);
 
@@ -1989,7 +2011,7 @@ mod tests {
         let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
         assert_eq!(neighborhood_recording.len(), 0);
         TestLogHandler::new().exists_log_containing(
-            "ERROR: RoutingService: Received unmigratable Gossip: MigrationNotFound(DataVersion { major: 0, minor: 0 }, DataVersion { major: 0, minor: 1 })",
+            &format!("ERROR: {test_name}: Received unmigratable Gossip: MigrationNotFound(DataVersion {{ major: 0, minor: 0 }}, DataVersion {{ major: 0, minor: 1 }})"),
         );
     }
 
@@ -2035,9 +2057,10 @@ mod tests {
     #[test]
     fn route_expired_package_handles_unmigratable_client_response() {
         init_test_logging();
+        let test_name = "route_expired_package_handles_unmigratable_client_response";
         let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().proxy_server(proxy_server).build();
-        let subject = RoutingService::new(
+        let mut subject = RoutingService::new(
             CRYPTDE_PAIR.clone(),
             RoutingServiceSubs {
                 proxy_client_subs_opt: peer_actors.proxy_client_opt,
@@ -2051,6 +2074,7 @@ mod tests {
             200,
             false,
         );
+        subject.logger = Logger::new(test_name);
         let expired_package = ExpiredCoresPackage::new(
             SocketAddr::from_str("1.2.3.4:1234").unwrap(),
             None,
@@ -2058,7 +2082,7 @@ mod tests {
             MessageType::ClientResponse(VersionedData::test_new(dv!(0, 0), vec![])),
             0,
         );
-        let system = System::new("route_expired_package_handles_unmigratable_client_response");
+        let system = System::new(test_name);
 
         subject.route_expired_package(Component::ProxyServer, expired_package, true);
 
@@ -2067,16 +2091,17 @@ mod tests {
         let proxy_server_recording = proxy_server_recording_arc.lock().unwrap();
         assert_eq!(proxy_server_recording.len(), 0);
         TestLogHandler::new().exists_log_containing(
-            "ERROR: RoutingService: Received unmigratable ClientResponsePayload: MigrationNotFound(DataVersion { major: 0, minor: 0 }, DataVersion { major: 0, minor: 1 })",
+            &format!("ERROR: {test_name}: Received unmigratable ClientResponsePayload: MigrationNotFound(DataVersion {{ major: 0, minor: 0 }}, DataVersion {{ major: 0, minor: 1 }})"),
         );
     }
 
     #[test]
     fn route_expired_package_handles_unmigratable_dns_resolve_failure() {
         init_test_logging();
+        let test_name = "route_expired_package_handles_unmigratable_dns_resolve_failure";
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
-        let subject = RoutingService::new(
+        let mut subject = RoutingService::new(
             CRYPTDE_PAIR.clone(),
             RoutingServiceSubs {
                 proxy_client_subs_opt: peer_actors.proxy_client_opt,
@@ -2090,6 +2115,7 @@ mod tests {
             200,
             false,
         );
+        subject.logger = Logger::new(test_name);
         let expired_package = ExpiredCoresPackage::new(
             SocketAddr::from_str("1.2.3.4:1234").unwrap(),
             None,
@@ -2097,7 +2123,7 @@ mod tests {
             MessageType::DnsResolveFailed(VersionedData::test_new(dv!(0, 0), vec![])),
             0,
         );
-        let system = System::new("route_expired_package_handles_unmigratable_dns_resolve_failure");
+        let system = System::new(test_name);
 
         subject.route_expired_package(Component::ProxyServer, expired_package, true);
 
@@ -2106,16 +2132,17 @@ mod tests {
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         assert_eq!(hopper_recording.len(), 0);
         TestLogHandler::new().exists_log_containing(
-            "ERROR: RoutingService: Received unmigratable DnsResolveFailed: MigrationNotFound(DataVersion { major: 0, minor: 0 }, DataVersion { major: 0, minor: 1 })",
+            &format!("ERROR: {test_name}: Received unmigratable DnsResolveFailed: MigrationNotFound(DataVersion {{ major: 0, minor: 0 }}, DataVersion {{ major: 0, minor: 1 }})"),
         );
     }
 
     #[test]
     fn route_expired_package_handles_unmigratable_gossip_failure() {
         init_test_logging();
+        let test_name = "route_expired_package_handles_unmigratable_gossip_failure";
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().neighborhood(neighborhood).build();
-        let subject = RoutingService::new(
+        let mut subject = RoutingService::new(
             CRYPTDE_PAIR.clone(),
             RoutingServiceSubs {
                 proxy_client_subs_opt: peer_actors.proxy_client_opt,
@@ -2129,6 +2156,7 @@ mod tests {
             200,
             false,
         );
+        subject.logger = Logger::new(test_name);
         let expired_package = ExpiredCoresPackage::new(
             SocketAddr::from_str("1.2.3.4:1234").unwrap(),
             None,
@@ -2145,7 +2173,7 @@ mod tests {
         let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
         assert_eq!(neighborhood_recording.len(), 0);
         TestLogHandler::new().exists_log_containing(
-            "ERROR: RoutingService: Received unmigratable GossipFailure: MigrationNotFound(DataVersion { major: 0, minor: 0 }, DataVersion { major: 0, minor: 1 })",
+            &format!("ERROR: {test_name}: Received unmigratable GossipFailure: MigrationNotFound(DataVersion {{ major: 0, minor: 0 }}, DataVersion {{ major: 0, minor: 1 }})"),
         );
     }
 }
