@@ -50,11 +50,11 @@ impl SecureConfigLayer {
         }
     }
 
-    pub fn change_password<'b, T: ConfigDao + ?Sized>(
+    pub fn change_password<T: ConfigDao + ?Sized>(
         &self,
         old_password_opt: Option<String>,
         new_password: &str,
-        dao: &'b mut Box<T>,
+        dao: &mut Box<T>,
     ) -> Result<(), SecureConfigLayerError> {
         if !self.check_password(old_password_opt.clone(), dao)? {
             return Err(SecureConfigLayerError::PasswordError);

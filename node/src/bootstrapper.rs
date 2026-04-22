@@ -37,8 +37,6 @@ use crate::sub_lib::utils::db_connection_launch_panic;
 use crate::sub_lib::wallet::Wallet;
 use async_trait::async_trait;
 use futures_util::future::join_all;
-use futures_util::stream::FuturesUnordered;
-use futures_util::StreamExt;
 use itertools::Itertools;
 use log::LevelFilter;
 use masq_lib::blockchains::chains::Chain;
@@ -49,7 +47,7 @@ use masq_lib::logger::Logger;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::node_addr::NodeAddr;
 use masq_lib::shared_schema::ConfiguratorError;
-use masq_lib::test_utils::utils::{make_rt, TEST_DEFAULT_CHAIN};
+use masq_lib::test_utils::utils::{TEST_DEFAULT_CHAIN};
 use masq_lib::utils::AutomapProtocol;
 use std::collections::HashMap;
 use std::env::var;
@@ -59,11 +57,11 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::vec::Vec;
-use tokio::runtime::Handle;
 
 static mut MAIN_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
 static mut ALIAS_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
 
+#[allow(static_mut_refs)]
 fn main_cryptde_ref<'a>() -> &'a dyn CryptDE {
     unsafe {
         MAIN_CRYPTDE_BOX_OPT
@@ -73,6 +71,7 @@ fn main_cryptde_ref<'a>() -> &'a dyn CryptDE {
     }
 }
 
+#[allow(static_mut_refs)]
 fn alias_cryptde_ref<'a>() -> &'a dyn CryptDE {
     unsafe {
         ALIAS_CRYPTDE_BOX_OPT
@@ -571,6 +570,7 @@ impl Bootstrapper {
         )
     }
 
+    #[allow(static_mut_refs)]
     fn initialize_cryptdes(
         main_cryptde_null_opt: &Option<&dyn CryptDE>,
         alias_cryptde_null_opt: &Option<&dyn CryptDE>,
@@ -771,10 +771,7 @@ mod tests {
     use crate::test_utils::{assert_contains, rate_pack};
     use crate::test_utils::{main_cryptde, make_wallet};
     use actix::Recipient;
-    use actix::System;
     use async_trait::async_trait;
-    use crossbeam_channel::unbounded;
-    use futures_util::stream::FuturesUnordered;
     use lazy_static::lazy_static;
     use log::LevelFilter;
     use log::LevelFilter::Off;
@@ -792,10 +789,9 @@ mod tests {
     use std::io::ErrorKind;
     use std::marker::Sync;
     use std::net::{IpAddr, SocketAddr};
-    use std::path::{Path, PathBuf};
+    use std::path::{PathBuf};
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-    use std::thread;
     use std::time::Duration;
     use tokio;
 

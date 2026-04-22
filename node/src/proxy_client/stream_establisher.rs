@@ -138,7 +138,6 @@ mod tests {
     use std::io::ErrorKind;
     use std::net::SocketAddr;
     use std::str::FromStr;
-    use std::task::Poll;
     use std::thread;
     use tokio::task;
 

@@ -8,14 +8,11 @@ use crate::sub_lib::tokio_wrappers::TokioListenerWrapperReal;
 use actix::Recipient;
 use async_trait::async_trait;
 use masq_lib::logger::Logger;
-use std::future::Future;
 use std::io;
 use std::marker::Send;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
-use std::pin::Pin;
-use std::task::{Context, Poll};
 
 #[async_trait]
 pub trait ListenerHandler: Send {
@@ -145,11 +142,8 @@ mod tests {
     use actix::System;
     use crossbeam_channel::unbounded;
     use masq_lib::test_utils::logging::init_test_logging;
-    use masq_lib::test_utils::logging::TestLog;
     use masq_lib::test_utils::logging::TestLogHandler;
-    use masq_lib::test_utils::utils::make_rt;
     use masq_lib::utils::{find_free_port, localhost};
-    use std::cell::RefCell;
     use std::io::Error;
     use std::io::ErrorKind;
     use std::net;
@@ -158,10 +152,8 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
-    use std::time::Duration;
     use tokio;
     use tokio::net::TcpStream;
-    use tokio::task;
 
     struct TokioListenerWrapperMock {
         bind_params: Arc<Mutex<Vec<SocketAddr>>>,
@@ -213,7 +205,7 @@ mod tests {
     #[tokio::test]
     #[should_panic(expected = "TcpListener not initialized - bind to a SocketAddr")]
     async fn panics_if_tried_to_run_without_initializing() {
-        let subject = ListenerHandlerReal::new().handle_listeners().await;
+        let _ = ListenerHandlerReal::new().handle_listeners().await;
     }
 
     #[tokio::test]
@@ -245,7 +237,7 @@ mod tests {
         let mut subject = ListenerHandlerReal::new();
         subject.listener = Box::new(listener);
 
-        let result = subject
+        let _ = subject
             .bind_port_and_configuration(
                 2345,
                 PortConfiguration::new(vec![Box::new(discriminator_factory)], true),
@@ -278,7 +270,7 @@ mod tests {
         let mut subject = ListenerHandlerReal::new();
         subject.listener = Box::new(listener);
 
-        let result = subject
+        let _ = subject
             .bind_port_and_configuration(
                 2345,
                 PortConfiguration::new(vec![Box::new(discriminator_factory)], false),

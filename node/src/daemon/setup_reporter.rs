@@ -193,6 +193,7 @@ fn eprintln_setup(label: &str, cluster: &SetupCluster) {
     if !CONSOLE_DIAGNOSTICS {
         return;
     }
+    #[allow(clippy::iter_kv_map)]
     let message = cluster
         .iter()
         .map(|(_, v)| (v.name.to_string(), v.value.to_string(), v.status))
@@ -217,7 +218,7 @@ impl SetupReporterReal {
             .flat_map(|arg| {
                 let name = arg.get_long().expect("All our args must have long names");
                 let values = arg.get_default_values();
-                if values.len() == 0 {
+                if values.is_empty() {
                     None
                 } else if values.len() == 1 {
                     let value = values[0].to_str().expect("expected valid UTF-8");
@@ -236,10 +237,7 @@ impl SetupReporterReal {
     }
 
     fn real_user_from_str(s: &str) -> Option<crate::bootstrapper::RealUser> {
-        match crate::bootstrapper::RealUser::from_str(s) {
-            Ok(ru) => Some(ru),
-            Err(_) => None,
-        }
+        crate::bootstrapper::RealUser::from_str(s).ok()
     }
 
     fn prevent_err_induced_setup_impairments(
@@ -469,7 +467,7 @@ impl SetupReporterReal {
     }
 
     fn make_command_line(setup: &SetupCluster) -> Vec<String> {
-        let accepted_statuses = vec![Set, Configured];
+        let accepted_statuses = [Set, Configured];
         let mut command_line = setup
             .iter()
             .filter(|(_, v)| accepted_statuses.contains(&v.status))
@@ -494,10 +492,7 @@ impl SetupReporterReal {
             vcls.push(Box::new(EnvironmentVcl::new(&app)));
         }
         if config_file {
-            let command_line = match command_line_opt {
-                Some(command_line) => command_line,
-                None => vec![],
-            };
+            let command_line = command_line_opt.unwrap_or_default();
             let (config_file_path, user_specified, _data_directory, _real_user) =
                 determine_fundamentals(dirs_wrapper, &app, &command_line)?;
             let config_file_vcl = match ConfigFileVcl::new(&config_file_path, user_specified) {
@@ -901,10 +896,7 @@ impl ValueRetriever for MappingProtocol {
         persistent_config: &dyn PersistentConfiguration,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
-        let persistent_config_value_opt = match persistent_config.mapping_protocol() {
-            Ok(protocol_opt) => protocol_opt,
-            Err(_) => None,
-        };
+        let persistent_config_value_opt = persistent_config.mapping_protocol().unwrap_or_default();
         persistent_config_value_opt
             .map(|protocol| (protocol.to_string().to_lowercase(), Configured))
     }

@@ -38,7 +38,6 @@ use crate::blockchain::blockchain_interface::{
 };
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::DbInitializationConfig;
-use crate::dispatcher::Dispatcher;
 use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::accountant::DaoFactories;
 use crate::sub_lib::accountant::FinancialStatistics;
@@ -1070,7 +1069,7 @@ mod tests {
         prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
     };
     use crate::test_utils::{make_paying_wallet, make_wallet};
-    use actix::{Arbiter, System};
+    use actix::{System};
     use ethereum_types::U64;
     use ethsign_crypto::Keccak256;
     use itertools::Itertools;

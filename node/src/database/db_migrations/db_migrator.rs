@@ -152,7 +152,7 @@ impl DbMigratorReal {
     }
 
     fn deref<'a, T: ?Sized>(value: &'a &T) -> &'a T {
-        *value
+        value
     }
 
     fn dispatch_bad_news(

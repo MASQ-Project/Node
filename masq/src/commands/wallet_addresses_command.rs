@@ -148,7 +148,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn wallet_addresses_handles_error_due_to_a_complain_from_database() {
+    async fn wallet_addresses_handles_error_due_to_a_complaint_from_database() {
         let mut context = CommandContextMock::new().transact_result(Err(
             ContextError::PayloadError(4644, "bad thing".to_string()),
         ));

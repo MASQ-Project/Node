@@ -11,10 +11,10 @@ use std::fmt::{Display, Formatter};
 
 pub trait DBMigDeclarator {
     fn db_password(&self) -> Option<String>;
-    fn transaction(&self) -> &Transaction;
-    fn execute_upon_transaction<'a>(
+    fn transaction(&self) -> &Transaction<'_>;
+    fn execute_upon_transaction(
         &self,
-        sql_statements: &[&'a dyn StatementObject],
+        sql_statements: &[&dyn StatementObject],
     ) -> rusqlite::Result<()>;
     fn external_parameters(&self) -> &ExternalData;
     fn logger(&self) -> &Logger;
@@ -122,7 +122,7 @@ impl DBMigDeclarator for DBMigDeclaratorReal<'_> {
         self.external.db_password_opt.clone()
     }
 
-    fn transaction(&self) -> &Transaction {
+    fn transaction(&self) -> &Transaction<'_> {
         self.root_transaction_ref
     }
 
@@ -131,16 +131,12 @@ impl DBMigDeclarator for DBMigDeclaratorReal<'_> {
         sql_statements: &[&dyn StatementObject],
     ) -> rusqlite::Result<()> {
         let transaction = self.root_transaction_ref;
-        sql_statements.iter().fold(Ok(()), |so_far, stm| {
-            if so_far.is_ok() {
-                match stm.execute(transaction) {
-                    Ok(_) => Ok(()),
-                    Err(e) if e == Error::ExecuteReturnedResults =>
-                        panic!("Statements returning values should be avoided with execute_upon_transaction, caused by: {}",stm),
-                    Err(e) => Err(e),
-                }
-            } else {
-                so_far
+        sql_statements.iter().try_fold((), |_so_far, stm| {
+            match stm.execute(transaction) {
+                Ok(_) => Ok(()),
+                Err(Error::ExecuteReturnedResults) =>
+                    panic!("Statements returning values should be avoided with execute_upon_transaction, caused by: {}",stm),
+                Err(e) => Err(e),
             }
         })
     }

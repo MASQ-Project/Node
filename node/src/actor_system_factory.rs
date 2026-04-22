@@ -33,7 +33,7 @@ use crate::sub_lib::proxy_client::ProxyClientConfig;
 use crate::sub_lib::proxy_client::ProxyClientSubs;
 use crate::sub_lib::proxy_server::ProxyServerSubs;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
-use actix::{Actor, Addr, Arbiter};
+use actix::{Addr, Arbiter};
 use actix::{Recipient, Supervisor};
 use automap_lib::comm_layer::AutomapError;
 use automap_lib::control_layer::automap_control::{

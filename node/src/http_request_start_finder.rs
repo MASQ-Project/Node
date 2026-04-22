@@ -20,7 +20,7 @@ impl HttpPacketStartFinder for HttpRequestStartFinder {
         if framer_state.packet_progress_state == PacketProgressState::SeekingPacketStart {
             match METHODS
                 .iter()
-                .flat_map(|method| index_of(&framer_state.data_so_far[..], *method))
+                .flat_map(|method| index_of(&framer_state.data_so_far[..], method))
                 .min()
             {
                 Some(first_method_offset) => {

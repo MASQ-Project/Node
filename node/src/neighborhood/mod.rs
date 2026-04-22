@@ -1009,7 +1009,7 @@ impl Neighborhood {
         over: RouteSegment,
         back: RouteSegment,
     ) -> Result<RouteQueryResponse, String> {
-        let segments = vec![&over, &back];
+        let segments = [&over, &back];
 
         if segments.iter().any(|rs| rs.keys.is_empty()) {
             return Err("Cannot make multi-hop route without segment keys".to_string());
@@ -1019,16 +1019,8 @@ impl Neighborhood {
         if self.consuming_wallet_opt.is_none() && has_long_segment {
             return Err("Cannot make multi-hop route segment without consuming wallet".to_string());
         }
-
-        let expected_request_services = match self.make_expected_services(&over) {
-            Ok(services) => services,
-            Err(e) => return Err(e),
-        };
-
-        let expected_response_services = match self.make_expected_services(&back) {
-            Ok(services) => services,
-            Err(e) => return Err(e),
-        };
+        let expected_request_services = self.make_expected_services(&over)?;
+        let expected_response_services = self.make_expected_services(&back)?;
 
         let return_route_id = self.advance_return_route_id();
         Ok(RouteQueryResponse {
@@ -1290,7 +1282,7 @@ impl Neighborhood {
             && self.last_key_qualifies(previous_node, target_opt)
             && self.validate_last_node_not_too_close_to_first_node(
                 prefix.len(),
-                *first_node_key,
+                first_node_key,
                 previous_node.public_key(),
             )
         {
@@ -1309,7 +1301,7 @@ impl Neighborhood {
                 .filter(|node_record| !prefix.contains(&node_record.public_key()))
                 .filter(|node_record| {
                     node_record.routes_data()
-                        || Self::is_orig_node_on_back_leg(**node_record, target_opt, direction)
+                        || Self::is_orig_node_on_back_leg(node_record, target_opt, direction)
                 })
                 .flat_map(|node_record| {
                     let mut new_prefix = prefix.clone(); // TODO: This is expensive. See if it can be optimized.
@@ -1610,14 +1602,13 @@ mod tests {
     use std::net::{IpAddr, SocketAddr};
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-    use std::thread;
     use std::time::Duration;
     use std::time::Instant;
     use tokio::task::yield_now;
     use masq_lib::constants::{DEFAULT_CHAIN, TLS_PORT};
     use masq_lib::messages::{ToMessageBody, UiConnectionChangeBroadcast, UiConnectionStage};
     use masq_lib::test_utils::utils::{
-        ensure_node_home_directory_exists, make_rt, TEST_DEFAULT_CHAIN,
+        ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN,
     };
     use masq_lib::ui_gateway::MessageBody;
     use masq_lib::ui_gateway::MessagePath::Conversation;
@@ -2839,7 +2830,6 @@ mod tests {
 
     #[actix_rt::test]
     async fn route_query_message_requires_consuming_wallet() {
-        let cryptde = main_cryptde();
         let earning_wallet = make_wallet("earning");
         let mut subject = make_standard_subject();
         subject

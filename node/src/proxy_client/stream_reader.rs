@@ -8,12 +8,8 @@ use crate::sub_lib::utils::indicates_dead_stream;
 use actix::Recipient;
 use crossbeam_channel::Sender;
 use masq_lib::logger::Logger;
-use std::future::Future;
 use std::io;
 use std::net::SocketAddr;
-use std::pin::Pin;
-use std::task::{Context, Poll};
-use tokio::io::ReadBuf;
 
 pub struct StreamReader {
     stream_key: StreamKey,
@@ -137,13 +133,7 @@ mod tests {
     async fn stream_reader_assigns_a_sequence_to_client_response_payloads() {
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
 
-        let read_results = vec![
-            b"HTTP/1.1 200".to_vec(),
-            b" OK\r\n\r\nHTTP/1.1 40".to_vec(),
-            b"4 File not found\r\n\r\nHTTP/1.1 503 Server error\r\n\r\n".to_vec(),
-        ];
-
-        let mut stream = ReadHalfWrapperMock::new()
+        let stream = ReadHalfWrapperMock::new()
             .read_result(Ok(b"HTTP/1.1 200".to_vec()))
             .read_result(Ok(b" OK\r\n\r\nHTTP/1.1 40".to_vec()))
             .read_result(Ok(
@@ -163,7 +153,7 @@ mod tests {
 
         let proxy_client_sub = rx.recv().unwrap();
         let (stream_killer, stream_killer_params) = unbounded();
-        let mut subject = StreamReader {
+        let subject = StreamReader {
             stream_key: make_meaningless_stream_key(),
             proxy_client_sub,
             stream: Box::new(stream),
@@ -214,7 +204,7 @@ mod tests {
     #[tokio::test]
     async fn stream_reader_can_handle_multiple_packets_followed_by_dropped_stream() {
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
-        let mut stream = ReadHalfWrapperMock::new()
+        let stream = ReadHalfWrapperMock::new()
             .read_result(Ok(Vec::from(&b"HTTP/1.1 200"[..])))
             .read_result(Ok(Vec::from(&b" OK\r\n\r\nHTTP/1.1 40"[..])))
             .read_result(Ok(Vec::from(
@@ -232,7 +222,7 @@ mod tests {
         });
         let proxy_client_sub = rx.recv().unwrap();
         let (stream_killer, stream_killer_params) = unbounded();
-        let mut subject = StreamReader {
+        let subject = StreamReader {
             stream_key: make_meaningless_stream_key(),
             proxy_client_sub,
             stream: Box::new(stream),
@@ -290,7 +280,7 @@ mod tests {
         init_test_logging();
         let stream_key = make_meaningless_stream_key();
         let (stream_killer, kill_stream_params) = unbounded();
-        let mut stream = ReadHalfWrapperMock::new().read_result(Ok(vec![]));
+        let stream = ReadHalfWrapperMock::new().read_result(Ok(vec![]));
 
         let system = System::new();
         let peer_actors = peer_actors_builder().build();
@@ -298,7 +288,7 @@ mod tests {
         sequencer.next_sequence_number();
         sequencer.next_sequence_number();
 
-        let mut subject = StreamReader {
+        let subject = StreamReader {
             stream_key,
             proxy_client_sub: peer_actors.proxy_client_opt.unwrap().inbound_server_data,
             stream: Box::new(stream),
@@ -324,7 +314,7 @@ mod tests {
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let stream_key = make_meaningless_stream_key();
         let (stream_killer, _) = unbounded();
-        let mut stream = ReadHalfWrapperMock::new()
+        let stream = ReadHalfWrapperMock::new()
             .read_result(Err(Error::from(ErrorKind::Other)))
             .read_result(Ok(b"HTTP/1.1 200 OK\r\n\r\n".to_vec()))
             .read_result(Err(Error::from(ErrorKind::BrokenPipe)));
@@ -341,7 +331,7 @@ mod tests {
         });
 
         let proxy_client_sub = rx.recv().unwrap();
-        let mut subject = StreamReader {
+        let subject = StreamReader {
             stream_key,
             proxy_client_sub,
             stream: Box::new(stream),

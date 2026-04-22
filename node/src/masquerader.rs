@@ -1,11 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::discriminator::UnmaskedChunk;
-use crate::sub_lib::cryptde::PublicKey;
 use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::marker::Send;
-use std::net::IpAddr;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum MasqueradeError {

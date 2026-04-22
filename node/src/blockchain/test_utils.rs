@@ -15,14 +15,11 @@ use bip39::{Language, Mnemonic, Seed};
 use ethereum_types::{BigEndianHash, H256};
 use futures_util::future::BoxFuture;
 use jsonrpc_core as rpc;
-use jsonrpc_core::Call;
 use lazy_static::lazy_static;
 use serde_json::Value;
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::fmt::Debug;
-use std::future::Future;
-use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use web3::transports::Batch;
@@ -278,7 +275,7 @@ impl Transport for TestTransport {
         (prepare_params.len(), request)
     }
 
-    fn send(&self, id: RequestId, request: rpc::Call) -> Self::Out {
+    fn send(&self, _id: RequestId, _request: rpc::Call) -> Self::Out {
         todo!("this structure has been removed in GH-744");
         // self.send_params.lock().unwrap().push((id, request.clone()));
         // match self.send_results.borrow_mut().pop_front() {
@@ -294,7 +291,7 @@ impl Transport for TestTransport {
 impl BatchTransport for TestTransport {
     type Batch = BoxFuture<'static, web3::Result<Vec<web3::Result<Value>>>>;
 
-    fn send_batch<T>(&self, requests: T) -> Self::Batch
+    fn send_batch<T>(&self, _requests: T) -> Self::Batch
     where
         T: IntoIterator<Item = (RequestId, rpc::Call)>,
     {
@@ -433,7 +430,7 @@ impl<T: BatchTransport> BatchPayableTools<T> for BatchPayableToolsMock<T> {
             ));
     }
 
-    fn submit_batch(&self, web3: &Web3<Batch<T>>) -> Result<Vec<()>, Web3Error> {
+    fn submit_batch(&self, _web3: &Web3<Batch<T>>) -> Result<Vec<()>, Web3Error> {
         todo!("this structure has been removed in GH-744")
         // self.submit_batch_params.lock().unwrap().push(web3.clone());
         // self.submit_batch_results.borrow_mut().remove(0)
@@ -442,8 +439,8 @@ impl<T: BatchTransport> BatchPayableTools<T> for BatchPayableToolsMock<T> {
 
 impl<T: BatchTransport> BatchPayableToolsMock<T> {
     pub fn sign_transaction_params(
-        mut self,
-        params: &Arc<
+        self,
+        _params: &Arc<
             Mutex<
                 Vec<(
                     TransactionParameters,
@@ -495,7 +492,7 @@ impl<T: BatchTransport> BatchPayableToolsMock<T> {
         self.submit_batch_params = params.clone();
         self
     }
-    pub fn submit_batch_result(self, result: Result<Vec<()>, Web3Error>) -> Self {
+    pub fn submit_batch_result(self, _result: Result<Vec<()>, Web3Error>) -> Self {
         todo!("this structure has been removed in GH-744");
         // self.submit_batch_results.borrow_mut().push(result);
         // self

@@ -9,7 +9,6 @@ use std::io;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
-use std::task::Poll;
 use tokio::net::TcpStream;
 
 #[derive(Default)]

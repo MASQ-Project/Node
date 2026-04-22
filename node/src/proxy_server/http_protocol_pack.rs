@@ -92,10 +92,7 @@ impl HttpProtocolPack {
     }
 
     fn port_from_string(port_str: String) -> Option<u16> {
-        match port_str.parse::<u16>() {
-            Err(_) => None,
-            Ok(port) => Some(port),
-        }
+        port_str.parse::<u16>().ok()
     }
 }
 

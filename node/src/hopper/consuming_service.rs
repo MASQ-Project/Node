@@ -8,7 +8,6 @@ use crate::sub_lib::hopper::{IncipientCoresPackage, NoLookupIncipientCoresPackag
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use actix::Recipient;
 use masq_lib::logger::Logger;
-use std::borrow::Borrow;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::SystemTime;
 
@@ -72,7 +71,7 @@ impl ConsumingService {
             "Instructed to send IncipientCoresPackage with {}-byte payload",
             incipient_cores_package.payload.len()
         );
-        match LiveCoresPackage::from_incipient(incipient_cores_package, self.cryptde.borrow()) {
+        match LiveCoresPackage::from_incipient(incipient_cores_package, self.cryptde) {
             Ok((live_package, next_hop)) => {
                 let encrypted_package =
                     match encodex(self.cryptde, &next_hop.public_key, &live_package) {

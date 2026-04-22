@@ -1,6 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::sub_lib::socket_server::SpawnableConfiguredByPrivilege;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use std::future::Future;

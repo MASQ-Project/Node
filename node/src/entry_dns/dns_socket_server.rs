@@ -103,7 +103,6 @@ mod tests {
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
-    use masq_lib::test_utils::utils::make_rt;
     use std::borrow::Borrow;
     use std::borrow::BorrowMut;
     use std::clone::Clone;

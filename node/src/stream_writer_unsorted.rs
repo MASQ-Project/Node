@@ -3,10 +3,7 @@ use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapper;
 use crate::sub_lib::utils::indicates_dead_stream;
 use masq_lib::logger::Logger;
-use std::future::Future;
 use std::net::SocketAddr;
-use std::task::Poll;
-use tokio::io::AsyncWriteExt;
 
 pub struct StreamWriterUnsorted {
     stream: Box<dyn WriteHalfWrapper>,
@@ -112,9 +109,7 @@ mod tests {
     use std::io::ErrorKind;
     use std::net::SocketAddr;
     use std::str::FromStr;
-    use std::sync::mpsc::TryRecvError;
     use std::sync::{Arc, Mutex};
-    use std::task::Poll;
 
     #[tokio::test]
     async fn stream_writer_terminates_when_it_gets_a_dead_stream_error() {
@@ -130,7 +125,7 @@ mod tests {
             .write_params(&write_params)
             .write_result(Err(io::Error::from(ErrorKind::BrokenPipe)));
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let mut subject = StreamWriterUnsorted::new(Box::new(writer), peer_addr, rx);
+        let subject = StreamWriterUnsorted::new(Box::new(writer), peer_addr, rx);
 
         subject.go().await;
 
@@ -155,7 +150,7 @@ mod tests {
             .write_result(Err(io::Error::from(ErrorKind::Other)))
             .write_result(Ok(5));
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let mut subject = StreamWriterUnsorted::new(Box::new(writer), peer_addr, rx);
+        let subject = StreamWriterUnsorted::new(Box::new(writer), peer_addr, rx);
 
         subject.go().await;
 
@@ -182,9 +177,9 @@ mod tests {
 
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
 
-        let mut subject = StreamWriterUnsorted::new(Box::new(writer), peer_addr, rx);
+        let subject = StreamWriterUnsorted::new(Box::new(writer), peer_addr, rx);
 
-        let result = subject.go().await;
+        let _ = subject.go().await;
 
         let mut params = write_params.lock().unwrap();
         assert_eq!(params.len(), 2);
@@ -210,9 +205,9 @@ mod tests {
 
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
 
-        let mut subject = StreamWriterUnsorted::new(Box::new(writer), peer_addr, rx);
+        let subject = StreamWriterUnsorted::new(Box::new(writer), peer_addr, rx);
 
-        let result = subject.go().await;
+        let _ = subject.go().await;
 
         let mut params = write_params.lock().unwrap();
         assert_eq!(params.len(), 3);
@@ -236,9 +231,9 @@ mod tests {
 
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
 
-        let mut subject = StreamWriterUnsorted::new(Box::new(writer), peer_addr, rx);
+        let subject = StreamWriterUnsorted::new(Box::new(writer), peer_addr, rx);
 
-        let result = subject.go().await;
+        let _ = subject.go().await;
 
         // Future completed; test passes
     }
@@ -253,7 +248,7 @@ mod tests {
         let writer = WriteHalfWrapperMock::new();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
 
-        let mut subject = StreamWriterUnsorted::new(Box::new(writer), peer_addr, rx);
+        let subject = StreamWriterUnsorted::new(Box::new(writer), peer_addr, rx);
 
         subject.go().await;
     }
@@ -275,7 +270,7 @@ mod tests {
 
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
 
-        let mut subject = StreamWriterUnsorted::new(Box::new(writer), peer_addr, rx);
+        let subject = StreamWriterUnsorted::new(Box::new(writer), peer_addr, rx);
 
         subject.go().await;
 
@@ -301,7 +296,7 @@ mod tests {
 
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
 
-        let mut subject = StreamWriterUnsorted::new(Box::new(writer), peer_addr, rx);
+        let subject = StreamWriterUnsorted::new(Box::new(writer), peer_addr, rx);
 
         subject.go().await;
 

@@ -300,7 +300,6 @@ pub fn make_node(nonce: u8) -> (IpAddr, NodeDescriptor) {
 
 pub fn make_node_records(count: u16) -> Vec<NodeRecord> {
     (1..=count)
-        .into_iter()
         .map(|i| make_node_record(i, true))
         .collect::<Vec<NodeRecord>>()
 }

@@ -55,10 +55,7 @@ impl Discriminator {
     }
 
     pub fn take_chunk(&mut self) -> Option<UnmaskedChunk> {
-        let frame = match self.framer.take_frame() {
-            Some(frame) => frame,
-            None => return None,
-        };
+        let frame = self.framer.take_frame()?;
         for masquerader in &self.masqueraders {
             match masquerader.try_unmask(&frame.chunk[..]) {
                 Ok(chunk) => return Some(chunk),

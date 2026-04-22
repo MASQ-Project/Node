@@ -14,7 +14,6 @@ use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
-use crate::dispatcher::Dispatcher;
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::blockchain_bridge::{
     BlockchainBridgeSubs, ReportAccountsPayable, RequestBalancesToPayPayables,
@@ -545,7 +544,6 @@ mod tests {
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rustc_hex::FromHex;
     use std::any::TypeId;
-    use std::path::Path;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
     use web3::types::{TransactionReceipt, H160, H256, U256};
@@ -1072,13 +1070,12 @@ mod tests {
 
         let result = subject.process_payments(&request);
 
-        todo!("GH-676: This error code can't be directly asserted, since Error doesn't implements PartialEq")
-        // assert_eq!(
-        //     result,
-        //     Err(PayableTransactionError::TransactionCount(
-        //         BlockchainError::QueryFailed("What the hack...??".to_string())
-        //     ))
-        // );
+        assert_eq!(
+            result.err().unwrap(),
+            PayableTransactionError::TransactionCount(
+                BlockchainError::QueryFailed("What the hack...??".to_string())
+            )
+        );
     }
 
     #[test]
@@ -1116,14 +1113,13 @@ mod tests {
 
         let result = subject.process_payments(&request);
 
-        todo!("GH-676: This error code can't be directly asserted, since Error doesn't implements PartialEq")
-        // assert_eq!(
-        //     result,
-        //     Err(PayableTransactionError::Sending {
-        //         msg: "failure from exhaustion".to_string(),
-        //         hashes: vec![transaction_hash]
-        //     })
-        // );
+        assert_eq!(
+            result.err().unwrap(),
+            PayableTransactionError::Sending {
+                msg: "failure from exhaustion".to_string(),
+                hashes: vec![transaction_hash]
+            }
+        );
     }
 
     #[test]

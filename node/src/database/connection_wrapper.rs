@@ -4,7 +4,7 @@ use rusqlite::{Connection, Error, Statement, Transaction};
 use std::fmt::Debug;
 
 pub trait ConnectionWrapper: Debug + Send {
-    fn prepare(&self, query: &str) -> Result<Statement, rusqlite::Error>;
+    fn prepare(&self, query: &str) -> Result<Statement<'_>, rusqlite::Error>;
     fn transaction<'a: 'b, 'b>(&'a mut self) -> Result<Transaction<'b>, rusqlite::Error>;
 }
 
@@ -14,7 +14,7 @@ pub struct ConnectionWrapperReal {
 }
 
 impl ConnectionWrapper for ConnectionWrapperReal {
-    fn prepare(&self, query: &str) -> Result<Statement, Error> {
+    fn prepare(&self, query: &str) -> Result<Statement<'_>, Error> {
         self.conn.prepare(query)
     }
     fn transaction<'a: 'b, 'b>(&'a mut self) -> Result<Transaction<'b>, Error> {

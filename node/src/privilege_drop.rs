@@ -105,7 +105,7 @@ impl PrivilegeDropper for PrivilegeDropperReal {
     #[cfg(not(target_os = "windows"))]
     fn chown(&self, file: &Path, real_user: &RealUser) {
         // Don't bother trying if the file is blank
-        if file.is_empty() {
+        if file.as_os_str().is_empty() {
             return;
         }
         // Don't bother trying to chown if we're not root

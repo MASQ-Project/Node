@@ -3,7 +3,6 @@ use async_trait::async_trait;
 use std::io;
 use std::marker::Send;
 use std::net::SocketAddr;
-use std::task::{Context, Poll};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpListener;

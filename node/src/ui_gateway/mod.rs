@@ -13,7 +13,7 @@ use crate::sub_lib::utils::{supervisor_restarting, NODE_MAILBOX_CAPACITY};
 use crate::ui_gateway::websocket_supervisor::{
     WebSocketSupervisor, WebSocketSupervisorFactory, WebsocketSupervisorFactoryReal,
 };
-use actix::{Addr, ResponseActFuture};
+use actix::{Addr, ResponseFuture};
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
@@ -23,16 +23,15 @@ use masq_lib::logger::Logger;
 use masq_lib::messages::UiCrashRequest;
 use masq_lib::ui_gateway::{MessageBody, NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::ExpectValue;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread::panicking;
-use actix::{ActorFutureExt, WrapFuture};
 
 pub const CRASH_KEY: &str = "UIGATEWAY";
 
 pub struct UiGateway {
     port: u16,
     websocket_supervisor_or_factory:
-        Either<Box<dyn WebSocketSupervisorFactory>, Box<dyn WebSocketSupervisor>>,
+        Either<Box<dyn WebSocketSupervisorFactory>, Arc<dyn WebSocketSupervisor>>,
     incoming_message_recipients: Vec<Recipient<NodeFromUiMessage>>,
     crashable: bool,
     logger: Logger,
@@ -107,7 +106,7 @@ impl UiGateway {
             .expectv("WebSocket factory")
             .make(self.port, recipient)
         {
-            Ok(wss) => Either::Right(wss),
+            Ok(wss) => Either::Right(Arc::from(wss)),
             Err(e) => panic!("Couldn't start WebSocketSupervisor: {:?}", e),
         };
         self.websocket_supervisor_or_factory = ws;
@@ -162,24 +161,18 @@ impl Handler<DaemonBindMessage> for UiGateway {
 }
 
 impl Handler<NodeToUiMessage> for UiGateway {
-    type Result = ResponseActFuture<Self, Result<(), ()>>;
+    type Result = ResponseFuture<()>;
 
     fn handle(&mut self, msg: NodeToUiMessage, _ctx: &mut Self::Context) -> Self::Result {
-        Box::pin(
-            async move {
-                self.websocket_supervisor_or_factory
-                    .as_ref()
-                    .right()
-                    .as_ref()
-                    .expect("WebSocketSupervisor is uninitialized")
-                    .send_msg(msg)
-                    .await
-            }
-            .into_actor(self)
-            .map(|res, _actor, _ctx| {
-                res.map(|_| ())
-            }),
-        )
+        let websocket_supervisor = Arc::clone(
+            self.websocket_supervisor_or_factory
+                .as_ref()
+                .right()
+                .expect("WebSocketSupervisor is uninitialized"),
+        );
+        Box::pin(async move {
+            websocket_supervisor.send_msg(msg).await;
+        })
     }
 }
 

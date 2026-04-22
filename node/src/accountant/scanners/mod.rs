@@ -320,7 +320,7 @@ impl PayableScanner {
     fn separate_id_triples_by_existent_and_nonexistent_fingerprints<'a>(
         &'a self,
         sent_payments: &'a [&'a PendingPayable],
-    ) -> (Vec<PendingPayableTriple>, Vec<PendingPayableTriple>) {
+    ) -> (Vec<PendingPayableTriple<'a>>, Vec<PendingPayableTriple<'a>>) {
         let hashes = sent_payments
             .iter()
             .map(|pending_payable| pending_payable.hash)

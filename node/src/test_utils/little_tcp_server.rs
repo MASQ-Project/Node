@@ -45,7 +45,7 @@ impl LittleTcpServer {
                             }
                             match stream.read(&mut buf) {
                                 Err(_) => break,
-                                Ok(len) if len == 0 => break,
+                                Ok(0) => break,
                                 Ok(_) => stream.write(&buf).unwrap(),
                             };
                         }

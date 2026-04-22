@@ -21,11 +21,11 @@ use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
 use std::any::Any;
 use std::io;
-use std::panic::{Location, PanicInfo};
+use std::panic::{Location, PanicHookInfo};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 use time::OffsetDateTime;
-use tokio::task::{JoinHandle, JoinSet};
+use tokio::task::{JoinHandle};
 
 pub struct ServerInitializerReal {
     dns_socket_server_opt: Option<Box<dyn SpawnableConfiguredByPrivilege>>,
@@ -109,7 +109,7 @@ impl ResultsCombiner for RunModeResult {
             (Err(e1), Err(e2)) => Err(ConfiguratorError::new(
                 e1.param_errors
                     .into_iter()
-                    .chain(e2.param_errors.into_iter())
+                    .chain(e2.param_errors)
                     .collect(),
             )),
         }
@@ -212,7 +212,7 @@ impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
 
 impl LoggerInitializerWrapperReal {
     pub fn get_logfile_name() -> PathBuf {
-        let path: &Path = &(*Self::logfile_name_guard().clone());
+        let path: &Path = &Self::logfile_name_guard().clone();
         path.to_path_buf()
     }
 
@@ -250,9 +250,9 @@ struct AltPanicInfo<'a> {
     location: Option<AltLocation>,
 }
 
-// PanicInfo can't be constructed in a test; therefore this implementation is untestable
-impl<'a> From<&'a PanicInfo<'a>> for AltPanicInfo<'a> {
-    fn from(panic_info: &'a PanicInfo) -> Self {
+// PanicHookInfo can't be constructed in a test; therefore this implementation is untestable
+impl<'a> From<&'a PanicHookInfo<'a>> for AltPanicInfo<'a> {
+    fn from(panic_info: &'a PanicHookInfo) -> Self {
         AltPanicInfo {
             payload: panic_info.payload(),
             location: panic_info.location().map(AltLocation::from),
@@ -411,7 +411,6 @@ pub mod tests {
     use crate::test_utils::logfile_name_guard::LogfileNameGuard;
     use crate::test_utils::unshared_test_utils::make_pre_populated_mocked_directory_wrapper;
     use async_trait::async_trait;
-    use itertools::Itertools;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::crash_point::CrashPoint;
     use masq_lib::multi_config::MultiConfig;
@@ -736,7 +735,7 @@ pub mod tests {
             .await
             .unwrap();
 
-        let mut join_handle = subject.spawn_long_lived_services();
+        let join_handle = subject.spawn_long_lived_services();
 
         let result = join_handle.await;
         assert_eq!(

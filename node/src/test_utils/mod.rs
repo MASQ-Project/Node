@@ -51,7 +51,6 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::io::ErrorKind;
 use std::io::Read;
-use std::iter::repeat;
 use std::net::SocketAddr;
 use std::net::{Shutdown, TcpStream};
 use std::str::FromStr;
@@ -62,7 +61,6 @@ use std::time::Instant;
 use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::unbounded_channel;
 use web3::types::{Address, U256};
-use futures_util::FutureExt;
 
 lazy_static! {
     static ref MAIN_CRYPTDE_NULL: Box<dyn CryptDE + 'static> =
@@ -217,12 +215,8 @@ pub fn make_meaningless_public_key() -> PublicKey {
 }
 
 pub fn make_meaningless_wallet_private_key() -> PlainData {
-    PlainData::from(
-        repeat(vec![0xABu8, 0xCDu8])
-            .take(16)
-            .flatten()
-            .collect::<Vec<u8>>(),
-    )
+    PlainData::from(vec![0xABu8, 0xCDu8, 0xABu8, 0xCDu8, 0xABu8, 0xCDu8, 0xABu8, 0xCDu8,
+        0xABu8, 0xCDu8, 0xABu8, 0xCDu8, 0xABu8, 0xCDu8, 0xABu8, 0xCDu8])
 }
 
 // TODO: The three functions below should use only one argument, cryptde
@@ -564,7 +558,6 @@ pub mod unshared_test_utils {
     use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
     use actix::{Actor, Addr, AsyncContext, Context, Handler, Recipient, System};
     use actix::{Message, SpawnHandle};
-    use clap::ArgMatches;
     use crossbeam_channel::{unbounded, Receiver, Sender};
     use itertools::Either;
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
@@ -577,7 +570,7 @@ pub mod unshared_test_utils {
     use std::future::Future;
     use std::num::ParseIntError;
     use std::panic::AssertUnwindSafe;
-    use std::path::{Path, PathBuf};
+    use std::path::{PathBuf};
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use std::vec;
@@ -1041,7 +1034,6 @@ mod tests {
     use crate::sub_lib::cryptde::CryptData;
     use crate::sub_lib::hop::LiveHop;
     use crate::sub_lib::neighborhood::ExpectedService;
-    use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use std::borrow::BorrowMut;
     use std::iter;
     use std::sync::{Arc, Mutex};

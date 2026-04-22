@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 #![allow(proc_macro_derive_resolution_fallback)]
 
-use crate::proxy_client::resolver_wrapper::{ResolverWrapper, ResolverWrapperFactory};
+use crate::proxy_client::resolver_wrapper::{ResolverWrapper};
 use crate::proxy_client::stream_establisher::StreamEstablisherFactoryReal;
 use crate::proxy_client::stream_establisher::{StreamEstablisher, StreamEstablisherFactory};
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
@@ -18,11 +18,11 @@ use crossbeam_channel::{unbounded, Receiver};
 use hickory_resolver::lookup_ip::LookupIp;
 use masq_lib::logger::Logger;
 use std::collections::HashMap;
-use std::future::{ready, Future};
+use std::future::{Future};
 use std::io;
 use std::net::{AddrParseError, IpAddr, SocketAddr};
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc};
 use std::time::SystemTime;
 use tokio::task;
 use web3::block_on;
@@ -131,9 +131,9 @@ impl StreamHandlerPoolReal {
                         let sender_wrapper =
                             match Self::make_stream_with_key(&payload, inner_arc_2).await {
                                 Ok(sw) => sw,
-                                Err(msg) => {
+                                Err(_msg) => {
                                     todo!("Find a way to log this message");
-                                    return;
+                                    // return;
                                 }
                             };
                         if let Err(msg) = Self::write_and_tend(
@@ -152,7 +152,7 @@ impl StreamHandlerPoolReal {
                                 &stream_key,
                                 error_socket_addr(),
                                 msg,
-                            );
+                            ).await;
                         };
                     };
                     task::spawn(future);

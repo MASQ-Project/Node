@@ -655,7 +655,7 @@ mod tests {
             });
 
         let mut heights_and_counts = counts_of_unique_elements.drain().collect::<Vec<_>>();
-        heights_and_counts.sort_by_key(|(height, _)| (u64::MAX - height));
+        heights_and_counts.sort_by_key(|(height, _)| u64::MAX - height);
         let mut counts_of_groups_of_the_same_size: HashMap<usize, (u64, usize)> = HashMap::new();
         let mut previous_height =
             ThresholdUtils::calculate_finite_debt_limit_by_age(&payment_thresholds, 1500) as u64;

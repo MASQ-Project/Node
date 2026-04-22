@@ -799,7 +799,6 @@ mod tests {
     use std::ops::Deref;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-    use std::task::Poll;
     use std::thread;
     use std::time::SystemTime;
 

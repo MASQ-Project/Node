@@ -180,10 +180,10 @@ impl GossipHandler for DebutHandler {
                 );
                 return GossipAcceptanceResult::Failed(
                     GossipFailure_0v1::NoSuitableNeighbors,
-                    (&source_agr.inner.public_key).clone(),
-                    (&source_agr
+                    source_agr.inner.public_key.clone(),
+                    source_agr
                         .node_addr_opt
-                        .expect("Debuter's NodeAddr disappeared"))
+                        .expect("Debuter's NodeAddr disappeared")
                         .clone(),
                 );
             }
@@ -229,11 +229,11 @@ impl DebutHandler {
             .into_iter()
             .filter(|k| {
                 database
-                    .node_by_key(*k)
+                    .node_by_key(k)
                     .expect("Node disappeared")
                     .accepts_connections()
             })
-            .skip_while(|k| database.gossip_target_degree(*k) <= 2)
+            .skip_while(|k| database.gossip_target_degree(k) <= 2)
             .collect();
         match qualified_neighbors.first().cloned() {
             // No neighbors of degree 3 or greater
@@ -387,7 +387,7 @@ impl DebutHandler {
                 .into_iter()
                 .filter(|k| {
                     database
-                        .node_by_key(*k)
+                        .node_by_key(k)
                         .expect("Node disappeared")
                         .accepts_connections()
                 })
@@ -416,8 +416,8 @@ impl DebutHandler {
         let mut neighbor_keys_vec: Vec<&PublicKey> = keys.difference(&excluding).cloned().collect();
         neighbor_keys_vec.sort_unstable_by(|a, b| {
             database
-                .gossip_target_degree(*a)
-                .cmp(&database.gossip_target_degree(*b))
+                .gossip_target_degree(a)
+                .cmp(&database.gossip_target_degree(b))
         });
         neighbor_keys_vec
     }
@@ -1280,7 +1280,7 @@ impl<'a> GossipAcceptor for GossipAcceptorReal<'a> {
 }
 
 impl<'a> GossipAcceptorReal<'a> {
-    pub fn new(cryptde: &'a dyn CryptDE) -> GossipAcceptorReal {
+    pub fn new(cryptde: &'a dyn CryptDE) -> GossipAcceptorReal<'a> {
         let logger = Logger::new("GossipAcceptor");
         GossipAcceptorReal {
             gossip_handlers: vec![

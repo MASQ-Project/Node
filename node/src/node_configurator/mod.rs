@@ -21,7 +21,6 @@ use masq_lib::shared_schema::{chain_arg, config_file_arg, data_directory_arg, re
 use masq_lib::utils::{add_masq_and_chain_directories, localhost};
 use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use masq_lib::shared_schema::RealUser as ClapRealUser;
 
 pub trait NodeConfigurator<T> {

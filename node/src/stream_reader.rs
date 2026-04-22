@@ -10,12 +10,8 @@ use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use crate::sub_lib::utils::indicates_dead_stream;
 use actix::Recipient;
 use masq_lib::logger::Logger;
-use std::future::Future;
 use std::net::SocketAddr;
-use std::ops::DerefMut;
-use std::task::Poll;
 use std::time::SystemTime;
-use tokio::io::AsyncReadExt;
 
 pub struct StreamReaderReal {
     stream: Box<dyn ReadHalfWrapper>,
@@ -318,7 +314,7 @@ mod tests {
             vec![Box::new(HttpRequestDiscriminatorFactory::new())];
         let reader = ReadHalfWrapperMock::new().read_ok(&[]);
 
-        let mut subject = StreamReaderReal::new(
+        let subject = StreamReaderReal::new(
             Box::new(reader),
             None,
             dispatcher_subs.ibcd_sub,
@@ -364,7 +360,7 @@ mod tests {
         let reader =
             ReadHalfWrapperMock::new().read_result(Err(io::Error::from(ErrorKind::BrokenPipe)));
 
-        let mut subject = StreamReaderReal::new(
+        let subject = StreamReaderReal::new(
             Box::new(reader),
             None,
             dispatcher_subs.ibcd_sub,
@@ -411,7 +407,7 @@ mod tests {
             .read_result(Err(io::Error::from(ErrorKind::Other)))
             .read_ok(&[]);
 
-        let mut subject = StreamReaderReal::new(
+        let subject = StreamReaderReal::new(
             Box::new(reader),
             Some(1234),
             dispatcher_subs.ibcd_sub,
@@ -478,7 +474,7 @@ mod tests {
             .read_ok(partial_request.as_slice())
             .read_final(remaining_request.as_slice());
 
-        let mut subject = StreamReaderReal::new(
+        let subject = StreamReaderReal::new(
             Box::new(reader),
             Some(1234),
             dispatcher_subs.ibcd_sub,
@@ -539,7 +535,7 @@ mod tests {
             .read_ok(http_connect_request.as_slice())
             .read_final(tls_request.as_slice());
 
-        let mut subject = StreamReaderReal::new(
+        let subject = StreamReaderReal::new(
             Box::new(reader),
             Some(1234),
             dispatcher_subs.ibcd_sub,
@@ -588,7 +584,7 @@ mod tests {
             .read_result(Ok(vec![]))
             .read_final(request2.as_slice());
 
-        let mut subject = StreamReaderReal::new(
+        let subject = StreamReaderReal::new(
             Box::new(reader),
             Some(1234),
             dispatcher_subs.ibcd_sub,
@@ -657,7 +653,7 @@ mod tests {
         );
         let reader = ReadHalfWrapperMock::new().read_final(request.as_slice());
 
-        let mut subject = StreamReaderReal::new(
+        let subject = StreamReaderReal::new(
             Box::new(reader),
             Some(1234),
             dispatcher_subs.ibcd_sub,

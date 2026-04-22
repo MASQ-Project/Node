@@ -141,7 +141,7 @@ impl CryptDE for CryptDEReal {
         let signature = match Signature::from_bytes(&signature_data) {
             Err(_e) => {
                 todo! ("Signature came in from outside. Not allowed to panic. Drive in an error log here");
-                return false;
+                //return false;
             }
             Ok(signature) => signature,
         };

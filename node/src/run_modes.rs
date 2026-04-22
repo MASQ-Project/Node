@@ -13,9 +13,6 @@ use masq_lib::command::StdStreams;
 use masq_lib::logger::Logger;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
-use masq_lib::test_utils::utils::make_rt;
-use tokio::task;
-use tokio::task::JoinHandle;
 use ProgramEntering::{Enter, Leave};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -280,13 +277,13 @@ impl Runner for RunnerReal {
                 ),
                 Err(e) => {
                     System::current().stop_with_code(1);
-                    return Err(format!("{:?}", e));
+                    Err(format!("{:?}", e))
                 }
             }
         };
         let result: Result<(), String> = system.block_on(initialization_future);
         let logger = Logger::new("RunnerReal");
-        /// TODO SPIKE
+        // TODO SPIKE
         match result {
             Ok(_) => (),
             Err(e) => error!(logger, "Node terminated with error, but we couldn't look for the error message: {:?}", e),
@@ -294,7 +291,7 @@ impl Runner for RunnerReal {
         match system.run() {
             Ok(()) => Ok(()),
             Err(e) => {
-                /// TODO SPIKE
+                // TODO SPIKE
                 error!(logger, "Node terminated with error: {:?}", e);
                 Err(RunnerError::Numeric(1))
             }
@@ -353,7 +350,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use time::OffsetDateTime;
     use tokio::spawn;
-    use tokio::task::JoinSet;
 
     pub struct RunnerMock {
         run_node_params: Arc<Mutex<Vec<Vec<String>>>>,

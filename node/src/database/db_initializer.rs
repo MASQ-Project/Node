@@ -21,7 +21,6 @@ use std::io::ErrorKind;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::Path;
 use std::{fs, vec};
-use tokio::net::TcpListener;
 use masq_lib::shared_schema::NeighborhoodMode;
 
 pub const DATABASE_FILE: &str = "node-data.db";
@@ -455,10 +454,10 @@ impl DbInitializerReal {
         loop {
             let candidate_port: u16 =
                 rng.gen_range(LOWEST_USABLE_INSECURE_PORT..HIGHEST_RANDOM_CLANDESTINE_PORT);
-            if let Ok(_) = std::net::TcpListener::bind(&SocketAddr::V4(SocketAddrV4::new(
+            if std::net::TcpListener::bind(SocketAddr::V4(SocketAddrV4::new(
                 Ipv4Addr::from(0),
                 candidate_port,
-            ))) {
+            ))).is_ok() {
                 return candidate_port;
             }
         }
@@ -1611,12 +1610,15 @@ mod tests {
 
     #[tokio::test]
     async fn choose_clandestine_port_chooses_different_unused_ports_each_time() {
+        // Keep the listeners around to make sure ports aren't reused.
+        let mut listeners: Vec<TcpListener> = vec![];
         for _ in 0..10 {
             let port = DbInitializerReal::choose_clandestine_port();
             let listener =
                 TcpListener::bind(&SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::from(0), port)))
                     .await
                     .expect(&format!("Port {} was not free", port));
+            listeners.push(listener);
         }
     }
 

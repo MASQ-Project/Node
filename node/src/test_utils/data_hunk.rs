@@ -17,7 +17,7 @@ impl From<Vec<u8>> for DataHunk {
     }
 }
 
-impl<'a> From<&'a [u8]> for DataHunk {
+impl From<&[u8]> for DataHunk {
     fn from(binary: &[u8]) -> Self {
         from(binary, "&[u8]")
     }

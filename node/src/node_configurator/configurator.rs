@@ -1,8 +1,7 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use actix::{Actor, Context, Handler, Recipient, Supervised, System};
+use actix::{Actor, Context, Handler, Recipient, Supervised};
 use std::path::PathBuf;
-use std::thread::panicking;
 
 use masq_lib::messages::{
     FromMessageBody, ToMessageBody, UiChangePasswordRequest, UiChangePasswordResponse,
@@ -25,7 +24,6 @@ use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
     PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
 };
-use crate::dispatcher::Dispatcher;
 use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::utils::{
@@ -509,7 +507,7 @@ impl Configurator {
                 };
             }
         };
-        Ok((&binary).to_hex::<String>().to_uppercase())
+        Ok(binary.to_hex::<String>().to_uppercase())
     }
 
     fn handle_configuration(
@@ -823,7 +821,6 @@ mod tests {
         UiWalletAddressesResponse,
     };
     use masq_lib::ui_gateway::{MessagePath, MessageTarget};
-    use std::path::Path;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;

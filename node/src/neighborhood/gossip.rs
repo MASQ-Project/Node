@@ -422,7 +422,7 @@ pub struct GossipBuilder<'a> {
 }
 
 impl<'a> GossipBuilder<'a> {
-    pub fn new(db: &NeighborhoodDatabase) -> GossipBuilder {
+    pub fn new(db: &'a NeighborhoodDatabase) -> GossipBuilder<'a> {
         GossipBuilder {
             db,
             gossip: Gossip_0v1::new(vec![]),

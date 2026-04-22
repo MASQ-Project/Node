@@ -5,7 +5,6 @@ pub mod live_cores_package;
 mod routing_service;
 
 use crate::bootstrapper::CryptDEPair;
-use crate::dispatcher::Dispatcher;
 use crate::hopper::routing_service::RoutingServiceSubs;
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::hopper::HopperSubs;
@@ -18,12 +17,11 @@ use crate::sub_lib::utils::{
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
-use actix::{Actor, Supervised, System};
+use actix::{Actor, Supervised};
 use consuming_service::ConsumingService;
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use routing_service::RoutingService;
-use std::thread::panicking;
 
 pub const CRASH_KEY: &str = "HOPPER";
 

@@ -6,11 +6,8 @@ use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapper;
 use crate::sub_lib::utils::indicates_dead_stream;
 use masq_lib::logger::Logger;
-use std::future::Future;
 use std::io;
-use std::io::{Error, ErrorKind};
 use std::net::SocketAddr;
-use tokio::io::AsyncWriteExt;
 
 pub struct StreamWriter {
     stream: Box<dyn WriteHalfWrapper>,
@@ -65,7 +62,7 @@ impl StreamWriter {
                     // }
                     return Err(e);
                 }
-                (_, wr) => (),
+                (_, _wr) => (),
             }
         }
     }
@@ -190,7 +187,7 @@ mod tests {
             .write_result(Ok(0));
         let peer_addr = SocketAddr::from_str("2.2.3.4:5678").unwrap();
 
-        let mut subject = StreamWriter::new(
+        let subject = StreamWriter::new(
             Box::new(writer),
             peer_addr,
             Box::new(rx_to_write),
@@ -267,7 +264,7 @@ mod tests {
             .write_result(Ok(text_data.len()));
         let peer_addr = SocketAddr::from_str("1.3.3.4:5678").unwrap();
 
-        let mut subject = StreamWriter::new(
+        let subject = StreamWriter::new(
             Box::new(writer),
             peer_addr,
             Box::new(rx_to_write),
@@ -303,7 +300,7 @@ mod tests {
             .write_result(Ok(second_data.len()));
         let peer_addr = SocketAddr::from_str("1.2.3.9:5678").unwrap();
 
-        let mut subject = StreamWriter::new(
+        let subject = StreamWriter::new(
             Box::new(writer),
             peer_addr,
             Box::new(rx_to_write),
@@ -328,7 +325,7 @@ mod tests {
             set_up_standard_results(ReceiverWrapperMock::new(), &b"These are the times".to_vec());
         let writer = WriteHalfWrapperMock::new().write_result(Ok(19));
         let peer_addr = SocketAddr::from_str("1.2.3.4:999").unwrap();
-        let mut subject = StreamWriter::new(
+        let subject = StreamWriter::new(
             Box::new(writer),
             peer_addr,
             Box::new(rx_to_write),
@@ -353,7 +350,7 @@ mod tests {
             .recv_result(None);
         let writer =
             WriteHalfWrapperMock::new().write_result(Err(Error::from(ErrorKind::BrokenPipe)));
-        let mut subject = StreamWriter::new(
+        let subject = StreamWriter::new(
             Box::new(writer),
             SocketAddr::from_str("2.3.4.5:80").unwrap(),
             Box::new(rx_to_write),
@@ -396,7 +393,7 @@ mod tests {
     //     let write_params = writer.poll_write_params.clone();
     //     let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
     //
-    //     let mut subject = StreamWriter::new(Box::new(writer), peer_addr, rx, stream_key);
+    //     let subject = StreamWriter::new(Box::new(writer), peer_addr, rx, stream_key);
     //
     //     let result = subject.poll();
     //     assert_eq!(result, Poll::Pending);
@@ -424,7 +421,7 @@ mod tests {
             .write_result(Ok(1));
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
 
-        let mut subject = StreamWriter::new(Box::new(writer), peer_addr, Box::new(rx), stream_key);
+        let subject = StreamWriter::new(Box::new(writer), peer_addr, Box::new(rx), stream_key);
 
         let result = subject.future().await;
         assert_eq!(result.is_ok(), true);
@@ -450,7 +447,7 @@ mod tests {
             .shutdown_params(&shutdown_params_arc)
             .shutdown_result(Ok(()));
         let peer_addr = SocketAddr::from_str("2.2.3.4:5678").unwrap();
-        let mut subject = StreamWriter::new(
+        let subject = StreamWriter::new(
             Box::new(writer),
             peer_addr,
             Box::new(rx_to_write),
@@ -499,7 +496,7 @@ mod tests {
     //     let write_params_mutex = writer.poll_write_params.clone();
     //     let peer_addr = SocketAddr::from_str("2.2.3.4:5678").unwrap();
     //
-    //     let mut subject = StreamWriter::new(Box::new(writer), peer_addr, Box::new(rx_to_write), stream_key);
+    //     let subject = StreamWriter::new(Box::new(writer), peer_addr, Box::new(rx_to_write), stream_key);
     //
     //     let res = subject.future().await;
     //
@@ -546,7 +543,7 @@ mod tests {
 
         let peer_addr = SocketAddr::from_str("2.2.3.4:5678").unwrap();
 
-        let mut subject = StreamWriter::new(
+        let subject = StreamWriter::new(
             Box::new(writer),
             peer_addr,
             Box::new(rx_to_write),

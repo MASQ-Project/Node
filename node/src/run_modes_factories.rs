@@ -19,7 +19,7 @@ use masq_lib::utils::ExpectValue;
 #[cfg(test)]
 use std::any::Any;
 use std::cell::RefCell;
-use tokio::task::{JoinHandle, JoinSet};
+use tokio::task::{JoinHandle};
 
 pub type RunModeResult = Result<(), ConfiguratorError>;
 
@@ -52,7 +52,6 @@ impl DaemonInitializerFactoryReal {
 
     fn expect<T>(value_ref_opt: &RefCell<Option<T>>) -> T {
         value_ref_opt
-            .take()
             .take()
             .expectv(std::any::type_name::<T>())
     }
@@ -260,9 +259,8 @@ pub mod mocks {
     use masq_lib::multi_config::MultiConfig;
     use masq_lib::shared_schema::ConfiguratorError;
     use std::cell::RefCell;
-    use std::io;
     use std::sync::{Arc, Mutex};
-    use tokio::task::{JoinHandle, JoinSet};
+    use tokio::task::{JoinHandle};
 
     pub fn test_clustered_params() -> DIClusteredParams {
         DIClusteredParams {

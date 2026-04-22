@@ -10,7 +10,6 @@ use masq_lib::shared_schema::{ConfigFile, ConfiguratorError, InsecurePort, IpAdd
 use masq_lib::shared_schema::NeighborhoodMode as SchemaNeighborhoodMode;
 use std::net::SocketAddr;
 use std::net::{IpAddr, Ipv4Addr};
-use std::path::PathBuf;
 
 use log::LevelFilter;
 
@@ -34,7 +33,6 @@ use base64::prelude::BASE64_STANDARD_NO_PAD;
 use base64::Engine;
 use masq_lib::constants::{DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT};
 use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl};
-use std::str::FromStr;
 use itertools::Itertools;
 
 pub struct NodeConfiguratorStandardPrivileged {
@@ -133,7 +131,7 @@ fn collect_externals_from_multi_config(
     )
 }
 
-pub fn server_initializer_collected_params<'a>(
+pub fn server_initializer_collected_params(
     dirs_wrapper: &dyn DirsWrapper,
     args: &[String],
 ) -> Result<GatheredParams, ConfiguratorError> {
@@ -307,6 +305,7 @@ mod tests {
     use std::fs::File;
     use std::io::Write;
     use std::path::{Path, PathBuf};
+    use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::vec;
 

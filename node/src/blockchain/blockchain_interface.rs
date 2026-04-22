@@ -14,7 +14,7 @@ use itertools::Either::{Left, Right};
 use masq_lib::blockchains::chains::{Chain, ChainFamily};
 use masq_lib::logger::Logger;
 use masq_lib::utils::ExpectValue;
-use std::convert::{From, TryFrom, TryInto};
+use std::convert::{From, TryInto};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::iter::once;
@@ -23,7 +23,7 @@ use variant_count::VariantCount;
 use web3::contract::Contract;
 use web3::transports::{Batch, Http};
 use web3::types::{
-    Address, BlockNumber, Bytes, FilterBuilder, Log, SignedTransaction, TransactionParameters,
+    Address, SignedTransaction,
     TransactionReceipt, H160, H256, U256,
 };
 use web3::{BatchTransport, Error, Transport, Web3};
@@ -300,8 +300,8 @@ where
 
     fn retrieve_transactions(
         &self,
-        start_block: u64,
-        recipient: &Wallet,
+        _start_block: u64,
+        _recipient: &Wallet,
     ) -> Result<RetrievedBlockchainTransactions, BlockchainError> {
         todo!("the signature of this function has been changed, it returns a future ");
         // debug!(
@@ -385,11 +385,11 @@ where
 
     fn send_payables_within_batch(
         &self,
-        consuming_wallet: &Wallet,
-        gas_price: u64,
-        pending_nonce: U256,
-        new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
-        accounts: &[PayableAccount],
+        _consuming_wallet: &Wallet,
+        _gas_price: u64,
+        _pending_nonce: U256,
+        _new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
+        _accounts: &[PayableAccount],
     ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
         todo!()
         // debug!(
@@ -431,7 +431,7 @@ where
         // }
     }
 
-    fn get_transaction_fee_balance(&self, wallet: &Wallet) -> ResultForBalance {
+    fn get_transaction_fee_balance(&self, _wallet: &Wallet) -> ResultForBalance {
         todo!()
         // self.web3
         //     .eth()
@@ -440,7 +440,7 @@ where
         //     .wait()
     }
 
-    fn get_token_balance(&self, wallet: &Wallet) -> ResultForBalance {
+    fn get_token_balance(&self, _wallet: &Wallet) -> ResultForBalance {
         todo!()
         // self.contract
         //     .query(
@@ -454,7 +454,7 @@ where
         //     .wait()
     }
 
-    fn get_transaction_count(&self, wallet: &Wallet) -> ResultForNonce {
+    fn get_transaction_count(&self, _wallet: &Wallet) -> ResultForNonce {
         todo!()
         // self.web3
         //     .eth()
@@ -463,7 +463,7 @@ where
         //     .wait()
     }
 
-    fn get_transaction_receipt(&self, hash: H256) -> ResultForReceipt {
+    fn get_transaction_receipt(&self, _hash: H256) -> ResultForReceipt {
         todo!()
         // self.web3
         //     .eth()
@@ -667,11 +667,11 @@ where
 
     fn sign_transaction<'a>(
         &self,
-        recipient: &'a Wallet,
-        consuming_wallet: &'a Wallet,
-        amount: u128,
-        nonce: U256,
-        gas_price: u64,
+        _recipient: &'a Wallet,
+        _consuming_wallet: &'a Wallet,
+        _amount: u128,
+        _nonce: U256,
+        _gas_price: u64,
     ) -> Result<SignedTransaction, PayableTransactionError> {
         todo!("this function has been drastically changed in GH-744");
         // let mut data = [0u8; 4 + 32 + 32];
@@ -767,7 +767,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::db_access_objects::dao_utils::from_time_t;
     use crate::accountant::gwei_to_wei;
     use crate::accountant::test_utils::{
         make_payable_account, make_payable_account_with_wallet_and_balance_and_timestamp_opt,
@@ -806,7 +805,7 @@ mod tests {
     use web3::error::TransportError;
     use web3::signing::RecoveryError;
     use web3::transports::Http;
-    use web3::types::H2048;
+    use web3::types::{Bytes, TransactionParameters, H2048};
     use web3::Error as Web3Error;
 
     #[test]
@@ -1445,15 +1444,14 @@ mod tests {
                 hash,
             }) => (rpc_error, recipient, hash),
         };
-        todo!("GH-676: This error code can't be directly asserted, since Error doesn't implements PartialEq");
-        // assert_eq!(
-        //     rpc_error,
-        //     &web3::Error::Rpc(Error {
-        //         code: ErrorCode::ServerError(114),
-        //         message: "server being busy".to_string(),
-        //         data: None
-        //     })
-        // );
+        match rpc_error {
+            web3::Error::Rpc(Error {
+                code: ErrorCode::ServerError(114),
+                message,
+                data: None,
+            }) if message == "server being busy" => (),
+            x => panic!("Expected rpc error with code 114 and message 'server being busy', but got {:?}", x),
+        }
         let expected_hash_2 =
             H256::from_str("57e7c9a5f6af1ab3363e323d59c2c9d1144bbb1a7c2065eeb6696d4e302e67f2")
                 .unwrap();
@@ -1820,15 +1818,14 @@ mod tests {
             &accounts,
         );
 
-        todo!("GH-676: This error code can't be directly asserted, since Error doesn't implements PartialEq")
-        // assert_eq!(
-        //     result,
-        //     Err(PayableTransactionError::Signing(
-        //         "Signing error: secp: malformed or out-of-range \
-        //     secret key"
-        //             .to_string()
-        //     ))
-        // )
+        assert_eq!(
+            result.err().unwrap(),
+            PayableTransactionError::Signing(
+                "Signing error: secp: malformed or out-of-range \
+            secret key"
+                    .to_string()
+            )
+        )
     }
 
     #[test]
@@ -1860,10 +1857,11 @@ mod tests {
         System::current().stop();
         system.run();
 
-        todo!("GH-676: This error code can't be directly asserted, since Error doesn't implements PartialEq");
-        // assert_eq!(result,
-        //            Err(PayableTransactionError::UnusableWallet("Cannot sign with non-keypair wallet: Address(0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc).".to_string()))
-        // );
+        assert_eq!(result.err().unwrap(),
+            PayableTransactionError::UnusableWallet(
+                "Cannot sign with non-keypair wallet: Address(0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc).".to_string()
+            )
+        );
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 0)
     }
@@ -1901,14 +1899,13 @@ mod tests {
             &vec![account],
         );
 
-        todo!("GH-676: This error code can't be directly asserted, since Error doesn't implements PartialEq")
-        // assert_eq!(
-        //     result,
-        //     Err(PayableTransactionError::Sending {
-        //         msg: "Transport error: Transaction crashed".to_string(),
-        //         hashes: vec![hash]
-        //     })
-        // );
+        assert_eq!(
+            result.err().unwrap(),
+            PayableTransactionError::Sending {
+                msg: "Transport error: Transaction crashed".to_string(),
+                hashes: vec![hash]
+            }
+        );
     }
 
     #[test]
@@ -2131,7 +2128,7 @@ mod tests {
         private_key: H256,
     }
 
-    fn assert_signature(chain: Chain, slice_of_sclices: &[&[u8]]) {
+    fn assert_signature(chain: Chain, slice_of_slices: &[&[u8]]) {
         todo!("this will require a lot of fixing");
         // let first_part_tx_1 = r#"[{"nonce": "0x9", "gasPrice": "0x4a817c800", "gasLimit": "0x5208", "to": "0x3535353535353535353535353535353535353535", "value": "0xde0b6b3a7640000", "data": []}, {"private_key": "0x4646464646464646464646464646464646464646464646464646464646464646", "signed": "#;
         // let first_part_tx_2 = r#"[{"nonce": "0x0", "gasPrice": "0xd55698372431", "gasLimit": "0x1e8480", "to": "0xF0109fC8DF283027b6285cc889F5aA624EaC1F55", "value": "0x3b9aca00", "data": []}, {"private_key": "0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318", "signed": "#;
@@ -2144,7 +2141,7 @@ mod tests {
         //     "[{}]",
         //     vec![first_part_tx_1, first_part_tx_2, first_part_tx_3]
         //         .iter()
-        //         .zip(slice_of_sclices.iter())
+        //         .zip(slice_of_slices.iter())
         //         .zip(0usize..2)
         //         .fold(String::new(), |so_far, actual| [
         //             so_far,

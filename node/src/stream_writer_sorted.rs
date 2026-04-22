@@ -1,4 +1,3 @@
-use std::future::Future;
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::sub_lib::channel_wrappers::ReceiverWrapper;
 use crate::sub_lib::sequence_buffer::SequenceBuffer;
@@ -7,9 +6,6 @@ use crate::sub_lib::tokio_wrappers::WriteHalfWrapper;
 use crate::sub_lib::utils::indicates_dead_stream;
 use masq_lib::logger::Logger;
 use std::net::SocketAddr;
-use std::pin::Pin;
-use std::task::{Context, Poll};
-use tokio::io::AsyncWriteExt;
 
 pub struct StreamWriterSorted {
     stream_opt: Option<Box<dyn WriteHalfWrapper>>,
@@ -50,9 +46,8 @@ impl StreamWriterSorted {
 
     async fn go(mut self) -> Result<(), std::io::Error> {
         loop {
-            match self.shutdown_reason_opt {
-                Some(reason) => return reason,
-                None => {}
+            if let Some(reason) = self.shutdown_reason_opt {
+                return reason
             }
 
             let read_result = self.read_data_from_channel().await;
@@ -147,9 +142,9 @@ impl StreamWriterSorted {
                     Ok(()) => {
                         // TODO: Debug-log stream shutdown
                     }
-                    Err(e) => {
+                    Err(_e) => {
                         todo!("Not tested");
-                        error!(self.logger, "Error shutting down stream: {}", e);
+                        // error!(self.logger, "Error shutting down stream: {}", _e);
                     }
                 }
             }
@@ -218,7 +213,6 @@ mod tests {
     use crate::sub_lib::sequence_buffer::SequencedPacket;
     use crate::test_utils::channel_wrapper_mocks::ReceiverWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
-    use core::future::Future;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
     use std::io;
@@ -246,7 +240,7 @@ mod tests {
         let writer = WriteHalfWrapperMock::new().write_params(&write_params_arc);
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
 
-        let mut subject = StreamWriterSorted::new(Box::new(writer), peer_addr, Box::new(rx));
+        let subject = StreamWriterSorted::new(Box::new(writer), peer_addr, Box::new(rx));
 
         subject.go().await.unwrap();
 
@@ -259,7 +253,7 @@ mod tests {
         let writer = WriteHalfWrapperMock::new().write_result(Ok(5));
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
 
-        let mut subject = StreamWriterSorted::new(Box::new(writer), peer_addr, Box::new(rx));
+        let subject = StreamWriterSorted::new(Box::new(writer), peer_addr, Box::new(rx));
 
         subject.go().await.unwrap();
 
@@ -287,7 +281,7 @@ mod tests {
             .write_result(Err(io::Error::from(ErrorKind::BrokenPipe)));
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
 
-        let mut subject =
+        let subject =
             StreamWriterSorted::new(Box::new(writer), peer_addr.clone(), Box::new(rx));
 
         let result = subject.go().await;
@@ -320,7 +314,7 @@ mod tests {
             .write_result(Ok(5));
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
 
-        let mut subject =
+        let subject =
             StreamWriterSorted::new(Box::new(writer), peer_addr.clone(), Box::new(rx));
 
         let result = subject.go().await;
@@ -354,7 +348,7 @@ mod tests {
             .write_result(Ok(first_data.len()))
             .write_result(Ok(second_data.len()));
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let mut subject =
+        let subject =
             StreamWriterSorted::new(Box::new(writer), peer_addr.clone(), Box::new(rx));
 
         subject.go().await.unwrap();
@@ -395,7 +389,7 @@ mod tests {
             .write_result(Ok(third_data.len()));
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
 
-        let mut subject =
+        let subject =
             StreamWriterSorted::new(Box::new(writer), peer_addr.clone(), Box::new(rx));
 
         subject.go().await.unwrap();
@@ -435,7 +429,7 @@ mod tests {
             .write_result(Ok(second_data.len()));
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
 
-        let mut subject =
+        let subject =
             StreamWriterSorted::new(Box::new(writer), peer_addr.clone(), Box::new(rx));
 
         subject.go().await.unwrap();
@@ -463,7 +457,7 @@ mod tests {
             .write_result(Ok(5))
             .write_result(Err(io::Error::from(ErrorKind::BrokenPipe)));
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let mut subject =
+        let subject =
             StreamWriterSorted::new(Box::new(writer), peer_addr.clone(), Box::new(rx));
 
         subject.go().await.unwrap();
@@ -488,7 +482,7 @@ mod tests {
             .write_result(Ok(5));
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
 
-        let mut subject = StreamWriterSorted::new(Box::new(writer), peer_addr, Box::new(rx));
+        let subject = StreamWriterSorted::new(Box::new(writer), peer_addr, Box::new(rx));
 
         subject.go().await.unwrap();
 
@@ -514,7 +508,7 @@ mod tests {
             .write_result(Ok(2))
             .write_result(Ok(1));
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let mut subject = StreamWriterSorted::new(Box::new(writer), peer_addr, Box::new(rx));
+        let subject = StreamWriterSorted::new(Box::new(writer), peer_addr, Box::new(rx));
 
         subject.go().await.unwrap();
 
@@ -546,7 +540,7 @@ mod tests {
 
         let peer_addr = SocketAddr::from_str("2.2.3.4:5678").unwrap();
 
-        let mut subject =
+        let subject =
             StreamWriterSorted::new(Box::new(writer), peer_addr, Box::new(rx_to_write));
 
         subject.go().await.unwrap();
@@ -576,7 +570,7 @@ mod tests {
             .shutdown_params(&shutdown_params_arc)
             .shutdown_result(Ok(()));
         let peer_addr = SocketAddr::from_str("2.2.3.4:5678").unwrap();
-        let mut subject =
+        let subject =
             StreamWriterSorted::new(Box::new(writer), peer_addr, Box::new(rx_to_write));
 
         subject.go().await.unwrap();
@@ -589,7 +583,7 @@ mod tests {
     #[tokio::test]
     async fn stream_writer_returns_error_when_shutdown_returns_error() {
         let packet_a: Vec<u8> = vec![1, 3, 5, 9, 7];
-        let mut rx_to_write = ReceiverWrapperMock::new()
+        let rx_to_write = ReceiverWrapperMock::new()
             .recv_result(Some(SequencedPacket {
                 data: packet_a.to_vec(),
                 sequence_number: 0,
@@ -602,7 +596,7 @@ mod tests {
             .write_result(Ok(packet_a.len()))
             .shutdown_result(Err(io::Error::from(ErrorKind::Other)));
         let peer_addr = SocketAddr::from_str("2.2.3.4:5678").unwrap();
-        let mut subject =
+        let subject =
             StreamWriterSorted::new(Box::new(writer), peer_addr, Box::new(rx_to_write));
 
         let res = subject.go().await;

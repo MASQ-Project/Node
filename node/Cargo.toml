@@ -8,6 +8,13 @@ edition = "2021"
 
 [workspace]
 members = ["../multinode_integration_tests", "../masq_lib", "../masq"]
+resolver = "2"
+
+[workspace.dependencies]
+futures-util = "=0.3.32"
+soketto = "=0.8.1"
+tokio = "=1.49.0"
+tokio-util = "=0.7.18"
 
 [dependencies]
 actix = "0.13.5"
@@ -25,7 +32,7 @@ ethsign = {version = "0.9.0", default-features = false, features = ["pure-rust"]
 ethsign-crypto = "0.3.0"
 fdlimit = "0.3.0"
 flexi_logger = { version = "0.28.1", features = [ "compress" ] }
-futures-util = "0.3.30"
+futures-util = { workspace = true }
 heck = "0.5.0"
 hickory-dns = "0.24.0"
 hickory-proto = "0.24.1"
@@ -55,14 +62,14 @@ serde_derive = "1.0.203"
 serde_json = "1.0.117"
 sha1 = "0.10.6"
 sodiumoxide = "0.2.7"
-soketto = "0.8.1"
+soketto = { workspace = true }
 sysinfo = "0.30.12"
 thousands = "0.2.0"
 time = {version = "0.3.36", features = [ "macros" ]}
 tiny-bip39 = "1.0.0"
 tiny-hderive = "0.3.0"
-tokio = "1.38.0"
-tokio-util = { version = "0.7.13", features = ["compat"]}
+tokio = { workspace = true }
+tokio-util = { workspace = true, features = ["compat"]}
 tokio-executor = "0.1.10"
 toml = "0.8.8"
 tungstenite = "0.23.0"
@@ -108,6 +115,7 @@ path = "src/lib.rs"
 
 [features]
 expose_test_privates = []
+log_recipient_test = []
 
 #[profile.release]
 #opt-level = 0

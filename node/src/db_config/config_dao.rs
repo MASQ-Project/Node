@@ -130,7 +130,7 @@ fn get_all(mut stmt: Statement) -> Result<Vec<ConfigDaoRecord>, ConfigDaoError> 
 }
 
 fn get(mut stmt: Statement, name: &str) -> Result<ConfigDaoRecord, ConfigDaoError> {
-    match stmt.query_row(&[name], |row| Ok(row_to_config_dao_record(row))) {
+    match stmt.query_row([name], |row| Ok(row_to_config_dao_record(row))) {
         Ok(record) => Ok(record),
         Err(rusqlite::Error::QueryReturnedNoRows) => Err(ConfigDaoError::NotPresent),
         // The following line is untested, because we don't know how to trigger it.

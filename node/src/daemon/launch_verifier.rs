@@ -232,11 +232,11 @@ pub trait ClientBuilderWrapper {
     fn initiate_client_builder(
         &mut self,
         address: &str,
-    ) -> Result<(), workflow_websocket::client::Error>;
+    ) -> Result<(), Error>;
     fn add_protocol(&self, protocol: &str);
     fn connect_insecure(
         &mut self,
-    ) -> Result<Box<dyn ClientWrapper>, workflow_websocket::client::Error>;
+    ) -> Result<Box<dyn ClientWrapper>, Error>;
 }
 
 #[derive(Default)]
@@ -248,7 +248,7 @@ impl ClientBuilderWrapper for ClientBuilderWrapperReal {
     fn initiate_client_builder(
         &mut self,
         address: &str,
-    ) -> Result<(), workflow_websocket::client::Error> {
+    ) -> Result<(), Error> {
         self.address = address.to_string();
         Ok(())
     }

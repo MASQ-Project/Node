@@ -7,7 +7,6 @@ pub mod server_impersonator_http;
 pub mod server_impersonator_tls;
 pub mod tls_protocol_pack;
 
-use crate::dispatcher::Dispatcher;
 use crate::proxy_server::client_request_payload_factory::{
     ClientRequestPayloadFactory, ClientRequestPayloadFactoryReal,
 };
@@ -46,14 +45,13 @@ use actix::Context;
 use actix::Handler;
 use actix::Recipient;
 use actix::{Actor, MailboxError};
-use actix::{Addr, Supervised, System};
+use actix::{Addr, Supervised};
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::MutabilityConflictHelper;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::rc::Rc;
-use std::thread::panicking;
 use std::time::{Duration, SystemTime};
 
 pub const CRASH_KEY: &str = "PROXYSERVER";
@@ -873,10 +871,7 @@ impl IBCDHelper for IBCDHelperReal {
     ) -> Result<(), String> {
         let source_addr = msg.peer_addr;
         if proxy.consuming_wallet_balance.is_none() && proxy.is_decentralized {
-            let protocol_pack = match from_ibcd(&msg) {
-                Err(e) => return Err(e),
-                Ok(pp) => pp,
-            };
+            let protocol_pack = from_ibcd(&msg)?;
             let data = protocol_pack
                 .server_impersonator()
                 .consuming_wallet_absent();
@@ -895,10 +890,7 @@ impl IBCDHelper for IBCDHelperReal {
         }
         let stream_key = proxy.make_stream_key(&msg);
         let timestamp = msg.timestamp;
-        let payload = match proxy.make_payload(msg, &stream_key) {
-            Ok(payload) => payload,
-            Err(e) => return Err(e),
-        };
+        let payload = proxy.make_payload(msg, &stream_key)?;
         let tth_args = TryTransmitToHopperArgs {
             main_cryptde: proxy.main_cryptde,
             payload,

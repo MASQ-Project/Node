@@ -16,7 +16,6 @@ use crate::sub_lib::proxy_server::{ClientRequestPayload_0v1, ProxyServerSubs};
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use actix::Recipient;
 use masq_lib::logger::Logger;
-use std::borrow::Borrow;
 use std::convert::TryFrom;
 use std::net::SocketAddr;
 use std::time::SystemTime;
@@ -86,7 +85,7 @@ impl RoutingService {
             }
         };
 
-        let next_hop = match live_package.route.next_hop(self.cryptdes.main.borrow()) {
+        let next_hop = match live_package.route.next_hop(self.cryptdes.main) {
             Ok(hop) => hop,
             Err(e) => {
                 error!(
@@ -468,7 +467,7 @@ impl RoutingService {
         last_data: bool,
     ) -> Result<TransmitDataMsg, CryptdecError> {
         let (next_hop, next_live_package) =
-            match live_package.into_next_live(self.cryptdes.main.borrow()) {
+            match live_package.into_next_live(self.cryptdes.main) {
                 Err(e) => {
                     let msg = format!(
                         "Couldn't get next hop and outgoing LCP from incoming LCP: {:?}",

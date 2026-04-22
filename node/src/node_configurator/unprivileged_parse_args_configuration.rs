@@ -251,7 +251,7 @@ fn make_neighborhood_mode(
                 _ => unreachable!(),
             }
         }
-        Some(ref mode) if mode == &SchemaNeighborhoodMode::ConsumeOnly => {
+        Some(SchemaNeighborhoodMode::ConsumeOnly) => {
             let mut errors = ConfiguratorError::new(vec![]);
             if neighbor_configs.is_empty() {
                 errors = errors.another_required("neighborhood-mode", "Node cannot run as --neighborhood-mode consume-only without --neighbors specified");
@@ -265,7 +265,7 @@ fn make_neighborhood_mode(
                 Ok(NeighborhoodMode::ConsumeOnly(neighbor_configs))
             }
         }
-        Some(ref mode) if mode == &SchemaNeighborhoodMode::ZeroHop => {
+        Some(SchemaNeighborhoodMode::ZeroHop) => {
             if value_m!(multi_config, "ip", IpAddr).is_some() {
                 Err(ConfiguratorError::required(
                     "neighborhood-mode",

@@ -2,7 +2,6 @@
 
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use actix::Recipient;
-use serde_json::Value;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::time::SystemTime;
@@ -54,9 +53,9 @@ impl<T: BatchTransport> Default for BatchPayableToolsReal<T> {
 impl<T: BatchTransport + Debug> BatchPayableTools<T> for BatchPayableToolsReal<T> {
     fn sign_transaction(
         &self,
-        transaction_params: TransactionParameters,
-        web3: &Web3<Batch<T>>,
-        key: &SecP256K1SecretsKeySecretKey,
+        _transaction_params: TransactionParameters,
+        _web3: &Web3<Batch<T>>,
+        _key: &SecP256K1SecretsKeySecretKey,
     ) -> Result<SignedTransaction, Web3Error> {
         todo!()
         // web3.accounts()
@@ -86,7 +85,7 @@ impl<T: BatchTransport + Debug> BatchPayableTools<T> for BatchPayableToolsReal<T
             .expect("Accountant is dead");
     }
 
-    fn submit_batch(&self, web3: &Web3<Batch<T>>) -> Result<Vec<()>, Web3Error> {
+    fn submit_batch(&self, _web3: &Web3<Batch<T>>) -> Result<Vec<()>, Web3Error> {
         todo!("this structure has been removed in GH-744")
     }
 }

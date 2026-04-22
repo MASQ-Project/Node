@@ -294,7 +294,7 @@ impl<'a> PacketFacade<'a> {
     }
 
     pub fn get_rcode(&self) -> Option<u8> {
-        self.req_len_opt(4, || (self.buf[3] & 0x0F))
+        self.req_len_opt(4, || self.buf[3] & 0x0F)
     }
 
     pub fn set_rcode(&mut self, v: u8) -> bool {
@@ -610,7 +610,7 @@ impl<'a> PacketFacade<'a> {
                 }
                 buf[local_offset] = bytes.len() as u8;
                 for i in 0..bytes.len() {
-                    buf[local_offset + 1 + i] = bytes[i] as u8
+                    buf[local_offset + 1 + i] = bytes[i]
                 }
                 local_offset += 1 + bytes.len()
             }

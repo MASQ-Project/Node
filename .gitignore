@@ -61,6 +61,7 @@ Temporary Items
 **/.idea/aws.xml
 **/.idea/scopes/*.xml
 **/.idea/copilot*
+**/.idea/db-forest-config.xml
 
 # Sensitive or high-churn files:
 **/.idea/**/dataSources/

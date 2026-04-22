@@ -170,7 +170,7 @@ impl DaemonInitializerReal {
     }
 
     fn split(&mut self, system: SystemRunner, receiver: Receiver<HashMap<String, String>>) {
-        system.run();
+        let _ = system.run();
         let param_map = receiver.recv().expect("Daemon is dead");
         let param_vec = param_map
             .into_iter()

@@ -90,7 +90,7 @@ impl Bip39 {
     }
 
     pub fn possible_language_values() -> Vec<&'static str> {
-        vec![
+        [
             Language::English,
             Language::ChineseSimplified,
             Language::ChineseTraditional,
