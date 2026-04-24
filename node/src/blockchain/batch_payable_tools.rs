@@ -96,11 +96,12 @@ mod tests {
     use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
     use crate::blockchain::test_utils::{make_tx_hash, TestTransport};
     use crate::test_utils::recorder::make_recorder;
-    use actix::{Actor, System};
+    use actix::Actor;
     use std::time::SystemTime;
+    use tokio::task;
 
-    #[test]
-    fn request_new_payable_fingerprints_works() {
+    #[actix::test]
+    async fn request_new_payable_fingerprints_works() {
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let recipient = accountant.start().recipient();
         let timestamp = SystemTime::now();
@@ -109,10 +110,10 @@ mod tests {
         let _ = BatchPayableToolsReal::<TestTransport>::default()
             .send_new_payable_fingerprints_seeds(timestamp, &recipient, &hashes_and_balances);
 
-        let system = System::new();
-        System::current().stop();
-        system.run();
+        task::yield_now().await;
+        task::yield_now().await;
         let accountant_recording = accountant_recording_arc.lock().unwrap();
+        assert_eq!(accountant_recording.len(), 1);
         let message = accountant_recording.get_record::<PendingPayableFingerprintSeeds>(0);
         assert_eq!(
             message,

@@ -133,80 +133,60 @@ mod tests {
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::stream_connector_mock::StreamConnectorMock;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
-    use actix::System;
     use crossbeam_channel::unbounded;
     use std::io::ErrorKind;
     use std::net::SocketAddr;
     use std::str::FromStr;
-    use std::thread;
-    use tokio::task;
 
-    #[test]
-    fn spawn_stream_reader_handles_data() {
+    #[actix::test]
+    async fn spawn_stream_reader_handles_data() {
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
-        let (sub_tx, sub_rx) = unbounded();
-        thread::spawn(move || {
-            let system = System::new();
-            let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
-            sub_tx
-                .send(peer_actors.proxy_client_opt.unwrap().inbound_server_data)
-                .expect("Unable to send inbound_server_data sub from proxy_client to test");
-            system.run();
-        });
+        let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
+        let proxy_client_sub = peer_actors.proxy_client_opt.unwrap().inbound_server_data;
 
-        let (ibsd_tx, ibsd_rx) = unbounded();
-        let test_future = async move {
-            let proxy_client_sub = sub_rx.recv().unwrap();
+        let (stream_adder_tx, _stream_adder_rx) = unbounded();
+        let (stream_killer_tx, _) = unbounded();
+        let bytes = b"I'm a stream establisher test not a framer test";
+        let read_stream = Box::new(
+            ReadHalfWrapperMock::new()
+                .read_result(Ok(bytes.to_vec()))
+                .read_result(Err(io::Error::from(ErrorKind::BrokenPipe))),
+        );
 
-            let (stream_adder_tx, _stream_adder_rx) = unbounded();
-            let (stream_killer_tx, _) = unbounded();
-            let bytes = b"I'm a stream establisher test not a framer test";
-            let read_stream = Box::new(
-                ReadHalfWrapperMock::new()
-                    .read_result(Ok(bytes.to_vec()))
-                    .read_result(Err(io::Error::from(ErrorKind::BrokenPipe))),
-            );
-
-            let subject = StreamEstablisher {
-                cryptde: main_cryptde(),
-                stream_adder_tx,
-                stream_killer_tx,
-                stream_connector: Box::new(StreamConnectorMock::new()), // only used in "establish_stream"
-                proxy_client_sub,
-                logger: Logger::new("ProxyClient"),
-                channel_factory: Box::new(FuturesChannelFactoryReal {}),
-            };
-            subject.spawn_stream_reader(
-                &ClientRequestPayload_0v1 {
-                    stream_key: make_meaningless_stream_key(),
-                    sequenced_packet: SequencedPacket {
-                        data: vec![],
-                        sequence_number: 0,
-                        last_data: false,
-                    },
-                    target_hostname: Some("blah".to_string()),
-                    target_port: 0,
-                    protocol: ProxyProtocol::HTTP,
-                    originator_public_key: subject.cryptde.public_key().clone(),
-                },
-                read_stream,
-                SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            );
-
-            proxy_client_awaiter.await_message_count(1);
-            let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
-            let record = proxy_client_recording
-                .get_record::<InboundServerData>(0)
-                .clone();
-            ibsd_tx.send(record).unwrap();
+        let subject = StreamEstablisher {
+            cryptde: main_cryptde(),
+            stream_adder_tx,
+            stream_killer_tx,
+            stream_connector: Box::new(StreamConnectorMock::new()), // only used in "establish_stream"
+            proxy_client_sub,
+            logger: Logger::new("ProxyClient"),
+            channel_factory: Box::new(FuturesChannelFactoryReal {}),
         };
+        subject.spawn_stream_reader(
+            &ClientRequestPayload_0v1 {
+                stream_key: make_meaningless_stream_key(),
+                sequenced_packet: SequencedPacket {
+                    data: vec![],
+                    sequence_number: 0,
+                    last_data: false,
+                },
+                target_hostname: Some("blah".to_string()),
+                target_port: 0,
+                protocol: ProxyProtocol::HTTP,
+                originator_public_key: subject.cryptde.public_key().clone(),
+            },
+            read_stream,
+            SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+        );
 
-        task::spawn(test_future);
-
-        let ibsd = ibsd_rx.recv().unwrap();
+        proxy_client_awaiter.await_message_count(1);
+        let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
+        let record = proxy_client_recording
+            .get_record::<InboundServerData>(0)
+            .clone();
 
         assert_eq!(
-            ibsd,
+            record,
             InboundServerData {
                 stream_key: make_meaningless_stream_key(),
                 last_data: false,

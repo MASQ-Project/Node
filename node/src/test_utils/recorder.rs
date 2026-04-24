@@ -552,7 +552,6 @@ impl PeerActorsBuilder {
 mod tests {
     use super::*;
     use actix::Message;
-    use actix::System;
 
     #[derive(Debug, PartialEq, Eq, Message)]
     #[rtype(result = "()")]
@@ -571,28 +570,26 @@ mod tests {
 
     recorder_message_handler!(SecondMessageType);
 
-    #[test]
-    fn recorder_records_different_messages() {
-        let system = System::new();
+    #[actix::test]
+    async fn recorder_records_different_messages() {
         let recorder = Recorder::new();
         let recording_arc = recorder.get_recording();
 
         let rec_addr: Addr<Recorder> = recorder.start();
 
         rec_addr
-            .try_send(FirstMessageType {
+            .send(FirstMessageType {
                 string: String::from("String"),
             })
+            .await
             .unwrap();
         rec_addr
-            .try_send(SecondMessageType {
+            .send(SecondMessageType {
                 size: 42,
                 flag: false,
             })
+            .await
             .unwrap();
-        System::current().stop_with_code(0);
-
-        system.run();
 
         let recording = recording_arc.lock().unwrap();
         assert_eq!(

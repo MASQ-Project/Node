@@ -171,7 +171,7 @@ impl CryptDENull {
         let mut private_key = [0; 32];
         let mut rng = thread_rng();
         for byte in &mut private_key {
-            *byte = rng.random();
+            *byte = rng.gen();
         }
         let private_key = PrivateKey::from(&private_key[..]);
         let public_key = Self::public_from_private(&private_key);
@@ -422,7 +422,7 @@ mod tests {
 
     #[test]
     fn decode_sym_with_empty_key() {
-        let subject = main_cryptde().clone();
+        let subject = main_cryptde();
         let key = SymmetricKey::new(b"");
 
         let result = subject.decode_sym(&key, &CryptData::new(b"keydata"));
@@ -432,7 +432,7 @@ mod tests {
 
     #[test]
     fn decode_sym_with_empty_data() {
-        let subject = main_cryptde().clone();
+        let subject = main_cryptde();
         let key = subject.gen_key_sym();
 
         let result = subject.decode_sym(&key, &CryptData::new(b""));
@@ -442,7 +442,7 @@ mod tests {
 
     #[test]
     fn decode_sym_with_key_and_data() {
-        let subject = main_cryptde().clone();
+        let subject = main_cryptde();
         let key = SymmetricKey::new(b"key");
 
         let result = subject.decode_sym(&key, &CryptData::new(b"keydata"));
@@ -455,7 +455,7 @@ mod tests {
         expected = "Could not decrypt with 6261644b6579 data beginning with 6b6579646174"
     )]
     fn decode_sym_with_wrong_key() {
-        let subject = main_cryptde().clone();
+        let subject = main_cryptde();
         let key = SymmetricKey::new(b"badKey");
 
         let _ = subject.decode_sym(&key, &CryptData::new(b"keydataxyz"));
@@ -463,7 +463,7 @@ mod tests {
 
     #[test]
     fn decode_sym_with_key_exceeding_data_length() {
-        let subject = main_cryptde().clone();
+        let subject = main_cryptde();
         let key = SymmetricKey::new(b"invalidkey");
 
         let result = subject.decode_sym(&key, &CryptData::new(b"keydata"));

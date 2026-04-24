@@ -265,7 +265,7 @@ pub struct MessageScheduler<M: Message> {
 mod tests {
     use super::*;
     use crate::apps::app_node;
-    use actix::{Handler, System};
+    use actix::Handler;
     use crossbeam_channel::{unbounded, Sender};
     use log::Level;
     use masq_lib::messages::ToMessageBody;
@@ -512,23 +512,22 @@ mod tests {
             };
             self.responder.send(info).unwrap();
             self.message_counter += 1;
-            if self.message_counter == 2 {
-                System::current().stop()
-            }
         }
     }
 
-    #[test]
-    fn notify_handles_real_sends_their_messages_correctly() {
+    #[actix::test]
+    async fn notify_handles_real_sends_their_messages_correctly() {
         let (sender, receiver) = unbounded();
         let test_actor = NotifyHandlesTestActor::new(sender);
         let _ = test_actor.start();
-        let system = System::new();
 
-        system.run();
-
-        let mut data = Vec::new();
-        (0..2).for_each(|_| data.push(receiver.recv_timeout(Duration::from_secs(60)).unwrap()));
+        let mut data = tokio::task::spawn_blocking(move || {
+            let mut data = Vec::new();
+            (0..2).for_each(|_| data.push(receiver.recv_timeout(Duration::from_secs(60)).unwrap()));
+            data
+        })
+        .await
+        .unwrap();
         let first_message = data.remove(0);
         assert_eq!(first_message.id, 0);
         let notify_exec_duration = first_message

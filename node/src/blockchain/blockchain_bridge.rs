@@ -557,8 +557,8 @@ mod tests {
         Box::new(BlockchainInterfaceMock::default())
     }
 
-    #[test]
-    fn blockchain_bridge_receives_bind_message_with_consuming_private_key() {
+    #[actix::test]
+    async fn blockchain_bridge_receives_bind_message_with_consuming_private_key() {
         init_test_logging();
         let secret: Vec<u8> = "cc46befe8d169b89db447bd725fc2368b12542113555302598430cb5d5c74ea9"
             .from_hex()
@@ -571,7 +571,6 @@ mod tests {
             false,
             Some(consuming_wallet.clone()),
         );
-        let system = System::new();
         let addr = subject.start();
 
         addr.try_send(BindMessage {
@@ -579,16 +578,16 @@ mod tests {
         })
         .unwrap();
 
-        System::current().stop();
-        system.run();
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: BlockchainBridge: Received BindMessage; consuming wallet address {}",
             consuming_wallet
         ));
     }
 
-    #[test]
-    fn blockchain_bridge_receives_bind_message_without_consuming_private_key() {
+    #[actix::test]
+    async fn blockchain_bridge_receives_bind_message_without_consuming_private_key() {
         init_test_logging();
         let subject = BlockchainBridge::new(
             stub_bi(),
@@ -596,7 +595,6 @@ mod tests {
             false,
             None,
         );
-        let system = System::new();
         let addr = subject.start();
 
         addr.try_send(BindMessage {
@@ -604,8 +602,8 @@ mod tests {
         })
         .unwrap();
 
-        System::current().stop();
-        system.run();
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
         TestLogHandler::new().exists_log_containing(
             "DEBUG: BlockchainBridge: Received BindMessage; no consuming wallet address specified",
         );
@@ -623,8 +621,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn report_accounts_payable_returns_error_when_there_is_no_consuming_wallet_configured() {
+    #[actix::test]
+    async fn report_accounts_payable_returns_error_when_there_is_no_consuming_wallet_configured() {
         let blockchain_interface_mock = BlockchainInterfaceMock::default();
         let persistent_configuration_mock = PersistentConfigurationMock::default();
         let (accountant, _, accountant_recording_arc) = make_recorder();
@@ -645,12 +643,11 @@ mod tests {
             }],
             response_skeleton_opt: None,
         };
-        let system = System::new();
 
         let result = subject.handle_report_accounts_payable(request);
 
-        System::current().stop();
-        system.run().unwrap();
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
         assert_eq!(
             result,
             Err("ReportAccountsPayable: Missing consuming wallet to pay payable from".to_string())
@@ -667,9 +664,8 @@ mod tests {
         assert_eq!(accountant_recording.len(), 1)
     }
 
-    #[test]
-    fn handle_request_balances_to_pay_payables_reports_balances_and_payables_back_to_accountant() {
-        let system = System::new();
+    #[actix::test]
+    async fn handle_request_balances_to_pay_payables_reports_balances_and_payables_back_to_accountant() {
         let get_transaction_fee_balance_params_arc = Arc::new(Mutex::new(vec![]));
         let get_token_balance_params_arc = Arc::new(Mutex::new(vec![]));
         let (accountant, _, accountant_recording_arc) = make_recorder();
@@ -714,8 +710,8 @@ mod tests {
         })
         .unwrap();
 
-        System::current().stop();
-        system.run();
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
         let get_transaction_fee_balance_params =
             get_transaction_fee_balance_params_arc.lock().unwrap();
         assert_eq!(
@@ -859,9 +855,8 @@ mod tests {
         )
     }
 
-    #[test]
-    fn handle_report_accounts_payable_transacts_and_sends_finished_payments_back_to_accountant() {
-        let system = System::new();
+    #[actix::test]
+    async fn handle_report_accounts_payable_transacts_and_sends_finished_payments_back_to_accountant() {
         let get_transaction_count_params_arc = Arc::new(Mutex::new(vec![]));
         let send_payables_within_batch_params_arc = Arc::new(Mutex::new(vec![]));
         let (accountant, _, accountant_recording_arc) = make_recorder();
@@ -922,8 +917,8 @@ mod tests {
             })
             .unwrap();
 
-        System::current().stop();
-        system.run();
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
         let mut send_payables_within_batch_params =
             send_payables_within_batch_params_arc.lock().unwrap();
         //cannot assert on the captured recipient as its actor is gone after the System stops spinning
@@ -965,9 +960,8 @@ mod tests {
         assert_eq!(accountant_recording.len(), 1);
     }
 
-    #[test]
-    fn handle_report_accounts_payable_transmits_eleventh_hour_error_back_to_accountant() {
-        let system = System::new();
+    #[actix::test]
+    async fn handle_report_accounts_payable_transmits_eleventh_hour_error_back_to_accountant() {
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let hash = make_tx_hash(0xde);
         let wallet_account = make_wallet("blah");
@@ -1010,8 +1004,8 @@ mod tests {
             })
             .unwrap();
 
-        System::current().stop();
-        system.run();
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         let sent_payments_msg = accountant_recording.get_record::<SentPayables>(0);
         assert_eq!(
@@ -1122,8 +1116,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn handle_report_accounts_payable_manages_gas_price_error() {
+    #[actix::test]
+    async fn handle_report_accounts_payable_manages_gas_price_error() {
         init_test_logging();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let accountant_addr = accountant
@@ -1154,11 +1148,9 @@ mod tests {
             response_skeleton_opt: None,
         };
         let subject_addr = subject.start();
-        let system = System::new();
 
         subject_addr.try_send(request).unwrap();
 
-        system.run();
         let recording = accountant_recording_arc.lock().unwrap();
         let actual_sent_payable_msg = recording.get_record::<SentPayables>(0);
         assert_eq!(
@@ -1186,8 +1178,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn blockchain_bridge_processes_requests_for_transaction_receipts_when_all_were_ok() {
+    #[actix::test]
+    async fn blockchain_bridge_processes_requests_for_transaction_receipts_when_all_were_ok() {
         let get_transaction_receipt_params_arc = Arc::new(Mutex::new(vec![]));
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let pending_payable_fingerprint_1 = make_pending_payable_fingerprint();
@@ -1228,9 +1220,8 @@ mod tests {
 
         let _ = addr.try_send(msg).unwrap();
 
-        let system = System::new();
-        System::current().stop();
-        system.run();
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 1);
         let received_message = accountant_recording.get_record::<ReportTransactionReceipts>(0);
@@ -1254,8 +1245,8 @@ mod tests {
         assert_eq!(*get_transaction_receipt_params, vec![hash_1, hash_2])
     }
 
-    #[test]
-    fn blockchain_bridge_logs_error_from_retrieving_received_payments() {
+    #[actix::test]
+    async fn blockchain_bridge_logs_error_from_retrieving_received_payments() {
         init_test_logging();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let scan_error_recipient: Recipient<ScanError> = accountant
@@ -1278,11 +1269,9 @@ mod tests {
             response_skeleton_opt: None,
         };
         let subject_addr = subject.start();
-        let system = System::new();
 
         subject_addr.try_send(msg).unwrap();
 
-        system.run();
         let recording = accountant_recording_arc.lock().unwrap();
         let message = recording.get_record::<ScanError>(0);
         assert_eq!(
@@ -1300,8 +1289,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn handle_request_transaction_receipts_short_circuits_on_failure_from_remote_process_sends_back_all_good_results_and_logs_abort(
+    #[actix::test]
+    async fn handle_request_transaction_receipts_short_circuits_on_failure_from_remote_process_sends_back_all_good_results_and_logs_abort(
     ) {
         init_test_logging();
         let get_transaction_receipt_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1352,7 +1341,6 @@ mod tests {
             .get_transaction_receipt_result(Err(BlockchainError::QueryFailed(
                 "bad bad bad".to_string(),
             )));
-        let system = System::new();
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface_mock),
             Box::new(PersistentConfigurationMock::default()),
@@ -1379,7 +1367,6 @@ mod tests {
 
         subject_addr.try_send(msg).unwrap();
 
-        system.run().unwrap();
         let get_transaction_receipts_params = get_transaction_receipt_params_arc.lock().unwrap();
         assert_eq!(
             *get_transaction_receipts_params,
@@ -1412,8 +1399,8 @@ mod tests {
          for '0x000000000000000000000000000000000000000000000000000000000001348d' failed due to 'QueryFailed(\"bad bad bad\")'");
     }
 
-    #[test]
-    fn blockchain_bridge_can_return_report_transaction_receipts_with_an_empty_vector() {
+    #[actix::test]
+    async fn blockchain_bridge_can_return_report_transaction_receipts_with_an_empty_vector() {
         let (accountant, _, accountant_recording) = make_recorder();
         let recipient = accountant.start().recipient();
         let mut subject = BlockchainBridge::new(
@@ -1429,12 +1416,11 @@ mod tests {
             pending_payable: vec![],
             response_skeleton_opt: None,
         };
-        let system = System::new();
 
         let _ = subject.handle_request_transaction_receipts(msg);
 
-        System::current().stop();
-        system.run();
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
         let recording = accountant_recording.lock().unwrap();
         assert_eq!(
             recording.get_record::<ReportTransactionReceipts>(0),
@@ -1445,8 +1431,8 @@ mod tests {
         )
     }
 
-    #[test]
-    fn handle_request_transaction_receipts_short_circuits_on_failure_of_the_first_payment_and_it_sends_a_message_with_empty_vector_and_logs(
+    #[actix::test]
+    async fn handle_request_transaction_receipts_short_circuits_on_failure_of_the_first_payment_and_it_sends_a_message_with_empty_vector_and_logs(
     ) {
         init_test_logging();
         let (accountant, _, accountant_recording) = make_recorder();
@@ -1490,7 +1476,6 @@ mod tests {
             pending_payable: vec![fingerprint_1, fingerprint_2],
             response_skeleton_opt: None,
         };
-        let system = System::new();
 
         let _ = subject.handle_scan(
             BlockchainBridge::handle_request_transaction_receipts,
@@ -1498,8 +1483,8 @@ mod tests {
             msg,
         );
 
-        System::current().stop();
-        system.run();
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
         let get_transaction_receipts_params = get_transaction_receipt_params_arc.lock().unwrap();
         let recording = accountant_recording.lock().unwrap();
         assert_eq!(*get_transaction_receipts_params, vec![hash_1]);
@@ -1523,10 +1508,9 @@ mod tests {
          receipt for '0x000000000000000000000000000000000000000000000000000000000001b2e6' failed due to 'QueryFailed(\"booga\")'");
     }
 
-    #[test]
-    fn handle_retrieve_transactions_sends_received_payments_back_to_accountant() {
+    #[actix::test]
+    async fn handle_retrieve_transactions_sends_received_payments_back_to_accountant() {
         let retrieve_transactions_params_arc = Arc::new(Mutex::new(vec![]));
-        let system = System::new();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let earning_wallet = make_wallet("somewallet");
         let amount = 42;
@@ -1575,8 +1559,8 @@ mod tests {
 
         let _ = addr.try_send(retrieve_transactions).unwrap();
 
-        System::current().stop();
-        system.run();
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
         let after = SystemTime::now();
         let set_start_block_params = set_start_block_params_arc.lock().unwrap();
         assert_eq!(*set_start_block_params, vec![1234]);
@@ -1599,8 +1583,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn processing_of_received_payments_continues_even_if_no_payments_are_detected() {
+    #[actix::test]
+    async fn processing_of_received_payments_continues_even_if_no_payments_are_detected() {
         init_test_logging();
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .retrieve_transactions_result(Ok(RetrievedBlockchainTransactions {
@@ -1613,7 +1597,6 @@ mod tests {
             .set_start_block_params(&set_start_block_params_arc)
             .set_start_block_result(Ok(()));
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let system = System::new();
         let subject = BlockchainBridge::new(
             Box::new(blockchain_interface_mock),
             Box::new(persistent_config),
@@ -1635,8 +1618,8 @@ mod tests {
 
         let _ = addr.try_send(retrieve_transactions).unwrap();
 
-        System::current().stop();
-        system.run();
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
         let after = SystemTime::now();
         let set_start_block_params = set_start_block_params_arc.lock().unwrap();
         assert_eq!(*set_start_block_params, vec![7]);
@@ -1725,8 +1708,8 @@ mod tests {
         Err("My tummy hurts".to_string())
     }
 
-    #[test]
-    fn handle_scan_handles_success() {
+    #[actix::test]
+    async fn handle_scan_handles_success() {
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let mut subject = BlockchainBridge::new(
             Box::new(BlockchainInterfaceMock::default()),
@@ -1734,7 +1717,6 @@ mod tests {
             false,
             None, //not needed in this test
         );
-        let system = System::new();
         subject.scan_error_subs_opt = Some(accountant.start().recipient());
         let retrieve_transactions = RetrieveTransactions {
             recipient: make_wallet("somewallet"),
@@ -1750,14 +1732,14 @@ mod tests {
             retrieve_transactions,
         );
 
-        System::current().stop();
-        system.run();
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 0);
     }
 
-    #[test]
-    fn handle_scan_handles_failure_without_skeleton() {
+    #[actix::test]
+    async fn handle_scan_handles_failure_without_skeleton() {
         init_test_logging();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let mut subject = BlockchainBridge::new(
@@ -1766,7 +1748,6 @@ mod tests {
             false,
             None, //not needed in this test
         );
-        let system = System::new();
         subject.scan_error_subs_opt = Some(accountant.start().recipient());
         let retrieve_transactions = RetrieveTransactions {
             recipient: make_wallet("somewallet"),
@@ -1779,8 +1760,8 @@ mod tests {
             retrieve_transactions,
         );
 
-        System::current().stop();
-        system.run();
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         let message = accountant_recording.get_record::<ScanError>(0);
         assert_eq!(
@@ -1795,8 +1776,8 @@ mod tests {
         TestLogHandler::new().exists_log_containing("WARN: BlockchainBridge: My tummy hurts");
     }
 
-    #[test]
-    fn handle_scan_handles_failure_with_skeleton() {
+    #[actix::test]
+    async fn handle_scan_handles_failure_with_skeleton() {
         init_test_logging();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let mut subject = BlockchainBridge::new(
@@ -1805,7 +1786,6 @@ mod tests {
             false,
             None, //not needed in this test
         );
-        let system = System::new();
         subject.scan_error_subs_opt = Some(accountant.start().recipient());
         let retrieve_transactions = RetrieveTransactions {
             recipient: make_wallet("somewallet"),
@@ -1821,8 +1801,8 @@ mod tests {
             retrieve_transactions,
         );
 
-        System::current().stop();
-        system.run();
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(
             accountant_recording.get_record::<ScanError>(0),

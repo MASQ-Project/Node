@@ -387,6 +387,7 @@ mod tests {
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::thread;
+    use tokio::task;
     use std::time::SystemTime;
 
     #[test]
@@ -561,9 +562,8 @@ mod tests {
         });
     }
 
-    #[test]
-    fn bind_operates_properly() {
-        let system = System::new();
+    #[actix::test]
+    async fn bind_operates_properly() {
         let resolver_wrapper = ResolverWrapperMock::new();
         let mut resolver_wrapper_new_parameters_arc: Arc<
             Mutex<Vec<(ResolverConfig, ResolverOpts)>>,
@@ -594,8 +594,8 @@ mod tests {
 
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
-        System::current().stop_with_code(0);
-        system.run().unwrap();
+        task::yield_now().await;
+        task::yield_now().await;
 
         let mut resolver_wrapper_new_parameters =
             resolver_wrapper_new_parameters_arc.lock().unwrap();
@@ -768,8 +768,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn data_from_hopper_is_relayed_to_stream_handler_pool() {
+    #[actix::test]
+    async fn data_from_hopper_is_relayed_to_stream_handler_pool() {
         let cryptde = main_cryptde();
         let request = ClientRequestPayload_0v1 {
             stream_key: make_meaningless_stream_key(),
@@ -795,7 +795,6 @@ mod tests {
         );
         let hopper = Recorder::new();
 
-        let system = System::new();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         let mut process_package_parameters = Arc::new(Mutex::new(vec![]));
         let pool = Box::new(
@@ -821,14 +820,14 @@ mod tests {
 
         subject_addr.try_send(package).unwrap();
 
-        System::current().stop_with_code(0);
-        system.run().unwrap();
+        task::yield_now().await;
+        task::yield_now().await;
         let parameter = process_package_parameters.lock().unwrap().remove(0);
         assert_eq!(parameter, (request, Some(make_wallet("consuming")),));
     }
 
-    #[test]
-    fn refuse_to_provide_exit_services_with_no_paying_wallet() {
+    #[actix::test]
+    async fn refuse_to_provide_exit_services_with_no_paying_wallet() {
         init_test_logging();
         let cryptde = main_cryptde();
         let request = ClientRequestPayload_0v1 {
@@ -852,7 +851,6 @@ mod tests {
         );
         let hopper = Recorder::new();
 
-        let system = System::new();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         let mut process_package_parameters = Arc::new(Mutex::new(vec![]));
         let pool = Box::new(
@@ -878,14 +876,14 @@ mod tests {
 
         subject_addr.try_send(package).unwrap();
 
-        System::current().stop();
-        system.run().unwrap();
+        task::yield_now().await;
+        task::yield_now().await;
         assert_eq!(0, process_package_parameters.lock().unwrap().len());
         TestLogHandler::new().exists_log_containing("WARN: ProxyClient: Refusing to provide exit services for CORES package with 12-byte payload without paying wallet");
     }
 
-    #[test]
-    fn does_provide_zero_hop_exit_services_with_no_paying_wallet() {
+    #[actix::test]
+    async fn does_provide_zero_hop_exit_services_with_no_paying_wallet() {
         let main_cryptde = main_cryptde();
         let alias_cryptde = alias_cryptde();
         let request = ClientRequestPayload_0v1 {
@@ -919,7 +917,6 @@ mod tests {
         );
         let hopper = Recorder::new();
 
-        let system = System::new();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         let mut process_package_parameters = Arc::new(Mutex::new(vec![]));
         let pool = Box::new(
@@ -945,20 +942,19 @@ mod tests {
 
         subject_addr.try_send(package).unwrap();
 
-        System::current().stop();
-        system.run().unwrap();
+        task::yield_now().await;
+        task::yield_now().await;
         let parameter = process_package_parameters.lock().unwrap().remove(0);
         assert_eq!(parameter, (request, None,));
     }
 
-    #[test]
-    fn inbound_server_data_is_translated_to_cores_packages() {
+    #[actix::test]
+    async fn inbound_server_data_is_translated_to_cores_packages() {
         init_test_logging();
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let stream_key = make_meaningless_stream_key();
         let data: &[u8] = b"An honest politician is one who, when he is bought, will stay bought.";
-        let system = System::new();
         let route = make_meaningless_route();
         let mut subject = ProxyClient::new(ProxyClientConfig {
             cryptde: main_cryptde(),
@@ -1021,8 +1017,8 @@ mod tests {
             })
             .unwrap();
 
-        System::current().stop_with_code(0);
-        system.run().unwrap();
+        task::yield_now().await;
+        task::yield_now().await;
         let after = SystemTime::now();
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         assert_eq!(
@@ -1100,13 +1096,12 @@ mod tests {
         tlh.exists_log_containing(format!("ERROR: ProxyClient: Received InboundServerData (last_data) from 1.2.3.4:5678: stream +dKB2Lsh3ET2TS/J/cexaanFQz4, sequence 1237, length {}; but no such known stream - ignoring", data.len()).as_str());
     }
 
-    #[test]
-    fn inbound_server_data_without_paying_wallet_does_not_report_exit_service() {
+    #[actix::test]
+    async fn inbound_server_data_without_paying_wallet_does_not_report_exit_service() {
         init_test_logging();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let stream_key = make_meaningless_stream_key();
         let data: &[u8] = b"An honest politician is one who, when he is bought, will stay bought.";
-        let system = System::new();
         let mut subject = ProxyClient::new(ProxyClientConfig {
             cryptde: main_cryptde(),
             dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
@@ -1138,8 +1133,8 @@ mod tests {
             })
             .unwrap();
 
-        System::current().stop_with_code(0);
-        system.run();
+        task::yield_now().await;
+        task::yield_now().await;
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 0);
         TestLogHandler::new().exists_log_containing(
@@ -1151,14 +1146,13 @@ mod tests {
         );
     }
 
-    #[test]
-    fn error_creating_incipient_cores_package_is_logged_and_dropped() {
+    #[actix::test]
+    async fn error_creating_incipient_cores_package_is_logged_and_dropped() {
         init_test_logging();
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let stream_key = make_meaningless_stream_key();
         let data: &[u8] = b"An honest politician is one who, when he is bought, will stay bought.";
-        let system = System::new();
         let mut subject = ProxyClient::new(ProxyClientConfig {
             cryptde: main_cryptde(),
             dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
@@ -1192,8 +1186,8 @@ mod tests {
             })
             .unwrap();
 
-        System::current().stop_with_code(0);
-        system.run().unwrap();
+        task::yield_now().await;
+        task::yield_now().await;
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         assert_eq!(hopper_recording.len(), 0);
         let accountant_recording = accountant_recording_arc.lock().unwrap();
@@ -1201,14 +1195,13 @@ mod tests {
         TestLogHandler::new().exists_log_containing(format!("ERROR: ProxyClient: Could not create CORES package for {}-byte response from 1.2.3.4:5678, seq 1234: Could not encrypt payload: EncryptionError(EmptyKey) - ignoring", data.len()).as_str());
     }
 
-    #[test]
-    fn new_return_route_overwrites_existing_return_route() {
+    #[actix::test]
+    async fn new_return_route_overwrites_existing_return_route() {
         let cryptde = main_cryptde();
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let stream_key = make_meaningless_stream_key();
         let data: &[u8] = b"An honest politician is one who, when he is bought, will stay bought.";
-        let system = System::new();
         let mut subject = ProxyClient::new(ProxyClientConfig {
             cryptde,
             dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
@@ -1274,8 +1267,8 @@ mod tests {
                 data: Vec::from(data.clone()),
             })
             .unwrap();
-        System::current().stop_with_code(0);
-        system.run().unwrap();
+        task::yield_now().await;
+        task::yield_now().await;
         let after = SystemTime::now();
         let mut process_package_params = process_package_params_arc.lock().unwrap();
         let (actual_payload, paying_wallet_opt) = process_package_params.remove(0);

@@ -1588,7 +1588,7 @@ mod tests {
     #[test]
     fn initialize_cryptde_with_cryptde_null_uses_cryptde_null() {
         let _lock = INITIALIZATION.lock();
-        let cryptde_null = main_cryptde().clone();
+        let cryptde_null = main_cryptde();
         let cryptde_null_public_key = cryptde_null.public_key().clone();
 
         let cryptdes =

@@ -8,11 +8,11 @@ edition = "2021"
 workspace = "../node"
 
 [dependencies]
-base64 = "0.22.1"
+base64 = { workspace = true }
 crossbeam-channel = "0.5.1"
-ethereum-types = "0.14.1"
+ethereum-types = { workspace = true }
 ethsign-crypto = "0.3.0"
-futures = "0.3.29"
+futures = { workspace = true }
 itertools = "0.13.0"
 lazy_static = "1.4.0"
 log = "0.4.14"
@@ -30,9 +30,9 @@ serde_derive = "1.0.130"
 serde_json = "1.0"
 sha1 = "0.11.0-pre.3"
 tiny-bip39 = "1.0.0"
-tiny-hderive = "0.3.0"
+tiny-hderive = { workspace = true }
 uint = "0.9.1"
-web3 = {version = "0.19.0", default-features = false, features = ["http", "http-tls"]}
+web3 = { workspace = true }
 websocket = {version = "0.27.1", default-features = false, features = ["sync"]}
 
 [lib]

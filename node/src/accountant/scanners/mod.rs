@@ -1113,7 +1113,7 @@ mod tests {
     };
     use crate::sub_lib::blockchain_bridge::RequestBalancesToPayPayables;
     use crate::test_utils::make_wallet;
-    use actix::{Message, System};
+    use actix::Message;
     use ethereum_types::U64;
     use masq_lib::logger::Logger;
     use masq_lib::messages::ScanType;
@@ -1502,8 +1502,8 @@ mod tests {
           0x00000000000000000000000000626c6168313131) were not found; system unreliable"));
     }
 
-    #[test]
-    fn payable_scanner_is_facing_failed_transactions_and_their_fingerprints_exist() {
+    #[actix::test]
+    async fn payable_scanner_is_facing_failed_transactions_and_their_fingerprints_exist() {
         init_test_logging();
         let test_name =
             "payable_scanner_is_facing_failed_transactions_and_their_fingerprints_exist";
@@ -1513,7 +1513,6 @@ mod tests {
         let hash_tx_2 = make_tx_hash(0x3039);
         let first_fingerprint_rowid = 3;
         let second_fingerprint_rowid = 5;
-        let system = System::new();
         let pending_payable_dao = PendingPayableDaoMock::default()
             .fingerprints_rowids_params(&fingerprints_rowids_params_arc)
             .fingerprints_rowids_result(vec![
@@ -1536,8 +1535,6 @@ mod tests {
 
         let result = subject.finish_scan(sent_payable, &logger);
 
-        System::current().stop();
-        system.run();
         assert_eq!(result, None);
         let fingerprints_rowids_params = fingerprints_rowids_params_arc.lock().unwrap();
         assert_eq!(

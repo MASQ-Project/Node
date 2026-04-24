@@ -11,23 +11,33 @@ members = ["../multinode_integration_tests", "../masq_lib", "../masq"]
 resolver = "2"
 
 [workspace.dependencies]
+actix = "=0.13.5"
+base64 = { version = "=0.22.1", features = ["alloc"] }
+dirs = "=5.0.1"
+ethereum-types = "=0.14.1"
+futures = "=0.3.32"
 futures-util = "=0.3.32"
+rand = { version = "=0.9.0-alpha.1", features = ["getrandom", "small_rng"] }
 soketto = "=0.8.1"
+tiny-hderive = "=0.3.0"
 tokio = "=1.49.0"
 tokio-util = "=0.7.18"
+url = "=2.5.0"
+web3 = { version = "=0.19.0", default-features = false, features = ["http", "http-tls"] }
+workflow-websocket = "=0.17.0"
 
 [dependencies]
-actix = "0.13.5"
+actix = { workspace = true }
 async-trait = "0.1.80"
 automap = { path = "../automap"}
 backtrace = "0.3.72"
-base64 = "0.22.1"
+base64 = { workspace = true }
 bytes = "1.6.0"
 clap = "4.5.6"
 crossbeam-channel = "0.5.13"
-dirs = "5.0.1"
+dirs = { workspace = true }
 ethabi = "18.0.0"
-ethereum-types = "0.14.1"
+ethereum-types = { workspace = true }
 ethsign = {version = "0.9.0", default-features = false, features = ["pure-rust"]}
 ethsign-crypto = "0.3.0"
 fdlimit = "0.3.0"
@@ -49,7 +59,7 @@ masq_lib = { path = "../masq_lib"}
 paste = "1.0.15"
 pretty-hex = "0.4.1"
 primitive-types = {version = "0.12.2", default-features = false, features = ["default", "rlp", "serde"]}
-rand = {version = "0.9.0-alpha.1", features = ["getrandom", "small_rng"]}
+rand = { workspace = true }
 regex = "1.10.4"
 rlp = "0.5.2"
 rpassword = "7.3.1"
@@ -67,17 +77,17 @@ sysinfo = "0.30.12"
 thousands = "0.2.0"
 time = {version = "0.3.36", features = [ "macros" ]}
 tiny-bip39 = "1.0.0"
-tiny-hderive = "0.3.0"
+tiny-hderive = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true, features = ["compat"]}
 tokio-executor = "0.1.10"
 toml = "0.8.8"
 tungstenite = "0.23.0"
 unindent = "0.2.3"
-url = "2.5.0"
+url = { workspace = true }
 variant_count = "1.1.0"
-web3 = {version = "0.19.0", default-features = false, features = ["http", "http-tls"]}
-workflow-websocket = "0.17.0"
+web3 = { workspace = true }
+workflow-websocket = { workspace = true }
 actix-rt = "2.11.0"
 
 [target.'cfg(target_os = "macos")'.dependencies]

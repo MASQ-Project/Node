@@ -139,7 +139,6 @@ mod tests {
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::{main_cryptde, make_meaningless_message_type, make_paying_wallet};
-    use actix::System;
     use masq_lib::node_addr::NodeAddr;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
@@ -147,9 +146,10 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr};
     use std::str::FromStr;
     use std::time::SystemTime;
+    use tokio::task;
 
-    #[test]
-    fn converts_no_lookup_incipient_message_to_live_and_sends_to_dispatcher() {
+    #[actix::test]
+    async fn converts_no_lookup_incipient_message_to_live_and_sends_to_dispatcher() {
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
         let target_key = PublicKey::new(&[1, 2]);
         let target_node_addr = NodeAddr::new(&IpAddr::from_str("1.2.1.2").unwrap(), &[1212, 2121]);
@@ -160,7 +160,6 @@ mod tests {
             make_meaningless_message_type(),
         )
         .unwrap();
-        let system = System::new();
         let peer_actors = peer_actors_builder().dispatcher(dispatcher).build();
         let subject = ConsumingService::new(
             main_cryptde(),
@@ -170,8 +169,7 @@ mod tests {
 
         subject.consume_no_lookup(package.clone());
 
-        System::current().stop();
-        system.run();
+        task::yield_now().await;
         let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
         let transmit_data_msg = dispatcher_recording.get_record::<TransmitDataMsg>(0);
         let (lcp, _) = LiveCoresPackage::from_no_lookup_incipient(package, main_cryptde()).unwrap();
@@ -196,7 +194,6 @@ mod tests {
             node_addr: target_node_addr.clone(),
             payload: CryptData::new(b""),
         };
-        let system = System::new();
         let peer_actors = peer_actors_builder().build();
         let subject = ConsumingService::new(
             main_cryptde(),
@@ -206,13 +203,11 @@ mod tests {
 
         subject.consume_no_lookup(package);
 
-        System::current().stop();
-        system.run();
         TestLogHandler::new ().exists_log_containing ("ERROR: ConsumingService: Could not accept CORES package for transmission: EncryptionError(EmptyKey)");
     }
 
-    #[test]
-    fn consume_converts_incipient_message_to_live_and_sends_to_dispatcher() {
+    #[actix::test]
+    async fn consume_converts_incipient_message_to_live_and_sends_to_dispatcher() {
         let cryptde = main_cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
@@ -230,7 +225,6 @@ mod tests {
         let payload = make_meaningless_message_type();
         let incipient_cores_package =
             IncipientCoresPackage::new(cryptde, route.clone(), payload, &destination_key).unwrap();
-        let system = System::new();
         let peer_actors = peer_actors_builder().dispatcher(dispatcher).build();
         let subject = ConsumingService::new(
             cryptde,
@@ -240,8 +234,7 @@ mod tests {
 
         subject.consume(incipient_cores_package.clone());
 
-        System::current().stop();
-        system.run();
+        task::yield_now().await;
         let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
         let record = dispatcher_recording.get_record::<TransmitDataMsg>(0);
         let (expected_lcp, _) =
@@ -258,8 +251,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn consume_sends_zero_hop_incipient_directly_to_hopper() {
+    #[actix::test]
+    async fn consume_sends_zero_hop_incipient_directly_to_hopper() {
         let cryptde = main_cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
         let (hopper, _, hopper_recording_arc) = make_recorder();
@@ -277,7 +270,6 @@ mod tests {
         let payload = make_meaningless_message_type();
         let incipient_cores_package =
             IncipientCoresPackage::new(cryptde, route.clone(), payload, &destination_key).unwrap();
-        let system = System::new();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         let subject = ConsumingService::new(
             cryptde,
@@ -288,8 +280,7 @@ mod tests {
 
         subject.consume(incipient_cores_package.clone());
 
-        System::current().stop();
-        system.run();
+        task::yield_now().await;
         let after = SystemTime::now();
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let record = hopper_recording.get_record::<InboundClientData>(0);
@@ -314,7 +305,6 @@ mod tests {
     #[test]
     fn consume_logs_error_when_given_bad_input_data() {
         init_test_logging();
-        let _system = System::new();
         let peer_actors = peer_actors_builder().build();
         let to_dispatcher = peer_actors.dispatcher.from_dispatcher_client;
         let to_hopper = peer_actors.hopper.from_dispatcher;

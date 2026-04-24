@@ -237,7 +237,6 @@ mod tests {
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
     use crate::test_utils::unshared_test_utils::prove_that_crash_request_handler_is_hooked_up;
-    use actix::System;
     use lazy_static::lazy_static;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::HTTP_PORT;
@@ -247,7 +246,8 @@ mod tests {
     use std::convert::TryFrom;
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     use std::str::FromStr;
-    use std::thread;
+    use tokio::task;
+    use tokio::time::{sleep, Duration};
     use std::time::SystemTime;
 
     #[test]
@@ -267,15 +267,13 @@ mod tests {
         .unwrap();
     }
 
-    #[test]
-    fn sends_inbound_data_for_proxy_server_to_proxy_server() {
-        let system = System::new();
+    #[actix::test]
+    async fn sends_inbound_data_for_proxy_server_to_proxy_server() {
         let subject = Dispatcher::new(NODE_DESCRIPTOR.clone(), false);
         let subject_addr = subject.start();
         let subject_ibcd = subject_addr.clone().recipient::<InboundClientData>();
         let proxy_server = Recorder::new();
         let recording_arc = proxy_server.get_recording();
-        let awaiter = proxy_server.get_awaiter();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let reception_port = Some(8080);
         let data: Vec<u8> = vec![9, 10, 11];
@@ -294,10 +292,7 @@ mod tests {
 
         subject_ibcd.try_send(ibcd_in).unwrap();
 
-        System::current().stop_with_code(0);
-        system.run();
-
-        awaiter.await_message_count(1);
+        task::yield_now().await;
         let recording = recording_arc.lock().unwrap();
 
         let message = recording.get_record::<InboundClientData>(0);
@@ -309,9 +304,8 @@ mod tests {
         assert_eq!(recording.len(), 1);
     }
 
-    #[test]
-    fn sends_inbound_data_for_hopper_to_hopper() {
-        let system = System::new();
+    #[actix::test]
+    async fn sends_inbound_data_for_hopper_to_hopper() {
         let subject = Dispatcher::new(NODE_DESCRIPTOR.clone(), false);
         let subject_addr = subject.start();
         let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
@@ -333,8 +327,7 @@ mod tests {
 
         subject_addr.try_send(ibcd_in).unwrap();
 
-        System::current().stop_with_code(0);
-        system.run();
+        task::yield_now().await;
 
         hopper_awaiter.await_message_count(1);
         let hopper_recording = hopper_recording_arc.lock().unwrap();
@@ -348,13 +341,11 @@ mod tests {
         assert_eq!(hopper_recording.len(), 1);
     }
 
-    #[test]
-    #[should_panic(expected = "ProxyServer unbound in Dispatcher")]
-    fn inbound_client_data_handler_panics_when_proxy_server_is_unbound() {
-        let system = System::new();
+    #[actix::test]
+    async fn inbound_client_data_handler_panics_when_proxy_server_is_unbound() {
         let subject = Dispatcher::new(NODE_DESCRIPTOR.clone(), false);
         let subject_addr = subject.start();
-        let subject_ibcd = subject_addr.recipient::<InboundClientData>();
+        let subject_ibcd = subject_addr.clone().recipient::<InboundClientData>();
         let peer_addr = SocketAddr::from_str("1.2.3.4:8765").unwrap();
         let reception_port = Some(1234);
         let data: Vec<u8> = vec![9, 10, 11];
@@ -370,17 +361,15 @@ mod tests {
 
         subject_ibcd.try_send(ibcd_in).unwrap();
 
-        System::current().stop_with_code(0);
-        system.run();
+        task::yield_now().await;
+        assert!(!subject_addr.connected());
     }
 
-    #[test]
-    #[should_panic(expected = "Hopper unbound in Dispatcher")]
-    fn inbound_client_data_handler_panics_when_hopper_is_unbound() {
-        let system = System::new();
+    #[actix::test]
+    async fn inbound_client_data_handler_panics_when_hopper_is_unbound() {
         let subject = Dispatcher::new(NODE_DESCRIPTOR.clone(), false);
         let subject_addr = subject.start();
-        let subject_ibcd = subject_addr.recipient::<InboundClientData>();
+        let subject_ibcd = subject_addr.clone().recipient::<InboundClientData>();
         let peer_addr = SocketAddr::from_str("1.2.3.4:8765").unwrap();
         let reception_port = Some(1234);
         let data: Vec<u8> = vec![9, 10, 11];
@@ -396,17 +385,15 @@ mod tests {
 
         subject_ibcd.try_send(ibcd_in).unwrap();
 
-        System::current().stop_with_code(0);
-        system.run();
+        task::yield_now().await;
+        assert!(!subject_addr.connected());
     }
 
-    #[test]
-    #[should_panic(expected = "StreamHandlerPool unbound in Dispatcher")]
-    fn panics_when_stream_handler_pool_is_unbound() {
-        let system = System::new();
+    #[actix::test]
+    async fn panics_when_stream_handler_pool_is_unbound() {
         let subject = Dispatcher::new(NODE_DESCRIPTOR.clone(), false);
         let subject_addr = subject.start();
-        let subject_obcd = subject_addr.recipient::<TransmitDataMsg>();
+        let subject_obcd = subject_addr.clone().recipient::<TransmitDataMsg>();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let data: Vec<u8> = vec![9, 10, 11];
         let obcd = TransmitDataMsg {
@@ -418,19 +405,17 @@ mod tests {
 
         subject_obcd.try_send(obcd).unwrap();
 
-        System::current().stop_with_code(0);
-        system.run();
+        task::yield_now().await;
+        assert!(!subject_addr.connected());
     }
 
-    #[test]
-    fn forwards_outbound_data_to_stream_handler_pool() {
-        let system = System::new();
+    #[actix::test]
+    async fn forwards_outbound_data_to_stream_handler_pool() {
         let subject = Dispatcher::new(NODE_DESCRIPTOR.clone(), false);
         let subject_addr = subject.start();
         let subject_obcd = subject_addr.clone().recipient::<TransmitDataMsg>();
         let stream_handler_pool = Recorder::new();
         let recording_arc = stream_handler_pool.get_recording();
-        let awaiter = stream_handler_pool.get_awaiter();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let data: Vec<u8> = vec![9, 10, 11];
         let obcd = TransmitDataMsg {
@@ -454,10 +439,7 @@ mod tests {
 
         subject_obcd.try_send(obcd).unwrap();
 
-        System::current().stop_with_code(0);
-        system.run();
-
-        awaiter.await_message_count(1);
+        task::yield_now().await;
         let recording = recording_arc.lock().unwrap();
 
         let message = recording.get_record::<TransmitDataMsg>(0);
@@ -469,9 +451,8 @@ mod tests {
         assert_eq!(recording.len(), 1);
     }
 
-    #[test]
-    fn handle_stream_shutdown_msg_routes_non_clandestine_to_proxy_server() {
-        let system = System::new();
+    #[actix::test]
+    async fn handle_stream_shutdown_msg_routes_non_clandestine_to_proxy_server() {
         let subject = Dispatcher::new(NODE_DESCRIPTOR.clone(), false);
         let addr = subject.start();
         let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
@@ -492,8 +473,7 @@ mod tests {
 
         addr.try_send(msg.clone()).unwrap();
 
-        System::current().stop_with_code(0);
-        system.run();
+        task::yield_now().await;
         let proxy_server_recording = proxy_server_recording_arc.lock().unwrap();
         assert_eq!(
             proxy_server_recording.get_record::<StreamShutdownMsg>(0),
@@ -503,9 +483,8 @@ mod tests {
         assert_eq!(neighborhood_recording.len(), 0);
     }
 
-    #[test]
-    fn handle_stream_shutdown_msg_routes_clandestine_to_neighborhood() {
-        let system = System::new();
+    #[actix::test]
+    async fn handle_stream_shutdown_msg_routes_clandestine_to_neighborhood() {
         let subject = Dispatcher::new(NODE_DESCRIPTOR.clone(), false);
         let addr = subject.start();
         let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
@@ -523,8 +502,7 @@ mod tests {
 
         addr.try_send(msg.clone()).unwrap();
 
-        System::current().stop_with_code(0);
-        system.run();
+        task::yield_now().await;
         let proxy_server_recording = proxy_server_recording_arc.lock().unwrap();
         assert_eq!(proxy_server_recording.len(), 0);
         let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
@@ -544,10 +522,9 @@ mod tests {
         prove_that_crash_request_handler_is_hooked_up(dispatcher_producer, CRASH_KEY);
     }
 
-    #[test]
-    fn handle_new_public_ip_msg_modifies_and_publishes_descriptor() {
+    #[actix::test]
+    async fn handle_new_public_ip_msg_modifies_and_publishes_descriptor() {
         init_test_logging();
-        let system = System::new();
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let mut node_descriptor = NODE_DESCRIPTOR.clone();
         node_descriptor.node_addr_opt = Some(NodeAddr::new(
@@ -576,8 +553,7 @@ mod tests {
         addr.try_send(ip_change_msg).unwrap();
 
         addr.try_send(descriptor_msg).unwrap();
-        System::current().stop_with_code(0);
-        system.run();
+        task::yield_now().await;
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         assert_eq!(
             ui_gateway_recording.get_record::<NodeToUiMessage>(0),
@@ -608,10 +584,9 @@ mod tests {
         );
     }
 
-    #[test]
+    #[actix::test]
     // joined with inspecting whether dispatcher obtains the information of the descriptor correctly
-    fn descriptor_request_after_start_with_ip_results_in_descriptor_response() {
-        let system = System::new();
+    async fn descriptor_request_after_start_with_ip_results_in_descriptor_response() {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let mut bootstrapper_config = BootstrapperConfig::new();
         let node_descriptor = NodeDescriptor::try_from((
@@ -635,9 +610,7 @@ mod tests {
 
         dispatcher_subs.ui_sub.try_send(msg).unwrap();
 
-        thread::sleep(std::time::Duration::from_millis(15)); //Required to break unknown race condition, probably inside actix.
-        System::current().stop_with_code(0);
-        system.run();
+        sleep(Duration::from_millis(15)).await; // Required to break unknown race condition, probably inside actix.
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let response = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
         assert_eq!(
@@ -652,11 +625,10 @@ mod tests {
         )
     }
 
-    #[test]
+    #[actix::test]
     // joined with inspecting whether dispatcher obtains the information of the descriptor correctly
-    fn descriptor_request_after_start_without_ip_before_automap_results_in_null_descriptor_response(
+    async fn descriptor_request_after_start_without_ip_before_automap_results_in_null_descriptor_response(
     ) {
-        let system = System::new();
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let mut bootstrapper_config = BootstrapperConfig::new();
         let node_descriptor = NodeDescriptor::try_from((
@@ -680,9 +652,7 @@ mod tests {
 
         dispatcher_subs.ui_sub.try_send(msg).unwrap();
 
-        thread::sleep(std::time::Duration::from_millis(15)); //Required to break unknown race condition, probably inside actix.
-        System::current().stop_with_code(0);
-        system.run();
+        sleep(Duration::from_millis(15)).await; // Required to break unknown race condition, probably inside actix.
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let response = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
         assert_eq!(
@@ -697,11 +667,10 @@ mod tests {
         )
     }
 
-    #[test]
+    #[actix::test]
     // joined with inspecting whether dispatcher obtains the information of the descriptor correctly
-    fn descriptor_request_after_start_without_ip_after_automap_results_in_descriptor_response() {
+    async fn descriptor_request_after_start_without_ip_after_automap_results_in_descriptor_response() {
         init_test_logging();
-        let system = System::new();
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let mut bootstrapper_config = BootstrapperConfig::new();
         let node_descriptor = NodeDescriptor::try_from((
@@ -731,9 +700,7 @@ mod tests {
 
         dispatcher_subs.ui_sub.try_send(msg).unwrap();
 
-        thread::sleep(std::time::Duration::from_millis(15)); //Required to break unknown race condition, probably inside actix.
-        System::current().stop_with_code(0);
-        system.run();
+        sleep(Duration::from_millis(15)).await; // Required to break unknown race condition, probably inside actix.
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let response = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
         assert_eq!(
@@ -749,10 +716,9 @@ mod tests {
         TestLogHandler::new().exists_log_containing("INFO: Bootstrapper: MASQ Node local descriptor: masq://eth-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@1.2.3.4:4545");
     }
 
-    #[test]
-    fn new_ip_message_without_node_addr_is_logged_and_ignored() {
+    #[actix::test]
+    async fn new_ip_message_without_node_addr_is_logged_and_ignored() {
         init_test_logging();
-        let system = System::new();
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let mut bootstrapper_config = BootstrapperConfig::new();
         let mut node_descriptor = NodeDescriptor::from((
@@ -783,9 +749,7 @@ mod tests {
 
         dispatcher_subs.ui_sub.try_send(msg).unwrap();
 
-        thread::sleep(std::time::Duration::from_millis(15)); //Required to break unknown race condition, probably inside actix.
-        System::current().stop_with_code(0);
-        system.run();
+        sleep(Duration::from_millis(15)).await; // Required to break unknown race condition, probably inside actix.
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let response = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
         assert_eq!(

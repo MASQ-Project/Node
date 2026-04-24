@@ -14,8 +14,8 @@ use tokio::net::TcpStream;
 #[derive(Default)]
 pub struct StreamConnectorMock {
     connect_pair_params: Arc<Mutex<Vec<SocketAddr>>>,
-    connect_pair_results: Mutex<Vec<Result<ConnectionInfo, io::Error>>>,
-    split_stream_results: Mutex<Vec<Option<ConnectionInfo>>>,
+    connect_pair_results: Arc<Mutex<Vec<Result<ConnectionInfo, io::Error>>>>,
+    split_stream_results: Arc<Mutex<Vec<Option<ConnectionInfo>>>>,
 }
 
 #[async_trait]
@@ -45,12 +45,11 @@ impl StreamConnector for StreamConnectorMock {
     }
 
     fn dup(&self) -> Box<dyn StreamConnector> {
-        todo!()
-        // Box::new(StreamConnectorMock {
-        //     connect_pair_params: self.connect_pair_params.clone(),
-        //     connect_pair_results: self.connect_pair_results.clone(),
-        //     split_stream_results: self.split_stream_results.clone(),
-        // })
+        Box::new(StreamConnectorMock {
+            connect_pair_params: self.connect_pair_params.clone(),
+            connect_pair_results: self.connect_pair_results.clone(),
+            split_stream_results: self.split_stream_results.clone(),
+        })
     }
 }
 
@@ -61,8 +60,8 @@ impl StreamConnectorMock {
     pub fn new() -> StreamConnectorMock {
         Self {
             connect_pair_params: Arc::new(Mutex::new(vec![])),
-            connect_pair_results: Mutex::new(vec![]),
-            split_stream_results: Mutex::new(vec![]),
+            connect_pair_results: Arc::new(Mutex::new(vec![])),
+            split_stream_results: Arc::new(Mutex::new(vec![])),
         }
     }
 

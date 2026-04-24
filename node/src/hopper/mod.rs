@@ -163,7 +163,6 @@ mod tests {
         make_paying_wallet, route_to_proxy_client,
     };
     use actix::Actor;
-    use actix::System;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::net::SocketAddr;
     use std::str::FromStr;
@@ -174,9 +173,9 @@ mod tests {
         assert_eq!(CRASH_KEY, "HOPPER");
     }
 
-    #[test]
+    #[actix::test]
     #[should_panic(expected = "Hopper unbound: no RoutingService")]
-    fn panics_if_routing_service_is_unbound() {
+    async fn panics_if_routing_service_is_unbound() {
         let main_cryptde = main_cryptde();
         let alias_cryptde = alias_cryptde();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -204,7 +203,6 @@ mod tests {
             sequence_number: None,
             data: encrypted_package,
         };
-        let system = System::new();
         let subject = Hopper::new(HopperConfig {
             cryptdes: CryptDEPair {
                 main: main_cryptde,
@@ -218,14 +216,11 @@ mod tests {
         let subject_addr = subject.start();
 
         subject_addr.try_send(inbound_client_data).unwrap();
-
-        System::current().stop_with_code(0);
-        system.run();
     }
 
-    #[test]
+    #[actix::test]
     #[should_panic(expected = "Hopper unbound: no ConsumingService")]
-    fn panics_if_consuming_service_is_unbound() {
+    async fn panics_if_consuming_service_is_unbound() {
         let main_cryptde = main_cryptde();
         let alias_cryptde = alias_cryptde();
         let paying_wallet = make_paying_wallet(b"wallet");
@@ -247,7 +242,6 @@ mod tests {
             &main_cryptde.public_key(),
         )
         .unwrap();
-        let system = System::new();
         let subject = Hopper::new(HopperConfig {
             cryptdes: CryptDEPair {
                 main: main_cryptde,
@@ -261,9 +255,6 @@ mod tests {
         let subject_addr = subject.start();
 
         subject_addr.try_send(incipient_package).unwrap();
-
-        System::current().stop_with_code(0);
-        system.run();
     }
 
     #[test]

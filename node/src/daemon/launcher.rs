@@ -196,7 +196,6 @@ mod tests {
     use crate::daemon::mocks::LaunchVerifierMock;
     use crate::test_utils::recorder::make_recorder;
     use actix::Actor;
-    use actix::System;
     use crossbeam_channel::unbounded;
     use masq_lib::constants::DEFAULT_UI_PORT;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
@@ -211,6 +210,8 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
+    use tokio::task;
+    use tokio::time::sleep;
 
     struct ChildWrapperMock {
         wait_latency_ms: u64,
@@ -325,10 +326,10 @@ mod tests {
         }
     }
 
-    #[test]
-    fn execer_happy_path() {
+    #[actix::test]
+    async fn execer_happy_path() {
         init_test_logging();
-        let (daemon, daemon_awaiter, daemon_recording_arc) = make_recorder();
+        let (daemon, _, daemon_recording_arc) = make_recorder();
         let child_wrapper = ChildWrapperMock::new(100)
             .id_result(1234)
             .wait_with_output_result(Ok(Output {
@@ -342,24 +343,21 @@ mod tests {
             .spawn_result(Ok(Box::new(child_wrapper)));
         let exe_path = std::env::current_exe().unwrap();
         let params = vec!["paramOne".to_string(), "paramTwo".to_string()];
-        let inner_params = params.clone();
         let mut subject = ExecerReal::new();
         subject.spawn_wrapper = Box::new(spawn_wrapper);
-        let (result_tx, result_rx) = unbounded();
-        thread::spawn(move || {
-            let system = System::new();
-            let crashed_recipient = daemon.start().recipient();
+        let crashed_recipient = daemon.start().recipient();
 
-            result_tx
-                .send(subject.exec(inner_params, crashed_recipient))
-                .unwrap();
-
-            system.run();
-        });
-        let result = result_rx.recv().unwrap();
+        let result = subject.exec(params.clone(), crashed_recipient);
         assert_eq!(result, Ok(1234));
-        daemon_awaiter.await_message_count(1);
+
+        for _ in 0..100 {
+            if daemon_recording_arc.lock().unwrap().len() >= 1 {
+                break;
+            }
+            sleep(Duration::from_millis(10)).await;
+        }
         let daemon_recording = daemon_recording_arc.lock().unwrap();
+        assert_eq!(daemon_recording.len(), 1);
         let msg = daemon_recording.get_record::<CrashNotification>(0);
         #[cfg(not(target_os = "windows"))]
         assert_eq!(
@@ -391,32 +389,29 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn execer_fails_to_wait_successfully() {
-        let (daemon, daemon_awaiter, daemon_recording_arc) = make_recorder();
+    #[actix::test]
+    async fn execer_fails_to_wait_successfully() {
+        let (daemon, _, daemon_recording_arc) = make_recorder();
         let child_wrapper = ChildWrapperMock::new(100)
             .id_result(1234)
             .wait_with_output_result(Err(std::io::Error::from(ErrorKind::TimedOut)));
         let spawn_wrapper = SpawnWrapperMock::new().spawn_result(Ok(Box::new(child_wrapper)));
         let params = vec!["paramOne".to_string(), "paramTwo".to_string()];
-        let inner_params = params.clone();
         let mut subject = ExecerReal::new();
         subject.spawn_wrapper = Box::new(spawn_wrapper);
-        let (result_tx, result_rx) = unbounded();
-        thread::spawn(move || {
-            let system = System::new();
-            let crashed_recipient = daemon.start().recipient();
+        let crashed_recipient = daemon.start().recipient();
 
-            result_tx
-                .send(subject.exec(inner_params, crashed_recipient))
-                .unwrap();
-
-            system.run();
-        });
-        let result = result_rx.recv().unwrap();
+        let result = subject.exec(params, crashed_recipient);
         assert_eq!(result, Ok(1234));
-        daemon_awaiter.await_message_count(1);
+
+        for _ in 0..100 {
+            if daemon_recording_arc.lock().unwrap().len() >= 1 {
+                break;
+            }
+            sleep(Duration::from_millis(10)).await;
+        }
         let daemon_recording = daemon_recording_arc.lock().unwrap();
+        assert_eq!(daemon_recording.len(), 1);
         let msg = daemon_recording.get_record::<CrashNotification>(0);
         let err = std::io::Error::from(ErrorKind::TimedOut);
         assert_eq!(
@@ -429,10 +424,9 @@ mod tests {
         );
     }
 
-    #[test]
-    fn launch_calls_execer_and_verifier_and_returns_success() {
-        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
-        let system = System::new();
+    #[actix::test]
+    async fn launch_calls_execer_and_verifier_and_returns_success() {
+        let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
         let crashed_recipient = ui_gateway.start().recipient();
         let exec_params_arc = Arc::new(Mutex::new(vec![]));
         let execer = ExecerMock::new()
@@ -481,8 +475,9 @@ mod tests {
             stderr: Some("".to_string()),
         };
         (*exec_params)[0].1.try_send(msg.clone()).unwrap();
-        System::current().stop();
-        system.run();
+        task::yield_now().await;
+        task::yield_now().await;
+        ui_gateway_awaiter.await_message_count(1);
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         assert_eq!(
             *ui_gateway_recording.get_record::<CrashNotification>(0),

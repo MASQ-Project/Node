@@ -207,6 +207,7 @@ mod tests {
     use std::ptr::addr_of;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
+    use tokio::task;
 
     struct RecipientsFactoryMock {
         make_params: Arc<Mutex<Vec<(Box<dyn Launcher>, u16)>>>,
@@ -315,15 +316,14 @@ mod tests {
         assert_eq!(log_dir, &PathBuf::from_str(expected).unwrap());
     }
 
-    #[test]
-    fn bind_binds_everything_together() {
+    #[actix::test]
+    async fn bind_binds_everything_together() {
         let home_dir = ensure_node_home_directory_exists(
             "daemon_initializer",
             "bind_binds_everything_together",
         );
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let (daemon, _, daemon_recording_arc) = make_recorder();
-        let system = System::new();
         let recipients = make_recipients(ui_gateway, daemon);
         let dirs_wrapper = DirsWrapperMock::new()
             .home_dir_result(Some(home_dir.clone()))
@@ -345,8 +345,8 @@ mod tests {
 
         subject.bind(unbounded().0);
 
-        System::current().stop();
-        system.run();
+        task::yield_now().await;
+        task::yield_now().await;
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let daemon_recording = daemon_recording_arc.lock().unwrap();
         let _ = ui_gateway_recording.get_record::<DaemonBindMessage>(0);

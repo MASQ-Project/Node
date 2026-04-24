@@ -905,9 +905,8 @@ mod tests {
         assert_on_initialization_with_panic_on_migration(data_dir, &act).await;
     }
 
-    #[test]
-    fn ignores_unexpected_message() {
-        let system = System::new();
+    #[actix::test]
+    async fn ignores_unexpected_message() {
         let subject = make_subject(None);
         let subject_addr = subject.start();
         let (ui_gateway, _, ui_gateway_recording) = make_recorder();
@@ -921,15 +920,12 @@ mod tests {
             })
             .unwrap();
 
-        System::current().stop();
-        system.run();
         let recording = ui_gateway_recording.lock().unwrap();
         assert_eq!(recording.len(), 0);
     }
 
-    #[test]
-    fn check_password_works() {
-        let system = System::new();
+    #[actix::test]
+    async fn check_password_works() {
         let check_password_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
             .check_password_params(&check_password_params_arc)
@@ -950,8 +946,6 @@ mod tests {
             })
             .unwrap();
 
-        System::current().stop();
-        system.run();
         let check_password_params = check_password_params_arc.lock().unwrap();
         assert_eq!(*check_password_params, vec![Some("password".to_string())]);
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
@@ -989,9 +983,8 @@ mod tests {
             .exists_log_containing("WARN: Configurator: Failed to check password: NotPresent");
     }
 
-    #[test]
-    fn change_password_works() {
-        let system = System::new();
+    #[actix::test]
+    async fn change_password_works() {
         let change_password_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
             .change_password_params(&change_password_params_arc)
@@ -1017,8 +1010,6 @@ mod tests {
             })
             .unwrap();
 
-        System::current().stop();
-        system.run();
         let change_password_params = change_password_params_arc.lock().unwrap();
         assert_eq!(
             *change_password_params,
@@ -1109,9 +1100,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn handle_wallet_addresses_works() {
-        let system = System::new();
+    #[actix::test]
+    async fn handle_wallet_addresses_works() {
         let persistent_config = PersistentConfigurationMock::new()
             .check_password_result(Ok(true))
             .consuming_wallet_result(Ok(Some(
@@ -1136,8 +1126,6 @@ mod tests {
             })
             .unwrap();
 
-        System::current().stop();
-        system.run();
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         assert_eq!(
             ui_gateway_recording.get_record::<NodeToUiMessage>(0),
@@ -1267,8 +1255,8 @@ mod tests {
         assert_eq!(result, Err((DERIVATION_PATH_ERROR, "booga".to_string())));
     }
 
-    #[test]
-    fn handle_generate_wallets_works() {
+    #[actix::test]
+    async fn handle_generate_wallets_works() {
         let check_password_params_arc = Arc::new(Mutex::new(vec![]));
         let set_wallet_info_params_arc = Arc::new(Mutex::new(vec![]));
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
@@ -1289,9 +1277,6 @@ mod tests {
             })
             .unwrap();
 
-        let system = System::new();
-        System::current().stop();
-        system.run();
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let response = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
         let (generated_wallets, context_id) =
@@ -1555,9 +1540,6 @@ mod tests {
             })
             .unwrap();
 
-        let system = System::new();
-        System::current().stop();
-        system.run();
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let response = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
         let (_, context_id) = UiRecoverWalletsResponse::fmb(response.body.clone()).unwrap();
@@ -1939,8 +1921,8 @@ mod tests {
         assert_eq!(result.is_ok(), true); // phrase is in English; if language didn't default there, test would blow up
     }
 
-    #[test]
-    fn handle_set_configuration_works() {
+    #[actix::test]
+    async fn handle_set_configuration_works() {
         let set_start_block_params_arc = Arc::new(Mutex::new(vec![]));
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let persistent_config = PersistentConfigurationMock::new()
@@ -1962,9 +1944,6 @@ mod tests {
             })
             .unwrap();
 
-        let system = System::new();
-        System::current().stop();
-        system.run();
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let response = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
         let (_, context_id) = UiSetConfigurationResponse::fmb(response.body.clone()).unwrap();

@@ -436,7 +436,7 @@ mod tests {
     use crate::daemon::LaunchSuccess;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::unshared_test_utils::make_daemon_bind_message;
-    use actix::System;
+    use tokio::task;
     use masq_lib::constants::{
         NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR,
     };
@@ -595,12 +595,11 @@ mod tests {
         );
     }
 
-    #[test]
-    fn accepts_setup_when_node_is_running_and_returns_existing_setup() {
+    #[actix::test]
+    async fn accepts_setup_when_node_is_running_and_returns_existing_setup() {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let verifier_tools = VerifierToolsMock::new().process_is_running_result(true);
         let setup_reporter = SetupReporterMock::new(); // will panic if called
-        let system = System::new();
         let mut subject = Daemon::new(Box::new(LauncherMock::new()));
         subject.verifier_tools = Box::new(verifier_tools);
         subject.setup_reporter = Box::new(setup_reporter);
@@ -626,8 +625,8 @@ mod tests {
             })
             .unwrap();
 
-        System::current().stop();
-        system.run();
+        task::yield_now().await;
+        task::yield_now().await;
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let record = ui_gateway_recording
             .get_record::<NodeToUiMessage>(0)
@@ -654,8 +653,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn accepts_setup_when_node_is_not_running_and_returns_combined_setup() {
+    #[actix::test]
+    async fn accepts_setup_when_node_is_not_running_and_returns_combined_setup() {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let verifier_tools = VerifierToolsMock::new().process_is_running_result(false);
         let combined_setup = make_setup_cluster(vec![
@@ -665,7 +664,6 @@ mod tests {
             ("consuming-private-key", "secret value", Set),
         ]);
         let setup_reporter = SetupReporterMock::new().get_modified_setup_result(Ok(combined_setup));
-        let system = System::new();
         let mut subject = Daemon::new(Box::new(LauncherMock::new()));
         subject.verifier_tools = Box::new(verifier_tools);
         subject.setup_reporter = Box::new(setup_reporter);
@@ -693,8 +691,8 @@ mod tests {
             })
             .unwrap();
 
-        System::current().stop();
-        system.run();
+        task::yield_now().await;
+        task::yield_now().await;
         let expected_combined_setup = vec![
             UiSetupResponseValue::new(
                 "consuming-private-key",
@@ -726,14 +724,13 @@ mod tests {
         assert_eq!(&payload.values, &expected_combined_setup);
     }
 
-    #[test]
-    fn setup_judges_node_not_running_when_port_and_pid_are_none_without_checking_os() {
+    #[actix::test]
+    async fn setup_judges_node_not_running_when_port_and_pid_are_none_without_checking_os() {
         let home_dir = ensure_node_home_directory_exists(
             "daemon",
             "setup_judges_node_not_running_when_port_and_pid_are_none_without_checking_os",
         );
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
-        let system = System::new();
         let verifier_tools = VerifierToolsMock::new();
         let mut subject = Daemon::new(Box::new(LauncherMock::new()));
         subject.node_ui_port = None;
@@ -765,8 +762,8 @@ mod tests {
             })
             .unwrap();
 
-        System::current().stop();
-        system.run();
+        task::yield_now().await;
+        task::yield_now().await;
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let record = ui_gateway_recording
             .get_record::<NodeToUiMessage>(0)
@@ -794,15 +791,14 @@ mod tests {
         );
     }
 
-    #[test]
-    fn setup_judges_node_not_running_when_port_and_pid_are_set_but_os_says_different() {
+    #[actix::test]
+    async fn setup_judges_node_not_running_when_port_and_pid_are_set_but_os_says_different() {
         let _clap_guard = ClapGuard::new();
         let data_dir = ensure_node_home_directory_exists(
             "daemon",
             "setup_judges_node_not_running_when_port_and_pid_are_set_but_os_says_different",
         );
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
-        let system = System::new();
         let verifier_tools = VerifierToolsMock::new().process_is_running_result(false); // only consulted once; second time, we already know
         let mut subject = Daemon::new(Box::new(LauncherMock::new()));
         subject.node_ui_port = Some(1234);
@@ -827,8 +823,8 @@ mod tests {
         subject_addr.try_send(msg.clone()).unwrap(); // accepted because Node, thought to be up, turns out to be down
         subject_addr.try_send(msg.clone()).unwrap(); // accepted without asking because we already know Node is down
 
-        System::current().stop();
-        system.run();
+        task::yield_now().await;
+        task::yield_now().await;
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let get_record = |idx: usize| {
             ui_gateway_recording
@@ -865,8 +861,8 @@ mod tests {
         check_payload(payload.running, payload.values, payload.errors);
     }
 
-    #[test]
-    fn handle_setup_handles_configuration_error() {
+    #[actix::test]
+    async fn handle_setup_handles_configuration_error() {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let lame_setup = vec![(
             "name".to_string(),
@@ -880,13 +876,12 @@ mod tests {
                 lame_setup,
                 ConfiguratorError::required("parameter", "message"),
             ))));
-        let system = System::new();
         subject.ui_gateway_sub = Some(ui_gateway.start().recipient());
 
         subject.handle_setup(47, 74, UiSetupRequest::new(vec![]));
 
-        System::current().stop();
-        system.run();
+        task::yield_now().await;
+        task::yield_now().await;
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let message: &NodeToUiMessage = ui_gateway_recording.get_record(0);
         assert_eq!(
@@ -903,8 +898,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn handle_setup_responds_but_does_not_broadcast_if_setup_changes_from_nothing() {
+    #[actix::test]
+    async fn handle_setup_responds_but_does_not_broadcast_if_setup_changes_from_nothing() {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let mut subject = Daemon::new(Box::new(LauncherMock::new()));
         subject.params.clear(); // nothing
@@ -920,13 +915,12 @@ mod tests {
         subject.setup_reporter = Box::new(
             SetupReporterMock::new().get_modified_setup_result(Ok(modified_setup.clone())),
         );
-        let system = System::new();
         subject.ui_gateway_sub = Some(ui_gateway.start().recipient());
 
         subject.handle_setup(47, 74, UiSetupRequest::new(vec![]));
 
-        System::current().stop();
-        system.run();
+        task::yield_now().await;
+        task::yield_now().await;
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let message: &NodeToUiMessage = ui_gateway_recording.get_record(0);
         assert_eq!(
@@ -948,8 +942,8 @@ mod tests {
         assert_eq!(ui_gateway_recording.len(), 1);
     }
 
-    #[test]
-    fn handle_setup_responds_but_does_not_broadcast_if_setup_is_not_changed() {
+    #[actix::test]
+    async fn handle_setup_responds_but_does_not_broadcast_if_setup_is_not_changed() {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let mut subject = Daemon::new(Box::new(LauncherMock::new()));
         subject.params.insert(
@@ -965,13 +959,12 @@ mod tests {
         .collect();
         subject.setup_reporter =
             Box::new(SetupReporterMock::new().get_modified_setup_result(Ok(incoming_setup)));
-        let system = System::new();
         subject.ui_gateway_sub = Some(ui_gateway.start().recipient());
 
         subject.handle_setup(47, 74, UiSetupRequest::new(vec![]));
 
-        System::current().stop();
-        system.run();
+        task::yield_now().await;
+        task::yield_now().await;
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let message: &NodeToUiMessage = ui_gateway_recording.get_record(0);
         assert_eq!(
@@ -995,8 +988,8 @@ mod tests {
         assert_eq!(ui_gateway_recording.len(), 1);
     }
 
-    #[test]
-    fn handle_setup_responds_and_broadcasts_if_setup_is_changed() {
+    #[actix::test]
+    async fn handle_setup_responds_and_broadcasts_if_setup_is_changed() {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let mut subject = Daemon::new(Box::new(LauncherMock::new()));
         subject.params.insert(
@@ -1015,13 +1008,12 @@ mod tests {
         subject.setup_reporter = Box::new(
             SetupReporterMock::new().get_modified_setup_result(Ok(modified_setup.clone())),
         );
-        let system = System::new();
         subject.ui_gateway_sub = Some(ui_gateway.start().recipient());
 
         subject.handle_setup(47, 74, UiSetupRequest::new(vec![]));
 
-        System::current().stop();
-        system.run();
+        task::yield_now().await;
+        task::yield_now().await;
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let message: &NodeToUiMessage = ui_gateway_recording.get_record(0);
         assert_eq!(
@@ -1059,8 +1051,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn accepts_start_order_launches_and_replies_parent_success() {
+    #[actix::test]
+    async fn accepts_start_order_launches_and_replies_parent_success() {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let launch_params_arc = Arc::new(Mutex::new(vec![]));
         let launcher = LauncherMock::new()
@@ -1070,7 +1062,6 @@ mod tests {
                 redirect_ui_port: 5432,
             })));
         let verifier_tools = VerifierToolsMock::new();
-        let system = System::new();
         let mut subject = Daemon::new(Box::new(launcher));
         subject.params.insert(
             "db-password".to_string(),
@@ -1089,8 +1080,8 @@ mod tests {
             })
             .unwrap();
 
-        System::current().stop();
-        system.run();
+        task::yield_now().await;
+        task::yield_now().await;
         let launch_params = launch_params_arc.lock().unwrap();
         assert_eq!(
             (*launch_params)
@@ -1120,12 +1111,11 @@ mod tests {
         );
     }
 
-    #[test]
-    fn accepts_start_order_launches_and_replies_child_success() {
+    #[actix::test]
+    async fn accepts_start_order_launches_and_replies_child_success() {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let launcher = LauncherMock::new().launch_result(Ok(None));
         let verifier_tools = VerifierToolsMock::new();
-        let system = System::new();
         let mut subject = Daemon::new(Box::new(launcher));
         subject.params.insert(
             "db-password".to_string(),
@@ -1144,14 +1134,14 @@ mod tests {
             })
             .unwrap();
 
-        System::current().stop();
-        system.run();
+        task::yield_now().await;
+        task::yield_now().await;
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         assert_eq!(ui_gateway_recording.len(), 0);
     }
 
-    #[test]
-    fn maintains_setup_through_start_order() {
+    #[actix::test]
+    async fn maintains_setup_through_start_order() {
         let _environment_guard = EnvironmentGuard::new();
         let _clap_guard = ClapGuard::new();
         let data_dir =
@@ -1165,7 +1155,6 @@ mod tests {
             .process_is_running_result(false)
             .process_is_running_result(false)
             .process_is_running_result(false);
-        let system = System::new();
         let mut subject = Daemon::new(Box::new(launcher));
         subject.params.insert(
             "ip".to_string(),
@@ -1212,8 +1201,8 @@ mod tests {
             })
             .unwrap();
 
-        System::current().stop();
-        system.run();
+        task::yield_now().await;
+        task::yield_now().await;
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         // ------
         let record = ui_gateway_recording
@@ -1236,12 +1225,11 @@ mod tests {
         assert_eq!(setup_after.values, setup_broadcast_before.values);
     }
 
-    #[test]
-    fn accepts_start_order_launches_and_replies_failure() {
+    #[actix::test]
+    async fn accepts_start_order_launches_and_replies_failure() {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let launcher = LauncherMock::new().launch_result(Err("booga".to_string()));
         let verifier_tools = VerifierToolsMock::new();
-        let system = System::new();
         let mut subject = Daemon::new(Box::new(launcher));
         subject.params.insert(
             "db-password".to_string(),
@@ -1260,8 +1248,8 @@ mod tests {
             })
             .unwrap();
 
-        System::current().stop();
-        system.run();
+        task::yield_now().await;
+        task::yield_now().await;
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let record = ui_gateway_recording
             .get_record::<NodeToUiMessage>(0)
@@ -1272,12 +1260,11 @@ mod tests {
         assert_eq!(message, "Could not launch Node: booga".to_string());
     }
 
-    #[test]
-    fn rejects_start_order_when_node_is_already_running() {
+    #[actix::test]
+    async fn rejects_start_order_when_node_is_already_running() {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let launcher = LauncherMock::new().launch_result(Err("booga".to_string()));
         let verifier_tools = VerifierToolsMock::new().process_is_running_result(true);
-        let system = System::new();
         let mut subject = Daemon::new(Box::new(launcher));
         subject.params.insert(
             "db-password".to_string(),
@@ -1298,8 +1285,8 @@ mod tests {
             })
             .unwrap();
 
-        System::current().stop();
-        system.run();
+        task::yield_now().await;
+        task::yield_now().await;
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let record = ui_gateway_recording
             .get_record::<NodeToUiMessage>(0)
@@ -1314,8 +1301,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn sets_process_id_and_node_ui_port_upon_node_launch_success() {
+    #[actix::test]
+    async fn sets_process_id_and_node_ui_port_upon_node_launch_success() {
         let (ui_gateway, _, gateway_recording_arc) = make_recorder();
         let (daemon, _, daemon_recording_arc) = make_recorder();
         let gateway_recipient = ui_gateway.start().recipient();
@@ -1355,13 +1342,12 @@ mod tests {
             exit_code: None,
             stderr: None,
         };
-        let system = System::new();
         launch_params[0]
             .1
             .try_send(crashed_msg_to_daemon.clone())
             .unwrap();
-        System::current().stop();
-        system.run();
+        task::yield_now().await;
+        task::yield_now().await;
         let gateway_recording = gateway_recording_arc.lock().unwrap();
         let start_msg = NodeToUiMessage {
             target: MessageTarget::ClientId(1234),
@@ -1378,10 +1364,9 @@ mod tests {
         assert_eq!(actual_msg, &crashed_msg_to_daemon);
     }
 
-    #[test]
-    fn accepts_shutdown_order_after_start_and_returns_redirect() {
+    #[actix::test]
+    async fn accepts_shutdown_order_after_start_and_returns_redirect() {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
-        let system = System::new();
         let process_is_running_params_arc = Arc::new(Mutex::new(vec![]));
         let verifier_tools = VerifierToolsMock::new()
             .process_is_running_params(&process_is_running_params_arc)
@@ -1403,8 +1388,8 @@ mod tests {
             })
             .unwrap();
 
-        System::current().stop();
-        system.run();
+        task::yield_now().await;
+        task::yield_now().await;
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let record = ui_gateway_recording
             .get_record::<NodeToUiMessage>(0)
@@ -1441,11 +1426,10 @@ mod tests {
         assert_eq!(subject.node_process_id, None)
     }
 
-    #[test]
-    fn accepts_unexpected_message_discovers_non_running_node_and_returns_conversational_answer_of_error(
+    #[actix::test]
+    async fn accepts_unexpected_message_discovers_non_running_node_and_returns_conversational_answer_of_error(
     ) {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
-        let system = System::new();
         let verifier_tools = VerifierToolsMock::new().process_is_running_result(false); // only consulted once; second time, we already know
         let mut subject = Daemon::new(Box::new(LauncherMock::new()));
         subject.node_ui_port = Some(7777);
@@ -1464,8 +1448,8 @@ mod tests {
             })
             .unwrap();
 
-        System::current().stop();
-        system.run();
+        task::yield_now().await;
+        task::yield_now().await;
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let record = ui_gateway_recording
             .get_record::<NodeToUiMessage>(0)
@@ -1481,12 +1465,11 @@ mod tests {
         );
     }
 
-    #[test]
-    fn unexpected_ff_message_undeliverable_to_inactive_node_is_announced_with_another_ff_message() {
+    #[actix::test]
+    async fn unexpected_ff_message_undeliverable_to_inactive_node_is_announced_with_another_ff_message() {
         //fire and forget message that could be sent from UI to Node does not exist so far,
         //this is a touch of the future
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
-        let system = System::new();
         let verifier_tools = VerifierToolsMock::new().process_is_running_result(false);
         let mut subject = Daemon::new(Box::new(LauncherMock::new()));
         subject.node_ui_port = Some(7777);
@@ -1508,8 +1491,8 @@ mod tests {
             })
             .unwrap();
 
-        System::current().stop();
-        system.run();
+        task::yield_now().await;
+        task::yield_now().await;
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let record = ui_gateway_recording
             .get_record::<NodeToUiMessage>(0)
@@ -1528,10 +1511,9 @@ mod tests {
         );
     }
 
-    #[test]
-    fn accepts_financials_request_before_start_and_returns_error() {
+    #[actix::test]
+    async fn accepts_financials_request_before_start_and_returns_error() {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
-        let system = System::new();
         let verifier_tools = VerifierToolsMock::new();
         let mut subject = Daemon::new(Box::new(LauncherMock::new()));
         subject.node_ui_port = None;
@@ -1555,8 +1537,8 @@ mod tests {
             })
             .unwrap();
 
-        System::current().stop();
-        system.run();
+        task::yield_now().await;
+        task::yield_now().await;
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let record = ui_gateway_recording
             .get_record::<NodeToUiMessage>(0)
@@ -1571,10 +1553,9 @@ mod tests {
         );
     }
 
-    #[test]
-    fn accepts_crash_notification_when_not_in_setup_mode_and_sends_ui_notification() {
+    #[actix::test]
+    async fn accepts_crash_notification_when_not_in_setup_mode_and_sends_ui_notification() {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
-        let system = System::new();
         let verifier_tools = VerifierToolsMock::new();
         let mut subject = Daemon::new(Box::new(LauncherMock::new()));
         subject.node_ui_port = Some(1234);
@@ -1598,8 +1579,8 @@ mod tests {
                 body: UiShutdownRequest {}.tmb(777),
             })
             .unwrap();
-        System::current().stop();
-        system.run();
+        task::yield_now().await;
+        task::yield_now().await;
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let record = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
         assert_eq!(record.target, MessageTarget::AllClients);
@@ -1631,10 +1612,9 @@ mod tests {
         );
     }
 
-    #[test]
-    fn accepts_crash_notification_in_setup_mode_and_swallows() {
+    #[actix::test]
+    async fn accepts_crash_notification_in_setup_mode_and_swallows() {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
-        let system = System::new();
         let ui_gateway_sub = ui_gateway.start().recipient();
         let verifier_tools = VerifierToolsMock::new();
         let mut subject = Daemon::new(Box::new(LauncherMock::new()));
@@ -1649,8 +1629,8 @@ mod tests {
             stderr: Some("Standard Error".to_string()),
         });
 
-        System::current().stop();
-        system.run();
+        task::yield_now().await;
+        task::yield_now().await;
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         assert_eq!(ui_gateway_recording.len(), 0);
     }

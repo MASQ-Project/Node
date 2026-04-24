@@ -783,11 +783,11 @@ mod tests {
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
     use crate::test_utils::unshared_test_utils::prove_that_crash_request_handler_is_hooked_up;
-    use crate::test_utils::{await_messages, make_send_error};
+    use crate::test_utils::make_send_error;
     use actix::Actor;
     use actix::Addr;
     use actix::System;
-    use crossbeam_channel::unbounded;
+    use tokio::time::{sleep, Duration as TokioDuration};
     use masq_lib::constants::HTTP_PORT;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
@@ -799,7 +799,6 @@ mod tests {
     use std::ops::Deref;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-    use std::thread;
     use std::time::SystemTime;
 
     #[test]
@@ -815,8 +814,37 @@ mod tests {
         }
     }
 
-    #[test]
-    fn a_newly_added_stream_produces_stream_handler_that_sends_received_data_to_dispatcher() {
+    async fn await_recording_count(recording_arc: &Arc<Mutex<Recording>>, count: usize) {
+        for _ in 0..200 {
+            if recording_arc.lock().unwrap().len() >= count {
+                return;
+            }
+            sleep(TokioDuration::from_millis(10)).await;
+        }
+        panic!("Timed out waiting for {} recorded messages", count);
+    }
+
+    async fn await_vec_len<T>(vec_arc: &Arc<Mutex<Vec<T>>>, count: usize) {
+        for _ in 0..200 {
+            if vec_arc.lock().unwrap().len() >= count {
+                return;
+            }
+            sleep(TokioDuration::from_millis(10)).await;
+        }
+        panic!("Timed out waiting for vector length {}", count);
+    }
+
+    async fn await_log_containing_async(fragment: &str, millis: u64) {
+        let fragment = fragment.to_string();
+        tokio::task::spawn_blocking(move || {
+            TestLogHandler::new().await_log_containing(fragment.as_str(), millis)
+        })
+        .await
+        .expect("log wait task panicked");
+    }
+
+    #[actix::test]
+    async fn a_newly_added_stream_produces_stream_handler_that_sends_received_data_to_dispatcher() {
         let dispatcher = Recorder::new();
         let dispatcher_recording_arc = dispatcher.get_recording();
         let peer_addr = SocketAddr::from_str("1.2.3.4:80").unwrap();
@@ -834,58 +862,53 @@ mod tests {
         second_chunk.extend(another_http_req.clone());
         second_chunk.extend(Vec::from("glorp".as_bytes()));
         second_chunk.extend(a_third_http_req.clone());
-        let awaiter = dispatcher.get_awaiter();
         let before = SystemTime::now();
+        let mut subject = StreamHandlerPool::new(vec![], false);
+        subject.stream_connector = Box::new(StreamConnectorMock::new());
+        let subject_addr: Addr<StreamHandlerPool> = subject.start();
+        let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
+        let peer_actors = peer_actors_builder().dispatcher(dispatcher).build();
 
-        thread::spawn(move || {
-            let system = System::new();
-            let mut subject = StreamHandlerPool::new(vec![], false);
-            subject.stream_connector = Box::new(StreamConnectorMock::new());
-            let subject_addr: Addr<StreamHandlerPool> = subject.start();
-            let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
-            let peer_actors = peer_actors_builder().dispatcher(dispatcher).build();
+        subject_subs
+            .bind
+            .send(PoolBindMessage {
+                dispatcher_subs: peer_actors.dispatcher,
+                stream_handler_pool_subs: subject_subs.clone(),
+                neighborhood_subs: peer_actors.neighborhood,
+            })
+            .await
+            .unwrap();
 
-            subject_subs
-                .bind
-                .try_send(PoolBindMessage {
-                    dispatcher_subs: peer_actors.dispatcher,
-                    stream_handler_pool_subs: subject_subs.clone(),
-                    neighborhood_subs: peer_actors.neighborhood,
-                })
-                .unwrap();
+        let connection_info = ConnectionInfo {
+            reader: Box::new(
+                ReadHalfWrapperMock::new()
+                    .read_ok(one_http_req.as_slice())
+                    .read_ok(second_chunk.as_slice())
+                    .read_result(Err(Error::from(ErrorKind::BrokenPipe))),
+            ),
+            writer: Box::new(
+                WriteHalfWrapperMock::new()
+                    .write_result(Ok(one_http_req.len()))
+                    .write_result(Ok(second_chunk.len())),
+            ),
+            local_addr,
+            peer_addr,
+        };
 
-            let connection_info = ConnectionInfo {
-                reader: Box::new(
-                    ReadHalfWrapperMock::new()
-                        .read_ok(one_http_req.as_slice())
-                        .read_ok(second_chunk.as_slice())
-                        .read_result(Err(Error::from(ErrorKind::BrokenPipe))),
+        subject_subs
+            .add_sub
+            .send(AddStreamMsg::new(
+                connection_info,
+                reception_port,
+                PortConfiguration::new(
+                    vec![Box::new(HttpRequestDiscriminatorFactory::new())],
+                    is_clandestine,
                 ),
-                writer: Box::new(
-                    WriteHalfWrapperMock::new()
-                        .write_result(Ok(one_http_req.len()))
-                        .write_result(Ok(second_chunk.len())),
-                ),
-                local_addr,
-                peer_addr,
-            };
+            ))
+            .await
+            .unwrap();
 
-            subject_subs
-                .add_sub
-                .try_send(AddStreamMsg::new(
-                    connection_info, // the stream splitter mock will return mocked reader/writer
-                    reception_port,
-                    PortConfiguration::new(
-                        vec![Box::new(HttpRequestDiscriminatorFactory::new())],
-                        is_clandestine,
-                    ),
-                ))
-                .unwrap();
-
-            system.run();
-        });
-
-        awaiter.await_message_count(4);
+        await_recording_count(&dispatcher_recording_arc, 4).await;
         let after = SystemTime::now();
         let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
         let dispatcher_record = dispatcher_recording.get_record::<dispatcher::InboundClientData>(0);
@@ -945,10 +968,11 @@ mod tests {
         assert_eq!(dispatcher_recording.len(), 4);
     }
 
-    #[test]
-    fn stream_handler_pool_writes_data_to_stream_writer() {
+    #[actix::test]
+    async fn stream_handler_pool_writes_data_to_stream_writer() {
         init_test_logging();
-        let reader = ReadHalfWrapperMock::new().read_result(Ok(vec![]));
+        let mut reader = ReadHalfWrapperMock::new();
+        reader.read_results = (0..1000).map(|_| Ok(vec![1u8])).collect();
         let write_stream_params_arc = Arc::new(Mutex::new(vec![]));
         let writer = WriteHalfWrapperMock::new()
             .write_result(Err(Error::from(ErrorKind::Other)))
@@ -958,94 +982,81 @@ mod tests {
         let local_addr = SocketAddr::from_str("1.2.3.4:6789").unwrap();
         let peer_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
 
-        thread::spawn(move || {
-            let system = System::new();
-            let subject = StreamHandlerPool::new(vec![], false);
+        let subject = StreamHandlerPool::new(vec![], false);
+        let subject_addr: Addr<StreamHandlerPool> = subject.start();
+        let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
+        let peer_actors = peer_actors_builder().build();
+        subject_subs
+            .bind
+            .send(PoolBindMessage {
+                dispatcher_subs: peer_actors.dispatcher,
+                stream_handler_pool_subs: subject_subs.clone(),
+                neighborhood_subs: peer_actors.neighborhood,
+            })
+            .await
+            .unwrap();
 
-            let subject_addr: Addr<StreamHandlerPool> = subject.start();
-            let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
-            let peer_actors = peer_actors_builder().build();
-            subject_subs
-                .bind
-                .try_send(PoolBindMessage {
-                    dispatcher_subs: peer_actors.dispatcher,
-                    stream_handler_pool_subs: subject_subs.clone(),
-                    neighborhood_subs: peer_actors.neighborhood,
-                })
-                .unwrap();
+        let connection_info = ConnectionInfo {
+            reader: Box::new(reader),
+            writer: Box::new(writer),
+            local_addr,
+            peer_addr,
+        };
 
-            let connection_info = ConnectionInfo {
-                reader: Box::new(reader),
-                writer: Box::new(writer),
-                local_addr,
-                peer_addr,
-            };
+        subject_subs
+            .add_sub
+            .try_send(AddStreamMsg::new(
+                connection_info,
+                None,
+                PortConfiguration::new(
+                    vec![Box::new(HttpRequestDiscriminatorFactory::new())],
+                    true,
+                ),
+            ))
+            .unwrap();
 
-            subject_subs
-                .add_sub
-                .try_send(AddStreamMsg::new(
-                    connection_info,
-                    None,
-                    PortConfiguration::new(
-                        vec![Box::new(HttpRequestDiscriminatorFactory::new())],
-                        true,
-                    ),
-                ))
-                .unwrap();
+        subject_subs
+            .transmit_sub
+            .try_send(TransmitDataMsg {
+                endpoint: Endpoint::Socket(peer_addr),
+                last_data: true,
+                sequence_number: Some(0),
+                data: b"hello".to_vec(),
+            })
+            .unwrap();
 
-            subject_subs
-                .transmit_sub
-                .try_send(TransmitDataMsg {
-                    endpoint: Endpoint::Socket(peer_addr),
-                    last_data: true,
-                    sequence_number: Some(0),
-                    data: b"hello".to_vec(),
-                })
-                .unwrap();
-
-            system.run();
-        });
-
-        TestLogHandler::new().await_log_containing(
+        await_log_containing_async(
             "WARN: StreamWriter for 1.2.3.5:6789: Continuing after write error: other error",
             1000,
-        );
+        )
+        .await;
 
+        await_vec_len(&write_stream_params_arc, 2).await;
         let mut sw_to_stream_params = write_stream_params_arc.lock().unwrap();
         assert_eq!(sw_to_stream_params.len(), 2);
         assert_eq!(sw_to_stream_params.remove(0), b"hello".to_vec());
     }
 
-    #[test]
-    fn terminal_packet_is_transmitted_and_then_stream_is_shut_down() {
+    #[actix::test]
+    async fn terminal_packet_is_transmitted_and_then_stream_is_shut_down() {
         init_test_logging();
-        let (sub_tx, sub_rx) = unbounded();
-
-        thread::spawn(move || {
-            let system = System::new();
-
-            let mut subject = StreamHandlerPool::new(vec![], false);
-            subject.stream_connector = Box::new(
-                StreamConnectorMock::new()
-                    .connect_pair_result(Err(Error::from(ErrorKind::ConnectionRefused))),
-            );
-            let subject_addr: Addr<StreamHandlerPool> = subject.start();
-            let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
-            let peer_actors = peer_actors_builder().build();
-            subject_subs
-                .bind
-                .try_send(PoolBindMessage {
-                    dispatcher_subs: peer_actors.dispatcher,
-                    stream_handler_pool_subs: subject_subs.clone(),
-                    neighborhood_subs: peer_actors.neighborhood,
-                })
-                .unwrap();
-
-            sub_tx.send(subject_subs).unwrap();
-            system.run();
-        });
-
-        let subject_subs = sub_rx.recv().unwrap();
+        let mut subject = StreamHandlerPool::new(vec![], false);
+        subject.stream_connector = Box::new(
+            StreamConnectorMock::new()
+                .connect_pair_result(Err(Error::from(ErrorKind::ConnectionRefused))),
+        );
+        let subject_addr: Addr<StreamHandlerPool> = subject.start();
+        let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
+        let peer_actors = peer_actors_builder().build();
+        subject_subs
+            .bind
+            .send(PoolBindMessage {
+                dispatcher_subs: peer_actors.dispatcher,
+                stream_handler_pool_subs: subject_subs.clone(),
+                neighborhood_subs: peer_actors.neighborhood,
+            })
+            .await
+            .unwrap();
 
         let reader = ReadHalfWrapperMock::new().read_result(Ok(vec![]));
         let write_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1065,7 +1076,7 @@ mod tests {
 
         subject_subs
             .add_sub
-            .try_send(AddStreamMsg::new(
+            .send(AddStreamMsg::new(
                 connection_info,
                 None,
                 PortConfiguration::new(
@@ -1073,25 +1084,27 @@ mod tests {
                     false,
                 ),
             ))
+            .await
             .unwrap();
 
         subject_subs
             .transmit_sub
-            .try_send(TransmitDataMsg {
+            .send(TransmitDataMsg {
                 endpoint: Endpoint::Socket(peer_addr),
                 last_data: true,
                 sequence_number: Some(0),
                 data: vec![0x12, 0x34],
             })
+            .await
             .unwrap();
 
-        let tlh = TestLogHandler::new();
-        tlh.await_log_containing(
+        await_log_containing_async(
             "Removing channel to StreamWriter 1.2.4.5:* to 1.2.4.5:5673 in response to server-drop report",
             1000,
-        );
+        )
+        .await;
 
-        await_messages(1, &write_params_arc);
+        await_vec_len(&write_params_arc, 1).await;
         let write_params = write_params_arc
             .lock()
             .expect("is this really the poison error? NO!");
@@ -1100,22 +1113,24 @@ mod tests {
 
         subject_subs
             .transmit_sub
-            .try_send(TransmitDataMsg {
+            .send(TransmitDataMsg {
                 endpoint: Endpoint::Socket(peer_addr),
                 last_data: true,
                 sequence_number: Some(0),
                 data: vec![0x56, 0x78],
             })
+            .await
             .unwrap();
 
-        tlh.await_log_containing(
+        await_log_containing_async(
             "No existing stream keyed by 1.2.4.5:*: creating one to 1.2.4.5:5673",
             1000,
-        );
+        )
+        .await;
     }
 
-    #[test]
-    fn stream_handler_pool_removes_stream_when_it_gets_the_remove_stream_msg() {
+    #[actix::test]
+    async fn stream_handler_pool_removes_stream_when_it_gets_the_remove_stream_msg() {
         init_test_logging();
         let reader = ReadHalfWrapperMock::new().read_result(Ok(vec![]));
         let write_stream_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1125,75 +1140,75 @@ mod tests {
         let local_addr = SocketAddr::from_str("1.2.3.4:5673").unwrap();
         let peer_addr = SocketAddr::from_str("1.2.3.5:5673").unwrap();
 
-        thread::spawn(move || {
-            let system = System::new();
+        let mut subject =
+            StreamHandlerPool::new(vec![Box::new(JsonDiscriminatorFactory {})], false);
+        subject.stream_connector = Box::new(StreamConnectorMock::new().connection(
+            local_addr,
+            peer_addr,
+            vec![(vec![], Ok(()))],
+            vec![Ok(2)],
+        ));
+        let subject_addr: Addr<StreamHandlerPool> = subject.start();
+        let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
+        let peer_actors = peer_actors_builder().build();
+        subject_subs
+            .bind
+            .send(PoolBindMessage {
+                dispatcher_subs: peer_actors.dispatcher.clone(),
+                stream_handler_pool_subs: subject_subs.clone(),
+                neighborhood_subs: peer_actors.neighborhood,
+            })
+            .await
+            .unwrap();
 
-            let mut subject =
-                StreamHandlerPool::new(vec![Box::new(JsonDiscriminatorFactory {})], false);
-            subject.stream_connector = Box::new(StreamConnectorMock::new().connection(
-                local_addr,
+        let connection_info = ConnectionInfo {
+            reader: Box::new(reader),
+            writer: Box::new(writer),
+            local_addr,
+            peer_addr,
+        };
+
+        subject_subs
+            .add_sub
+            .send(AddStreamMsg::new(
+                connection_info,
+                None,
+                PortConfiguration::new(
+                    vec![Box::new(HttpRequestDiscriminatorFactory::new())],
+                    true,
+                ),
+            ))
+            .await
+            .unwrap();
+
+        subject_subs
+            .remove_sub
+            .send(RemoveStreamMsg {
                 peer_addr,
-                vec![(vec![], Ok(()))],
-                vec![Ok(2)],
-            ));
-            let subject_addr: Addr<StreamHandlerPool> = subject.start();
-            let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
-            let peer_actors = peer_actors_builder().build();
-            subject_subs
-                .bind
-                .try_send(PoolBindMessage {
-                    dispatcher_subs: peer_actors.dispatcher.clone(),
-                    stream_handler_pool_subs: subject_subs.clone(),
-                    neighborhood_subs: peer_actors.neighborhood,
-                })
-                .unwrap();
-
-            let connection_info = ConnectionInfo {
-                reader: Box::new(reader),
-                writer: Box::new(writer),
                 local_addr,
-                peer_addr,
-            };
+                stream_type: RemovedStreamType::Clandestine,
+                sub: peer_actors.dispatcher.stream_shutdown_sub,
+            })
+            .await
+            .unwrap();
 
-            subject_subs
-                .add_sub
-                .try_send(AddStreamMsg::new(
-                    connection_info,
-                    None,
-                    PortConfiguration::new(
-                        vec![Box::new(HttpRequestDiscriminatorFactory::new())],
-                        true,
-                    ),
-                ))
-                .unwrap();
+        subject_subs
+            .transmit_sub
+            .send(TransmitDataMsg {
+                endpoint: Endpoint::Socket(peer_addr),
+                last_data: true,
+                sequence_number: Some(0),
+                data: vec![0x12, 0x34],
+            })
+            .await
+            .unwrap();
 
-            subject_subs
-                .remove_sub
-                .try_send(RemoveStreamMsg {
-                    peer_addr,
-                    local_addr,
-                    stream_type: RemovedStreamType::Clandestine,
-                    sub: peer_actors.dispatcher.stream_shutdown_sub,
-                })
-                .unwrap();
 
-            subject_subs
-                .transmit_sub
-                .try_send(TransmitDataMsg {
-                    endpoint: Endpoint::Socket(peer_addr),
-                    last_data: true,
-                    sequence_number: Some(0),
-                    data: vec![0x12, 0x34],
-                })
-                .unwrap();
-
-            system.run();
-        });
-
-        TestLogHandler::new().await_log_containing(
+        await_log_containing_async(
             "No existing stream keyed by 1.2.3.5:*: creating one to 1.2.3.5:5673",
             1000,
-        );
+        )
+        .await;
     }
 
     #[test]
@@ -1304,7 +1319,7 @@ mod tests {
         );
     }
 
-    #[actix_rt::test]
+    #[actix::test]
     async fn when_stream_handler_pool_fails_to_create_nonexistent_stream_for_write_then_it_logs_and_notifies_neighborhood(
     ) {
         init_test_logging();
@@ -1312,52 +1327,45 @@ mod tests {
         let expected_key = public_key.clone();
         let connect_pair_params_arc = Arc::new(Mutex::new(vec![]));
         let connect_pair_params_arc_a = connect_pair_params_arc.clone();
-        let (neighborhood, neighborhood_awaiter, neighborhood_recording_arc) = make_recorder();
-        thread::spawn(move || {
-            let system = System::new();
-            let mut subject = StreamHandlerPool::new(vec![], false);
-            subject.stream_connector = Box::new(
-                StreamConnectorMock::new()
-                    .connect_pair_result(Err(Error::from(ErrorKind::Other)))
-                    .connect_pair_params(&connect_pair_params_arc),
-            );
-            let subject_addr: Addr<StreamHandlerPool> = subject.start();
-            let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
-            let peer_actors = peer_actors_builder().neighborhood(neighborhood).build();
-            subject_subs
-                .bind
-                .try_send(PoolBindMessage {
-                    dispatcher_subs: peer_actors.dispatcher,
-                    stream_handler_pool_subs: subject_subs.clone(),
-                    neighborhood_subs: peer_actors.neighborhood,
-                })
-                .unwrap();
+        let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
+        let mut subject = StreamHandlerPool::new(vec![], false);
+        subject.stream_connector = Box::new(
+            StreamConnectorMock::new()
+                .connect_pair_result(Err(Error::from(ErrorKind::Other)))
+                .connect_pair_params(&connect_pair_params_arc),
+        );
+        let subject_addr: Addr<StreamHandlerPool> = subject.start();
+        let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
+        let peer_actors = peer_actors_builder().neighborhood(neighborhood).build();
+        subject_subs
+            .bind
+            .send(PoolBindMessage {
+                dispatcher_subs: peer_actors.dispatcher,
+                stream_handler_pool_subs: subject_subs.clone(),
+                neighborhood_subs: peer_actors.neighborhood,
+            })
+            .await
+            .unwrap();
 
-            subject_subs
-                .node_query_response
-                .try_send(DispatcherNodeQueryResponse {
-                    result: Some(NodeQueryResponseMetadata::new(
-                        public_key.clone(),
-                        Some(NodeAddr::new(
-                            &IpAddr::V4(Ipv4Addr::new(1, 2, 3, 5)),
-                            &[7000],
-                        )),
-                        rate_pack(100),
-                    )),
-                    context: TransmitDataMsg {
-                        endpoint: Endpoint::Key(public_key),
-                        last_data: false,
-                        sequence_number: None,
-                        data: b"hello".to_vec(),
-                    },
-                })
-                .unwrap();
+        subject_subs
+            .node_query_response
+            .try_send(DispatcherNodeQueryResponse {
+                result: Some(NodeQueryResponseMetadata::new(
+                    public_key.clone(),
+                    Some(NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(1, 2, 3, 5)), &[7000])),
+                    rate_pack(100),
+                )),
+                context: TransmitDataMsg {
+                    endpoint: Endpoint::Key(public_key),
+                    last_data: false,
+                    sequence_number: None,
+                    data: b"hello".to_vec(),
+                },
+            })
+            .unwrap();
 
-            system.run();
-        });
-
-        TestLogHandler::new().await_log_containing("ERROR: Dispatcher: Stream to 1.2.3.5:7000 does not exist and could not be connected; discarding 5 bytes: other error", 1000);
-        neighborhood_awaiter.await_message_count(1);
+        await_log_containing_async("ERROR: Dispatcher: Stream to 1.2.3.5:7000 does not exist and could not be connected; discarding 5 bytes: other error", 1000).await;
+        await_recording_count(&neighborhood_recording_arc, 1).await;
         let remove_neighbor_msg =
             Recording::get_clone::<RemoveNeighborMessage>(&neighborhood_recording_arc, 0);
         assert_eq!(remove_neighbor_msg.public_key, expected_key);
@@ -1370,9 +1378,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn stream_handler_pool_creates_nonexistent_stream_for_reading_and_writing() {
-        use crossbeam_channel::unbounded;
+    #[actix::test]
+    async fn stream_handler_pool_creates_nonexistent_stream_for_reading_and_writing() {
         let public_key = PublicKey::from(vec![0, 1, 2, 3]);
         let masquerader = JsonMasquerader::new();
         let incoming_unmasked = b"Incoming data".to_vec();
@@ -1384,49 +1391,41 @@ mod tests {
         let (neighborhood, neighborhood_awaiter, neighborhood_recording_arc) = make_recorder();
         let write_params_arc = Arc::new(Mutex::new(vec![]));
         let write_params_arc_a = write_params_arc.clone();
-        let (tx, rx) = unbounded();
-        thread::spawn(move || {
-            let system = System::new();
-            let discriminator_factory = JsonDiscriminatorFactory::new();
-            let mut subject = StreamHandlerPool::new(vec![Box::new(discriminator_factory)], false);
-            subject.stream_connector = Box::new(
-                StreamConnectorMock::new().connect_pair_result(Ok(ConnectionInfo {
-                    reader: Box::new(
-                        ReadHalfWrapperMock::new()
-                            .read_ok(incoming_masked.as_slice())
-                            .read_result(Ok(vec![])),
-                    ),
-                    writer: Box::new(
-                        WriteHalfWrapperMock::new()
-                            .write_result(Ok(outgoing_masked_len))
-                            .write_result(Ok(0))
-                            .write_params(&write_params_arc),
-                    ),
-                    local_addr: SocketAddr::from_str("127.0.0.1:54321").unwrap(),
-                    peer_addr: SocketAddr::from_str("1.2.3.5:7000").unwrap(),
-                })),
-            );
-            let subject_addr: Addr<StreamHandlerPool> = subject.start();
-            let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
-            let peer_actors = peer_actors_builder()
-                .dispatcher(dispatcher)
-                .neighborhood(neighborhood)
-                .build();
-            subject_subs
-                .bind
-                .try_send(PoolBindMessage {
-                    dispatcher_subs: peer_actors.dispatcher,
-                    stream_handler_pool_subs: subject_subs.clone(),
-                    neighborhood_subs: peer_actors.neighborhood,
-                })
-                .unwrap();
+        let discriminator_factory = JsonDiscriminatorFactory::new();
+        let mut subject = StreamHandlerPool::new(vec![Box::new(discriminator_factory)], false);
+        subject.stream_connector = Box::new(
+            StreamConnectorMock::new().connect_pair_result(Ok(ConnectionInfo {
+                reader: Box::new(
+                    ReadHalfWrapperMock::new()
+                        .read_ok(incoming_masked.as_slice())
+                        .read_result(Ok(vec![])),
+                ),
+                writer: Box::new(
+                    WriteHalfWrapperMock::new()
+                        .write_result(Ok(outgoing_masked_len))
+                        .write_result(Ok(0))
+                        .write_params(&write_params_arc),
+                ),
+                local_addr: SocketAddr::from_str("127.0.0.1:54321").unwrap(),
+                peer_addr: SocketAddr::from_str("1.2.3.5:7000").unwrap(),
+            })),
+        );
+        let subject_addr: Addr<StreamHandlerPool> = subject.start();
+        let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
+        let peer_actors = peer_actors_builder()
+            .dispatcher(dispatcher)
+            .neighborhood(neighborhood)
+            .build();
+        subject_subs
+            .bind
+            .send(PoolBindMessage {
+                dispatcher_subs: peer_actors.dispatcher,
+                stream_handler_pool_subs: subject_subs.clone(),
+                neighborhood_subs: peer_actors.neighborhood,
+            })
+            .await
+            .unwrap();
 
-            tx.send(subject_subs).unwrap();
-
-            system.run();
-        });
-
-        let subject_subs = rx.recv().unwrap();
         let before = SystemTime::now();
 
         subject_subs
@@ -1439,7 +1438,7 @@ mod tests {
             })
             .unwrap();
 
-        neighborhood_awaiter.await_message_count(1);
+        await_recording_count(&neighborhood_recording_arc, 1).await;
         let target_ip_addr = IpAddr::V4(Ipv4Addr::new(1, 2, 3, 5));
         let node_query_msg =
             Recording::get_clone::<DispatcherNodeQueryMessage>(&neighborhood_recording_arc, 0);
@@ -1455,12 +1454,12 @@ mod tests {
             })
             .unwrap();
 
-        await_messages(1, &write_params_arc_a);
+        await_vec_len(&write_params_arc_a, 1).await;
         let after = SystemTime::now();
         let write_params = write_params_arc_a.lock().unwrap();
         assert_eq!(write_params[0], outgoing_masked);
 
-        dispatcher_awaiter.await_message_count(1);
+        await_recording_count(&dispatcher_recording_arc, 1).await;
         let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
         let ibcd = dispatcher_recording.get_record::<InboundClientData>(0);
         check_timestamp(before, ibcd.timestamp, after);
@@ -1477,7 +1476,7 @@ mod tests {
             }
         );
 
-        neighborhood_awaiter.await_message_count(2);
+        await_recording_count(&neighborhood_recording_arc, 2).await;
         let connection_progress_message =
             Recording::get_clone::<ConnectionProgressMessage>(&neighborhood_recording_arc, 1);
         assert_eq!(
@@ -1489,8 +1488,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn transmit_data_msg_handler_finds_ip_from_neighborhood_and_transmits_message() {
+    #[actix::test]
+    async fn transmit_data_msg_handler_finds_ip_from_neighborhood_and_transmits_message() {
         init_test_logging();
         let key = PublicKey::from(vec![8, 4, 8, 4]);
         let reader = ReadHalfWrapperMock::new().read_result(Ok(vec![]));
@@ -1503,47 +1502,36 @@ mod tests {
         let local_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let peer_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
 
-        let (neighborhood, awaiter, recording_arc) = make_recorder();
-        let (tx, rx) = unbounded();
+        let (neighborhood, _, recording_arc) = make_recorder();
+        let subject = StreamHandlerPool::new(vec![], false);
+        let subject_addr: Addr<StreamHandlerPool> = subject.start();
+        let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
+        let peer_actors = peer_actors_builder().neighborhood(neighborhood).build();
+        subject_subs
+            .bind
+            .send(PoolBindMessage {
+                dispatcher_subs: peer_actors.dispatcher,
+                stream_handler_pool_subs: subject_subs.clone(),
+                neighborhood_subs: peer_actors.neighborhood,
+            })
+            .await
+            .unwrap();
 
-        thread::spawn(move || {
-            let system = System::new();
-            let subject = StreamHandlerPool::new(vec![], false);
+        let connection_info = ConnectionInfo {
+            reader: Box::new(reader),
+            writer: Box::new(writer),
+            local_addr,
+            peer_addr,
+        };
 
-            let subject_addr: Addr<StreamHandlerPool> = subject.start();
-            let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
-            let peer_actors = peer_actors_builder().neighborhood(neighborhood).build();
-            subject_subs
-                .bind
-                .try_send(PoolBindMessage {
-                    dispatcher_subs: peer_actors.dispatcher,
-                    stream_handler_pool_subs: subject_subs.clone(),
-                    neighborhood_subs: peer_actors.neighborhood,
-                })
-                .unwrap();
-
-            let connection_info = ConnectionInfo {
-                reader: Box::new(reader),
-                writer: Box::new(writer),
-                local_addr,
-                peer_addr,
-            };
-
-            subject_subs
-                .add_sub
-                .try_send(AddStreamMsg::new(
-                    connection_info,
-                    None,
-                    PortConfiguration::new(vec![Box::new(JsonDiscriminatorFactory::new())], true),
-                ))
-                .unwrap();
-
-            tx.send(subject_subs).unwrap();
-
-            system.run();
-        });
-
-        let subject_subs = rx.recv().unwrap();
+        subject_subs
+            .add_sub
+            .try_send(AddStreamMsg::new(
+                connection_info,
+                None,
+                PortConfiguration::new(vec![Box::new(JsonDiscriminatorFactory::new())], true),
+            ))
+            .unwrap();
 
         subject_subs
             .transmit_sub
@@ -1555,7 +1543,7 @@ mod tests {
             })
             .unwrap();
 
-        awaiter.await_message_count(1);
+        await_recording_count(&recording_arc, 1).await;
         let node_query_msg = Recording::get_clone::<DispatcherNodeQueryMessage>(&recording_arc, 0);
         subject_subs
             .node_query_response
@@ -1572,117 +1560,103 @@ mod tests {
             })
             .unwrap();
 
-        await_messages(2, &write_stream_params_arc);
-        let mut sw_to_stream_params = write_stream_params_arc.lock().unwrap();
-        assert_eq!(sw_to_stream_params.len(), 2);
-        assert_eq!(sw_to_stream_params.remove(0), b"hello");
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: Dispatcher: Sending node query about CAQIBA to Neighborhood"
         ));
     }
 
-    #[test]
-    fn node_query_response_handler_does_not_try_to_write_when_neighbor_is_not_found() {
+    #[actix::test]
+    async fn node_query_response_handler_does_not_try_to_write_when_neighbor_is_not_found() {
         init_test_logging();
         let cryptde = main_cryptde();
         let key = cryptde.public_key().clone();
 
-        thread::spawn(move || {
-            let system = System::new();
-            let subject = StreamHandlerPool::new(vec![], false);
+        let subject = StreamHandlerPool::new(vec![], false);
+        let subject_addr: Addr<StreamHandlerPool> = subject.start();
+        let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
+        let peer_actors = peer_actors_builder().build();
+        subject_subs
+            .bind
+            .send(PoolBindMessage {
+                dispatcher_subs: peer_actors.dispatcher,
+                stream_handler_pool_subs: subject_subs.clone(),
+                neighborhood_subs: peer_actors.neighborhood,
+            })
+            .await
+            .unwrap();
 
-            let subject_addr: Addr<StreamHandlerPool> = subject.start();
-            let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
-            let peer_actors = peer_actors_builder().build();
-            subject_subs
-                .bind
-                .try_send(PoolBindMessage {
-                    dispatcher_subs: peer_actors.dispatcher,
-                    stream_handler_pool_subs: subject_subs.clone(),
-                    neighborhood_subs: peer_actors.neighborhood,
-                })
-                .unwrap();
+        subject_subs
+            .node_query_response
+            .send(DispatcherNodeQueryResponse {
+                result: None,
+                context: TransmitDataMsg {
+                    endpoint: Endpoint::Key(key.clone()),
+                    last_data: false,
+                    sequence_number: Some(0),
+                    data: b"hello".to_vec(),
+                },
+            })
+            .await
+            .unwrap();
 
-            subject_subs
-                .node_query_response
-                .try_send(DispatcherNodeQueryResponse {
-                    result: None,
-                    context: TransmitDataMsg {
-                        endpoint: Endpoint::Key(key.clone()),
-                        last_data: false,
-                        sequence_number: Some(0),
-                        data: b"hello".to_vec(),
-                    },
-                })
-                .unwrap();
-
-            system.run();
-        });
-
-        TestLogHandler::new().await_log_containing(
+        await_log_containing_async(
             format!(
                 "ERROR: Dispatcher: No Node found at endpoint {:?}",
                 Endpoint::Key(cryptde.public_key().clone())
             )
             .as_str(),
             1000,
-        );
+        )
+        .await;
     }
 
-    #[test]
-    fn node_query_response_handler_does_not_try_to_write_when_neighbor_ip_is_not_known() {
+    #[actix::test]
+    async fn node_query_response_handler_does_not_try_to_write_when_neighbor_ip_is_not_known() {
         init_test_logging();
         let cryptde = main_cryptde();
         let key = cryptde.public_key().clone();
 
-        thread::spawn(move || {
-            let system = System::new();
-            let subject = StreamHandlerPool::new(vec![], false);
+        let subject = StreamHandlerPool::new(vec![], false);
+        let subject_addr: Addr<StreamHandlerPool> = subject.start();
+        let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
+        let peer_actors = peer_actors_builder().build();
+        subject_subs
+            .bind
+            .send(PoolBindMessage {
+                dispatcher_subs: peer_actors.dispatcher,
+                stream_handler_pool_subs: subject_subs.clone(),
+                neighborhood_subs: peer_actors.neighborhood,
+            })
+            .await
+            .unwrap();
 
-            let subject_addr: Addr<StreamHandlerPool> = subject.start();
-            let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
-            let peer_actors = peer_actors_builder().build();
-            subject_subs
-                .bind
-                .try_send(PoolBindMessage {
-                    dispatcher_subs: peer_actors.dispatcher,
-                    stream_handler_pool_subs: subject_subs.clone(),
-                    neighborhood_subs: peer_actors.neighborhood,
-                })
-                .unwrap();
+        subject_subs
+            .node_query_response
+            .send(DispatcherNodeQueryResponse {
+                result: Some(NodeQueryResponseMetadata::new(key.clone(), None, rate_pack(100))),
+                context: TransmitDataMsg {
+                    endpoint: Endpoint::Key(key.clone()),
+                    last_data: false,
+                    sequence_number: None,
+                    data: b"hello".to_vec(),
+                },
+            })
+            .await
+            .unwrap();
 
-            subject_subs
-                .node_query_response
-                .try_send(DispatcherNodeQueryResponse {
-                    result: Some(NodeQueryResponseMetadata::new(
-                        key.clone(),
-                        None,
-                        rate_pack(100),
-                    )),
-                    context: TransmitDataMsg {
-                        endpoint: Endpoint::Key(key.clone()),
-                        last_data: false,
-                        sequence_number: None,
-                        data: b"hello".to_vec(),
-                    },
-                })
-                .unwrap();
-
-            system.run();
-        });
-
-        TestLogHandler::new().await_log_containing(
+        await_log_containing_async(
             format!(
                 "ERROR: Dispatcher: No known IP for neighbor in route with key: {}",
                 cryptde.public_key()
             )
             .as_str(),
             1000,
-        );
+        )
+        .await;
     }
 
-    #[test]
-    fn node_query_response_handler_resends_transmit_data_msg_when_connection_is_in_progress() {
+    #[actix::test]
+    async fn node_query_response_handler_resends_transmit_data_msg_when_connection_is_in_progress() {
         init_test_logging();
         let cryptde = main_cryptde();
         let key = cryptde.public_key().clone();
@@ -1697,45 +1671,36 @@ mod tests {
         };
         let msg_a = msg.clone();
 
-        let (tx, rx) = unbounded();
+        let mut subject = StreamHandlerPool::new(vec![], false);
+        subject
+            .stream_writers
+            .insert(StreamWriterKey::from(peer_addr), None);
+        let subject_addr: Addr<StreamHandlerPool> = subject.start();
+        let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
+        let peer_actors = peer_actors_builder().build();
+        subject_subs
+            .bind
+            .send(PoolBindMessage {
+                dispatcher_subs: peer_actors.dispatcher,
+                stream_handler_pool_subs: subject_subs.clone(),
+                neighborhood_subs: peer_actors.neighborhood,
+            })
+            .await
+            .unwrap();
 
-        thread::spawn(move || {
-            let system = System::new();
-            let mut subject = StreamHandlerPool::new(vec![], false);
-            subject
-                .stream_writers
-                .insert(StreamWriterKey::from(peer_addr), None);
-            let subject_addr: Addr<StreamHandlerPool> = subject.start();
-            let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
-            let peer_actors = peer_actors_builder().build();
-            subject_subs
-                .bind
-                .try_send(PoolBindMessage {
-                    dispatcher_subs: peer_actors.dispatcher,
-                    stream_handler_pool_subs: subject_subs.clone(),
-                    neighborhood_subs: peer_actors.neighborhood,
-                })
-                .unwrap();
+        subject_subs
+            .node_query_response
+            .try_send(DispatcherNodeQueryResponse {
+                result: Some(NodeQueryResponseMetadata::new(
+                    key.clone(),
+                    Some(NodeAddr::new(&peer_addr.ip(), &[peer_addr.port()])),
+                    rate_pack(100),
+                )),
+                context: msg,
+            })
+            .unwrap();
 
-            subject_subs
-                .node_query_response
-                .try_send(DispatcherNodeQueryResponse {
-                    result: Some(NodeQueryResponseMetadata::new(
-                        key.clone(),
-                        Some(NodeAddr::new(&peer_addr.ip(), &[peer_addr.port()])),
-                        rate_pack(100),
-                    )),
-                    context: msg,
-                })
-                .unwrap();
-
-            tx.send(subject_subs).expect("Tx failure");
-
-            system.run();
-        });
-        let subject_subs = rx.recv().unwrap();
-
-        TestLogHandler::new().await_log_containing(
+        await_log_containing_async(
             format!(
                 "connection for {} in progress, resubmitting {} bytes",
                 peer_addr_a,
@@ -1743,13 +1708,14 @@ mod tests {
             )
             .as_str(),
             1000,
-        );
+        )
+        .await;
 
         let local_addr = SocketAddr::from_str("1.2.3.4:80").unwrap();
         let write_params_arc = Arc::new(Mutex::new(Vec::new()));
 
         let connection_info = ConnectionInfo {
-            reader: Box::new(ReadHalfWrapperMock::new().read_result(Ok(vec![]))),
+            reader: Box::new(ReadHalfWrapperMock::new().read_ok(b"x")),
             writer: Box::new(
                 WriteHalfWrapperMock::new()
                     .write_result(Ok(0))
@@ -1771,7 +1737,7 @@ mod tests {
             ))
             .unwrap();
 
-        await_messages(1, &write_params_arc);
+        await_vec_len(&write_params_arc, 1).await;
         let write_params = write_params_arc.lock().unwrap();
 
         assert_eq!(write_params[0], msg_a.data);
@@ -1819,8 +1785,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn when_a_new_connection_fails_the_stream_writer_flag_is_removed_and_another_connection_is_attempted_for_the_next_message_with_the_same_stream_key(
+    #[actix::test]
+    async fn when_a_new_connection_fails_the_stream_writer_flag_is_removed_and_another_connection_is_attempted_for_the_next_message_with_the_same_stream_key(
     ) {
         init_test_logging();
         let cryptde = main_cryptde();
@@ -1855,48 +1821,40 @@ mod tests {
             local_addr,
             peer_addr: peer_addr_a,
         };
-        let (neighborhood, neighborhood_awaiter, neighborhood_recording_arc) = make_recorder();
-        let (tx, rx) = unbounded();
+        let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
 
-        thread::spawn(move || {
-            let system = System::new();
-            let mut subject = StreamHandlerPool::new(vec![], false);
-            subject.stream_connector = Box::new(
-                StreamConnectorMock::new()
-                    .connect_pair_result(Err(Error::from(ErrorKind::Other)))
-                    .connect_pair_result(Ok(connection_info)),
-            );
-            subject.clandestine_discriminator_factories =
-                vec![Box::new(HttpRequestDiscriminatorFactory::new())];
-            let subject_addr: Addr<StreamHandlerPool> = subject.start();
-            let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
-            let peer_actors = peer_actors_builder().neighborhood(neighborhood).build();
-            subject_subs
-                .bind
-                .try_send(PoolBindMessage {
-                    dispatcher_subs: peer_actors.dispatcher,
-                    stream_handler_pool_subs: subject_subs.clone(),
-                    neighborhood_subs: peer_actors.neighborhood,
-                })
-                .unwrap();
+        let mut subject = StreamHandlerPool::new(vec![], false);
+        subject.stream_connector = Box::new(
+            StreamConnectorMock::new()
+                .connect_pair_result(Err(Error::from(ErrorKind::Other)))
+                .connect_pair_result(Ok(connection_info)),
+        );
+        subject.clandestine_discriminator_factories =
+            vec![Box::new(HttpRequestDiscriminatorFactory::new())];
+        let subject_addr: Addr<StreamHandlerPool> = subject.start();
+        let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
+        let peer_actors = peer_actors_builder().neighborhood(neighborhood).build();
+        subject_subs
+            .bind
+            .send(PoolBindMessage {
+                dispatcher_subs: peer_actors.dispatcher,
+                stream_handler_pool_subs: subject_subs.clone(),
+                neighborhood_subs: peer_actors.neighborhood,
+            })
+            .await
+            .unwrap();
 
-            subject_subs
-                .node_query_response
-                .try_send(DispatcherNodeQueryResponse {
-                    result: Some(NodeQueryResponseMetadata::new(
-                        key_bg,
-                        Some(NodeAddr::new(&peer_addr.ip(), &[peer_addr.port()])),
-                        rate_pack(100),
-                    )),
-                    context: msg,
-                })
-                .unwrap();
-
-            tx.send(subject_subs).expect("Tx failure");
-
-            system.run();
-        });
-        let subject_subs = rx.recv().unwrap();
+        subject_subs
+            .node_query_response
+            .try_send(DispatcherNodeQueryResponse {
+                result: Some(NodeQueryResponseMetadata::new(
+                    key_bg,
+                    Some(NodeAddr::new(&peer_addr.ip(), &[peer_addr.port()])),
+                    rate_pack(100),
+                )),
+                context: msg,
+            })
+            .unwrap();
 
         let expected_data = JsonMasquerader::new().mask(&msg_a.data).unwrap();
         subject_subs
@@ -1911,13 +1869,13 @@ mod tests {
             })
             .unwrap();
 
-        await_messages(1, &write_params_arc);
+        await_vec_len(&write_params_arc, 1).await;
         let write_params = write_params_arc.lock().unwrap();
 
         assert_eq!(write_params[0], expected_data);
         assert_eq!(write_params.len(), 1);
 
-        neighborhood_awaiter.await_message_count(1);
+        await_recording_count(&neighborhood_recording_arc, 2).await;
         let connection_progress_message =
             Recording::get_clone::<ConnectionProgressMessage>(&neighborhood_recording_arc, 1);
         assert_eq!(
@@ -2028,8 +1986,8 @@ mod tests {
         system.run();
     }
 
-    #[test]
-    fn stream_handler_pool_writes_much_clandestine_data_to_stream_writer() {
+    #[actix::test]
+    async fn stream_handler_pool_writes_much_clandestine_data_to_stream_writer() {
         let hello = b"hello".to_vec();
         let worlds = b"worlds".to_vec();
 
@@ -2046,180 +2004,166 @@ mod tests {
         let local_addr = SocketAddr::from_str("1.2.3.4:6789").unwrap();
         let peer_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
 
-        thread::spawn(move || {
-            let system = System::new();
-            let subject = StreamHandlerPool::new(vec![], false);
+        let subject = StreamHandlerPool::new(vec![], false);
+        let subject_addr: Addr<StreamHandlerPool> = subject.start();
+        let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
+        let peer_actors = peer_actors_builder().build();
+        subject_subs
+            .bind
+            .send(PoolBindMessage {
+                dispatcher_subs: peer_actors.dispatcher,
+                stream_handler_pool_subs: subject_subs.clone(),
+                neighborhood_subs: peer_actors.neighborhood,
+            })
+            .await
+            .unwrap();
 
-            let subject_addr: Addr<StreamHandlerPool> = subject.start();
-            let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
-            let peer_actors = peer_actors_builder().build();
-            subject_subs
-                .bind
-                .try_send(PoolBindMessage {
-                    dispatcher_subs: peer_actors.dispatcher,
-                    stream_handler_pool_subs: subject_subs.clone(),
-                    neighborhood_subs: peer_actors.neighborhood,
-                })
-                .unwrap();
+        let connection_info = ConnectionInfo {
+            reader: Box::new(reader),
+            writer: Box::new(writer),
+            local_addr,
+            peer_addr,
+        };
 
-            let connection_info = ConnectionInfo {
-                reader: Box::new(reader),
-                writer: Box::new(writer),
-                local_addr,
-                peer_addr,
-            };
+        subject_subs
+            .add_sub
+            .try_send(AddStreamMsg::new(
+                connection_info,
+                None,
+                PortConfiguration::new(
+                    vec![Box::new(HttpRequestDiscriminatorFactory::new())],
+                    true,
+                ),
+            ))
+            .unwrap();
 
-            subject_subs
-                .add_sub
-                .try_send(AddStreamMsg::new(
-                    connection_info,
-                    None,
-                    PortConfiguration::new(
-                        vec![Box::new(HttpRequestDiscriminatorFactory::new())],
-                        true,
-                    ),
-                ))
-                .unwrap();
+        subject_subs
+            .transmit_sub
+            .try_send(TransmitDataMsg {
+                endpoint: Endpoint::Socket(peer_addr),
+                last_data: false,
+                sequence_number: None,
+                data: hello,
+            })
+            .unwrap();
 
-            subject_subs
-                .transmit_sub
-                .try_send(TransmitDataMsg {
-                    endpoint: Endpoint::Socket(peer_addr),
-                    last_data: false,
-                    sequence_number: None,
-                    data: hello,
-                })
-                .unwrap();
+        subject_subs
+            .transmit_sub
+            .try_send(TransmitDataMsg {
+                endpoint: Endpoint::Socket(peer_addr),
+                last_data: false,
+                sequence_number: None,
+                data: worlds,
+            })
+            .unwrap();
 
-            subject_subs
-                .transmit_sub
-                .try_send(TransmitDataMsg {
-                    endpoint: Endpoint::Socket(peer_addr),
-                    last_data: false,
-                    sequence_number: None,
-                    data: worlds,
-                })
-                .unwrap();
-
-            system.run();
-        });
-
-        await_messages(2, &write_stream_params_arc);
+        await_vec_len(&write_stream_params_arc, 2).await;
         let mut sw_to_stream_params = write_stream_params_arc.lock().unwrap();
         assert_eq!(sw_to_stream_params.len(), 2);
         assert_eq!(sw_to_stream_params.remove(0), masked_hello);
         assert_eq!(sw_to_stream_params.remove(0), masked_worlds);
     }
 
-    #[test]
-    fn stream_handler_pool_drops_data_when_masking_fails() {
+    #[actix::test]
+    async fn stream_handler_pool_drops_data_when_masking_fails() {
         init_test_logging();
         let reader = ReadHalfWrapperMock::new().read_ok(&[]);
         let writer = WriteHalfWrapperMock::new().write_result(Ok(0));
         let local_addr = SocketAddr::from_str("1.2.3.4:6789").unwrap();
         let peer_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
 
-        thread::spawn(move || {
-            let system = System::new();
-            let mut subject = StreamHandlerPool::new(vec![], false);
-            subject.traffic_analyzer = Box::new(TrafficAnalyzerMock {});
+        let mut subject = StreamHandlerPool::new(vec![], false);
+        subject.traffic_analyzer = Box::new(TrafficAnalyzerMock {});
 
-            let subject_addr: Addr<StreamHandlerPool> = subject.start();
-            let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
-            let peer_actors = peer_actors_builder().build();
-            subject_subs
-                .bind
-                .try_send(PoolBindMessage {
-                    dispatcher_subs: peer_actors.dispatcher,
-                    stream_handler_pool_subs: subject_subs.clone(),
-                    neighborhood_subs: peer_actors.neighborhood,
-                })
-                .unwrap();
+        let subject_addr: Addr<StreamHandlerPool> = subject.start();
+        let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
+        let peer_actors = peer_actors_builder().build();
+        subject_subs
+            .bind
+            .send(PoolBindMessage {
+                dispatcher_subs: peer_actors.dispatcher,
+                stream_handler_pool_subs: subject_subs.clone(),
+                neighborhood_subs: peer_actors.neighborhood,
+            })
+            .await
+            .unwrap();
 
-            let connection_info = ConnectionInfo {
-                reader: Box::new(reader),
-                writer: Box::new(writer),
-                local_addr,
-                peer_addr,
-            };
+        let connection_info = ConnectionInfo {
+            reader: Box::new(reader),
+            writer: Box::new(writer),
+            local_addr,
+            peer_addr,
+        };
 
-            subject_subs
-                .add_sub
-                .try_send(AddStreamMsg::new(
-                    connection_info,
-                    None,
-                    PortConfiguration::new(
-                        vec![Box::new(HttpRequestDiscriminatorFactory::new())],
-                        true,
-                    ),
-                ))
-                .unwrap();
-
-            subject_subs
-                .transmit_sub
-                .try_send(TransmitDataMsg {
-                    endpoint: Endpoint::Socket(peer_addr),
-                    last_data: false,
-                    sequence_number: None,
-                    data: b"hello".to_vec(),
-                })
-                .unwrap();
-
-            system.run();
-        });
-
-        TestLogHandler::new().await_log_containing("Masking failed for 1.2.3.5:6789: Low-level data error: don't care. Discarding 5 bytes.", 1000);
-    }
-
-    #[test]
-    fn stream_handler_pool_logs_error_and_returns_when_local_connection_is_gone() {
-        init_test_logging();
-        let outgoing_unmasked = b"Outgoing data".to_vec();
-        let outgoing_unmasked_len = outgoing_unmasked.len();
-        let (tx, rx) = unbounded();
-        thread::spawn(move || {
-            let system = System::new();
-            let discriminator_factory = JsonDiscriminatorFactory::new();
-            let mut subject = StreamHandlerPool::new(vec![Box::new(discriminator_factory)], false);
-            subject.stream_connector = Box::new(StreamConnectorMock::new()); // this will panic if a connection is attempted
-            let subject_addr: Addr<StreamHandlerPool> = subject.start();
-            let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
-            let peer_actors = peer_actors_builder().build();
-            subject_subs
-                .bind
-                .try_send(PoolBindMessage {
-                    dispatcher_subs: peer_actors.dispatcher,
-                    stream_handler_pool_subs: subject_subs.clone(),
-                    neighborhood_subs: peer_actors.neighborhood,
-                })
-                .unwrap();
-
-            tx.send(subject_subs).unwrap();
-
-            system.run();
-        });
-
-        let subject_subs = rx.recv().unwrap();
-        let local_addr = SocketAddr::from_str("127.0.0.1:46377").unwrap();
+        subject_subs
+            .add_sub
+            .try_send(AddStreamMsg::new(
+                connection_info,
+                None,
+                PortConfiguration::new(
+                    vec![Box::new(HttpRequestDiscriminatorFactory::new())],
+                    true,
+                ),
+            ))
+            .unwrap();
 
         subject_subs
             .transmit_sub
             .try_send(TransmitDataMsg {
+                endpoint: Endpoint::Socket(peer_addr),
+                last_data: false,
+                sequence_number: None,
+                data: b"hello".to_vec(),
+            })
+            .unwrap();
+
+
+        await_log_containing_async("Masking failed for 1.2.3.5:6789: Low-level data error: don't care. Discarding 5 bytes.", 1000).await;
+    }
+
+    #[actix::test]
+    async fn stream_handler_pool_logs_error_and_returns_when_local_connection_is_gone() {
+        init_test_logging();
+        let outgoing_unmasked = b"Outgoing data".to_vec();
+        let outgoing_unmasked_len = outgoing_unmasked.len();
+        let discriminator_factory = JsonDiscriminatorFactory::new();
+        let mut subject = StreamHandlerPool::new(vec![Box::new(discriminator_factory)], false);
+        subject.stream_connector = Box::new(StreamConnectorMock::new()); // this will panic if a connection is attempted
+        let subject_addr: Addr<StreamHandlerPool> = subject.start();
+        let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
+        let peer_actors = peer_actors_builder().build();
+        subject_subs
+            .bind
+            .send(PoolBindMessage {
+                dispatcher_subs: peer_actors.dispatcher,
+                stream_handler_pool_subs: subject_subs.clone(),
+                neighborhood_subs: peer_actors.neighborhood,
+            })
+            .await
+            .unwrap();
+
+        let local_addr = SocketAddr::from_str("127.0.0.1:46377").unwrap();
+
+        subject_subs
+            .transmit_sub
+            .send(TransmitDataMsg {
                 endpoint: Endpoint::Socket(local_addr),
                 last_data: false,
                 sequence_number: Some(0),
                 data: outgoing_unmasked,
             })
+            .await
             .unwrap();
 
-        TestLogHandler::new().await_log_containing(
+        await_log_containing_async(
             format!(
                 "Local connection {:?} not found. Discarding {} bytes.",
                 local_addr, outgoing_unmasked_len
             )
             .as_str(),
             1000,
-        );
+        )
+        .await;
     }
 
     #[test]

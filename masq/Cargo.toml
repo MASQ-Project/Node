@@ -22,7 +22,7 @@ soketto = { workspace = true }
 thousands = "0.2.0"
 tokio = { workspace = true, features = ["io-std"] }
 tokio-util = { workspace = true }
-futures = "0.3.32"
+futures = { workspace = true }
 async-channel = "2.5.0"
 async-trait = "0.1.89"
 

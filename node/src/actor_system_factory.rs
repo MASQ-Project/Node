@@ -1057,8 +1057,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn make_and_start_actors_sends_bind_messages() {
+    #[actix::test]
+    async fn make_and_start_actors_sends_bind_messages() {
         let actor_factory = ActorFactoryMock::new();
         let recordings = actor_factory.get_recordings();
         let config = BootstrapperConfig {
@@ -1112,11 +1112,10 @@ mod tests {
             )),
         );
         let subject = ActorSystemFactoryReal::new(Box::new(tools));
-        let system = System::new();
 
         subject.make_and_start_actors(config, Box::new(actor_factory), Box::new(persistent_config));
-        System::current().stop();
-        system.run();
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
         thread::sleep(Duration::from_millis(100));
         Recording::get_clone::<BindMessage>(&recordings.dispatcher, 0);
         Recording::get_clone::<BindMessage>(&recordings.hopper, 0);
@@ -1131,8 +1130,8 @@ mod tests {
         Recording::get_clone::<StartMessage>(&recordings.neighborhood, 1);
     }
 
-    #[test]
-    fn prepare_initial_messages_generates_the_correct_messages() {
+    #[actix::test]
+    async fn prepare_initial_messages_generates_the_correct_messages() {
         let actor_factory = ActorFactoryMock::new();
         let recordings = actor_factory.get_recordings();
         let parameters = actor_factory.make_parameters();
@@ -1191,9 +1190,8 @@ mod tests {
             Box::new(actor_factory),
         );
 
-        let system = System::new();
-        System::current().stop();
-        system.run();
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
         check_bind_message(&recordings.dispatcher, false);
         check_bind_message(&recordings.hopper, false);
         check_bind_message(&recordings.proxy_client, false);
@@ -1435,8 +1433,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn prepare_initial_messages_doesnt_start_up_proxy_client_or_automap_if_consume_only_mode() {
+    #[actix::test]
+    async fn prepare_initial_messages_doesnt_start_up_proxy_client_or_automap_if_consume_only_mode() {
         let actor_factory = ActorFactoryMock::new();
         let recordings = actor_factory.get_recordings();
         let config = BootstrapperConfig {
@@ -1470,7 +1468,6 @@ mod tests {
             payment_thresholds_opt: Default::default(),
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC
         };
-        let system = System::new();
         let mut subject = make_subject_with_null_setter();
         subject.automap_control_factory = Box::new(AutomapControlFactoryMock::new());
 
@@ -1481,8 +1478,8 @@ mod tests {
             Box::new(actor_factory),
         );
 
-        System::current().stop();
-        system.run();
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
         let messages = recordings.proxy_client.lock().unwrap();
         assert!(messages.is_empty());
         check_bind_message(&recordings.dispatcher, true);
@@ -1620,8 +1617,8 @@ mod tests {
         system.run();
     }
 
-    #[test]
-    fn prepare_initial_messages_generates_no_consuming_wallet_balance_if_no_consuming_wallet_is_specified(
+    #[actix::test]
+    async fn prepare_initial_messages_generates_no_consuming_wallet_balance_if_no_consuming_wallet_is_specified(
     ) {
         let actor_factory = ActorFactoryMock::new();
         let parameters = actor_factory.make_parameters();
@@ -1661,7 +1658,6 @@ mod tests {
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         };
         let subject = make_subject_with_null_setter();
-        let system = System::new();
 
         let _ = subject.prepare_initial_messages(
             make_cryptde_pair(),
@@ -1670,8 +1666,8 @@ mod tests {
             Box::new(actor_factory),
         );
 
-        System::current().stop();
-        system.run();
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
         let (_, bootstrapper_config) = Parameters::get(parameters.proxy_server_params);
         assert_eq!(bootstrapper_config.consuming_wallet_opt, None);
     }
@@ -2015,8 +2011,8 @@ mod tests {
         //this is an example of the error: "no such function: slope_drop_high_bytes"
     }
 
-    #[test]
-    fn make_and_start_actors_happy_path() {
+    #[actix::test]
+    async fn make_and_start_actors_happy_path() {
         let validate_database_chain_params_arc = Arc::new(Mutex::new(vec![]));
         let prepare_initial_messages_params_arc = Arc::new(Mutex::new(vec![]));
         let (recorder, _, recording_arc) = make_recorder();
@@ -2093,7 +2089,6 @@ mod tests {
             addr_of!(*persistent_config_after),
             persistent_config_before_raw
         );
-        let system = System::new();
         let msg_of_irrelevant_choice = NodeFromUiMessage {
             client_id: 5,
             body: UiDescriptorRequest {}.tmb(1),
@@ -2102,8 +2097,8 @@ mod tests {
             .node_from_ui_sub
             .try_send(msg_of_irrelevant_choice.clone())
             .unwrap();
-        System::current().stop_with_code(0);
-        system.run();
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
         let recording = recording_arc.lock().unwrap();
         let msg = recording.get_record::<NodeFromUiMessage>(0);
         assert_eq!(msg, &msg_of_irrelevant_choice);
