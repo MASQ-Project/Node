@@ -1264,7 +1264,7 @@ mod tests {
                 last_data: false,
                 sequence_number: 1234,
                 source: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-                data: Vec::from(data.clone()),
+                data: Vec::from(data),
             })
             .unwrap();
         task::yield_now().await;
@@ -1283,7 +1283,7 @@ mod tests {
                 &ClientResponsePayload_0v1 {
                     stream_key,
                     sequenced_packet: SequencedPacket {
-                        data: Vec::from(data.clone()),
+                        data: Vec::from(data),
                         sequence_number: 1234,
                         last_data: false,
                     },

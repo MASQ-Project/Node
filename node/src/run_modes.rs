@@ -16,7 +16,7 @@ use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use ProgramEntering::{Enter, Leave};
 
 #[derive(Debug, PartialEq, Eq)]
-enum Mode {
+pub enum Mode {
     DumpConfig,
     Initialization,
     Service,

@@ -534,7 +534,6 @@ mod tests {
         prove_that_crash_request_handler_is_hooked_up, ZERO,
     };
     use crate::test_utils::{make_paying_wallet, make_wallet};
-    use actix::System;
     use ethereum_types::U64;
     use ethsign_crypto::Keccak256;
     use masq_lib::constants::DEFAULT_CHAIN;
@@ -737,7 +736,7 @@ mod tests {
         );
     }
 
-    fn assert_failure_during_balance_inspection(
+    async fn assert_failure_during_balance_inspection(
         test_name: &str,
         blockchain_interface: BlockchainInterfaceMock,
         error_msg: &str,
@@ -771,13 +770,14 @@ mod tests {
             }),
         };
         let subject_addr = subject.start();
-        let system = System::new();
 
         // Don't eliminate or bypass this message as an important check that
         // the Handler employs scan_handle()
         subject_addr.try_send(request).unwrap();
 
-        system.run();
+        // Give the actor time to process the message
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
         let recording = accountant_recording_arc.lock().unwrap();
         let message = recording.get_record::<ScanError>(0);
         assert_eq!(recording.len(), 1);
@@ -795,8 +795,8 @@ mod tests {
         TestLogHandler::new().exists_log_containing(&format!("WARN: {}: {}", test_name, error_msg));
     }
 
-    #[test]
-    fn handle_request_balances_to_pay_payables_fails_on_inspection_of_gas_balance() {
+    #[actix::test]
+    async fn handle_request_balances_to_pay_payables_fails_on_inspection_of_gas_balance() {
         let test_name =
             "handle_request_balances_to_pay_payables_fails_on_inspection_of_gas_balance";
         let blockchain_interface = BlockchainInterfaceMock::default()
@@ -806,11 +806,11 @@ mod tests {
         let error_msg = "Did not find out gas balance of the consuming wallet: \
          QueryFailed(\"Lazy and yet you're asking for balances?\")";
 
-        assert_failure_during_balance_inspection(test_name, blockchain_interface, error_msg)
+        assert_failure_during_balance_inspection(test_name, blockchain_interface, error_msg).await
     }
 
-    #[test]
-    fn handle_request_balances_to_pay_payables_fails_on_inspection_of_token_balance() {
+    #[actix::test]
+    async fn handle_request_balances_to_pay_payables_fails_on_inspection_of_token_balance() {
         let test_name =
             "handle_request_balances_to_pay_payables_fails_on_inspection_of_token_balance";
         let blockchain_interface = BlockchainInterfaceMock::default()
@@ -821,7 +821,7 @@ mod tests {
         let error_msg = "Did not find out token balance of the consuming wallet: QueryFailed(\
                \"Go get you a job. This balance must be deserved\")";
 
-        assert_failure_during_balance_inspection(test_name, blockchain_interface, error_msg)
+        assert_failure_during_balance_inspection(test_name, blockchain_interface, error_msg).await
     }
 
     #[test]

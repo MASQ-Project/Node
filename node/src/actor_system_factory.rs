@@ -665,10 +665,8 @@ mod tests {
     use actix::{Actor, Arbiter, System};
     use automap_lib::control_layer::automap_control::AutomapChange;
     #[cfg(all(test, not(feature = "no_test_share")))]
-    use automap_lib::mocks::{
-        parameterizable_automap_control, TransactorMock, PUBLIC_IP, ROUTER_IP,
-    };
-    use crossbeam_channel::{bounded, unbounded, Sender};
+    use automap_lib::mocks::PUBLIC_IP;
+    use crossbeam_channel::{bounded, Sender};
     use log::LevelFilter;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::crash_point::CrashPoint;
@@ -1274,8 +1272,8 @@ mod tests {
     }
 
     #[cfg(feature = "log_recipient_test")]
-    #[test]
-    fn prepare_initial_messages_initiates_global_log_recipient() {
+    #[actix::test]
+    async fn prepare_initial_messages_initiates_global_log_recipient() {
         let _guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
         running_test();
         let actor_factory = ActorFactoryMock::new();
@@ -1294,11 +1292,11 @@ mod tests {
         assert_eq!(state_after, state_before + 1)
     }
 
-    #[test]
+    #[actix::test]
     #[should_panic(
         expected = "1: IP change to 1.2.3.5 reported from ISP. We can't handle that until GH-499. Going down..."
     )]
-    fn change_handler_panics_when_receiving_ip_change_from_isp() {
+    async fn change_handler_panics_when_receiving_ip_change_from_isp() {
         running_test();
         let actor_factory = ActorFactoryMock::new();
         let mut config = BootstrapperConfig::default();
@@ -1334,16 +1332,11 @@ mod tests {
         let mut make_params = make_params_arc.lock().unwrap();
         let change_handler: ChangeHandler = make_params.remove(0).1;
         change_handler(AutomapChange::NewIp(IpAddr::from_str("1.2.3.5").unwrap()));
-
-        let system = System::new();
-        System::current().stop();
-        system.run();
     }
 
-    #[test]
-    fn discovered_automap_protocol_is_written_into_the_db() {
+    #[actix::test]
+    async fn discovered_automap_protocol_is_written_into_the_db() {
         let set_mapping_protocol_params_arc = Arc::new(Mutex::new(vec![]));
-        let (tx, _rx) = unbounded();
         let mut config = BootstrapperConfig::default();
         config.neighborhood_config.mode = NeighborhoodMode::Standard(
             NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), &[1234]),
@@ -1355,20 +1348,12 @@ mod tests {
             .set_mapping_protocol_result(Ok(()));
         let (recorder, _, _) = make_recorder();
         let new_ip_recipient = recorder.start().recipient();
-        let pcp_mock = TransactorMock::new(AutomapProtocol::Pcp).find_routers_result(Ok(vec![]));
-        let pmp_mock = TransactorMock::new(AutomapProtocol::Pmp)
-            .find_routers_result(Ok(vec![*ROUTER_IP]))
-            .start_housekeeping_thread_result(Ok(tx))
-            .stop_housekeeping_thread_result(Ok(Box::new(|_| ())))
-            .get_public_ip_result(Ok(*PUBLIC_IP))
-            .add_mapping_result(Ok(1000));
-        let igdp_mock = TransactorMock::new(AutomapProtocol::Igdp).find_routers_result(Ok(vec![]));
-        let change_handler = Box::new(|_| ());
-        let automap_control: Box<dyn AutomapControl> = Box::new(parameterizable_automap_control(
-            change_handler,
-            None,
-            vec![pcp_mock, pmp_mock, igdp_mock],
-        ));
+        let automap_control = Box::new(
+            AutomapControlMock::new()
+                .get_public_ip_result(Ok(*PUBLIC_IP))
+                .get_mapping_protocol_result(Some(AutomapProtocol::Pmp))
+                .add_mapping_result(Ok(())),
+        );
         let automap_control_factory =
             Box::new(AutomapControlFactoryMock::default().make_result(automap_control));
         let mut subject = ActorSystemFactoryToolsReal::new();
@@ -1491,8 +1476,8 @@ mod tests {
         check_start_message(&recordings.neighborhood, 1);
     }
 
-    #[test]
-    fn start_automap_aborts_if_neighborhood_mode_is_standard_and_public_ip_is_supplied() {
+    #[actix::test]
+    async fn start_automap_aborts_if_neighborhood_mode_is_standard_and_public_ip_is_supplied() {
         let mut subject = ActorSystemFactoryToolsReal::new();
         let automap_control = Box::new(AutomapControlMock::new());
         subject.automap_control_factory =
@@ -1515,9 +1500,9 @@ mod tests {
         // no not-enough-results-provided error: test passes
     }
 
-    #[test]
+    #[actix::test]
     #[should_panic(expected = "1: Automap failure: AllProtocolsFailed")]
-    fn start_automap_change_handler_handles_remapping_errors_properly() {
+    async fn start_automap_change_handler_handles_remapping_errors_properly() {
         running_test();
         let mut subject = ActorSystemFactoryToolsReal::new();
         let make_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1546,18 +1531,15 @@ mod tests {
 
         let make_params = make_params_arc.lock().unwrap();
         assert_eq!(make_params[0].0, None);
-        let system = System::new();
         let change_handler = &make_params[0].1;
         change_handler(AutomapChange::Error(AutomapError::AllProtocolsFailed(
             vec![],
         )));
-        System::current().stop();
-        system.run();
     }
 
-    #[test]
+    #[actix::test]
     #[should_panic(expected = "1: Automap failure: Can't get public IP - AllProtocolsFailed")]
-    fn start_automap_change_handler_handles_get_public_ip_errors_properly() {
+    async fn start_automap_change_handler_handles_get_public_ip_errors_properly() {
         running_test();
         let mut subject = ActorSystemFactoryToolsReal::new();
         let automap_control = Box::new(
@@ -1579,17 +1561,13 @@ mod tests {
             Box::new(PersistentConfigurationMock::new()),
             vec![],
         );
-
-        let system = System::new();
-        System::current().stop();
-        system.run();
     }
 
-    #[test]
+    #[actix::test]
     #[should_panic(
         expected = "1: Automap failure: Can't map port 1234 through the router - AllProtocolsFailed"
     )]
-    fn start_automap_change_handler_handles_initial_mapping_error_properly() {
+    async fn start_automap_change_handler_handles_initial_mapping_error_properly() {
         running_test();
         let mut subject = ActorSystemFactoryToolsReal::new();
         let persistent_config =
@@ -1611,10 +1589,6 @@ mod tests {
         );
 
         subject.start_automap(&config, Box::new(persistent_config), vec![]);
-
-        let system = System::new();
-        System::current().stop();
-        system.run();
     }
 
     #[actix::test]
@@ -1857,8 +1831,8 @@ mod tests {
         let persistent_config =
             PersistentConfigurationMock::default().chain_name_result("eth-mainnet".to_string());
         Bootstrapper::pub_initialize_cryptdes_for_testing(
-            &Some(main_cryptde().clone()),
-            &Some(alias_cryptde().clone()),
+            &Some(main_cryptde()),
+            &Some(alias_cryptde()),
         );
         let subject = ActorSystemFactoryReal::new(Box::new(ActorSystemFactoryToolsReal::new()));
 

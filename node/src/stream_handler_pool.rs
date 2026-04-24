@@ -786,7 +786,6 @@ mod tests {
     use crate::test_utils::make_send_error;
     use actix::Actor;
     use actix::Addr;
-    use actix::System;
     use tokio::time::{sleep, Duration as TokioDuration};
     use masq_lib::constants::HTTP_PORT;
     use masq_lib::test_utils::logging::init_test_logging;
@@ -1211,10 +1210,9 @@ mod tests {
         .await;
     }
 
-    #[test]
-    fn handle_remove_stream_msg_handles_report_to_counterpart_scenario() {
+    #[actix::test]
+    async fn handle_remove_stream_msg_handles_report_to_counterpart_scenario() {
         let (recorder, _, recording_arc) = make_recorder();
-        let system = System::new();
         let sub = recorder.start().recipient::<StreamShutdownMsg>();
         let mut subject = StreamHandlerPool::new(vec![], false);
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -1232,8 +1230,8 @@ mod tests {
             sub,
         });
 
-        System::current().stop_with_code(0);
-        system.run();
+        // Give the actor time to process the message
+        sleep(TokioDuration::from_millis(100)).await;
         assert_eq!(subject.stream_writers.contains_key(&sw_key), false);
         let recording = recording_arc.lock().unwrap();
         let record = recording.get_record::<StreamShutdownMsg>(0);
@@ -1247,10 +1245,9 @@ mod tests {
         );
     }
 
-    #[test]
-    fn handle_remove_stream_msg_handles_no_report_to_counterpart_scenario() {
+    #[actix::test]
+    async fn handle_remove_stream_msg_handles_no_report_to_counterpart_scenario() {
         let (recorder, _, recording_arc) = make_recorder();
-        let system = System::new();
         let sub = recorder.start().recipient::<StreamShutdownMsg>();
         let mut subject = StreamHandlerPool::new(vec![], false);
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -1267,8 +1264,8 @@ mod tests {
             sub,
         });
 
-        System::current().stop_with_code(0);
-        system.run();
+        // Give the actor time to process the message
+        sleep(TokioDuration::from_millis(100)).await;
         assert_eq!(subject.stream_writers.contains_key(&sw_key), false);
         let recording = recording_arc.lock().unwrap();
         let record = recording.get_record::<StreamShutdownMsg>(0);
@@ -1940,11 +1937,11 @@ mod tests {
         );
     }
 
-    #[test]
+    #[actix::test]
     #[should_panic(
         expected = "Neighborhood has returned a NodeDescriptor with no ports. This indicates an unrecoverable error."
     )]
-    fn when_node_query_response_node_addr_contains_no_ports_then_stream_handler_pool_panics() {
+    async fn when_node_query_response_node_addr_contains_no_ports_then_stream_handler_pool_panics() {
         init_test_logging();
         let cryptde = main_cryptde();
         let key = cryptde.public_key();
@@ -1957,7 +1954,6 @@ mod tests {
             data: b"hello".to_vec(),
         };
 
-        let system = System::new();
         let subject = StreamHandlerPool::new(vec![], false);
         let subject_addr: Addr<StreamHandlerPool> = subject.start();
         let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
@@ -1983,7 +1979,8 @@ mod tests {
             })
             .unwrap();
 
-        system.run();
+        // Give the actor time to process the message and panic
+        sleep(TokioDuration::from_millis(100)).await;
     }
 
     #[actix::test]

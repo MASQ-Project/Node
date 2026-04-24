@@ -139,8 +139,6 @@ mod tests {
     use crate::test_utils::stream_connector_mock::StreamConnectorMock;
     use actix::Actor;
     use actix::Addr;
-    use actix::System;
-    use crossbeam_channel::unbounded;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
     use masq_lib::utils::{find_free_port, localhost};
@@ -151,7 +149,6 @@ mod tests {
     use std::net::TcpStream as StdTcpStream;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-    use std::thread;
     use tokio;
     use tokio::net::TcpStream;
 
@@ -292,22 +289,13 @@ mod tests {
         assert!(!port_configuration.is_clandestine);
     }
 
-    #[tokio::test]
+    #[actix_rt::test]
     async fn handles_connection_errors() {
         init_test_logging();
         let (stream_handler_pool, _, recording_arc) = make_recorder();
-
-        let (tx, rx) = unbounded();
-        thread::spawn(move || {
-            let system = System::new();
-            let add_stream_sub = start_recorder(stream_handler_pool);
-            tx.send(add_stream_sub)
-                .expect("Unable to send add_stream_sub to test");
-            system.run();
-        });
+        let add_stream_sub = start_recorder(stream_handler_pool);
 
         let port = find_free_port();
-        let add_stream_sub = rx.recv().unwrap();
         let tokio_listener_wrapper = TokioListenerWrapperMock::new()
             .bind_result(Ok(()))
             .accept_result(Err(Error::from(ErrorKind::AddrInUse)))
@@ -319,6 +307,12 @@ mod tests {
             .bind_port_and_configuration(port, PortConfiguration::new(vec![], false))
             .await
             .unwrap();
+
+        // Spawn the listener handler in the background
+        let subject_handle = tokio::spawn(async move {
+            subject.handle_listeners().await;
+        });
+
         let tlh = TestLogHandler::new();
         tlh.await_log_containing("address not available", 1000);
         tlh.assert_logs_contain_in_order(vec![
@@ -331,6 +325,10 @@ mod tests {
                 port
             )[..],
         ]);
+
+        // Abort the spawned task since it's an infinite loop
+        subject_handle.abort();
+
         let recording = recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 0);
     }
@@ -370,26 +368,23 @@ mod tests {
         assert_eq!(recording.len(), 0);
     }
 
-    #[tokio::test]
+    #[actix_rt::test]
     async fn converts_connections_into_connection_infos() {
         let (stream_handler_pool, awaiter, recording_arc) = make_recorder();
-
-        let (tx, rx) = unbounded();
-        thread::spawn(move || {
-            let system = System::new();
-            let add_stream_sub = start_recorder(stream_handler_pool);
-            tx.send(add_stream_sub).expect("Internal Error");
-            system.run();
-        });
+        let add_stream_sub = start_recorder(stream_handler_pool);
 
         let port = find_free_port();
-        let add_stream_sub = rx.recv().unwrap();
         let mut subject = ListenerHandlerReal::new();
         subject.bind_subs(add_stream_sub);
         subject
             .bind_port_and_configuration(port, PortConfiguration::new(vec![], false))
             .await
             .unwrap();
+
+        // Spawn the listener handler in the background to accept connections
+        let subject_handle = tokio::spawn(async move {
+            subject.handle_listeners().await;
+        });
 
         let socket_addr = SocketAddr::new(localhost(), port);
         let x = net::TcpStream::connect(socket_addr).unwrap();
@@ -405,6 +400,10 @@ mod tests {
         z.shutdown(Shutdown::Both).unwrap();
 
         awaiter.await_message_count(3);
+
+        // Abort the spawned task since it's an infinite loop
+        subject_handle.abort();
+
         let recording = recording_arc.lock().unwrap();
         assert_eq!(
             recording

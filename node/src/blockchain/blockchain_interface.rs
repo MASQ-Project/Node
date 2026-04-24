@@ -782,7 +782,7 @@ mod tests {
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use crate::test_utils::unshared_test_utils::decode_hex;
     use crate::test_utils::{make_wallet, TestRawTransaction};
-    use actix::{Actor, System};
+    use actix::Actor;
     use crossbeam_channel::{unbounded, Receiver};
     use ethereum_types::U64;
     use ethsign_crypto::Keccak256;
@@ -1312,8 +1312,8 @@ mod tests {
         )
     }
 
-    #[test]
-    fn blockchain_interface_web3_can_transfer_tokens_in_batch() {
+    #[actix::test]
+    async fn blockchain_interface_web3_can_transfer_tokens_in_batch() {
         //exercising also the layer of web3 functions, but the transport layer is mocked
         init_test_logging();
         let send_batch_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1373,9 +1373,8 @@ mod tests {
             .unwrap();
 
         let test_timestamp_after = SystemTime::now();
-        let system = System::new();
-        System::current().stop();
-        system.run().unwrap();
+        // Give the actor time to process the message
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         let send_batch_params = send_batch_params_arc.lock().unwrap();
         assert_eq!(
             *send_batch_params,
@@ -1828,14 +1827,13 @@ mod tests {
         )
     }
 
-    #[test]
-    fn send_payables_within_batch_fails_on_badly_prepared_consuming_wallet_without_secret() {
+    #[actix::test]
+    async fn send_payables_within_batch_fails_on_badly_prepared_consuming_wallet_without_secret() {
         let transport = TestTransport::default();
         let incomplete_consuming_wallet =
             Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap();
         let subject = BlockchainInterfaceWeb3::new(transport, TEST_DEFAULT_CHAIN);
 
-        let system = System::new();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let recipient = accountant.start().recipient();
         let account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
@@ -1854,8 +1852,8 @@ mod tests {
             &vec![account],
         );
 
-        System::current().stop();
-        system.run();
+        // Give the actor time to process the message
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         assert_eq!(result.err().unwrap(),
             PayableTransactionError::UnusableWallet(

@@ -534,7 +534,6 @@ mod tests {
     use std::ops::Deref;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-    use std::thread;
 
     struct StreamEstablisherFactoryMock {
         make_results: RefCell<Vec<StreamEstablisher>>,
@@ -563,69 +562,60 @@ mod tests {
         task::spawn(future);
     }
 
-    #[test]
-    fn dns_resolution_failure_sends_a_message_to_proxy_client() {
-        let (proxy_client, proxy_client_awaiter, proxy_client_recording) = make_recorder();
+    #[actix::test]
+    async fn dns_resolution_failure_sends_a_message_to_proxy_client() {
+        let (proxy_client, _, proxy_client_recording) = make_recorder();
         let stream_key = make_meaningless_stream_key();
-        thread::spawn(move || {
-            let system = System::new();
-            let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
-            let cryptde = main_cryptde();
-            let resolver_mock = ResolverWrapperMock::new().lookup_ip_failure(ResolveError::from(
-                ResolveErrorKind::Io(Error::from(ErrorKind::ConnectionRefused)),
-            ));
-            let logger = Logger::new("dns_resolution_failure_sends_a_message_to_proxy_client");
-            let establisher = StreamEstablisher {
-                cryptde,
-                stream_adder_tx: unbounded().0,
-                stream_killer_tx: unbounded().0,
-                stream_connector: Box::new(StreamConnectorMock::new()),
-                proxy_client_sub: peer_actors
-                    .proxy_client_opt
-                    .clone()
-                    .unwrap()
-                    .inbound_server_data,
-                logger: logger.clone(),
-                channel_factory: Box::new(FuturesChannelFactoryMock::default()),
-            };
-            let inner = StreamHandlerPoolRealInner {
-                accountant_sub: peer_actors.accountant.report_exit_service_provided.clone(),
-                proxy_client_subs: peer_actors.proxy_client_opt.clone().unwrap(),
-                stream_writer_channels: HashMap::new(),
-                resolver: Box::new(resolver_mock),
-                logger,
-                establisher_factory: Box::new(StreamEstablisherFactoryMock {
-                    make_results: RefCell::new(vec![establisher]),
-                }),
-                exit_service_rate: Default::default(),
-                exit_byte_rate: Default::default(),
-            };
-            let payload = ClientRequestPayload_0v1 {
-                stream_key,
-                sequenced_packet: SequencedPacket::new(b"booga".to_vec(), 0, false),
-                target_hostname: Some("www.example.com".to_string()),
-                target_port: HTTP_PORT,
-                protocol: ProxyProtocol::HTTP,
-                originator_public_key: cryptde.public_key().clone(),
-            };
+        let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
+        let cryptde = main_cryptde();
+        let resolver_mock = ResolverWrapperMock::new().lookup_ip_failure(ResolveError::from(
+            ResolveErrorKind::Io(Error::from(ErrorKind::ConnectionRefused)),
+        ));
+        let logger = Logger::new("dns_resolution_failure_sends_a_message_to_proxy_client");
+        let establisher = StreamEstablisher {
+            cryptde,
+            stream_adder_tx: unbounded().0,
+            stream_killer_tx: unbounded().0,
+            stream_connector: Box::new(StreamConnectorMock::new()),
+            proxy_client_sub: peer_actors
+                .proxy_client_opt
+                .clone()
+                .unwrap()
+                .inbound_server_data,
+            logger: logger.clone(),
+            channel_factory: Box::new(FuturesChannelFactoryMock::default()),
+        };
+        let inner = StreamHandlerPoolRealInner {
+            accountant_sub: peer_actors.accountant.report_exit_service_provided.clone(),
+            proxy_client_subs: peer_actors.proxy_client_opt.clone().unwrap(),
+            stream_writer_channels: HashMap::new(),
+            resolver: Box::new(resolver_mock),
+            logger,
+            establisher_factory: Box::new(StreamEstablisherFactoryMock {
+                make_results: RefCell::new(vec![establisher]),
+            }),
+            exit_service_rate: Default::default(),
+            exit_byte_rate: Default::default(),
+        };
+        let payload = ClientRequestPayload_0v1 {
+            stream_key,
+            sequenced_packet: SequencedPacket::new(b"booga".to_vec(), 0, false),
+            target_hostname: Some("www.example.com".to_string()),
+            target_port: HTTP_PORT,
+            protocol: ProxyProtocol::HTTP,
+            originator_public_key: cryptde.public_key().clone(),
+        };
 
-            StreamHandlerPoolReal::process_package(
-                payload,
-                None,
-                Arc::new(tokio::sync::Mutex::new(inner)),
-            );
+        StreamHandlerPoolReal::process_package(payload, None, Arc::new(tokio::sync::Mutex::new(inner))).await;
 
-            system.run().unwrap();
-        });
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
 
-        proxy_client_awaiter.await_message_count(1);
-
+        let proxy_client_recording = proxy_client_recording.lock().unwrap();
+        assert_eq!(proxy_client_recording.len(), 1);
         assert_eq!(
             &DnsResolveFailure_0v1::new(stream_key),
-            proxy_client_recording
-                .lock()
-                .unwrap()
-                .get_record::<DnsResolveFailure_0v1>(0),
+            proxy_client_recording.get_record::<DnsResolveFailure_0v1>(0),
         );
     }
 
@@ -960,50 +950,57 @@ mod tests {
         );
     }
 
-    #[test]
-    fn missing_hostname_for_nonexistent_stream_generates_log_and_termination_message() {
+    #[actix::test]
+    async fn missing_hostname_for_nonexistent_stream_generates_log_and_termination_message() {
         init_test_logging();
         let cryptde = main_cryptde();
-        let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
+        let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
         let originator_key = PublicKey::new(&b"men's souls"[..]);
-        thread::spawn(move || {
-            let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
-            let client_request_payload = ClientRequestPayload_0v1 {
-                stream_key: make_meaningless_stream_key(),
-                sequenced_packet: SequencedPacket {
-                    data: b"These are the times".to_vec(),
-                    sequence_number: 0,
-                    last_data: false,
-                },
-                target_hostname: None,
-                target_port: HTTP_PORT,
-                protocol: ProxyProtocol::HTTP,
-                originator_public_key: originator_key,
-            };
-            let package = ExpiredCoresPackage::new(
-                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
-                Some(make_wallet("consuming")),
-                make_meaningless_route(),
-                client_request_payload.into(),
-                0,
-            );
-            let resolver = ResolverWrapperMock::new().lookup_ip_failure(ResolveError::from(
-                ResolveErrorKind::Io(Error::from(ErrorKind::AddrInUse)),
-            ));
-            let subject = StreamHandlerPoolReal::new(
-                Box::new(resolver),
-                cryptde,
-                peer_actors.accountant.report_exit_service_provided.clone(),
-                peer_actors.proxy_client_opt.unwrap().clone(),
-                100,
-                200,
-            );
+        let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
+        let client_request_payload = ClientRequestPayload_0v1 {
+            stream_key: make_meaningless_stream_key(),
+            sequenced_packet: SequencedPacket {
+                data: b"These are the times".to_vec(),
+                sequence_number: 0,
+                last_data: false,
+            },
+            target_hostname: None,
+            target_port: HTTP_PORT,
+            protocol: ProxyProtocol::HTTP,
+            originator_public_key: originator_key,
+        };
+        let resolver = ResolverWrapperMock::new().lookup_ip_failure(ResolveError::from(
+            ResolveErrorKind::Io(Error::from(ErrorKind::AddrInUse)),
+        ));
+        let subject = StreamHandlerPoolReal::new(
+            Box::new(resolver),
+            cryptde,
+            peer_actors.accountant.report_exit_service_provided.clone(),
+            peer_actors.proxy_client_opt.unwrap().clone(),
+            100,
+            200,
+        );
 
-            spawn_process_package(subject, package);
-        });
+        let result = StreamHandlerPoolReal::make_stream_with_key(
+            &client_request_payload,
+            subject.inner.clone(),
+        )
+        .await;
 
-        proxy_client_awaiter.await_message_count(1);
+        assert_eq!(result.err(), Some("No hostname provided".to_string()));
+
+        StreamHandlerPoolReal::clean_up_bad_stream(
+            subject.inner.clone(),
+            &client_request_payload.stream_key,
+            error_socket_addr(),
+            "No hostname provided".to_string(),
+        )
+        .await;
+
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
+        assert_eq!(proxy_client_recording.len(), 1);
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(0),
             &InboundServerData {
@@ -1564,9 +1561,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn clean_up_dead_streams_does_not_send_server_drop_report_if_dead_stream_is_gone_already() {
-        let system = System::new();
+    #[actix::test]
+    async fn clean_up_dead_streams_does_not_send_server_drop_report_if_dead_stream_is_gone_already() {
         let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
         let mut subject = StreamHandlerPoolReal::new(
@@ -1582,10 +1578,8 @@ mod tests {
         let stream_key = make_meaningless_stream_key();
         stream_killer_tx.send((stream_key, 47)).unwrap();
 
-        subject.clean_up_dead_streams();
+        subject.clean_up_dead_streams().await;
 
-        System::current().stop_with_code(0);
-        system.run().unwrap();
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
         assert_eq!(proxy_client_recording.len(), 0);
     }

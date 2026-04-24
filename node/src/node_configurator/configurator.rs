@@ -813,7 +813,6 @@ impl Configurator {
 
 #[cfg(test)]
 mod tests {
-    use actix::System;
     use masq_lib::messages::{
         ToMessageBody, UiChangePasswordResponse, UiCheckPasswordRequest, UiCheckPasswordResponse,
         UiGenerateSeedSpec, UiGenerateWalletsResponse, UiNewPasswordBroadcast, UiPaymentThresholds,
