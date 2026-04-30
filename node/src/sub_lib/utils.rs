@@ -169,7 +169,7 @@ pub struct NotifyLaterHandleReal<M> {
 impl<T> NotifyLaterHandleReal<T> {
     pub fn new() -> Self {
         Self {
-            phantom: PhantomData::default(),
+            phantom: PhantomData{},
         }
     }
 }
@@ -206,7 +206,7 @@ where
 {
     fn default() -> Self {
         Box::new(NotifyHandleReal {
-            phantom: PhantomData::default(),
+            phantom: PhantomData{},
         })
     }
 }

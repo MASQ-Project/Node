@@ -417,7 +417,7 @@ impl BlockchainBridge {
         );
         let pairs = vector_of_results
             .into_iter()
-            .zip(msg.pending_payable.into_iter())
+            .zip(msg.pending_payable)
             .collect_vec();
         self.pending_payable_confirmation
             .report_transaction_receipts_sub_opt
@@ -1819,9 +1819,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
-    )]
     fn blockchain_bridge_can_be_crashed_properly_but_not_improperly() {
         let crashable = true;
         let blockchain_bridge_producer = || {

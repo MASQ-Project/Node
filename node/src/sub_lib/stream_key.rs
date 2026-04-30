@@ -25,7 +25,7 @@ pub struct StreamKey {
 
 impl fmt::Debug for StreamKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let string = BASE64_STANDARD_NO_PAD.encode(&self.hash);
+        let string = BASE64_STANDARD_NO_PAD.encode(self.hash);
         write!(f, "{}", string)
     }
 }
@@ -86,7 +86,7 @@ impl StreamKey {
     pub fn new(_public_key: PublicKey, peer_addr: SocketAddr) -> StreamKey {
         let mut hash = Sha1::new();
         match peer_addr.ip() {
-            IpAddr::V4(ipv4) => hash.update(&ipv4.octets()),
+            IpAddr::V4(ipv4) => hash.update(ipv4.octets()),
             IpAddr::V6(_ipv6) => unimplemented!(),
         }
         sha1::digest::Update::update(
@@ -98,7 +98,7 @@ impl StreamKey {
         );
         let output = hash.finalize();
         StreamKey {
-            hash: output.as_slice().try_into().expect(&format!(
+            hash: output.as_slice().try_into().unwrap_or_else(|_| panic!(
                 "Hash length should be {}, not {}",
                 SHA1_DIGEST_LENGTH,
                 output.len()

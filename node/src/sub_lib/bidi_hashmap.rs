@@ -53,16 +53,14 @@ where
     }
 
     pub fn remove_a(&mut self, a: &A) -> Option<B> {
-        self.a_to_b.remove(a).map(|b| {
+        self.a_to_b.remove(a).inspect(|b| {
             self.b_to_a.remove(&b);
-            b
         })
     }
 
     pub fn remove_b(&mut self, b: &B) -> Option<A> {
-        self.b_to_a.remove(b).map(|a| {
+        self.b_to_a.remove(b).inspect(|a| {
             self.a_to_b.remove(&a);
-            a
         })
     }
 

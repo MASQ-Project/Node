@@ -491,10 +491,7 @@ impl PartialEq for RpcPayableFailure {
     fn eq(&self, other: &Self) -> bool {
         if self.recipient_wallet != other.recipient_wallet {return false}
         if self.hash != other.hash {return false}
-        match (&self.rpc_error, &other.rpc_error) {
-            (a, b) if a.to_string() == b.to_string() => true,
-            _ => false,
-        }
+        matches!((&self.rpc_error, &other.rpc_error), (a, b) if a.to_string() == b.to_string())
     }
     // TODO SPIKE ///
 }
@@ -1515,7 +1512,7 @@ mod tests {
     fn web3_interface_send_payables_within_batch_components_are_used_together_properly() {
         todo!("this test is re-written in GH-744 without the use of batch payable tools");
         // let sign_transaction_params_arc = Arc::new(Mutex::new(vec![]));
-        // let append_transaction_to_batch_params_arc = Arc::new(Mutex::new(vec![]));
+        // let append_transaction_to_batch_params_arc = Arc::new(Mutex::new(vec![])).await;
         // let new_payable_fingerprint_params_arc = Arc::new(Mutex::new(vec![]));
         // let submit_batch_params_arc: Arc<Mutex<Vec<Web3<Batch<TestTransport>>>>> =
         //     Arc::new(Mutex::new(vec![]));
@@ -1593,6 +1590,7 @@ mod tests {
         //     .batch_wide_timestamp_result(batch_wide_timestamp_expected)
         //     .send_new_payable_fingerprint_credentials_params(&new_payable_fingerprint_params_arc)
         //     .append_transaction_to_batch_params(&append_transaction_to_batch_params_arc)
+        //     .await
         //     .submit_batch_params(&submit_batch_params_arc)
         //     .submit_batch_result(Ok(rpc_responses));
         // subject.batch_payable_tools = Box::new(batch_payables_tools);

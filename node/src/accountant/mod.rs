@@ -806,10 +806,7 @@ impl Accountant {
         context_id: u64,
     ) -> Result<Option<QueryResults>, MessageBody> {
         let top_records_opt = self.process_top_records_query(msg);
-        let custom_query_records_opt = match self.process_custom_queries(msg, context_id) {
-            Ok(query_results) => query_results,
-            Err(message_body) => return Err(message_body),
-        };
+        let custom_query_records_opt = self.process_custom_queries(msg, context_id)?;
         match vec![top_records_opt, custom_query_records_opt]
             .into_iter()
             .find(|results| results.is_some())

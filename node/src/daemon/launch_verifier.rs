@@ -220,6 +220,7 @@ impl ClientWrapper for ClientWrapperReal {
 }
 
 impl ClientWrapperReal {
+    #[clippy::allow(clippy::type_complexity)]
     fn new(url: &str) -> Result<Self, workflow_websocket::client::Error> {
         let client = WebSocket::new(Some(url), None)?;
         let future = client.connect(ConnectOptions::default());
@@ -229,11 +230,13 @@ impl ClientWrapperReal {
 }
 
 pub trait ClientBuilderWrapper {
+    #[clippy::allow(clippy::type_complexity)]
     fn initiate_client_builder(
         &mut self,
         address: &str,
     ) -> Result<(), Error>;
     fn add_protocol(&self, protocol: &str);
+    #[clippy::allow(clippy::type_complexity)]
     fn connect_insecure(
         &mut self,
     ) -> Result<Box<dyn ClientWrapper>, Error>;

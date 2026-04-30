@@ -1384,8 +1384,8 @@ mod tests {
         let outgoing_unmasked = b"Outgoing data".to_vec();
         let outgoing_masked = masquerader.mask(&outgoing_unmasked).unwrap();
         let outgoing_masked_len = outgoing_masked.len();
-        let (dispatcher, dispatcher_awaiter, dispatcher_recording_arc) = make_recorder();
-        let (neighborhood, neighborhood_awaiter, neighborhood_recording_arc) = make_recorder();
+        let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
+        let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
         let write_params_arc = Arc::new(Mutex::new(vec![]));
         let write_params_arc_a = write_params_arc.clone();
         let discriminator_factory = JsonDiscriminatorFactory::new();
@@ -2164,9 +2164,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
-    )]
     fn stream_handler_can_be_crashed_properly_but_not_improperly() {
         let stream_handler_pool_producer = || {
             StreamHandlerPool::new(vec![], true)

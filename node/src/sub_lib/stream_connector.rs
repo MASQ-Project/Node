@@ -107,7 +107,7 @@ impl StreamConnector for StreamConnectorReal {
         for ip_addr in ip_addrs {
             let socket_addr = SocketAddr::new(ip_addr, target_port);
 
-            match StdTcpStream::connect(&socket_addr) {
+            match StdTcpStream::connect(socket_addr) {
                 Ok(stream) => {
                     debug!(logger, "Connected new stream to {}", socket_addr);
                     let tokio_stream =

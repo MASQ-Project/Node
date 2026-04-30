@@ -215,13 +215,13 @@ impl NeighborhoodDatabase {
             .keys()
             .into_iter()
             .filter(|k| !referenced_node_keys.contains(*k))
-            .cloned()
-            .filter(|k| {
+            .filter(|&k| {
                 self.node_by_key(k)
                     .expect("Node disappeared")
                     .last_updated()
                     <= deadline
             })
+            .cloned()
             .collect();
         if !to_cull.is_empty() {
             info!(self.logger, "Culling from the neighborhood {} Node{} that {} been isolated for {} seconds or more: {:?}",

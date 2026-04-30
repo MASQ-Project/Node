@@ -4262,7 +4262,7 @@ mod tests {
         }
     }
 
-    fn make_subject(crypt_de: &dyn CryptDE) -> GossipAcceptorReal {
+    fn make_subject(crypt_de: &dyn CryptDE) -> GossipAcceptorReal<'_> {
         GossipAcceptorReal::new(crypt_de)
     }
 

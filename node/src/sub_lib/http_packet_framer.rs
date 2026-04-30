@@ -10,7 +10,6 @@ use regex::Regex;
 use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Formatter;
-use std::usize;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum PacketProgressState {

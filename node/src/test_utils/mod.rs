@@ -537,6 +537,7 @@ pub struct TestRawTransaction {
 
 #[cfg(test)]
 pub mod unshared_test_utils {
+    use lazy_static::lazy_static;
     use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
     use crate::apps::app_node;
     use crate::bootstrapper::BootstrapperConfig;
@@ -575,6 +576,10 @@ pub mod unshared_test_utils {
     use std::time::Duration;
     use std::vec;
     use futures_util::FutureExt;
+
+    lazy_static! {
+        static ref PANIC_HOOK_GUARD: Mutex<()> = Mutex::new(());
+    }
 
     #[derive(Message)]
     #[rtype(result = "()")]
@@ -784,45 +789,19 @@ pub mod unshared_test_utils {
     }
 
     pub fn prove_that_crash_request_handler_is_hooked_up<
-        T: Actor<Context = actix::Context<T>> + actix::Handler<NodeFromUiMessage>,
+        T: Actor<Context = Context<T>> + Handler<NodeFromUiMessage>,
         F: Fn() -> T,
     >(
         actor_producer: F,
         crash_key: &str,
     ) {
         test_actor_crash_behavior(
-            actor_producer,
+            &actor_producer,
             vec![
                 (crash_key.to_string(), true),
                 (format!("{}_X", crash_key), false),
             ]
         );
-        //
-        //
-        // let make_check_future = |actor: T, crash_key: String| async move {
-        //     let addr: Addr<T> = actor.start();
-        //     let killer = SystemKillerActor::new(Duration::from_millis(2000));
-        //     killer.start();
-        //
-        //     addr.try_send(NodeFromUiMessage {
-        //         client_id: 0,
-        //         body: UiCrashRequest::new(crash_key.as_str(), "panic message").tmb(0),
-        //     })
-        //     .unwrap();
-        // };
-        //
-        // // Crashes when the correct crash key is used
-        // let system = System::new();
-        // system.block_on(make_check_future(actor_producer(), crash_key.to_string()));
-        // let result = system.run();
-        // assert_eq!(result.is_err(), true);
-        //
-        // // Does not crash when the incorrect crash key is used
-        // let system = System::new();
-        // system.block_on(make_check_future(actor_producer(), format!("{}_X", crash_key)));
-        // System::current().stop();
-        // let result = system.run();
-        // assert_eq!(result.is_ok(), true);
     }
 
     /// More flexible version that allows testing multiple crash scenarios in sequence
@@ -830,19 +809,31 @@ pub mod unshared_test_utils {
         T: Actor<Context = actix::Context<T>> + actix::Handler<NodeFromUiMessage>,
         F: Fn() -> T,
     >(
-        actor_producer: F,
+        actor_producer: &F,
         test_cases: Vec<(String, bool)>, // (crash_key, should_crash)
     ) {
         for (crash_key, should_crash) in test_cases {
-            let system = actix_rt::System::new();
+            let _panic_hook_guard = PANIC_HOOK_GUARD.lock().unwrap();
+            let panic_messages_arc = Arc::new(Mutex::new(Vec::<String>::new()));
+            let panic_messages_arc_inner = panic_messages_arc.clone();
+            let previous_hook = std::panic::take_hook();
+            std::panic::set_hook(Box::new(move |panic_info| {
+                let message = match panic_info.payload().downcast_ref::<&str>() {
+                    Some(message) => (*message).to_string(),
+                    None => match panic_info.payload().downcast_ref::<String>() {
+                        Some(message) => message.clone(),
+                        None => format!("{}", panic_info),
+                    },
+                };
+                panic_messages_arc_inner.lock().unwrap().push(message);
+            }));
+
+            let system = System::new();
             let actor = actor_producer();
-            let addr: Addr<T> = system.block_on(async {
-                actor.start()
-            });
+            let addr: Addr<T> = system.block_on(async { actor.start() });
             let killer = SystemKillerActor::new(Duration::from_millis(2000));
-            system.block_on(async {
-                killer.start();
-            });
+            let mercy_signal_rx = killer.receiver();
+            system.block_on(async { killer.start() });
 
             system.block_on(async {
                 addr.try_send(NodeFromUiMessage {
@@ -852,17 +843,39 @@ pub mod unshared_test_utils {
                 .unwrap();
             });
 
-            if !should_crash {
-                system.block_on(async {
-                    System::current().stop();
-                });
-            }
-
             let result = system.run();
+            std::panic::set_hook(previous_hook);
+
+            let panic_messages = panic_messages_arc.lock().unwrap();
+            let crash_request_panic_detected = panic_messages
+                .iter()
+                .any(|message| message.contains("test message (processed with:"));
             if should_crash {
-                assert_eq!(result.is_err(), true, "Expected system to crash with crash key '{}'", crash_key);
+                assert!(
+                    crash_request_panic_detected,
+                    "Expected crash-request panic with crash key '{}', but saw panics {:?} and run result {:?}",
+                    crash_key,
+                    *panic_messages,
+                    result
+                );
             } else {
-                assert_eq!(result.is_ok(), true, "Expected system to run normally with crash key '{}'", crash_key);
+                assert!(
+                    !crash_request_panic_detected,
+                    "Expected no crash-request panic with crash key '{}', but saw panics {:?}",
+                    crash_key,
+                    *panic_messages,
+                );
+                assert!(
+                    mercy_signal_rx.try_recv().is_ok(),
+                    "Expected the system killer to stop the non-crashing test case for key '{}'",
+                    crash_key
+                );
+                assert!(
+                    result.is_ok(),
+                    "Expected system to run normally with crash key '{}', got {:?}",
+                    crash_key,
+                    result
+                );
             }
         }
     }

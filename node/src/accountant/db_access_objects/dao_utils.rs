@@ -209,7 +209,7 @@ impl<N: Copy + Display> CustomQuery<N> {
             (":max_balance_high_b", ":max_balance_low_b"),
         ]
         .into_iter()
-        .zip([min_amount, max_amount].into_iter())
+        .zip([min_amount, max_amount])
         .flat_map(|(param_names, gwei_num)| {
             let wei_num = i128::from(gwei_num) * WEIS_IN_GWEI;
             let big_int_divided = BigIntDivider::deconstruct(wei_num);
@@ -285,7 +285,7 @@ pub fn remap_receivable_accounts(accounts: Vec<ReceivableAccount>) -> Vec<UiRece
             wallet: account.wallet.to_string(),
             age_s: to_age(account.last_received_timestamp),
             balance_gwei:{
-                let gwei =  (account.balance_wei / (WEIS_IN_GWEI as i128)) as i64;
+                let gwei =  (account.balance_wei / WEIS_IN_GWEI) as i64;
                 if gwei != 0 {gwei} else {panic!("Broken code: ReceivableAccount with balance \
                  between {} and 0 gwei passed through db query constraints; wallet: {}, balance: {}",
                         if account.balance_wei.is_positive() {"1"}else{"-1"},

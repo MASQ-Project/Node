@@ -7,8 +7,5 @@ use std::fmt::Debug;
 
 pub fn value_to_type<T: Serialize + DeserializeOwned + Debug>(value: &Value) -> Option<T> {
     let serialized = serde_cbor::ser::to_vec(value).expect("Serialization error");
-    match serde_cbor::de::from_slice::<T>(&serialized) {
-        Err(_) => None,
-        Ok(t) => Some(t),
-    }
+    serde_cbor::de::from_slice::<T>(&serialized).ok()
 }

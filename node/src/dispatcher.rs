@@ -513,9 +513,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
-    )]
     fn dispatcher_can_be_crashed_properly_but_not_improperly() {
         let dispatcher_producer = || {Dispatcher::new(NodeDescriptor::default(), true)};
 

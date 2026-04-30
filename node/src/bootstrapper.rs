@@ -82,12 +82,7 @@ fn alias_cryptde_ref<'a>() -> &'a dyn CryptDE {
 }
 
 impl Clone for CryptDEPair {
-    fn clone(&self) -> Self {
-        Self {
-            main: self.main,
-            alias: self.alias,
-        }
-    }
+    fn clone(&self) -> Self { *self }
 }
 
 #[derive(Copy)]
@@ -192,21 +187,21 @@ impl FromStr for RealUser {
         }
         let real_user = RealUser::new(
             match &parts[0] {
-                s if s.is_empty() => None,
+                &"" => None,
                 s => match s.parse() {
                     Ok(uid) => Some(uid),
                     Err(_) => return Err(()),
                 },
             },
             match &parts[1] {
-                s if s.is_empty() => None,
+                &"" => None,
                 s => match s.parse() {
                     Ok(gid) => Some(gid),
                     Err(_) => return Err(()),
                 },
             },
             match &parts[2] {
-                s if s.is_empty() => None,
+                &"" => None,
                 s => Some(s.into()),
             },
         );
@@ -284,10 +279,7 @@ impl RealUser {
 
     fn id_from_env(&self, name: &str) -> Option<i32> {
         match self.environment_wrapper.var(name) {
-            Some(s) => match s.parse::<i32>() {
-                Ok(n) => Some(n),
-                Err(_) => None,
-            },
+            Some(s) => s.parse::<i32>().ok(),
             None => None,
         }
     }

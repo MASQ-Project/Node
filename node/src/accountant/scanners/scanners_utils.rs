@@ -95,9 +95,9 @@ pub mod payable_scanner_utils {
                 oldest.balance_wei, oldest.age)
     }
 
-    pub fn separate_errors<'a, 'b>(
+    pub fn separate_errors<'a>(
         sent_payables: &'a SentPayables,
-        logger: &'b Logger,
+        logger: &Logger,
     ) -> (Vec<&'a PendingPayable>, Option<PayableTransactingErrorEnum>) {
         match &sent_payables.payment_procedure_result {
             Ok(individual_batch_responses) => {
@@ -121,9 +121,9 @@ pub mod payable_scanner_utils {
         }
     }
 
-    fn separate_rpc_results<'a, 'b>(
+    fn separate_rpc_results<'a>(
         batch_request_responses: &'a [ProcessedPayableFallible],
-        logger: &'b Logger,
+        logger: &Logger,
     ) -> (Vec<&'a PendingPayable>, Option<Vec<H256>>) {
         let (oks, errs) = batch_request_responses
             .iter()
@@ -151,10 +151,10 @@ pub mod payable_scanner_utils {
 
     type SeparateTxsByResult<'a> = (Vec<&'a PendingPayable>, Vec<H256>);
 
-    fn fold_guts<'a, 'b>(
+    fn fold_guts<'a> (
         acc: SeparateTxsByResult<'a>,
         rpc_result: &'a ProcessedPayableFallible,
-        logger: &'b Logger,
+        logger: &Logger,
     ) -> SeparateTxsByResult<'a> {
         match rpc_result {
             Correct(pending_payable) => add_pending_payable(acc, pending_payable),

@@ -126,6 +126,7 @@ path = "src/lib.rs"
 [features]
 expose_test_privates = []
 log_recipient_test = []
+automap_no_test_share = ["automap/no_test_share"]
 
 #[profile.release]
 #opt-level = 0

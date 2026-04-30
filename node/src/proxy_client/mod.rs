@@ -527,9 +527,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
-    )]
     fn proxy_client_can_be_crashed_properly_but_not_improperly() {
         let proxy_client_producer = || {
             ProxyClient::new(ProxyClientConfig {

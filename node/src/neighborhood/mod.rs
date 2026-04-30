@@ -5638,9 +5638,6 @@ mod tests {
     }
 
     #[test]
-    // #[should_panic(
-    //     expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
-    // )]
     fn neighborhood_can_be_crashed_properly_but_not_improperly() {
         let neighborhood_producer = || {
             let mut neighborhood = make_standard_subject();

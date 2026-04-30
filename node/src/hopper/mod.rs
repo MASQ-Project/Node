@@ -258,9 +258,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
-    )]
     fn hopper_can_be_crashed_properly_but_not_improperly() {
         let hopper_producer = || {
             Hopper::new(HopperConfig {

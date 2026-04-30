@@ -259,7 +259,7 @@ impl ReceivableDao for ReceivableDaoReal {
             )
             .expect("Internal error");
         match stmt
-            .query_row(&[&wallet], Self::create_receivable_account)
+            .query_row([&wallet], Self::create_receivable_account)
             .optional()
         {
             Ok(value) => value,

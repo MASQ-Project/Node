@@ -42,7 +42,7 @@ impl DBMigDeclarator for DBMigDeclaratorMock {
         self.db_password_results.borrow_mut().remove(0)
     }
 
-    fn transaction(&self) -> &Transaction {
+    fn transaction(&self) -> &Transaction<'_> {
         unimplemented!("Not needed so far")
     }
 

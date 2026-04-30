@@ -83,7 +83,7 @@ impl ReadHalfWrapperReal {
 #[async_trait]
 impl WriteHalfWrapper for WriteHalfWrapperReal {
     async fn write(self: &mut Self, buf: &[u8]) -> io::Result<usize> {
-        self.delegate.write(&buf).await
+        self.delegate.write(buf).await
     }
 
     async fn flush(self: &mut Self) -> io::Result<()> {

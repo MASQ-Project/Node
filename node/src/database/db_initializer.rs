@@ -657,7 +657,7 @@ pub mod test_utils {
     }
 
     impl<'a: 'b, 'b> ConnectionWrapper for ConnectionWrapperMock<'a, 'b> {
-        fn prepare(&self, query: &str) -> Result<Statement, Error> {
+        fn prepare(&self, query: &str) -> Result<Statement<'_>, Error> {
             self.prepare_params
                 .lock()
                 .unwrap()

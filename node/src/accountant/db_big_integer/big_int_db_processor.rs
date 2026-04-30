@@ -303,7 +303,7 @@ impl<'a> SQLParamsBuilder<'a> {
             Self::expand_wei_params(wei_change_spec);
         let key_as_the_first_param = (key_spec.substitution_name_in_sql, key_spec.value_itself);
         let params = once(Param::new(key_as_the_first_param, true))
-            .chain(self.other_params.into_iter())
+            .chain(self.other_params)
             .collect();
         SQLParams {
             table_unique_key_name: key_spec.definition_name,
@@ -463,7 +463,7 @@ impl<'a> SQLParams<'a> {
     ) -> Vec<(&'a str, &'a dyn ToSql)> {
         params
             .map(|param| param.as_rusqlite_params())
-            .chain(wei_change_params.into_iter())
+            .chain(wei_change_params)
             .collect()
     }
 }

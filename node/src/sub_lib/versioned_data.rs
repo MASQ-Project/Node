@@ -110,10 +110,7 @@ impl MigrationStep for ComboStep {
     fn migrate(&self, data: Vec<u8>) -> Result<Vec<u8>, StepError> {
         self.substeps
             .iter()
-            .fold(Ok(data), |sofar, substep| match sofar {
-                Err(e) => Err(e),
-                Ok(input) => substep.migrate(input),
-            })
+            .try_fold(data, |sofar, substep| substep.migrate(sofar))
     }
     fn dup(&self) -> Box<dyn MigrationStep> {
         Box::new(ComboStep {

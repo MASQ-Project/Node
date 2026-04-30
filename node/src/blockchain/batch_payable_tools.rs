@@ -63,8 +63,15 @@ impl<T: BatchTransport + Debug> BatchPayableTools<T> for BatchPayableToolsReal<T
         //     .wait()
     }
 
+    // async fn append_transaction_to_batch(&self, signed_transaction: Bytes, web3: &Web3<Batch<T>>) {
+    //     let _ = web3.eth().send_raw_transaction(signed_transaction).await;
+    // }
+
     fn append_transaction_to_batch(&self, signed_transaction: Bytes, web3: &Web3<Batch<T>>) {
-        let _ = web3.eth().send_raw_transaction(signed_transaction);
+        tokio::task::block_in_place(|| {
+            let _ = tokio::runtime::Handle::current()
+                .block_on(web3.eth().send_raw_transaction(signed_transaction));
+        });
     }
 
     fn batch_wide_timestamp(&self) -> SystemTime {

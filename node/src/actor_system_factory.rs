@@ -664,7 +664,7 @@ mod tests {
     use crate::{hopper, proxy_client, proxy_server, stream_handler_pool, ui_gateway};
     use actix::{Actor, Arbiter, System};
     use automap_lib::control_layer::automap_control::AutomapChange;
-    #[cfg(all(test, not(feature = "no_test_share")))]
+    #[cfg(all(test, not(feature = "automap_no_test_share")))]
     use automap_lib::mocks::PUBLIC_IP;
     use crossbeam_channel::{bounded, Sender};
     use log::LevelFilter;

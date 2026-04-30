@@ -12,6 +12,7 @@ use itertools::Itertools;
 use serde_derive::{Deserialize, Serialize};
 use std::cmp::min;
 use std::iter;
+use std::iter::repeat_n;
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Route {
@@ -97,7 +98,7 @@ impl Route {
         let top_hop_len = top_hop.len();
         let next_hop = LiveHop::decode(cryptde, &top_hop)?;
 
-        let mut garbage_can: Vec<u8> = iter::repeat(0u8).take(top_hop_len).collect();
+        let mut garbage_can: Vec<u8> = repeat_n(0u8, top_hop_len).collect();
         cryptde.random(&mut garbage_can[..]);
         self.hops.push(CryptData::new(&garbage_can[..]));
 
@@ -301,10 +302,7 @@ impl Route {
         let mut hops_enc: Vec<CryptData> = Vec::new();
         let mut hop_key = top_hop_key;
         for data_hop in &hops {
-            hops_enc.push(match data_hop.encode(hop_key, cryptde) {
-                Ok(crypt_data) => crypt_data,
-                Err(e) => return Err(e),
-            });
+            hops_enc.push(data_hop.encode(hop_key, cryptde)?);
             hop_key = &data_hop.public_key;
         }
         if let Some(return_route_id) = return_route_id_opt {
