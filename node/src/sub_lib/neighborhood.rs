@@ -488,8 +488,8 @@ impl RouteQueryMessage {
     pub fn data_indefinite_route_request(
         hostname_opt: Option<String>,
         payload_size: usize,
-    ) -> RouteQueryMessage {
-        RouteQueryMessage {
+    ) -> Self {
+        Self {
             target_key_opt: None,
             target_component: Component::ProxyClient,
             return_component_opt: Some(Component::ProxyServer),

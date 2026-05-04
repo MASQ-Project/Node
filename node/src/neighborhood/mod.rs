@@ -2551,8 +2551,11 @@ mod tests {
     #[actix_rt::test]
     async fn route_query_responds_with_none_when_asked_for_two_hop_round_trip_route_without_consuming_wallet(
     ) {
+        let test_name = "route_query_responds_with_none_when_asked_for_two_hop_round_trip_route_without_consuming_wallet";
         let mut subject = make_standard_subject();
         subject.consuming_wallet_opt = None;
+        subject.min_hops = Hops::TwoHops;
+        subject.logger = Logger::new(test_name);
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
@@ -2562,112 +2565,7 @@ mod tests {
         yield_now().await;
         let result = future.await.unwrap();
         assert_eq!(result, None);
-        todo!("Check the logs to make sure you got None for the right reason.")
-    }
-
-    #[actix_rt::test]
-    async fn route_query_works_when_node_is_set_for_one_hop_and_no_consuming_wallet() {
-        todo!("This test is now bad. Gossip doesn't involve any RouteQueryMessages; all RouteQueryMessages should require a consuming wallet.");
-        let cryptde = main_cryptde();
-        let earning_wallet = make_wallet("earning");
-        let mut subject = make_standard_subject();
-        subject.min_hops = Hops::OneHop;
-        subject
-            .neighborhood_database
-            .root_mut()
-            .set_earning_wallet(earning_wallet);
-        subject.consuming_wallet_opt = None;
-        // These happen to be extracted in the desired order. We could not think of a way to guarantee it.
-        let desirable_exit_node = make_node_record(2345, false);
-        let undesirable_exit_node = make_node_record(3456, true);
-        let originating_node = &subject.neighborhood_database.root().clone();
-        {
-            let db = &mut subject.neighborhood_database;
-            db.add_node(undesirable_exit_node.clone()).unwrap();
-            db.add_node(desirable_exit_node.clone()).unwrap();
-            db.add_arbitrary_full_neighbor(
-                undesirable_exit_node.public_key(),
-                originating_node.public_key(),
-            );
-            db.add_arbitrary_full_neighbor(
-                desirable_exit_node.public_key(),
-                originating_node.public_key(),
-            );
-        }
-        let addr: Addr<Neighborhood> = subject.start();
-        let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
-        let msg = RouteQueryMessage::data_indefinite_route_request(None, 54000);
-
-        let future = sub.send(msg);
-
-        System::current().stop_with_code(0);
-        yield_now().await;
-        let segment = |nodes: Vec<&NodeRecord>, component: Component| {
-            RouteSegment::new(
-                nodes.into_iter().map(|n| n.public_key()).collect(),
-                component,
-            )
-        };
-        let result = future.await.unwrap().unwrap();
-        let expected_response = RouteQueryResponse {
-            route: Route::round_trip(
-                segment(
-                    vec![originating_node, &desirable_exit_node],
-                    Component::ProxyClient,
-                ),
-                segment(
-                    vec![&desirable_exit_node, originating_node],
-                    Component::ProxyServer,
-                ),
-                cryptde,
-                None,
-                0,
-                None,
-            )
-            .unwrap(),
-            expected_services: ExpectedServices::RoundTrip(
-                vec![
-                    ExpectedService::Nothing,
-                    ExpectedService::Exit(
-                        desirable_exit_node.public_key().clone(),
-                        desirable_exit_node.earning_wallet(),
-                        rate_pack(2345),
-                    ),
-                ],
-                vec![
-                    ExpectedService::Exit(
-                        desirable_exit_node.public_key().clone(),
-                        desirable_exit_node.earning_wallet(),
-                        rate_pack(2345),
-                    ),
-                    ExpectedService::Nothing,
-                ],
-                0,
-            ),
-        };
-        assert_eq!(expected_response, result);
-    }
-
-    #[actix_rt::test]
-    async fn route_query_responds_with_none_when_asked_for_two_hop_one_way_route_without_consuming_wallet(
-    ) {
-        let test_name = "route_query_responds_with_none_when_asked_for_two_hop_one_way_route_without_consuming_wallet";
-        let mut subject = make_standard_subject();
-        subject.min_hops = Hops::TwoHops;
-        subject.consuming_wallet_opt = None;
-        subject.logger = Logger::new(test_name);
-        let addr: Addr<Neighborhood> = subject.start();
-        let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
-        let msg = RouteQueryMessage::data_indefinite_route_request(None, 20000);
-
-        let future = sub.send(msg);
-
-        System::current().stop_with_code(0);
-        yield_now().await;
-        let result = future.await.unwrap();
-        assert_eq!(result, None);
         TestLogHandler::new().exists_log_containing(&format!("ERROR: {}: Cannot provide route for data because no consuming wallet is set", test_name));
-        todo!("This test doesn't make any sense. There's no way to ask for a one-way route. Consuming wallet is not checked for until after the route is created, and there is no neighborhood here to route through. Finally, the consuming wallet is not removed. The test should check for the proper error log.")
     }
 
     #[actix_rt::test]
