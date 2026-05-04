@@ -8,8 +8,7 @@ use crate::constants::{
 use crate::data_version::DataVersion;
 use crate::messages::SerializableLogLevel;
 use crate::messages::{ToMessageBody, UiLogBroadcast};
-use crate::ui_gateway::MessageTarget;
-use crate::ui_gateway::NodeToUiMessage;
+use crate::ui_gateway::{MessageTarget, NodeToUiMessage};
 use crate::utils::test_is_running;
 use actix::Recipient;
 use lazy_static::lazy_static;
@@ -37,6 +36,7 @@ lazy_static! {
     pub static ref LOG_RECIPIENT_OPT: Mutex<Option<Recipient<NodeToUiMessage>>> = Mutex::new(None);
 }
 
+#[cfg(not(feature = "log_recipient_test"))]
 pub fn prepare_log_recipient(recipient: Recipient<NodeToUiMessage>) {
     if LOG_RECIPIENT_OPT
         .lock()
@@ -296,23 +296,23 @@ pub fn real_format_function(
     write.write_fmt(*record.args())
 }
 
-// #[cfg(feature = "log_recipient_test")]
-// lazy_static! {
-//     pub static ref INITIALIZATION_COUNTER: Mutex<MutexIncrementInset> =
-//         Mutex::new(MutexIncrementInset(0));
-// }
-//
-// #[cfg(feature = "log_recipient_test")]
-// impl Logger {
-//     pub fn transmit(_msg: String, _log_level: SerializableLogLevel) {}
-// }
-//
-// #[cfg(feature = "log_recipient_test")]
-// pub fn prepare_log_recipient(_recipient: Recipient<NodeToUiMessage>) {
-//     INITIALIZATION_COUNTER.lock().unwrap().0 += 1;
-// }
+#[cfg(feature = "log_recipient_test")]
+lazy_static! {
+    pub static ref INITIALIZATION_COUNTER: Mutex<MutexIncrementInset> =
+        Mutex::new(MutexIncrementInset(0));
+}
 
-// #[cfg(not(feature = "no_test_share"))]
+#[cfg(feature = "log_recipient_test")]
+impl Logger {
+    pub fn transmit(_msg: String, _log_level: SerializableLogLevel) {}
+}
+
+#[cfg(feature = "log_recipient_test")]
+pub fn prepare_log_recipient(_recipient: Recipient<NodeToUiMessage>) {
+    INITIALIZATION_COUNTER.lock().unwrap().0 += 1;
+}
+
+#[cfg(not(feature = "no_test_share"))]
 impl Logger {
     pub fn level_enabled(&self, level: Level) -> bool {
         level <= self.level_limit
