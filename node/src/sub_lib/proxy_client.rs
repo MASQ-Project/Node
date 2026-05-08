@@ -132,8 +132,8 @@ mod tests {
         )
     }
 
-    #[test]
-    fn proxy_client_subs_debug() {
+    #[actix::test]
+    async fn proxy_client_subs_debug() {
         let recorder = Recorder::new().start();
 
         let subject = ProxyClientSubs {

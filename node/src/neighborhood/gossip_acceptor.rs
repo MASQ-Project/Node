@@ -1344,7 +1344,6 @@ mod tests {
     };
     use crate::test_utils::unshared_test_utils::make_cpm_recipient;
     use crate::test_utils::{assert_contains, main_cryptde, vec_to_set};
-    use actix::System;
     use masq_lib::node_addr::NodeAddr;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
@@ -2278,8 +2277,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn proper_standard_gossip_is_matched_and_handled() {
+    #[actix::test]
+    async fn proper_standard_gossip_is_matched_and_handled() {
         /*
           Destination Node ==>
             S---D
@@ -2323,7 +2322,6 @@ mod tests {
         let (cpm_recipient, recording_arc) = make_cpm_recipient();
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
         neighborhood_metadata.cpm_recipient = cpm_recipient;
-        let system = System::new();
 
         let qualifies_result = subject.qualifies(&dest_db, agrs_vec.as_slice(), gossip_source);
         let handle_result = subject.handle(
@@ -2349,8 +2347,7 @@ mod tests {
             &src_db.node_by_key(node_b.public_key()).unwrap().inner,
             &dest_db.node_by_key(node_b.public_key()).unwrap().inner
         );
-        System::current().stop();
-        assert_eq!(system.run().is_ok(), true);
+        tokio::task::yield_now().await;
         let recording = recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 0);
     }
@@ -2598,8 +2595,8 @@ mod tests {
         assert_compute_patch(Hops::SixHops);
     }
 
-    #[test]
-    fn no_cpm_is_sent_in_case_full_neighborship_doesn_t_exist_and_cannot_be_created() {
+    #[actix::test]
+    async fn no_cpm_is_sent_in_case_full_neighborship_doesn_t_exist_and_cannot_be_created() {
         // Received gossip from a node we couldn't make a neighbor {Degree too high or malefactor banned node} (false, false)
         // This is Standard Gossip, even though it looks like a Debut,
         // because it's specifically handled by a StandardGossipHandler
@@ -2620,7 +2617,6 @@ mod tests {
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
         neighborhood_metadata.cpm_recipient = cpm_recipient;
         let subject = StandardGossipHandler::new(Logger::new("test"));
-        let system = System::new();
 
         let result = subject.handle(
             cryptde,
@@ -2630,15 +2626,14 @@ mod tests {
             make_default_neighborhood_metadata(),
         );
 
-        System::current().stop();
-        assert_eq!(system.run().is_ok(), true);
+        tokio::task::yield_now().await;
         let recording = recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 0);
         assert_eq!(result, GossipAcceptanceResult::Ignored);
     }
 
-    #[test]
-    fn cpm_is_sent_in_case_full_neighborship_doesn_t_exist_and_is_created() {
+    #[actix::test]
+    async fn cpm_is_sent_in_case_full_neighborship_doesn_t_exist_and_is_created() {
         // Received Reply for Acceptance of Debut Gossip - (false, true)
         let cryptde = main_cryptde();
         let root_node = make_node_record(1111, true);
@@ -2660,7 +2655,6 @@ mod tests {
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
         neighborhood_metadata.cpm_recipient = cpm_recipient;
         let subject = StandardGossipHandler::new(Logger::new("test"));
-        let system = System::new();
 
         let result = subject.handle(
             cryptde,
@@ -2670,8 +2664,7 @@ mod tests {
             neighborhood_metadata,
         );
 
-        System::current().stop();
-        assert_eq!(system.run().is_ok(), true);
+        tokio::task::yield_now().await;
         assert_eq!(result, GossipAcceptanceResult::Accepted);
         let recording = recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 1);
@@ -2685,8 +2678,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn cpm_is_not_sent_in_case_full_neighborship_exists_and_is_destroyed() {
+    #[actix::test]
+    async fn cpm_is_not_sent_in_case_full_neighborship_exists_and_is_destroyed() {
         // Somebody banned us. (true, false)
         let cryptde = main_cryptde();
         let root_node = make_node_record(1111, true);
@@ -2707,7 +2700,6 @@ mod tests {
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
         neighborhood_metadata.cpm_recipient = cpm_recipient;
         let subject = StandardGossipHandler::new(Logger::new("test"));
-        let system = System::new();
 
         let result = subject.handle(
             cryptde,
@@ -2717,15 +2709,14 @@ mod tests {
             neighborhood_metadata,
         );
 
-        System::current().stop();
-        assert_eq!(system.run().is_ok(), true);
+        tokio::task::yield_now().await;
         assert_eq!(result, GossipAcceptanceResult::Accepted);
         let recording = recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 0);
     }
 
-    #[test]
-    fn cpm_is_not_sent_in_case_full_neighborship_exists_and_continues() {
+    #[actix::test]
+    async fn cpm_is_not_sent_in_case_full_neighborship_exists_and_continues() {
         // Standard Gossips received after Neighborship is established (true, true)
         let cryptde = main_cryptde();
         let root_node = make_node_record(1111, true);
@@ -2748,7 +2739,6 @@ mod tests {
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
         neighborhood_metadata.cpm_recipient = cpm_recipient;
         let subject = StandardGossipHandler::new(Logger::new("test"));
-        let system = System::new();
 
         let result = subject.handle(
             cryptde,
@@ -2758,8 +2748,7 @@ mod tests {
             neighborhood_metadata,
         );
 
-        System::current().stop();
-        assert_eq!(system.run().is_ok(), true);
+        tokio::task::yield_now().await;
         assert_eq!(result, GossipAcceptanceResult::Accepted);
         let recording = recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 0);
@@ -3371,8 +3360,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn introduction_gossip_handler_sends_cpm_for_neighborship_established() {
+    #[actix::test]
+    async fn introduction_gossip_handler_sends_cpm_for_neighborship_established() {
         let cryptde = main_cryptde();
         let root_node = make_node_record(1234, true);
         let mut db = db_from_node(&root_node);
@@ -3385,12 +3374,10 @@ mod tests {
         let (_introducer, introducee) =
             IntroductionHandler::identify_players(agrs.clone(), gossip_source).unwrap();
         let new_ip = introducee.node_addr_opt.unwrap().ip_addr();
-        let system = System::new();
 
         subject.handle(cryptde, &mut db, agrs, gossip_source, neighborhood_metadata);
 
-        System::current().stop();
-        assert_eq!(system.run().is_ok(), true);
+        tokio::task::yield_now().await;
         let recording = recording_arc.lock().unwrap();
         let received_message: &ConnectionProgressMessage = recording.get_record(0);
         assert_eq!(
@@ -3443,14 +3430,13 @@ mod tests {
         assert_eq!(db.keys().len(), 1);
     }
 
-    #[test]
-    fn handles_a_new_pass_target() {
+    #[actix::test]
+    async fn handles_a_new_pass_target() {
         let cryptde = main_cryptde();
         let root_node = make_node_record(1234, true);
         let mut db = db_from_node(&root_node);
         let subject = PassHandler::new();
         let (gossip, pass_target, gossip_source) = make_pass(2345);
-        let system = System::new();
         let (cpm_recipient, recording_arc) = make_cpm_recipient();
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
         neighborhood_metadata.cpm_recipient = cpm_recipient;
@@ -3472,8 +3458,7 @@ mod tests {
                 other
             ),
         }
-        System::current().stop();
-        assert_eq!(system.run().is_ok(), true);
+        tokio::task::yield_now().await;
         let recording = recording_arc.lock().unwrap();
         let received_message: &ConnectionProgressMessage = recording.get_record(0);
         let pass_target_ip_addr = pass_target.node_addr_opt().unwrap().ip_addr();
@@ -3490,8 +3475,8 @@ mod tests {
         assert!(initial_timestamp <= *timestamp && *timestamp <= final_timestamp);
     }
 
-    #[test]
-    fn handles_pass_target_that_is_not_yet_expired() {
+    #[actix::test]
+    async fn handles_pass_target_that_is_not_yet_expired() {
         let cryptde = main_cryptde();
         let root_node = make_node_record(1234, true);
         let mut db = db_from_node(&root_node);
@@ -3504,7 +3489,6 @@ mod tests {
                 .sub(PASS_GOSSIP_EXPIRED_TIME)
                 .add(Duration::from_secs(1)),
         );
-        let system = System::new();
         let (cpm_recipient, recording_arc) = make_cpm_recipient();
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
         neighborhood_metadata.cpm_recipient = cpm_recipient;
@@ -3519,8 +3503,7 @@ mod tests {
         );
 
         let final_timestamp = SystemTime::now();
-        System::current().stop();
-        assert_eq!(system.run().is_ok(), true);
+        tokio::task::yield_now().await;
         assert_eq!(result, GossipAcceptanceResult::Ignored);
         let recording = recording_arc.lock().unwrap();
         let received_message: &ConnectionProgressMessage = recording.get_record(0);
@@ -3537,15 +3520,14 @@ mod tests {
         assert!(initial_timestamp <= *timestamp && *timestamp <= final_timestamp);
     }
 
-    #[test]
-    fn handles_pass_target_that_is_a_part_of_a_different_connection_progress() {
+    #[actix::test]
+    async fn handles_pass_target_that_is_a_part_of_a_different_connection_progress() {
         let cryptde = main_cryptde();
         let root_node = make_node_record(1234, true);
         let mut db = db_from_node(&root_node);
         let subject = PassHandler::new();
         let (gossip, pass_target, gossip_source) = make_pass(2345);
         let pass_target_ip_addr = pass_target.node_addr_opt().unwrap().ip_addr();
-        let system = System::new();
         let (cpm_recipient, recording_arc) = make_cpm_recipient();
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
         neighborhood_metadata.cpm_recipient = cpm_recipient;
@@ -3559,8 +3541,7 @@ mod tests {
             neighborhood_metadata,
         );
 
-        System::current().stop();
-        assert_eq!(system.run().is_ok(), true);
+        tokio::task::yield_now().await;
         assert_eq!(result, GossipAcceptanceResult::Ignored);
         let recording = recording_arc.lock().unwrap();
         let received_message: &ConnectionProgressMessage = recording.get_record(0);
@@ -3573,8 +3554,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn handles_pass_target_that_has_expired() {
+    #[actix::test]
+    async fn handles_pass_target_that_has_expired() {
         let cryptde = main_cryptde();
         let root_node = make_node_record(1234, true);
         let mut db = db_from_node(&root_node);
@@ -3589,7 +3570,6 @@ mod tests {
             .previous_pass_targets
             .borrow_mut()
             .insert(pass_target_ip_addr, SystemTime::now().sub(expired_time));
-        let system = System::new();
         let initial_timestamp = SystemTime::now();
 
         let result = subject.handle(
@@ -3608,8 +3588,7 @@ mod tests {
                 other
             ),
         }
-        System::current().stop();
-        assert_eq!(system.run().is_ok(), true);
+        tokio::task::yield_now().await;
         let recording = recording_arc.lock().unwrap();
         let received_message: &ConnectionProgressMessage = recording.get_record(0);
         assert_eq!(

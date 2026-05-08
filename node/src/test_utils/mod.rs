@@ -148,6 +148,26 @@ pub fn to_millis(dur: &Duration) -> u64 {
     dur.as_millis() as u64
 }
 
+pub fn poll_until_blocking_with_timeout<F>(
+    interval: Duration,
+    limit: Duration,
+    mut predicate: F,
+) -> bool
+where
+    F: FnMut() -> bool,
+{
+    let deadline = Instant::now() + limit;
+    loop {
+        if predicate() {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        thread::sleep(interval);
+    }
+}
+
 pub fn signal() -> (Signaler, Waiter) {
     let (tx, rx) = unbounded();
     (Signaler { tx }, Waiter { rx })
@@ -339,31 +359,31 @@ pub fn rate_pack(base_rate: u64) -> RatePack {
 
 pub fn await_messages<T>(expected_message_count: usize, messages_arc_mutex: &Arc<Mutex<Vec<T>>>) {
     let local_arc_mutex = messages_arc_mutex.clone();
-    let limit = 1000u64;
+    let limit = Duration::from_millis(1000);
     let mut prev_len: usize = 0;
-    let begin = Instant::now();
-    loop {
-        let cur_len = {
+    let mut cur_len: usize = 0;
+    let found = poll_until_blocking_with_timeout(Duration::from_millis(50), limit, || {
+        let current_len = {
             local_arc_mutex
                 .lock()
                 .expect("await_messages helper function is poisoned")
                 .len()
         };
-        if cur_len != prev_len {
-            println!("message collector has received {} messages", cur_len)
+        cur_len = current_len;
+        if current_len != prev_len {
+            println!("message collector has received {} messages", current_len)
         }
-        let latency_so_far = to_millis(&Instant::now().duration_since(begin));
-        if latency_so_far > limit {
-            panic!(
-                "After {}ms, message collector has received only {} messages, not {}",
-                limit, cur_len, expected_message_count
-            );
-        }
-        prev_len = cur_len;
-        if cur_len >= expected_message_count {
-            return;
-        }
-        thread::sleep(Duration::from_millis(50))
+        prev_len = current_len;
+        current_len >= expected_message_count
+    });
+
+    if !found {
+        panic!(
+            "After {}ms, message collector has received only {} messages, not {}",
+            limit.as_millis(),
+            cur_len,
+            expected_message_count
+        );
     }
 }
 
@@ -381,6 +401,32 @@ where
         }
     })
     .unwrap();
+}
+
+#[cfg(test)]
+pub async fn poll_until<F>(predicate: F) -> bool
+where
+    F: FnMut() -> bool,
+{
+    poll_until_with_attempts(100, Duration::from_millis(10), predicate).await
+}
+
+#[cfg(test)]
+pub async fn poll_until_with_attempts<F>(
+    attempts: usize,
+    interval: Duration,
+    mut predicate: F,
+) -> bool
+where
+    F: FnMut() -> bool,
+{
+    for _ in 0..attempts {
+        if predicate() {
+            return true;
+        }
+        actix_rt::time::sleep(interval).await;
+    }
+    false
 }
 
 //must stay without cfg(test) -- used in another crate

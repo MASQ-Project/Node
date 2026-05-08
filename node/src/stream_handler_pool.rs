@@ -784,6 +784,7 @@ mod tests {
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
     use crate::test_utils::unshared_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::make_send_error;
+    use crate::test_utils::poll_until_with_attempts;
     use actix::Actor;
     use actix::Addr;
     use tokio::time::{sleep, Duration as TokioDuration};
@@ -814,21 +815,23 @@ mod tests {
     }
 
     async fn await_recording_count(recording_arc: &Arc<Mutex<Recording>>, count: usize) {
-        for _ in 0..200 {
-            if recording_arc.lock().unwrap().len() >= count {
-                return;
-            }
-            sleep(TokioDuration::from_millis(10)).await;
+        if poll_until_with_attempts(200, TokioDuration::from_millis(10), || {
+            recording_arc.lock().unwrap().len() >= count
+        })
+        .await
+        {
+            return;
         }
         panic!("Timed out waiting for {} recorded messages", count);
     }
 
     async fn await_vec_len<T>(vec_arc: &Arc<Mutex<Vec<T>>>, count: usize) {
-        for _ in 0..200 {
-            if vec_arc.lock().unwrap().len() >= count {
-                return;
-            }
-            sleep(TokioDuration::from_millis(10)).await;
+        if poll_until_with_attempts(200, TokioDuration::from_millis(10), || {
+            vec_arc.lock().unwrap().len() >= count
+        })
+        .await
+        {
+            return;
         }
         panic!("Timed out waiting for vector length {}", count);
     }

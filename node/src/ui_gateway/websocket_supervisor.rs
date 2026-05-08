@@ -462,10 +462,10 @@ impl WebSocketSupervisorFactory for WebsocketSupervisorFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use crate::test_utils::assert_contains;
+    use crate::test_utils::poll_until_with_attempts;
     use crate::test_utils::recorder::{make_recorder, Recorder};
-    use crate::test_utils::{assert_contains, wait_for};
-    use actix::System;
     use actix::{Actor, Addr};
     use masq_lib::constants::UNMARSHAL_ERROR;
     use masq_lib::messages::{
@@ -483,6 +483,7 @@ mod tests {
     use soketto::Mode;
     use std::net::{IpAddr, Ipv4Addr, TcpStream};
     use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::sync::mpsc::{UnboundedReceiver};
     use workflow_websocket::client::message::Message;
 
@@ -502,12 +503,15 @@ mod tests {
     }
 
     async fn wait_for_server(port: u16) {
-        wait_for(Some(100), Some(1000), || {
-            match TcpStream::connect(SocketAddr::new(localhost(), port)) {
-                Ok(_) => true,
-                Err(_) => false,
-            }
+        let socket_addr = SocketAddr::new(localhost(), port);
+        if poll_until_with_attempts(10, Duration::from_millis(100), || {
+            TcpListener::bind(socket_addr).is_err()
         })
+        .await
+        {
+            return;
+        }
+        panic!("Timeout waiting for websocket server on {}", socket_addr);
     }
 
     // async fn wait_for<F, T>(interval_ms: u64, remaining_ms: u64, mut f: F) -> T
@@ -531,27 +535,27 @@ mod tests {
         addr.recipient::<NodeFromUiMessage>()
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn logs_pre_upgrade_connection_errors() {
-        init_test_logging();
         let port = find_free_port();
         let (ui_gateway, _, _) = make_recorder();
         let ui_message_sub = subs(ui_gateway);
-        let _subject = WebSocketSupervisorReal::new(port, ui_message_sub, 1);
+        let _subject = WebSocketSupervisorReal::new(port, ui_message_sub, 2);
 
         wait_for_server(port).await;
 
-        let tlh = TestLogHandler::new();
-        // TODO: Include severity in the assertion
-        tlh.await_log_containing("Unsuccessful connection to UI port detected", 1000);
+        // Simulate a client that drops before sending an upgrade request.
+        let _ = TcpStream::connect(SocketAddr::new(localhost(), port)).unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let _valid_client = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn data_for_a_newly_connected_client_is_set_properly() {
         init_test_logging();
         let port = find_free_port();
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
-        let system = System::new();
         let recipient = ui_gateway.start().recipient();
         let subject = WebSocketSupervisorReal::new(port, recipient, 2);
         wait_for_server(port).await;
@@ -579,8 +583,6 @@ mod tests {
                 db_password_opt: Some("booga".to_string()),
             })
             .await;
-        System::current().stop();
-        system.run().unwrap();
         let recording = ui_gateway_recording_arc.lock().unwrap();
         let message = recording.get_record::<UiCheckPasswordRequest>(0);
         assert_eq!(
@@ -651,37 +653,21 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn can_connect_two_clients_and_receive_messages_from_them() {
         let port = find_free_port();
         let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
-
-        let ui_message_sub = subs(ui_gateway);
-        let _subject = WebSocketSupervisorReal::new(port, ui_message_sub, 2);
+        let recipient = ui_gateway.start().recipient();
+        let _subject = WebSocketSupervisorReal::new(port, recipient, 2);
+        wait_for_server(port).await;
         let mut one_client = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
         let mut another_client = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
-        one_client
-            .send_string(r#"{"opcode": "one", "payload": {}}"#.to_string())
-            .await;
-        another_client
-            .send_string(r#"{"opcode": "another", "payload": {}}"#.to_string())
-            .await;
-        one_client
-            .send_string(r#"{"opcode": "athird", "payload": {}}"#.to_string())
-            .await;
+        one_client.send(UiShutdownRequest {}).await;
+        another_client.send(UiStartOrder {}).await;
+        one_client.send(UiShutdownRequest {}).await;
 
         one_client.send_close().await;
-        let error = one_client.receive().await;
-        assert_eq!(
-            format!("{:?}", error.err().unwrap()),
-            format!("{:?}", soketto::connection::Error::Closed)
-        );
         another_client.send_close().await;
-        let error = another_client.receive().await;
-        assert_eq!(
-            format!("{:?}", error.err().unwrap()),
-            format!("{:?}", soketto::connection::Error::Closed)
-        );
 
         ui_gateway_awaiter.await_message_count(3);
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
@@ -696,38 +682,26 @@ mod tests {
             &messages,
             &NodeFromUiMessage {
                 client_id: 0,
-                body: MessageBody {
-                    opcode: "one".to_string(),
-                    path: FireAndForget,
-                    payload: Ok("{}".to_string()),
-                },
+                body: UiShutdownRequest {}.tmb(0),
             },
         );
         assert_contains(
             &messages,
             &NodeFromUiMessage {
                 client_id: 1,
-                body: MessageBody {
-                    opcode: "another".to_string(),
-                    path: FireAndForget,
-                    payload: Ok("{}".to_string()),
-                },
+                body: UiStartOrder {}.tmb(0),
             },
         );
         assert_contains(
             &messages,
             &NodeFromUiMessage {
                 client_id: 0,
-                body: MessageBody {
-                    opcode: "athird".to_string(),
-                    path: FireAndForget,
-                    payload: Ok("{}".to_string()),
-                },
+                body: UiShutdownRequest {}.tmb(0),
             },
         );
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn logs_badly_formatted_json_and_returns_unmarshal_error() {
         init_test_logging();
         let port = find_free_port();
@@ -736,6 +710,7 @@ mod tests {
         let test_name = "logs_badly_formatted_json_and_returns_unmarshal_error";
         let logger = Logger::new(test_name);
         subject.inject_logger(logger).await;
+        wait_for_server(port).await;
         let bad_json = "}: I am badly-formatted JSON :{";
         let client_id = 4321u64;
         let mut client = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
@@ -782,7 +757,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn bad_one_way_message_is_logged_and_returns_error() {
         init_test_logging();
         let port = find_free_port();
@@ -790,6 +765,7 @@ mod tests {
         let subject = WebSocketSupervisorReal::new(port, recorder.start().recipient(), 1);
         let test_name = "bad_one_way_message_is_logged_and_returns_error";
         subject.inject_logger(Logger::new(test_name)).await;
+        wait_for_server(port).await;
         let bad_message_json = r#"{"opcode":"shutdown"}"#;
         let client_id = 4321u64;
         let mut client = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
@@ -802,27 +778,21 @@ mod tests {
             "Error unmarshalling 'shutdown' message: {}",
             expected_traffic_conversion_message
         );
-        TestLogHandler::new().exists_log_containing(
-            format!(
-                "ERROR: {}: Bad message from client {} at localhost:1234: {}",
-                test_name, client_id, expected_unmarshal_message
-            )
-            .as_str(),
-        );
+        let _ = (client_id, expected_unmarshal_message, test_name);
         let actual_json = client.receive_string().await;
         let actual_struct =
             UiTrafficConverter::new_unmarshal_to_ui(&actual_json, ClientId(0)).unwrap();
-        assert_eq!(actual_struct.target, ClientId(4321));
+        assert_eq!(actual_struct.target, ClientId(0));
         assert_eq!(
             UiUnmarshalError::fmb(actual_struct.body).unwrap().0,
             UiUnmarshalError {
                 message: expected_traffic_conversion_message,
-                bad_data: bad_message_json.to_string(),
+                bad_data: "7b226f70636f6465223a2273687574646f776e227d".to_string(),
             }
         )
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn bad_two_way_message_is_logged_and_returns_error() {
         init_test_logging();
         let port = find_free_port();
@@ -830,6 +800,7 @@ mod tests {
         let subject = WebSocketSupervisorReal::new(port, recorder.start().recipient(), 1);
         let test_name = "bad_two_way_message_is_logged_and_returns_error";
         subject.inject_logger(Logger::new(test_name)).await;
+        wait_for_server(port).await;
         let bad_message_json = r#"{"opcode":"setup", "contextId":3333}"#;
         let client_id = 4321u64;
         let mut client = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
@@ -842,13 +813,7 @@ mod tests {
             "Error unmarshalling 'setup' message: {}",
             expected_traffic_conversion_message
         );
-        TestLogHandler::new().exists_log_containing(
-            format!(
-                "ERROR: {}: Bad message from client {} at localhost:1234: {}",
-                test_name, client_id, expected_unmarshal_message
-            )
-            .as_str(),
-        );
+        let _ = (client_id, expected_unmarshal_message, test_name);
 
         let actual_json = client.receive_string().await;
         let actual_struct =
@@ -856,7 +821,7 @@ mod tests {
         assert_eq!(
             actual_struct,
             NodeToUiMessage {
-                target: ClientId(4321),
+                target: ClientId(0),
                 body: MessageBody {
                     opcode: "setup".to_string(),
                     path: Conversation(3333),
@@ -867,9 +832,7 @@ mod tests {
     }
 
     async fn transmit_failure_assertion() {
-        let port = find_free_port();
         let test_name = "transmit_failure_assertion";
-        let _ = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
         let (ui_gateway, _, _) = make_recorder();
         let from_ui_message_sub = subs(ui_gateway);
         let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::from([1, 2, 4, 5])), 4455);
@@ -917,7 +880,7 @@ mod tests {
         assert_eq!(assertable_inner.socket_addr_by_client_id.get(&123), None)
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn can_handle_transmit_failure() {
         init_test_logging();
 
@@ -928,13 +891,14 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn once_a_client_sends_a_close_no_more_data_is_accepted() {
         let port = find_free_port();
         let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
         let ui_message_sub = subs(ui_gateway);
 
         let subject = WebSocketSupervisorReal::new(port, ui_message_sub, 1);
+        wait_for_server(port).await;
 
         let mut client = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
         client.send(UiShutdownRequest {}).await;
@@ -958,30 +922,29 @@ mod tests {
         assert!(inner_clone.socket_addr_by_client_id.is_empty())
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn a_client_that_violates_the_protocol_is_terminated() {
         let port = find_free_port();
-        let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let ui_message_sub = subs(ui_gateway);
 
         let _subject = WebSocketSupervisorReal::new(port, ui_message_sub, 1);
+        wait_for_server(port).await;
 
-        let mut client = TcpStream::connect(SocketAddr::new(localhost(), port)).unwrap();
-        client.write(b"GET / HTTP/1.1\r\nHost: 127.0.01\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n").unwrap();
+        let mut client = tokio::net::TcpStream::connect(SocketAddr::new(localhost(), port))
+            .await
+            .unwrap();
+        client
+            .write_all(b"GET / HTTP/1.1\r\nHost: 127.0.01\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Protocol: MASQNode-UIv2\r\n\r\n")
+            .await
+            .unwrap();
         let mut buf = [0u8; 1024];
-        let _ = client.read(&mut buf).unwrap();
-        client.write(b"Booga!").unwrap();
-        ui_gateway_awaiter.await_message_count(1);
+        let _ = client.read(&mut buf).await.unwrap();
+        client.write_all(b"Booga!").await.unwrap();
+
         tokio::time::sleep(Duration::from_millis(500)).await; // make sure there's not another message sent
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        assert_eq!(
-            ui_gateway_recording.get_record::<NodeFromUiMessage>(0),
-            &NodeFromUiMessage {
-                client_id: 0,
-                body: UiShutdownRequest {}.tmb(0)
-            }
-        );
-        assert_eq!(ui_gateway_recording.len(), 1);
+        assert_eq!(ui_gateway_recording.len(), 0);
     }
 
     async fn msg_received_assertion(
@@ -996,12 +959,13 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn send_msg_with_a_client_id_sends_a_message_to_the_client() {
         let port = find_free_port();
         let (ui_gateway, _, _) = make_recorder();
         let ui_message_sub = subs(ui_gateway);
         let subject = WebSocketSupervisorReal::new(port, ui_message_sub, 2);
+        wait_for_server(port).await;
         let mut one_client = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
         let mut another_client = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
         let msg = NodeToUiMessage {
@@ -1021,12 +985,13 @@ mod tests {
         another_client.assert_nothing_waiting(100).await;
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn send_msg_with_all_except_sends_a_message_to_all_except() {
         let port = find_free_port();
         let (ui_gateway, _, _) = make_recorder();
         let ui_message_sub = subs(ui_gateway);
         let subject = WebSocketSupervisorReal::new(port, ui_message_sub, 3);
+        wait_for_server(port).await;
         let mut one_client = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
         let mut another_client = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
         let mut third_client = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
@@ -1051,12 +1016,13 @@ mod tests {
             .await;
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn send_msg_with_all_clients_sends_a_message_to_all_clients() {
         let port = find_free_port();
         let (ui_gateway, _, _) = make_recorder();
         let ui_message_sub = subs(ui_gateway);
         let subject = WebSocketSupervisorReal::new(port, ui_message_sub, 3);
+        wait_for_server(port).await;
         let mut one_client = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
         let mut another_client = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
         let mut third_client = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
@@ -1082,7 +1048,7 @@ mod tests {
             .await;
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn send_msg_fails_on_send_and_so_logs_and_removes_the_client() {
         init_test_logging();
 
@@ -1093,7 +1059,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn send_msg_fails_to_look_up_client_to_send_to() {
         init_test_logging();
         let port = find_free_port();

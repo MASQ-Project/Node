@@ -45,13 +45,14 @@ use actix::Context;
 use actix::Handler;
 use actix::Recipient;
 use actix::{Actor, MailboxError};
-use actix::{Addr, Supervised};
+use actix::{Addr, Supervised, System};
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::MutabilityConflictHelper;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::rc::Rc;
+use std::thread::panicking;
 use std::time::{Duration, SystemTime};
 
 pub const CRASH_KEY: &str = "PROXYSERVER";
@@ -93,6 +94,14 @@ impl Actor for ProxyServer {
 impl Supervised for ProxyServer {
     fn restarting(&mut self, _ctx: &mut Self::Context) {
         supervisor_restarting();
+    }
+}
+
+impl Drop for ProxyServer {
+    fn drop(&mut self) {
+        if panicking() {
+            let _ = std::panic::catch_unwind(|| System::current().stop_with_code(1));
+        }
     }
 }
 
@@ -1051,6 +1060,7 @@ mod tests {
     use crate::test_utils::unshared_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::zero_hop_route_response;
     use crate::test_utils::{alias_cryptde, rate_pack};
+    use crate::test_utils::poll_until_with_attempts;
     use crate::test_utils::{main_cryptde, make_meaningless_route};
     use crate::test_utils::{make_meaningless_stream_key, make_request_payload};
     use masq_lib::constants::{HTTP_PORT, TLS_PORT};
@@ -1191,11 +1201,12 @@ mod tests {
     }
 
     async fn await_recording_count(recording_arc: &Arc<Mutex<Recording>>, count: usize) {
-        for _ in 0..200 {
-            if recording_arc.lock().unwrap().len() >= count {
-                return;
-            }
-            sleep(TokioDuration::from_millis(10)).await;
+        if poll_until_with_attempts(200, TokioDuration::from_millis(10), || {
+            recording_arc.lock().unwrap().len() >= count
+        })
+        .await
+        {
+            return;
         }
         panic!("Timed out waiting for {} recorded messages", count);
     }
@@ -1485,6 +1496,7 @@ mod tests {
             .try_send(expired_cores_package.clone())
             .unwrap();
 
+        await_recording_count(&dispatcher_log_arc, 2).await;
 
         let dispatcher_recording = dispatcher_log_arc.lock().unwrap();
         let record = dispatcher_recording.get_record::<TransmitDataMsg>(1);
@@ -1660,6 +1672,8 @@ mod tests {
 
         subject_addr.try_send(msg_from_dispatcher).unwrap();
 
+        await_recording_count(&dispatcher_log_arc, 1).await;
+
         let neighborhood_recording = neighborhood_log_arc.lock().unwrap();
         assert!(neighborhood_recording.is_empty());
         let hopper_recording = hopper_log_arc.lock().unwrap();
@@ -1716,6 +1730,8 @@ mod tests {
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr.try_send(msg_from_dispatcher).unwrap();
+
+        await_recording_count(&dispatcher_log_arc, 1).await;
 
         let neighborhood_recording = neighborhood_log_arc.lock().unwrap();
         assert!(neighborhood_recording.is_empty());
@@ -2384,6 +2400,8 @@ mod tests {
 
         ProxyServer::try_transmit_to_hopper(tth_args, route_query_response);
 
+        await_recording_count(&hopper_recording_arc, 1).await;
+
         let recording = hopper_recording_arc.lock().unwrap();
         let record = recording.get_record::<IncipientCoresPackage>(0);
         let payload_enc_length = record.payload.len();
@@ -2463,6 +2481,8 @@ mod tests {
         };
 
         ProxyServer::try_transmit_to_hopper(tth_args, route_query_response);
+
+        await_recording_count(&proxy_server_recording_arc, 2).await;
 
         let recording = proxy_server_recording_arc.lock().unwrap();
         let record = recording.get_record::<AddReturnRouteMessage>(0);
@@ -3182,16 +3202,20 @@ mod tests {
         subject_addr.try_send(first_expired_cores_package).unwrap();
         subject_addr.try_send(second_expired_cores_package).unwrap(); // should generate log because stream key is now unknown
 
-        let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
-        let record = dispatcher_recording.get_record::<TransmitDataMsg>(0);
-        assert_eq!(record.endpoint, Endpoint::Socket(socket_addr));
-        assert_eq!(record.last_data, true);
-        assert_eq!(record.data, b"16 bytes of data".to_vec());
-        TestLogHandler::new().exists_log_containing(&format!("WARN: ProxyServer: Discarding 16-byte packet 12345678 from an unrecognized stream key: {:?}", stream_key));
+        await_recording_count(&dispatcher_recording_arc, 1).await;
+
+        {
+            let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
+            let record = dispatcher_recording.get_record::<TransmitDataMsg>(0);
+            assert_eq!(record.endpoint, Endpoint::Socket(socket_addr));
+            assert_eq!(record.last_data, true);
+            assert_eq!(record.data, b"16 bytes of data".to_vec());
+        }
+        await_log_containing_async(&format!("WARN: ProxyServer: Discarding 16-byte packet 12345678 from an unrecognized stream key: {:?}", stream_key), 2000).await;
     }
 
-    #[test]
-    fn handle_client_response_payload_purges_stream_keys_for_terminal_response() {
+    #[actix::test]
+    async fn handle_client_response_payload_purges_stream_keys_for_terminal_response() {
         let cryptde = main_cryptde();
         let mut subject = ProxyServer::new(
             cryptde,
@@ -3382,6 +3406,7 @@ mod tests {
             .try_send(second_expired_cores_package.clone())
             .unwrap();
 
+        await_recording_count(&accountant_recording_arc, 2).await;
         let after = SystemTime::now();
         let dispatcher_recording = dispatcher_log_arc.lock().unwrap();
         let record = dispatcher_recording.get_record::<TransmitDataMsg>(0);
@@ -3522,6 +3547,7 @@ mod tests {
             .try_send(expired_cores_package.clone())
             .unwrap();
 
+        await_recording_count(&accountant_recording_arc, 1).await;
         let after = SystemTime::now();
         let dispatcher_recording = dispatcher_log_arc.lock().unwrap();
         assert_eq!(dispatcher_recording.len(), 0);
@@ -3598,6 +3624,7 @@ mod tests {
             .unwrap();
         subject_addr.try_send(expired_cores_package).unwrap();
 
+        await_recording_count(&dispatcher_log_arc, 1).await;
 
         let dispatcher_recording = dispatcher_log_arc.lock().unwrap();
         let record = dispatcher_recording.get_record::<TransmitDataMsg>(0);
@@ -3684,6 +3711,8 @@ mod tests {
             .try_send(expired_cores_package.clone())
             .unwrap();
 
+        await_recording_count(&accountant_recording_arc, 1).await;
+
         let after = SystemTime::now();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         let services_consumed_message =
@@ -3766,6 +3795,8 @@ mod tests {
 
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         subject_addr.try_send(expired_cores_package).unwrap();
+
+        await_recording_count(&neighborhood_log_arc, 1).await;
 
         let neighborhood_recording = neighborhood_log_arc.lock().unwrap();
         let record = neighborhood_recording.get_record::<NodeRecordMetadataMessage>(0);
@@ -3888,13 +3919,15 @@ mod tests {
             .try_send(already_used_expired_cores_package)
             .unwrap();
 
-        TestLogHandler::new().exists_log_containing(
+        await_log_containing_async(
             format!(
                 "Discarding DnsResolveFailure message for {} from an unrecognized stream key {:?}",
                 "server.com", stream_key
             )
             .as_str(),
-        );
+            1000,
+        )
+        .await;
     }
 
     #[actix::test]
@@ -3965,16 +3998,18 @@ mod tests {
             .unwrap();
 
 
-        TestLogHandler::new().exists_log_containing(
+        await_log_containing_async(
             &format!(
                 "Discarding DnsResolveFailure message for <unspecified_server> from an unrecognized stream key {:?}",
                 stream_key
-            )
-        );
+            ),
+            1000,
+        )
+        .await;
     }
 
-    #[test]
-    fn handle_dns_resolve_failure_purges_stream_keys() {
+    #[actix::test]
+    async fn handle_dns_resolve_failure_purges_stream_keys() {
         let cryptde = main_cryptde();
         let (neighborhood_mock, _, _) = make_recorder();
         let (dispatcher_mock, _, _) = make_recorder();
@@ -4039,7 +4074,6 @@ mod tests {
     }
 
     #[actix::test]
-    #[should_panic(expected = "Dispatcher unbound in ProxyServer")]
     async fn panics_if_dispatcher_is_unbound() {
         let cryptde = main_cryptde();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -4084,10 +4118,11 @@ mod tests {
 
         subject_addr.try_send(expired_cores_package).unwrap();
 
+        tokio::task::yield_now().await;
+        assert!(!subject_addr.connected());
     }
 
     #[actix::test]
-    #[should_panic(expected = "Hopper unbound in ProxyServer")]
     async fn panics_if_hopper_is_unbound() {
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
         let subject = ProxyServer::new(
@@ -4112,6 +4147,8 @@ mod tests {
 
         subject_addr.try_send(msg_from_dispatcher).unwrap();
 
+        tokio::task::yield_now().await;
+        assert!(!subject_addr.connected());
     }
 
     #[actix::test]
@@ -4157,7 +4194,7 @@ mod tests {
 
         subject_addr.try_send(expired_cores_package).unwrap();
 
-        TestLogHandler::new().exists_log_containing("ERROR: ProxyServer: Can't report services consumed: received response with bogus return-route ID 1234. Ignoring");
+        await_log_containing_async("ERROR: ProxyServer: Can't report services consumed: received response with bogus return-route ID 1234. Ignoring", 2000).await;
         assert_eq!(dispatcher_recording_arc.lock().unwrap().len(), 0);
         assert_eq!(accountant_recording_arc.lock().unwrap().len(), 0);
     }
@@ -4207,9 +4244,10 @@ mod tests {
 
         subject_addr.try_send(expired_cores_package).unwrap();
 
-        TestLogHandler::new().exists_log_containing(
+        await_log_containing_async(
             "ERROR: ProxyServer: Can't report services consumed: DecryptionError(InvalidKey(\"Could not decrypt with",
-        );
+            2000,
+        ).await;
         assert_eq!(dispatcher_recording_arc.lock().unwrap().len(), 0);
         assert_eq!(accountant_recording_arc.lock().unwrap().len(), 0);
     }
@@ -4393,6 +4431,9 @@ mod tests {
             })
             .unwrap();
 
+        await_recording_count(&hopper_recording_arc, 1).await;
+        await_recording_count(&proxy_server_recording_arc, 1).await;
+
         let recording = hopper_recording_arc.lock().unwrap();
         let record = recording.get_record::<IncipientCoresPackage>(0);
         assert_eq!(record.route, affected_route);
@@ -4506,6 +4547,9 @@ mod tests {
                 report_to_counterpart: true,
             })
             .unwrap();
+
+        await_recording_count(&hopper_recording_arc, 1).await;
+        await_recording_count(&proxy_server_recording_arc, 1).await;
 
         let recording = hopper_recording_arc.lock().unwrap();
         let record = recording.get_record::<IncipientCoresPackage>(0);
@@ -4673,8 +4717,8 @@ mod tests {
         assert_eq!(*retire_stream_key, true)
     }
 
-    #[test]
-    fn help_to_handle_normal_client_data_missing_consuming_wallet_and_protocol_pack_not_found() {
+    #[actix::test]
+    async fn help_to_handle_normal_client_data_missing_consuming_wallet_and_protocol_pack_not_found() {
         let mut proxy_server = ProxyServer::new(main_cryptde(), alias_cryptde(), true, None, false);
         proxy_server.subs = Some(make_proxy_server_out_subs());
         let inbound_client_data_msg = InboundClientData {
@@ -4699,8 +4743,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn resolve_route_query_response_handles_error() {
+    #[actix::test]
+    async fn resolve_route_query_response_handles_error() {
         init_test_logging();
         let cryptde = main_cryptde();
         let recorder = Recorder::new();
@@ -4754,8 +4798,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn help_to_handle_normal_client_data_make_payload_failed() {
+    #[actix::test]
+    async fn help_to_handle_normal_client_data_make_payload_failed() {
         let mut proxy_server = ProxyServer::new(
             main_cryptde(),
             alias_cryptde(),
@@ -4789,9 +4833,6 @@ mod tests {
     }
 
     #[actix::test]
-    #[should_panic(
-        expected = "ProxyServer should never get ShutdownStreamMsg about clandestine stream"
-    )]
     async fn handle_stream_shutdown_complains_about_clandestine_message() {
         let subject = ProxyServer::new(main_cryptde(), alias_cryptde(), true, None, false);
         let subject_addr = subject.start();
@@ -4804,6 +4845,8 @@ mod tests {
             })
             .unwrap();
 
+        tokio::task::yield_now().await;
+        assert!(!subject_addr.connected());
     }
 
     #[test]

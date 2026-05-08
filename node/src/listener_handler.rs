@@ -333,7 +333,7 @@ mod tests {
         assert_eq!(recording.len(), 0);
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn handles_connection_that_wont_split() {
         init_test_logging();
         let (stream_handler_pool, _, recording_arc) = make_recorder();

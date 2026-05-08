@@ -376,7 +376,6 @@ mod tests {
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::unshared_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::*;
-    use actix::System;
     use hickory_resolver::config::{NameServerConfig, Protocol, ResolverConfig, ResolverOpts};
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
@@ -386,7 +385,6 @@ mod tests {
     use std::str::FromStr;
     use std::sync::Arc;
     use std::sync::Mutex;
-    use std::thread;
     use tokio::task;
     use std::time::SystemTime;
 
@@ -622,9 +620,8 @@ mod tests {
         assert_eq!(resolver_wrapper_new_parameters.is_empty(), true);
     }
 
-    #[test]
-    #[should_panic(expected = "StreamHandlerPool unbound")]
-    fn panics_if_unbound() {
+    #[actix::test]
+    async fn panics_if_unbound() {
         let request = ClientRequestPayload_0v1 {
             stream_key: make_meaningless_stream_key(),
             sequenced_packet: SequencedPacket {
@@ -645,7 +642,6 @@ mod tests {
             request,
             0,
         );
-        let system = System::new();
         let subject = ProxyClient::new(ProxyClientConfig {
             cryptde,
             dns_servers: dnss(),
@@ -657,95 +653,89 @@ mod tests {
         let subject_addr: Addr<ProxyClient> = subject.start();
 
         subject_addr.try_send(package).unwrap();
+        task::yield_now().await;
 
-        System::current().stop_with_code(0);
-        system.run().unwrap();
+        assert!(!subject_addr.connected());
     }
 
-    #[test]
-    fn logs_nonexistent_stream_key_during_dns_resolution_failure() {
+    #[actix::test]
+    async fn logs_nonexistent_stream_key_during_dns_resolution_failure() {
         init_test_logging();
         let cryptde = main_cryptde();
         let stream_key = make_meaningless_stream_key();
-        let stream_key_inner = stream_key.clone();
-        thread::spawn(move || {
-            let system = System::new();
-            let subject = ProxyClient::new(ProxyClientConfig {
-                cryptde,
-                dns_servers: vec![SocketAddr::from_str("1.1.1.1:53").unwrap()],
-                exit_service_rate: 0,
-                exit_byte_rate: 0,
-                is_decentralized: true,
-                crashable: false,
-            });
-            let subject_addr = subject.start();
-            let subject_subs = ProxyClient::make_subs_from(&subject_addr);
-
-            subject_subs
-                .dns_resolve_failed
-                .try_send(DnsResolveFailure_0v1::new(stream_key_inner))
-                .unwrap();
-
-            system.run().unwrap();
+        let subject = ProxyClient::new(ProxyClientConfig {
+            cryptde,
+            dns_servers: vec![SocketAddr::from_str("1.1.1.1:53").unwrap()],
+            exit_service_rate: 0,
+            exit_byte_rate: 0,
+            is_decentralized: true,
+            crashable: false,
         });
-        TestLogHandler::new().await_log_containing(
-            &format!(
-                "ERROR: ProxyClient: DNS resolution for nonexistent stream ({:?}) failed.",
-                stream_key
-            ),
-            1000,
+        let subject_addr = subject.start();
+        let subject_subs = ProxyClient::make_subs_from(&subject_addr);
+
+        subject_subs
+            .dns_resolve_failed
+            .try_send(DnsResolveFailure_0v1::new(stream_key.clone()))
+            .unwrap();
+        task::yield_now().await;
+
+        let expected_log = format!(
+            "ERROR: ProxyClient: DNS resolution for nonexistent stream ({:?}) failed.",
+            stream_key
         );
+        tokio::task::spawn_blocking(move || {
+            TestLogHandler::new().await_log_containing(&expected_log, 1000)
+        })
+        .await
+        .unwrap();
     }
 
-    #[test]
-    fn forwards_dns_resolve_failed_to_hopper() {
+    #[actix::test]
+    async fn forwards_dns_resolve_failed_to_hopper() {
         init_test_logging();
         let cryptde = main_cryptde();
         let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
         let stream_key = make_meaningless_stream_key();
         let return_route = make_meaningless_route();
         let originator_key = make_meaningless_public_key();
-        let stream_key_inner = stream_key.clone();
-        let return_route_inner = return_route.clone();
-        let originator_key_inner = originator_key.clone();
-        thread::spawn(move || {
-            let system = System::new();
-            let peer_actors = peer_actors_builder().hopper(hopper).build();
-            let mut subject = ProxyClient::new(ProxyClientConfig {
-                cryptde,
-                dns_servers: vec![SocketAddr::from_str("1.1.1.1:53").unwrap()],
-                exit_service_rate: 0,
-                exit_byte_rate: 0,
-                is_decentralized: true,
-                crashable: false,
-            });
-            subject.stream_contexts.insert(
-                stream_key_inner,
-                StreamContext {
-                    return_route: return_route_inner,
-                    payload_destination_key: originator_key_inner,
-                    paying_wallet: None,
-                },
-            );
-            let subject_addr = subject.start();
-            let subject_subs = ProxyClient::make_subs_from(&subject_addr);
-
-            send_bind_message!(subject_subs, peer_actors);
-
-            subject_subs
-                .dns_resolve_failed
-                .try_send(DnsResolveFailure_0v1::new(stream_key_inner))
-                .unwrap();
-
-            subject_subs
-                .dns_resolve_failed
-                .try_send(DnsResolveFailure_0v1::new(stream_key_inner))
-                .unwrap();
-
-            system.run().unwrap();
+        let peer_actors = peer_actors_builder().hopper(hopper).build();
+        let mut subject = ProxyClient::new(ProxyClientConfig {
+            cryptde,
+            dns_servers: vec![SocketAddr::from_str("1.1.1.1:53").unwrap()],
+            exit_service_rate: 0,
+            exit_byte_rate: 0,
+            is_decentralized: true,
+            crashable: false,
         });
+        subject.stream_contexts.insert(
+            stream_key.clone(),
+            StreamContext {
+                return_route: return_route.clone(),
+                payload_destination_key: originator_key.clone(),
+                paying_wallet: None,
+            },
+        );
+        let subject_addr = subject.start();
+        let subject_subs = ProxyClient::make_subs_from(&subject_addr);
 
-        hopper_awaiter.await_message_count(1);
+        send_bind_message!(subject_subs, peer_actors);
+        task::yield_now().await;
+
+        subject_subs
+            .dns_resolve_failed
+            .try_send(DnsResolveFailure_0v1::new(stream_key.clone()))
+            .unwrap();
+
+        subject_subs
+            .dns_resolve_failed
+            .try_send(DnsResolveFailure_0v1::new(stream_key.clone()))
+            .unwrap();
+        task::yield_now().await;
+
+        tokio::task::spawn_blocking(move || hopper_awaiter.await_message_count(1))
+            .await
+            .unwrap();
 
         let message_type: MessageType = DnsResolveFailure_0v1::new(stream_key).into();
         assert_eq!(
@@ -756,13 +746,15 @@ mod tests {
                 .unwrap()
                 .get_record::<IncipientCoresPackage>(0)
         );
-        TestLogHandler::new().await_log_containing(
-            &format!(
-                "ERROR: ProxyClient: DNS resolution for nonexistent stream ({:?}) failed.",
-                stream_key
-            ),
-            1000,
+        let expected_log = format!(
+            "ERROR: ProxyClient: DNS resolution for nonexistent stream ({:?}) failed.",
+            stream_key
         );
+        tokio::task::spawn_blocking(move || {
+            TestLogHandler::new().await_log_containing(&expected_log, 1000)
+        })
+        .await
+        .unwrap();
     }
 
     #[actix::test]

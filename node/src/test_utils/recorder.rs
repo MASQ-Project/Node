@@ -46,7 +46,7 @@ use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use crate::sub_lib::utils::MessageScheduler;
 use crate::test_utils::recorder_stop_conditions::StopConditions;
-use crate::test_utils::to_millis;
+use crate::test_utils::poll_until_blocking_with_timeout;
 use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
 use actix::Addr;
 use actix::Context;
@@ -57,9 +57,7 @@ use actix::{Actor, Message};
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use std::any::Any;
 use std::sync::{Arc, Mutex};
-use std::thread;
 use std::time::Duration;
-use std::time::Instant;
 
 #[derive(Default)]
 pub struct Recorder {
@@ -304,26 +302,26 @@ impl Recording {
 
 impl RecordAwaiter {
     pub fn await_message_count(&self, count: usize) {
-        let limit = 10_000u64;
+        let limit = Duration::from_millis(10_000);
         let mut prev_len: usize = 0;
-        let begin = Instant::now();
-        loop {
-            let cur_len = { self.recording.lock().unwrap().len() };
+        let mut cur_len: usize = 0;
+        let found = poll_until_blocking_with_timeout(Duration::from_millis(50), limit, || {
+            let current_len = { self.recording.lock().unwrap().len() };
+            cur_len = current_len;
             if cur_len != prev_len {
                 println!("Recorder has received {} messages", cur_len)
             }
-            let latency_so_far = to_millis(&Instant::now().duration_since(begin));
-            if latency_so_far > limit {
-                panic!(
-                    "After {}ms, recorder has received only {} messages, not {}",
-                    limit, cur_len, count
-                );
-            }
             prev_len = cur_len;
-            if cur_len >= count {
-                return;
-            }
-            thread::sleep(Duration::from_millis(50))
+            cur_len >= count
+        });
+
+        if !found {
+            panic!(
+                "After {}ms, recorder has received only {} messages, not {}",
+                limit.as_millis(),
+                cur_len,
+                count
+            );
         }
     }
 }

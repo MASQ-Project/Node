@@ -128,32 +128,35 @@ impl StreamHandlerPoolReal {
                 } else {
                     let inner_arc_2 = inner_arc_1.clone();
                     let future = async move {
-                        let sender_wrapper =
-                            match Self::make_stream_with_key(&payload, inner_arc_2).await {
-                                Ok(sw) => sw,
-                                Err(_msg) => {
-                                    todo!("Find a way to log this message");
-                                    // return;
+                        match Self::make_stream_with_key(&payload, inner_arc_2).await {
+                                Ok(sender_wrapper) => {
+                                    if let Err(msg) = Self::write_and_tend(
+                                        sender_wrapper,
+                                        payload,
+                                        paying_wallet_opt,
+                                        inner_arc,
+                                    )
+                                    .await
+                                    {
+                                        Self::clean_up_bad_stream(
+                                            inner_arc_1,
+                                            &stream_key,
+                                            error_socket_addr(),
+                                            msg,
+                                        )
+                                        .await;
+                                    }
+                                }
+                                Err(msg) => {
+                                    Self::clean_up_bad_stream(
+                                        inner_arc_1,
+                                        &stream_key,
+                                        error_socket_addr(),
+                                        msg,
+                                    )
+                                    .await;
                                 }
                             };
-                        if let Err(msg) = Self::write_and_tend(
-                            sender_wrapper,
-                            payload,
-                            paying_wallet_opt,
-                            inner_arc,
-                        )
-                        .await
-                        {
-                            // TODO: This ends up sending an empty response back to the browser and terminating
-                            // the stream. User deserves better than that. Send back a response from the
-                            // proper ServerImpersonator describing the error.
-                            Self::clean_up_bad_stream(
-                                inner_arc_1,
-                                &stream_key,
-                                error_socket_addr(),
-                                msg,
-                            ).await;
-                        };
                     };
                     task::spawn(future);
                 }
@@ -508,7 +511,6 @@ mod tests {
     use crate::sub_lib::hopper::ExpiredCoresPackage;
     use crate::sub_lib::hopper::MessageType;
     use crate::sub_lib::proxy_server::ProxyProtocol;
-    use crate::test_utils::await_messages;
     use crate::test_utils::channel_wrapper_mocks::FuturesChannelFactoryMock;
     use crate::test_utils::channel_wrapper_mocks::ReceiverWrapperMock;
     use crate::test_utils::channel_wrapper_mocks::SenderWrapperMock;
@@ -516,12 +518,12 @@ mod tests {
     use crate::test_utils::make_meaningless_route;
     use crate::test_utils::make_meaningless_stream_key;
     use crate::test_utils::make_wallet;
+    use crate::test_utils::poll_until;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::stream_connector_mock::StreamConnectorMock;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
-    use actix::System;
     use hickory_resolver::error::{ResolveError, ResolveErrorKind};
     use masq_lib::constants::HTTP_PORT;
     use masq_lib::test_utils::logging::init_test_logging;
@@ -545,8 +547,8 @@ mod tests {
         }
     }
 
-    fn spawn_process_package(
-        subject: StreamHandlerPoolReal,
+    async fn process_package_helper(
+        subject: &StreamHandlerPoolReal,
         package: ExpiredCoresPackage<MessageType>,
     ) {
         let paying_wallet = package.paying_wallet.clone();
@@ -556,10 +558,7 @@ mod tests {
                 .unwrap(),
             _ => panic!("Expected MessageType::ClientRequest, got something else"),
         };
-        let future = async move {
-            subject.process_package(payload, paying_wallet);
-        };
-        task::spawn(future);
+        StreamHandlerPoolReal::process_package(payload, paying_wallet, subject.inner.clone()).await;
     }
 
     #[actix::test]
@@ -608,18 +607,27 @@ mod tests {
 
         StreamHandlerPoolReal::process_package(payload, None, Arc::new(tokio::sync::Mutex::new(inner))).await;
 
-        tokio::task::yield_now().await;
-        tokio::task::yield_now().await;
+        let _ = poll_until(|| proxy_client_recording.lock().unwrap().len() >= 2).await;
 
         let proxy_client_recording = proxy_client_recording.lock().unwrap();
-        assert_eq!(proxy_client_recording.len(), 1);
+        assert_eq!(proxy_client_recording.len(), 2);
         assert_eq!(
             &DnsResolveFailure_0v1::new(stream_key),
             proxy_client_recording.get_record::<DnsResolveFailure_0v1>(0),
         );
+        assert_eq!(
+            proxy_client_recording.get_record::<InboundServerData>(1),
+            &InboundServerData {
+                stream_key,
+                last_data: true,
+                sequence_number: 0,
+                source: error_socket_addr(),
+                data: vec![],
+            }
+        );
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn non_terminal_payload_can_be_sent_over_existing_connection() {
         let cryptde = main_cryptde();
         let stream_key = make_meaningless_stream_key();
@@ -650,87 +658,77 @@ mod tests {
             0,
         );
 
-        tokio::spawn(async move {
-            let peer_actors = peer_actors_builder().build();
-            let subject = StreamHandlerPoolReal::new(
-                Box::new(ResolverWrapperMock::new()),
-                cryptde,
-                peer_actors.accountant.report_exit_service_provided.clone(),
-                peer_actors.proxy_client_opt.unwrap().clone(),
-                100,
-                200,
-            );
-            subject
-                .inner
-                .lock()
-                .await
-                .stream_writer_channels
-                .insert(stream_key, tx_to_write);
+        let peer_actors = peer_actors_builder().build();
+        let subject = StreamHandlerPoolReal::new(
+            Box::new(ResolverWrapperMock::new()),
+            cryptde,
+            peer_actors.accountant.report_exit_service_provided.clone(),
+            peer_actors.proxy_client_opt.unwrap().clone(),
+            100,
+            200,
+        );
+        subject.inner.lock().await.stream_writer_channels.insert(stream_key, tx_to_write);
+        process_package_helper(&subject, package).await;
 
-            spawn_process_package(subject, package);
-        });
-
-        await_messages(1, &write_parameters);
-
+        let _ = poll_until(|| write_parameters.lock().unwrap().len() >= 1).await;
         assert_eq!(
             write_parameters.lock().unwrap().remove(0),
             client_request_payload.sequenced_packet
         );
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn write_failure_for_nonexistent_stream_generates_termination_message() {
         init_test_logging();
         let cryptde = main_cryptde();
-        let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
+        let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
         let originator_key = PublicKey::new(&b"men's souls"[..]);
-        tokio::spawn(async move {
-            let client_request_payload = ClientRequestPayload_0v1 {
-                stream_key: make_meaningless_stream_key(),
-                sequenced_packet: SequencedPacket {
-                    data: b"These are the times".to_vec(),
-                    sequence_number: 0,
-                    last_data: false,
-                },
-                target_hostname: Some(String::from("that.try")),
-                target_port: HTTP_PORT,
-                protocol: ProxyProtocol::HTTP,
-                originator_public_key: originator_key,
-            };
-            let package = ExpiredCoresPackage::new(
-                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
-                Some(make_wallet("consuming")),
-                make_meaningless_route(),
-                client_request_payload.clone().into(),
-                0,
-            );
-            let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
-            let resolver = ResolverWrapperMock::new()
-                .lookup_ip_success(vec![IpAddr::from_str("2.3.4.5").unwrap()]);
+        let client_request_payload = ClientRequestPayload_0v1 {
+            stream_key: make_meaningless_stream_key(),
+            sequenced_packet: SequencedPacket {
+                data: b"These are the times".to_vec(),
+                sequence_number: 0,
+                last_data: false,
+            },
+            target_hostname: Some(String::from("that.try")),
+            target_port: HTTP_PORT,
+            protocol: ProxyProtocol::HTTP,
+            originator_public_key: originator_key,
+        };
+        let package = ExpiredCoresPackage::new(
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+            Some(make_wallet("consuming")),
+            make_meaningless_route(),
+            client_request_payload.clone().into(),
+            0,
+        );
+        let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
+        let resolver = ResolverWrapperMock::new()
+            .lookup_ip_success(vec![IpAddr::from_str("2.3.4.5").unwrap()]);
 
-            let tx_to_write = SenderWrapperMock::new(SocketAddr::from_str("2.3.4.5:80").unwrap())
-                .unbounded_send_result(make_send_error(
-                    client_request_payload.sequenced_packet.clone(),
-                ));
+        let tx_to_write = SenderWrapperMock::new(SocketAddr::from_str("2.3.4.5:80").unwrap())
+            .unbounded_send_result(make_send_error(
+                client_request_payload.sequenced_packet.clone(),
+            ));
 
-            let subject = StreamHandlerPoolReal::new(
-                Box::new(resolver),
-                cryptde,
-                peer_actors.accountant.report_exit_service_provided.clone(),
-                peer_actors.proxy_client_opt.unwrap().clone(),
-                100,
-                200,
-            );
-            subject
-                .inner
-                .lock()
-                .await
-                .stream_writer_channels
-                .insert(client_request_payload.stream_key, Box::new(tx_to_write));
+        let subject = StreamHandlerPoolReal::new(
+            Box::new(resolver),
+            cryptde,
+            peer_actors.accountant.report_exit_service_provided.clone(),
+            peer_actors.proxy_client_opt.unwrap().clone(),
+            100,
+            200,
+        );
+        subject
+            .inner
+            .lock()
+            .await
+            .stream_writer_channels
+            .insert(client_request_payload.stream_key, Box::new(tx_to_write));
 
-            spawn_process_package(subject, package);
-        });
-        proxy_client_awaiter.await_message_count(1);
+        process_package_helper(&subject, package).await;
+
+        let _ = poll_until(|| proxy_client_recording_arc.lock().unwrap().len() >= 1).await;
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(0),
@@ -744,95 +742,102 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn when_hostname_is_ip_establish_stream_without_dns_lookup() {
         let cryptde = main_cryptde();
         let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
         let expected_lookup_ip_parameters = lookup_ip_parameters.clone();
-        let write_parameters_arc = Arc::new(Mutex::new(vec![]));
-        let expected_write_parameters = write_parameters_arc.clone();
-        let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
-        tokio::spawn(async move {
-            let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
-            let client_request_payload = ClientRequestPayload_0v1 {
-                stream_key: make_meaningless_stream_key(),
-                sequenced_packet: SequencedPacket {
-                    data: b"These are the times".to_vec(),
-                    sequence_number: 0,
-                    last_data: false,
-                },
-                target_hostname: Some(String::from("3.4.5.6:80")),
-                target_port: HTTP_PORT,
-                protocol: ProxyProtocol::HTTP,
-                originator_public_key: PublicKey::new(&b"men's souls"[..]),
-            };
-            let package = ExpiredCoresPackage::new(
-                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
-                Some(make_wallet("consuming")),
-                make_meaningless_route(),
-                client_request_payload.into(),
-                0,
-            );
-            let resolver = ResolverWrapperMock::new()
-                .lookup_ip_params(&lookup_ip_parameters)
-                .lookup_ip_success(vec![
-                    IpAddr::from_str("2.3.4.5").unwrap(),
-                    IpAddr::from_str("3.4.5.6").unwrap(),
-                ]);
-            let peer_addr = SocketAddr::from_str("3.4.5.6:80").unwrap();
-            let first_read_result = b"HTTP/1.1 200 OK\r\n\r\n";
-            let reader = ReadHalfWrapperMock::new()
-                .read_result(Ok(first_read_result.to_vec()))
-                .read_result(Err(Error::from(ErrorKind::ConnectionAborted)));
-            let writer = WriteHalfWrapperMock::new()
-                .write_params(&write_parameters_arc) // TODO: Do we use this?
-                .write_result(Ok(first_read_result.len()))
-                .shutdown_result(Ok(()));
-            let mut subject = StreamHandlerPoolReal::new(
-                Box::new(resolver),
+        let send_parameters_arc = Arc::new(Mutex::new(vec![]));
+        let expected_send_parameters = send_parameters_arc.clone();
+        let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
+        let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
+        let client_request_payload = ClientRequestPayload_0v1 {
+            stream_key: make_meaningless_stream_key(),
+            sequenced_packet: SequencedPacket {
+                data: b"These are the times".to_vec(),
+                sequence_number: 0,
+                last_data: false,
+            },
+            target_hostname: Some(String::from("3.4.5.6:80")),
+            target_port: HTTP_PORT,
+            protocol: ProxyProtocol::HTTP,
+            originator_public_key: PublicKey::new(&b"men's souls"[..]),
+        };
+        let package = ExpiredCoresPackage::new(
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+            Some(make_wallet("consuming")),
+            make_meaningless_route(),
+            client_request_payload.into(),
+            0,
+        );
+        let resolver = ResolverWrapperMock::new()
+            .lookup_ip_params(&lookup_ip_parameters)
+            .lookup_ip_success(vec![
+                IpAddr::from_str("2.3.4.5").unwrap(),
+                IpAddr::from_str("3.4.5.6").unwrap(),
+            ]);
+        let peer_addr = SocketAddr::from_str("3.4.5.6:80").unwrap();
+        let first_read_result = b"HTTP/1.1 200 OK\r\n\r\n";
+        let reader = ReadHalfWrapperMock::new()
+            .read_result(Ok(first_read_result.to_vec()))
+            .read_result(Err(Error::from(ErrorKind::ConnectionAborted)));
+        let writer = WriteHalfWrapperMock::new()
+            .write_result(Ok(first_read_result.len()))
+            .shutdown_result(Ok(()));
+        let mut subject = StreamHandlerPoolReal::new(
+            Box::new(resolver),
+            cryptde,
+            peer_actors.accountant.report_exit_service_provided.clone(),
+            peer_actors.proxy_client_opt.unwrap().clone(),
+            100,
+            200,
+        );
+        let (stream_killer_tx, stream_killer_rx) = unbounded();
+        subject.stream_killer_rx = stream_killer_rx;
+        let (stream_adder_tx, _stream_adder_rx) = unbounded();
+        {
+            let mut inner = subject.inner.lock().await;
+            let establisher = StreamEstablisher {
                 cryptde,
-                peer_actors.accountant.report_exit_service_provided.clone(),
-                peer_actors.proxy_client_opt.unwrap().clone(),
-                100,
-                200,
-            );
-            let (stream_killer_tx, stream_killer_rx) = unbounded();
-            subject.stream_killer_rx = stream_killer_rx;
-            let (stream_adder_tx, _stream_adder_rx) = unbounded();
-            {
-                let mut inner = subject.inner.lock().await;
-                let establisher = StreamEstablisher {
-                    cryptde,
-                    stream_adder_tx,
-                    stream_killer_tx,
-                    stream_connector: Box::new(StreamConnectorMock::new().with_connection(
-                        peer_addr.clone(),
-                        peer_addr.clone(),
-                        reader,
-                        writer,
-                    )),
-                    proxy_client_sub: inner.proxy_client_subs.inbound_server_data.clone(),
-                    logger: inner.logger.clone(),
-                    channel_factory: Box::new(FuturesChannelFactoryReal {}),
-                };
+                stream_adder_tx,
+                stream_killer_tx,
+                stream_connector: Box::new(StreamConnectorMock::new().with_connection(
+                    peer_addr.clone(),
+                    peer_addr.clone(),
+                    reader,
+                    writer,
+                )),
+                proxy_client_sub: inner.proxy_client_subs.inbound_server_data.clone(),
+                logger: inner.logger.clone(),
+                channel_factory: Box::new(
+                    FuturesChannelFactoryMock::new().make_result(
+                        SenderWrapperMock::new(peer_addr)
+                            .unbounded_send_params(&send_parameters_arc),
+                        ReceiverWrapperMock::new().recv_result(None).recv_result(None),
+                    ),
+                ),
+            };
 
-                inner.establisher_factory = Box::new(StreamEstablisherFactoryMock {
-                    make_results: RefCell::new(vec![establisher]),
-                });
-            }
+            inner.establisher_factory = Box::new(StreamEstablisherFactoryMock {
+                make_results: RefCell::new(vec![establisher]),
+            });
+        }
 
-            spawn_process_package(subject, package);
-        });
+        process_package_helper(&subject, package).await;
 
-        proxy_client_awaiter.await_message_count(1);
+        let _ = poll_until(|| {
+            proxy_client_recording_arc.lock().unwrap().len() >= 1
+                && expected_send_parameters.lock().unwrap().len() >= 1
+        })
+        .await;
         let no_strings: Vec<String> = vec![];
         assert_eq!(
             expected_lookup_ip_parameters.lock().unwrap().deref(),
             &no_strings
         );
         assert_eq!(
-            expected_write_parameters.lock().unwrap().remove(0),
-            b"These are the times".to_vec()
+            expected_send_parameters.lock().unwrap().remove(0),
+            SequencedPacket::new(b"These are the times".to_vec(), 0, false)
         );
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
         assert_eq!(
@@ -847,95 +852,102 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn ip_is_parsed_even_without_port() {
         let cryptde = main_cryptde();
         let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
         let expected_lookup_ip_parameters = lookup_ip_parameters.clone();
-        let write_parameters_arc = Arc::new(Mutex::new(vec![]));
-        let expected_write_parameters = write_parameters_arc.clone();
-        let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
-        tokio::spawn(async move {
-            let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
-            let client_request_payload = ClientRequestPayload_0v1 {
-                stream_key: make_meaningless_stream_key(),
-                sequenced_packet: SequencedPacket {
-                    data: b"These are the times".to_vec(),
-                    sequence_number: 0,
-                    last_data: false,
-                },
-                target_hostname: Some(String::from("3.4.5.6")),
-                target_port: HTTP_PORT,
-                protocol: ProxyProtocol::HTTP,
-                originator_public_key: PublicKey::new(&b"men's souls"[..]),
-            };
-            let package = ExpiredCoresPackage::new(
-                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
-                Some(make_wallet("consuming")),
-                make_meaningless_route(),
-                client_request_payload.into(),
-                0,
-            );
-            let resolver = ResolverWrapperMock::new()
-                .lookup_ip_params(&lookup_ip_parameters)
-                .lookup_ip_success(vec![
-                    IpAddr::from_str("2.3.4.5").unwrap(),
-                    IpAddr::from_str("3.4.5.6").unwrap(),
-                ]);
-            let peer_addr = SocketAddr::from_str("3.4.5.6:80").unwrap();
-            let first_read_result = b"HTTP/1.1 200 OK\r\n\r\n";
-            let reader = ReadHalfWrapperMock::new()
-                .read_result(Ok(first_read_result.to_vec()))
-                .read_result(Err(Error::from(ErrorKind::ConnectionAborted)));
-            let writer = WriteHalfWrapperMock::new()
-                .write_params(&write_parameters_arc) // TODO: Do we use this?
-                .write_result(Ok(first_read_result.len()))
-                .shutdown_result(Ok(()));
-            let mut subject = StreamHandlerPoolReal::new(
-                Box::new(resolver),
+        let send_parameters_arc = Arc::new(Mutex::new(vec![]));
+        let expected_send_parameters = send_parameters_arc.clone();
+        let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
+        let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
+        let client_request_payload = ClientRequestPayload_0v1 {
+            stream_key: make_meaningless_stream_key(),
+            sequenced_packet: SequencedPacket {
+                data: b"These are the times".to_vec(),
+                sequence_number: 0,
+                last_data: false,
+            },
+            target_hostname: Some(String::from("3.4.5.6")),
+            target_port: HTTP_PORT,
+            protocol: ProxyProtocol::HTTP,
+            originator_public_key: PublicKey::new(&b"men's souls"[..]),
+        };
+        let package = ExpiredCoresPackage::new(
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+            Some(make_wallet("consuming")),
+            make_meaningless_route(),
+            client_request_payload.into(),
+            0,
+        );
+        let resolver = ResolverWrapperMock::new()
+            .lookup_ip_params(&lookup_ip_parameters)
+            .lookup_ip_success(vec![
+                IpAddr::from_str("2.3.4.5").unwrap(),
+                IpAddr::from_str("3.4.5.6").unwrap(),
+            ]);
+        let peer_addr = SocketAddr::from_str("3.4.5.6:80").unwrap();
+        let first_read_result = b"HTTP/1.1 200 OK\r\n\r\n";
+        let reader = ReadHalfWrapperMock::new()
+            .read_result(Ok(first_read_result.to_vec()))
+            .read_result(Err(Error::from(ErrorKind::ConnectionAborted)));
+        let writer = WriteHalfWrapperMock::new()
+            .write_result(Ok(first_read_result.len()))
+            .shutdown_result(Ok(()));
+        let mut subject = StreamHandlerPoolReal::new(
+            Box::new(resolver),
+            cryptde,
+            peer_actors.accountant.report_exit_service_provided.clone(),
+            peer_actors.proxy_client_opt.unwrap().clone(),
+            100,
+            200,
+        );
+        let (stream_killer_tx, stream_killer_rx) = unbounded();
+        subject.stream_killer_rx = stream_killer_rx;
+        let (stream_adder_tx, _stream_adder_rx) = unbounded();
+        {
+            let mut inner = subject.inner.lock().await;
+            let establisher = StreamEstablisher {
                 cryptde,
-                peer_actors.accountant.report_exit_service_provided.clone(),
-                peer_actors.proxy_client_opt.unwrap().clone(),
-                100,
-                200,
-            );
-            let (stream_killer_tx, stream_killer_rx) = unbounded();
-            subject.stream_killer_rx = stream_killer_rx;
-            let (stream_adder_tx, _stream_adder_rx) = unbounded();
-            {
-                let mut inner = subject.inner.lock().await;
-                let establisher = StreamEstablisher {
-                    cryptde,
-                    stream_adder_tx,
-                    stream_killer_tx,
-                    stream_connector: Box::new(StreamConnectorMock::new().with_connection(
-                        peer_addr.clone(),
-                        peer_addr.clone(),
-                        reader,
-                        writer,
-                    )),
-                    proxy_client_sub: inner.proxy_client_subs.inbound_server_data.clone(),
-                    logger: inner.logger.clone(),
-                    channel_factory: Box::new(FuturesChannelFactoryReal {}),
-                };
+                stream_adder_tx,
+                stream_killer_tx,
+                stream_connector: Box::new(StreamConnectorMock::new().with_connection(
+                    peer_addr.clone(),
+                    peer_addr.clone(),
+                    reader,
+                    writer,
+                )),
+                proxy_client_sub: inner.proxy_client_subs.inbound_server_data.clone(),
+                logger: inner.logger.clone(),
+                channel_factory: Box::new(
+                    FuturesChannelFactoryMock::new().make_result(
+                        SenderWrapperMock::new(peer_addr)
+                            .unbounded_send_params(&send_parameters_arc),
+                        ReceiverWrapperMock::new().recv_result(None).recv_result(None),
+                    ),
+                ),
+            };
 
-                inner.establisher_factory = Box::new(StreamEstablisherFactoryMock {
-                    make_results: RefCell::new(vec![establisher]),
-                });
-            }
+            inner.establisher_factory = Box::new(StreamEstablisherFactoryMock {
+                make_results: RefCell::new(vec![establisher]),
+            });
+        }
 
-            spawn_process_package(subject, package);
-        });
+        process_package_helper(&subject, package).await;
 
-        proxy_client_awaiter.await_message_count(1);
+        let _ = poll_until(|| {
+            proxy_client_recording_arc.lock().unwrap().len() >= 1
+                && expected_send_parameters.lock().unwrap().len() >= 1
+        })
+        .await;
         let no_strings: Vec<String> = vec![];
         assert_eq!(
             expected_lookup_ip_parameters.lock().unwrap().deref(),
             &no_strings
         );
         assert_eq!(
-            expected_write_parameters.lock().unwrap().remove(0),
-            b"These are the times".to_vec()
+            expected_send_parameters.lock().unwrap().remove(0),
+            SequencedPacket::new(b"These are the times".to_vec(), 0, false)
         );
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
         assert_eq!(
@@ -1020,101 +1032,108 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn nonexistent_connection_springs_into_being_and_is_persisted_to_handle_transaction() {
         let cryptde = main_cryptde();
         let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
         let expected_lookup_ip_parameters = lookup_ip_parameters.clone();
-        let write_parameters_arc = Arc::new(Mutex::new(vec![]));
-        let expected_write_parameters = write_parameters_arc.clone();
-        let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
-        let (accountant, accountant_awaiter, accountant_recording_arc) = make_recorder();
+        let send_parameters_arc = Arc::new(Mutex::new(vec![]));
+        let expected_send_parameters = send_parameters_arc.clone();
+        let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
+        let (accountant, _, accountant_recording_arc) = make_recorder();
         let before = SystemTime::now();
-        tokio::spawn(async move {
-            let peer_actors = peer_actors_builder()
-                .proxy_client(proxy_client)
-                .accountant(accountant)
-                .build();
-            let client_request_payload = ClientRequestPayload_0v1 {
-                stream_key: make_meaningless_stream_key(),
-                sequenced_packet: SequencedPacket {
-                    data: b"These are the times".to_vec(),
-                    sequence_number: 0,
-                    last_data: false,
-                },
-                target_hostname: Some(String::from("that.try")),
-                target_port: HTTP_PORT,
-                protocol: ProxyProtocol::HTTP,
-                originator_public_key: PublicKey::new(&b"men's souls"[..]),
-            };
-            let package = ExpiredCoresPackage::new(
-                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
-                Some(make_wallet("consuming")),
-                make_meaningless_route(),
-                client_request_payload.into(),
-                0,
-            );
-            let resolver = ResolverWrapperMock::new()
-                .lookup_ip_params(&lookup_ip_parameters)
-                .lookup_ip_success(vec![
-                    IpAddr::from_str("2.3.4.5").unwrap(),
-                    IpAddr::from_str("3.4.5.6").unwrap(),
-                ]);
-            let peer_addr = SocketAddr::from_str("3.4.5.6:80").unwrap();
-            let first_read_result = b"HTTP/1.1 200 OK\r\n\r\n";
-            let reader = ReadHalfWrapperMock::new()
-                .read_result(Ok(first_read_result.to_vec()))
-                .read_result(Err(Error::from(ErrorKind::ConnectionAborted)));
-            let writer = WriteHalfWrapperMock::new()
-                .write_params(&write_parameters_arc) // TODO: Do we use this?
-                .write_result(Ok(first_read_result.len()))
-                .shutdown_result(Ok(()));
-            let mut subject = StreamHandlerPoolReal::new(
-                Box::new(resolver),
+        let peer_actors = peer_actors_builder()
+            .proxy_client(proxy_client)
+            .accountant(accountant)
+            .build();
+        let client_request_payload = ClientRequestPayload_0v1 {
+            stream_key: make_meaningless_stream_key(),
+            sequenced_packet: SequencedPacket {
+                data: b"These are the times".to_vec(),
+                sequence_number: 0,
+                last_data: false,
+            },
+            target_hostname: Some(String::from("that.try")),
+            target_port: HTTP_PORT,
+            protocol: ProxyProtocol::HTTP,
+            originator_public_key: PublicKey::new(&b"men's souls"[..]),
+        };
+        let package = ExpiredCoresPackage::new(
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+            Some(make_wallet("consuming")),
+            make_meaningless_route(),
+            client_request_payload.into(),
+            0,
+        );
+        let resolver = ResolverWrapperMock::new()
+            .lookup_ip_params(&lookup_ip_parameters)
+            .lookup_ip_success(vec![
+                IpAddr::from_str("2.3.4.5").unwrap(),
+                IpAddr::from_str("3.4.5.6").unwrap(),
+            ]);
+        let peer_addr = SocketAddr::from_str("3.4.5.6:80").unwrap();
+        let first_read_result = b"HTTP/1.1 200 OK\r\n\r\n";
+        let reader = ReadHalfWrapperMock::new()
+            .read_result(Ok(first_read_result.to_vec()))
+            .read_result(Err(Error::from(ErrorKind::ConnectionAborted)));
+        let writer = WriteHalfWrapperMock::new()
+            .write_result(Ok(first_read_result.len()))
+            .shutdown_result(Ok(()));
+        let mut subject = StreamHandlerPoolReal::new(
+            Box::new(resolver),
+            cryptde,
+            peer_actors.accountant.report_exit_service_provided.clone(),
+            peer_actors.proxy_client_opt.unwrap().clone(),
+            100,
+            200,
+        );
+        let (stream_killer_tx, stream_killer_rx) = unbounded();
+        subject.stream_killer_rx = stream_killer_rx;
+        let (stream_adder_tx, _stream_adder_rx) = unbounded();
+        {
+            let mut inner = subject.inner.lock().await;
+            let establisher = StreamEstablisher {
                 cryptde,
-                peer_actors.accountant.report_exit_service_provided.clone(),
-                peer_actors.proxy_client_opt.unwrap().clone(),
-                100,
-                200,
-            );
-            let (stream_killer_tx, stream_killer_rx) = unbounded();
-            subject.stream_killer_rx = stream_killer_rx;
-            let (stream_adder_tx, _stream_adder_rx) = unbounded();
-            {
-                let mut inner = subject.inner.lock().await;
-                let establisher = StreamEstablisher {
-                    cryptde,
-                    stream_adder_tx,
-                    stream_killer_tx,
-                    stream_connector: Box::new(StreamConnectorMock::new().with_connection(
-                        peer_addr.clone(),
-                        peer_addr.clone(),
-                        reader,
-                        writer,
-                    )),
-                    proxy_client_sub: inner.proxy_client_subs.inbound_server_data.clone(),
-                    logger: inner.logger.clone(),
-                    channel_factory: Box::new(FuturesChannelFactoryReal {}),
-                };
+                stream_adder_tx,
+                stream_killer_tx,
+                stream_connector: Box::new(StreamConnectorMock::new().with_connection(
+                    peer_addr.clone(),
+                    peer_addr.clone(),
+                    reader,
+                    writer,
+                )),
+                proxy_client_sub: inner.proxy_client_subs.inbound_server_data.clone(),
+                logger: inner.logger.clone(),
+                channel_factory: Box::new(
+                    FuturesChannelFactoryMock::new().make_result(
+                        SenderWrapperMock::new(peer_addr)
+                            .unbounded_send_params(&send_parameters_arc),
+                        ReceiverWrapperMock::new().recv_result(None).recv_result(None),
+                    ),
+                ),
+            };
 
-                inner.establisher_factory = Box::new(StreamEstablisherFactoryMock {
-                    make_results: RefCell::new(vec![establisher]),
-                });
-            }
+            inner.establisher_factory = Box::new(StreamEstablisherFactoryMock {
+                make_results: RefCell::new(vec![establisher]),
+            });
+        }
 
-            spawn_process_package(subject, package);
-        });
+        process_package_helper(&subject, package).await;
 
-        proxy_client_awaiter.await_message_count(1);
-        accountant_awaiter.await_message_count(1);
+        let _ = poll_until(|| {
+            proxy_client_recording_arc.lock().unwrap().len() >= 1
+                && accountant_recording_arc.lock().unwrap().len() >= 1
+                && expected_send_parameters.lock().unwrap().len() >= 1
+        })
+        .await;
         let after = SystemTime::now();
         assert_eq!(
             expected_lookup_ip_parameters.lock().unwrap().deref(),
             &["that.try.".to_string()]
         );
         assert_eq!(
-            expected_write_parameters.lock().unwrap().remove(0),
-            b"These are the times".to_vec()
+            expected_send_parameters.lock().unwrap().remove(0),
+            SequencedPacket::new(b"These are the times".to_vec(), 0, false)
         );
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
         assert_eq!(
@@ -1132,78 +1151,184 @@ mod tests {
         check_timestamp(before, resp_msg.timestamp, after);
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn failing_to_make_a_connection_sends_an_error_response() {
         let cryptde = main_cryptde();
         let stream_key = make_meaningless_stream_key();
         let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
-        let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
+        let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
         let originator_key = PublicKey::new(&b"men's souls"[..]);
-        tokio::spawn(async move {
-            let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
-            let client_request_payload = ClientRequestPayload_0v1 {
+        let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
+        let client_request_payload = ClientRequestPayload_0v1 {
+            stream_key,
+            sequenced_packet: SequencedPacket {
+                data: b"These are the times".to_vec(),
+                sequence_number: 0,
+                last_data: false,
+            },
+            target_hostname: Some(String::from("that.try")),
+            target_port: HTTP_PORT,
+            protocol: ProxyProtocol::HTTP,
+            originator_public_key: originator_key,
+        };
+        let package = ExpiredCoresPackage::new(
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+            Some(make_wallet("consuming")),
+            make_meaningless_route(),
+            client_request_payload.into(),
+            0,
+        );
+        let resolver = ResolverWrapperMock::new()
+            .lookup_ip_params(&lookup_ip_parameters)
+            .lookup_ip_success(vec![
+                IpAddr::from_str("2.3.4.5").unwrap(),
+                IpAddr::from_str("3.4.5.6").unwrap(),
+            ]);
+        let proxy_client_sub = peer_actors
+            .proxy_client_opt
+            .clone()
+            .unwrap()
+            .inbound_server_data;
+        let mut subject = StreamHandlerPoolReal::new(
+            Box::new(resolver),
+            cryptde,
+            peer_actors.accountant.report_exit_service_provided.clone(),
+            peer_actors.proxy_client_opt.clone().unwrap(),
+            100,
+            200,
+        );
+        let (stream_killer_tx, stream_killer_rx) = unbounded();
+        subject.stream_killer_rx = stream_killer_rx;
+        let (stream_adder_tx, _stream_adder_rx) = unbounded();
+        let establisher = StreamEstablisher {
+            cryptde,
+            stream_adder_tx,
+            stream_killer_tx,
+            stream_connector: Box::new(
+                StreamConnectorMock::new()
+                    .connect_pair_result(Err(Error::from(ErrorKind::Other))),
+            ),
+            proxy_client_sub,
+            logger: subject.inner.lock().await.logger.clone(),
+            channel_factory: Box::new(FuturesChannelFactoryReal {}),
+        };
+
+        subject.inner.lock().await.establisher_factory =
+            Box::new(StreamEstablisherFactoryMock {
+                make_results: RefCell::new(vec![establisher]),
+            });
+
+        process_package_helper(&subject, package).await;
+
+        let _ = poll_until(|| proxy_client_recording_arc.lock().unwrap().len() >= 1).await;
+        let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
+        assert_eq!(
+            proxy_client_recording.get_record::<InboundServerData>(0),
+            &InboundServerData {
                 stream_key,
-                sequenced_packet: SequencedPacket {
-                    data: b"These are the times".to_vec(),
-                    sequence_number: 0,
-                    last_data: false,
-                },
-                target_hostname: Some(String::from("that.try")),
-                target_port: HTTP_PORT,
-                protocol: ProxyProtocol::HTTP,
-                originator_public_key: originator_key,
-            };
-            let package = ExpiredCoresPackage::new(
-                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
-                Some(make_wallet("consuming")),
-                make_meaningless_route(),
-                client_request_payload.into(),
-                0,
+                last_data: true,
+                sequence_number: 0,
+                source: error_socket_addr(),
+                data: vec![],
+            }
+        );
+    }
+
+    #[actix::test]
+    async fn trying_to_write_to_disconnected_stream_writer_sends_an_error_response() {
+        let cryptde = main_cryptde();
+        let stream_key = make_meaningless_stream_key();
+        let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
+        let write_parameters_arc = Arc::new(Mutex::new(vec![]));
+        let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
+        let (stream_adder_tx, _stream_adder_rx) = unbounded();
+
+        let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
+
+        let sequenced_packet = SequencedPacket {
+            data: b"These are the times".to_vec(),
+            sequence_number: 0,
+            last_data: false,
+        };
+
+        let client_request_payload = ClientRequestPayload_0v1 {
+            stream_key,
+            sequenced_packet: sequenced_packet.clone(),
+            target_hostname: Some(String::from("that.try")),
+            target_port: HTTP_PORT,
+            protocol: ProxyProtocol::HTTP,
+            originator_public_key: PublicKey::new(&b"men's souls"[..]),
+        };
+
+        let package = ExpiredCoresPackage::new(
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+            Some(make_wallet("consuming")),
+            make_meaningless_route(),
+            client_request_payload.into(),
+            0,
+        );
+
+        let resolver = ResolverWrapperMock::new()
+            .lookup_ip_params(&lookup_ip_parameters)
+            .lookup_ip_success(vec![
+                IpAddr::from_str("2.3.4.5").unwrap(),
+                IpAddr::from_str("3.4.5.6").unwrap(),
+            ]);
+
+        let reader = ReadHalfWrapperMock::new()
+            .read_result(Ok(vec![]))
+            .read_result(Err(Error::from(ErrorKind::ConnectionAborted)));
+        let writer = WriteHalfWrapperMock::new()
+            .write_params(&write_parameters_arc) // TODO: Is this used? Do we need it?
+            .write_result(Ok(0))
+            .shutdown_result(Ok(()));
+
+        let mut subject = StreamHandlerPoolReal::new(
+            Box::new(resolver),
+            cryptde,
+            peer_actors.accountant.report_exit_service_provided.clone(),
+            peer_actors.proxy_client_opt.clone().unwrap(),
+            100,
+            200,
+        );
+
+        let peer_addr = SocketAddr::from_str("3.4.5.6:80").unwrap();
+        let disconnected_sender = SenderWrapperMock::new(peer_addr)
+            .unbounded_send_result(make_send_error(sequenced_packet));
+
+        let (stream_killer_tx, stream_killer_rx) = unbounded();
+        subject.stream_killer_rx = stream_killer_rx;
+
+        {
+            let mut inner = subject.inner.lock().await;
+            let channel_factory = FuturesChannelFactoryMock::new().make_result(
+                disconnected_sender,
+                ReceiverWrapperMock::new().recv_result(None).recv_result(None),
             );
-            let resolver = ResolverWrapperMock::new()
-                .lookup_ip_params(&lookup_ip_parameters)
-                .lookup_ip_success(vec![
-                    IpAddr::from_str("2.3.4.5").unwrap(),
-                    IpAddr::from_str("3.4.5.6").unwrap(),
-                ]);
-            let proxy_client_sub = peer_actors
-                .proxy_client_opt
-                .clone()
-                .unwrap()
-                .inbound_server_data;
-            let mut subject = StreamHandlerPoolReal::new(
-                Box::new(resolver),
-                cryptde,
-                peer_actors.accountant.report_exit_service_provided.clone(),
-                peer_actors.proxy_client_opt.clone().unwrap(),
-                100,
-                200,
-            );
-            let (stream_killer_tx, stream_killer_rx) = unbounded();
-            subject.stream_killer_rx = stream_killer_rx;
-            let (stream_adder_tx, _stream_adder_rx) = unbounded();
             let establisher = StreamEstablisher {
                 cryptde,
                 stream_adder_tx,
                 stream_killer_tx,
                 stream_connector: Box::new(
                     StreamConnectorMock::new()
-                        .connect_pair_result(Err(Error::from(ErrorKind::Other))),
+                        .with_connection(peer_addr, peer_addr, reader, writer),
                 ),
-                proxy_client_sub,
-                logger: subject.inner.lock().await.logger.clone(),
-                channel_factory: Box::new(FuturesChannelFactoryReal {}),
+                proxy_client_sub: peer_actors
+                    .proxy_client_opt
+                    .clone()
+                    .unwrap()
+                    .inbound_server_data,
+                logger: inner.logger.clone(),
+                channel_factory: Box::new(channel_factory),
             };
 
-            subject.inner.lock().await.establisher_factory =
-                Box::new(StreamEstablisherFactoryMock {
-                    make_results: RefCell::new(vec![establisher]),
-                });
+            inner.establisher_factory = Box::new(StreamEstablisherFactoryMock {
+                make_results: RefCell::new(vec![establisher]),
+            });
+        }
+        process_package_helper(&subject, package).await;
 
-            spawn_process_package(subject, package);
-        });
-
-        proxy_client_awaiter.await_message_count(1);
+        let _ = poll_until(|| proxy_client_recording_arc.lock().unwrap().len() >= 1).await;
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(0),
@@ -1217,163 +1342,52 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn trying_to_write_to_disconnected_stream_writer_sends_an_error_response() {
-        let cryptde = main_cryptde();
-        let stream_key = make_meaningless_stream_key();
-        let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
-        let write_parameters_arc = Arc::new(Mutex::new(vec![]));
-        let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
-        let (stream_adder_tx, _stream_adder_rx) = unbounded();
-
-        tokio::spawn(async move {
-            let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
-
-            let sequenced_packet = SequencedPacket {
-                data: b"These are the times".to_vec(),
-                sequence_number: 0,
-                last_data: false,
-            };
-
-            let client_request_payload = ClientRequestPayload_0v1 {
-                stream_key,
-                sequenced_packet: sequenced_packet.clone(),
-                target_hostname: Some(String::from("that.try")),
-                target_port: HTTP_PORT,
-                protocol: ProxyProtocol::HTTP,
-                originator_public_key: PublicKey::new(&b"men's souls"[..]),
-            };
-
-            let package = ExpiredCoresPackage::new(
-                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
-                Some(make_wallet("consuming")),
-                make_meaningless_route(),
-                client_request_payload.into(),
-                0,
-            );
-
-            let resolver = ResolverWrapperMock::new()
-                .lookup_ip_params(&lookup_ip_parameters)
-                .lookup_ip_success(vec![
-                    IpAddr::from_str("2.3.4.5").unwrap(),
-                    IpAddr::from_str("3.4.5.6").unwrap(),
-                ]);
-
-            let reader = ReadHalfWrapperMock::new()
-                .read_result(Ok(vec![]))
-                .read_result(Err(Error::from(ErrorKind::ConnectionAborted)));
-            let writer = WriteHalfWrapperMock::new()
-                .write_params(&write_parameters_arc) // TODO: Is this used? Do we need it?
-                .write_result(Ok(0))
-                .shutdown_result(Ok(()));
-
-            let mut subject = StreamHandlerPoolReal::new(
-                Box::new(resolver),
-                cryptde,
-                peer_actors.accountant.report_exit_service_provided.clone(),
-                peer_actors.proxy_client_opt.clone().unwrap(),
-                100,
-                200,
-            );
-
-            let peer_addr = SocketAddr::from_str("3.4.5.6:80").unwrap();
-            let disconnected_sender = SenderWrapperMock::new(peer_addr)
-                .unbounded_send_result(make_send_error(sequenced_packet));
-
-            let (stream_killer_tx, stream_killer_rx) = unbounded();
-            subject.stream_killer_rx = stream_killer_rx;
-
-            {
-                let mut inner = subject.inner.lock().await;
-                let channel_factory = FuturesChannelFactoryMock::new().make_result(
-                    disconnected_sender,
-                    ReceiverWrapperMock::new().recv_result(None),
-                );
-                let establisher = StreamEstablisher {
-                    cryptde,
-                    stream_adder_tx,
-                    stream_killer_tx,
-                    stream_connector: Box::new(
-                        StreamConnectorMock::new()
-                            .with_connection(peer_addr, peer_addr, reader, writer),
-                    ),
-                    proxy_client_sub: peer_actors
-                        .proxy_client_opt
-                        .clone()
-                        .unwrap()
-                        .inbound_server_data,
-                    logger: inner.logger.clone(),
-                    channel_factory: Box::new(channel_factory),
-                };
-
-                inner.establisher_factory = Box::new(StreamEstablisherFactoryMock {
-                    make_results: RefCell::new(vec![establisher]),
-                });
-            }
-            spawn_process_package(subject, package);
-        });
-
-        proxy_client_awaiter.await_message_count(1);
-        let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
-        assert_eq!(
-            proxy_client_recording.get_record::<InboundServerData>(0),
-            &InboundServerData {
-                stream_key,
-                last_data: true,
-                sequence_number: 0,
-                source: error_socket_addr(),
-                data: vec![],
-            }
-        );
-    }
-
-    #[tokio::test]
+    #[actix::test]
     async fn bad_dns_lookup_produces_log_and_sends_error_response() {
         init_test_logging();
         let cryptde = main_cryptde();
         let stream_key = make_meaningless_stream_key();
-        let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
+        let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
         let originator_key = PublicKey::new(&b"men's souls"[..]);
-        tokio::spawn(async move {
-            let client_request_payload = ClientRequestPayload_0v1 {
-                stream_key,
-                sequenced_packet: SequencedPacket {
-                    data: b"These are the times".to_vec(),
-                    sequence_number: 0,
-                    last_data: true,
-                },
-                target_hostname: Some(String::from("that.try")),
-                target_port: HTTP_PORT,
-                protocol: ProxyProtocol::HTTP,
-                originator_public_key: originator_key,
-            };
-            let package = ExpiredCoresPackage::new(
-                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
-                Some(make_wallet("consuming")),
-                make_meaningless_route(),
-                client_request_payload.into(),
-                0,
-            );
-            let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
-            let mut lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
-            let resolver = ResolverWrapperMock::new()
-                .lookup_ip_params(&mut lookup_ip_parameters)
-                .lookup_ip_failure(ResolveError::from(ResolveErrorKind::Io(Error::from(
-                    ErrorKind::BrokenPipe,
-                ))));
-            let subject = StreamHandlerPoolReal::new(
-                Box::new(resolver),
-                cryptde,
-                peer_actors.accountant.report_exit_service_provided.clone(),
-                peer_actors.proxy_client_opt.unwrap().clone(),
-                100,
-                200,
-            );
-            subject.inner.lock().await.logger =
-                Logger::new("bad_dns_lookup_produces_log_and_sends_error_response");
-            spawn_process_package(subject, package);
-        });
-        proxy_client_awaiter.await_message_count(2);
+        let client_request_payload = ClientRequestPayload_0v1 {
+            stream_key,
+            sequenced_packet: SequencedPacket {
+                data: b"These are the times".to_vec(),
+                sequence_number: 0,
+                last_data: true,
+            },
+            target_hostname: Some(String::from("that.try")),
+            target_port: HTTP_PORT,
+            protocol: ProxyProtocol::HTTP,
+            originator_public_key: originator_key,
+        };
+        let package = ExpiredCoresPackage::new(
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+            Some(make_wallet("consuming")),
+            make_meaningless_route(),
+            client_request_payload.into(),
+            0,
+        );
+        let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
+        let mut lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
+        let resolver = ResolverWrapperMock::new()
+            .lookup_ip_params(&mut lookup_ip_parameters)
+            .lookup_ip_failure(ResolveError::from(ResolveErrorKind::Io(Error::from(
+                ErrorKind::BrokenPipe,
+            ))));
+        let subject = StreamHandlerPoolReal::new(
+            Box::new(resolver),
+            cryptde,
+            peer_actors.accountant.report_exit_service_provided.clone(),
+            peer_actors.proxy_client_opt.unwrap().clone(),
+            100,
+            200,
+        );
+        subject.inner.lock().await.logger =
+            Logger::new("bad_dns_lookup_produces_log_and_sends_error_response");
+        process_package_helper(&subject, package).await;
+
+        let _ = poll_until(|| proxy_client_recording_arc.lock().unwrap().len() >= 2).await;
         let recording = proxy_client_recording_arc.lock().unwrap();
         assert_eq!(
             recording.get_record::<InboundServerData>(1),
@@ -1386,11 +1400,11 @@ mod tests {
             }
         );
         TestLogHandler::new().exists_log_containing(
-            "ERROR: bad_dns_lookup_produces_log_and_sends_error_response: Could not find IP address for host that.try: BrokenPipe io error",
+            "ERROR: bad_dns_lookup_produces_log_and_sends_error_response: Could not find IP address for host that.try: io error: broken pipe",
         );
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn error_from_tx_to_writer_removes_stream() {
         init_test_logging();
         let cryptde = main_cryptde();
@@ -1422,87 +1436,83 @@ mod tests {
         let sender_wrapper = SenderWrapperMock::new(SocketAddr::from_str("1.2.3.4:5678").unwrap())
             .unbounded_send_params(&send_params)
             .unbounded_send_result(make_send_error(sequenced_packet.clone()));
-        tokio::spawn(async move {
-            let resolver = ResolverWrapperMock::new();
-            let peer_actors = peer_actors_builder()
-                .hopper(hopper)
-                .accountant(accountant)
-                .proxy_client(proxy_client)
-                .build();
+        let resolver = ResolverWrapperMock::new();
+        let peer_actors = peer_actors_builder()
+            .hopper(hopper)
+            .accountant(accountant)
+            .proxy_client(proxy_client)
+            .build();
 
-            let subject = StreamHandlerPoolReal::new(
-                Box::new(resolver),
-                cryptde,
-                peer_actors.accountant.report_exit_service_provided.clone(),
-                peer_actors.proxy_client_opt.unwrap().clone(),
-                100,
-                200,
-            );
-            subject
-                .inner
-                .lock()
-                .await
-                .stream_writer_channels
-                .insert(stream_key, Box::new(sender_wrapper));
+        let subject = StreamHandlerPoolReal::new(
+            Box::new(resolver),
+            cryptde,
+            peer_actors.accountant.report_exit_service_provided.clone(),
+            peer_actors.proxy_client_opt.unwrap().clone(),
+            100,
+            200,
+        );
+        subject
+            .inner
+            .lock()
+            .await
+            .stream_writer_channels
+            .insert(stream_key, Box::new(sender_wrapper));
 
-            spawn_process_package(subject, package);
-        });
+        process_package_helper(&subject, package).await;
 
-        await_messages(1, &send_params);
+        let _ = poll_until(|| send_params.lock().unwrap().len() >= 1).await;
         assert_eq!(*send_params.lock().unwrap(), vec!(sequenced_packet));
 
         let tlh = TestLogHandler::new();
         tlh.await_log_containing("Removing stream writer for 1.2.3.4:5678", 1000);
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn process_package_does_not_create_new_connection_for_zero_length_data_with_unfamiliar_stream_key(
     ) {
         init_test_logging();
         let cryptde = main_cryptde();
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        tokio::spawn(async move {
-            let peer_actors = peer_actors_builder()
-                .hopper(hopper)
-                .accountant(accountant)
-                .build();
-            let client_request_payload = ClientRequestPayload_0v1 {
-                stream_key: make_meaningless_stream_key(),
-                sequenced_packet: SequencedPacket {
-                    data: vec![],
-                    sequence_number: 0,
-                    last_data: false,
-                },
-                target_hostname: None,
-                target_port: HTTP_PORT,
-                protocol: ProxyProtocol::HTTP,
-                originator_public_key: PublicKey::new(&b"booga"[..]),
-            };
-            let package = ExpiredCoresPackage::new(
-                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
-                Some(make_wallet("consuming")),
-                make_meaningless_route(),
-                client_request_payload.into(),
-                0,
-            );
-            let resolver = ResolverWrapperMock::new();
-            let subject = StreamHandlerPoolReal::new(
-                Box::new(resolver),
-                cryptde,
-                peer_actors.accountant.report_exit_service_provided.clone(),
-                peer_actors.proxy_client_opt.unwrap().clone(),
-                100,
-                200,
-            );
+        let peer_actors = peer_actors_builder()
+            .hopper(hopper)
+            .accountant(accountant)
+            .build();
+        let client_request_payload = ClientRequestPayload_0v1 {
+            stream_key: make_meaningless_stream_key(),
+            sequenced_packet: SequencedPacket {
+                data: vec![],
+                sequence_number: 0,
+                last_data: false,
+            },
+            target_hostname: None,
+            target_port: HTTP_PORT,
+            protocol: ProxyProtocol::HTTP,
+            originator_public_key: PublicKey::new(&b"booga"[..]),
+        };
+        let package = ExpiredCoresPackage::new(
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+            Some(make_wallet("consuming")),
+            make_meaningless_route(),
+            client_request_payload.into(),
+            0,
+        );
+        let resolver = ResolverWrapperMock::new();
+        let subject = StreamHandlerPoolReal::new(
+            Box::new(resolver),
+            cryptde,
+            peer_actors.accountant.report_exit_service_provided.clone(),
+            peer_actors.proxy_client_opt.unwrap().clone(),
+            100,
+            200,
+        );
 
-            subject.inner.lock().await.establisher_factory =
-                Box::new(StreamEstablisherFactoryMock {
-                    make_results: RefCell::new(vec![]),
-                });
+        subject.inner.lock().await.establisher_factory =
+            Box::new(StreamEstablisherFactoryMock {
+                make_results: RefCell::new(vec![]),
+            });
 
-            spawn_process_package(subject, package);
-        });
+        process_package_helper(&subject, package).await;
 
         let tlh = TestLogHandler::new();
         tlh.await_log_containing(
@@ -1518,9 +1528,8 @@ mod tests {
         assert_eq!(hopper_recording.len(), 0);
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn clean_up_dead_streams_sends_server_drop_report_if_dead_stream_is_in_map() {
-        let system = System::new();
         let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
         let mut subject = StreamHandlerPoolReal::new(
@@ -1543,10 +1552,9 @@ mod tests {
         }
         stream_killer_tx.send((stream_key, 47)).unwrap();
 
-        subject.clean_up_dead_streams();
+        subject.clean_up_dead_streams().await;
 
-        System::current().stop_with_code(0);
-        system.run().unwrap();
+        let _ = poll_until(|| proxy_client_recording_arc.lock().unwrap().len() >= 1).await;
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
         let report = proxy_client_recording.get_record::<InboundServerData>(0);
         assert_eq!(

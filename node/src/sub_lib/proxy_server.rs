@@ -98,8 +98,8 @@ mod tests {
     use crate::test_utils::recorder::Recorder;
     use actix::Actor;
 
-    #[test]
-    fn proxy_server_subs_debug() {
+    #[actix::test]
+    async fn proxy_server_subs_debug() {
         let recorder = Recorder::new().start();
 
         let subject = ProxyServerSubs {

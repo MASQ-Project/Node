@@ -1868,8 +1868,8 @@ mod tests {
         // CryptDENull panics when you try decrypting with the wrong key; no panic means test passes
     }
 
-    #[test]
-    fn route_data_to_peripheral_component_uses_main_key_on_payload_for_proxy_client() {
+    #[actix::test]
+    async fn route_data_to_peripheral_component_uses_main_key_on_payload_for_proxy_client() {
         let payload_factory = |cryptdes: &CryptDEPair| {
             encodex(
                 cryptdes.main,
@@ -1897,8 +1897,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn route_data_to_peripheral_component_uses_alias_key_on_payload_for_proxy_server() {
+    #[actix::test]
+    async fn route_data_to_peripheral_component_uses_alias_key_on_payload_for_proxy_server() {
         let payload_factory = |cryptdes: &CryptDEPair| {
             encodex(
                 cryptdes.alias,
@@ -1921,8 +1921,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn route_data_to_peripheral_component_uses_main_key_on_payload_for_neighborhood() {
+    #[actix::test]
+    async fn route_data_to_peripheral_component_uses_main_key_on_payload_for_neighborhood() {
         let payload_factory = |cryptdes: &CryptDEPair| {
             encodex(
                 cryptdes.main,
@@ -1940,8 +1940,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn route_data_to_peripheral_component_uses_main_key_on_payload_for_hopper() {
+    #[actix::test]
+    async fn route_data_to_peripheral_component_uses_main_key_on_payload_for_hopper() {
         let payload_factory = |cryptdes: &CryptDEPair| {
             encodex(
                 cryptdes.main,

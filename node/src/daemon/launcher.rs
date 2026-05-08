@@ -194,6 +194,7 @@ mod tests {
     use super::*;
     use crate::daemon::launch_verifier::LaunchVerification::Launched;
     use crate::daemon::mocks::LaunchVerifierMock;
+    use crate::test_utils::poll_until;
     use crate::test_utils::recorder::make_recorder;
     use actix::Actor;
     use crossbeam_channel::unbounded;
@@ -211,7 +212,6 @@ mod tests {
     use std::thread;
     use std::time::Duration;
     use tokio::task;
-    use tokio::time::sleep;
 
     struct ChildWrapperMock {
         wait_latency_ms: u64,
@@ -350,12 +350,7 @@ mod tests {
         let result = subject.exec(params.clone(), crashed_recipient);
         assert_eq!(result, Ok(1234));
 
-        for _ in 0..100 {
-            if daemon_recording_arc.lock().unwrap().len() >= 1 {
-                break;
-            }
-            sleep(Duration::from_millis(10)).await;
-        }
+        let _ = poll_until(|| daemon_recording_arc.lock().unwrap().len() >= 1).await;
         let daemon_recording = daemon_recording_arc.lock().unwrap();
         assert_eq!(daemon_recording.len(), 1);
         let msg = daemon_recording.get_record::<CrashNotification>(0);
@@ -404,12 +399,7 @@ mod tests {
         let result = subject.exec(params, crashed_recipient);
         assert_eq!(result, Ok(1234));
 
-        for _ in 0..100 {
-            if daemon_recording_arc.lock().unwrap().len() >= 1 {
-                break;
-            }
-            sleep(Duration::from_millis(10)).await;
-        }
+        let _ = poll_until(|| daemon_recording_arc.lock().unwrap().len() >= 1).await;
         let daemon_recording = daemon_recording_arc.lock().unwrap();
         assert_eq!(daemon_recording.len(), 1);
         let msg = daemon_recording.get_record::<CrashNotification>(0);

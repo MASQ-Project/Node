@@ -129,6 +129,7 @@ mod tests {
     use crate::sub_lib::proxy_server::ProxyProtocol;
     use crate::test_utils::main_cryptde;
     use crate::test_utils::make_meaningless_stream_key;
+    use crate::test_utils::poll_until;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::stream_connector_mock::StreamConnectorMock;
@@ -140,7 +141,7 @@ mod tests {
 
     #[actix::test]
     async fn spawn_stream_reader_handles_data() {
-        let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
+        let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
         let proxy_client_sub = peer_actors.proxy_client_opt.unwrap().inbound_server_data;
 
@@ -179,7 +180,7 @@ mod tests {
             SocketAddr::from_str("1.2.3.4:5678").unwrap(),
         );
 
-        proxy_client_awaiter.await_message_count(1);
+        let _ = poll_until(|| proxy_client_recording_arc.lock().unwrap().len() >= 1).await;
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
         let record = proxy_client_recording
             .get_record::<InboundServerData>(0)

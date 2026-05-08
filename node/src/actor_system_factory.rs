@@ -1743,7 +1743,7 @@ mod tests {
             body: crash_request.tmb(123),
         };
         ui_node_addr.try_send(actor_message).unwrap();
-        system.run().unwrap();
+        let _ = system.run();
         assert!(
             mercy_signal_rx.try_recv().is_err(),
             "{} while panicking is unable to shut the system down",

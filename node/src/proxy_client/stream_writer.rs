@@ -175,7 +175,7 @@ mod tests {
         let rx_to_write = ReceiverWrapperMock::new()
             .recv_result(Some(SequencedPacket::new(packet_c.clone(), 2, false)))
             .recv_result(Some(SequencedPacket::new(packet_b.clone(), 1, false)))
-            .recv_result(Some(SequencedPacket::new(vec![], 3, false)))
+            .recv_result(Some(SequencedPacket::new(vec![], 3, true)))
             .recv_result(Some(SequencedPacket::new(packet_a.clone(), 0, false)))
             .recv_result(None);
         let write_params_arc = Arc::new(Mutex::new(vec![]));
@@ -184,7 +184,9 @@ mod tests {
             .write_result(Ok(packet_a.len()))
             .write_result(Ok(packet_b.len()))
             .write_result(Ok(packet_c.len()))
-            .write_result(Ok(0));
+            .write_result(Ok(0))
+            .shutdown_result(Ok(()))
+            .shutdown_result(Ok(()));
         let peer_addr = SocketAddr::from_str("2.2.3.4:5678").unwrap();
 
         let subject = StreamWriter::new(
@@ -255,13 +257,15 @@ mod tests {
         let text_data = b"These are the times";
         let stream_key = make_meaningless_stream_key();
         let rx_to_write = ReceiverWrapperMock::new()
-            .recv_result(Some(SequencedPacket::new(text_data.to_vec(), 0, false)))
+            .recv_result(Some(SequencedPacket::new(text_data.to_vec(), 0, true)))
             .recv_result(None);
         let write_params_arc = Arc::new(Mutex::new(vec![]));
         let writer = WriteHalfWrapperMock::new()
             .write_params(&write_params_arc)
             .write_result(Err(Error::from(ErrorKind::Other)))
-            .write_result(Ok(text_data.len()));
+            .write_result(Ok(text_data.len()))
+            .shutdown_result(Ok(()))
+            .shutdown_result(Ok(()));
         let peer_addr = SocketAddr::from_str("1.3.3.4:5678").unwrap();
 
         let subject = StreamWriter::new(
@@ -290,14 +294,16 @@ mod tests {
 
         let rx_to_write = ReceiverWrapperMock::new()
             .recv_result(Some(SequencedPacket::new(first_data.to_vec(), 0, false)))
-            .recv_result(Some(SequencedPacket::new(second_data.to_vec(), 1, false)))
+            .recv_result(Some(SequencedPacket::new(second_data.to_vec(), 1, true)))
             .recv_result(None);
         let write_params_arc = Arc::new(Mutex::new(vec![]));
         let writer = WriteHalfWrapperMock::new()
             .write_params(&write_params_arc)
             .write_result(Err(Error::from(ErrorKind::Other)))
             .write_result(Ok(first_data.len()))
-            .write_result(Ok(second_data.len()));
+            .write_result(Ok(second_data.len()))
+            .shutdown_result(Ok(()))
+            .shutdown_result(Ok(()));
         let peer_addr = SocketAddr::from_str("1.2.3.9:5678").unwrap();
 
         let subject = StreamWriter::new(
@@ -323,7 +329,10 @@ mod tests {
         let stream_key = make_meaningless_stream_key();
         let rx_to_write =
             set_up_standard_results(ReceiverWrapperMock::new(), &b"These are the times".to_vec());
-        let writer = WriteHalfWrapperMock::new().write_result(Ok(19));
+        let writer = WriteHalfWrapperMock::new()
+            .write_result(Ok(19))
+            .shutdown_result(Ok(()))
+            .shutdown_result(Ok(()));
         let peer_addr = SocketAddr::from_str("1.2.3.4:999").unwrap();
         let subject = StreamWriter::new(
             Box::new(writer),
@@ -407,18 +416,18 @@ mod tests {
     #[tokio::test]
     async fn stream_writer_resubmits_partial_packet_when_written_len_is_less_than_packet_len() {
         let stream_key = make_meaningless_stream_key();
-        let rx = ReceiverWrapperMock::new().recv_result(Some(SequencedPacket::new(
-            b"worlds".to_vec(),
-            0,
-            false,
-        )));
+        let rx = ReceiverWrapperMock::new()
+            .recv_result(Some(SequencedPacket::new(b"worlds".to_vec(), 0, true)))
+            .recv_result(None);
 
-        let write_params_arc = Arc::new(Mutex::new(vec![vec![]]));
+        let write_params_arc = Arc::new(Mutex::new(vec![]));
         let writer = WriteHalfWrapperMock::new()
             .write_params(&write_params_arc)
             .write_result(Ok(3))
             .write_result(Ok(2))
-            .write_result(Ok(1));
+            .write_result(Ok(1))
+            .shutdown_result(Ok(()))
+            .shutdown_result(Ok(()));
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
 
         let subject = StreamWriter::new(Box::new(writer), peer_addr, Box::new(rx), stream_key);
@@ -445,6 +454,7 @@ mod tests {
             .write_params(&write_params_arc)
             .write_result(Ok(packet_a.len()))
             .shutdown_params(&shutdown_params_arc)
+            .shutdown_result(Ok(()))
             .shutdown_result(Ok(()));
         let peer_addr = SocketAddr::from_str("2.2.3.4:5678").unwrap();
         let subject = StreamWriter::new(
@@ -473,7 +483,7 @@ mod tests {
         ]);
         assert_eq!(res.is_ok(), true);
         let shutdown_params = shutdown_params_arc.lock().unwrap();
-        assert_eq!(shutdown_params.len(), 1);
+        assert_eq!(shutdown_params.len(), 2);
     }
 
     // TODO: I think we don't need this test anymore, since we don't get Poll::Pending anymore

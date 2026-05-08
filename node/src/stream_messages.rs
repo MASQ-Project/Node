@@ -82,8 +82,6 @@ mod tests {
     use super::*;
     use crate::node_test_utils::make_stream_handler_pool_subs_from;
     use crate::test_utils::recorder::peer_actors_builder;
-    use actix::System;
-
     impl PartialEq for AddStreamMsg {
         fn eq(&self, _other: &Self) -> bool {
             // We need to implement PartialEq so that AddStreamMsg can be received by the Recorder;
@@ -96,9 +94,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn pool_bind_message_is_debug() {
-        let _system = System::new();
+    #[actix::test]
+    async fn pool_bind_message_is_debug() {
         let dispatcher_subs = peer_actors_builder().build().dispatcher;
         let stream_handler_pool_subs = make_stream_handler_pool_subs_from(None);
         let neighborhood_subs = peer_actors_builder().build().neighborhood;

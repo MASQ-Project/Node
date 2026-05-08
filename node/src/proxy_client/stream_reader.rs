@@ -44,10 +44,8 @@ impl StreamReader {
     pub async fn go(mut self) -> io::Result<()> {
         let mut buf: [u8; Self::BUF_LEN] = [0; Self::BUF_LEN];
         loop {
-            let prev_buf_len = Self::BUF_LEN;
             match self.stream.as_mut().read(&mut buf).await {
-                Ok(_) => {
-                    let len = Self::BUF_LEN - prev_buf_len;
+                Ok(len) => {
                     if len == 0 {
                         // see RETURN VALUE section of recv man page (Unix)
                         debug!(
@@ -116,10 +114,10 @@ impl StreamReader {
 mod tests {
     use super::*;
     use crate::test_utils::make_meaningless_stream_key;
+    use crate::test_utils::poll_until;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
-    use actix::System;
     use crossbeam_channel::unbounded;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
@@ -127,11 +125,10 @@ mod tests {
     use std::io::ErrorKind;
     use std::net::SocketAddr;
     use std::str::FromStr;
-    use std::thread;
 
-    #[tokio::test]
+    #[actix::test]
     async fn stream_reader_assigns_a_sequence_to_client_response_payloads() {
-        let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
+        let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
 
         let stream = ReadHalfWrapperMock::new()
             .read_result(Ok(b"HTTP/1.1 200".to_vec()))
@@ -141,17 +138,8 @@ mod tests {
             ))
             .read_result(Ok(vec![]));
 
-        let (tx, rx) = unbounded();
-        thread::spawn(move || {
-            let system = System::new();
-            let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
-
-            tx.send(peer_actors.proxy_client_opt.unwrap().inbound_server_data)
-                .expect("Internal Error");
-            system.run().unwrap();
-        });
-
-        let proxy_client_sub = rx.recv().unwrap();
+        let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
+        let proxy_client_sub = peer_actors.proxy_client_opt.unwrap().inbound_server_data;
         let (stream_killer, stream_killer_params) = unbounded();
         let subject = StreamReader {
             stream_key: make_meaningless_stream_key(),
@@ -165,7 +153,7 @@ mod tests {
 
         let _res = subject.go().await;
 
-        proxy_client_awaiter.await_message_count(3);
+        let _ = poll_until(|| proxy_client_recording_arc.lock().unwrap().len() >= 3).await;
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(0),
@@ -201,9 +189,9 @@ mod tests {
         assert_eq!(stream_killer_parameters, (make_meaningless_stream_key(), 3));
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn stream_reader_can_handle_multiple_packets_followed_by_dropped_stream() {
-        let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
+        let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
         let stream = ReadHalfWrapperMock::new()
             .read_result(Ok(Vec::from(&b"HTTP/1.1 200"[..])))
             .read_result(Ok(Vec::from(&b" OK\r\n\r\nHTTP/1.1 40"[..])))
@@ -211,16 +199,8 @@ mod tests {
                 &b"4 File not found\r\n\r\nHTTP/1.1 503 Server error\r\n\r\n"[..],
             )))
             .read_result(Err(Error::from(ErrorKind::BrokenPipe)));
-        let (tx, rx) = unbounded();
-        thread::spawn(move || {
-            let system = System::new();
-            let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
-            tx.send(peer_actors.proxy_client_opt.unwrap().inbound_server_data)
-                .expect("Internal Error");
-
-            system.run().unwrap();
-        });
-        let proxy_client_sub = rx.recv().unwrap();
+        let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
+        let proxy_client_sub = peer_actors.proxy_client_opt.unwrap().inbound_server_data;
         let (stream_killer, stream_killer_params) = unbounded();
         let subject = StreamReader {
             stream_key: make_meaningless_stream_key(),
@@ -235,7 +215,7 @@ mod tests {
         let result = subject.go().await;
 
         assert_eq!(result.err().unwrap().kind(), ErrorKind::BrokenPipe);
-        proxy_client_awaiter.await_message_count(3);
+        let _ = poll_until(|| proxy_client_recording_arc.lock().unwrap().len() >= 3).await;
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(0),
@@ -275,14 +255,13 @@ mod tests {
         assert!(stream_killer_params.try_recv().is_err());
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn receiving_0_bytes_kills_stream() {
         init_test_logging();
         let stream_key = make_meaningless_stream_key();
         let (stream_killer, kill_stream_params) = unbounded();
         let stream = ReadHalfWrapperMock::new().read_result(Ok(vec![]));
 
-        let system = System::new();
         let peer_actors = peer_actors_builder().build();
         let mut sequencer = Sequencer::new();
         sequencer.next_sequence_number();
@@ -297,9 +276,6 @@ mod tests {
             logger: Logger::new("test"),
             sequencer,
         };
-        System::current().stop_with_code(0);
-        system.run().unwrap();
-
         let result = subject.go().await;
 
         let _ = result.unwrap(); // no panic; result is Ok(())
@@ -308,10 +284,10 @@ mod tests {
             .exists_log_containing("Stream from 5.3.4.3:654 was closed: (0-byte read)");
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn non_dead_stream_read_errors_log_but_do_not_shut_down() {
         init_test_logging();
-        let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
+        let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
         let stream_key = make_meaningless_stream_key();
         let (stream_killer, _) = unbounded();
         let stream = ReadHalfWrapperMock::new()
@@ -319,18 +295,8 @@ mod tests {
             .read_result(Ok(b"HTTP/1.1 200 OK\r\n\r\n".to_vec()))
             .read_result(Err(Error::from(ErrorKind::BrokenPipe)));
 
-        let (tx, rx) = unbounded();
-
-        thread::spawn(move || {
-            let system = System::new();
-            let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
-
-            tx.send(peer_actors.proxy_client_opt.unwrap().inbound_server_data)
-                .expect("Internal Error");
-            system.run().unwrap();
-        });
-
-        let proxy_client_sub = rx.recv().unwrap();
+        let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
+        let proxy_client_sub = peer_actors.proxy_client_opt.unwrap().inbound_server_data;
         let subject = StreamReader {
             stream_key,
             proxy_client_sub,
@@ -344,7 +310,7 @@ mod tests {
         let result = subject.go().await;
 
         assert_eq!(result.err().unwrap().kind(), ErrorKind::BrokenPipe);
-        proxy_client_awaiter.await_message_count(1);
+        let _ = poll_until(|| proxy_client_recording_arc.lock().unwrap().len() >= 1).await;
         TestLogHandler::new().exists_log_containing(
             "WARN: test: Continuing after read error on stream from 6.5.4.1:8325: other error",
         );

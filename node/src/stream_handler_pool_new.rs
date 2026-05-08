@@ -1098,8 +1098,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn a_connection_for_an_ip_address_is_created_when_necessary() {
+    #[actix::test]
+    async fn a_connection_for_an_ip_address_is_created_when_necessary() {
         init_test_logging();
         let test_name = "a_connection_for_an_ip_address_is_created_when_necessary";
         let logger = Logger::new(test_name);
@@ -1127,18 +1127,18 @@ mod tests {
         let (async_pair_factory, _) = AsyncPairFactoryMock::mock_and_outgoing_data(vec![]);
         subject.async_pair_factory = Box::new(async_pair_factory);
         subject.logger = logger;
-        let system = System::new();
         let (shp_recorder, _, shp_recording_arc) = make_recorder();
         let subject_addr = subject.start();
         subject_addr
-            .try_send(SetPrivateSubsMessage {
+            .send(SetPrivateSubsMessage {
                 recorder: shp_recorder,
             })
+            .await
             .unwrap();
         let bind_message = BindMessage {
             peer_actors: peer_actors_builder().build(),
         };
-        subject_addr.try_send(bind_message).unwrap();
+        subject_addr.send(bind_message).await.unwrap();
         let stream_key = client_request_payload.stream_key.clone();
         let inner_stream_key = stream_key.clone();
         let data_len = client_request_payload.sequenced_packet.data.len();
@@ -1155,10 +1155,10 @@ mod tests {
         };
         let inner_process_package_message = process_package_message.clone();
 
-        subject_addr.try_send(process_package_message).unwrap();
+        subject_addr.send(process_package_message).await.unwrap();
 
         subject_addr
-            .try_send(AssertionsMessage {
+            .send(AssertionsMessage {
                 assertions: Box::new(move |mut shp| {
                     let mut stream_pair: &StreamPair =
                         shp.stream_pairs.get_mut(&inner_stream_key).unwrap();
@@ -1175,9 +1175,8 @@ mod tests {
                     assert_eq!(shp.stream_pairs.len(), 1);
                 }),
             })
+            .await
             .unwrap();
-        system.run().unwrap();
-        System::current().stop();
         let shp_recording = shp_recording_arc.lock().unwrap();
         let add_stream_pair_msg = shp_recording.get_record::<AddStreamPair>(0);
         assert_eq!(
@@ -1220,9 +1219,9 @@ mod tests {
         todo!()
     }
 
-    #[test]
+    #[actix::test]
     // TODO: All the process_package_message tests after this one can just call subject.handle_process_package_message()
-    fn non_terminal_payload_can_be_sent_over_existing_connection() {
+    async fn non_terminal_payload_can_be_sent_over_existing_connection() {
         init_test_logging();
         let test_name = "non_terminal_payload_can_be_sent_over_existing_connection";
         let logger = Logger::new(test_name);
@@ -1245,18 +1244,18 @@ mod tests {
             },
         );
         subject.logger = logger;
-        let system = System::new();
         let (shp_recorder, _, shp_recording_arc) = make_recorder();
         let subject_addr = subject.start();
         subject_addr
-            .try_send(SetPrivateSubsMessage {
+            .send(SetPrivateSubsMessage {
                 recorder: shp_recorder,
             })
+            .await
             .unwrap();
         let bind_message = BindMessage {
             peer_actors: peer_actors_builder().build(),
         };
-        subject_addr.try_send(bind_message).unwrap();
+        subject_addr.send(bind_message).await.unwrap();
         let stream_key = client_request_payload.stream_key.clone();
         let inner_stream_key = stream_key.clone();
         let data = client_request_payload.sequenced_packet.data.clone();
@@ -1273,10 +1272,10 @@ mod tests {
             paying_wallet_opt: Some(paying_wallet.clone()),
         };
 
-        subject_addr.try_send(process_package_message).unwrap();
+        subject_addr.send(process_package_message).await.unwrap();
 
         subject_addr
-            .try_send(AssertionsMessage {
+            .send(AssertionsMessage {
                 assertions: Box::new(move |mut shp| {
                     let mut stream_pair: &StreamPair =
                         shp.stream_pairs.get_mut(&inner_stream_key).unwrap();
@@ -1290,9 +1289,8 @@ mod tests {
                     assert_eq!(shp.stream_pairs.len(), 1);
                 }),
             })
+            .await
             .unwrap();
-        system.run().unwrap();
-        System::current().stop();
         let mut shp_recording = shp_recording_arc.lock().unwrap();
         let mut data_write_success_msg = shp_recording.get_record::<DataWriteSuccess>(0);
         assert_eq!(data_write_success_msg.stream_key, stream_key);
@@ -1314,8 +1312,8 @@ mod tests {
         ))
     }
 
-    #[test]
-    fn terminal_payload_can_be_sent_over_existing_connection() {
+    #[actix::test]
+    async fn terminal_payload_can_be_sent_over_existing_connection() {
         init_test_logging();
         let test_name = "terminal_payload_can_be_sent_over_existing_connection";
         let logger = Logger::new(test_name);
@@ -1339,18 +1337,18 @@ mod tests {
             },
         );
         subject.logger = logger;
-        let system = System::new();
         let (shp_recorder, _, shp_recording_arc) = make_recorder();
         let subject_addr = subject.start();
         subject_addr
-            .try_send(SetPrivateSubsMessage {
+            .send(SetPrivateSubsMessage {
                 recorder: shp_recorder,
             })
+            .await
             .unwrap();
         let bind_message = BindMessage {
             peer_actors: peer_actors_builder().build(),
         };
-        subject_addr.try_send(bind_message).unwrap();
+        subject_addr.send(bind_message).await.unwrap();
         let stream_key = client_request_payload.stream_key.clone();
         let inner_stream_key = stream_key.clone();
         let data = client_request_payload.sequenced_packet.data.clone();
@@ -1367,10 +1365,10 @@ mod tests {
             paying_wallet_opt: Some(paying_wallet.clone()),
         };
 
-        subject_addr.try_send(process_package_message).unwrap();
+        subject_addr.send(process_package_message).await.unwrap();
 
         subject_addr
-            .try_send(AssertionsMessage {
+            .send(AssertionsMessage {
                 assertions: Box::new(move |mut shp| {
                     let mut stream_pair: &StreamPair =
                         shp.stream_pairs.get_mut(&inner_stream_key).unwrap();
@@ -1384,9 +1382,8 @@ mod tests {
                     assert_eq!(shp.stream_pairs.len(), 1);
                 }),
             })
+            .await
             .unwrap();
-        system.run().unwrap();
-        System::current().stop();
         let mut shp_recording = shp_recording_arc.lock().unwrap();
         let mut data_write_success_msg = shp_recording.get_record::<DataWriteSuccess>(0);
         assert_eq!(data_write_success_msg.stream_key, stream_key);
@@ -1408,8 +1405,8 @@ mod tests {
         ))
     }
 
-    #[test]
-    fn payload_can_be_queued_if_writer_is_in_use() {
+    #[actix::test]
+    async fn payload_can_be_queued_if_writer_is_in_use() {
         init_test_logging();
         let test_name = "non_terminal_payload_can_be_queued_if_writer_is_in_use";
         let logger = Logger::new(test_name);
@@ -1429,18 +1426,18 @@ mod tests {
             },
         );
         subject.logger = logger;
-        let system = System::new();
         let (shp_recorder, _, shp_recording_arc) = make_recorder();
         let subject_addr = subject.start();
         subject_addr
-            .try_send(SetPrivateSubsMessage {
+            .send(SetPrivateSubsMessage {
                 recorder: shp_recorder,
             })
+            .await
             .unwrap();
         let bind_message = BindMessage {
             peer_actors: peer_actors_builder().build(),
         };
-        subject_addr.try_send(bind_message).unwrap();
+        subject_addr.send(bind_message).await.unwrap();
         let stream_key = client_request_payload.stream_key.clone();
         let inner_stream_key = stream_key.clone();
         let data = client_request_payload.sequenced_packet.data.clone();
@@ -1458,10 +1455,10 @@ mod tests {
         };
         let assertion_process_package_message = process_package_message.clone();
 
-        subject_addr.try_send(process_package_message).unwrap();
+        subject_addr.send(process_package_message).await.unwrap();
 
         subject_addr
-            .try_send(AssertionsMessage {
+            .send(AssertionsMessage {
                 assertions: Box::new(move |mut shp| {
                     let mut stream_pair: &StreamPair =
                         shp.stream_pairs.get_mut(&inner_stream_key).unwrap();
@@ -1477,9 +1474,8 @@ mod tests {
                     assert_eq!(shp.stream_pairs.len(), 1);
                 }),
             })
+            .await
             .unwrap();
-        system.run().unwrap();
-        System::current().stop();
         let tlh = TestLogHandler {};
         tlh.exists_log_containing(&format!("{} DEBUG Exiting request: Stream key '{}', {}-byte packet {}{}, target {}:{}, protocol {:?}, from {} by {}",
             test_name, stream_key, data_len, sequence_number, if last_data {" (final)"} else {""},

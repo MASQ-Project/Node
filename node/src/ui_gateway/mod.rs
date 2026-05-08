@@ -218,7 +218,6 @@ mod tests {
     };
     use actix::dev::AsyncContextParts;
     use actix::Message;
-    use actix::System;
     use crossbeam_channel::{unbounded, Sender};
     use masq_lib::messages::{ToMessageBody, UiChangePasswordRequest};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
@@ -247,9 +246,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn bind_message_removes_mailbox_size_limit() {
-        let system = System::new();
+    #[actix::test]
+    async fn bind_message_removes_mailbox_size_limit() {
         let subject = UiGateway::new(
             &UiGatewayConfig {
                 ui_port: find_free_port(),
@@ -258,21 +256,18 @@ mod tests {
         );
         let peer_actors = peer_actors_builder().build();
         let subject_addr = subject.start();
-        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        subject_addr.send(BindMessage { peer_actors }).await.unwrap();
         let (tx, rx) = unbounded();
         let check = MailboxCapacityCheck { tx };
 
-        subject_addr.try_send(check).unwrap();
+        subject_addr.send(check).await.unwrap();
 
-        System::current().stop();
-        system.run().unwrap();
         let capacity = rx.recv().unwrap();
         assert_eq!(capacity, 0);
     }
 
-    #[test]
-    fn daemon_bind_message_removes_mailbox_size_limit() {
-        let system = System::new();
+    #[actix::test]
+    async fn daemon_bind_message_removes_mailbox_size_limit() {
         let subject = UiGateway::new(
             &UiGatewayConfig {
                 ui_port: find_free_port(),
@@ -282,20 +277,18 @@ mod tests {
         let (ui_gateway, _, _) = make_recorder();
         let daemon_bind_message = make_daemon_bind_message(ui_gateway);
         let subject_addr = subject.start();
-        subject_addr.try_send(daemon_bind_message).unwrap();
+        subject_addr.send(daemon_bind_message).await.unwrap();
         let (tx, rx) = unbounded();
         let check = MailboxCapacityCheck { tx };
 
-        subject_addr.try_send(check).unwrap();
+        subject_addr.send(check).await.unwrap();
 
-        System::current().stop();
-        system.run().unwrap();
         let capacity = rx.recv().unwrap();
         assert_eq!(capacity, 0);
     }
 
-    #[test]
-    fn inbound_ui_message_is_disseminated_properly() {
+    #[actix::test]
+    async fn inbound_ui_message_is_disseminated_properly() {
         // These actors should receive NodeFromUiMessages
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
@@ -313,7 +306,6 @@ mod tests {
             },
             false,
         );
-        let system = System::new();
         let subject_addr: Addr<UiGateway> = subject.start();
         let peer_actors = peer_actors_builder()
             .accountant(accountant)
@@ -326,7 +318,7 @@ mod tests {
             .proxy_client(proxy_client)
             .hopper(hopper)
             .build();
-        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        subject_addr.send(BindMessage { peer_actors }).await.unwrap();
         let msg = NodeFromUiMessage {
             client_id: 1234,
             body: MessageBody {
@@ -338,10 +330,8 @@ mod tests {
             },
         };
 
-        subject_addr.try_send(msg.clone()).unwrap();
+        subject_addr.send(msg.clone()).await.unwrap();
 
-        System::current().stop();
-        system.run().unwrap();
         let did_receive = |recording_arc: Arc<Mutex<Recording>>| {
             let recording = recording_arc.lock().unwrap();
             assert_eq!(recording.get_record::<NodeFromUiMessage>(0), &msg);
@@ -361,8 +351,8 @@ mod tests {
         did_not_receive(hopper_recording_arc);
     }
 
-    #[test]
-    fn outbound_ui_message_goes_only_to_websocket_supervisor() {
+    #[actix::test]
+    async fn outbound_ui_message_goes_only_to_websocket_supervisor() {
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let send_msg_params_arc = Arc::new(Mutex::new(vec![]));
         let websocket_supervisor =
@@ -375,10 +365,9 @@ mod tests {
             websocket_supervisor_factory,
         )
             as Box<dyn WebSocketSupervisorFactory>);
-        let system = System::new();
         let subject_addr: Addr<UiGateway> = subject.start();
         let peer_actors = peer_actors_builder().accountant(accountant).build();
-        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        subject_addr.send(BindMessage { peer_actors }).await.unwrap();
         let msg = NodeToUiMessage {
             target: MessageTarget::ClientId(1234),
             body: MessageBody {
@@ -388,18 +377,16 @@ mod tests {
             },
         };
 
-        subject_addr.try_send(msg.clone()).unwrap();
+        subject_addr.send(msg.clone()).await.unwrap();
 
-        System::current().stop();
-        system.run().unwrap();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 0);
         let send_parameters = send_msg_params_arc.lock().unwrap();
         assert_eq!(send_parameters[0], msg);
     }
 
-    #[test]
-    fn syntactically_bad_json_is_caught_and_a_truncated_example_is_provided() {
+    #[actix::test]
+    async fn syntactically_bad_json_is_caught_and_a_truncated_example_is_provided() {
         init_test_logging();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let subject = UiGateway::new(
@@ -408,10 +395,9 @@ mod tests {
             },
             false,
         );
-        let system = System::new();
         let subject_addr: Addr<UiGateway> = subject.start();
         let peer_actors = peer_actors_builder().accountant(accountant).build();
-        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        subject_addr.send(BindMessage { peer_actors }).await.unwrap();
         let mut payload = "some bad bite for a jason processor; abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcde".to_string();
         let payload_length_before_truncation = payload.len();
         let msg = NodeFromUiMessage {
@@ -423,10 +409,8 @@ mod tests {
             },
         };
 
-        subject_addr.try_send(msg.clone()).unwrap();
+        subject_addr.send(msg.clone()).await.unwrap();
 
-        System::current().stop();
-        system.run().unwrap();
         let random_actor_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(random_actor_recording.len(), 0);
         payload.truncate(100);

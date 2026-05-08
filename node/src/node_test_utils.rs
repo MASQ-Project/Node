@@ -16,6 +16,7 @@ use crate::sub_lib::framer::Framer;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::utils::MessageScheduler;
+use crate::test_utils::poll_until_blocking_with_timeout;
 use crate::test_utils::recorder::Recorder;
 use actix::Actor;
 use actix::Addr;
@@ -25,8 +26,6 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Duration;
 use std::time::SystemTime;
 
 pub trait TestLogOwner {
@@ -202,12 +201,13 @@ pub fn wait_until<F>(check: F)
 where
     F: Fn() -> bool,
 {
-    let now = SystemTime::now();
-    while !check() {
-        if now.elapsed().unwrap().as_secs() >= 1 {
-            panic!("Waited for more than a second")
-        }
-        thread::sleep(Duration::from_millis(10))
+    let found = poll_until_blocking_with_timeout(
+        std::time::Duration::from_millis(10),
+        std::time::Duration::from_secs(1),
+        check,
+    );
+    if !found {
+        panic!("Waited for more than a second")
     }
 }
 
