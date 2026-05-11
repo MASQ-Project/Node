@@ -75,7 +75,9 @@ impl Supervised for BlockchainBridge {
 impl<T: Transport> Drop for BlockchainBridge<T> {
     fn drop(&mut self) {
         if panicking() {
-            System::current().stop_with_code(1);
+            if let Some(system) = System::try_current() {
+                system.stop_with_code(1);
+            }
         }
     }
 }

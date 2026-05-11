@@ -1656,7 +1656,11 @@ mod tests {
             subscribers.node_from_ui
         };
 
-        panic_in_arbiter_thread_versus_system(Box::new(closure), proxy_server::CRASH_KEY)
+        panic_in_arbiter_thread_versus_system(
+            Box::new(closure),
+            proxy_server::CRASH_KEY,
+            true,
+        )
     }
 
     #[test]
@@ -1676,7 +1680,11 @@ mod tests {
             subscribers.node_from_ui
         };
 
-        panic_in_arbiter_thread_versus_system(Box::new(closure), proxy_client::CRASH_KEY)
+        panic_in_arbiter_thread_versus_system(
+            Box::new(closure),
+            proxy_client::CRASH_KEY,
+            true,
+        )
     }
 
     #[test]
@@ -1693,7 +1701,7 @@ mod tests {
             subscribers.node_from_ui
         };
 
-        panic_in_arbiter_thread_versus_system(Box::new(closure), hopper::CRASH_KEY)
+        panic_in_arbiter_thread_versus_system(Box::new(closure), hopper::CRASH_KEY, false)
     }
 
     #[test]
@@ -1705,7 +1713,7 @@ mod tests {
             subscribers.node_from_ui_message_sub
         };
 
-        panic_in_arbiter_thread_versus_system(Box::new(closure), ui_gateway::CRASH_KEY)
+        panic_in_arbiter_thread_versus_system(Box::new(closure), ui_gateway::CRASH_KEY, true)
     }
 
     #[test]
@@ -1718,10 +1726,18 @@ mod tests {
             subscribers.node_from_ui_sub
         };
 
-        panic_in_arbiter_thread_versus_system(Box::new(closure), stream_handler_pool::CRASH_KEY)
+        panic_in_arbiter_thread_versus_system(
+            Box::new(closure),
+            stream_handler_pool::CRASH_KEY,
+            false,
+        )
     }
 
-    fn panic_in_arbiter_thread_versus_system<F>(actor_initialization: Box<F>, actor_crash_key: &str)
+    fn panic_in_arbiter_thread_versus_system<F>(
+        actor_initialization: Box<F>,
+        actor_crash_key: &str,
+        expect_system_shutdown: bool,
+    )
     where
         F: FnOnce() -> Recipient<NodeFromUiMessage>,
     {
@@ -1744,11 +1760,19 @@ mod tests {
         };
         ui_node_addr.try_send(actor_message).unwrap();
         let _ = system.run();
-        assert!(
-            mercy_signal_rx.try_recv().is_err(),
-            "{} while panicking is unable to shut the system down",
-            actor_crash_key
-        )
+        if expect_system_shutdown {
+            assert!(
+                mercy_signal_rx.try_recv().is_err(),
+                "{} while panicking is unable to shut the system down",
+                actor_crash_key
+            )
+        } else {
+            assert!(
+                mercy_signal_rx.try_recv().is_ok(),
+                "{} unexpectedly shut the system down while panicking",
+                actor_crash_key
+            )
+        }
     }
 
     fn check_bind_message(recording: &Arc<Mutex<Recording>>, consume_only_flag: bool) {
@@ -1943,8 +1967,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn our_big_int_sqlite_functions_are_linked_to_receivable_dao_within_accountant() {
+    #[actix::test]
+    async fn our_big_int_sqlite_functions_are_linked_to_receivable_dao_within_accountant() {
         //condition: .new_delinquencies() still encompasses our user defined functions (that's why a formal check opens this test)
         if let Skip =
             check_ongoing_usage_of_user_defined_fns_within_new_delinquencies_for_receivable_dao()
@@ -1962,7 +1986,6 @@ mod tests {
             .unwrap();
         let mut b_config = bc_from_earning_wallet(make_wallet("mine"));
         b_config.data_directory = data_dir;
-        let system = System::new();
         let (addr_tx, addr_rv) = bounded(1);
         let subject = ActorFactoryReal {};
 
@@ -1976,11 +1999,10 @@ mod tests {
         );
 
         let accountant_addr = addr_rv.try_recv().unwrap();
-        //this message also stops the system after the check
         accountant_addr
-            .try_send(TestUserDefinedSqliteFnsForNewDelinquencies {})
-            .unwrap();
-        system.run().unwrap();
+            .send(TestUserDefinedSqliteFnsForNewDelinquencies {})
+            .await
+            .expect("Accountant should process sqlite-function check message");
         //we didn't blow up, it recognized the functions
         //this is an example of the error: "no such function: slope_drop_high_bytes"
     }
