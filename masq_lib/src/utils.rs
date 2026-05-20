@@ -3,7 +3,7 @@
 use crate::blockchains::chains::Chain;
 use crate::crash_point::CrashPoint;
 use crate::shared_schema::{
-    ConfigFile, DataDirectory, LogLevel, MappingProtocol, MinHops, NeighborhoodMode, Neighbors,
+    ConfigFile, DataDirectory, LogLevel, MinHops, NeighborhoodMode, Neighbors,
     OnOff, PaymentThresholds, PublicKey, RatePack, ScanIntervals,
 };
 use crate::shared_schema::{GasPrice, InsecurePort, IpAddrs, PrivateKey, RealUser, Wallet};
@@ -114,7 +114,7 @@ argument_converter_for!(InsecurePort, InsecurePortConverter);
 argument_converter_for!(IpAddr, IpAddrConverter);
 argument_converter_for!(IpAddrs, IpAddrsConverter);
 argument_converter_for!(LogLevel, LogLevelConverter);
-argument_converter_for!(MappingProtocol, MappingProtocolConverter);
+argument_converter_for!(AutomapProtocol, AutomapProtocolConverter);
 argument_converter_for!(MinHops, MinHopsConverter);
 argument_converter_for!(NeighborhoodMode, NeighborhoodModeConverter);
 argument_converter_for!(Neighbors, NeighborsConverter);
@@ -143,7 +143,7 @@ fn make_argument_converters() -> HashMap<&'static str, Box<dyn ArgumentConverter
         make_converter_entry!("gas-price", GasPriceConverter),
         make_converter_entry!("ip", IpAddrConverter),
         make_converter_entry!("log-level", LogLevelConverter),
-        make_converter_entry!("mapping-protocol", MappingProtocolConverter),
+        make_converter_entry!("mapping-protocol", AutomapProtocolConverter),
         make_converter_entry!("min-hops", MinHopsConverter),
         make_converter_entry!("neighborhood-mode", NeighborhoodModeConverter),
         make_converter_entry!("neighbors", NeighborsConverter),

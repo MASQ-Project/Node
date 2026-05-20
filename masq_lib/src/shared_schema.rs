@@ -1,4 +1,5 @@
 use crate::blockchains::chains::Chain;
+use crate::utils::AutomapProtocol;
 use crate::constants::{
     DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, DEV_CHAIN_FULL_IDENTIFIER, ETH_MAINNET_FULL_IDENTIFIER,
     ETH_ROPSTEN_FULL_IDENTIFIER, HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT,
@@ -425,7 +426,7 @@ pub fn shared_app(head: Command) -> Command {
             .long("mapping-protocol")
             .value_name("MAPPING-PROTOCOL")
             .num_args(ValueRange::new(0..=1))
-            .value_parser(value_parser!(MappingProtocol))
+            .value_parser(value_parser!(AutomapProtocol))
             .help(MAPPING_PROTOCOL_HELP),
     )
     .arg(
@@ -857,37 +858,6 @@ impl Display for NeighborhoodMode {
             Self::OriginateOnly => "originate-only",
             Self::ConsumeOnly => "consume-only",
             Self::Standard => "standard",
-        };
-        write!(f, "{}", name)
-    }
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub enum MappingProtocol {
-    Pcp,
-    Pmp,
-    Igdp,
-}
-
-impl FromStr for MappingProtocol {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "pcp" => Ok(Self::Pcp),
-            "pmp" => Ok(Self::Pmp),
-            "igdp" => Ok(Self::Igdp),
-            _ => Err(format!("Unrecognized mapping-protocol value '{}'", s)),
-        }
-    }
-}
-
-impl Display for MappingProtocol {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let name = match self {
-            Self::Pcp => "pcp",
-            Self::Pmp => "pmp",
-            Self::Igdp => "igdp",
         };
         write!(f, "{}", name)
     }
@@ -2038,35 +2008,35 @@ mod tests {
 
         let result = inputs
             .into_iter()
-            .map(|input| MappingProtocol::from_str(input).unwrap())
+            .map(|input| AutomapProtocol::from_str(input).unwrap())
             .collect_vec();
 
         assert_eq!(
             result,
             vec![
-                MappingProtocol::Pcp,
-                MappingProtocol::Pmp,
-                MappingProtocol::Igdp,
+                AutomapProtocol::Pcp,
+                AutomapProtocol::Pmp,
+                AutomapProtocol::Igdp,
             ]
         )
     }
 
     #[test]
     fn mapping_protocol_detects_invalid_value() {
-        let result = MappingProtocol::from_str("booga");
+        let result = AutomapProtocol::from_str("booga");
 
         assert_eq!(
             result,
-            Err("Unrecognized mapping-protocol value 'booga'".to_string())
+            Err("Valid protocol names are PCP, PMP, and IGDP; not 'booga'".to_string())
         )
     }
 
     #[test]
     fn mapping_protocol_displays_properly() {
         let inputs = vec![
-            MappingProtocol::Pcp,
-            MappingProtocol::Pmp,
-            MappingProtocol::Igdp,
+            AutomapProtocol::Pcp,
+            AutomapProtocol::Pmp,
+            AutomapProtocol::Igdp,
         ];
 
         let result = inputs
@@ -2076,7 +2046,7 @@ mod tests {
 
         assert_eq!(
             result,
-            vec!["pcp", "pmp", "igdp"]
+            vec!["PCP", "PMP", "IGDP"]
                 .into_iter()
                 .map(|x| x.to_string())
                 .collect_vec()

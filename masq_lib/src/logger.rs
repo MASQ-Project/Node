@@ -7,6 +7,7 @@ use crate::constants::{
 };
 use crate::data_version::DataVersion;
 use crate::messages::SerializableLogLevel;
+#[cfg(not(feature = "log_recipient_test"))]
 use crate::messages::{ToMessageBody, UiLogBroadcast};
 use crate::ui_gateway::{MessageTarget, NodeToUiMessage};
 use crate::utils::test_is_running;
@@ -22,6 +23,8 @@ use std::sync::Mutex;
 use std::{io, thread};
 use time::format_description::parse;
 use time::OffsetDateTime;
+#[cfg(feature = "log_recipient_test")]
+use crate::test_utils::arbitrary_id_stamp::MutexIncrementInset;
 
 pub static mut POINTER_TO_FORMAT_FUNCTION: fn(
     &mut dyn io::Write,
@@ -337,7 +340,7 @@ mod tests {
     };
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
-    use crate::ui_gateway::{MessageBody, MessagePath, MessageTarget};
+    use crate::ui_gateway::{MessageBody, MessagePath};
     use actix::{Actor, Context, Handler, Message, System};
     use crossbeam_channel::{unbounded, Sender};
     use lazy_static::lazy_static;

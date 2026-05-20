@@ -898,7 +898,7 @@ impl ValueRetriever for MappingProtocol {
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         let persistent_config_value_opt = persistent_config.mapping_protocol().unwrap_or_default();
         persistent_config_value_opt
-            .map(|protocol| (protocol.to_string().to_lowercase(), Configured))
+            .map(|protocol| (protocol.to_string(), Configured))
     }
 }
 
@@ -1469,7 +1469,7 @@ mod tests {
             ("gas-price", "50", Set),
             ("ip", "4.3.2.1", Set),
             ("log-level", "error", Set),
-            ("mapping-protocol", "pmp", Set),
+            ("mapping-protocol", "PMP", Set),
             ("min-hops", "2", Set),
             ("neighborhood-mode", "originate-only", Set),
             ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
@@ -1499,7 +1499,7 @@ mod tests {
             ("gas-price", "50", Set),
             ("ip", "4.3.2.1", Set),
             ("log-level", "error", Set),
-            ("mapping-protocol", "pmp", Set),
+            ("mapping-protocol", "PMP", Set),
             ("min-hops", "2", Set),
             ("neighborhood-mode", "originate-only", Set),
             ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
@@ -1574,7 +1574,7 @@ mod tests {
             ("gas-price", "50", Set),
             ("ip", "4.3.2.1", Set),
             ("log-level", "error", Set),
-            ("mapping-protocol", "igdp", Set),
+            ("mapping-protocol", "IGDP", Set),
             ("min-hops", "2", Set),
             ("neighborhood-mode", "originate-only", Set),
             ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
@@ -1647,7 +1647,7 @@ mod tests {
             ("gas-price", "50", Configured),
             ("ip", "4.3.2.1", Configured),
             ("log-level", "error", Configured),
-            ("mapping-protocol", "pmp", Configured),
+            ("mapping-protocol", "PMP", Configured),
             ("min-hops", "2", Configured),
             ("neighborhood-mode", "originate-only", Configured),
             ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Configured),
@@ -1809,7 +1809,7 @@ mod tests {
             ("gas-price", "88", Configured),
             ("ip", "", Blank),
             ("log-level", "debug", Configured),
-            ("mapping-protocol", "pmp", Configured),
+            ("mapping-protocol", "PMP", Configured),
             ("min-hops", "2", Configured),
             ("neighborhood-mode", "zero-hop", Configured),
             ("neighbors", "", Blank),
@@ -1922,7 +1922,7 @@ mod tests {
             ("gas-price", "5", Set),
             ("ip", "1.2.3.4", Set),
             ("log-level", "error", Set),
-            ("mapping-protocol", "pcp", Set),
+            ("mapping-protocol", "PCP", Set),
             ("min-hops", "4", Set),
             ("neighborhood-mode", "consume-only", Set),
             (
@@ -1960,7 +1960,7 @@ mod tests {
             ("gas-price", "50", Configured),
             ("ip","", Blank),
             ("log-level", "error", Configured),
-            ("mapping-protocol", "pcp", Configured),
+            ("mapping-protocol", "PCP", Configured),
             ("min-hops", "2", Configured),
             ("neighborhood-mode", "originate-only", Configured),
             ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Configured),
