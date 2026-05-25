@@ -127,7 +127,7 @@ impl SubsFactory<Accountant, AccountantSubs> for AccountantSubsFactoryReal {
 }
 
 pub trait AccountableServiceWithTraceLog {
-    fn maybe_log_trace(&self, logger: &Logger, msg_id: u32){
+    fn maybe_log_trace(&self, logger: &Logger, msg_id: u32) {
         logger.trace(|| self.compose_msg(msg_id))
     }
     fn compose_msg(&self, msg_id: u32) -> String;

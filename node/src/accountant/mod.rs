@@ -643,7 +643,11 @@ impl Accountant {
                 ),
                 Err(e) => panic!("Was recording services provided for {} but hit a fatal database error: {:?}", wallet, e)
             }
-            Some(NewCharge::new(wallet.address(), total_charge, service.payload_size))
+            Some(NewCharge::new(
+                wallet.address(),
+                total_charge,
+                service.payload_size,
+            ))
         } else {
             warning!(
                 self.logger,
@@ -761,26 +765,20 @@ impl Accountant {
         let msg_id = self.logging_utils.msg_id_generator.new_id();
         msg.exit.maybe_log_trace(&self.logger, msg_id);
 
-        let charge_container =
-            NewChargesDebugContainer::new(&self.logger);
+        let charge_container = NewChargesDebugContainer::new(&self.logger);
 
-        let charge_container =
-            self.handle_exit_service_consumed(&msg, charge_container);
+        let charge_container = self.handle_exit_service_consumed(&msg, charge_container);
 
-        let charge_container =
-            self.handle_routing_services_consumed(&msg, charge_container);
+        let charge_container = self.handle_routing_services_consumed(&msg, charge_container);
 
-        self.maybe_log_debug_stats(
-            AccountingMsgType::ServicesConsumed,
-            charge_container.into(),
-        );
+        self.maybe_log_debug_stats(AccountingMsgType::ServicesConsumed, charge_container.into());
     }
 
     fn handle_exit_service_consumed(
         &mut self,
         msg: &ReportServicesConsumedMessage,
         new_charges: NewChargesDebugContainer,
-    )->NewChargesDebugContainer {
+    ) -> NewChargesDebugContainer {
         let exit_charge_opt = self.record_service_consumed(
             msg.exit.service_rate,
             msg.exit.byte_rate,
@@ -821,11 +819,7 @@ impl Accountant {
             })
     }
 
-    fn maybe_log_debug_stats(
-        &mut self,
-        msg_type: AccountingMsgType,
-        charges: Vec<NewCharge>,
-    ) {
+    fn maybe_log_debug_stats(&mut self, msg_type: AccountingMsgType, charges: Vec<NewCharge>) {
         if charges.is_empty() {
             return;
         }
@@ -833,11 +827,11 @@ impl Accountant {
         let log_window_size = self.logging_utils.accounting_msg_log_window;
 
         if self.logger.debug_enabled() {
-            if let Some(loggable_stats) = self.logging_utils.accounting_msg_tracker.process_another_msg(
-                msg_type,
-                charges,
-                log_window_size,
-            ) {
+            if let Some(loggable_stats) = self
+                .logging_utils
+                .accounting_msg_tracker
+                .process_another_msg(msg_type, charges, log_window_size)
+            {
                 debug!(self.logger, "{}", loggable_stats);
             }
         }
@@ -4535,11 +4529,11 @@ mod tests {
             more_money_receivable_parameters[0],
             (now, make_wallet("booga"), (1 * 42) + (1234 * 24))
         );
-        TestLogHandler::new()
-            .exists_log_containing(&format!("DEBUG: {test_name}: \
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: \
             Debits from last 1 RoutingServiceProvided messages [wei | bytes]:\n\
             0x000000000000000000000000000000626f6f6761: 29658 | 1234"
-            ));
+        ));
     }
 
     #[test]
@@ -4682,11 +4676,11 @@ mod tests {
             more_money_receivable_parameters[0],
             (now, make_wallet("booga"), (1 * 42) + (1234 * 24))
         );
-        TestLogHandler::new()
-            .exists_log_containing(&format!("DEBUG: {test_name}: \
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: \
             Debits from last 1 ExitServiceProvided messages [wei | bytes]:\n\
             0x000000000000000000000000000000626f6f6761: 29658 | 1234"
-            ));
+        ));
     }
 
     #[test]
@@ -4861,12 +4855,13 @@ mod tests {
                 )
             ]
         );
-        TestLogHandler::new()
-            .exists_log_containing(&format!("DEBUG: {test_name}: \
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: \
             Debits from last 1 ServicesConsumed messages [wei | bytes]:\n\
             0x0000000000000000000000726f7574696e672032: 114100 | 3456\n\
             0x0000000000000000000000726f7574696e672031: 82986 | 3456\n\
-            0x0000000000000000000000000000000065786974: 36120 | 1200"));
+            0x0000000000000000000000000000000065786974: 36120 | 1200"
+        ));
     }
 
     fn assert_that_we_do_not_charge_our_own_wallet_for_consumed_services(

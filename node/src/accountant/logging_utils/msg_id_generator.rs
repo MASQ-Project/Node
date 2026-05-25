@@ -24,7 +24,9 @@ impl MessageIdGenerator for MessageIdGeneratorReal {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::logging_utils::msg_id_generator::{MessageIdGenerator, MessageIdGeneratorReal};
+    use crate::accountant::logging_utils::msg_id_generator::{
+        MessageIdGenerator, MessageIdGeneratorReal,
+    };
     use crate::sub_lib::accountant::MSG_ID_INCREMENTER;
     use std::sync::atomic::Ordering;
     use std::sync::Mutex;

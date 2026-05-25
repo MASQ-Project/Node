@@ -56,12 +56,12 @@ impl AccountingMsgTracker {
             AccountingMsgType::RoutingServiceProvided => self
                 .routing_provided_stats
                 .log_if(log_window_size, msg_type),
-            AccountingMsgType::ExitServiceProvided => self
-                .exit_provided_stats
-                .log_if(log_window_size, msg_type),
-            AccountingMsgType::ServicesConsumed => self
-                .consumed_stats
-                .log_if(log_window_size, msg_type),
+            AccountingMsgType::ExitServiceProvided => {
+                self.exit_provided_stats.log_if(log_window_size, msg_type)
+            }
+            AccountingMsgType::ServicesConsumed => {
+                self.consumed_stats.log_if(log_window_size, msg_type)
+            }
         }
     }
 }
@@ -92,11 +92,11 @@ pub struct LoggableDebugStats {
 
 impl LoggableDebugStats {
     pub fn stats(&self) -> Vec<String> {
-        self
-            .accounting_msg_stats
+        self.accounting_msg_stats
             .iter()
-            .sorted_by(|(address_a, stats_a), (address_b,stats_b)|
-                Ord::cmp(&stats_b.wei, &stats_a.wei).then(Ord::cmp(&address_b, &address_a)))
+            .sorted_by(|(address_a, stats_a), (address_b, stats_b)| {
+                Ord::cmp(&stats_b.wei, &stats_a.wei).then(Ord::cmp(&address_b, &address_a))
+            })
             .map(|(address, stats)| format!("{:?}: {} | {}", address, stats.wei, stats.bytes))
             .collect()
     }
@@ -200,7 +200,10 @@ impl From<NewChargesDebugContainer> for Vec<NewCharge> {
 
 #[cfg(test)]
 mod tests {
-    use super::{AccountingMsgDebugStats, AccountingMsgTracker, AccountingMsgType, AddressStats, LoggableDebugStats, NewCharge, NewChargesDebugContainer};
+    use super::{
+        AccountingMsgDebugStats, AccountingMsgTracker, AccountingMsgType, AddressStats,
+        LoggableDebugStats, NewCharge, NewChargesDebugContainer,
+    };
     use crate::blockchain::test_utils::make_address;
     use itertools::Itertools;
     use log::Level;
@@ -236,7 +239,6 @@ mod tests {
         assert_eq!(subject.should_log_stats(log_window), true);
     }
 
-
     #[test]
     fn test_loggable_count_works_for_routing_service_provided() {
         test_process_another_msg(AccountingMsgType::RoutingServiceProvided, 6);
@@ -253,15 +255,13 @@ mod tests {
     }
 
     fn test_process_another_msg(msg_type: AccountingMsgType, log_window_size: u16) {
-        let mut msgs_with_charges =
-            generate_msgs(log_window_size);
+        let mut msgs_with_charges = generate_msgs(log_window_size);
         let expected_sorted_stats = derive_expected_sorted_stats(&msgs_with_charges);
         let mut subject = AccountingMsgTracker::default();
 
         assert_empty_stats(&subject);
 
-        let msg_matching_the_window_size =
-            msgs_with_charges.remove(log_window_size as usize - 1);
+        let msg_matching_the_window_size = msgs_with_charges.remove(log_window_size as usize - 1);
         let initial_few_charge_msgs = msgs_with_charges;
 
         assert_msg_window_size_minus_one(
@@ -271,7 +271,13 @@ mod tests {
             initial_few_charge_msgs,
         );
 
-        test_matching_the_log_window(&mut subject, msg_type, msg_matching_the_window_size, log_window_size, expected_sorted_stats);
+        test_matching_the_log_window(
+            &mut subject,
+            msg_type,
+            msg_matching_the_window_size,
+            log_window_size,
+            expected_sorted_stats,
+        );
 
         assert_empty_stats(&subject);
 
@@ -313,13 +319,15 @@ mod tests {
         )
     }
 
-    fn test_matching_the_log_window(subject: &mut AccountingMsgTracker, msg_type: AccountingMsgType, another_msg_with_charges: Vec<NewCharge>, log_window_size: u16, expected_sorted_stats: Vec<(Address, AddressStats)>) {
+    fn test_matching_the_log_window(
+        subject: &mut AccountingMsgTracker,
+        msg_type: AccountingMsgType,
+        another_msg_with_charges: Vec<NewCharge>,
+        log_window_size: u16,
+        expected_sorted_stats: Vec<(Address, AddressStats)>,
+    ) {
         let result = subject
-            .process_another_msg(
-                msg_type,
-                another_msg_with_charges,
-                log_window_size,
-            )
+            .process_another_msg(msg_type, another_msg_with_charges, log_window_size)
             .expect("first try: expected stats dump");
 
         assert_produced_loggable_stats(result, msg_type, log_window_size, expected_sorted_stats);
@@ -336,22 +344,17 @@ mod tests {
             actual_loggable_stats
                 .accounting_msg_stats
                 .into_iter()
-                .sorted_by_key(|(address, _)|*address)
+                .sorted_by_key(|(address, _)| *address)
                 .collect_vec(),
             expected_sorted_stats
         );
-        assert_eq!(
-            actual_loggable_stats.log_window_size,
-            log_window_size
-        );
+        assert_eq!(actual_loggable_stats.log_window_size, log_window_size);
     }
 
     fn retest_after_emptied(subject: &mut AccountingMsgTracker, msg_type: AccountingMsgType) {
         const QUICK_RETEST_WINDOW_SIZE: u16 = 2;
-        let mut new_charges_feeds_per_msg =
-            generate_msgs(QUICK_RETEST_WINDOW_SIZE);
-        let expected_sorted_stats =
-            derive_expected_sorted_stats(&new_charges_feeds_per_msg);
+        let mut new_charges_feeds_per_msg = generate_msgs(QUICK_RETEST_WINDOW_SIZE);
+        let expected_sorted_stats = derive_expected_sorted_stats(&new_charges_feeds_per_msg);
 
         let result = subject.process_another_msg(
             msg_type,
@@ -439,7 +442,10 @@ mod tests {
         )));
 
         let collected_charges: Vec<NewCharge> = container.into();
-        assert_eq!(collected_charges, vec![new_charge_1, new_charge_2, new_charge_3]);
+        assert_eq!(
+            collected_charges,
+            vec![new_charge_1, new_charge_2, new_charge_3]
+        );
     }
 
     #[test]
