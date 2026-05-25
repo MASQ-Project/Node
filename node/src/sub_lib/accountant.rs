@@ -127,10 +127,10 @@ impl SubsFactory<Accountant, AccountantSubs> for AccountantSubsFactoryReal {
 }
 
 pub trait AccountableServiceWithTraceLog {
-    fn log_trace(&self, (logger, msg_id): (&Logger, u32)) {
-        logger.trace(|| self.trace_log_msg(msg_id))
+    fn maybe_log_trace(&self, logger: &Logger, msg_id: u32){
+        logger.trace(|| self.compose_msg(msg_id))
     }
-    fn trace_log_msg(&self, msg_id: u32) -> String;
+    fn compose_msg(&self, msg_id: u32) -> String;
 }
 
 pub trait MessageWithServicesProvided {
@@ -178,7 +178,7 @@ impl MessageWithServicesProvided for ReportRoutingServiceProvidedMessage {
 }
 
 impl AccountableServiceWithTraceLog for ServiceProvidedTraceLogWrapper<'_> {
-    fn trace_log_msg(&self, msg_id: u32) -> String {
+    fn compose_msg(&self, msg_id: u32) -> String {
         match self {
             ServiceProvidedTraceLogWrapper::ExitServiceProvided(service) => {
                 format!(
@@ -217,7 +217,7 @@ pub struct ReportServicesConsumedMessage {
 }
 
 impl AccountableServiceWithTraceLog for ExitServiceConsumed {
-    fn trace_log_msg(&self, msg_id: u32) -> String {
+    fn compose_msg(&self, msg_id: u32) -> String {
         format!(
             "Msg {}: Accruing debt to {} for consuming {} exited bytes",
             msg_id, self.earning_wallet, self.payload_size
@@ -226,7 +226,7 @@ impl AccountableServiceWithTraceLog for ExitServiceConsumed {
 }
 
 impl<'a> AccountableServiceWithTraceLog for RoutingServiceConsumedTraceLogWrapper<'a> {
-    fn trace_log_msg(&self, msg_id: u32) -> String {
+    fn compose_msg(&self, msg_id: u32) -> String {
         format!(
             "Msg {}: Accruing debt to {} for consuming {} routed bytes",
             msg_id, self.service.earning_wallet, self.routing_payload_size
@@ -424,10 +424,10 @@ mod tests {
             AccountingMsgType::RoutingServiceProvided
         );
         assert!(exit_service_provided_trace_log_wrapper
-            .trace_log_msg(1)
+            .compose_msg(1)
             .contains("Msg 1: Charging exit"));
         assert!(routing_service_provided_trace_log_wrapper
-            .trace_log_msg(2)
+            .compose_msg(2)
             .contains("Msg 2: Charging routing"));
     }
 }
