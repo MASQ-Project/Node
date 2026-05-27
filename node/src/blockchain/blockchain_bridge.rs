@@ -538,7 +538,7 @@ struct PendingTxInfo {
     when_sent: SystemTime,
 }
 
-pub fn increase_gas_price_by_margin(gas_price: u128) -> u128 {
+pub fn apply_gas_price_buffer(gas_price: u128) -> u128 {
     (gas_price * (100 + DEFAULT_GAS_PRICE_MARGIN as u128)) / 100
 }
 
@@ -771,7 +771,7 @@ mod tests {
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
         let blockchain_agent_with_context_msg_actual: &PricedTemplatesMessage =
             accountant_received_payment.get_record(0);
-        let computed_gas_price_wei = increase_gas_price_by_margin(0x230000000);
+        let computed_gas_price_wei = apply_gas_price_buffer(0x230000000);
         let expected_tx_templates = tx_templates
             .iter()
             .map(|tx_template| PricedNewTxTemplate {
@@ -2224,8 +2224,8 @@ mod tests {
     }
 
     #[test]
-    fn increase_gas_price_by_margin_works() {
-        assert_eq!(increase_gas_price_by_margin(1_000_000_000), 1_300_000_000);
-        assert_eq!(increase_gas_price_by_margin(9_000_000_000), 11_700_000_000);
+    fn apply_gas_price_buffer_works() {
+        assert_eq!(apply_gas_price_buffer(1_000_000_000), 1_300_000_000);
+        assert_eq!(apply_gas_price_buffer(9_000_000_000), 11_700_000_000);
     }
 }

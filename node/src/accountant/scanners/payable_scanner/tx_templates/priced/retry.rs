@@ -4,7 +4,7 @@ use crate::accountant::scanners::payable_scanner::tx_templates::initial::retry::
     RetryTxTemplate, RetryTxTemplates,
 };
 use crate::accountant::scanners::payable_scanner::tx_templates::BaseTxTemplate;
-use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
+use crate::blockchain::blockchain_bridge::apply_gas_price_buffer;
 use masq_lib::logger::Logger;
 use std::ops::{Deref, DerefMut};
 use thousands::Separable;
@@ -49,7 +49,7 @@ impl PricedRetryTxTemplate {
     fn compute_gas_price(latest_gas_price_wei: u128, prev_gas_price_wei: u128) -> u128 {
         let gas_price_wei = latest_gas_price_wei.max(prev_gas_price_wei);
 
-        increase_gas_price_by_margin(gas_price_wei)
+        apply_gas_price_buffer(gas_price_wei)
     }
 }
 

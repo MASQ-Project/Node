@@ -118,7 +118,7 @@ mod tests {
         BlockchainAgentWeb3, WEB3_MAXIMAL_GAS_LIMIT_MARGIN,
     };
     use crate::blockchain::blockchain_agent::BlockchainAgent;
-    use crate::blockchain::blockchain_bridge::increase_gas_price_by_margin;
+    use crate::blockchain::blockchain_bridge::apply_gas_price_buffer;
     use crate::test_utils::make_wallet;
     use itertools::{Either, Itertools};
     use masq_lib::blockchains::chains::Chain;
@@ -155,7 +155,7 @@ mod tests {
 
         let result = subject.price_qualified_payables(Either::Left(new_tx_templates.clone()));
 
-        let gas_price_with_margin_wei = increase_gas_price_by_margin(rpc_gas_price_wei);
+        let gas_price_with_margin_wei = apply_gas_price_buffer(rpc_gas_price_wei);
         let expected_result = Either::Left(PricedNewTxTemplates::new(
             new_tx_templates,
             gas_price_with_margin_wei,
@@ -206,11 +206,11 @@ mod tests {
 
         let expected_result = {
             let price_wei_for_accounts_from_1_to_5 = vec![
-                increase_gas_price_by_margin(rpc_gas_price_wei),
-                increase_gas_price_by_margin(rpc_gas_price_wei),
-                increase_gas_price_by_margin(rpc_gas_price_wei + 1),
-                increase_gas_price_by_margin(rpc_gas_price_wei),
-                increase_gas_price_by_margin(rpc_gas_price_wei + 456_789),
+                apply_gas_price_buffer(rpc_gas_price_wei),
+                apply_gas_price_buffer(rpc_gas_price_wei),
+                apply_gas_price_buffer(rpc_gas_price_wei + 1),
+                apply_gas_price_buffer(rpc_gas_price_wei),
+                apply_gas_price_buffer(rpc_gas_price_wei + 456_789),
             ];
             if price_wei_for_accounts_from_1_to_5.len() != retry_tx_templates.len() {
                 panic!("Corrupted test")
@@ -240,7 +240,7 @@ mod tests {
         // Adding just 1 didn't work, therefore 2
         let rpc_gas_price_wei =
             ((ceiling_gas_price_wei * 100) / (DEFAULT_GAS_PRICE_MARGIN as u128 + 100)) + 2;
-        let check_value_wei = increase_gas_price_by_margin(rpc_gas_price_wei);
+        let check_value_wei = apply_gas_price_buffer(rpc_gas_price_wei);
 
         test_gas_price_must_not_break_through_ceiling_value_in_the_new_payable_mode(
             test_name,
@@ -341,7 +341,7 @@ mod tests {
         // Adding just 1 didn't work, therefore 2
         let rpc_gas_price_wei =
             (ceiling_gas_price_wei * 100) / (DEFAULT_GAS_PRICE_MARGIN as u128 + 100) + 2;
-        let check_value_wei = increase_gas_price_by_margin(rpc_gas_price_wei);
+        let check_value_wei = apply_gas_price_buffer(rpc_gas_price_wei);
         let template_1 = RetryTxTemplateBuilder::new()
             .payable_account(&account_1)
             .prev_gas_price_wei(rpc_gas_price_wei - 1)
@@ -386,7 +386,7 @@ mod tests {
         let border_gas_price_wei =
             (ceiling_gas_price_wei * 100) / (DEFAULT_GAS_PRICE_MARGIN as u128 + 100) + 2;
         let rpc_gas_price_wei = border_gas_price_wei - 1;
-        let check_value_wei = increase_gas_price_by_margin(border_gas_price_wei);
+        let check_value_wei = apply_gas_price_buffer(border_gas_price_wei);
         let template_1 = RetryTxTemplateBuilder::new()
             .payable_account(&account_1)
             .prev_gas_price_wei(border_gas_price_wei)
@@ -603,7 +603,7 @@ mod tests {
         assert_eq!(
             result,
             (2 * (77_777 + WEB3_MAXIMAL_GAS_LIMIT_MARGIN))
-                * increase_gas_price_by_margin(444_555_666)
+                * apply_gas_price_buffer(444_555_666)
         );
     }
 
@@ -646,11 +646,11 @@ mod tests {
         let result = subject.estimate_transaction_fee_total(&priced_qualified_payables);
 
         let gas_prices_for_accounts_from_1_to_5 = vec![
-            increase_gas_price_by_margin(rpc_gas_price_wei),
-            increase_gas_price_by_margin(rpc_gas_price_wei),
-            increase_gas_price_by_margin(rpc_gas_price_wei + 1),
-            increase_gas_price_by_margin(rpc_gas_price_wei),
-            increase_gas_price_by_margin(rpc_gas_price_wei + 456_789),
+            apply_gas_price_buffer(rpc_gas_price_wei),
+            apply_gas_price_buffer(rpc_gas_price_wei),
+            apply_gas_price_buffer(rpc_gas_price_wei + 1),
+            apply_gas_price_buffer(rpc_gas_price_wei),
+            apply_gas_price_buffer(rpc_gas_price_wei + 456_789),
         ];
         let expected_result = gas_prices_for_accounts_from_1_to_5
             .into_iter()
