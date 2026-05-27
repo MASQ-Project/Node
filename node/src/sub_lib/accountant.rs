@@ -126,17 +126,10 @@ impl SubsFactory<Accountant, AccountantSubs> for AccountantSubsFactoryReal {
     }
 }
 
-pub trait AccountableServiceWithTraceLog {
-    fn maybe_log_trace(&self, logger: &Logger, msg_id: u32) {
-        logger.trace(|| self.compose_msg(msg_id))
-    }
-    fn compose_msg(&self, msg_id: u32) -> String;
-}
-
-pub trait MessageWithServicesProvided {
+pub trait ServiceProvidedMsg {
     fn services_provided(&self) -> &ServiceProvided;
     fn msg_type(&self) -> AccountingMsgType;
-    fn trace_log_wrapper(&self) -> ServiceProvidedTraceLogWrapper<'_>;
+    fn trace_log_wrapper(&self) -> ServiceTraceLogWrapper<'_>;
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Message)]
@@ -144,7 +137,7 @@ pub struct ReportExitServiceProvidedMessage {
     pub service: ServiceProvided,
 }
 
-impl MessageWithServicesProvided for ReportExitServiceProvidedMessage {
+impl ServiceProvidedMsg for ReportExitServiceProvidedMessage {
     fn services_provided(&self) -> &ServiceProvided {
         &self.service
     }
@@ -153,8 +146,8 @@ impl MessageWithServicesProvided for ReportExitServiceProvidedMessage {
         AccountingMsgType::ExitServiceProvided
     }
 
-    fn trace_log_wrapper(&self) -> ServiceProvidedTraceLogWrapper<'_> {
-        ServiceProvidedTraceLogWrapper::ExitServiceProvided(&self.service)
+    fn trace_log_wrapper(&self) -> ServiceTraceLogWrapper<'_> {
+        ServiceTraceLogWrapper::Exit(&self.service)
     }
 }
 
@@ -163,7 +156,7 @@ pub struct ReportRoutingServiceProvidedMessage {
     pub service: ServiceProvided,
 }
 
-impl MessageWithServicesProvided for ReportRoutingServiceProvidedMessage {
+impl ServiceProvidedMsg for ReportRoutingServiceProvidedMessage {
     fn services_provided(&self) -> &ServiceProvided {
         &self.service
     }
@@ -172,31 +165,8 @@ impl MessageWithServicesProvided for ReportRoutingServiceProvidedMessage {
         AccountingMsgType::RoutingServiceProvided
     }
 
-    fn trace_log_wrapper(&self) -> ServiceProvidedTraceLogWrapper<'_> {
-        ServiceProvidedTraceLogWrapper::RoutingServiceProvided(&self.service)
-    }
-}
-
-impl AccountableServiceWithTraceLog for ServiceProvidedTraceLogWrapper<'_> {
-    fn compose_msg(&self, msg_id: u32) -> String {
-        match self {
-            ServiceProvidedTraceLogWrapper::ExitServiceProvided(service) => {
-                format!(
-                    "Msg {}: Charging exit service for {} bytes to wallet {} at {} per service and {} per byte",
-                    msg_id,
-                    service.payload_size,
-                    service.paying_wallet,
-                    service.service_rate,
-                    service.byte_rate
-                )
-            }
-            ServiceProvidedTraceLogWrapper::RoutingServiceProvided(service) => {
-                format!(
-                    "Msg {}: Charging routing of {} bytes to wallet {}",
-                    msg_id, service.payload_size, service.paying_wallet
-                )
-            }
-        }
+    fn trace_log_wrapper(&self) -> ServiceTraceLogWrapper<'_> {
+        ServiceTraceLogWrapper::Routing(&self.service)
     }
 }
 
@@ -214,24 +184,6 @@ pub struct ReportServicesConsumedMessage {
     pub timestamp: SystemTime,
     pub exit: ExitServiceConsumed,
     pub routing: RoutingServicesConsumed,
-}
-
-impl AccountableServiceWithTraceLog for ExitServiceConsumed {
-    fn compose_msg(&self, msg_id: u32) -> String {
-        format!(
-            "Msg {}: Accruing debt to {} for consuming {} exited bytes",
-            msg_id, self.earning_wallet, self.payload_size
-        )
-    }
-}
-
-impl<'a> AccountableServiceWithTraceLog for RoutingServiceConsumedTraceLogWrapper<'a> {
-    fn compose_msg(&self, msg_id: u32) -> String {
-        format!(
-            "Msg {}: Accruing debt to {} for consuming {} routed bytes",
-            msg_id, self.service.earning_wallet, self.routing_payload_size
-        )
-    }
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -255,9 +207,35 @@ pub struct RoutingServiceConsumed {
     pub byte_rate: u64,
 }
 
-pub enum ServiceProvidedTraceLogWrapper<'a> {
-    ExitServiceProvided(&'a ServiceProvided),
-    RoutingServiceProvided(&'a ServiceProvided),
+pub enum ServiceTraceLogWrapper<'a> {
+    Exit(&'a ServiceProvided),
+    Routing(&'a ServiceProvided),
+}
+
+impl ServiceTraceLogWrapper<'_> {
+    pub fn maybe_log_trace(&self, logger: &Logger, msg_id: u32) {
+        logger.trace(|| self.compose_msg(msg_id))
+    }
+    fn compose_msg(&self, msg_id: u32) -> String {
+        match self {
+            Self::Exit(service) => {
+                format!(
+                    "Msg {}: Charging exit service for {} bytes to wallet {} at {} per service and {} per byte",
+                    msg_id,
+                    service.payload_size,
+                    service.paying_wallet,
+                    service.service_rate,
+                    service.byte_rate
+                )
+            }
+            Self::Routing(service) => {
+                format!(
+                    "Msg {}: Charging routing of {} bytes to wallet {}",
+                    msg_id, service.payload_size, service.paying_wallet
+                )
+            }
+        }
+    }
 }
 
 pub struct RoutingServiceConsumedTraceLogWrapper<'a> {
@@ -293,10 +271,10 @@ mod tests {
     use crate::accountant::test_utils::AccountantBuilder;
     use crate::accountant::{checked_conversion, Accountant};
     use crate::sub_lib::accountant::{
-        AccountableServiceWithTraceLog, AccountantSubsFactoryReal, DetailedScanType,
-        MessageWithServicesProvided, PaymentThresholds, ReportExitServiceProvidedMessage,
-        ReportRoutingServiceProvidedMessage, ScanIntervals, ServiceProvided, SubsFactory,
-        DEFAULT_EARNING_WALLET, DEFAULT_PAYMENT_THRESHOLDS, TEMPORARY_CONSUMING_WALLET,
+        AccountantSubsFactoryReal, DetailedScanType, PaymentThresholds,
+        ReportExitServiceProvidedMessage, ReportRoutingServiceProvidedMessage, ScanIntervals,
+        ServiceProvided, ServiceProvidedMsg, SubsFactory, DEFAULT_EARNING_WALLET,
+        DEFAULT_PAYMENT_THRESHOLDS, TEMPORARY_CONSUMING_WALLET,
     };
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;

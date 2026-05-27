@@ -323,8 +323,8 @@ mod tests {
     #[test]
     fn handle_ui_crash_message_does_not_crash_if_not_crashable() {
         init_test_logging();
-        let mut logger = Logger::new("handle_ui_crash_message_does_not_crash_if_not_crashable");
-        logger.set_level_for_test(Level::Info);
+        let test_name = "handle_ui_crash_message_does_not_crash_if_not_crashable";
+        let logger = Logger::new(test_name).set_test_log_level(Level::Info);
         let msg_body = UiCrashRequest {
             actor: "CRASHKEY".to_string(),
             panic_message: "Foiled again!".to_string(),

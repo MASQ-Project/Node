@@ -8,7 +8,7 @@ use crate::accountant::logging_utils::msg_id_generator::{
     MessageIdGenerator, MessageIdGeneratorReal,
 };
 
-const ACCOUNTING_MSG_LOG_WINDOW: u16 = 50;
+const ACCOUNTING_MSG_LOG_WINDOW: u16 = 200;
 
 pub struct LoggingUtils {
     pub accounting_msg_tracker: AccountingMsgTracker,
@@ -32,7 +32,7 @@ mod tests {
 
     #[test]
     fn constants_have_right_values() {
-        assert_eq!(ACCOUNTING_MSG_LOG_WINDOW, 50);
+        assert_eq!(ACCOUNTING_MSG_LOG_WINDOW, 200);
     }
 
     #[test]

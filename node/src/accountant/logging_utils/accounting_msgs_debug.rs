@@ -7,9 +7,12 @@ use std::fmt::{Display, Formatter};
 use std::iter::once;
 use web3::types::Address;
 
-// An attempt to provide somewhat useful debug stats for the accounting messages after we have
-// decreased the log level for lots of them, and it drastically reduced the observability
-// of the Accountant.
+// Lightweight debug statistics intended to restore some observability lost after
+// lowering the log level of frequently emitted accounting messages.
+//
+// The implementation avoids overhead when debug logging is disabled. Since trace logs
+// already provide more detailed information, some debug and trace messages are mutually
+// exclusive and do not use this utility.
 
 #[derive(Default)]
 pub struct AccountingMsgTracker {
@@ -171,6 +174,7 @@ pub enum AccountingMsgType {
 
 pub struct NewChargesDebugContainer {
     debug_enabled: bool,
+    trace_enabled: bool,
     vec: Vec<NewCharge>,
 }
 
@@ -178,12 +182,13 @@ impl NewChargesDebugContainer {
     pub fn new(logger: &Logger) -> Self {
         Self {
             debug_enabled: logger.debug_enabled(),
+            trace_enabled: logger.trace_enabled(),
             vec: vec![],
         }
     }
 
     pub fn add_new_charge(mut self, new_charge_opt: Option<NewCharge>) -> Self {
-        if self.debug_enabled {
+        if self.debug_enabled && !self.trace_enabled {
             if let Some(new_charge) = new_charge_opt {
                 self.vec.push(new_charge);
             }
@@ -240,17 +245,17 @@ mod tests {
     }
 
     #[test]
-    fn test_loggable_count_works_for_routing_service_provided() {
+    fn process_another_msg_works_for_routing_service_provided() {
         test_process_another_msg(AccountingMsgType::RoutingServiceProvided, 6);
     }
 
     #[test]
-    fn test_loggable_count_works_for_exit_service_provided() {
+    fn process_another_msg_works_for_exit_service_provided() {
         test_process_another_msg(AccountingMsgType::ExitServiceProvided, 3);
     }
 
     #[test]
-    fn test_loggable_count_works_for_services_consumed() {
+    fn process_another_msg_works_for_services_consumed() {
         test_process_another_msg(AccountingMsgType::ServicesConsumed, 8);
     }
 
@@ -414,9 +419,31 @@ mod tests {
     }
 
     #[test]
-    fn new_charge_debug_container_when_debug_enabled() {
-        let mut logger = Logger::new("test");
-        logger.set_level_for_test(Level::Debug);
+    fn new_charge_debug_container_when_debug_not_enabled() {
+        let logger = Logger::new("test").set_test_log_level(Level::Info);
+        let container = NewChargesDebugContainer::new(&logger);
+        let new_charge_1 = NewCharge::new(make_address(1), 1234567, 2323);
+        let new_charge_2 = NewCharge::new(make_address(2), 7654321, 4545);
+
+        let container = container.add_new_charge(Some(NewCharge::new(
+            new_charge_1.address,
+            new_charge_1.amount_wei,
+            new_charge_1.bytes,
+        )));
+        let container = container.add_new_charge(None);
+        let container = container.add_new_charge(Some(NewCharge::new(
+            new_charge_2.address,
+            new_charge_2.amount_wei,
+            new_charge_2.bytes,
+        )));
+
+        let collected_charges: Vec<NewCharge> = container.into();
+        assert_eq!(collected_charges, vec![]);
+    }
+
+    #[test]
+    fn new_charge_debug_container_when_debug_is_enabled_but_trace_is_not() {
+        let logger = Logger::new("test").set_test_log_level(Level::Debug);
         let address_1 = make_address(1);
         let address_2 = make_address(2);
         let container = NewChargesDebugContainer::new(&logger);
@@ -449,19 +476,19 @@ mod tests {
     }
 
     #[test]
-    fn new_charge_debug_container_when_debug_not_enabled() {
-        let mut logger = Logger::new("test");
-        logger.set_level_for_test(Level::Info);
+    fn new_charge_debug_container_when_trace_is_enabled() {
+        let logger = Logger::new("test").set_test_log_level(Level::Trace);
+        let address_1 = make_address(1);
+        let address_2 = make_address(2);
         let container = NewChargesDebugContainer::new(&logger);
-        let new_charge_1 = NewCharge::new(make_address(1), 1234567, 2323);
-        let new_charge_2 = NewCharge::new(make_address(2), 7654321, 4545);
+        let new_charge_1 = NewCharge::new(address_1, 1234567, 5432);
+        let new_charge_2 = NewCharge::new(address_2, 7654321, 7890);
 
         let container = container.add_new_charge(Some(NewCharge::new(
             new_charge_1.address,
             new_charge_1.amount_wei,
             new_charge_1.bytes,
         )));
-        let container = container.add_new_charge(None);
         let container = container.add_new_charge(Some(NewCharge::new(
             new_charge_2.address,
             new_charge_2.amount_wei,
