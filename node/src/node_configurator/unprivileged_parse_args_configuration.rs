@@ -18,12 +18,19 @@ use masq_lib::constants::{DEFAULT_CHAIN, MASQ_URL_PREFIX};
 use masq_lib::logger::Logger;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::node_addr::NodeAddr;
-use masq_lib::shared_schema::{ConfiguratorError, GasPrice, Hops, InsecurePort, NeighborDescriptor, Neighbors, ParamError, PublicKey};
+use masq_lib::shared_schema::{
+    ConfigFile as SchemaConfigFile, ConfiguratorError, GasPrice, Hops, InsecurePort, IpAddrs,
+    NeighborDescriptor, Neighbors, OnOff, ParamError,
+    PaymentThresholds as SchemaPaymentThresholds,
+    PrivateKey as SchemaPrivateKey, PublicKey, RatePack as SchemaRatePack,
+    ScanIntervals as SchemaScanIntervals, Wallet as SchemaWallet,
+};
 use masq_lib::utils::{AutomapProtocol, ExpectValue};
 use masq_lib::shared_schema::NeighborhoodMode as SchemaNeighborhoodMode;
 use rustc_hex::FromHex;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
+use url::Url;
 
 pub trait UnprivilegedParseArgsConfiguration {
     // Only initialization that cannot be done with privilege should happen here.
@@ -38,7 +45,7 @@ pub trait UnprivilegedParseArgsConfiguration {
             .blockchain_bridge_config
             .blockchain_service_url_opt =
             if multi_config.is_present("blockchain-service-url") {
-                value_m!(multi_config, "blockchain-service-url", String)
+                value_m!(multi_config, "blockchain-service-url", Url).map(|url| url.to_string())
             } else {
                 match persistent_config.blockchain_service_url() {
                     Ok(Some(price)) => Some(price),
@@ -127,8 +134,10 @@ pub fn get_wallets(
     persistent_config: &mut dyn PersistentConfiguration,
     config: &mut BootstrapperConfig,
 ) -> Result<(), ConfiguratorError> {
-    let mc_consuming_opt = value_m!(multi_config, "consuming-private-key", String);
-    let mc_earning_opt = value_m!(multi_config, "earning-wallet", String);
+    let mc_consuming_opt =
+        value_m!(multi_config, "consuming-private-key", SchemaPrivateKey).map(|v| v.to_string());
+    let mc_earning_opt =
+        value_m!(multi_config, "earning-wallet", SchemaWallet).map(|v| v.to_string());
     let pc_consuming_opt = if let Some(db_password) = &config.db_password_opt {
         match persistent_config.consuming_wallet_private_key(db_password.as_str()) {
             Ok(pco) => pco,
@@ -256,7 +265,7 @@ fn make_neighborhood_mode(
             if neighbor_configs.is_empty() {
                 errors = errors.another_required("neighborhood-mode", "Node cannot run as --neighborhood-mode consume-only without --neighbors specified");
             }
-            if value_m!(multi_config, "dns-servers", String).is_some() {
+            if value_m!(multi_config, "dns-servers", IpAddrs).is_some() {
                 errors = errors.another_required("neighborhood-mode", "Node cannot run as --neighborhood-mode consume-only if --dns-servers is specified");
             }
             if !errors.is_empty() {
@@ -464,27 +473,31 @@ fn configure_accountant_config(
     config: &mut BootstrapperConfig,
     persist_config: &mut dyn PersistentConfiguration,
 ) -> Result<(), ConfiguratorError> {
+    let payment_thresholds_cli_opt = value_m!(
+        multi_config,
+        "payment-thresholds",
+        SchemaPaymentThresholds
+    )
+    .map(|v| parse_combined_parameter("payment-thresholds", v))
+    .transpose()?;
     let payment_thresholds = process_combined_params(
         "payment-thresholds",
-        multi_config,
+        payment_thresholds_cli_opt,
         persist_config,
-        |str: &str| PaymentThresholds::try_from(str),
-        |pc: &dyn PersistentConfiguration| pc.payment_thresholds(),
-        |pc: &mut dyn PersistentConfiguration, curves| pc.set_payment_thresholds(curves),
     )?;
 
     check_payment_thresholds(&payment_thresholds)?;
 
+    let scan_intervals_cli_opt = value_m!(multi_config, "scan-intervals", SchemaScanIntervals)
+        .map(|v| parse_combined_parameter("scan-intervals", v))
+        .transpose()?;
     let scan_intervals = process_combined_params(
         "scan-intervals",
-        multi_config,
+        scan_intervals_cli_opt,
         persist_config,
-        |str: &str| ScanIntervals::try_from(str),
-        |pc: &dyn PersistentConfiguration| pc.scan_intervals(),
-        |pc: &mut dyn PersistentConfiguration, intervals| pc.set_scan_intervals(intervals),
     )?;
-    let suppress_initial_scans =
-        value_m!(multi_config, "scans", String).unwrap_or_else(|| "on".to_string()) == *"off";
+    let suppress_initial_scans = value_m!(multi_config, "scans", OnOff).unwrap_or(OnOff::On)
+        == OnOff::Off;
 
     config.payment_thresholds_opt = Some(payment_thresholds);
     config.scan_intervals_opt = Some(scan_intervals);
@@ -516,56 +529,106 @@ fn configure_rate_pack(
     multi_config: &MultiConfig,
     persist_config: &mut dyn PersistentConfiguration,
 ) -> Result<RatePack, ConfiguratorError> {
+    let rate_pack_cli_opt = value_m!(multi_config, "rate-pack", SchemaRatePack)
+        .map(|v| parse_combined_parameter("rate-pack", v))
+        .transpose()?;
     process_combined_params(
         "rate-pack",
-        multi_config,
+        rate_pack_cli_opt,
         persist_config,
-        |str: &str| RatePack::try_from(str),
-        |pc: &dyn PersistentConfiguration| pc.rate_pack(),
-        |pc: &mut dyn PersistentConfiguration, rate_pack| pc.set_rate_pack(rate_pack),
     )
 }
 
-fn process_combined_params<'a, T: PartialEq, C1, C2>(
-    parameter_name: &'a str,
-    multi_config: &MultiConfig,
-    persist_config: &'a mut dyn PersistentConfiguration,
-    parser: fn(&str) -> Result<T, String>,
-    persistent_config_getter: C1,
-    persistent_config_setter: C2,
-) -> Result<T, ConfiguratorError>
+fn parse_combined_parameter<T, S>(parameter_name: &str, schema_value: S) -> Result<T, ConfiguratorError>
 where
-    C1: Fn(&dyn PersistentConfiguration) -> Result<T, PersistentConfigError>,
-    C2: Fn(&mut dyn PersistentConfiguration, String) -> Result<(), PersistentConfigError>,
+    T: for<'a> TryFrom<&'a str, Error = String>,
+    S: ToString,
 {
-    Ok(
-        match (
-            value_m!(multi_config, parameter_name, String),
-            persistent_config_getter(persist_config),
-        ) {
-            (Some(cli_string_values), pc_result) => {
-                let cli_values: T = parser(&cli_string_values)
-                    .map_err(|e| ConfiguratorError::required(parameter_name, &e))?;
-                let pc_values: T = pc_result.unwrap_or_else(|e| {
-                    panic!("{}: database query failed due to {:?}", parameter_name, e)
-                });
-                if cli_values != pc_values {
-                    persistent_config_setter(persist_config, cli_string_values).unwrap_or_else(
-                        |e| {
-                            panic!(
-                                "{}: writing database failed due to: {:?}",
-                                parameter_name, e
-                            )
-                        },
-                    )
-                }
-                cli_values
+    let schema_value_string = schema_value.to_string();
+    T::try_from(schema_value_string.as_str())
+        .map_err(|e| ConfiguratorError::required(parameter_name, &e))
+}
+
+trait ConfigValue: PartialEq + ToString {
+    fn persistent_config_getter(
+        persistent_config: &dyn PersistentConfiguration,
+    ) -> Result<Self, PersistentConfigError> where Self: Sized;
+
+    fn persistent_config_setter(
+        persistent_config: &mut dyn PersistentConfiguration,
+        value: String,
+    ) -> Result<(), PersistentConfigError>;
+}
+
+impl ConfigValue for PaymentThresholds {
+    fn persistent_config_getter(
+        persistent_config: &dyn PersistentConfiguration,
+    ) -> Result<Self, PersistentConfigError> {
+        persistent_config.payment_thresholds()
+    }
+
+    fn persistent_config_setter(
+        persistent_config: &mut dyn PersistentConfiguration,
+        value: String,
+    ) -> Result<(), PersistentConfigError> {
+        persistent_config.set_payment_thresholds(value)
+    }
+}
+
+impl ConfigValue for ScanIntervals {
+    fn persistent_config_getter(
+        persistent_config: &dyn PersistentConfiguration,
+    ) -> Result<Self, PersistentConfigError> {
+        persistent_config.scan_intervals()
+    }
+
+    fn persistent_config_setter(
+        persistent_config: &mut dyn PersistentConfiguration,
+        value: String,
+    ) -> Result<(), PersistentConfigError> {
+        persistent_config.set_scan_intervals(value)
+    }
+}
+
+impl ConfigValue for RatePack {
+    fn persistent_config_getter(
+        persistent_config: &dyn PersistentConfiguration,
+    ) -> Result<Self, PersistentConfigError> {
+        persistent_config.rate_pack()
+    }
+
+    fn persistent_config_setter(
+        persistent_config: &mut dyn PersistentConfiguration,
+        value: String,
+    ) -> Result<(), PersistentConfigError> {
+        persistent_config.set_rate_pack(value)
+    }
+}
+
+fn process_combined_params<T: ConfigValue>(
+    parameter_name: &str,
+    cli_values_opt: Option<T>,
+    persist_config: &mut dyn PersistentConfiguration,
+) -> Result<T, ConfiguratorError> {
+    Ok(match (cli_values_opt, T::persistent_config_getter(persist_config)) {
+        (Some(cli_values), pc_result) => {
+            let pc_values: T = pc_result
+                .unwrap_or_else(|e| panic!("{}: database query failed due to {:?}", parameter_name, e));
+            if cli_values != pc_values {
+                T::persistent_config_setter(persist_config, cli_values.to_string()).unwrap_or_else(
+                    |e| {
+                        panic!(
+                            "{}: writing database failed due to: {:?}",
+                            parameter_name, e
+                        )
+                    },
+                )
             }
-            (_, pc_result) => pc_result.unwrap_or_else(|e| {
-                panic!("{}: database query failed due to {:?}", parameter_name, e)
-            }),
-        },
-    )
+            cli_values
+        }
+        (_, pc_result) => pc_result
+            .unwrap_or_else(|e| panic!("{}: database query failed due to {:?}", parameter_name, e)),
+    })
 }
 
 fn get_db_password(
@@ -929,7 +992,7 @@ mod tests {
                         "--neighbors",
                         &format!("masq://{identifier}:QmlsbA@1.2.3.4:1234/2345,masq://{identifier}:VGVk@2.3.4.5:3456/4567",identifier = DEFAULT_CHAIN.rec().literal_identifier),
                     )
-                    .param("--fake-public-key", "booga")
+                    .param("--fake-public-key", "abJ5XvhVbmU")
                     .into(),
             ))],
         )
@@ -976,7 +1039,7 @@ mod tests {
                 ArgsBuilder::new()
                     .param("--neighborhood-mode", "consume-only")
                     .param("--dns-servers", "1.1.1.1")
-                    .param("--fake-public-key", "booga")
+                    .param("--fake-public-key", "abJ5XvhVbmU")
                     .into(),
             ))],
         )
@@ -1240,81 +1303,6 @@ mod tests {
     }
 
     #[test]
-    fn convert_ci_configs_handles_leftover_whitespaces_between_descriptors_and_commas() {
-        let multi_config = make_simplified_multi_config([
-            "--chain",
-            "eth-ropsten",
-            "--fake-public-key",
-            "ABCDE", //"abJ5XvhVbmU",
-            "--neighbors",
-            "masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@1.2.3.4:5555, masq://eth-ropsten:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542 , masq://eth-ropsten:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504",
-        ]);
-        let public_key = PublicKey::new(b"irrelevant");
-        let cryptde = CryptDENull::from(&public_key, Chain::EthRopsten);
-        let cryptde_traitified = &cryptde as &dyn CryptDE;
-
-        let result = convert_ci_configs(&multi_config);
-
-        assert_eq!(result, Ok(Some(
-            vec![
-                NodeDescriptor::try_from((cryptde_traitified, "masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@1.2.3.4:5555")).unwrap(),
-                NodeDescriptor::try_from((cryptde_traitified, "masq://eth-ropsten:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542")).unwrap(),
-                NodeDescriptor::try_from((cryptde_traitified, "masq://eth-ropsten:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504")).unwrap()])
-            )
-        )
-    }
-
-    #[test]
-    fn convert_ci_configs_does_not_like_neighbors_with_bad_syntax() {
-        running_test();
-        let multi_config = make_simplified_multi_config(["--neighbors", "ooga,booga"]);
-
-        let result = convert_ci_configs(&multi_config).err();
-
-        assert_eq!(
-            result,
-            Some(ConfiguratorError::new(vec![
-                ParamError::new(
-                    "neighbors",
-                    "Prefix or more missing. Should be 'masq://<chain identifier>:<public key>@<node address>', not 'ooga'"
-                ),
-                ParamError::new(
-                    "neighbors",
-                    "Prefix or more missing. Should be 'masq://<chain identifier>:<public key>@<node address>', not 'booga'"
-                ),
-            ]))
-        );
-    }
-
-    #[test]
-    fn convert_ci_configs_complains_about_descriptor_without_node_address_when_mainnet_required() {
-        let descriptor = format!(
-            "masq://{}:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@:",
-            DEFAULT_CHAIN.rec().literal_identifier
-        );
-        let multi_config = make_simplified_multi_config(["--neighbors", &descriptor]);
-
-        let result = convert_ci_configs(&multi_config);
-
-        assert_eq!(result,Err(ConfiguratorError::new(vec![ParamError::new("neighbors", &format!("Neighbors supplied without ip addresses and ports are not valid: '{}<N/A>:<N/A>",&descriptor[..descriptor.len()-1]))])));
-    }
-
-    #[test]
-    fn convert_ci_configs_complains_about_descriptor_without_node_address_when_test_chain_required()
-    {
-        let multi_config = make_simplified_multi_config([
-            "--chain",
-            "eth-ropsten",
-            "--neighbors",
-            "masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@:",
-        ]);
-
-        let result = convert_ci_configs(&multi_config);
-
-        assert_eq!(result,Err(ConfiguratorError::new(vec![ParamError::new("neighbors", "Neighbors supplied without ip addresses and ports are not valid: 'masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@<N/A>:<N/A>")])))
-    }
-
-    #[test]
     fn configure_zero_hop_with_neighbors_supplied() {
         running_test();
         let set_past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1328,13 +1316,13 @@ mod tests {
             "--chain",
             "eth-ropsten",
             "--neighbors",
-            "masq://eth-ropsten:UJNoZW5p-PDVqEjpr3b_8jZ_93yPG8i5dOAgE1bhK_A@2.3.4.5:2345",
+            "masq://eth-ropsten:UJNoZW5p+PDVqEjpr3b/8jZ/93yPG8i5dOAgE1bhK/A@2.3.4.5:2345",
             "--db-password",
             "password",
             "--neighborhood-mode",
             "zero-hop",
             "--fake-public-key",
-            "booga",
+            "abJ5XvhVbmU",
         ]);
         let subject = UnprivilegedParseArgsConfigurationDaoReal {};
 
@@ -1354,7 +1342,7 @@ mod tests {
             vec![(
                 Some(vec![NodeDescriptor::try_from((
                     main_cryptde(),
-                    "masq://eth-ropsten:UJNoZW5p-PDVqEjpr3b_8jZ_93yPG8i5dOAgE1bhK_A@2.3.4.5:2345"
+                    "masq://eth-ropsten:UJNoZW5p+PDVqEjpr3b/8jZ/93yPG8i5dOAgE1bhK/A@2.3.4.5:2345"
                 ))
                 .unwrap()]),
                 "password".to_string()
@@ -1400,7 +1388,7 @@ mod tests {
         //no results prepared for set_past_neighbors() and no panic so it was not called
         let descriptor_list = vec![NodeDescriptor::try_from((
             main_cryptde(),
-            "masq://eth-ropsten:UJNoZW5p-PDVqEjpr3b_8jZ_93yPG8i5dOAgE1bhK_A@2.3.4.5:2345",
+            "masq://eth-ropsten:UJNoZW5p+PDVqEjpr3b/8jZ/93yPG8i5dOAgE1bhK/A@2.3.4.5:2345",
         ))
         .unwrap()];
 
@@ -1424,7 +1412,7 @@ mod tests {
         );
         let descriptor_list = vec![NodeDescriptor::try_from((
             main_cryptde(),
-            "masq://eth-ropsten:UJNoZW5p-PDVqEjpr3b_8jZ_93yPG8i5dOAgE1bhK_A@2.3.4.5:2345",
+            "masq://eth-ropsten:UJNoZW5p+PDVqEjpr3b/8jZ/93yPG8i5dOAgE1bhK/A@2.3.4.5:2345",
         ))
         .unwrap()];
 
@@ -1519,12 +1507,12 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            value_m!(multi_config, "config-file", PathBuf),
+            value_m!(multi_config, "config-file", SchemaConfigFile).map(|v| v.path),
             Some(PathBuf::from("specified_config.toml")),
         );
         assert_eq!(
             config.blockchain_bridge_config.blockchain_service_url_opt,
-            Some("http://127.0.0.1:8545".to_string())
+            Some("http://127.0.0.1:8545/".to_string())
         );
         assert_eq!(
             config.earning_wallet,
@@ -1622,7 +1610,7 @@ mod tests {
         running_test();
         let args = ArgsBuilder::new()
             .param("--ip", "1.2.3.4")
-            .param("--fake-public-key", "BORSCHT")
+            .param("--fake-public-key", "abJ5XvhVbmU")
             .param("--db-password", "password");
         let mut config = BootstrapperConfig::new();
         config.db_password_opt = Some("password".to_string());
@@ -2044,7 +2032,7 @@ mod tests {
             "--rate-pack",
             "2|3|4|5",
             "--neighbors",
-            "masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342",
+            "masq://polygon-mainnet:d2U3Dv1BqtS5t/Zz3mt9/sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342",
         ];
         let mut config = BootstrapperConfig::new();
         let multi_config = make_simplified_multi_config(args);
@@ -2187,41 +2175,48 @@ mod tests {
 
         let result = make_new_multi_config(&app_node(), vcls).err().unwrap();
 
-        assert_eq!(
-            result,
-            ConfiguratorError::required("consuming-private-key", "Invalid value: not valid hex")
-        )
+        assert_eq!(result.param_errors.len(), 1);
+        assert_eq!(result.param_errors[0].parameter, "<unknown>");
+        assert!(result.param_errors[0]
+            .reason
+            .contains("invalid value 'not valid hex' for '--consuming-private-key"));
+        assert!(result.param_errors[0]
+            .reason
+            .contains("PrivateKey must be 64 hex characters long"));
     }
 
     fn execute_process_combined_params_for_rate_pack(
         multi_config: &MultiConfig,
         persist_config: &mut dyn PersistentConfiguration,
     ) -> Result<RatePack, ConfiguratorError> {
+        let cli_rate_pack_opt = value_m!(multi_config, "rate-pack", SchemaRatePack)
+            .map(|v| parse_combined_parameter("rate-pack", v))
+            .transpose()?;
         process_combined_params(
             "rate-pack",
-            multi_config,
+            cli_rate_pack_opt,
             persist_config,
-            |str: &str| RatePack::try_from(str),
-            |pc: &dyn PersistentConfiguration| pc.rate_pack(),
-            |pc: &mut dyn PersistentConfiguration, rate_pack| pc.set_rate_pack(rate_pack),
         )
     }
 
     #[test]
-    fn process_combined_params_handles_parse_error() {
-        let multi_config = make_simplified_multi_config(["--rate-pack", "8|9"]);
-        let mut persist_config =
-            PersistentConfigurationMock::default().rate_pack_result(Ok(DEFAULT_RATE_PACK));
+    fn process_combined_params_prefers_cli_value_when_present() {
+        let multi_config = make_simplified_multi_config(["--rate-pack", "8|9|10|11"]);
+        let mut persist_config = PersistentConfigurationMock::default()
+            .rate_pack_result(Ok(DEFAULT_RATE_PACK))
+            .set_rate_pack_result(Ok(()));
 
         let result =
             execute_process_combined_params_for_rate_pack(&multi_config, &mut persist_config);
 
         assert_eq!(
             result,
-            Err(ConfiguratorError::required(
-                "rate-pack",
-                "Wrong number of values: expected 4 but 2 supplied"
-            ))
+            Ok(RatePack {
+                routing_byte_rate: 8,
+                routing_service_rate: 9,
+                exit_byte_rate: 10,
+                exit_service_rate: 11,
+            })
         )
     }
 
