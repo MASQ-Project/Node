@@ -9,7 +9,7 @@ use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::neighborhood::{
-    Hops, NeighborhoodConfig, NeighborhoodMode, NodeDescriptor, RatePack,
+    NeighborhoodConfig, NeighborhoodMode, NodeDescriptor, RatePack,
 };
 use crate::sub_lib::wallet::Wallet;
 use itertools::Itertools;
@@ -18,7 +18,7 @@ use masq_lib::constants::{DEFAULT_CHAIN, MASQ_URL_PREFIX};
 use masq_lib::logger::Logger;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::node_addr::NodeAddr;
-use masq_lib::shared_schema::{ConfiguratorError, GasPrice, InsecurePort, ParamError};
+use masq_lib::shared_schema::{ConfiguratorError, GasPrice, Hops, InsecurePort, NeighborDescriptor, Neighbors, ParamError, PublicKey};
 use masq_lib::utils::{AutomapProtocol, ExpectValue};
 use masq_lib::shared_schema::NeighborhoodMode as SchemaNeighborhoodMode;
 use rustc_hex::FromHex;
@@ -340,31 +340,25 @@ fn convert_ci_configs(
     multi_config: &MultiConfig,
 ) -> Result<Option<Vec<NodeDescriptor>>, ConfiguratorError> {
     type DescriptorParsingResult = Result<NodeDescriptor, ParamError>;
-    match value_m!(multi_config, "neighbors", String) {
+    match value_m!(multi_config, "neighbors", Neighbors) {
         None => Ok(None),
-        Some(joined_configs) => {
-            let separate_configs: Vec<String> = joined_configs
-                .split(',')
-                .map(|s| s.to_string())
-                .collect_vec();
-            if separate_configs.is_empty() {
+        Some(neighbors) => {
+            let neighbor_descriptors = neighbors.neighbor_descriptors;
+            if neighbor_descriptors.is_empty() {
                 Ok(None)
             } else {
-                let desired_chain = Chain::from_str(
-                    value_m!(multi_config, "chain", String)
-                        .unwrap_or_else(|| DEFAULT_CHAIN.rec().literal_identifier.to_string())
-                        .as_str(),
-                )
-                .expect("Invalid chain name");
+                let desired_chain =
+                    value_m!(multi_config, "chain", Chain)
+                        .unwrap_or(DEFAULT_CHAIN);
                 let cryptde_for_key_len: Box<dyn CryptDE> = {
-                    if value_m!(multi_config, "fake-public-key", String).is_none() {
+                    if value_m!(multi_config, "fake-public-key", PublicKey).is_none() {
                         Box::new(CryptDEReal::new(desired_chain))
                     } else {
                         Box::new(CryptDENull::new(desired_chain))
                     }
                 };
                 let results = validate_descriptors_from_user(
-                    separate_configs,
+                    neighbor_descriptors,
                     cryptde_for_key_len,
                     desired_chain,
                 );
@@ -389,54 +383,36 @@ fn convert_ci_configs(
 }
 
 fn validate_descriptors_from_user(
-    descriptors: Vec<String>,
+    descriptors: Vec<NeighborDescriptor>,
     cryptde_for_key_len: Box<dyn CryptDE>,
     desired_native_chain: Chain,
 ) -> Vec<Result<NodeDescriptor, ParamError>> {
-    descriptors.into_iter().map(|node_desc_from_ci| {
-        let node_desc_trimmed = node_desc_from_ci.trim();
-        match NodeDescriptor::try_from((cryptde_for_key_len.as_ref(), node_desc_trimmed)) {
-            Ok(descriptor) => {
-                let competence_from_descriptor = descriptor.blockchain;
-                if desired_native_chain == competence_from_descriptor {
-                    validate_mandatory_node_addr(node_desc_trimmed, descriptor)
-                } else {
-                    let desired_chain = desired_native_chain.rec().literal_identifier;
-                    Err(ParamError::new(
-                        "neighbors", &format!(
-                            "Mismatched chains. You are requiring access to '{}' ({}{}:<public key>@<node address>) with descriptor belonging to '{}'",
-                            desired_chain, MASQ_URL_PREFIX,
-                            desired_chain,
-                            competence_from_descriptor.rec().literal_identifier
-                        )
-                    ))
-                }
+    descriptors.into_iter().map(|neighbor_desc_from_ci| {
+        let rendered = neighbor_desc_from_ci.to_string();
+        let descriptor = match NodeDescriptor::try_from((cryptde_for_key_len.as_ref(), neighbor_desc_from_ci)) {
+            Ok(descriptor) => descriptor,
+            Err(e) => {
+                return Err(ParamError::new(
+                    "neighbors",
+                    &format!("Invalid neighbor descriptor: {}, error: {:?}", rendered, e)
+                ))
             }
-            Err(e) => Err(ParamError::new("neighbors", &e))
+        };
+        let competence_from_descriptor = descriptor.blockchain;
+        if desired_native_chain == competence_from_descriptor {
+            Ok(descriptor)
+        } else {
+            let desired_chain = desired_native_chain.rec().literal_identifier;
+            Err(ParamError::new(
+                "neighbors", &format!(
+                    "Mismatched chains. You are requiring access to '{}' ({}{}:<public key>@<node address>) with descriptor belonging to '{}'",
+                    desired_chain, MASQ_URL_PREFIX,
+                    desired_chain,
+                    competence_from_descriptor.rec().literal_identifier
+                )
+            ))
         }
-    })
-        .collect_vec()
-}
-
-fn validate_mandatory_node_addr(
-    supplied_descriptor: &str,
-    descriptor: NodeDescriptor,
-) -> Result<NodeDescriptor, ParamError> {
-    if descriptor.node_addr_opt.is_some() {
-        Ok(descriptor)
-    } else {
-        Err(ParamError::new(
-            "neighbors",
-            &format!(
-                "Neighbors supplied without ip addresses and ports are not valid: '{}<N/A>:<N/A>",
-                if supplied_descriptor.ends_with("@:") {
-                    supplied_descriptor.strip_suffix(':').expect("logic failed")
-                } else {
-                    supplied_descriptor
-                }
-            ),
-        ))
-    }
+    }).collect_vec()
 }
 
 fn compute_mapping_protocol_opt(
@@ -630,7 +606,7 @@ mod tests {
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
     use crate::sub_lib::accountant::DEFAULT_PAYMENT_THRESHOLDS;
     use crate::sub_lib::cryptde::{PlainData, PublicKey};
-    use crate::sub_lib::neighborhood::{Hops, DEFAULT_RATE_PACK};
+    use crate::sub_lib::neighborhood::{DEFAULT_RATE_PACK};
     use crate::sub_lib::utils::make_new_multi_config;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::neighborhood_test_utils::MIN_HOPS_FOR_TEST;
@@ -655,7 +631,7 @@ mod tests {
     fn convert_ci_configs_handles_blockchain_mismatch() {
         let multi_config = make_simplified_multi_config([
             "--neighbors",
-            "masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@12.23.34.45:5678",
+            "masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw@12.23.34.45:5678",
             "--chain",
             DEFAULT_CHAIN.rec().literal_identifier,
         ]);
@@ -683,7 +659,7 @@ mod tests {
                     .param("--ip", "1.2.3.4")
                     .param(
                         "--neighbors",
-                        &format!("masq://{identifier}:mhtjjdMt7Gyoebtb1yiK0hdaUx6j84noHdaAHeDR1S4@1.2.3.4:1234/2345,masq://{identifier}:Si06R3ulkOjJOLw1r2R9GOsY87yuinHU_IHK2FJyGnk@2.3.4.5:3456/4567",identifier = DEFAULT_CHAIN.rec().literal_identifier),
+                        &format!("masq://{identifier}:mhtjjdMt7Gyoebtb1yiK0hdaUx6j84noHdaAHeDR1S4@1.2.3.4:1234/2345,masq://{identifier}:Si06R3ulkOjJOLw1r2R9GOsY87yuinHU/IHK2FJyGnk@2.3.4.5:3456/4567",identifier = DEFAULT_CHAIN.rec().literal_identifier),
                     )
                     .into(),
             ))]
@@ -710,7 +686,7 @@ mod tests {
                             .unwrap(),
                         NodeDescriptor::try_from((
                             &dummy_cryptde as &dyn CryptDE,
-                            format!("masq://{}:Si06R3ulkOjJOLw1r2R9GOsY87yuinHU_IHK2FJyGnk@2.3.4.5:3456/4567",DEFAULT_CHAIN.rec().literal_identifier).as_str()
+                            format!("masq://{}:Si06R3ulkOjJOLw1r2R9GOsY87yuinHU/IHK2FJyGnk@2.3.4.5:3456/4567",DEFAULT_CHAIN.rec().literal_identifier).as_str()
                         ))
                             .unwrap()
                     ],
@@ -758,7 +734,7 @@ mod tests {
                         "--neighbors",
                         &format!("masq://{identifier}:QmlsbA@1.2.3.4:1234/2345,masq://{identifier}:VGVk@2.3.4.5:3456/4567",identifier = DEFAULT_CHAIN.rec().literal_identifier),
                     )
-                    .param("--fake-public-key", "booga")
+                    .param("--fake-public-key", "abJ5XvhVbmU")
                     .into(),
             ))],
         )
@@ -784,7 +760,7 @@ mod tests {
                 "--neighbors",
                 &format!("masq://{identifier}:QmlsbA@1.2.3.4:1234/2345,masq://{identifier}:VGVk@2.3.4.5:3456/4567",identifier = DEFAULT_CHAIN.rec().literal_identifier),
             )
-            .param("--fake-public-key", "booga")
+            .param("--fake-public-key", "abJ5XvhVbmU")
             .opt("--min-hops");
         let vcl = CommandLineVcl::new(args.into());
         let multi_config = make_new_multi_config(&app_node(), vec![Box::new(vcl)]).unwrap();
@@ -809,7 +785,7 @@ mod tests {
                 "--neighbors",
                 &format!("masq://{identifier}:QmlsbA@1.2.3.4:1234/2345,masq://{identifier}:VGVk@2.3.4.5:3456/4567",identifier = DEFAULT_CHAIN.rec().literal_identifier),
             )
-            .param("--fake-public-key", "booga")
+            .param("--fake-public-key", "abJ5XvhVbmU")
             .param("--min-hops", "100");
         let vcl = CommandLineVcl::new(args.into());
 
@@ -819,7 +795,14 @@ mod tests {
 
         assert_eq!(
             result,
-            ConfiguratorError::required("min-hops", "Invalid value: '100'")
+            ConfiguratorError {
+                param_errors: vec![
+                    ParamError {
+                        parameter: "<unknown>".to_string(),
+                        reason: "Unfamiliar message: error: invalid value '100' for '--min-hops [<MIN_HOPS>]': Unrecognized min-hops value '100'\n\nFor more information, try '--help'.\n".to_string()
+                    }
+                ]
+            }
         );
     }
 
@@ -835,7 +818,7 @@ mod tests {
                         "--neighbors",
                         &format!("masq://{identifier}:QmlsbA@1.2.3.4:1234/2345,masq://{identifier}:VGVk@2.3.4.5:3456/4567",identifier = DEFAULT_CHAIN.rec().literal_identifier),
                     )
-                    .param("--fake-public-key", "booga")
+                    .param("--fake-public-key", "abJ5XvhVbmU")
                     .into(),
             ))],
         )
@@ -868,9 +851,9 @@ mod tests {
                     .param("--neighborhood-mode", "originate-only")
                     .param(
                         "--neighbors",
-                        &format!("masq://{identifier}:QmlsbA@1.2.3.4:1234/2345,masq://{identifier}:VGVk@2.3.4.5:3456/4567",identifier = DEFAULT_CHAIN.rec().literal_identifier),
+                        &format!("masq://{identifier}:VGhlc2UgYXJlIHRoZSB0aW1lcw@1.2.3.4:1234/2345,masq://{identifier}:dGhhdCB0cnkgbWVuJ3Mgc291bHM@2.3.4.5:3456/4567",identifier = DEFAULT_CHAIN.rec().literal_identifier),
                     )
-                    .param("--fake-public-key", "booga")
+                    .param("--fake-public-key", "abJ5XvhVbmU")
                     .into(),
             ))],
         )
@@ -890,7 +873,7 @@ mod tests {
                     NodeDescriptor::try_from((
                         main_cryptde(),
                         format!(
-                            "masq://{}:QmlsbA@1.2.3.4:1234/2345",
+                            "masq://{}:VGhlc2UgYXJlIHRoZSB0aW1lcw@1.2.3.4:1234/2345",
                             DEFAULT_CHAIN.rec().literal_identifier
                         )
                         .as_str()
@@ -899,7 +882,7 @@ mod tests {
                     NodeDescriptor::try_from((
                         main_cryptde(),
                         format!(
-                            "masq://{}:VGVk@2.3.4.5:3456/4567",
+                            "masq://{}:dGhhdCB0cnkgbWVuJ3Mgc291bHM@2.3.4.5:3456/4567",
                             DEFAULT_CHAIN.rec().literal_identifier
                         )
                         .as_str()
@@ -1262,11 +1245,11 @@ mod tests {
             "--chain",
             "eth-ropsten",
             "--fake-public-key",
-            "ABCDE",
+            "ABCDE", //"abJ5XvhVbmU",
             "--neighbors",
             "masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@1.2.3.4:5555, masq://eth-ropsten:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542 , masq://eth-ropsten:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504",
         ]);
-        let public_key = PublicKey::new(b"ABCDE");
+        let public_key = PublicKey::new(b"irrelevant");
         let cryptde = CryptDENull::from(&public_key, Chain::EthRopsten);
         let cryptde_traitified = &cryptde as &dyn CryptDE;
 

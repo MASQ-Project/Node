@@ -21,7 +21,8 @@ use node_lib::sub_lib::accountant::{
 };
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
-use node_lib::sub_lib::neighborhood::{Hops, RatePack, DEFAULT_RATE_PACK, ZERO_RATE_PACK};
+use masq_lib::shared_schema::Hops;
+use node_lib::sub_lib::neighborhood::{RatePack, DEFAULT_RATE_PACK, ZERO_RATE_PACK};
 use node_lib::sub_lib::node_addr::NodeAddr;
 use node_lib::sub_lib::wallet::Wallet;
 use regex::Regex;

@@ -1,4 +1,4 @@
-use crate::blockchains::chains::Chain;
+use crate::blockchains::chains::{chain_from_chain_identifier_opt, Chain};
 use crate::utils::AutomapProtocol;
 use crate::constants::{
     DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, DEV_CHAIN_FULL_IDENTIFIER, ETH_MAINNET_FULL_IDENTIFIER,
@@ -6,8 +6,7 @@ use crate::constants::{
     POLYGON_MAINNET_FULL_IDENTIFIER, POLYGON_MUMBAI_FULL_IDENTIFIER,
 };
 use crate::crash_point::CrashPoint;
-use crate::node_addr::NodeAddr;
-use base64::prelude::BASE64_STANDARD_NO_PAD;
+use base64::prelude::{BASE64_STANDARD_NO_PAD};
 use base64::Engine;
 use clap::builder::ValueRange;
 use clap::{value_parser, Arg, Command};
@@ -435,7 +434,7 @@ pub fn shared_app(head: Command) -> Command {
             .value_name("MIN_HOPS")
             .required(false)
             .num_args(ValueRange::new(0..=1))
-            .value_parser(value_parser!(MinHops))
+            .value_parser(value_parser!(Hops))
             .help(MIN_HOPS_HELP),
     )
     .arg(
@@ -448,6 +447,26 @@ pub fn shared_app(head: Command) -> Command {
             .help(NEIGHBORHOOD_MODE_HELP),
     )
     .arg(
+        /*
+            * The neighbors parameter is a comma-separated list of Node descriptors. Each Node descriptor looks similar this:
+            * masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342/8853
+            * There is a type designed to hold the parsed value of this parameter called NodeDescriptor.
+            * However, shared_schema can't parse these values into a NodeDescriptor, because it's
+            * up here in masq_lib, and NodeDescriptor is only known down in the node subproject.
+            * We can't pull NodeDescriptor up here because it depends on a lot of other types that
+            * are only known down in the node subproject, and we don't want to pull all those up
+            * here. A solution that has been attempted in the past is to parse the Node descriptors
+            * into NodeAddr structures instead, which _are_ available up here in masq_lib, because
+            * we don't really need the Chain element that NodeDescriptors provide. However, this
+            * won't work, because the purpose for which we use these Node descriptors is to generate
+            * Debut Gossip; and for Debut Gossip we need public keys, and NodeAddr doesn't have a
+            * public key. We don't know what PublicKeys are up here in masq_lib, as a matter of fact.
+            * So we're doing minimal comma-separated-list parsing here in shared_schema, along with
+            * a bit of regular-expression validation, and leaving the serious validation and parsing
+            * to NodeDescriptor down in the node subproject, where PublicKeys and NodeDescriptors
+            * are known types. We'll find it here if the user does something big wrong; the Node
+            * will find it later if the user does something little wrong.
+         */
         Arg::new("neighbors")
             .long("neighbors")
             .value_name("NODE-DESCRIPTORS")
@@ -925,7 +944,7 @@ impl Display for DataDirectory {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct PublicKey {
-    data: Vec<u8>,
+    pub data: Vec<u8>,
 }
 
 impl FromStr for PublicKey {
@@ -945,85 +964,200 @@ impl Display for PublicKey {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum MinHops {
-    One,
-    Two,
-    Three,
-    Four,
-    Five,
-    Six,
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Hops {
+    OneHop = 1,
+    TwoHops = 2,
+    ThreeHops = 3, // minimum for anonymity
+    FourHops = 4,
+    FiveHops = 5,
+    SixHops = 6,
 }
 
-impl FromStr for MinHops {
+impl FromStr for Hops {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "1" => Ok(MinHops::One),
-            "2" => Ok(MinHops::Two),
-            "3" => Ok(MinHops::Three),
-            "4" => Ok(MinHops::Four),
-            "5" => Ok(MinHops::Five),
-            "6" => Ok(MinHops::Six),
+            "1" => Ok(Hops::OneHop),
+            "2" => Ok(Hops::TwoHops),
+            "3" => Ok(Hops::ThreeHops),
+            "4" => Ok(Hops::FourHops),
+            "5" => Ok(Hops::FiveHops),
+            "6" => Ok(Hops::SixHops),
             _ => Err(format!("Unrecognized min-hops value '{}'", s)),
         }
     }
 }
 
-impl Display for MinHops {
+impl Display for Hops {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let string = match *self {
-            MinHops::One => "1",
-            MinHops::Two => "2",
-            MinHops::Three => "3",
-            MinHops::Four => "4",
-            MinHops::Five => "5",
-            MinHops::Six => "6",
-        };
-        write!(f, "{}", string)
+        write!(f, "{}", *self as usize)
     }
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Neighbors {
-    neighbors: Vec<NodeAddr>,
+    pub neighbor_descriptors: Vec<NeighborDescriptor>,
 }
 
 impl FromStr for Neighbors {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let init: (Vec<NodeAddr>, Vec<String>) = (vec![], vec![]);
-        let (neighbors, errors) =
-            s.split(',')
-                .map(|s| s.trim())
-                .map(NodeAddr::from_str)
-                .fold(init, |sofar, result| {
-                    let (mut node_addrs, mut errors) = sofar;
-                    match result {
-                        Ok(node_addr) => {
-                            node_addrs.push(node_addr);
-                            (node_addrs, errors)
-                        }
-                        Err(e) => {
-                            errors.push(e);
-                            (vec![], errors)
-                        }
-                    }
-                });
-        if errors.is_empty() {
-            Ok(Neighbors { neighbors })
-        } else {
-            Err(errors.join("; "))
+        let init: (Vec<NeighborDescriptor>, Vec<String>) = (vec![], vec![]);
+        let (neighbor_descriptors, errors) = s
+            .split(',')
+            .map(str::trim)
+            .enumerate()
+            .fold(init, |(mut nds, mut errors), (idx, element)| {
+                match NeighborDescriptor::new(element) {
+                    Ok(nd) => nds.push(nd),
+                    Err(e) => errors.push(format!("#{}: {}", idx + 1, e)),
+                }
+                (nds, errors)
+            });
+        if !errors.is_empty() {
+            return Err(errors.join("; "));
         }
+        let chain_names: Vec<&str> = neighbor_descriptors
+            .iter()
+            .map(|nd| nd.chain.rec().literal_identifier)
+            .collect();
+        let unique_chain_names: Vec<&str> = chain_names.iter().copied().unique().collect();
+        if unique_chain_names.len() > 1 {
+            return Err(format!(
+                "All NEIGHBOR-DESCRIPTORS must have the same chain name; found [{}]",
+                unique_chain_names.join(", ")
+            ));
+        }
+        Ok(Neighbors { neighbor_descriptors })
     }
 }
 
 impl Display for Neighbors {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let string = self.neighbors.iter().map(|n| n.to_string()).join(",");
+        let string = self.neighbor_descriptors.iter().map(|n| n.clone()).join(",");
         write!(f, "{}", string)
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct NeighborDescriptor {
+    pub chain: Chain,
+    pub public_key: PublicKey,
+    pub ip_addr: IpAddr,
+    pub ports: Vec<u16>,
+}
+
+impl Display for NeighborDescriptor {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let ports_str = self.ports.iter().map(|port| port.to_string()).join("/");
+        write!(
+            f,
+            "masq://{}:{}@{}:{}",
+            self.chain.rec().literal_identifier,
+            self.public_key,
+            self.ip_addr,
+            ports_str
+        )
+    }
+}
+
+impl NeighborDescriptor {
+    pub fn new(descriptor: &str) -> Result<Self, String> {
+        let (scheme, chain_name, public_key_str, address) = Self::parse_parts(descriptor)?;
+        Self::check_scheme(scheme)?;
+        let chain = Self::check_chain(chain_name)?;
+        let public_key = Self::parse_public_key(public_key_str)?;
+        let (ip_addr, ports) = Self::parse_address(address)?;
+        Ok(Self { chain, public_key, ip_addr, ports })
+    }
+
+    fn parse_parts(descriptor: &str) -> Result<(&str, &str, &str, &str), String> {
+        let bad_syntax = || format!(
+            "NEIGHBOR-DESCRIPTORS must be a comma-separated list of neighbor \
+             descriptors, each of which must look like \"\n                 \
+             'masq://<chain name>:<Base64 public key>@<IP address>:<port number>[/<port number> ...]', not '{}'",
+            descriptor
+        );
+        let scheme_end = descriptor.find("://").ok_or_else(bad_syntax)?;
+        let scheme = &descriptor[..scheme_end];
+        let remainder = &descriptor[scheme_end + 3..];
+        let at_pos = remainder.find('@').ok_or_else(bad_syntax)?;
+        let chain_key = &remainder[..at_pos];
+        let address = &remainder[at_pos + 1..];
+        let colon_pos = chain_key.find(':').ok_or_else(bad_syntax)?;
+        let chain_name = &chain_key[..colon_pos];
+        let public_key = &chain_key[colon_pos + 1..];
+        Ok((scheme, chain_name, public_key, address))
+    }
+
+    fn check_scheme(scheme: &str) -> Result<(), String> {
+        if scheme != "masq" {
+            Err(format!(
+                "A neighbor descriptor must have the URL scheme 'masq', not '{}'",
+                scheme
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn check_chain(chain_name: &str) -> Result<Chain, String> {
+        chain_from_chain_identifier_opt(chain_name).ok_or_else(|| {
+            format!("A neighbor descriptor must have a known chain name, not '{}'", chain_name)
+        })
+    }
+
+    fn parse_public_key(public_key_str: &str) -> Result<PublicKey, String> {
+        PublicKey::from_str(public_key_str).map_err(|_| format!(
+            "A neighbor descriptor must have a valid Base64 public key; '{}' contains non-Base64 characters",
+            public_key_str
+        ))
+    }
+
+    fn parse_address(address: &str) -> Result<(IpAddr, Vec<u16>), String> {
+        if address.is_empty() || address == ":" {
+            return Err(
+                "A neighbor descriptor for --neighbors must include an IP address and at least one port number"
+                    .to_string(),
+            );
+        }
+        let colon_pos = address.find(':').ok_or_else(|| format!(
+            "A neighbor descriptor's node address must include at least one port number; '{}' has no port-separator colon",
+            address
+        ))?;
+        let ip_str = &address[..colon_pos];
+        let ports_str = &address[colon_pos + 1..];
+        let ip_addr = IpAddr::from_str(ip_str).map_err(|_| format!(
+            "A neighbor descriptor must have a valid IP address; '{}' is not a valid IP address",
+            ip_str
+        ))?;
+        if ports_str.is_empty() {
+            return Err(format!(
+                "A neighbor descriptor's node address must include at least one port number after '{}'",
+                ip_str
+            ));
+        }
+        let ports = Self::parse_ports(ports_str)?;
+        Ok((ip_addr, ports))
+    }
+
+    fn parse_ports(ports_str: &str) -> Result<Vec<u16>, String> {
+        ports_str.split('/').map(|port_str| {
+            match port_str.parse::<u32>() {
+                Err(_) => Err(format!(
+                    "A neighbor descriptor must have valid port numbers; '{}' is not a valid port number",
+                    port_str
+                )),
+                Ok(port) if port > HIGHEST_USABLE_PORT as u32 => Err(format!(
+                    "A neighbor descriptor must have port numbers no higher than {}; {} is too high",
+                    HIGHEST_USABLE_PORT, port
+                )),
+                Ok(port) => Ok(port as u16),
+            }
+        }).collect()
     }
 }
 
@@ -2095,25 +2229,25 @@ mod tests {
 
         let result = inputs
             .into_iter()
-            .map(|input| MinHops::from_str(input).unwrap())
+            .map(|input| Hops::from_str(input).unwrap())
             .collect_vec();
 
         assert_eq!(
             result,
             vec![
-                MinHops::One,
-                MinHops::Two,
-                MinHops::Three,
-                MinHops::Four,
-                MinHops::Five,
-                MinHops::Six
+                Hops::OneHop,
+                Hops::TwoHops,
+                Hops::ThreeHops,
+                Hops::FourHops,
+                Hops::FiveHops,
+                Hops::SixHops,
             ]
         )
     }
 
     #[test]
     fn min_hops_detects_invalid_value() {
-        let result = MinHops::from_str("booga");
+        let result = Hops::from_str("booga");
 
         assert_eq!(
             result,
@@ -2124,12 +2258,12 @@ mod tests {
     #[test]
     fn min_hops_displays_properly() {
         let inputs = vec![
-            MinHops::One,
-            MinHops::Two,
-            MinHops::Three,
-            MinHops::Four,
-            MinHops::Five,
-            MinHops::Six,
+            Hops::OneHop,
+            Hops::TwoHops,
+            Hops::ThreeHops,
+            Hops::FourHops,
+            Hops::FiveHops,
+            Hops::SixHops,
         ];
 
         let result = inputs
@@ -2146,45 +2280,141 @@ mod tests {
         )
     }
 
-    #[test]
-    fn neighbors_can_be_parsed_from_strings() {
-        let input = "1.2.254.255:1234/2345/3456,3.4.253.254:4567/5678/6789";
+    mod neighbors_tests {
+        use std::str::FromStr;
+        use crate::shared_schema::{NeighborDescriptor, Neighbors};
 
-        let result = Neighbors::from_str(input).unwrap();
+        #[test]
+        fn neighbor_descriptors_can_be_parsed_from_strings() {
+            let input = "masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342/8853 , masq://polygon-mainnet:d1Zz4N8Uqk2bt_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@6.48.50.172:2439/3588";
 
-        assert_eq!(
-            result,
-            Neighbors {
-                neighbors: vec![
-                    NodeAddr::from_str("1.2.254.255:1234/2345/3456").unwrap(),
-                    NodeAddr::from_str("3.4.253.254:4567/5678/6789").unwrap()
-                ]
-            }
-        )
-    }
+            let result = Neighbors::from_str(input).unwrap();
 
-    #[test]
-    fn neighbors_detects_invalid_value() {
-        let result = Neighbors::from_str("1.2.254.255:12342345/3456,300.4.253.254:4567/5678/6789");
+            assert_eq!(
+                result,
+                Neighbors {
+                    neighbor_descriptors: vec![
+                        NeighborDescriptor::new("masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342/8853").unwrap(),
+                        NeighborDescriptor::new("masq://polygon-mainnet:d1Zz4N8Uqk2bt_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@6.48.50.172:2439/3588").unwrap(),
+                    ]
+                }
+            )
+        }
 
-        assert_eq! (result, Err("NodeAddr must have port numbers between 1025 and 65535, not '12342345'; NodeAddr must have a valid IP address, not '300.4.253.254'".to_string()))
-    }
+        #[test]
+        fn invalid_base64_in_public_key() {
+            identify_invalid_neighbor_descriptors(
+                "masq://polygon-mainnet:d2U3Dv1BqtS5t+Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342",
+                "#1: A neighbor descriptor must have a valid Base64 public key; \
+                 'd2U3Dv1BqtS5t+Zz3mt9_sCl7AgxUlnkB4jOMElylrU' contains non-Base64 characters",
+            )
+        }
 
-    #[test]
-    fn neighbors_displays_properly() {
-        let input = Neighbors {
-            neighbors: vec![
-                NodeAddr::from_str("1.2.254.255:1234/2345/3456").unwrap(),
-                NodeAddr::from_str("3.4.253.254:4567/5678/6789").unwrap(),
-            ],
-        };
+        #[test]
+        fn missing_ip_address_and_port_number() {
+            identify_invalid_neighbor_descriptors(
+                "masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@:",
+                "#1: A neighbor descriptor for --neighbors must include an IP address and at least one port number",
+            )
+        }
 
-        let result = input.to_string();
+        #[test]
+        fn invalid_ip_address() {
+            identify_invalid_neighbor_descriptors(
+                "masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@999.0.0.1:9342",
+                "#1: A neighbor descriptor must have a valid IP address; '999.0.0.1' is not a valid IP address",
+            )
+        }
 
-        assert_eq!(
-            result,
-            "1.2.254.255:1234/2345/3456,3.4.253.254:4567/5678/6789".to_string()
-        )
+        #[test]
+        fn port_number_that_is_not_a_number() {
+            identify_invalid_neighbor_descriptors(
+                "masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:abc",
+                "#1: A neighbor descriptor must have valid port numbers; 'abc' is not a valid port number",
+            )
+        }
+
+
+        #[test]
+        fn port_number_that_is_too_high() {
+            identify_invalid_neighbor_descriptors(
+                "masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:65536",
+                "#1: A neighbor descriptor must have port numbers no higher than 65535; 65536 is too high",
+            )
+        }
+
+        #[test]
+        fn ip_address_without_any_port_numbers() {
+            identify_invalid_neighbor_descriptors(
+                "masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6",
+                "#1: A neighbor descriptor's node address must include at least one port number; \
+                 '172.50.48.6' has no port-separator colon",
+            )
+        }
+
+        #[test]
+        fn port_numbers_without_any_ip_address() {
+            identify_invalid_neighbor_descriptors(
+                "masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@:9342",
+                "#1: A neighbor descriptor must have a valid IP address; '' is not a valid IP address",
+            )
+        }
+
+        #[test]
+        fn basic_incorrect_syntax() {
+            identify_invalid_neighbor_descriptors(
+                "booga",
+                "#1: NEIGHBOR-DESCRIPTORS must be a comma-separated list of neighbor descriptors, each of which must look like \"
+                 'masq://<chain name>:<Base64 public key>@<IP address>:<port number>[/<port number> ...]', not 'booga'",
+            )
+        }
+
+        #[test]
+        fn bad_url_schema() {
+            identify_invalid_neighbor_descriptors(
+                "fiddle://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342/8853,booga://polygon-mainnet:d1Zz4N8Uqk2bt_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@6.48.50.172:2439/3588",
+                "#1: A neighbor descriptor must have the URL scheme 'masq', not 'fiddle'; #2: A neighbor descriptor must have the URL scheme 'masq', not 'booga'",
+            )
+        }
+
+        #[test]
+        fn unknown_chain_name() {
+            identify_invalid_neighbor_descriptors(
+                "masq://ooga:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342/8853,masq://booga:d1Zz4N8Uqk2bt_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@6.48.50.172:2439/3588",
+                "#1: A neighbor descriptor must have a known chain name, not 'ooga'; #2: A neighbor descriptor must have a known chain name, not 'booga'",
+            )
+        }
+
+        #[test]
+        fn multiple_different_chain_names() {
+            identify_invalid_neighbor_descriptors(
+                "masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342/8853,masq://polygon-mumbai:d1Zz4N8Uqk2bt_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@6.48.50.172:2439/3588",
+                "All NEIGHBOR-DESCRIPTORS must have the same chain name; found [polygon-mainnet, polygon-mumbai]",
+            )
+        }
+
+        fn identify_invalid_neighbor_descriptors(input: &str, expected_error_message: &str) {
+            let result = Neighbors::from_str(input);
+
+            assert_eq!(result, Err(expected_error_message.to_string()));
+        }
+
+        #[test]
+        fn neighbors_displays_properly() {
+            let input = Neighbors {
+                neighbor_descriptors: vec![
+                  NeighborDescriptor::new("masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342/8853").unwrap(),
+                  NeighborDescriptor::new("masq://polygon-mumbai:d1Zz4N8Uqk2bt_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@6.48.50.172:2439/3588").unwrap(),
+                ],
+            };
+
+            let result = input.to_string();
+
+            assert_eq!(
+                result,
+                "masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342/8853,masq://polygon-mumbai:d1Zz4N8Uqk2bt_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@6.48.50.172:2439/3588".to_string()
+            )
+        }
     }
 
     #[test]

@@ -1335,7 +1335,8 @@ mod tests {
     use crate::neighborhood::gossip_producer::GossipProducerReal;
     use crate::neighborhood::node_record::NodeRecord;
     use crate::sub_lib::cryptde_null::CryptDENull;
-    use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ConnectionProgressMessage, Hops};
+    use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ConnectionProgressMessage};
+    use masq_lib::shared_schema::Hops;
     use crate::sub_lib::utils::time_t_timestamp;
     use crate::test_utils::neighborhood_test_utils::{
         db_from_node, gossip_about_nodes_from_database, linearly_connect_nodes,

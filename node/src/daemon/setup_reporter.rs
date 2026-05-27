@@ -1199,7 +1199,7 @@ mod tests {
         PaymentThresholds as PaymentThresholdsFromAccountant, DEFAULT_PAYMENT_THRESHOLDS,
     };
     use crate::sub_lib::cryptde::PublicKey;
-    use crate::sub_lib::neighborhood::Hops;
+    use masq_lib::shared_schema::Hops;
     use crate::sub_lib::wallet::Wallet;
     use crate::sub_lib::{accountant, neighborhood};
     use crate::test_utils::database_utils::bring_db_0_back_to_life_and_return_connection;

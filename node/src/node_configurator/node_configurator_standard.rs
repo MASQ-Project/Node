@@ -286,8 +286,9 @@ mod tests {
     use crate::sub_lib::cryptde::CryptDE;
     use crate::sub_lib::neighborhood::NeighborhoodMode::ZeroHop;
     use crate::sub_lib::neighborhood::{
-        Hops, NeighborhoodConfig, NeighborhoodMode, NodeDescriptor,
+        NeighborhoodConfig, NeighborhoodMode, NodeDescriptor,
     };
+    use masq_lib::shared_schema::Hops;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::unshared_test_utils::{

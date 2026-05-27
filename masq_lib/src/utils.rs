@@ -3,7 +3,7 @@
 use crate::blockchains::chains::Chain;
 use crate::crash_point::CrashPoint;
 use crate::shared_schema::{
-    ConfigFile, DataDirectory, LogLevel, MinHops, NeighborhoodMode, Neighbors,
+    ConfigFile, DataDirectory, Hops, LogLevel, NeighborhoodMode, Neighbors,
     OnOff, PaymentThresholds, PublicKey, RatePack, ScanIntervals,
 };
 use crate::shared_schema::{GasPrice, InsecurePort, IpAddrs, PrivateKey, RealUser, Wallet};
@@ -115,7 +115,7 @@ argument_converter_for!(IpAddr, IpAddrConverter);
 argument_converter_for!(IpAddrs, IpAddrsConverter);
 argument_converter_for!(LogLevel, LogLevelConverter);
 argument_converter_for!(AutomapProtocol, AutomapProtocolConverter);
-argument_converter_for!(MinHops, MinHopsConverter);
+argument_converter_for!(Hops, HopsConverter);
 argument_converter_for!(NeighborhoodMode, NeighborhoodModeConverter);
 argument_converter_for!(Neighbors, NeighborsConverter);
 argument_converter_for!(OnOff, OnOffConverter);
@@ -144,7 +144,7 @@ fn make_argument_converters() -> HashMap<&'static str, Box<dyn ArgumentConverter
         make_converter_entry!("ip", IpAddrConverter),
         make_converter_entry!("log-level", LogLevelConverter),
         make_converter_entry!("mapping-protocol", AutomapProtocolConverter),
-        make_converter_entry!("min-hops", MinHopsConverter),
+        make_converter_entry!("min-hops", HopsConverter),
         make_converter_entry!("neighborhood-mode", NeighborhoodModeConverter),
         make_converter_entry!("neighbors", NeighborsConverter),
         make_converter_entry!("payment-thresholds", PaymentThresholdsConverter),
@@ -601,7 +601,7 @@ mod tests {
                 "--neighborhood-mode",
                 "zero-hop",
                 "--neighbors",
-                "1.2.3.4:1234/2345/3456,2.3.4.5:2345/3456/4567",
+                "masq://polygon-mainnet:YmlnZ2xlcyB3aG9wIGZlcmd1cw@1.2.3.4:1234/2345/3456,masq://polygon-mainnet:d2hvcCBmZXJndXMgYmlnZ2xlcw@2.3.4.5:2345/3456/4567",
                 "--real-user",
                 "4321:5432:/home/billy",
                 "--scans",
@@ -641,12 +641,12 @@ mod tests {
         verifier("gas-price", Some("1234"));
         verifier("ip", Some("3.4.5.6"));
         verifier("log-level", Some("warn"));
-        verifier("mapping-protocol", Some("igdp"));
+        verifier("mapping-protocol", Some("IGDP"));
         verifier("min-hops", Some("4"));
         verifier("neighborhood-mode", Some("zero-hop"));
         verifier(
             "neighbors",
-            Some("1.2.3.4:1234/2345/3456,2.3.4.5:2345/3456/4567"),
+            Some("masq://polygon-mainnet:YmlnZ2xlcyB3aG9wIGZlcmd1cw@1.2.3.4:1234/2345/3456,masq://polygon-mainnet:d2hvcCBmZXJndXMgYmlnZ2xlcw@2.3.4.5:2345/3456/4567"),
         );
         verifier("real-user", Some("4321:5432:/home/billy"));
         verifier("scans", Some("off"));

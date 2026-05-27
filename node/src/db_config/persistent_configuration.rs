@@ -11,10 +11,10 @@ use crate::db_config::typed_config_layer::{
 };
 use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
 use crate::sub_lib::cryptde::PlainData;
-use crate::sub_lib::neighborhood::{Hops, NodeDescriptor, RatePack};
+use crate::sub_lib::neighborhood::{NodeDescriptor, RatePack};
 use crate::sub_lib::wallet::Wallet;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
-use masq_lib::shared_schema::{ConfiguratorError, ParamError};
+use masq_lib::shared_schema::{ConfiguratorError, Hops, ParamError};
 #[cfg(test)]
 use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use masq_lib::utils::AutomapProtocol;

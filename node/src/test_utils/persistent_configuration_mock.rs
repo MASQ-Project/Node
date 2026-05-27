@@ -4,13 +4,13 @@
 
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
-use crate::sub_lib::neighborhood::{Hops, NodeDescriptor, RatePack};
+use crate::sub_lib::neighborhood::{NodeDescriptor, RatePack};
 use crate::sub_lib::wallet::Wallet;
+use masq_lib::shared_schema::{Hops, NeighborhoodMode};
 use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use masq_lib::utils::AutomapProtocol;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
-use masq_lib::shared_schema::NeighborhoodMode;
 
 #[allow(clippy::type_complexity)]
 #[derive(Clone, Default)]

@@ -5,7 +5,7 @@ use crate::neighborhood::node_record::NodeRecord;
 use crate::neighborhood::overall_connection_status::ConnectionProgress;
 use crate::neighborhood::Neighborhood;
 use crate::sub_lib::configurator::NewPasswordMessage;
-use crate::sub_lib::cryptde::{CryptDE, PublicKey};
+use crate::sub_lib::cryptde::{descriptor_fragment_to_bytes, CryptDE, PublicKey};
 use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::ExpiredCoresPackage;
@@ -27,7 +27,7 @@ use masq_lib::constants::{CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, MASQ_UR
 use masq_lib::node_addr::NodeAddr;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use serde_derive::{Deserialize, Serialize};
-use masq_lib::shared_schema::NeighborhoodMode as SchemaNeighborhoodMode;
+use masq_lib::shared_schema::{Hops, NeighborDescriptor, NeighborhoodMode as SchemaNeighborhoodMode};
 use std::convert::TryFrom;
 use std::fmt::{Debug, Display, Formatter};
 use std::net::IpAddr;
@@ -180,13 +180,12 @@ impl Default for NodeDescriptor {
 impl From<(&PublicKey, &NodeAddr, Chain, &dyn CryptDE)> for NodeDescriptor {
     fn from(tuple: (&PublicKey, &NodeAddr, Chain, &dyn CryptDE)) -> Self {
         let (public_key, node_addr, blockchain, cryptde) = tuple;
+        let bytes = public_key.as_slice().to_vec();
+        let encryption_public_key = cryptde.bytes_to_first_contact_public_key(bytes)
+            .expect("Internal error");
         NodeDescriptor {
             blockchain,
-            encryption_public_key: cryptde
-                .descriptor_fragment_to_first_contact_public_key(
-                    &cryptde.public_key_to_descriptor_fragment(public_key),
-                )
-                .expect("Internal error"),
+            encryption_public_key,
             node_addr_opt: Some(node_addr.clone()),
         }
     }
@@ -195,13 +194,14 @@ impl From<(&PublicKey, &NodeAddr, Chain, &dyn CryptDE)> for NodeDescriptor {
 impl From<(&NodeRecord, Chain, &dyn CryptDE)> for NodeDescriptor {
     fn from(tuple: (&NodeRecord, Chain, &dyn CryptDE)) -> Self {
         let (node_record, blockchain, cryptde) = tuple;
+        let bytes = descriptor_fragment_to_bytes(
+            &cryptde.public_key_to_descriptor_fragment(node_record.public_key())
+        ).expect("Internal error");
+        let encryption_public_key = cryptde.bytes_to_first_contact_public_key(bytes)
+            .expect("Internal error");
         NodeDescriptor {
             blockchain,
-            encryption_public_key: cryptde
-                .descriptor_fragment_to_first_contact_public_key(
-                    &cryptde.public_key_to_descriptor_fragment(node_record.public_key()),
-                )
-                .expect("Internal error"),
+            encryption_public_key,
             node_addr_opt: node_record.node_addr_opt(),
         }
     }
@@ -213,7 +213,8 @@ impl TryFrom<(&dyn CryptDE, &str)> for NodeDescriptor {
     fn try_from(tuple: (&dyn CryptDE, &str)) -> Result<Self, Self::Error> {
         let (cryptde, str_descriptor) = tuple;
         let (blockchain, key, str_node_addr) = NodeDescriptor::parse_url(str_descriptor)?;
-        let encryption_public_key = cryptde.descriptor_fragment_to_first_contact_public_key(key)?;
+        let bytes = descriptor_fragment_to_bytes(key)?;
+        let encryption_public_key = cryptde.bytes_to_first_contact_public_key(bytes)?;
         let node_addr_opt = if str_node_addr == ":" {
             None
         } else {
@@ -224,6 +225,21 @@ impl TryFrom<(&dyn CryptDE, &str)> for NodeDescriptor {
             encryption_public_key,
             node_addr_opt,
         })
+    }
+}
+
+impl TryFrom<(&dyn CryptDE, NeighborDescriptor)> for NodeDescriptor {
+    type Error = String;
+    fn try_from(tuple: (&dyn CryptDE, NeighborDescriptor)) -> Result<Self, Self::Error> {
+        let (cryptde, neighbor_descriptor) = tuple;
+        let encryption_public_key = cryptde.bytes_to_first_contact_public_key(neighbor_descriptor.public_key.data.clone())?;
+        Ok(
+            NodeDescriptor {
+                blockchain: neighbor_descriptor.chain,
+                encryption_public_key,
+                node_addr_opt: Some(NodeAddr::new(&neighbor_descriptor.ip_addr, &neighbor_descriptor.ports)),
+            }
+        )
     }
 }
 
@@ -370,37 +386,6 @@ impl Display for DescriptorParsingError<'_> {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum Hops {
-    OneHop = 1,
-    TwoHops = 2,
-    ThreeHops = 3, // minimum for anonymity
-    FourHops = 4,
-    FiveHops = 5,
-    SixHops = 6,
-}
-
-impl FromStr for Hops {
-    type Err = String;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "1" => Ok(Hops::OneHop),
-            "2" => Ok(Hops::TwoHops),
-            "3" => Ok(Hops::ThreeHops),
-            "4" => Ok(Hops::FourHops),
-            "5" => Ok(Hops::FiveHops),
-            "6" => Ok(Hops::SixHops),
-            _ => Err("Invalid value for min hops provided".to_string()),
-        }
-    }
-}
-
-impl Display for Hops {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", *self as usize)
-    }
-}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NeighborhoodConfig {
@@ -1263,5 +1248,54 @@ mod tests {
         assert_eq!(Hops::FourHops.to_string(), "4");
         assert_eq!(Hops::FiveHops.to_string(), "5");
         assert_eq!(Hops::SixHops.to_string(), "6");
+    }
+
+    // The key "AQIDBAU" is URL-safe Base64 no-pad for the bytes [1, 2, 3, 4, 5].
+    // It is identical in both URL-safe and standard Base64 because it contains no '+' or '/'.
+
+    #[test]
+    fn from_neighbor_descriptor_transfers_chain() {
+        let poly_mainnet = NeighborDescriptor::new(
+            "masq://polygon-mainnet:AQIDBAU@1.2.3.4:1234",
+        ).unwrap();
+        let eth_mainnet = NeighborDescriptor::new(
+            "masq://eth-mainnet:AQIDBAU@1.2.3.4:1234",
+        ).unwrap();
+
+        let poly_result = NodeDescriptor::try_from((main_cryptde(), poly_mainnet)).unwrap();
+        let eth_result = NodeDescriptor::try_from((main_cryptde(), eth_mainnet)).unwrap();
+
+        assert_eq!(poly_result.blockchain, Chain::PolyMainnet);
+        assert_eq!(eth_result.blockchain, Chain::EthMainnet);
+    }
+
+    #[test]
+    fn from_neighbor_descriptor_transfers_public_key_bytes() {
+        // "AQIDBAU" decodes to [1, 2, 3, 4, 5]
+        let nd = NeighborDescriptor::new(
+            "masq://polygon-mainnet:AQIDBAU@1.2.3.4:1234",
+        ).unwrap();
+
+        let result = NodeDescriptor::try_from((main_cryptde(), nd)).unwrap();
+
+        let key_bytes: Vec<u8> = result.encryption_public_key.into();
+        assert_eq!(key_bytes, vec![1u8, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn from_neighbor_descriptor_builds_node_addr_with_sorted_deduped_ports() {
+        use std::net::{IpAddr, Ipv4Addr};
+        // Ports are given out of order with a duplicate; NodeAddr::new sorts and deduplicates them.
+        let nd = NeighborDescriptor::new(
+            "masq://polygon-mainnet:AQIDBAU@10.20.30.40:9000/1234/9000",
+        ).unwrap();
+
+        let result = NodeDescriptor::try_from((main_cryptde(), nd)).unwrap();
+
+        let ip = IpAddr::V4(Ipv4Addr::new(10, 20, 30, 40));
+        assert_eq!(
+            result.node_addr_opt,
+            Some(NodeAddr::new(&ip, &[1234, 9000]))
+        );
     }
 }

@@ -536,12 +536,19 @@ pub trait CryptDE: Send + Sync {
     ) -> bool;
     fn hash(&self, data: &PlainData) -> CryptData;
     fn public_key_to_descriptor_fragment(&self, public_key: &PublicKey) -> String;
-    fn descriptor_fragment_to_first_contact_public_key(
+    fn bytes_to_first_contact_public_key(
         &self,
-        descriptor_fragment: &str,
+        bytes: Vec<u8>,
     ) -> Result<PublicKey, String>;
     fn digest(&self) -> [u8; 32];
     fn as_any(&self) -> &dyn Any;
+}
+
+pub fn descriptor_fragment_to_bytes(descriptor_fragment: &str) -> Result<Vec<u8>, String> {
+    match BASE64_STANDARD_NO_PAD.decode(descriptor_fragment) {
+        Ok(bytes) => Ok(bytes),
+        Err(e) => Err(format!("{:?}", e)),
+    }
 }
 
 pub struct SerdeCborError {

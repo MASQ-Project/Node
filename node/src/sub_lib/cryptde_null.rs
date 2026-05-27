@@ -6,7 +6,7 @@ use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::cryptde::PrivateKey;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde::{CryptDE, SymmetricKey};
-use base64::prelude::BASE64_STANDARD_NO_PAD;
+use base64::prelude::{BASE64_STANDARD_NO_PAD};
 use base64::Engine;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::utils::ExpectValue;
@@ -130,23 +130,14 @@ impl CryptDE for CryptDENull {
         BASE64_STANDARD_NO_PAD.encode(public_key.as_slice())
     }
 
-    fn descriptor_fragment_to_first_contact_public_key(
+    fn bytes_to_first_contact_public_key(
         &self,
-        descriptor_fragment: &str,
+        bytes: Vec<u8>,
     ) -> Result<PublicKey, String> {
-        if descriptor_fragment.is_empty() {
+        if bytes.is_empty() {
             return Err("Public key cannot be empty".to_string());
         }
-        let half_key = match BASE64_STANDARD_NO_PAD.decode(descriptor_fragment) {
-            Ok(half_key) => half_key,
-            Err(_) => {
-                return Err(format!(
-                    "Invalid Base64 value for public key: {}",
-                    descriptor_fragment
-                ))
-            }
-        };
-        Ok(PublicKey::from(half_key))
+        Ok(PublicKey::from(bytes))
     }
 
     fn digest(&self) -> [u8; 32] {
@@ -271,6 +262,7 @@ mod tests {
     use ethsign_crypto::Keccak256;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::panic::{catch_unwind, AssertUnwindSafe};
+    use crate::sub_lib::cryptde::descriptor_fragment_to_bytes;
 
     #[test]
     fn encode_with_empty_key() {
@@ -603,7 +595,8 @@ mod tests {
         let subject = main_cryptde();
         let half_key = "AQIDBA";
 
-        let result = subject.descriptor_fragment_to_first_contact_public_key(half_key);
+        let bytes = descriptor_fragment_to_bytes(half_key).unwrap();
+        let result = subject.bytes_to_first_contact_public_key(bytes);
 
         assert_eq!(result, Ok(PublicKey::new(&[1, 2, 3, 4])));
     }
@@ -613,7 +606,8 @@ mod tests {
         let subject = main_cryptde();
         let half_key = "((]--$";
 
-        let result = subject.descriptor_fragment_to_first_contact_public_key(half_key);
+        let bytes = descriptor_fragment_to_bytes(half_key).unwrap();
+        let result = subject.bytes_to_first_contact_public_key(bytes);
 
         assert_eq!(
             result,

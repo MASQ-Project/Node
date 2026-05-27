@@ -3,7 +3,7 @@ use crate::sub_lib::cryptde;
 use crate::sub_lib::cryptde::{
     CryptDE, CryptData, CryptdecError, PlainData, PrivateKey, PublicKey, SymmetricKey,
 };
-use base64::prelude::BASE64_STANDARD_NO_PAD;
+use base64::prelude::{BASE64_STANDARD_NO_PAD};
 use base64::Engine;
 use lazy_static::lazy_static;
 use masq_lib::blockchains::chains::Chain;
@@ -162,29 +162,19 @@ impl CryptDE for CryptDEReal {
         BASE64_STANDARD_NO_PAD.encode(encryption_public_key)
     }
 
-    fn descriptor_fragment_to_first_contact_public_key(
+    fn bytes_to_first_contact_public_key(
         &self,
-        descriptor_fragment: &str,
+        mut bytes: Vec<u8>,
     ) -> Result<PublicKey, String> {
-        let mut encryption_public_key = match BASE64_STANDARD_NO_PAD.decode(descriptor_fragment) {
-            Ok(v) => v,
-            Err(_) => {
-                return Err(format!(
-                    "Invalid Base64 value for public key: {}",
-                    descriptor_fragment,
-                ))
-            }
-        };
-        if encryption_public_key.len() != cxsp::PUBLICKEYBYTES {
+        if bytes.len() != cxsp::PUBLICKEYBYTES {
             return Err(format!(
-                "Public key must decode to {} bytes, not {}: {}",
+                "Public key must decode to {} bytes, not {}",
                 cxsp::PUBLICKEYBYTES,
-                encryption_public_key.len(),
-                descriptor_fragment
+                bytes.len()
             ));
         }
-        encryption_public_key.extend(&[0u8; signing::PUBLICKEYBYTES]);
-        Ok(PublicKey::from(encryption_public_key))
+        bytes.extend(&[0u8; signing::PUBLICKEYBYTES]);
+        Ok(PublicKey::from(bytes))
     }
 
     fn digest(&self) -> [u8; 32] {
@@ -244,9 +234,9 @@ impl CryptDEReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use base64::prelude::BASE64_STANDARD_NO_PAD;
     use ethsign_crypto::Keccak256;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+    use crate::sub_lib::cryptde::descriptor_fragment_to_bytes;
 
     impl Default for CryptDEReal {
         fn default() -> Self {
@@ -481,9 +471,8 @@ mod tests {
         let public_encryption_key = &subject.public_key.as_slice()[..cxsp::PUBLICKEYBYTES];
         let half_key_string = BASE64_STANDARD_NO_PAD.encode(public_encryption_key);
 
-        let result = subject
-            .descriptor_fragment_to_first_contact_public_key(&half_key_string)
-            .unwrap();
+        let bytes = descriptor_fragment_to_bytes(&half_key_string).unwrap();
+        let result = subject.bytes_to_first_contact_public_key(bytes).unwrap();
 
         let encryption_half = &result.as_slice()[..cxsp::PUBLICKEYBYTES];
         let signing_half = &result.as_slice()[cxsp::PUBLICKEYBYTES..];
@@ -496,7 +485,8 @@ mod tests {
         let subject = CryptDEReal::default();
         let half_key_string = "((]--$";
 
-        let result = subject.descriptor_fragment_to_first_contact_public_key(half_key_string);
+        let bytes = descriptor_fragment_to_bytes(&half_key_string).unwrap();
+        let result = subject.bytes_to_first_contact_public_key(bytes);
 
         assert_eq!(
             result,
@@ -511,8 +501,8 @@ mod tests {
             &subject.public_key.as_slice()[..cxsp::PUBLICKEYBYTES - 1];
         let short_half_key_string = BASE64_STANDARD_NO_PAD.encode(short_public_encryption_key);
 
-        let result =
-            subject.descriptor_fragment_to_first_contact_public_key(&short_half_key_string);
+        let bytes = descriptor_fragment_to_bytes(&short_half_key_string).unwrap();
+        let result = subject.bytes_to_first_contact_public_key(bytes);
 
         assert_eq!(
             result,
@@ -531,7 +521,8 @@ mod tests {
         long_public_encryption_key.push(0);
         let long_half_key_string = BASE64_STANDARD_NO_PAD.encode(&long_public_encryption_key);
 
-        let result = subject.descriptor_fragment_to_first_contact_public_key(&long_half_key_string);
+        let bytes = descriptor_fragment_to_bytes(&long_half_key_string).unwrap();
+        let result = subject.bytes_to_first_contact_public_key(bytes);
 
         assert_eq!(
             result,

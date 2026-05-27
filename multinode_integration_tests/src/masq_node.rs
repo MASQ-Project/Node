@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::command::Command;
-use base64::URL_SAFE_NO_PAD;
+use base64::STANDARD_NO_PAD;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{
     CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, CURRENT_LOGFILE_NAME, HIGHEST_USABLE_PORT,
@@ -25,6 +25,8 @@ use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+use base64::prelude::BASE64_STANDARD_NO_PAD;
+use masq_lib::node_addr::NodeAddr;
 
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct NodeReference {
@@ -304,7 +306,7 @@ impl MASQNodeUtils {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use base64::{decode_config, STANDARD_NO_PAD};
+    use base64::{decode_config, BASE64_STANDARD_NO_PAD};
     use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 
     #[test]

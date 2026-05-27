@@ -54,7 +54,7 @@ use crate::sub_lib::neighborhood::{AskAboutDebutGossipMessage, NodeDescriptor};
 use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ExpectedServices};
 use crate::sub_lib::neighborhood::{ConnectionProgressMessage, ExpectedService};
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
-use crate::sub_lib::neighborhood::{Hops, NeighborhoodMetadata, NodeQueryResponseMetadata};
+use crate::sub_lib::neighborhood::{NeighborhoodMetadata, NodeQueryResponseMetadata};
 use crate::sub_lib::neighborhood::{NRMetadataChange, NodeQueryMessage};
 use crate::sub_lib::neighborhood::{NeighborhoodSubs, NeighborhoodTools};
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp, StartMessage};
@@ -76,6 +76,7 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use masq_lib::node_addr::NodeAddr;
+use masq_lib::shared_schema::Hops;
 use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
 

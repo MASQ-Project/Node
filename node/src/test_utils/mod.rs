@@ -690,7 +690,7 @@ pub mod unshared_test_utils {
     pub fn make_simplified_multi_config<const T: usize>(args: [&str; T]) -> MultiConfig {
         let mut app_args = vec!["MASQNode".to_string()];
         app_args.append(&mut slice_of_strs_to_vec_of_strings(&args));
-        let arg_matches = app_node().get_matches_from(app_args);
+        let arg_matches = app_node().try_get_matches_from(app_args).expect("Failed to parse arguments for simplified multi config");
         MultiConfig::from(arg_matches)
     }
 
