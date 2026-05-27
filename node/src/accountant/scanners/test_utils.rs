@@ -336,15 +336,15 @@ impl<StartMsg, EndMsg, ScanResult> ScannerMockMarker for ScannerMock<StartMsg, E
 
 #[derive(Default)]
 pub struct NewPayableScanIntervalComputerMock {
-    time_until_next_scan_params: Arc<Mutex<Vec<()>>>,
-    time_until_next_scan_results: RefCell<Vec<ScanTiming>>,
+    next_scan_timing_params: Arc<Mutex<Vec<()>>>,
+    next_scan_timing_results: RefCell<Vec<ScanTiming>>,
     reset_last_scan_timestamp_params: Arc<Mutex<Vec<()>>>,
 }
 
 impl NewPayableScanIntervalComputer for NewPayableScanIntervalComputerMock {
-    fn time_until_next_scan(&self) -> ScanTiming {
-        self.time_until_next_scan_params.lock().unwrap().push(());
-        self.time_until_next_scan_results.borrow_mut().remove(0)
+    fn next_scan_timing(&self) -> ScanTiming {
+        self.next_scan_timing_params.lock().unwrap().push(());
+        self.next_scan_timing_results.borrow_mut().remove(0)
     }
 
     fn reset_last_scan_timestamp(&mut self) {
@@ -358,13 +358,13 @@ impl NewPayableScanIntervalComputer for NewPayableScanIntervalComputerMock {
 }
 
 impl NewPayableScanIntervalComputerMock {
-    pub fn time_until_next_scan_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
-        self.time_until_next_scan_params = params.clone();
+    pub fn next_scan_timing_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+        self.next_scan_timing_params = params.clone();
         self
     }
 
-    pub fn time_until_next_scan_result(self, result: ScanTiming) -> Self {
-        self.time_until_next_scan_results.borrow_mut().push(result);
+    pub fn next_scan_timing_result(self, result: ScanTiming) -> Self {
+        self.next_scan_timing_results.borrow_mut().push(result);
         self
     }
 

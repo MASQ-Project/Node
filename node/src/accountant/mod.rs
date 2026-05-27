@@ -24,9 +24,8 @@ use crate::accountant::financials::visibility_restricted_module::{
     check_query_is_within_tech_limits, financials_entry_check,
 };
 use crate::accountant::logging_utils::accounting_msgs_debug::{
-    AccountingMsgType, NewCharge, NewChargessDebugContainer,
+    AccountingMsgType, NewCharge, NewChargesDebugContainer,
 };
-use crate::accountant::logging_utils::msg_id_generator::MsgIdRequested;
 use crate::accountant::logging_utils::LoggingUtils;
 use crate::accountant::scanners::payable_scanner::msgs::{
     InitialTemplatesMessage, PricedTemplatesMessage,
@@ -52,11 +51,8 @@ use crate::sub_lib::accountant::FinancialStatistics;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportServicesConsumedMessage;
-use crate::sub_lib::accountant::{
-    AccountableServiceWithTraceLog, DaoFactories, MessageWithServicesProvided,
-    RoutingServiceConsumedTraceLogWrapper, ServiceProvided,
-};
 use crate::sub_lib::accountant::{AccountantSubs, DetailedScanType};
+use crate::sub_lib::accountant::{DaoFactories, ServiceProvided, ServiceProvidedMsg};
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use crate::sub_lib::neighborhood::{ConfigChange, ConfigChangeMsg};
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
@@ -644,7 +640,11 @@ impl Accountant {
                 ),
                 Err(e) => panic!("Was recording services provided for {} but hit a fatal database error: {:?}", wallet, e)
             }
-            Some(NewCharge::new(wallet.address(), total_charge))
+            Some(NewCharge::new(
+                wallet.address(),
+                total_charge,
+                service.payload_size,
+            ))
         } else {
             warning!(
                 self.logger,
@@ -681,7 +681,7 @@ impl Accountant {
                 ),
                 Err(e) => panic!("Recording services consumed from {} but has hit fatal database error: {:?}", wallet, e)
             };
-            Some(NewCharge::new(wallet.address(), total_charge))
+            Some(NewCharge::new(wallet.address(), total_charge, payload_size))
         } else {
             warning!(
                 self.logger,
@@ -744,22 +744,45 @@ impl Accountant {
 
     fn handle_report_service_provided_message<AccountingMessage>(&mut self, msg: AccountingMessage)
     where
-        AccountingMessage: MessageWithServicesProvided,
+        AccountingMessage: ServiceProvidedMsg,
     {
-        let services_provided = &msg.services_provided();
+        let services_provided = msg.services_provided();
         let accounting_msg_type = msg.msg_type();
         let trace_log_wrapper = msg.trace_log_wrapper();
+        let msg_id = self.logging_utils.msg_id_generator.new_id();
 
-        trace_log_wrapper.log_trace(self.logging_kit(MsgIdRequested::New));
+        trace_log_wrapper.maybe_log_trace(&self.logger, msg_id);
 
         let charges = self.record_service_provided(services_provided);
 
-        self.consider_logging_debug_stats(accounting_msg_type, charges.into_iter().collect_vec());
+        self.maybe_log_debug_stats(accounting_msg_type, charges.into_iter().collect_vec());
     }
 
     fn handle_report_services_consumed_message(&mut self, msg: ReportServicesConsumedMessage) {
-        msg.exit.log_trace(self.logging_kit(MsgIdRequested::New));
+        let msg_id = self.logging_utils.msg_id_generator.new_id();
 
+        let charge_container = NewChargesDebugContainer::new(&self.logger);
+
+        trace!(
+            self.logger,
+            "Msg {}: Accruing debt to {} for consuming {} exited bytes",
+            msg_id,
+            msg.exit.earning_wallet,
+            msg.exit.payload_size
+        );
+        let charge_container = self.handle_exit_service_consumed(&msg, charge_container);
+
+        let charge_container =
+            self.handle_routing_services_consumed(&msg, charge_container, msg_id);
+
+        self.maybe_log_debug_stats(AccountingMsgType::ServicesConsumed, charge_container.into());
+    }
+
+    fn handle_exit_service_consumed(
+        &mut self,
+        msg: &ReportServicesConsumedMessage,
+        new_charges: NewChargesDebugContainer,
+    ) -> NewChargesDebugContainer {
         let exit_charge_opt = self.record_service_consumed(
             msg.exit.service_rate,
             msg.exit.byte_rate,
@@ -768,34 +791,28 @@ impl Accountant {
             &msg.exit.earning_wallet,
         );
 
-        let new_charges_container =
-            NewChargessDebugContainer::new(&self.logger).add_new_charge(exit_charge_opt);
-
-        let new_charges_container =
-            self.handle_routing_services_consumed(&msg, new_charges_container);
-
-        self.consider_logging_debug_stats(
-            AccountingMsgType::ServicesConsumed,
-            new_charges_container.into(),
-        );
+        new_charges.add_new_charge(exit_charge_opt)
     }
 
     fn handle_routing_services_consumed(
         &mut self,
         msg: &ReportServicesConsumedMessage,
-        new_charges: NewChargessDebugContainer,
-    ) -> NewChargessDebugContainer {
+        charge_container: NewChargesDebugContainer,
+        msg_id: u32,
+    ) -> NewChargesDebugContainer {
         msg.routing
             .services
             .iter()
-            .fold(new_charges, |new_charges, routing_service| {
-                RoutingServiceConsumedTraceLogWrapper {
-                    service: routing_service,
-                    routing_payload_size: msg.routing.routing_payload_size,
-                }
-                .log_trace(self.logging_kit(MsgIdRequested::LastUsed));
+            .fold(charge_container, |new_charges, routing_service| {
+                trace!(
+                    self.logger,
+                    "Msg {}: Accruing debt to {} for consuming {} routed bytes",
+                    msg_id,
+                    routing_service.earning_wallet,
+                    msg.routing.routing_payload_size
+                );
 
-                let new_charge = self.record_service_consumed(
+                let new_charge_opt = self.record_service_consumed(
                     routing_service.service_rate,
                     routing_service.byte_rate,
                     msg.timestamp,
@@ -803,37 +820,23 @@ impl Accountant {
                     &routing_service.earning_wallet,
                 );
 
-                new_charges.add_new_charge(new_charge)
+                new_charges.add_new_charge(new_charge_opt)
             })
     }
 
-    fn logging_kit(&self, msg_id_requested: MsgIdRequested) -> (&Logger, u32) {
-        (
-            &self.logger,
-            match msg_id_requested {
-                MsgIdRequested::New => self.logging_utils.msg_id_generator.new_id(),
-                MsgIdRequested::LastUsed => self.logging_utils.msg_id_generator.last_used_id(),
-            },
-        )
-    }
-
-    fn consider_logging_debug_stats(
-        &mut self,
-        msg_type: AccountingMsgType,
-        charges: Vec<NewCharge>,
-    ) {
+    fn maybe_log_debug_stats(&mut self, msg_type: AccountingMsgType, charges: Vec<NewCharge>) {
         if charges.is_empty() {
             return;
         }
 
         let log_window_size = self.logging_utils.accounting_msg_log_window;
 
-        if self.logger.debug_enabled() {
-            if let Some(loggable_stats) = self.logging_utils.debug_stats.process_debug_stats(
-                msg_type,
-                charges,
-                log_window_size,
-            ) {
+        if self.logger.debug_enabled() && !self.logger.trace_enabled() {
+            if let Some(loggable_stats) = self
+                .logging_utils
+                .accounting_msg_tracker
+                .process_another_msg(msg_type, charges, log_window_size)
+            {
                 debug!(self.logger, "{}", loggable_stats);
             }
         }
@@ -2870,7 +2873,7 @@ mod tests {
         let test_name = "accountant_scans_after_startup_and_does_not_detect_any_pending_payables";
         let scan_params = ScanParams::default();
         let notify_and_notify_later_params = NotifyAndNotifyLaterParams::default();
-        let time_until_next_scan_params_arc = Arc::new(Mutex::new(vec![]));
+        let next_scan_timing_params_arc = Arc::new(Mutex::new(vec![]));
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = make_wallet("consuming");
         let system = System::new(test_name);
@@ -2892,7 +2895,7 @@ mod tests {
             configure_accountant_for_startup_with_preexisting_pending_payables(
                 test_name,
                 &notify_and_notify_later_params,
-                &time_until_next_scan_params_arc,
+                &next_scan_timing_params_arc,
                 config,
                 pending_payable_scanner,
                 receivable_scanner,
@@ -2920,7 +2923,7 @@ mod tests {
         assert_payable_scanner_for_no_pending_payable_found(
             &scan_params.payable_start_scan,
             &notify_and_notify_later_params,
-            time_until_next_scan_params_arc,
+            next_scan_timing_params_arc,
             new_payable_expected_computed_interval,
         );
         assert_receivable_scanner(
@@ -3095,7 +3098,7 @@ mod tests {
     fn configure_accountant_for_startup_with_preexisting_pending_payables(
         test_name: &str,
         notify_and_notify_later_params: &NotifyAndNotifyLaterParams,
-        time_until_next_scan_params_arc: &Arc<Mutex<Vec<()>>>,
+        next_scan_timing_params_arc: &Arc<Mutex<Vec<()>>>,
         config: BootstrapperConfig,
         pending_payable_scanner: ScannerMock<
             RequestTransactionReceipts,
@@ -3141,8 +3144,8 @@ mod tests {
         subject.scan_schedulers.receivable.handle = Box::new(receivable_notify_later_handle_mock);
         subject.scan_schedulers.receivable.interval = receivable_scan_interval;
         let interval_computer = NewPayableScanIntervalComputerMock::default()
-            .time_until_next_scan_params(&time_until_next_scan_params_arc)
-            .time_until_next_scan_result(ScanTiming::WaitFor(
+            .next_scan_timing_params(&next_scan_timing_params_arc)
+            .next_scan_timing_result(ScanTiming::WaitFor(
                 new_payable_expected_computed_interval,
             ));
         subject.scan_schedulers.payable.interval_computer = Box::new(interval_computer);
@@ -4496,9 +4499,10 @@ mod tests {
         let receivable_dao_mock = ReceivableDaoMock::new()
             .more_money_receivable_parameters(&more_money_receivable_parameters_arc)
             .more_money_receivable_result(Ok(()));
+        let logger = Logger::new(test_name).set_test_log_level(Level::Debug);
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(bootstrapper_config)
-            .logger(Logger::new(test_name))
+            .logger(logger)
             .payable_daos(vec![ForAccountantBody(payable_dao_mock)])
             .receivable_daos(vec![ForAccountantBody(receivable_dao_mock)])
             .build();
@@ -4531,13 +4535,18 @@ mod tests {
             more_money_receivable_parameters[0],
             (now, make_wallet("booga"), (1 * 42) + (1234 * 24))
         );
-        TestLogHandler::new()
-            .exists_log_containing(&format!("DEBUG: {test_name}: Total debits across last "));
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: \
+            Debits from last 1 RoutingServiceProvided messages [wei | bytes]:\n\
+            0x000000000000000000000000000000626f6f6761: 29658 | 1234"
+        ));
     }
 
     #[test]
     fn report_routing_service_provided_message_is_received_from_our_consuming_wallet() {
         init_test_logging();
+        let test_name =
+            "report_routing_service_provided_message_is_received_from_our_consuming_wallet";
         let consuming_wallet = make_wallet("our consuming wallet");
         let config = bc_from_wallets(consuming_wallet.clone(), make_wallet("our earning wallet"));
         let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
@@ -4546,10 +4555,11 @@ mod tests {
             .more_money_receivable_parameters(&more_money_receivable_parameters_arc);
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
+            .logger(Logger::new(test_name))
             .payable_daos(vec![ForAccountantBody(payable_dao_mock)])
             .receivable_daos(vec![ForAccountantBody(receivable_dao_mock)])
             .build();
-        let system = System::new("report_routing_service_message_is_received");
+        let system = System::new(test_name);
         let subject_addr: Addr<Accountant> = subject.start();
         subject_addr
             .try_send(BindMessage {
@@ -4577,7 +4587,7 @@ mod tests {
             .is_empty());
 
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: Accountant: Declining to record a receivable against our wallet {} for services we provided",
+            "WARN: {test_name}: Declining to record a receivable against our wallet {} for services we provided",
             consuming_wallet,
         ));
     }
@@ -4585,6 +4595,8 @@ mod tests {
     #[test]
     fn report_routing_service_provided_message_is_received_from_our_earning_wallet() {
         init_test_logging();
+        let test_name =
+            "report_routing_service_provided_message_is_received_from_our_earning_wallet";
         let earning_wallet = make_wallet("our earning wallet");
         let config = bc_from_earning_wallet(earning_wallet.clone());
         let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
@@ -4593,10 +4605,11 @@ mod tests {
             .more_money_receivable_parameters(&more_money_receivable_parameters_arc);
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
+            .logger(Logger::new(test_name))
             .payable_daos(vec![ForAccountantBody(payable_dao_mock)])
             .receivable_daos(vec![ForAccountantBody(receivable_dao_mock)])
             .build();
-        let system = System::new("report_routing_service_message_is_received");
+        let system = System::new(test_name);
         let subject_addr: Addr<Accountant> = subject.start();
         subject_addr
             .try_send(BindMessage {
@@ -4624,7 +4637,7 @@ mod tests {
             .is_empty());
 
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: Accountant: Declining to record a receivable against our wallet {} for services we provided",
+            "WARN: {test_name}: Declining to record a receivable against our wallet {} for services we provided",
             earning_wallet,
         ));
     }
@@ -4640,9 +4653,10 @@ mod tests {
         let receivable_dao_mock = ReceivableDaoMock::new()
             .more_money_receivable_parameters(&more_money_receivable_parameters_arc)
             .more_money_receivable_result(Ok(()));
+        let logger = Logger::new(test_name).set_test_log_level(Level::Debug);
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .logger(Logger::new(test_name))
+            .logger(logger)
             .payable_daos(vec![ForAccountantBody(payable_dao_mock)])
             .receivable_daos(vec![ForAccountantBody(receivable_dao_mock)])
             .build();
@@ -4675,13 +4689,18 @@ mod tests {
             more_money_receivable_parameters[0],
             (now, make_wallet("booga"), (1 * 42) + (1234 * 24))
         );
-        TestLogHandler::new()
-            .exists_log_containing(&format!("DEBUG: {test_name}: Total debits across last "));
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: \
+            Debits from last 1 ExitServiceProvided messages [wei | bytes]:\n\
+            0x000000000000000000000000000000626f6f6761: 29658 | 1234"
+        ));
     }
 
     #[test]
     fn report_exit_service_provided_message_is_received_from_our_consuming_wallet() {
         init_test_logging();
+        let test_name =
+            "report_exit_service_provided_message_is_received_from_our_consuming_wallet";
         let consuming_wallet = make_wallet("my consuming wallet");
         let config = bc_from_wallets(consuming_wallet.clone(), make_wallet("my earning wallet"));
         let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
@@ -4690,10 +4709,11 @@ mod tests {
             .more_money_receivable_parameters(&more_money_receivable_parameters_arc);
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
+            .logger(Logger::new(test_name))
             .payable_daos(vec![ForAccountantBody(payable_dao_mock)])
             .receivable_daos(vec![ForAccountantBody(receivable_dao_mock)])
             .build();
-        let system = System::new("report_exit_service_provided_message_is_received");
+        let system = System::new(test_name);
         let subject_addr: Addr<Accountant> = subject.start();
         subject_addr
             .try_send(BindMessage {
@@ -4721,7 +4741,7 @@ mod tests {
             .is_empty());
 
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: Accountant: Declining to record a receivable against our wallet {} for services we provided",
+            "WARN: {test_name}: Declining to record a receivable against our wallet {} for services we provided",
             consuming_wallet
         ));
     }
@@ -4729,6 +4749,7 @@ mod tests {
     #[test]
     fn report_exit_service_provided_message_is_received_from_our_earning_wallet() {
         init_test_logging();
+        let test_name = "report_exit_service_provided_message_is_received_from_our_earning_wallet";
         let earning_wallet = make_wallet("my earning wallet");
         let config = bc_from_earning_wallet(earning_wallet.clone());
         let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
@@ -4737,10 +4758,11 @@ mod tests {
             .more_money_receivable_parameters(&more_money_receivable_parameters_arc);
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
+            .logger(Logger::new(test_name))
             .payable_daos(vec![ForAccountantBody(payable_dao_mock)])
             .receivable_daos(vec![ForAccountantBody(receivable_dao_mock)])
             .build();
-        let system = System::new("report_exit_service_provided_message_is_received");
+        let system = System::new(test_name);
         let subject_addr: Addr<Accountant> = subject.start();
         subject_addr
             .try_send(BindMessage {
@@ -4768,7 +4790,7 @@ mod tests {
             .is_empty());
 
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: Accountant: Declining to record a receivable against our wallet {} for services we provided",
+            "WARN: {test_name}: Declining to record a receivable against our wallet {} for services we provided",
             earning_wallet,
         ));
     }
@@ -4784,13 +4806,14 @@ mod tests {
             .more_money_payable_result(Ok(()))
             .more_money_payable_result(Ok(()))
             .more_money_payable_result(Ok(()));
+        let logger = Logger::new(test_name).set_test_log_level(Level::Debug);
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .logger(Logger::new(test_name))
+            .logger(logger)
             .payable_daos(vec![ForAccountantBody(payable_dao_mock)])
             .build();
         subject.logging_utils.accounting_msg_log_window = 1;
-        let system = System::new("report_services_consumed_message_is_received");
+        let system = System::new(test_name);
         let subject_addr: Addr<Accountant> = subject.start();
         subject_addr
             .try_send(BindMessage {
@@ -4851,8 +4874,13 @@ mod tests {
                 )
             ]
         );
-        TestLogHandler::new()
-            .exists_log_containing(&format!("DEBUG: {test_name}: Total debits across last "));
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: \
+            Debits from last 1 ServicesConsumed messages [wei | bytes]:\n\
+            0x0000000000000000000000726f7574696e672032: 114100 | 3456\n\
+            0x0000000000000000000000726f7574696e672031: 82986 | 3456\n\
+            0x0000000000000000000000000000000065786974: 36120 | 1200"
+        ));
     }
 
     fn assert_that_we_do_not_charge_our_own_wallet_for_consumed_services(
@@ -5575,7 +5603,7 @@ mod tests {
         let test_name =
             "accountant_confirms_all_pending_txs_and_schedules_new_payable_scanner_timely";
         let finish_scan_params_arc = Arc::new(Mutex::new(vec![]));
-        let time_until_next_scan_params_arc = Arc::new(Mutex::new(vec![]));
+        let next_scan_timing_params_arc = Arc::new(Mutex::new(vec![]));
         let new_payable_notify_later_arc = Arc::new(Mutex::new(vec![]));
         let new_payable_notify_arc = Arc::new(Mutex::new(vec![]));
         let system = System::new("new_payable_scanner_timely");
@@ -5592,9 +5620,9 @@ mod tests {
             )));
         let expected_computed_interval = Duration::from_secs(3);
         let interval_computer = NewPayableScanIntervalComputerMock::default()
-            .time_until_next_scan_params(&time_until_next_scan_params_arc)
+            .next_scan_timing_params(&next_scan_timing_params_arc)
             // This determines the test
-            .time_until_next_scan_result(ScanTiming::WaitFor(expected_computed_interval));
+            .next_scan_timing_result(ScanTiming::WaitFor(expected_computed_interval));
         subject.scan_schedulers.payable.interval_computer = Box::new(interval_computer);
         subject.scan_schedulers.payable.new_payable_notify_later = Box::new(
             NotifyLaterHandleMock::default().notify_later_params(&new_payable_notify_later_arc),
@@ -5652,7 +5680,7 @@ mod tests {
         let test_name =
             "accountant_confirms_payable_txs_and_schedules_the_delayed_new_payable_scanner_asap";
         let finish_scan_params_arc = Arc::new(Mutex::new(vec![]));
-        let time_until_next_scan_params_arc = Arc::new(Mutex::new(vec![]));
+        let next_scan_timing_params_arc = Arc::new(Mutex::new(vec![]));
         let new_payable_notify_later_arc = Arc::new(Mutex::new(vec![]));
         let new_payable_notify_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = AccountantBuilder::default()
@@ -5667,9 +5695,9 @@ mod tests {
                 pending_payable_scanner,
             )));
         let interval_computer = NewPayableScanIntervalComputerMock::default()
-            .time_until_next_scan_params(&time_until_next_scan_params_arc)
+            .next_scan_timing_params(&next_scan_timing_params_arc)
             // This determines the test
-            .time_until_next_scan_result(ScanTiming::ReadyNow);
+            .next_scan_timing_result(ScanTiming::ReadyNow);
         subject.scan_schedulers.payable.interval_computer = Box::new(interval_computer);
         subject.scan_schedulers.payable.new_payable_notify_later = Box::new(
             NotifyLaterHandleMock::default().notify_later_params(&new_payable_notify_later_arc),
@@ -5704,8 +5732,8 @@ mod tests {
             "Should be empty but {:?}",
             finish_scan_params
         );
-        let time_until_next_scan_params = time_until_next_scan_params_arc.lock().unwrap();
-        assert_eq!(*time_until_next_scan_params, vec![()]);
+        let next_scan_timing_params = next_scan_timing_params_arc.lock().unwrap();
+        assert_eq!(*next_scan_timing_params, vec![()]);
         let new_payable_notify_later = new_payable_notify_later_arc.lock().unwrap();
         assert!(
             new_payable_notify_later.is_empty(),
@@ -5756,7 +5784,7 @@ mod tests {
             }),
         }]);
         let left_side_bound = if let ScanTiming::WaitFor(interval) =
-            assertion_interval_computer.time_until_next_scan()
+            assertion_interval_computer.next_scan_timing()
         {
             interval
         } else {
@@ -5770,7 +5798,7 @@ mod tests {
         let new_payable_notify_later = new_payable_notify_later_arc.lock().unwrap();
         let (_, actual_interval) = new_payable_notify_later[0];
         let right_side_bound = if let ScanTiming::WaitFor(interval) =
-            assertion_interval_computer.time_until_next_scan()
+            assertion_interval_computer.next_scan_timing()
         {
             interval
         } else {
@@ -5949,7 +5977,7 @@ mod tests {
                 let notify_later_params_arc = Arc::new(Mutex::new(vec![]));
                 scan_schedulers.payable.interval_computer = Box::new(
                     NewPayableScanIntervalComputerMock::default()
-                        .time_until_next_scan_result(ScanTiming::WaitFor(Duration::from_secs(152))),
+                        .next_scan_timing_result(ScanTiming::WaitFor(Duration::from_secs(152))),
                 );
                 scan_schedulers.payable.new_payable_notify_later = Box::new(
                     NotifyLaterHandleMock::default().notify_later_params(&notify_later_params_arc),
@@ -7028,81 +7056,72 @@ mod tests {
     }
 
     #[test]
-    fn accounts_stats_are_logged_only_if_debug_enabled() {
-        init_test_logging();
-        let test_name = "accounts_stats_are_logged_only_if_debug_enabled";
-        let mut logger = Logger::new(test_name);
-        logger.set_level_for_test(Level::Debug);
-        let mut subject = AccountantBuilder::default().logger(logger).build();
-        subject.logging_utils.accounting_msg_log_window = 1;
-        let new_charge_1 = NewCharge::new(make_address(1), 1234567);
-        let new_charge_2 = NewCharge::new(make_address(2), 7654321);
-
-        subject.consider_logging_debug_stats(
-            AccountingMsgType::ServicesConsumed,
-            vec![new_charge_1, new_charge_2],
-        );
-
-        TestLogHandler::new()
-            .exists_log_containing(&format!("DEBUG: {test_name}: Total debits across last"));
-    }
-
-    #[test]
     fn accounts_stats_are_not_logged_if_debug_is_not_enabled() {
         init_test_logging();
         let test_name = "accounts_stats_are_not_logged_if_debug_is_not_enabled";
-        let mut logger = Logger::new("test");
-        logger.set_level_for_test(Level::Info);
+        let logger = Logger::new("test").set_test_log_level(Level::Info);
         let mut subject = AccountantBuilder::default().logger(logger).build();
         subject.logging_utils.accounting_msg_log_window = 1;
-        let new_charge_1 = NewCharge::new(make_address(1), 1234567);
-        let new_charge_2 = NewCharge::new(make_address(2), 7654321);
+        let new_charge_1 = NewCharge::new(make_address(1), 1234567, 4444);
+        let new_charge_2 = NewCharge::new(make_address(2), 7654321, 5555);
 
-        subject.consider_logging_debug_stats(
+        subject.maybe_log_debug_stats(
             AccountingMsgType::ServicesConsumed,
             vec![new_charge_1, new_charge_2],
         );
 
         TestLogHandler::new().exists_no_log_containing(&format!("DEBUG: {test_name}:"));
+    }
+
+    #[test]
+    fn accounts_debug_stats_are_logged_if_debug_enabled_and_trace_not_enabled() {
+        init_test_logging();
+        let test_name = "accounts_debug_stats_are_logged_if_debug_enabled_and_trace_not_enabled";
+        let logger = Logger::new(test_name).set_test_log_level(Level::Debug);
+        let mut subject = AccountantBuilder::default().logger(logger).build();
+        subject.logging_utils.accounting_msg_log_window = 1;
+        let new_charge_1 = NewCharge::new(make_address(1), 1234567, 444);
+        let new_charge_2 = NewCharge::new(make_address(2), 7654321, 555);
+
+        subject.maybe_log_debug_stats(
+            AccountingMsgType::ServicesConsumed,
+            vec![new_charge_1, new_charge_2],
+        );
+
+        TestLogHandler::new()
+            .exists_log_containing(&format!("DEBUG: {test_name}: Debits from last"));
+    }
+
+    #[test]
+    fn accounts_debug_stats_are_not_logged_if_trace_enabled() {
+        init_test_logging();
+        let test_name = "accounts_debug_stats_are_not_logged_if_trace_enabled";
+        let logger = Logger::new(test_name).set_test_log_level(Level::Trace);
+        let mut subject = AccountantBuilder::default().logger(logger).build();
+        subject.logging_utils.accounting_msg_log_window = 1;
+        let new_charge_1 = NewCharge::new(make_address(1), 1234567, 444);
+        let new_charge_2 = NewCharge::new(make_address(2), 7654321, 555);
+
+        subject.maybe_log_debug_stats(
+            AccountingMsgType::ServicesConsumed,
+            vec![new_charge_1, new_charge_2],
+        );
+
+        TestLogHandler::new()
+            .exists_no_log_containing(&format!("DEBUG: {test_name}: Debits from last"));
     }
 
     #[test]
     fn accounts_stats_are_not_produced_for_empty_charges() {
         init_test_logging();
         let test_name = "accounts_stats_are_not_produced_for_empty_charges";
-        let mut logger = Logger::new("test");
-        logger.set_level_for_test(Level::Debug);
+        let logger = Logger::new("test").set_test_log_level(Level::Debug);
         let mut subject = AccountantBuilder::default().logger(logger).build();
         subject.logging_utils.accounting_msg_log_window = 1;
 
-        subject.consider_logging_debug_stats(AccountingMsgType::ServicesConsumed, vec![]);
+        subject.maybe_log_debug_stats(AccountingMsgType::ServicesConsumed, vec![]);
 
         TestLogHandler::new().exists_no_log_containing(&format!("DEBUG: {test_name}:"));
-    }
-
-    #[test]
-    fn logging_kit_works() {
-        let test_name = "logging_kit_works";
-        let subject = AccountantBuilder::default()
-            .logger(Logger::new(test_name))
-            .build();
-
-        let (logger_1, id_1) = subject.logging_kit(MsgIdRequested::New);
-        let (logger_2, id_2) = subject.logging_kit(MsgIdRequested::New);
-        let (logger_3, id_3) = subject.logging_kit(MsgIdRequested::LastUsed);
-        let (logger_4, id_4) = subject.logging_kit(MsgIdRequested::New);
-
-        assert_ne!(id_1, id_2);
-        assert_eq!(id_2, id_3);
-        assert_ne!(id_3, id_4);
-        let test_log_handler = TestLogHandler::new();
-        vec![logger_1, logger_2, logger_3, logger_4]
-            .into_iter()
-            .enumerate()
-            .for_each(|(idx, logger)| {
-                debug!(logger, "idx: {idx}");
-                test_log_handler.exists_log_containing(&format!("DEBUG: {test_name}: idx: {idx}"));
-            });
     }
 
     #[test]

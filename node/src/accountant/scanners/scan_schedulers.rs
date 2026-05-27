@@ -99,7 +99,7 @@ impl PayableScanScheduler {
     }
 
     pub fn schedule_new_payable_scan(&self, ctx: &mut Context<Accountant>, logger: &Logger) {
-        if let ScanTiming::WaitFor(interval) = self.interval_computer.time_until_next_scan() {
+        if let ScanTiming::WaitFor(interval) = self.interval_computer.next_scan_timing() {
             debug!(
                 logger,
                 "Scheduling a new-payable scan in {}ms",
@@ -153,7 +153,7 @@ impl PayableScanScheduler {
 }
 
 pub trait NewPayableScanIntervalComputer {
-    fn time_until_next_scan(&self) -> ScanTiming;
+    fn next_scan_timing(&self) -> ScanTiming;
 
     fn reset_last_scan_timestamp(&mut self);
 
@@ -167,7 +167,7 @@ pub struct NewPayableScanIntervalComputerReal {
 }
 
 impl NewPayableScanIntervalComputer for NewPayableScanIntervalComputerReal {
-    fn time_until_next_scan(&self) -> ScanTiming {
+    fn next_scan_timing(&self) -> ScanTiming {
         let current_time = self.clock.now();
         let time_since_last_scan = current_time
             .duration_since(self.last_scan_timestamp)
@@ -469,7 +469,7 @@ mod tests {
                 subject.scan_interval = standard_interval;
                 subject.last_scan_timestamp = past_instant;
 
-                let result = subject.time_until_next_scan();
+                let result = subject.next_scan_timing();
 
                 assert_eq!(
                     result,
@@ -504,7 +504,7 @@ mod tests {
                 subject.scan_interval = standard_interval;
                 subject.last_scan_timestamp = past_instant;
 
-                let result = subject.time_until_next_scan();
+                let result = subject.next_scan_timing();
 
                 assert_eq!(
                     result,
@@ -524,7 +524,7 @@ mod tests {
         subject.scan_interval = Duration::from_secs(180);
         subject.clock = Box::new(SimpleClockMock::default().now_result(now));
 
-        let result = subject.time_until_next_scan();
+        let result = subject.next_scan_timing();
 
         assert_eq!(
             result,
@@ -570,7 +570,7 @@ mod tests {
         subject.clock = Box::new(SimpleClockMock::default().now_result(now));
         subject.last_scan_timestamp = now.checked_add(Duration::from_secs(1)).unwrap();
 
-        let _ = subject.time_until_next_scan();
+        let _ = subject.next_scan_timing();
     }
 
     #[test]

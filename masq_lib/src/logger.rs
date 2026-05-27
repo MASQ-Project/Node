@@ -317,8 +317,9 @@ impl Logger {
         level <= self.level_limit
     }
 
-    pub fn set_level_for_test(&mut self, level: Level) {
-        self.level_limit = level
+    pub fn set_test_log_level(mut self, level: Level) -> Self {
+        self.level_limit = level;
+        self
     }
 }
 

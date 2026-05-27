@@ -1478,10 +1478,6 @@ impl MessageIdGenerator for MessageIdGeneratorMock {
     fn new_id(&self) -> u32 {
         self.ids.borrow_mut().remove(0)
     }
-
-    fn last_used_id(&self) -> u32 {
-        todo!()
-    }
 }
 
 impl MessageIdGeneratorMock {
