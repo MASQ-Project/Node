@@ -736,6 +736,17 @@ mod tests {
         subject.node_ui_port = None;
         subject.node_process_id = None;
         subject.verifier_tools = Box::new(verifier_tools);
+        let expected_setup: SetupCluster = [
+            ("ip", "1.2.3.4"),
+            ("data-directory", format!("{:?}", home_dir).as_str()),
+            ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier),
+            ("neighborhood-mode", "zero-hop"),
+        ].iter().map(|(k, v)| {
+            (k.to_string(), UiSetupResponseValue::new(k, v, Set))
+        }).collect();
+        subject.setup_reporter = Box::new(
+            SetupReporterMock::new().get_modified_setup_result(Ok(expected_setup))
+        );
         let subject_addr = subject.start();
         subject_addr
             .try_send(make_daemon_bind_message(ui_gateway))
@@ -804,6 +815,18 @@ mod tests {
         subject.node_ui_port = Some(1234);
         subject.node_process_id = Some(4321);
         subject.verifier_tools = Box::new(verifier_tools);
+        let expected_setup: SetupCluster = [
+            ("data-directory", data_dir.to_str().unwrap()),
+            ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier),
+            ("neighborhood-mode", "zero-hop"),
+        ].iter().map(|(k, v)| {
+            (k.to_string(), UiSetupResponseValue::new(k, v, Set))
+        }).collect();
+        subject.setup_reporter = Box::new(
+            SetupReporterMock::new()
+                .get_modified_setup_result(Ok(expected_setup.clone()))
+                .get_modified_setup_result(Ok(expected_setup))
+        );
         let subject_addr = subject.start();
         subject_addr
             .try_send(make_daemon_bind_message(ui_gateway))
@@ -1177,6 +1200,14 @@ mod tests {
             ),
         );
         subject.verifier_tools = Box::new(verifier_tools);
+        let mut first_setup = subject.params.clone();
+        first_setup.insert(
+            "chain".to_string(),
+            UiSetupResponseValue::new("chain", "polygon-mainnet", Configured),
+        );
+        subject.setup_reporter = Box::new(SetupReporterMock::new()
+            .get_modified_setup_result(Ok(first_setup.clone()))
+            .get_modified_setup_result(Ok(first_setup)));
         let subject_addr = subject.start();
         subject_addr
             .try_send(make_daemon_bind_message(ui_gateway))

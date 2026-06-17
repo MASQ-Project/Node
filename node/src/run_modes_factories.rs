@@ -202,7 +202,7 @@ mod tests {
         assert!(
             actual_error
                 .reason
-                .contains("Unfamiliar message: error: Found argument '--wooooooo'"),
+                .contains("Unfamiliar message: error: unexpected argument '--wooooooo' found"),
             "{}",
             actual_error.reason
         );

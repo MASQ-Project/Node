@@ -791,14 +791,18 @@ parm2 - msg2\n"
 
         assert_eq!(daemon_h_exit_code, 0);
         let daemon_stdout_message = daemon_h_holder.stdout.get_string();
-        assert!(daemon_stdout_message.contains("MASQ\nMASQ Node is the foundation of MASQ Network, an open-source network that allows anyone to"));
-        assert!(daemon_stdout_message.contains("--initialization    Directs"));
+        assert!(daemon_stdout_message.contains("MASQ Node is the foundation of MASQ Network, an open-source network that allows anyone to"), "{}", daemon_stdout_message);
+        assert!(daemon_stdout_message.contains("Directs MASQ to start the Daemon that controls the Node, rather than the Node itself"), "{}", daemon_stdout_message);
         assert_eq!(daemon_h_holder.stderr.get_string(), "");
         assert_eq!(node_h_exit_code, 0);
         let node_stdout_message = node_h_holder.stdout.get_string();
-        assert!(node_stdout_message
-            .contains("to allocate spare computing\nresources to make the internet a free"));
-        assert!(node_stdout_message.contains("--clandestine-port <CLANDESTINE-PORT>\n"));
+        assert!(
+            node_stdout_message
+            .contains("to allocate spare computing resources to make the internet a free"),
+            "{}",
+            node_stdout_message
+        );
+        assert!(node_stdout_message.contains("--clandestine-port"), "{}", node_stdout_message);
         assert_eq!(node_h_holder.stderr.get_string(), "");
     }
 

@@ -39,9 +39,11 @@ mod initialization {
     use super::*;
     use masq_lib::constants::DEFAULT_UI_PORT;
     use masq_lib::multi_config::MultiConfig;
+    use masq_lib::shared_schema::InsecurePort;
 
     pub fn parse_args(multi_config: &MultiConfig, config: &mut InitializationConfig) {
-        config.ui_port = value_m!(multi_config, "ui-port", u16).unwrap_or(DEFAULT_UI_PORT);
+        // TODO: Maybe this should panic instead of defaulting if the value is invalid?
+        config.ui_port = value_m!(multi_config, "ui-port", InsecurePort).unwrap_or(InsecurePort {port: DEFAULT_UI_PORT}).port;
     }
 }
 

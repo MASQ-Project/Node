@@ -204,12 +204,14 @@ pub fn privileged_parse_args(
         .unwrap_or_else(|| vec![SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)), 53)]);
 
     privileged_config.log_level =
-        value_m!(multi_config, "log-level", LevelFilter).unwrap_or(LevelFilter::Warn);
+        value_m!(multi_config, "log-level", masq_lib::shared_schema::LogLevel)
+            .map(|ll| ll.into())
+            .unwrap_or(LevelFilter::Warn);
 
     privileged_config.ui_gateway_config.ui_port =
         value_m!(multi_config, "ui-port", InsecurePort)
-            .map(|insecure_port| insecure_port.port)
-            .unwrap_or(DEFAULT_UI_PORT);
+            .unwrap_or(InsecurePort {port: DEFAULT_UI_PORT})
+            .port;
 
     privileged_config.crash_point =
         value_m!(multi_config, "crash-point", CrashPoint).unwrap_or(CrashPoint::None);
@@ -586,7 +588,7 @@ mod tests {
         privileged_parse_args(&DirsWrapperReal {}, &multi_config, &mut config).unwrap();
 
         assert_eq!(
-            value_m!(multi_config, "config-file", PathBuf),
+            value_m!(multi_config, "config-file", masq_lib::shared_schema::ConfigFile).map(|cf| cf.path),
             Some(PathBuf::from("specified_config.toml")),
         );
         assert_eq!(
@@ -632,7 +634,7 @@ mod tests {
 
         assert_eq!(
             Some(PathBuf::from("config.toml")),
-            value_m!(multi_config, "config-file", PathBuf)
+            value_m!(multi_config, "config-file", masq_lib::shared_schema::ConfigFile).map(|cf| cf.path)
         );
         assert_eq!(
             config.dns_servers,
@@ -689,7 +691,7 @@ mod tests {
 
         assert_eq!(
             Some(PathBuf::from("config.toml")),
-            value_m!(multi_config, "config-file", PathBuf)
+            value_m!(multi_config, "config-file", masq_lib::shared_schema::ConfigFile).map(|cf| cf.path)
         );
         assert_eq!(
             config.dns_servers,

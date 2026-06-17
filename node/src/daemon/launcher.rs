@@ -475,10 +475,11 @@ mod tests {
         );
     }
 
-    #[test]
-    fn launch_calls_execer_and_returns_failure() {
+    #[actix::test]
+    async fn launch_calls_execer_and_returns_failure() {
         let (ui_gateway, _, _) = make_recorder();
         let crashed_recipient = ui_gateway.start().recipient();
+        task::yield_now().await;
         let exec_params_arc = Arc::new(Mutex::new(vec![]));
         let execer = ExecerMock::new()
             .exec_params(&exec_params_arc)
@@ -503,10 +504,30 @@ mod tests {
         assert_eq!(result, "Booga!".to_string());
     }
 
-    #[test]
-    fn launch_calls_execer_and_verifier_and_returns_clean_failure() {
+    #[actix::test]
+    async fn launch_calls_execer_and_verifier_and_returns_intervention_required() {
         let (ui_gateway, _, _) = make_recorder();
         let crashed_recipient = ui_gateway.start().recipient();
+        task::yield_now().await;
+        let execer = ExecerMock::new().exec_result(Ok(1234));
+        let verifier = LaunchVerifierMock::new().verify_launch_result(InterventionRequired);
+        let mut subject = LauncherReal::new(unbounded().0);
+        subject.execer = Box::new(execer);
+        subject.verifier = Box::new(verifier);
+
+        let result = subject
+            .launch(HashMap::new(), crashed_recipient)
+            .err()
+            .unwrap();
+
+        assert_eq! (result, format! ("Node started in process 1234, but was unresponsive and could not be killed. Manual intervention is required."))
+    }
+
+    #[actix::test]
+    async fn launch_calls_execer_and_verifier_and_returns_clean_failure() {
+        let (ui_gateway, _, _) = make_recorder();
+        let crashed_recipient = ui_gateway.start().recipient();
+        task::yield_now().await;
         let execer = ExecerMock::new().exec_result(Ok(1234));
         let verifier = LaunchVerifierMock::new().verify_launch_result(CleanFailure);
         let mut subject = LauncherReal::new(unbounded().0);
@@ -524,10 +545,11 @@ mod tests {
         )
     }
 
-    #[test]
-    fn launch_calls_execer_and_verifier_and_returns_dirty_failure() {
+    #[actix::test]
+    async fn launch_calls_execer_and_verifier_and_returns_dirty_failure() {
         let (ui_gateway, _, _) = make_recorder();
         let crashed_recipient = ui_gateway.start().recipient();
+        task::yield_now().await;
         let execer = ExecerMock::new().exec_result(Ok(1234));
         let verifier = LaunchVerifierMock::new().verify_launch_result(DirtyFailure);
         let mut subject = LauncherReal::new(unbounded().0);
@@ -545,23 +567,5 @@ mod tests {
                 "Node started in process 1234, but was unresponsive and was successfully killed."
             )
         )
-    }
-
-    #[test]
-    fn launch_calls_execer_and_verifier_and_returns_intervention_required() {
-        let (ui_gateway, _, _) = make_recorder();
-        let crashed_recipient = ui_gateway.start().recipient();
-        let execer = ExecerMock::new().exec_result(Ok(1234));
-        let verifier = LaunchVerifierMock::new().verify_launch_result(InterventionRequired);
-        let mut subject = LauncherReal::new(unbounded().0);
-        subject.execer = Box::new(execer);
-        subject.verifier = Box::new(verifier);
-
-        let result = subject
-            .launch(HashMap::new(), crashed_recipient)
-            .err()
-            .unwrap();
-
-        assert_eq! (result, format! ("Node started in process 1234, but was unresponsive and could not be killed. Manual intervention is required."))
     }
 }

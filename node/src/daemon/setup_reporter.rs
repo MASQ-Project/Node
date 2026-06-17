@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::apps::app_head;
+use crate::apps::{app_head, app_node};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::daemon::dns_inspector::dns_inspector_factory::{
     DnsInspectorFactory, DnsInspectorFactoryReal,
@@ -36,7 +36,7 @@ use masq_lib::multi_config::{
     CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig, VirtualCommandLine,
 };
 use masq_lib::shared_schema::{shared_app, ConfiguratorError};
-use masq_lib::utils::{add_chain_specific_directory, ExpectValue};
+use masq_lib::utils::{add_chain_specific_directory, AutomapProtocol, ExpectValue};
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr};
@@ -350,7 +350,7 @@ impl SetupReporterReal {
     > {
         let multi_config = Self::make_multi_config(dirs_wrapper, None, true, false)?;
         let real_user_opt = match (
-            value_m!(multi_config, "real-user", String),
+            value_m!(multi_config, "real-user", masq_lib::shared_schema::RealUser).map(|ru| ru.to_string()),
             combined_setup.get("real-user"),
         ) {
             (Some(real_user_str), None) => Self::real_user_from_str(&real_user_str),
@@ -362,7 +362,7 @@ impl SetupReporterReal {
             }
         };
         let chain_name = match (
-            value_m!(multi_config, "chain", String),
+            value_m!(multi_config, "chain", masq_lib::blockchains::chains::Chain).map(|c| c.rec().literal_identifier.to_string()),
             combined_setup.get("chain"),
         ) {
             (Some(chain), None) => chain,
@@ -372,7 +372,7 @@ impl SetupReporterReal {
             (None, None) => DEFAULT_CHAIN.rec().literal_identifier.to_string(),
         };
         let data_directory_opt = match (
-            value_m!(multi_config, "data-directory", String),
+            value_m!(multi_config, "data-directory", masq_lib::shared_schema::DataDirectory).map(|dd| dd.to_string()),
             combined_setup.get("data-directory"),
         ) {
             (Some(ddir_str), None) => Some(PathBuf::from(&ddir_str)),
@@ -418,7 +418,7 @@ impl SetupReporterReal {
                     persistent_config.as_ref(),
                     &db_password_opt,
                 );
-                let configured = match value_m!(multi_config, r.value_name(), String) {
+                let configured = match r.string_value(&multi_config) {
                     Some(value) => UiSetupResponseValue::new(r.value_name(), &value, Configured),
                     None => UiSetupResponseValue::new(r.value_name(), "", Blank),
                 };
@@ -483,7 +483,7 @@ impl SetupReporterReal {
         environment: bool,
         config_file: bool,
     ) -> Result<MultiConfig, ConfiguratorError> {
-        let app = shared_app(app_head());
+        let app = app_node();
         let mut vcls: Vec<Box<dyn VirtualCommandLine>> = vec![];
         if let Some(command_line) = command_line_opt.clone() {
             vcls.push(Box::new(CommandLineVcl::new(command_line)));
@@ -609,7 +609,7 @@ trait ValueRetriever {
         }
     }
 
-    fn set_value(&self, multi_config: &MultiConfig) -> Option<String> {
+    fn string_value(&self, multi_config: &MultiConfig) -> Option<String> {
         value_m!(multi_config, self.value_name(), String)
     }
 
@@ -628,6 +628,11 @@ impl ValueRetriever for BlockchainServiceUrl {
         "blockchain-service-url"
     }
 
+    fn string_value(&self, multi_config: &MultiConfig) -> Option<String> {
+        use url::Url;
+        value_m!(multi_config, self.value_name(), Url).map(|v| v.to_string())
+    }
+
     fn is_required(&self, params: &SetupCluster) -> bool {
         is_required_for_blockchain(params)
     }
@@ -637,6 +642,11 @@ struct Chain {}
 impl ValueRetriever for Chain {
     fn value_name(&self) -> &'static str {
         "chain"
+    }
+
+    fn string_value(&self, multi_config: &MultiConfig) -> Option<String> {
+        use masq_lib::blockchains::chains::Chain as ChainType;
+        value_m!(multi_config, self.value_name(), ChainType).map(|c: ChainType| c.rec().literal_identifier.to_string())
     }
 
     fn computed_default(
@@ -657,6 +667,11 @@ struct ClandestinePort {}
 impl ValueRetriever for ClandestinePort {
     fn value_name(&self) -> &'static str {
         "clandestine-port"
+    }
+
+    fn string_value(&self, multi_config: &MultiConfig) -> Option<String> {
+        use masq_lib::shared_schema::InsecurePort;
+        value_m!(multi_config, self.value_name(), InsecurePort).map(|p| p.port.to_string())
     }
 
     fn computed_default(
@@ -681,6 +696,11 @@ impl ValueRetriever for ConfigFile {
     fn value_name(&self) -> &'static str {
         "config-file"
     }
+
+    fn string_value(&self, multi_config: &MultiConfig) -> Option<String> {
+        use masq_lib::shared_schema::ConfigFile as ConfigFileType;
+        value_m!(multi_config, self.value_name(), ConfigFileType).map(|cf| cf.to_string())
+    }
 }
 
 struct ConsumingPrivateKey {}
@@ -688,12 +708,22 @@ impl ValueRetriever for ConsumingPrivateKey {
     fn value_name(&self) -> &'static str {
         "consuming-private-key"
     }
+
+    fn string_value(&self, multi_config: &MultiConfig) -> Option<String> {
+        use masq_lib::shared_schema::PrivateKey;
+        value_m!(multi_config, self.value_name(), PrivateKey).map(|pk| pk.to_string())
+    }
 }
 
 struct CrashPoint {}
 impl ValueRetriever for CrashPoint {
     fn value_name(&self) -> &'static str {
         "crash-point"
+    }
+
+    fn string_value(&self, multi_config: &MultiConfig) -> Option<String> {
+        use masq_lib::crash_point::CrashPoint as CrashPointEnum;
+        value_m!(multi_config, self.value_name(), CrashPointEnum).map(|cp| cp.to_string())
     }
 }
 
@@ -703,6 +733,11 @@ struct DataDirectory {
 impl ValueRetriever for DataDirectory {
     fn value_name(&self) -> &'static str {
         "data-directory"
+    }
+
+    fn string_value(&self, multi_config: &MultiConfig) -> Option<String> {
+        use masq_lib::shared_schema::DataDirectory as DataDirectoryType;
+        value_m!(multi_config, self.value_name(), DataDirectoryType).map(|dd| dd.to_string())
     }
 
     fn computed_default(
@@ -766,6 +801,11 @@ impl ValueRetriever for DnsServers {
         "dns-servers"
     }
 
+    fn string_value(&self, multi_config: &MultiConfig) -> Option<String> {
+        use masq_lib::shared_schema::IpAddrs;
+        value_m!(multi_config, self.value_name(), IpAddrs).map(|addrs| addrs.to_string())
+    }
+
     fn computed_default(
         &self,
         _bootstrapper_config: &BootstrapperConfig,
@@ -804,12 +844,22 @@ impl ValueRetriever for EarningWallet {
     fn value_name(&self) -> &'static str {
         "earning-wallet"
     }
+
+    fn string_value(&self, multi_config: &MultiConfig) -> Option<String> {
+        use masq_lib::shared_schema::Wallet;
+        value_m!(multi_config, self.value_name(), Wallet).map(|w| w.to_string())
+    }
 }
 
 struct GasPrice {}
 impl ValueRetriever for GasPrice {
     fn value_name(&self) -> &'static str {
         "gas-price"
+    }
+
+    fn string_value(&self, multi_config: &MultiConfig) -> Option<String> {
+        use masq_lib::shared_schema::GasPrice as GasPriceType;
+        value_m!(multi_config, self.value_name(), GasPriceType).map(|gp| gp.to_string())
     }
 
     fn computed_default(
@@ -838,12 +888,16 @@ impl ValueRetriever for Ip {
         "ip"
     }
 
+    fn string_value(&self, multi_config: &MultiConfig) -> Option<String> {
+        value_m!(multi_config, self.value_name(), IpAddr).map(|ip| ip.to_string())
+    }
+
     fn computed_default(
         &self,
         bootstrapper_config: &BootstrapperConfig,
         _persistent_config: &dyn PersistentConfiguration,
         _db_password_opt: &Option<String>,
-    ) -> Option<(String, UiSetupResponseValueStatus)> {
+    ) -> Option<(String,  UiSetupResponseValueStatus)> {
         let neighborhood_mode = &bootstrapper_config.neighborhood_config.mode;
         match neighborhood_mode {
             NeighborhoodModeEnum::Standard(node_addr, _, _)
@@ -870,6 +924,11 @@ impl ValueRetriever for LogLevel {
         "log-level"
     }
 
+    fn string_value(&self, multi_config: &MultiConfig) -> Option<String> {
+        use masq_lib::shared_schema::LogLevel as LogLevelType;
+        value_m!(multi_config, self.value_name(), LogLevelType).map(|ll| ll.to_string())
+    }
+
     fn computed_default(
         &self,
         _bootstrapper_config: &BootstrapperConfig,
@@ -888,6 +947,10 @@ struct MappingProtocol {}
 impl ValueRetriever for MappingProtocol {
     fn value_name(&self) -> &'static str {
         "mapping-protocol"
+    }
+
+    fn string_value(&self, multi_config: &MultiConfig) -> Option<String> {
+        value_m!(multi_config, self.value_name(), AutomapProtocol).map(|ap| ap.to_string())
     }
 
     fn computed_default(
@@ -919,6 +982,11 @@ impl ValueRetriever for MinHops {
         "min-hops"
     }
 
+    fn string_value(&self, multi_config: &MultiConfig) -> Option<String> {
+        use masq_lib::shared_schema::Hops;
+        value_m!(multi_config, self.value_name(), Hops).map(|h| h.to_string())
+    }
+
     fn computed_default(
         &self,
         _bootstrapper_config: &BootstrapperConfig,
@@ -948,6 +1016,11 @@ impl ValueRetriever for NeighborhoodMode {
         "neighborhood-mode"
     }
 
+    fn string_value(&self, multi_config: &MultiConfig) -> Option<String> {
+        use masq_lib::shared_schema::NeighborhoodMode as NeighborhoodModeType;
+        value_m!(multi_config, self.value_name(), NeighborhoodModeType).map(|nm| nm.to_string())
+    }
+
     fn computed_default(
         &self,
         _bootstrapper_config: &BootstrapperConfig,
@@ -974,6 +1047,11 @@ struct Neighbors {}
 impl ValueRetriever for Neighbors {
     fn value_name(&self) -> &'static str {
         "neighbors"
+    }
+
+    fn string_value(&self, multi_config: &MultiConfig) -> Option<String> {
+        use masq_lib::shared_schema::Neighbors as NeighborsType;
+        value_m!(multi_config, self.value_name(), NeighborsType).map(|n| n.to_string())
     }
 
     fn computed_default(
@@ -1006,6 +1084,11 @@ impl ValueRetriever for PaymentThresholds {
         "payment-thresholds"
     }
 
+    fn string_value(&self, multi_config: &MultiConfig) -> Option<String> {
+        use masq_lib::shared_schema::PaymentThresholds as PaymentThresholdsType;
+        value_m!(multi_config, self.value_name(), PaymentThresholdsType).map(|pt| pt.to_string())
+    }
+
     fn computed_default(
         &self,
         _bootstrapper_config: &BootstrapperConfig,
@@ -1028,6 +1111,11 @@ struct RatePack {}
 impl ValueRetriever for RatePack {
     fn value_name(&self) -> &'static str {
         "rate-pack"
+    }
+
+    fn string_value(&self, multi_config: &MultiConfig) -> Option<String> {
+        use masq_lib::shared_schema::RatePack as RatePackType;
+        value_m!(multi_config, self.value_name(), RatePackType).map(|rp| rp.to_string())
     }
 
     fn computed_default(
@@ -1058,6 +1146,11 @@ struct ScanIntervals {}
 impl ValueRetriever for ScanIntervals {
     fn value_name(&self) -> &'static str {
         "scan-intervals"
+    }
+
+    fn string_value(&self, multi_config: &MultiConfig) -> Option<String> {
+        use masq_lib::shared_schema::ScanIntervals as ScanIntervalsType;
+        value_m!(multi_config, self.value_name(), ScanIntervalsType).map(|si| si.to_string())
     }
 
     fn computed_default(
@@ -1098,6 +1191,11 @@ impl ValueRetriever for RealUser {
         "real-user"
     }
 
+    fn string_value(&self, multi_config: &MultiConfig) -> Option<String> {
+        use masq_lib::shared_schema::RealUser as RealUserType;
+        value_m!(multi_config, self.value_name(), RealUserType).map(|ru| ru.to_string())
+    }
+
     fn computed_default(
         &self,
         _bootstrapper_config: &BootstrapperConfig,
@@ -1136,6 +1234,11 @@ struct Scans {}
 impl ValueRetriever for Scans {
     fn value_name(&self) -> &'static str {
         "scans"
+    }
+
+    fn string_value(&self, multi_config: &MultiConfig) -> Option<String> {
+        use masq_lib::shared_schema::OnOff;
+        value_m!(multi_config, self.value_name(), OnOff).map(|oo| oo.to_string())
     }
 
     fn computed_default(
@@ -1461,7 +1564,7 @@ mod tests {
             ("clandestine-port", "1234", Set),
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Set),
-            ("crash-point", "Message", Set),
+            ("crash-point", "message", Set),
             ("data-directory", previously_processed_data_dir.to_str().unwrap(), Set),
             ("db-password", "password", Set),
             ("dns-servers", "8.8.8.8", Set),
@@ -1476,7 +1579,7 @@ mod tests {
             ("payment-thresholds","1234|50000|1000|1000|20000|20000",Set),
             ("rate-pack","1|3|3|8",Set),
             #[cfg(not(target_os = "windows"))]
-            ("real-user", "9999:9999:booga", Set),
+            ("real-user", "9999:9999:/home/booga", Set),
             ("scan-intervals","150|150|150",Set),
             ("scans", "off", Set),
         ]);
@@ -1491,7 +1594,7 @@ mod tests {
             ("clandestine-port", "1234", Set),
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Set),
-            ("crash-point", "Message", Set),
+            ("crash-point", "message", Set),
             ("data-directory", previously_processed_data_dir.to_str().unwrap(), Set),
             ("db-password", "password", Set),
             ("dns-servers", "8.8.8.8", Set),
@@ -1506,7 +1609,7 @@ mod tests {
             ("payment-thresholds","1234|50000|1000|1000|20000|20000",Set),
             ("rate-pack","1|3|3|8",Set),
             #[cfg(not(target_os = "windows"))]
-            ("real-user", "9999:9999:booga", Set),
+            ("real-user", "9999:9999:/home/booga", Set),
             ("scan-intervals","150|150|150",Set),
             ("scans", "off", Set),
         ].into_iter()
@@ -1531,7 +1634,7 @@ mod tests {
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier),
             ("clandestine-port", "1234"),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677"),
-            ("crash-point", "Message"),
+            ("crash-point", "message"),
             ("data-directory", home_dir.to_str().unwrap()),
             ("db-password", "password"),
             ("dns-servers", "8.8.8.8"),
@@ -1539,14 +1642,14 @@ mod tests {
             ("gas-price", "50"),
             ("ip", "4.3.2.1"),
             ("log-level", "error"),
-            ("mapping-protocol", "igdp"),
+            ("mapping-protocol", "IGDP"),
             ("min-hops", "2"),
             ("neighborhood-mode", "originate-only"),
             ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
             ("payment-thresholds","1234|50000|1000|1000|15000|15000"),
             ("rate-pack","1|3|3|8"),
             #[cfg(not(target_os = "windows"))]
-            ("real-user", "9999:9999:booga"),
+            ("real-user", "9999:9999:/home/booga"),
             ("scan-intervals","140|130|150"),
             ("scans", "off"),
         ].into_iter()
@@ -1566,7 +1669,7 @@ mod tests {
             ("clandestine-port", "1234", Set),
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Set),
-            ("crash-point", "Message", Set),
+            ("crash-point", "message", Set),
             ("data-directory", chain_specific_data_dir.to_str().unwrap(), Set),
             ("db-password", "password", Set),
             ("dns-servers", "8.8.8.8", Set),
@@ -1581,7 +1684,7 @@ mod tests {
             ("payment-thresholds","1234|50000|1000|1000|15000|15000",Set),
             ("rate-pack","1|3|3|8",Set),
             #[cfg(not(target_os = "windows"))]
-            ("real-user", "9999:9999:booga", Set),
+            ("real-user", "9999:9999:/home/booga", Set),
             ("scan-intervals","140|130|150",Set),
             ("scans", "off", Set),
         ].into_iter()
@@ -1607,7 +1710,7 @@ mod tests {
             ("MASQ_CHAIN", TEST_DEFAULT_CHAIN.rec().literal_identifier),
             ("MASQ_CLANDESTINE_PORT", "1234"),
             ("MASQ_CONSUMING_PRIVATE_KEY", "0011223344556677001122334455667700112233445566770011223344556677"),
-            ("MASQ_CRASH_POINT", "Error"),
+            ("MASQ_CRASH_POINT", "error"),
             ("MASQ_DATA_DIRECTORY", home_dir.to_str().unwrap()),
             ("MASQ_DB_PASSWORD", "password"),
             ("MASQ_DNS_SERVERS", "8.8.8.8"),
@@ -1622,7 +1725,7 @@ mod tests {
             ("MASQ_PAYMENT_THRESHOLDS","12345|50000|1000|1234|19000|20000"),
             ("MASQ_RATE_PACK","1|3|3|8"),
             #[cfg(not(target_os = "windows"))]
-            ("MASQ_REAL_USER", "9999:9999:booga"),
+            ("MASQ_REAL_USER", "9999:9999:/home/booga"),
             ("MASQ_SCANS", "off"),
             ("MASQ_SCAN_INTERVALS","133|133|111")
         ].into_iter()
@@ -1634,12 +1737,12 @@ mod tests {
         let result = subject.get_modified_setup(HashMap::new(), params).unwrap();
 
         let expected_result = vec![
-            ("blockchain-service-url", "https://example3.com", Configured),
+            ("blockchain-service-url", "https://example3.com/", Configured),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Configured),
             ("clandestine-port", "1234", Configured),
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Configured),
-            ("crash-point", "Error", Configured),
+            ("crash-point", "error", Configured),
             ("data-directory", home_dir.to_str().unwrap(), Configured),
             ("db-password", "password", Configured),
             ("dns-servers", "8.8.8.8", Configured),
@@ -1654,7 +1757,7 @@ mod tests {
             ("payment-thresholds","12345|50000|1000|1234|19000|20000",Configured),
             ("rate-pack","1|3|3|8",Configured),
             #[cfg(not(target_os = "windows"))]
-            ("real-user", "9999:9999:booga", Configured),
+            ("real-user", "9999:9999:/home/booga", Configured),
             ("scan-intervals","133|133|111",Configured),
             ("scans", "off", Configured),
         ].into_iter()
@@ -1692,7 +1795,7 @@ mod tests {
                 .write_all(b"clandestine-port = \"7788\"\n")
                 .unwrap();
             config_file.write_all(b"consuming-private-key = \"00112233445566778899AABBCCDDEEFF00112233445566778899AABBCCDDEEFF\"\n").unwrap();
-            config_file.write_all(b"crash-point = \"None\"\n").unwrap();
+            config_file.write_all(b"crash-point = \"none\"\n").unwrap();
             config_file
                 .write_all(b"dns-servers = \"5.6.7.8\"\n")
                 .unwrap();
@@ -1731,7 +1834,7 @@ mod tests {
                 .unwrap();
             // NOTE: You can't really change consuming-private-key without starting a new database
             config_file.write_all(b"consuming-private-key = \"FFEEDDCCBBAA99887766554433221100FFEEDDCCBBAA99887766554433221100\"\n").unwrap();
-            config_file.write_all(b"crash-point = \"None\"\n").unwrap();
+            config_file.write_all(b"crash-point = \"none\"\n").unwrap();
             config_file
                 .write_all(b"db-password = \"ropstenPassword\"\n")
                 .unwrap();
@@ -1782,7 +1885,7 @@ mod tests {
         let expected_result = vec![
             (
                 "blockchain-service-url",
-                "https://www.ropsten.com",
+                "https://www.ropsten.com/",
                 Configured,
             ),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Set),
@@ -1793,7 +1896,7 @@ mod tests {
                 "FFEEDDCCBBAA99887766554433221100FFEEDDCCBBAA99887766554433221100",
                 Configured,
             ),
-            ("crash-point", "None", Configured),
+            ("crash-point", "none", Configured),
             (
                 "data-directory",
                 &ropsten_dir.to_string_lossy().to_string(),
@@ -1856,7 +1959,7 @@ mod tests {
             ("MASQ_CHAIN", TEST_DEFAULT_CHAIN.rec().literal_identifier),
             ("MASQ_CLANDESTINE_PORT", "1234"),
             ("MASQ_CONSUMING_PRIVATE_KEY", "0011223344556677001122334455667700112233445566770011223344556677"),
-            ("MASQ_CRASH_POINT", "Panic"),
+            ("MASQ_CRASH_POINT", "panic"),
             ("MASQ_DATA_DIRECTORY", home_dir.to_str().unwrap()),
             ("MASQ_DNS_SERVERS", "8.8.8.8"),
             ("MASQ_EARNING_WALLET", "0x0123456789012345678901234567890123456789"),
@@ -1869,7 +1972,7 @@ mod tests {
             ("MASQ_PAYMENT_THRESHOLDS","1234|50000|1000|1000|20000|20000"),
             ("MASQ_RATE_PACK","1|3|3|8"),
             #[cfg(not(target_os = "windows"))]
-            ("MASQ_REAL_USER", "9999:9999:booga"),
+            ("MASQ_REAL_USER", "9999:9999:/home/booga"),
             ("MASQ_SCANS", "off"),
             ("MASQ_SCAN_INTERVALS","150|150|155"),
         ].into_iter()
@@ -1910,7 +2013,7 @@ mod tests {
                 "7766554433221100776655443322110077665544332211007766554433221100",
                 Set,
             ),
-            ("crash-point", "Message", Set),
+            ("crash-point", "message", Set),
             ("data-directory", "booga", Set),
             ("db-password", "drowssap", Set),
             ("dns-servers", "4.4.4.4", Set),
@@ -1933,7 +2036,7 @@ mod tests {
             ("payment-thresholds", "4321|66666|777|987|123456|124444", Set),
             ("rate-pack", "10|30|13|28", Set),
             #[cfg(not(target_os = "windows"))]
-            ("real-user", "6666:6666:agoob", Set),
+            ("real-user", "6666:6666:/home/agoob", Set),
             ("scan-intervals", "111|111|111", Set),
             ("scans", "off", Set),
             ]);
@@ -1948,7 +2051,7 @@ mod tests {
             ("clandestine-port", "1234", Configured),
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Configured),
-            ("crash-point", "Panic", Configured),
+            ("crash-point", "panic", Configured),
             ("data-directory", home_dir.to_str().unwrap(), Configured),
             ("db-password", "",Required),
             ("dns-servers", "8.8.8.8", Configured),
@@ -1967,7 +2070,7 @@ mod tests {
             ("payment-thresholds","1234|50000|1000|1000|20000|20000",Configured),
             ("rate-pack","1|3|3|8",Configured),
             #[cfg(not(target_os = "windows"))]
-            ("real-user", "9999:9999:booga", Configured),
+            ("real-user", "9999:9999:/home/booga", Configured),
             ("scan-intervals","150|150|155",Configured),
             ("scans", "off", Configured),
         ]
@@ -2409,7 +2512,7 @@ mod tests {
         vec![
             ("MASQ_CHAIN", TEST_DEFAULT_CHAIN.rec().literal_identifier),
             ("MASQ_DATA_DIRECTORY", "env_dir"),
-            ("MASQ_REAL_USER", "9999:9999:booga"),
+            ("MASQ_REAL_USER", "9999:9999:/home/booga"),
         ]
         .into_iter()
         .for_each(|(name, value)| std::env::set_var(name, value));
@@ -2423,7 +2526,7 @@ mod tests {
             Some(crate::bootstrapper::RealUser::new(
                 Some(9999),
                 Some(9999),
-                Some(PathBuf::from("booga"))
+                Some(PathBuf::from("/home/booga"))
             ))
         );
         assert_eq!(data_directory_opt, Some(PathBuf::from("env_dir")));
@@ -2436,14 +2539,14 @@ mod tests {
         vec![
             ("MASQ_CHAIN", TEST_DEFAULT_CHAIN.rec().literal_identifier),
             ("MASQ_DATA_DIRECTORY", "env_dir"),
-            ("MASQ_REAL_USER", "9999:9999:booga"),
+            ("MASQ_REAL_USER", "9999:9999:/home/booga"),
         ]
         .into_iter()
         .for_each(|(name, value)| std::env::set_var(name, value));
         let setup = setup_cluster_from(vec![
             ("chain", "dev", Configured),
             ("data-directory", "setup_dir", Default),
-            ("real-user", "1111:1111:agoob", Configured),
+            ("real-user", "1111:1111:/home/agoob", Configured),
         ]);
 
         let (real_user_opt, data_directory_opt, chain) =
@@ -2454,7 +2557,7 @@ mod tests {
             Some(crate::bootstrapper::RealUser::new(
                 Some(9999),
                 Some(9999),
-                Some(PathBuf::from("booga"))
+                Some(PathBuf::from("/home/booga"))
             ))
         );
         assert_eq!(data_directory_opt, Some(PathBuf::from("env_dir")));
@@ -2467,14 +2570,14 @@ mod tests {
         vec![
             ("MASQ_CHAIN", TEST_DEFAULT_CHAIN.rec().literal_identifier),
             ("MASQ_DATA_DIRECTORY", "env_dir"),
-            ("MASQ_REAL_USER", "9999:9999:booga"),
+            ("MASQ_REAL_USER", "9999:9999:/home/booga"),
         ]
         .into_iter()
         .for_each(|(name, value)| std::env::set_var(name, value));
         let setup = setup_cluster_from(vec![
             ("chain", "dev", Set),
             ("data-directory", "setup_dir", Set),
-            ("real-user", "1111:1111:agoob", Set),
+            ("real-user", "1111:1111:/home/agoob", Set),
         ]);
 
         let (real_user_opt, data_directory_opt, chain) =
@@ -2485,7 +2588,7 @@ mod tests {
             Some(crate::bootstrapper::RealUser::new(
                 Some(1111),
                 Some(1111),
-                Some(PathBuf::from("agoob"))
+                Some(PathBuf::from("/home/agoob"))
             ))
         );
         assert_eq!(data_directory_opt, Some(PathBuf::from("setup_dir")));
@@ -2501,7 +2604,7 @@ mod tests {
         let setup = setup_cluster_from(vec![
             ("chain", "dev", Configured),
             ("data-directory", "setup_dir", Default),
-            ("real-user", "1111:1111:agoob", Configured),
+            ("real-user", "1111:1111:/home/agoob", Configured),
         ]);
 
         let (real_user_opt, data_directory_opt, chain) =
@@ -2512,7 +2615,7 @@ mod tests {
             Some(crate::bootstrapper::RealUser::new(
                 Some(1111),
                 Some(1111),
-                Some(PathBuf::from("agoob"))
+                Some(PathBuf::from("/home/agoob"))
             ))
         );
         assert_eq!(data_directory_opt, None);
@@ -3095,7 +3198,7 @@ mod tests {
 
         let result = subject.computed_default(&bootstrapper_config, &persistent_config, &None);
 
-        assert_eq!(result, Some(("pmp".to_string(), Configured)))
+        assert_eq!(result, Some(("PMP".to_string(), Configured)))
     }
 
     #[test]
