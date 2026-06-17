@@ -35,7 +35,6 @@ tokio = { workspace = true, features = ["rt", "rt-multi-thread", "io-std"]}
 tokio-util = { workspace = true, features = ["compat"]}
 toml = "0.8.14"
 url = { workspace = true }
-workflow-websocket = { workspace = true }
 
 [features]
 no_test_share = []

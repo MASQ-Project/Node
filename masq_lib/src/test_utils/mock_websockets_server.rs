@@ -545,7 +545,6 @@ impl MockWebSocketsServer {
     }
 }
 
-pub type ServerJoinHandle = JoinHandle<workflow_websocket::server::result::Result<()>>;
 
 #[derive(Debug)]
 pub struct MockWebSocketsServerResult {

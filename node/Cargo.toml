@@ -24,7 +24,6 @@ tokio = "=1.49.0"
 tokio-util = "=0.7.18"
 url = "=2.5.0"
 web3 = { version = "=0.19.0", default-features = false, features = ["http", "http-tls"] }
-workflow-websocket = "=0.17.0"
 
 [dependencies]
 actix = { workspace = true }
@@ -87,7 +86,6 @@ unindent = "0.2.3"
 url = { workspace = true }
 variant_count = "1.1.0"
 web3 = { workspace = true }
-workflow-websocket = { workspace = true }
 actix-rt = "2.11.0"
 
 [target.'cfg(target_os = "macos")'.dependencies]

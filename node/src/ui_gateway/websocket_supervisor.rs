@@ -616,7 +616,6 @@ mod tests {
     use std::time::Duration;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::sync::mpsc::{UnboundedReceiver};
-    use workflow_websocket::client::message::Message;
 
     struct ClientWrapperMock {
         send_text_params: StdArc<StdMutex<Vec<String>>>,
@@ -1138,17 +1137,6 @@ mod tests {
         assert_eq!(ui_gateway_recording.len(), 0);
     }
 
-    async fn msg_received_assertion(
-        mut client_rx: UnboundedReceiver<Message>,
-        expected_target: MessageTarget,
-    ) -> NodeToUiMessage {
-        match client_rx.recv().await {
-            Some(Message::Text(json)) =>
-                UiTrafficConverter::new_unmarshal_to_ui(json.as_str(), expected_target).unwrap(),
-            Some(x) => panic! ("send should have been called with OwnedMessage::Text, but was called with {:?} instead", x),
-            None => panic! ("send should have been called, but wasn't"),
-        }
-    }
 
     #[actix::test]
     async fn send_msg_with_a_client_id_sends_a_message_to_the_client() {

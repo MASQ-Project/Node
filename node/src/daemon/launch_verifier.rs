@@ -3,15 +3,19 @@
 use crate::daemon::launch_verifier::LaunchVerification::{
     CleanFailure, DirtyFailure, InterventionRequired, Launched,
 };
+use futures_util::io::{BufReader, BufWriter};
 use masq_lib::logger::Logger;
 use masq_lib::messages::NODE_UI_PROTOCOL;
 use masq_lib::test_utils::utils::make_rt;
+use masq_lib::utils::localhost;
+use soketto::handshake;
 use std::cell::RefCell;
-use std::sync::Arc;
+use std::net::SocketAddr;
 use std::thread;
 use std::time::Duration;
 use sysinfo::{Pid, ProcessStatus, Signal};
-use workflow_websocket::client::{ConnectOptions, Error, Message, WebSocket};
+use tokio::net::TcpStream;
+use tokio_util::compat::TokioAsyncReadCompatExt;
 
 // Note: if the INTERVALs are half the DELAYs or greater, the tests below will need to change,
 // because they depend on being able to fail twice and still succeed.
@@ -41,7 +45,7 @@ impl VerifierTools for VerifierToolsReal {
         }
         client_builder_ref.add_protocol(NODE_UI_PROTOCOL);
         match client_builder_ref.connect_insecure() {
-            Ok(mut client) => client.send_message(Message::Close).is_ok(),
+            Ok(mut client) => client.close().is_ok(),
             Err(_) => false,
         }
     }
@@ -204,67 +208,81 @@ impl LaunchVerifierReal {
 }
 
 pub trait ClientWrapper {
-    fn send_message(&mut self, message: Message) -> Result<(), Arc<Error>>;
+    fn close(&mut self) -> Result<(), String>;
 }
 
 pub struct ClientWrapperReal {
-    client: WebSocket,
+    sender: masq_lib::websockets_types::WSSender,
 }
 
 impl ClientWrapper for ClientWrapperReal {
-    fn send_message(&mut self, message: Message) -> Result<(), Arc<Error>> {
-        let future = self.client.send(message);
-        make_rt().block_on(future)?;
-        Ok(())
-    }
-}
-
-impl ClientWrapperReal {
-    #[clippy::allow(clippy::type_complexity)]
-    fn new(url: &str) -> Result<Self, workflow_websocket::client::Error> {
-        let client = WebSocket::new(Some(url), None)?;
-        let future = client.connect(ConnectOptions::default());
-        make_rt().block_on(future)?;
-        Ok(ClientWrapperReal { client })
+    fn close(&mut self) -> Result<(), String> {
+        let future = self.sender.close();
+        make_rt()
+            .block_on(future)
+            .map_err(|e| format!("Failed to close WebSocket: {}", e))
     }
 }
 
 pub trait ClientBuilderWrapper {
-    #[clippy::allow(clippy::type_complexity)]
-    fn initiate_client_builder(
-        &mut self,
-        address: &str,
-    ) -> Result<(), Error>;
-    fn add_protocol(&self, protocol: &str);
-    #[clippy::allow(clippy::type_complexity)]
-    fn connect_insecure(
-        &mut self,
-    ) -> Result<Box<dyn ClientWrapper>, Error>;
+    fn initiate_client_builder(&mut self, address: &str) -> Result<(), String>;
+    fn add_protocol(&mut self, protocol: &str);
+    fn connect_insecure(&mut self) -> Result<Box<dyn ClientWrapper>, String>;
 }
 
 #[derive(Default)]
 struct ClientBuilderWrapperReal {
-    address: String,
+    port: u16,
+    protocols: Vec<String>,
 }
 
 impl ClientBuilderWrapper for ClientBuilderWrapperReal {
-    fn initiate_client_builder(
-        &mut self,
-        address: &str,
-    ) -> Result<(), Error> {
-        self.address = address.to_string();
+    fn initiate_client_builder(&mut self, address: &str) -> Result<(), String> {
+        // Parse ws://127.0.0.1:PORT format
+        let port_str = address
+            .strip_prefix("ws://127.0.0.1:")
+            .ok_or_else(|| format!("Invalid address format: {}", address))?;
+        self.port = port_str
+            .parse()
+            .map_err(|e| format!("Invalid port in address: {}", e))?;
         Ok(())
     }
 
-    fn add_protocol(&self, _protocol: &str) {
-        todo!("Figure out how to do protocols with workflow-websockets")
+    fn add_protocol(&mut self, protocol: &str) {
+        self.protocols.push(protocol.to_string());
     }
 
-    fn connect_insecure(
-        &mut self,
-    ) -> Result<Box<dyn ClientWrapper>, workflow_websocket::client::Error> {
-        let client = ClientWrapperReal::new(self.address.as_str())?;
-        Ok(Box::new(client))
+    fn connect_insecure(&mut self) -> Result<Box<dyn ClientWrapper>, String> {
+        let port = self.port;
+        let protocols = self.protocols.clone();
+        let future = async move {
+            let socket_addr = SocketAddr::new(localhost(), port);
+            let stream = TcpStream::connect(socket_addr)
+                .await
+                .map_err(|e| format!("Failed to connect to {}: {}", socket_addr, e))?;
+
+            let host = socket_addr.to_string();
+            let mut client = handshake::Client::new(
+                BufReader::new(BufWriter::new(stream.compat())),
+                host.as_str(),
+                "/",
+            );
+
+            // Add protocols before handshake - the references need to live until handshake completes
+            protocols.iter().for_each(|protocol| {
+                client.add_protocol(protocol.as_str());
+            });
+
+            client
+                .handshake()
+                .await
+                .map_err(|e| format!("WebSocket handshake failed: {}", e))?;
+
+            let (sender, _receiver) = client.into_builder().finish();
+            Ok(Box::new(ClientWrapperReal { sender }) as Box<dyn ClientWrapper>)
+        };
+
+        make_rt().block_on(future)
     }
 }
 
@@ -422,11 +440,11 @@ mod tests {
         let port = 45554;
         let initiate_client_params_arc = Arc::new(Mutex::new(vec![]));
         let add_protocol_params_arc = Arc::new(Mutex::new(vec![]));
-        let send_message_params_arc = Arc::new(Mutex::new(vec![]));
+        let close_params_arc = Arc::new(Mutex::new(vec![]));
         let subject = VerifierToolsReal::new();
         let client = ClientWrapperMock::default()
-            .send_message_params(&send_message_params_arc)
-            .send_message_result(Ok(()));
+            .close_params(&close_params_arc)
+            .close_result(Ok(()));
         let client_builder = ClientBuilderWrapperMock::default()
             .initiate_client_builder_params(&initiate_client_params_arc)
             .initiate_client_builder_result(Ok(()))
@@ -444,8 +462,8 @@ mod tests {
         );
         let add_protocol_params = add_protocol_params_arc.lock().unwrap();
         assert_eq!(*add_protocol_params, vec![NODE_UI_PROTOCOL.to_string()]);
-        let send_message_params = send_message_params_arc.lock().unwrap();
-        assert_eq!(*send_message_params, vec![Message::Close])
+        let close_params = close_params_arc.lock().unwrap();
+        assert_eq!(*close_params, vec![()]);
     }
 
     #[test]
@@ -459,12 +477,12 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "client builder: InvalidMessageType")]
+    #[should_panic(expected = "client builder: \"Invalid address format: foolish\"")]
     fn can_connect_to_ui_gateway_panics_on_initiate_client_builder() {
         let port = 7889;
         let subject = VerifierToolsReal::new();
         let client_builder = ClientBuilderWrapperMock::default().initiate_client_builder_result(
-            Err(workflow_websocket::client::error::Error::InvalidMessageType),
+            Err("Invalid address format: foolish".to_string()),
         );
         subject.client_builder.replace(Box::new(client_builder));
 
@@ -472,14 +490,11 @@ mod tests {
     }
 
     #[test]
-    fn can_connect_to_ui_gateway_handles_close_message_send_failure() {
+    fn can_connect_to_ui_gateway_handles_close_failure() {
         let port = 6578;
         let subject = VerifierToolsReal::new();
-        let client = ClientWrapperMock::default().send_message_result(Err(Arc::new(
-            workflow_websocket::client::error::Error::InvalidConnectStrategyArg(
-                "Bad protocol".to_string(),
-            ),
-        )));
+        let client = ClientWrapperMock::default()
+            .close_result(Err("Failed to close WebSocket: connection already closed".to_string()));
         let client_builder = ClientBuilderWrapperMock::default()
             .initiate_client_builder_result(Ok(()))
             .connect_insecure_result(Ok(Box::new(client)));
@@ -498,8 +513,8 @@ mod tests {
         let result = subject.initiate_client_builder(url_address);
 
         assert_eq!(
-            format!("{:?}", result.err().unwrap()),
-            "MissingUrl".to_string()
+            result.err().unwrap(),
+            "Invalid address format: foolish".to_string()
         );
     }
 

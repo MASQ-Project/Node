@@ -7,7 +7,6 @@ use crate::daemon::launch_verifier::{
 };
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
-use workflow_websocket::client::{Error, Message};
 
 pub struct LaunchVerifierMock {
     verify_launch_params: Arc<Mutex<Vec<(u32, u16)>>>,
@@ -127,25 +126,25 @@ impl VerifierToolsMock {
 
 #[derive(Default)]
 pub struct ClientWrapperMock {
-    send_message_params: Arc<Mutex<Vec<Message>>>,
-    send_message_result: RefCell<Vec<Result<(), Arc<Error>>>>,
+    close_params: Arc<Mutex<Vec<()>>>,
+    close_result: RefCell<Vec<Result<(), String>>>,
 }
 
 impl ClientWrapper for ClientWrapperMock {
-    fn send_message(&mut self, message: Message) -> Result<(), Arc<Error>> {
-        self.send_message_params.lock().unwrap().push(message);
-        self.send_message_result.borrow_mut().remove(0)
+    fn close(&mut self) -> Result<(), String> {
+        self.close_params.lock().unwrap().push(());
+        self.close_result.borrow_mut().remove(0)
     }
 }
 
 impl ClientWrapperMock {
-    pub fn send_message_params(mut self, params: &Arc<Mutex<Vec<Message>>>) -> Self {
-        self.send_message_params = params.clone();
+    pub fn close_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+        self.close_params = params.clone();
         self
     }
 
-    pub fn send_message_result(self, result: Result<(), Arc<Error>>) -> Self {
-        self.send_message_result.borrow_mut().push(result);
+    pub fn close_result(self, result: Result<(), String>) -> Self {
+        self.close_result.borrow_mut().push(result);
         self
     }
 }
@@ -153,18 +152,13 @@ impl ClientWrapperMock {
 #[derive(Default)]
 pub struct ClientBuilderWrapperMock {
     initiate_client_builder_params: Arc<Mutex<Vec<String>>>,
-    initiate_client_builder_result:
-        RefCell<Vec<Result<(), workflow_websocket::client::error::Error>>>,
+    initiate_client_builder_result: RefCell<Vec<Result<(), String>>>,
     add_protocol_params: Arc<Mutex<Vec<String>>>,
-    connect_insecure_result:
-        RefCell<Vec<Result<Box<dyn ClientWrapper>, workflow_websocket::client::error::Error>>>,
+    connect_insecure_result: RefCell<Vec<Result<Box<dyn ClientWrapper>, String>>>,
 }
 
 impl ClientBuilderWrapper for ClientBuilderWrapperMock {
-    fn initiate_client_builder(
-        &mut self,
-        address: &str,
-    ) -> Result<(), workflow_websocket::client::error::Error> {
+    fn initiate_client_builder(&mut self, address: &str) -> Result<(), String> {
         self.initiate_client_builder_params
             .lock()
             .unwrap()
@@ -172,16 +166,14 @@ impl ClientBuilderWrapper for ClientBuilderWrapperMock {
         self.initiate_client_builder_result.borrow_mut().remove(0)
     }
 
-    fn add_protocol(&self, protocol: &str) {
+    fn add_protocol(&mut self, protocol: &str) {
         self.add_protocol_params
             .lock()
             .unwrap()
             .push(protocol.to_string())
     }
 
-    fn connect_insecure(
-        &mut self,
-    ) -> Result<Box<dyn ClientWrapper>, workflow_websocket::client::error::Error> {
+    fn connect_insecure(&mut self) -> Result<Box<dyn ClientWrapper>, String> {
         self.connect_insecure_result.borrow_mut().remove(0)
     }
 }
@@ -191,10 +183,7 @@ impl ClientBuilderWrapperMock {
         self.initiate_client_builder_params = params.clone();
         self
     }
-    pub fn initiate_client_builder_result(
-        self,
-        result: Result<(), workflow_websocket::client::error::Error>,
-    ) -> Self {
+    pub fn initiate_client_builder_result(self, result: Result<(), String>) -> Self {
         self.initiate_client_builder_result
             .borrow_mut()
             .push(result);
@@ -208,7 +197,7 @@ impl ClientBuilderWrapperMock {
 
     pub fn connect_insecure_result(
         self,
-        result: Result<Box<dyn ClientWrapper>, workflow_websocket::client::error::Error>,
+        result: Result<Box<dyn ClientWrapper>, String>,
     ) -> Self {
         self.connect_insecure_result.borrow_mut().push(result);
         self
