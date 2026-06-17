@@ -5,7 +5,7 @@ use crate::neighborhood::node_record::NodeRecord;
 use crate::neighborhood::overall_connection_status::ConnectionProgress;
 use crate::neighborhood::Neighborhood;
 use crate::sub_lib::configurator::NewPasswordMessage;
-use crate::sub_lib::cryptde::{descriptor_fragment_to_bytes, CryptDE, PublicKey};
+use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::ExpiredCoresPackage;
@@ -180,9 +180,10 @@ impl Default for NodeDescriptor {
 impl From<(&PublicKey, &NodeAddr, Chain, &dyn CryptDE)> for NodeDescriptor {
     fn from(tuple: (&PublicKey, &NodeAddr, Chain, &dyn CryptDE)) -> Self {
         let (public_key, node_addr, blockchain, cryptde) = tuple;
-        let bytes = public_key.as_slice().to_vec();
-        let encryption_public_key = cryptde.bytes_to_first_contact_public_key(bytes)
+        let bytes = cryptde
+            .descriptor_fragment_to_bytes(&cryptde.public_key_to_descriptor_fragment(public_key))
             .expect("Internal error");
+        let encryption_public_key = cryptde.bytes_to_first_contact_public_key(bytes).expect("Internal error");
         NodeDescriptor {
             blockchain,
             encryption_public_key,
@@ -194,9 +195,9 @@ impl From<(&PublicKey, &NodeAddr, Chain, &dyn CryptDE)> for NodeDescriptor {
 impl From<(&NodeRecord, Chain, &dyn CryptDE)> for NodeDescriptor {
     fn from(tuple: (&NodeRecord, Chain, &dyn CryptDE)) -> Self {
         let (node_record, blockchain, cryptde) = tuple;
-        let bytes = descriptor_fragment_to_bytes(
-            &cryptde.public_key_to_descriptor_fragment(node_record.public_key())
-        ).expect("Internal error");
+        let bytes = cryptde
+            .descriptor_fragment_to_bytes(&cryptde.public_key_to_descriptor_fragment(node_record.public_key()))
+            .expect("Internal error");
         let encryption_public_key = cryptde.bytes_to_first_contact_public_key(bytes)
             .expect("Internal error");
         NodeDescriptor {
@@ -213,7 +214,7 @@ impl TryFrom<(&dyn CryptDE, &str)> for NodeDescriptor {
     fn try_from(tuple: (&dyn CryptDE, &str)) -> Result<Self, Self::Error> {
         let (cryptde, str_descriptor) = tuple;
         let (blockchain, key, str_node_addr) = NodeDescriptor::parse_url(str_descriptor)?;
-        let bytes = descriptor_fragment_to_bytes(key)?;
+        let bytes = cryptde.descriptor_fragment_to_bytes(key)?;
         let encryption_public_key = cryptde.bytes_to_first_contact_public_key(bytes)?;
         let node_addr_opt = if str_node_addr == ":" {
             None

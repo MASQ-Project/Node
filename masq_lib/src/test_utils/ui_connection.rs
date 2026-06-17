@@ -26,6 +26,7 @@ use tokio_util::compat::TokioAsyncReadCompatExt;
 pub struct UiConnection {
     context_id: u64,
     local_addr: SocketAddr,
+    peer_addr: SocketAddr,
     #[allow(dead_code)]
     accepted_protocol_opt: Option<String>,
     sender: WSSender,
@@ -37,6 +38,7 @@ impl Debug for UiConnection {
         f.debug_struct("UiConnection")
             .field("context_id", &self.context_id)
             .field("local_addr", &self.local_addr)
+            .field("peer_addr", &self.peer_addr)
             .field("sender", &"--unprintable--".to_string())
             .field("receiver", &"--unprintable--".to_string())
             .finish()
@@ -45,13 +47,14 @@ impl Debug for UiConnection {
 
 impl UiConnection {
     pub async fn new(port: u16, protocol: &'static str) -> Result<UiConnection, String> {
-        let (sender, receiver, accepted_protocol_opt) =
+        let (sender, receiver, accepted_protocol_opt, local_addr) =
             Self::establish_ws_conn_with_protocols(port, vec![protocol.to_string()])
                 .await
-                .unwrap();
+                ?;
         Ok(UiConnection {
             context_id: 0,
-            local_addr: SocketAddr::new(localhost(), port),
+            local_addr,
+            peer_addr: SocketAddr::new(localhost(), port),
             accepted_protocol_opt,
             sender,
             receiver,
@@ -60,6 +63,10 @@ impl UiConnection {
 
     pub fn local_addr(&self) -> SocketAddr {
         self.local_addr
+    }
+
+    pub fn peer_addr(&self) -> SocketAddr {
+        self.peer_addr
     }
 
     pub async fn send<T: ToMessageBody>(&mut self, payload: T) {
@@ -205,14 +212,17 @@ impl UiConnection {
     async fn establish_ws_conn_with_protocols(
         port: u16,
         protocols: Vec<String>,
-    ) -> Result<(WSSender, WSReceiver, Option<String>), String> {
+    ) -> Result<(WSSender, WSReceiver, Option<String>, SocketAddr), String> {
         let socket_addr = SocketAddr::new(localhost(), port);
         let stream = TcpStream::connect(socket_addr).await.map_err(|e| {
             format!(
-                "Connecting a TCP stream to the websocket server failed: {}",
-                e
+                "Connecting a TCP stream to the websocket server {} failed: {}",
+                socket_addr, e
             )
         })?;
+        let local_addr = stream
+            .local_addr()
+            .map_err(|e| format!("Could not retrieve local address of TCP stream: {}", e))?;
         let host = socket_addr.to_string();
         let mut client = handshake::Client::new(
             BufReader::new(BufWriter::new(stream.compat())),
@@ -238,7 +248,7 @@ impl UiConnection {
             }
         };
         let (sender, receiver) = client.into_builder().finish();
-        Ok((sender, receiver, accepted_protocol_opt))
+        Ok((sender, receiver, accepted_protocol_opt, local_addr))
     }
 
     async fn await_message<T: FromMessageBody>(

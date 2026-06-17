@@ -135,25 +135,26 @@ impl TestLogHandler {
     }
 
     pub fn assert_logs_match_in_order(&self, patterns: Vec<&str>) {
-        let indexes: Vec<usize> = patterns
-            .iter()
-            .map(|pattern| self.exists_log_matching(pattern))
-            .collect();
-        if self.in_order(&indexes) {
-            return;
-        }
-        self.complain_about_order(&indexes, &patterns)
+        self.assert_logs_found_in_order(patterns, Self::find_first_log_matching_from)
     }
 
     pub fn assert_logs_contain_in_order(&self, fragments: Vec<&str>) {
-        let indexes: Vec<usize> = fragments
-            .iter()
-            .map(|fragment| self.exists_log_containing(fragment))
-            .collect();
-        if self.in_order(&indexes) {
-            return;
+        self.assert_logs_found_in_order(fragments, Self::find_first_log_containing_from)
+    }
+
+    fn assert_logs_found_in_order(
+        &self,
+        matchers: Vec<&str>,
+        find_fn: impl Fn(&Self, &str, usize) -> usize,
+    ) {
+        let mut next_start = 0;
+        let mut indexes = Vec::with_capacity(matchers.len());
+        for matcher in matchers.iter() {
+            let index = find_fn(self, matcher, next_start);
+            indexes.push(index);
+            next_start = index + 1;
         }
-        self.complain_about_order(&indexes, &fragments)
+        self.complain_if_out_of_order(&indexes, &matchers)
     }
 
     pub fn get_log_at(&self, index: usize) -> String {
@@ -190,6 +191,48 @@ impl TestLogHandler {
             prev_index = index;
         }
         true
+    }
+
+    fn find_first_log_matching_from(&self, pattern: &str, start_index: usize) -> usize {
+        let regex = Regex::new(pattern).unwrap();
+        let logs_dump = {
+            let logs = self.get_logs();
+            for index in start_index..logs.len() {
+                if regex.is_match(&logs[index][..]) {
+                    return index;
+                }
+            }
+            logs.join("\n")
+        };
+        panic!(
+            "No existing logs match '{}':\n------\n{}\n------",
+            pattern,
+            logs_dump
+        )
+    }
+
+    fn find_first_log_containing_from(&self, fragment: &str, start_index: usize) -> usize {
+        let logs_dump = {
+            let logs = self.get_logs();
+            for index in start_index..logs.len() {
+                if logs[index].contains(fragment) {
+                    return index;
+                }
+            }
+            logs.join("\n")
+        };
+        panic!(
+            "No existing logs contain '{}':\n------\n{}\n------",
+            fragment,
+            logs_dump
+        )
+    }
+
+    fn complain_if_out_of_order(&self, indexes: &[usize], matchers: &[&str]) {
+        if self.in_order(indexes) {
+            return;
+        }
+        self.complain_about_order(indexes, matchers)
     }
 
     fn complain_about_order(&self, indexes: &[usize], matchers: &[&str]) {
@@ -239,3 +282,57 @@ impl TestLogger {
         TestLogger {}
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn clear_test_logs() {
+        match TEST_LOGS_ARC.lock() {
+            Ok(mut logs) => logs.clear(),
+            Err(poisoned) => poisoned.into_inner().clear(),
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "No existing logs contain '__single_occurrence_fragment__'")]
+    fn assert_logs_contain_in_order_requires_distinct_matches_for_duplicates() {
+        clear_test_logs();
+        let subject = TestLogHandler::new();
+        subject.add_log("__single_occurrence_fragment__ appears once".to_string());
+
+        subject.assert_logs_contain_in_order(vec![
+            "__single_occurrence_fragment__",
+            "__single_occurrence_fragment__",
+        ]);
+    }
+
+    #[test]
+    #[should_panic(expected = "No existing logs match '^__single_occurrence_pattern__$'")]
+    fn assert_logs_match_in_order_requires_distinct_matches_for_duplicates() {
+        clear_test_logs();
+        let subject = TestLogHandler::new();
+        subject.add_log("__single_occurrence_pattern__".to_string());
+
+        subject.assert_logs_match_in_order(vec![
+            "^__single_occurrence_pattern__$",
+            "^__single_occurrence_pattern__$",
+        ]);
+    }
+
+    #[test]
+    fn ordered_assertions_accept_duplicate_expectations_when_logs_repeat() {
+        clear_test_logs();
+        let subject = TestLogHandler::new();
+        subject.add_log("first __duplicate_expected__".to_string());
+        subject.add_log("middle".to_string());
+        subject.add_log("second __duplicate_expected__".to_string());
+
+        subject.assert_logs_contain_in_order(vec!["__duplicate_expected__", "__duplicate_expected__"]);
+        subject.assert_logs_match_in_order(vec![
+            ".*__duplicate_expected__.*",
+            ".*__duplicate_expected__.*",
+        ]);
+    }
+}
+

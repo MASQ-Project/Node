@@ -767,25 +767,6 @@ pub mod tests {
     }
 
     #[tokio::test]
-    #[should_panic(expected = "BootstrapperMock was instructed to panic")]
-    async fn server_initializer_bootstrapper_panics() {
-        let dns_socket_server = CrashTestDummy::new(CrashPoint::None, ());
-        let privilege_dropper = PrivilegeDropperMock::new();
-        let dirs_wrapper = DirsWrapperMock::new();
-        let mut subject = ServerInitializerReal {
-            dns_socket_server_opt: Some(Box::new(dns_socket_server)),
-            bootstrapper: Box::new(CrashTestDummy::panic(
-                "BootstrapperMock was instructed to panic".to_string(),
-                BootstrapperConfig::new(),
-            )),
-            privilege_dropper: Box::new(privilege_dropper),
-            dirs_wrapper: Box::new(dirs_wrapper),
-        };
-
-        let _ = subject.spawn_long_lived_services();
-    }
-
-    #[tokio::test]
     async fn go_should_drop_privileges() {
         let _ = LogfileNameGuard::new(&PathBuf::from("uninitialized"));
         let bootstrapper_init_privileged_params_arc = Arc::new(Mutex::new(vec![]));

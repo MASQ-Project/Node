@@ -162,6 +162,22 @@ impl CryptDE for CryptDEReal {
         BASE64_STANDARD_NO_PAD.encode(encryption_public_key)
     }
 
+    fn descriptor_fragment_to_bytes(&self, descriptor_fragment: &str) -> Result<Vec<u8>, String> {
+        let bytes = match BASE64_STANDARD_NO_PAD.decode(descriptor_fragment) {
+            Ok(bytes) => bytes,
+            Err(e) => return Err(format!("{:?}", e)),
+        };
+        if bytes.len() != cxsp::PUBLICKEYBYTES {
+            return Err(format!(
+                "Public key must decode to {} bytes, not {}: {}",
+                cxsp::PUBLICKEYBYTES,
+                bytes.len(),
+                descriptor_fragment
+            ));
+        }
+        Ok(bytes)
+    }
+
     fn bytes_to_first_contact_public_key(
         &self,
         mut bytes: Vec<u8>,
@@ -236,7 +252,6 @@ mod tests {
     use super::*;
     use ethsign_crypto::Keccak256;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
-    use crate::sub_lib::cryptde::descriptor_fragment_to_bytes;
 
     impl Default for CryptDEReal {
         fn default() -> Self {
@@ -471,7 +486,7 @@ mod tests {
         let public_encryption_key = &subject.public_key.as_slice()[..cxsp::PUBLICKEYBYTES];
         let half_key_string = BASE64_STANDARD_NO_PAD.encode(public_encryption_key);
 
-        let bytes = descriptor_fragment_to_bytes(&half_key_string).unwrap();
+        let bytes = subject.descriptor_fragment_to_bytes(&half_key_string).unwrap();
         let result = subject.bytes_to_first_contact_public_key(bytes).unwrap();
 
         let encryption_half = &result.as_slice()[..cxsp::PUBLICKEYBYTES];
@@ -485,8 +500,7 @@ mod tests {
         let subject = CryptDEReal::default();
         let half_key_string = "((]--$";
 
-        let bytes = descriptor_fragment_to_bytes(&half_key_string).unwrap();
-        let result = subject.bytes_to_first_contact_public_key(bytes);
+        let result = subject.descriptor_fragment_to_bytes(half_key_string);
 
         assert_eq!(
             result,
@@ -501,8 +515,7 @@ mod tests {
             &subject.public_key.as_slice()[..cxsp::PUBLICKEYBYTES - 1];
         let short_half_key_string = BASE64_STANDARD_NO_PAD.encode(short_public_encryption_key);
 
-        let bytes = descriptor_fragment_to_bytes(&short_half_key_string).unwrap();
-        let result = subject.bytes_to_first_contact_public_key(bytes);
+        let result = subject.descriptor_fragment_to_bytes(&short_half_key_string);
 
         assert_eq!(
             result,
@@ -521,14 +534,29 @@ mod tests {
         long_public_encryption_key.push(0);
         let long_half_key_string = BASE64_STANDARD_NO_PAD.encode(&long_public_encryption_key);
 
-        let bytes = descriptor_fragment_to_bytes(&long_half_key_string).unwrap();
-        let result = subject.bytes_to_first_contact_public_key(bytes);
+        let result = subject.descriptor_fragment_to_bytes(&long_half_key_string);
 
         assert_eq!(
             result,
             Err(format!(
                 "Public key must decode to 32 bytes, not 33: {}",
                 long_half_key_string
+            ))
+        );
+    }
+
+    #[test]
+    fn destringify_long_public_key_string_fails_before_key_conversion() {
+        let subject = CryptDEReal::default();
+        let long_key = BASE64_STANDARD_NO_PAD.encode(subject.public_key.as_slice());
+
+        let result = subject.descriptor_fragment_to_bytes(&long_key);
+
+        assert_eq!(
+            result,
+            Err(format!(
+                "Public key must decode to 32 bytes, not 64: {}",
+                long_key
             ))
         );
     }

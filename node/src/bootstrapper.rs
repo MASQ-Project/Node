@@ -1428,7 +1428,7 @@ mod tests {
         assert_eq!(config.blockchain_bridge_config.gas_price, 11);
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn initialize_as_unprivileged_implements_panic_on_migration_for_make_and_start_actors() {
         let _lock = INITIALIZATION.lock();
         let data_dir = ensure_node_home_directory_exists(

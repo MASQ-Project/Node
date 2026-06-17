@@ -324,6 +324,33 @@ impl RecordAwaiter {
             );
         }
     }
+
+    pub async fn await_message_count_async(&self, count: usize) {
+        let limit = Duration::from_millis(10_000);
+        let interval = Duration::from_millis(50);
+        let start = tokio::time::Instant::now();
+        let mut prev_len: usize = 0;
+
+        loop {
+            let cur_len = { self.recording.lock().unwrap().len() };
+            if cur_len != prev_len {
+                println!("Recorder has received {} messages", cur_len)
+            }
+            if cur_len >= count {
+                return;
+            }
+            if start.elapsed() >= limit {
+                panic!(
+                    "After {}ms, recorder has received only {} messages, not {}",
+                    limit.as_millis(),
+                    cur_len,
+                    count
+                );
+            }
+            prev_len = cur_len;
+            tokio::time::sleep(interval).await;
+        }
+    }
 }
 
 pub fn make_recorder() -> (Recorder, RecordAwaiter, Arc<Mutex<Recording>>) {

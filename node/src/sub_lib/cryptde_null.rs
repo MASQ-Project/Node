@@ -130,6 +130,13 @@ impl CryptDE for CryptDENull {
         BASE64_STANDARD_NO_PAD.encode(public_key.as_slice())
     }
 
+    fn descriptor_fragment_to_bytes(&self, descriptor_fragment: &str) -> Result<Vec<u8>, String> {
+        match BASE64_STANDARD_NO_PAD.decode(descriptor_fragment) {
+            Ok(bytes) => Ok(bytes),
+            Err(e) => Err(format!("{:?}", e)),
+        }
+    }
+
     fn bytes_to_first_contact_public_key(
         &self,
         bytes: Vec<u8>,
@@ -262,7 +269,6 @@ mod tests {
     use ethsign_crypto::Keccak256;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::panic::{catch_unwind, AssertUnwindSafe};
-    use crate::sub_lib::cryptde::descriptor_fragment_to_bytes;
 
     #[test]
     fn encode_with_empty_key() {
@@ -595,10 +601,22 @@ mod tests {
         let subject = main_cryptde();
         let half_key = "AQIDBA";
 
-        let bytes = descriptor_fragment_to_bytes(half_key).unwrap();
+        let bytes = subject.descriptor_fragment_to_bytes(half_key).unwrap();
         let result = subject.bytes_to_first_contact_public_key(bytes);
 
         assert_eq!(result, Ok(PublicKey::new(&[1, 2, 3, 4])));
+    }
+
+    #[test]
+    fn destringifies_long_public_key_properly() {
+        let subject = main_cryptde();
+        let public_key = PublicKey::new(&[1u8; 64]);
+        let key = BASE64_STANDARD_NO_PAD.encode(public_key.as_slice());
+
+        let bytes = subject.descriptor_fragment_to_bytes(&key).unwrap();
+        let result = subject.bytes_to_first_contact_public_key(bytes).unwrap();
+
+        assert_eq!(result, public_key);
     }
 
     #[test]
@@ -606,8 +624,7 @@ mod tests {
         let subject = main_cryptde();
         let half_key = "((]--$";
 
-        let bytes = descriptor_fragment_to_bytes(half_key).unwrap();
-        let result = subject.bytes_to_first_contact_public_key(bytes);
+        let result = subject.descriptor_fragment_to_bytes(half_key);
 
         assert_eq!(
             result,
