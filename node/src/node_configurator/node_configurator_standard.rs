@@ -216,17 +216,11 @@ pub fn privileged_parse_args(
     privileged_config.crash_point =
         value_m!(multi_config, "crash-point", CrashPoint).unwrap_or(CrashPoint::None);
 
-    if let Some(public_key_str) = value_m!(multi_config, "fake-public-key", String) {
-        let (main_public_key, alias_public_key) =
-            match BASE64_STANDARD_NO_PAD.decode(&public_key_str) {
-                Ok(mut key) => {
-                    let main_public_key = PublicKey::new(&key);
-                    key.reverse();
-                    let alias_public_key = PublicKey::new(&key);
-                    (main_public_key, alias_public_key)
-                }
-                Err(e) => panic!("Invalid fake public key: {} ({:?})", public_key_str, e),
-            };
+    if let Some(public_key) = value_m!(multi_config, "fake-public-key", masq_lib::shared_schema::PublicKey) {
+        let mut key = public_key.data;
+        let main_public_key = PublicKey::new(&key);
+        key.reverse();
+        let alias_public_key = PublicKey::new(&key);
         let main_cryptde_null = CryptDENull::from(
             &main_public_key,
             privileged_config.blockchain_bridge_config.chain,
@@ -474,7 +468,9 @@ mod tests {
 
         let multi_config = gathered_params.multi_config;
         assert_eq!(
-            value_m!(multi_config, "dns-servers", String).unwrap(),
+            value_m!(multi_config, "dns-servers", masq_lib::shared_schema::IpAddrs)
+                .unwrap()
+                .to_string(),
             "111.111.111.111,222.222.222.222".to_string()
         );
     }
@@ -560,7 +556,7 @@ mod tests {
             .param("--dns-servers", "12.34.56.78,23.45.67.89")
             .param(
                 "--neighbors",
-                "QmlsbA:1.2.3.4:1234;2345,VGVk:2.3.4.5:3456;4567",
+                "masq://polygon-mumbai:QmlsbA@1.2.3.4:1234/2345,masq://polygon-mumbai:VGVk@2.3.4.5:3456/4567",
             )
             .param("--ip", "34.56.78.90")
             .param("--clandestine-port", "1234")
@@ -655,7 +651,7 @@ mod tests {
         running_test();
         let args = ArgsBuilder::new()
             .param("--ip", "1.2.3.4")
-            .param("--real-user", "::/home/booga");
+            .param("--real-user", "999:999:/home/booga");
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
@@ -883,10 +879,16 @@ mod tests {
             .err()
             .unwrap();
 
-        assert_eq!(
-            result,
-            ConfiguratorError::required("gas-price", "Invalid value: unleaded")
-        )
+        assert!(
+            result.param_errors[0].reason.contains("invalid value 'unleaded'"),
+            "Expected error to contain 'invalid value 'unleaded'', got: {:?}",
+            result
+        );
+        assert!(
+            result.param_errors[0].reason.contains("Gas price must be a decimal number greater than zero"),
+            "Expected error to contain gas price validation message, got: {:?}",
+            result
+        );
     }
 
     #[test]

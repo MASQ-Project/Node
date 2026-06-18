@@ -123,7 +123,7 @@ fn translate_bytes(json_name: &str, input: PlainData, cryptde: &dyn CryptDE) -> 
 
 fn make_config_dao(data_directory: &Path, init_config: DbInitializationConfig) -> ConfigDaoReal {
     let conn = DbInitializerReal::default()
-        .initialize(data_directory,init_config)
+        .initialize(data_directory, init_config)
         .unwrap_or_else(|e| if e == InitializationError::Nonexistent {panic!("\
         Could not find database at: {}. It is created when the Node operates the first time. Running \
           --dump-config before that has no effect",data_directory.to_string_lossy())} else {
@@ -195,7 +195,7 @@ mod tests {
         let mut holder = FakeStreamHolder::new();
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
-            .param("--real-user", "123::")
+            .param("--real-user", "123:123:/home/user")
             .opt("--dump-config")
             .into();
         let subject = DumpConfigRunnerReal {
@@ -235,7 +235,7 @@ mod tests {
         let mut holder = FakeStreamHolder::new();
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
-            .param("--real-user", "123::")
+            .param("--real-user", "123:123:/home/user")
             .param("--chain", Chain::PolyMainnet.rec().literal_identifier)
             .opt("--dump-config")
             .into();
@@ -243,9 +243,8 @@ mod tests {
             dirs_wrapper: Box::new(DirsWrapperReal),
         };
 
-        let result = subject.go(&mut holder.streams(), args_vec.as_slice());
+        let result = subject.go(&mut holder.streams(), args_vec.as_slice()).unwrap();
 
-        assert!(result.is_ok());
         let schema_version_after = dao.get("schema_version").unwrap().value_opt.unwrap();
         assert_eq!(schema_version_before, schema_version_after);
         assert_eq!(holder.stderr.get_bytes().is_empty(), true);
@@ -255,6 +254,7 @@ mod tests {
         database_path: PathBuf,
         mock_dirs_wrapper_opt: Option<Box<dyn DirsWrapper>>,
         non_default_data_directory_opt: Option<PathBuf>,
+        real_user_home_dir: PathBuf,
     ) {
         let _clap_guard = ClapGuard::new();
         let mut holder = FakeStreamHolder::new();
@@ -300,8 +300,14 @@ mod tests {
                 .set_blockchain_service_url("https://infura.io/ID")
                 .unwrap()
         }
+        let absolute_home_dir = real_user_home_dir.canonicalize()
+            .unwrap_or_else(|_| {
+                std::env::current_dir()
+                    .unwrap()
+                    .join(&real_user_home_dir)
+            });
         let mut args_builder = ArgsBuilder::new()
-            .param("--real-user", "123::")
+            .param("--real-user", &format!("123:123:{}", absolute_home_dir.display()))
             .param("--chain", Chain::PolyMainnet.rec().literal_identifier)
             .opt("--dump-config");
         if let Some(data_dir) = non_default_data_directory_opt {
@@ -316,9 +322,8 @@ mod tests {
             dirs_wrapper: dirs_wrapper,
         };
 
-        let result = subject.go(&mut holder.streams(), args_vec.as_slice());
+        let result = subject.go(&mut holder.streams(), args_vec.as_slice()).unwrap();
 
-        assert!(result.is_ok());
         let output = holder.stdout.get_string();
         let map = match serde_json::from_str(&output).unwrap() {
             Value::Object(map) => map,
@@ -388,6 +393,7 @@ mod tests {
             database_path,
             mock_dirs_wrapper_opt,
             non_default_data_directory_opt,
+            home_dir,
         );
     }
 
@@ -404,13 +410,14 @@ mod tests {
         let mock_dirs_wrapper_opt = Some(Box::new(
             DirsWrapperMock::new()
                 .data_dir_result(Some(data_dir))
-                .home_dir_result(Some(home_dir)),
+                .home_dir_result(Some(home_dir.clone())),
         ) as Box<dyn DirsWrapper>);
         let non_default_data_directory_opt = None;
         check_that_dump_config_dumps_existing_database_without_password(
             database_path,
             mock_dirs_wrapper_opt,
             non_default_data_directory_opt,
+            home_dir,
         );
     }
 
@@ -466,7 +473,7 @@ mod tests {
         }
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
-            .param("--real-user", "123::")
+            .param("--real-user", "123:123:/home/user")
             .param("--chain", Chain::PolyMainnet.rec().literal_identifier)
             .param("--db-password", "password")
             .opt("--dump-config")
@@ -475,9 +482,8 @@ mod tests {
             dirs_wrapper: Box::new(DirsWrapperReal),
         };
 
-        let result = subject.go(&mut holder.streams(), args_vec.as_slice());
+        let result = subject.go(&mut holder.streams(), args_vec.as_slice()).unwrap();
 
-        assert!(result.is_ok());
         let output = holder.stdout.get_string();
         let map = match serde_json::from_str(&output).unwrap() {
             Value::Object(map) => map,
@@ -574,7 +580,7 @@ mod tests {
         }
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
-            .param("--real-user", "123::")
+            .param("--real-user", "123:123:/home/user")
             .param("--chain", Chain::PolyMainnet.rec().literal_identifier)
             .param("--db-password", "incorrect")
             .opt("--dump-config")
@@ -583,9 +589,8 @@ mod tests {
             dirs_wrapper: Box::new(DirsWrapperReal),
         };
 
-        let result = subject.go(&mut holder.streams(), args_vec.as_slice());
+        let result = subject.go(&mut holder.streams(), args_vec.as_slice()).unwrap();
 
-        assert!(result.is_ok(), "we expected Ok but got: {:?}", result);
         let output = holder.stdout.get_string();
         let map = match serde_json::from_str(&output).unwrap() {
             Value::Object(map) => map,
