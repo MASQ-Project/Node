@@ -1352,6 +1352,34 @@ mod tests {
     use std::ops::{Add, Sub};
     use std::str::FromStr;
     use std::time::Duration;
+    use actix::{Recipient, System, SystemRunner};
+    use std::cell::RefCell;
+
+    thread_local! {
+        // Thread-local SystemRunner and Recipient for synchronous tests
+        // Each test thread creates and runs a System to provide async context
+        static TEST_SYSTEM: RefCell<Option<SystemRunner>> = RefCell::new(None);
+        static CPM_RECIPIENT: RefCell<Option<Recipient<ConnectionProgressMessage>>> = RefCell::new(None);
+    }
+
+    // Helper function to get or create the thread-local recipient
+    fn get_test_cpm_recipient() -> Recipient<ConnectionProgressMessage> {
+        CPM_RECIPIENT.with(|cell| {
+            let mut opt = cell.borrow_mut();
+            if opt.is_none() {
+                let mut system = System::new();
+                // We need to run the system to provide async context for starting actors
+                let recipient = system.block_on(async {
+                    make_cpm_recipient().0
+                });
+                TEST_SYSTEM.with(|sys_cell| {
+                    *sys_cell.borrow_mut() = Some(system);
+                });
+                *opt = Some(recipient);
+            }
+            opt.as_ref().unwrap().clone()
+        })
+    }
 
     #[test]
     fn constants_have_correct_values() {
@@ -1368,6 +1396,15 @@ mod tests {
     }
 
     fn make_default_neighborhood_metadata() -> NeighborhoodMetadata {
+        NeighborhoodMetadata {
+            connection_progress_peers: vec![],
+            cpm_recipient: get_test_cpm_recipient(),
+            min_hops: MIN_HOPS_FOR_TEST,
+        }
+    }
+
+    // For async tests that already have a runtime
+    fn make_default_neighborhood_metadata_async() -> NeighborhoodMetadata {
         NeighborhoodMetadata {
             connection_progress_peers: vec![],
             cpm_recipient: make_cpm_recipient().0,
@@ -2321,7 +2358,7 @@ mod tests {
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
         let gossip_source: SocketAddr = src_root.node_addr_opt().unwrap().into();
         let (cpm_recipient, recording_arc) = make_cpm_recipient();
-        let mut neighborhood_metadata = make_default_neighborhood_metadata();
+        let mut neighborhood_metadata = make_default_neighborhood_metadata_async();
         neighborhood_metadata.cpm_recipient = cpm_recipient;
 
         let qualifies_result = subject.qualifies(&dest_db, agrs_vec.as_slice(), gossip_source);
@@ -2615,7 +2652,7 @@ mod tests {
             .build();
         let agrs = gossip.try_into().unwrap();
         let (cpm_recipient, recording_arc) = make_cpm_recipient();
-        let mut neighborhood_metadata = make_default_neighborhood_metadata();
+        let mut neighborhood_metadata = make_default_neighborhood_metadata_async();
         neighborhood_metadata.cpm_recipient = cpm_recipient;
         let subject = StandardGossipHandler::new(Logger::new("test"));
 
@@ -2624,7 +2661,7 @@ mod tests {
             &mut root_db,
             agrs,
             src_node_socket_addr,
-            make_default_neighborhood_metadata(),
+            make_default_neighborhood_metadata_async(),
         );
 
         tokio::task::yield_now().await;
@@ -2653,7 +2690,7 @@ mod tests {
             .build();
         let agrs = gossip.try_into().unwrap();
         let (cpm_recipient, recording_arc) = make_cpm_recipient();
-        let mut neighborhood_metadata = make_default_neighborhood_metadata();
+        let mut neighborhood_metadata = make_default_neighborhood_metadata_async();
         neighborhood_metadata.cpm_recipient = cpm_recipient;
         let subject = StandardGossipHandler::new(Logger::new("test"));
 
@@ -2698,7 +2735,7 @@ mod tests {
             .build();
         let agrs = gossip.try_into().unwrap();
         let (cpm_recipient, recording_arc) = make_cpm_recipient();
-        let mut neighborhood_metadata = make_default_neighborhood_metadata();
+        let mut neighborhood_metadata = make_default_neighborhood_metadata_async();
         neighborhood_metadata.cpm_recipient = cpm_recipient;
         let subject = StandardGossipHandler::new(Logger::new("test"));
 
@@ -2737,7 +2774,7 @@ mod tests {
             .build();
         let agrs = gossip.try_into().unwrap();
         let (cpm_recipient, recording_arc) = make_cpm_recipient();
-        let mut neighborhood_metadata = make_default_neighborhood_metadata();
+        let mut neighborhood_metadata = make_default_neighborhood_metadata_async();
         neighborhood_metadata.cpm_recipient = cpm_recipient;
         let subject = StandardGossipHandler::new(Logger::new("test"));
 
@@ -3369,7 +3406,7 @@ mod tests {
         let subject = IntroductionHandler::new(Logger::new("test"));
         let (gossip, gossip_source) = make_introduction(0, 1);
         let (cpm_recipient, recording_arc) = make_cpm_recipient();
-        let mut neighborhood_metadata = make_default_neighborhood_metadata();
+        let mut neighborhood_metadata = make_default_neighborhood_metadata_async();
         neighborhood_metadata.cpm_recipient = cpm_recipient;
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
         let (_introducer, introducee) =
@@ -3439,7 +3476,7 @@ mod tests {
         let subject = PassHandler::new();
         let (gossip, pass_target, gossip_source) = make_pass(2345);
         let (cpm_recipient, recording_arc) = make_cpm_recipient();
-        let mut neighborhood_metadata = make_default_neighborhood_metadata();
+        let mut neighborhood_metadata = make_default_neighborhood_metadata_async();
         neighborhood_metadata.cpm_recipient = cpm_recipient;
         let initial_timestamp = SystemTime::now();
 
@@ -3491,7 +3528,7 @@ mod tests {
                 .add(Duration::from_secs(1)),
         );
         let (cpm_recipient, recording_arc) = make_cpm_recipient();
-        let mut neighborhood_metadata = make_default_neighborhood_metadata();
+        let mut neighborhood_metadata = make_default_neighborhood_metadata_async();
         neighborhood_metadata.cpm_recipient = cpm_recipient;
         let initial_timestamp = SystemTime::now();
 
@@ -3530,7 +3567,7 @@ mod tests {
         let (gossip, pass_target, gossip_source) = make_pass(2345);
         let pass_target_ip_addr = pass_target.node_addr_opt().unwrap().ip_addr();
         let (cpm_recipient, recording_arc) = make_cpm_recipient();
-        let mut neighborhood_metadata = make_default_neighborhood_metadata();
+        let mut neighborhood_metadata = make_default_neighborhood_metadata_async();
         neighborhood_metadata.cpm_recipient = cpm_recipient;
         neighborhood_metadata.connection_progress_peers = vec![pass_target_ip_addr];
 
@@ -3563,7 +3600,7 @@ mod tests {
         let subject = PassHandler::new();
         let (gossip, pass_target, gossip_source) = make_pass(2345);
         let (cpm_recipient, recording_arc) = make_cpm_recipient();
-        let mut neighborhood_metadata = make_default_neighborhood_metadata();
+        let mut neighborhood_metadata = make_default_neighborhood_metadata_async();
         neighborhood_metadata.cpm_recipient = cpm_recipient;
         let pass_target_ip_addr = pass_target.node_addr_opt().unwrap().ip_addr();
         let expired_time = PASS_GOSSIP_EXPIRED_TIME.add(Duration::from_secs(1));
