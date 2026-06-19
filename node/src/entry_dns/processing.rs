@@ -540,7 +540,7 @@ mod tests {
         }
 
         TestLogHandler::new().exists_log_containing(
-            "2345ns: 101.102.103.104:53 Query (A/<unknown>/first) -> Form Error (123.124.125.126)",
+            "2345ns: 101.102.103.104:53 Query (A/UNKNOWN/first) -> Form Error (123.124.125.126)",
         );
     }
 

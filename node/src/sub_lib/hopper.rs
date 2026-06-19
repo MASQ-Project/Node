@@ -161,8 +161,8 @@ mod tests {
     use std::net::IpAddr;
     use std::str::FromStr;
 
-    #[test]
-    fn hopper_subs_debug() {
+    #[actix::test]
+    async fn hopper_subs_debug() {
         let recorder = Recorder::new().start();
 
         let subject = HopperSubs {

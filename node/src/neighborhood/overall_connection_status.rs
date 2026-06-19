@@ -330,7 +330,6 @@ mod tests {
     use crate::neighborhood::PublicKey;
     use crate::test_utils::neighborhood_test_utils::{make_ip, make_node, make_node_descriptor};
     use crate::test_utils::unshared_test_utils::make_node_to_ui_recipient;
-    use actix::System;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::messages::{ToMessageBody, UiConnectionChangeBroadcast, UiConnectionStage};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
@@ -852,15 +851,15 @@ mod tests {
         assert_eq!(final_flag, true);
     }
 
-    #[test]
-    fn updates_the_ocs_stage_to_three_hops_route_found() {
+    #[actix::test]
+    async fn updates_the_ocs_stage_to_three_hops_route_found() {
         init_test_logging();
         let test_name = "updates_the_ocs_stage_to_three_hops_route_found";
         let initial_stage = OverallConnectionStage::NotConnected;
         let new_stage = OverallConnectionStage::RouteFound;
 
         let (stage, message_opt) =
-            assert_stage_and_node_to_ui_message(initial_stage, new_stage, test_name);
+            assert_stage_and_node_to_ui_message(initial_stage, new_stage, test_name).await;
 
         assert_eq!(stage, new_stage);
         assert_eq!(
@@ -880,15 +879,15 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn updates_the_ocs_stage_to_connected_to_neighbor() {
+    #[actix::test]
+    async fn updates_the_ocs_stage_to_connected_to_neighbor() {
         init_test_logging();
         let test_name = "updates_the_ocs_stage_to_connected_to_neighbor";
         let initial_stage = OverallConnectionStage::NotConnected;
         let new_stage = OverallConnectionStage::ConnectedToNeighbor;
 
         let (stage, message_opt) =
-            assert_stage_and_node_to_ui_message(initial_stage, new_stage, test_name);
+            assert_stage_and_node_to_ui_message(initial_stage, new_stage, test_name).await;
 
         assert_eq!(stage, new_stage);
         assert_eq!(
@@ -908,15 +907,15 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn doesn_t_send_message_to_the_ui_in_case_stage_hasn_t_updated() {
+    #[actix::test]
+    async fn doesn_t_send_message_to_the_ui_in_case_stage_hasn_t_updated() {
         init_test_logging();
         let test_name = "doesn_t_send_message_to_the_ui_in_case_stage_hasn_t_updated";
         let initial_stage = OverallConnectionStage::ConnectedToNeighbor;
         let new_stage = initial_stage;
 
         let (stage, message_opt) =
-            assert_stage_and_node_to_ui_message(initial_stage, new_stage, test_name);
+            assert_stage_and_node_to_ui_message(initial_stage, new_stage, test_name).await;
 
         assert_eq!(stage, initial_stage);
         assert_eq!(message_opt, None);
@@ -927,8 +926,8 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn doesn_t_send_a_message_to_ui_in_case_connection_drops_from_three_hops_to_connected_to_neighbor(
+    #[actix::test]
+    async fn doesn_t_send_a_message_to_ui_in_case_connection_drops_from_three_hops_to_connected_to_neighbor(
     ) {
         init_test_logging();
         let test_name = "doesn_t_send_a_message_to_ui_in_case_connection_drops_from_three_hops_to_connected_to_neighbor";
@@ -936,7 +935,7 @@ mod tests {
         let new_stage = OverallConnectionStage::ConnectedToNeighbor;
 
         let (stage, message_opt) =
-            assert_stage_and_node_to_ui_message(initial_stage, new_stage, test_name);
+            assert_stage_and_node_to_ui_message(initial_stage, new_stage, test_name).await;
 
         assert_eq!(stage, initial_stage);
         assert_eq!(message_opt, None);
@@ -953,7 +952,7 @@ mod tests {
         assert_eq!(subject.stage(), OverallConnectionStage::NotConnected);
     }
 
-    fn assert_stage_and_node_to_ui_message(
+    async fn assert_stage_and_node_to_ui_message(
         initial_stage: OverallConnectionStage,
         new_stage: OverallConnectionStage,
         test_name: &str,
@@ -962,7 +961,6 @@ mod tests {
             OverallConnectionStatus::new(vec![make_node_descriptor(make_ip(u8::MAX))]);
         let (node_to_ui_recipient, node_to_ui_recording_arc) = make_node_to_ui_recipient();
         subject.stage = initial_stage;
-        let system = System::new();
 
         subject.update_ocs_stage_and_send_message_to_ui(
             new_stage,
@@ -970,8 +968,9 @@ mod tests {
             &Logger::new(test_name),
         );
 
-        System::current().stop();
-        assert_eq!(system.run().is_ok(), true);
+        // Give the actor system time to process the message
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
         let stage = subject.stage;
         let recording = node_to_ui_recording_arc.lock().unwrap();
         let message_opt = recording.get_record_opt::<NodeToUiMessage>(0).cloned();

@@ -209,7 +209,7 @@ mod tests {
         let actual_json = &String::from_utf8(result).unwrap()[..];
         let actual_structure: JsonMasqueraderDataStructure =
             serde_json::from_str(actual_json).unwrap();
-        assert_eq!(actual_structure.bodyData, String::from("e8B9wQ=="));
+        assert_eq!(actual_structure.bodyData, String::from("e8B9wQ"));
     }
     #[test]
     fn json_masquerader_handles_json_that_terminates_prematurely() {

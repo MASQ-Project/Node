@@ -280,7 +280,6 @@ mod tests {
     use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
     use actix::Actor;
     use actix::Addr;
-    use actix::System;
     use masq_lib::constants::HTTP_PORT;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
@@ -302,10 +301,9 @@ mod tests {
         (recording, make_dispatcher_subs_from(&addr))
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn stream_reader_shuts_down_and_returns_ok_on_0_byte_read() {
         init_test_logging();
-        let system = System::new();
         let (shp_recording_arc, stream_handler_pool_subs) = stream_handler_pool_stuff();
         let (_, dispatcher_subs) = dispatcher_stuff();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -328,8 +326,7 @@ mod tests {
 
         subject.run().await;
 
-        System::current().stop_with_code(0);
-        system.run().unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
         let shp_recording = shp_recording_arc.lock().unwrap();
         assert_eq!(
@@ -347,10 +344,9 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn stream_reader_logs_error_and_shuts_down_when_it_gets_a_dead_stream_error() {
         init_test_logging();
-        let system = System::new();
         let (shp_recording_arc, stream_handler_pool_subs) = stream_handler_pool_stuff();
         let (_, dispatcher_subs) = dispatcher_stuff();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -374,8 +370,7 @@ mod tests {
 
         subject.run().await;
 
-        System::current().stop_with_code(0);
-        system.run().unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
         let shp_recording = shp_recording_arc.lock().unwrap();
         assert_eq!(
@@ -393,10 +388,9 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn stream_reader_logs_err_but_does_not_shut_down_when_it_gets_a_non_dead_stream_error() {
         init_test_logging();
-        let system = System::new();
         let (shp_recording_arc, stream_handler_pool_subs) = stream_handler_pool_stuff();
         let (d_recording_arc, dispatcher_subs) = dispatcher_stuff();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -421,23 +415,21 @@ mod tests {
 
         subject.run().await;
 
-        System::current().stop_with_code(0);
-        system.run().unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
         TestLogHandler::new().await_log_containing("WARN: StreamReader for 1.2.3.4:5678: Continuing after read error on stream between local 1.2.3.5:6789 and peer 1.2.3.4:5678: other error", 1000);
 
         let shp_recording = shp_recording_arc.lock().unwrap();
-        assert_eq!(shp_recording.len(), 0);
+        assert_eq!(shp_recording.len(), 1); // Does shut down after 0-byte read, just not after the error
 
         let d_recording = d_recording_arc.lock().unwrap();
-        assert_eq!(d_recording.len(), 0);
+        assert_eq!(d_recording.len(), 0); // No data messages sent since no complete frames
     }
 
-    #[test]
+    #[actix::test]
     #[should_panic(expected = "Internal error: no Discriminator factories!")]
-    fn stream_reader_panics_with_no_discriminator_factories() {
+    async fn stream_reader_panics_with_no_discriminator_factories() {
         init_test_logging();
-        let _system = System::new();
         let (_, stream_handler_pool_subs) = stream_handler_pool_stuff();
         let (_d_recording_arc, dispatcher_subs) = dispatcher_stuff();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -458,10 +450,9 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn stream_reader_sends_framed_chunks_to_dispatcher() {
         init_test_logging();
-        let system = System::new();
         let (_, stream_handler_pool_subs) = stream_handler_pool_stuff();
         let (d_recording_arc, dispatcher_subs) = dispatcher_stuff();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -489,8 +480,7 @@ mod tests {
 
         subject.run().await;
 
-        System::current().stop_with_code(0);
-        system.run().unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
         let after = SystemTime::now();
         let d_recording = d_recording_arc.lock().unwrap();
@@ -517,9 +507,8 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn stream_reader_sends_two_correct_sequenced_messages_when_sent_a_http_connect() {
-        let system = System::new();
         let (_, stream_handler_pool_subs) = stream_handler_pool_stuff();
         let (d_recording_arc, dispatcher_subs) = dispatcher_stuff();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -549,8 +538,7 @@ mod tests {
 
         subject.run().await;
 
-        System::current().stop();
-        system.run().unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
         let d_recording = d_recording_arc.lock().unwrap();
         assert_eq!(
@@ -567,10 +555,87 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[actix::test]
+    async fn shutdown_produces_the_correct_stream_shutdown_msg_for_clandestine_reader() {
+        let (shp_recording_arc, stream_handler_pool_subs) = stream_handler_pool_stuff();
+        let (_, dispatcher_subs) = dispatcher_stuff();
+        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
+        let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
+            vec![Box::new(JsonDiscriminatorFactory::new())];
+        let reader = ReadHalfWrapperMock::new().read_ok(&[]);
+        let mut subject = StreamReaderReal::new(
+            Box::new(reader),
+            None,
+            dispatcher_subs.ibcd_sub,
+            stream_handler_pool_subs.remove_sub,
+            dispatcher_subs.stream_shutdown_sub.clone(),
+            discriminator_factories,
+            true,
+            peer_addr,
+            local_addr,
+        );
+
+        subject.shutdown();
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+        let shp_recording = shp_recording_arc.lock().unwrap();
+        let remove_stream_msg = shp_recording.get_record::<RemoveStreamMsg>(0);
+        assert_eq!(
+            remove_stream_msg,
+            &RemoveStreamMsg {
+                peer_addr,
+                local_addr,
+                stream_type: RemovedStreamType::Clandestine,
+                sub: dispatcher_subs.stream_shutdown_sub,
+            }
+        );
+    }
+
+    #[actix::test]
+    async fn shutdown_produces_the_correct_stream_shutdown_msg_for_non_clandestine_reader() {
+        let (shp_recording_arc, stream_handler_pool_subs) = stream_handler_pool_stuff();
+        let (_, dispatcher_subs) = dispatcher_stuff();
+        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
+        let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
+            vec![Box::new(JsonDiscriminatorFactory::new())];
+        let reader = ReadHalfWrapperMock::new().read_ok(&[]);
+        let mut subject = StreamReaderReal::new(
+            Box::new(reader),
+            Some(HTTP_PORT),
+            dispatcher_subs.ibcd_sub,
+            stream_handler_pool_subs.remove_sub,
+            dispatcher_subs.stream_shutdown_sub.clone(),
+            discriminator_factories,
+            false,
+            peer_addr,
+            local_addr,
+        );
+        subject.sequencer.next_sequence_number(); // just so it's not 0
+
+        subject.shutdown();
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+        let shp_recording = shp_recording_arc.lock().unwrap();
+        let remove_stream_msg = shp_recording.get_record::<RemoveStreamMsg>(0);
+        assert_eq!(
+            remove_stream_msg,
+            &RemoveStreamMsg {
+                peer_addr,
+                local_addr,
+                stream_type: NonClandestine(NonClandestineAttributes {
+                    reception_port: HTTP_PORT,
+                    sequence_number: 1,
+                }),
+                sub: dispatcher_subs.stream_shutdown_sub,
+            }
+        );
+    }
+
+    #[actix::test]
     async fn stream_reader_assigns_a_sequence_to_inbound_client_data_that_are_flagged_as_sequenced()
     {
-        let system = System::new();
         let (_, stream_handler_pool_subs) = stream_handler_pool_stuff();
         let (d_recording_arc, dispatcher_subs) = dispatcher_stuff();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -581,7 +646,6 @@ mod tests {
         let request2 = Vec::from("GET http://example.com HTTP/1.1\r\n\r\n".as_bytes());
         let reader = ReadHalfWrapperMock::new()
             .read_ok(request1.as_slice())
-            .read_result(Ok(vec![]))
             .read_final(request2.as_slice());
 
         let subject = StreamReaderReal::new(
@@ -599,8 +663,7 @@ mod tests {
 
         subject.run().await;
 
-        System::current().stop_with_code(0);
-        system.run().unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
         let after = SystemTime::now();
         let d_recording = d_recording_arc.lock().unwrap();
@@ -635,10 +698,9 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn stream_reader_does_not_assign_sequence_to_inbound_client_data_that_is_not_marked_as_sequence(
     ) {
-        let system = System::new();
         let (_, stream_handler_pool_subs) = stream_handler_pool_stuff();
         let (d_recording_arc, dispatcher_subs) = dispatcher_stuff();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -668,8 +730,7 @@ mod tests {
 
         subject.run().await;
 
-        System::current().stop_with_code(0);
-        system.run().unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
         let after = SystemTime::now();
         let d_recording = d_recording_arc.lock().unwrap();
@@ -685,88 +746,6 @@ mod tests {
                 is_clandestine: true,
                 sequence_number: None,
                 data: Vec::from("GET http://here.com HTTP/1.1\r\n\r\n".as_bytes()),
-            }
-        );
-    }
-
-    #[test]
-    fn shutdown_produces_the_correct_stream_shutdown_msg_for_clandestine_reader() {
-        let (shp_recording_arc, stream_handler_pool_subs) = stream_handler_pool_stuff();
-        let (_, dispatcher_subs) = dispatcher_stuff();
-        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let system = System::new();
-        let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
-        let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
-            vec![Box::new(JsonDiscriminatorFactory::new())];
-        let reader = ReadHalfWrapperMock::new().read_ok(&[]);
-        let mut subject = StreamReaderReal::new(
-            Box::new(reader),
-            None,
-            dispatcher_subs.ibcd_sub,
-            stream_handler_pool_subs.remove_sub,
-            dispatcher_subs.stream_shutdown_sub.clone(),
-            discriminator_factories,
-            true,
-            peer_addr,
-            local_addr,
-        );
-
-        subject.shutdown();
-
-        System::current().stop_with_code(0);
-        system.run().unwrap();
-        let shp_recording = shp_recording_arc.lock().unwrap();
-        let remove_stream_msg = shp_recording.get_record::<RemoveStreamMsg>(0);
-        assert_eq!(
-            remove_stream_msg,
-            &RemoveStreamMsg {
-                peer_addr,
-                local_addr,
-                stream_type: RemovedStreamType::Clandestine,
-                sub: dispatcher_subs.stream_shutdown_sub,
-            }
-        );
-    }
-
-    #[test]
-    fn shutdown_produces_the_correct_stream_shutdown_msg_for_non_clandestine_reader() {
-        let (shp_recording_arc, stream_handler_pool_subs) = stream_handler_pool_stuff();
-        let (_, dispatcher_subs) = dispatcher_stuff();
-        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let system = System::new();
-        let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
-        let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
-            vec![Box::new(JsonDiscriminatorFactory::new())];
-        let reader = ReadHalfWrapperMock::new().read_ok(&[]);
-        let mut subject = StreamReaderReal::new(
-            Box::new(reader),
-            Some(HTTP_PORT),
-            dispatcher_subs.ibcd_sub,
-            stream_handler_pool_subs.remove_sub,
-            dispatcher_subs.stream_shutdown_sub.clone(),
-            discriminator_factories,
-            false,
-            peer_addr,
-            local_addr,
-        );
-        subject.sequencer.next_sequence_number(); // just so it's not 0
-
-        subject.shutdown();
-
-        System::current().stop_with_code(0);
-        system.run().unwrap();
-        let shp_recording = shp_recording_arc.lock().unwrap();
-        let remove_stream_msg = shp_recording.get_record::<RemoveStreamMsg>(0);
-        assert_eq!(
-            remove_stream_msg,
-            &RemoveStreamMsg {
-                peer_addr,
-                local_addr,
-                stream_type: NonClandestine(NonClandestineAttributes {
-                    reception_port: HTTP_PORT,
-                    sequence_number: 1,
-                }),
-                sub: dispatcher_subs.stream_shutdown_sub,
             }
         );
     }

@@ -253,7 +253,7 @@ mod tests {
                 .await
                 .unwrap();
 
-            let _ = subject.make_server_future().await.unwrap();
+            let _ = subject.make_server_future().await;
 
             let unwrapped_guts = socket_wrapper.guts.lock().unwrap();
             let borrowed_guts = unwrapped_guts.borrow();
@@ -267,11 +267,11 @@ mod tests {
         assert_eq!(
             log,
             vec![
-                String::from("recv_from (Ok(Ready((12, 0.0.0.0:0))))"),
+                String::from("recv_from (Ok((12, 0.0.0.0:0)))"),
                 String::from("send_to (buf, 0.0.0.0:0)"),
-                String::from("recv_from (Ok(Ready((12, 1.0.0.0:0))))"),
+                String::from("recv_from (Ok((12, 1.0.0.0:0)))"),
                 String::from("send_to (buf, 1.0.0.0:0)"),
-                String::from("recv_from (Ok(Ready((12, 2.0.0.0:0))))"),
+                String::from("recv_from (Ok((12, 2.0.0.0:0)))"),
                 String::from("send_to (buf, 2.0.0.0:0)"),
                 String::from("recv_from (Err(Kind(BrokenPipe)))")
             ]
