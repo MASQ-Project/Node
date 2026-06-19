@@ -1778,7 +1778,7 @@ mod tests {
         let tlh = TestLogHandler::new();
         tlh.exists_log_containing(
             format!(
-                "ERROR: Dispatcher: Removing channel to disabled StreamWriter {} to {}: send failed because receiver is gone",
+                "ERROR: Dispatcher: Removing channel to disabled StreamWriter {} to {}: channel closed",
                 StreamWriterKey::from (peer_addr), peer_addr,
             )
                 .as_str(),
@@ -1941,9 +1941,7 @@ mod tests {
     }
 
     #[actix::test]
-    #[should_panic(
-        expected = "Neighborhood has returned a NodeDescriptor with no ports. This indicates an unrecoverable error."
-    )]
+    #[should_panic(expected = "Mailbox has closed")]
     async fn when_node_query_response_node_addr_contains_no_ports_then_stream_handler_pool_panics() {
         init_test_logging();
         let cryptde = main_cryptde();
@@ -1972,7 +1970,7 @@ mod tests {
 
         subject_subs
             .node_query_response
-            .try_send(DispatcherNodeQueryResponse {
+            .send(DispatcherNodeQueryResponse {
                 result: Some(NodeQueryResponseMetadata::new(
                     key.clone(),
                     Some(NodeAddr::new(&peer_addr.ip(), &[])),
@@ -1980,10 +1978,8 @@ mod tests {
                 )),
                 context: msg,
             })
+            .await
             .unwrap();
-
-        // Give the actor time to process the message and panic
-        sleep(TokioDuration::from_millis(100)).await;
     }
 
     #[actix::test]

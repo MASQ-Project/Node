@@ -184,8 +184,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn complains_when_consume_no_lookup_is_given_bad_parameters() {
+    #[actix::test]
+    async fn complains_when_consume_no_lookup_is_given_bad_parameters() {
         init_test_logging();
         let blank_key = PublicKey::new(b"");
         let target_node_addr = NodeAddr::new(&IpAddr::from_str("1.2.1.2").unwrap(), &[1212, 2121]);
@@ -203,6 +203,7 @@ mod tests {
 
         subject.consume_no_lookup(package);
 
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
         TestLogHandler::new ().exists_log_containing ("ERROR: ConsumingService: Could not accept CORES package for transmission: EncryptionError(EmptyKey)");
     }
 
@@ -302,8 +303,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn consume_logs_error_when_given_bad_input_data() {
+    #[actix::test]
+    async fn consume_logs_error_when_given_bad_input_data() {
         init_test_logging();
         let peer_actors = peer_actors_builder().build();
         let to_dispatcher = peer_actors.dispatcher.from_dispatcher_client;
@@ -321,6 +322,7 @@ mod tests {
             .unwrap(),
         );
 
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
         TestLogHandler::new().exists_log_containing(
             "ERROR: ConsumingService: Could not decrypt next hop: RoutingError(EmptyRoute)",
         );

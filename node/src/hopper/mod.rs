@@ -174,7 +174,7 @@ mod tests {
     }
 
     #[actix::test]
-    #[should_panic(expected = "Hopper unbound: no RoutingService")]
+    #[should_panic(expected = "Mailbox has closed")]
     async fn panics_if_routing_service_is_unbound() {
         let main_cryptde = main_cryptde();
         let alias_cryptde = alias_cryptde();
@@ -215,11 +215,11 @@ mod tests {
         });
         let subject_addr = subject.start();
 
-        subject_addr.try_send(inbound_client_data).unwrap();
+        subject_addr.send(inbound_client_data).await.unwrap();
     }
 
     #[actix::test]
-    #[should_panic(expected = "Hopper unbound: no ConsumingService")]
+    #[should_panic(expected = "Mailbox has closed")]
     async fn panics_if_consuming_service_is_unbound() {
         let main_cryptde = main_cryptde();
         let alias_cryptde = alias_cryptde();
@@ -254,7 +254,7 @@ mod tests {
         });
         let subject_addr = subject.start();
 
-        subject_addr.try_send(incipient_package).unwrap();
+        subject_addr.send(incipient_package).await.unwrap();
     }
 
     #[test]

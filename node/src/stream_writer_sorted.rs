@@ -237,14 +237,17 @@ mod tests {
             .recv_result(None);
 
         let write_params_arc = Arc::new(Mutex::new(vec![]));
-        let writer = WriteHalfWrapperMock::new().write_params(&write_params_arc);
+        let writer = WriteHalfWrapperMock::new()
+            .write_params(&write_params_arc)
+            .write_result(Ok(5))
+            .write_result(Ok(5));
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
 
         let subject = StreamWriterSorted::new(Box::new(writer), peer_addr, Box::new(rx));
 
         subject.go().await.unwrap();
 
-        assert_eq!(write_params_arc.lock().unwrap().len(), 1);
+        assert_eq!(write_params_arc.lock().unwrap().len(), 2);
     }
 
     #[tokio::test]
@@ -311,7 +314,8 @@ mod tests {
         let writer = WriteHalfWrapperMock::new()
             .write_params(&write_params_arc)
             .write_result(Err(io::Error::from(ErrorKind::Other)))
-            .write_result(Ok(5));
+            .write_result(Ok(5))
+            .write_result(Err(io::Error::from(ErrorKind::BrokenPipe)));
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
 
         let subject =
@@ -473,7 +477,6 @@ mod tests {
                 sequence_number: 0,
                 last_data: false,
             }))
-            .recv_result(None)
             .recv_result(None);
 
         let write_params_arc = Arc::new(Mutex::new(vec![]));
@@ -486,7 +489,7 @@ mod tests {
 
         subject.go().await.unwrap();
 
-        assert_eq!(write_params_arc.lock().unwrap().len(), 2);
+        assert_eq!(write_params_arc.lock().unwrap().len(), 1);
     }
 
     #[tokio::test]
@@ -497,8 +500,6 @@ mod tests {
                 sequence_number: 0,
                 last_data: false,
             }))
-            .recv_result(None)
-            .recv_result(None)
             .recv_result(None);
 
         let write_params_arc = Arc::new(Mutex::new(vec![]));
@@ -531,12 +532,9 @@ mod tests {
             .recv_result(None);
 
         let write_params_arc = Arc::new(Mutex::new(vec![]));
-        let shutdown_params_arc = Arc::new(Mutex::new(vec![]));
         let writer = WriteHalfWrapperMock::new()
             .write_params(&write_params_arc)
-            .write_result(Ok(packet_a.len()))
-            .shutdown_params(&shutdown_params_arc)
-            .shutdown_result(Ok(()));
+            .write_result(Ok(packet_a.len()));
 
         let peer_addr = SocketAddr::from_str("2.2.3.4:5678").unwrap();
 
@@ -548,12 +546,10 @@ mod tests {
         let write_params = write_params_arc.lock().unwrap();
 
         assert_eq!(write_params[0], packet_a);
-
-        assert_eq!(*(shutdown_params_arc.lock().unwrap()), vec![()]);
     }
 
     #[tokio::test]
-    async fn stream_writer_returns_not_ready_when_shutdown_is_not_ready_and_retries_on_next_poll() {
+    async fn stream_writer_exits_after_writing_last_data() {
         let packet_a: Vec<u8> = vec![1, 3, 5, 9, 7];
         let rx_to_write = ReceiverWrapperMock::new()
             .recv_result(Some(SequencedPacket {
@@ -563,12 +559,9 @@ mod tests {
             }))
             .recv_result(None);
         let write_params_arc = Arc::new(Mutex::new(vec![]));
-        let shutdown_params_arc = Arc::new(Mutex::new(vec![]));
         let writer = WriteHalfWrapperMock::new()
             .write_params(&write_params_arc)
-            .write_result(Ok(packet_a.len()))
-            .shutdown_params(&shutdown_params_arc)
-            .shutdown_result(Ok(()));
+            .write_result(Ok(packet_a.len()));
         let peer_addr = SocketAddr::from_str("2.2.3.4:5678").unwrap();
         let subject =
             StreamWriterSorted::new(Box::new(writer), peer_addr, Box::new(rx_to_write));
@@ -577,11 +570,10 @@ mod tests {
 
         let write_params = write_params_arc.lock().unwrap();
         assert_eq!(write_params[0], packet_a);
-        assert_eq!(*(shutdown_params_arc.lock().unwrap()), vec![(), ()]);
     }
 
     #[tokio::test]
-    async fn stream_writer_returns_error_when_shutdown_returns_error() {
+    async fn stream_writer_exits_successfully_after_writing_last_data() {
         let packet_a: Vec<u8> = vec![1, 3, 5, 9, 7];
         let rx_to_write = ReceiverWrapperMock::new()
             .recv_result(Some(SequencedPacket {
@@ -593,8 +585,7 @@ mod tests {
         let write_params_arc = Arc::new(Mutex::new(vec![]));
         let writer = WriteHalfWrapperMock::new()
             .write_params(&write_params_arc)
-            .write_result(Ok(packet_a.len()))
-            .shutdown_result(Err(io::Error::from(ErrorKind::Other)));
+            .write_result(Ok(packet_a.len()));
         let peer_addr = SocketAddr::from_str("2.2.3.4:5678").unwrap();
         let subject =
             StreamWriterSorted::new(Box::new(writer), peer_addr, Box::new(rx_to_write));
@@ -603,6 +594,6 @@ mod tests {
 
         let write_params = write_params_arc.lock().unwrap();
         assert_eq!(write_params[0], packet_a);
-        assert_eq!(res.err().unwrap().kind(), ErrorKind::Other);
+        assert!(res.is_ok());
     }
 }

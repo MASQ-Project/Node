@@ -683,8 +683,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn logs_and_ignores_message_that_had_invalid_destination() {
+    #[actix::test]
+    async fn logs_and_ignores_message_that_had_invalid_destination() {
         init_test_logging();
         let main_cryptde = main_cryptde();
         let alias_cryptde = alias_cryptde();
@@ -728,6 +728,7 @@ mod tests {
             false,
         );
         subject.route(inbound_client_data);
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
         TestLogHandler::new().exists_log_matching("Attempt to send invalid combination .* to .*");
     }
 
@@ -1793,8 +1794,8 @@ mod tests {
         assert_eq!(dispatcher_recording_arc.lock().unwrap().len(), 0);
     }
 
-    #[test]
-    fn route_data_around_again_logs_and_ignores_bad_lcp() {
+    #[actix::test]
+    async fn route_data_around_again_logs_and_ignores_bad_lcp() {
         init_test_logging();
         let peer_actors = peer_actors_builder().build();
         let subject = RoutingService::new(
@@ -1824,6 +1825,7 @@ mod tests {
 
         subject.route_data_around_again(lcp, &ibcd);
 
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
         TestLogHandler::new().exists_log_containing(
             "ERROR: RoutingService: bad zero-hop route: RoutingError(EmptyRoute)",
         );

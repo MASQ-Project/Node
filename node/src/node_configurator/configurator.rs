@@ -860,8 +860,8 @@ mod tests {
         assert_eq!(CRASH_KEY, "CONFIGURATOR")
     }
 
-    #[test]
-    fn constructor_connects_with_database() {
+    #[actix::test]
+    async fn constructor_connects_with_database() {
         let data_dir =
             ensure_node_home_directory_exists("configurator", "constructor_connects_with_database");
         let verifier = PersistentConfigurationReal::new(Box::new(ConfigDaoReal::new(
@@ -945,6 +945,8 @@ mod tests {
             })
             .unwrap();
 
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
         let check_password_params = check_password_params_arc.lock().unwrap();
         assert_eq!(*check_password_params, vec![Some("password".to_string())]);
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
@@ -1008,6 +1010,8 @@ mod tests {
                 .tmb(4321),
             })
             .unwrap();
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         let change_password_params = change_password_params_arc.lock().unwrap();
         assert_eq!(
@@ -1124,6 +1128,8 @@ mod tests {
                 .tmb(4321),
             })
             .unwrap();
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         assert_eq!(
@@ -1275,6 +1281,8 @@ mod tests {
                 body: make_example_generate_wallets_request().tmb(4321),
             })
             .unwrap();
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let response = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
@@ -1513,8 +1521,8 @@ mod tests {
         let _ = Mnemonic::from_phrase(&phrase_str, Language::English).unwrap();
     }
 
-    #[test]
-    fn handle_recover_wallets_works_with_earning_wallet_address() {
+    #[actix::test]
+    async fn handle_recover_wallets_works_with_earning_wallet_address() {
         let check_password_params_arc = Arc::new(Mutex::new(vec![]));
         let set_wallet_info_params_arc = Arc::new(Mutex::new(vec![]));
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
@@ -1538,6 +1546,8 @@ mod tests {
                 body: request.clone().tmb(4321),
             })
             .unwrap();
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let response = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
@@ -1942,6 +1952,8 @@ mod tests {
                 .tmb(4444),
             })
             .unwrap();
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let response = ui_gateway_recording.get_record::<NodeToUiMessage>(0);

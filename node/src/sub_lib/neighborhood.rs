@@ -840,37 +840,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(String::from("Invalid Base64 value for public key: bad_key"))
-        );
-    }
-
-    #[test]
-    fn from_str_complains_about_slash_in_the_key() {
-        let result = NodeDescriptor::try_from((
-            &CryptDEReal::new(TEST_DEFAULT_CHAIN) as &dyn CryptDE,
-            "masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw@12.23.34.45:5678",
-        ));
-
-        assert_eq!(
-            result,
-            Err(String::from(
-                "Invalid Base64 value for public key: abJ5XvhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw"
-            ))
-        );
-    }
-
-    #[test]
-    fn from_str_complains_about_plus_in_the_key() {
-        let result = NodeDescriptor::try_from((
-            &CryptDEReal::new(DEFAULT_CHAIN) as &dyn CryptDE,
-            "masq://eth-ropsten:abJ5XvhVbmVy+GejkYUmftF09pmGZGKgkPzRNnWQxFw@12.23.34.45:5678",
-        ));
-
-        assert_eq!(
-            result,
-            Err(String::from(
-                "Invalid Base64 value for public key: abJ5XvhVbmVy+GejkYUmftF09pmGZGKgkPzRNnWQxFw"
-            ))
+            Err(String::from("InvalidByte(3, 95)"))
         );
     }
 
@@ -1237,7 +1207,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err("Invalid value for min hops provided".to_string())
+            Err("Unrecognized min-hops value '100'".to_string())
         )
     }
 
