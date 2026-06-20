@@ -62,6 +62,7 @@ pub struct ProxyClient {
     exit_byte_rate: u64,
     is_decentralized: bool,
     crashable: bool,
+    #[allow(dead_code)]
     runtime: Runtime,
     logger: Logger,
 }

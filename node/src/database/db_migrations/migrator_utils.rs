@@ -206,6 +206,7 @@ impl Default for DBMigratorInnerConfiguration {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 struct InterimMigrationPlaceholder(usize);
 
 impl DatabaseMigration for InterimMigrationPlaceholder {

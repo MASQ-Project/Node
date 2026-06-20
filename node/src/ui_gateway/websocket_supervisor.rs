@@ -65,7 +65,6 @@ impl ClientWrapper for ClientWrapperReal {
 
 // TODO: Needs a better name. Used by both WebSocketSupervisorReal and MasqNodeUiv2Handler.
 pub struct WebSocketSupervisorInner {
-    port: u16,
     next_client_id: u64,
     from_ui_message_sub: Recipient<NodeFromUiMessage>,
     client_id_by_socket_addr: HashMap<SocketAddr, u64>,
@@ -93,7 +92,6 @@ impl WebSocketSupervisorReal {
     ) -> WebSocketSupervisorReal {
         let logger = Logger::new("WebSocketSupervisor");
         let inner_arc = Arc::new(Mutex::new(WebSocketSupervisorInner {
-            port,
             next_client_id: 1,
             from_ui_message_sub: from_ui_message_sub.clone(),
             client_id_by_socket_addr: HashMap::new(),
@@ -606,7 +604,7 @@ mod tests {
     use masq_lib::test_utils::logging::TestLogHandler;
     use masq_lib::test_utils::ui_connection::{UiConnection};
     use masq_lib::ui_gateway::MessagePath::FireAndForget;
-    use masq_lib::ui_gateway::{MessageTarget, NodeFromUiMessage};
+    use masq_lib::ui_gateway::{NodeFromUiMessage};
     use masq_lib::ui_traffic_converter::UiTrafficConverter;
     use masq_lib::utils::{find_free_port, localhost};
     use std::cell::RefCell;
@@ -615,7 +613,6 @@ mod tests {
     use std::sync::{Arc as StdArc, Mutex as StdMutex};
     use std::time::Duration;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::sync::mpsc::{UnboundedReceiver};
 
     struct ClientWrapperMock {
         send_text_params: StdArc<StdMutex<Vec<String>>>,
@@ -656,6 +653,7 @@ mod tests {
             self
         }
 
+        #[allow(dead_code)]
         fn close_result(self, result: Result<(), soketto::connection::Error>) -> Self {
             self.close_results.borrow_mut().push(result);
             self
@@ -774,7 +772,7 @@ mod tests {
         ui_gateway_awaiter.await_message_count_async(1).await;
         let recording = ui_gateway_recording_arc.lock().unwrap();
         let ui_message = recording.get_record::<NodeFromUiMessage>(0).clone();
-        let (message, ctx_id) = UiCheckPasswordRequest::fmb(ui_message.body).unwrap();
+        let (message, _ctx_id) = UiCheckPasswordRequest::fmb(ui_message.body).unwrap();
         assert_eq!(
             message,
             UiCheckPasswordRequest {
@@ -939,10 +937,10 @@ mod tests {
         )
     }
 
+    #[allow(dead_code)]
     fn make_ordinary_inner(port: u16, test_name: &str) -> WebSocketSupervisorInner {
         let (ui_message_sub, _, _) = make_recorder();
         WebSocketSupervisorInner {
-            port,
             next_client_id: 0,
             from_ui_message_sub: ui_message_sub.start().recipient::<NodeFromUiMessage>(),
             client_id_by_socket_addr: Default::default(),
@@ -1100,10 +1098,10 @@ mod tests {
     #[should_panic(expected = "Failed to flush message: Closed")]
     async fn once_a_client_sends_a_close_no_more_data_is_accepted() {
         let port = find_free_port();
-        let (ui_gateway, ui_gateway_awaiter, ui_gateway_recording_arc) = make_recorder();
+        let (ui_gateway, _, _) = make_recorder();
         let ui_message_sub = subs(ui_gateway);
 
-        let subject = WebSocketSupervisorReal::new(port, ui_message_sub, 1);
+        let _subject = WebSocketSupervisorReal::new(port, ui_message_sub, 1);
         wait_for_server(port).await;
 
         let mut client = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();

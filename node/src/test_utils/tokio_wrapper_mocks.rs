@@ -1,4 +1,4 @@
-// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MAS`Q (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapper;
@@ -50,8 +50,6 @@ impl ReadHalfWrapperMock {
         self.read_ok(data).read_ok(&[])
     }
 }
-
-type ShutdownResults = Vec<Poll<io::Result<()>>>;
 
 #[derive(Default)]
 pub struct WriteHalfWrapperMock {

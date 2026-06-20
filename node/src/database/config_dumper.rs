@@ -243,7 +243,7 @@ mod tests {
             dirs_wrapper: Box::new(DirsWrapperReal),
         };
 
-        let result = subject.go(&mut holder.streams(), args_vec.as_slice()).unwrap();
+        let _result = subject.go(&mut holder.streams(), args_vec.as_slice()).unwrap();
 
         let schema_version_after = dao.get("schema_version").unwrap().value_opt.unwrap();
         assert_eq!(schema_version_before, schema_version_after);
@@ -322,7 +322,7 @@ mod tests {
             dirs_wrapper: dirs_wrapper,
         };
 
-        let result = subject.go(&mut holder.streams(), args_vec.as_slice()).unwrap();
+        let _result = subject.go(&mut holder.streams(), args_vec.as_slice()).unwrap();
 
         let output = holder.stdout.get_string();
         let map = match serde_json::from_str(&output).unwrap() {
@@ -482,7 +482,7 @@ mod tests {
             dirs_wrapper: Box::new(DirsWrapperReal),
         };
 
-        let result = subject.go(&mut holder.streams(), args_vec.as_slice()).unwrap();
+        let _result = subject.go(&mut holder.streams(), args_vec.as_slice()).unwrap();
 
         let output = holder.stdout.get_string();
         let map = match serde_json::from_str(&output).unwrap() {
@@ -589,7 +589,7 @@ mod tests {
             dirs_wrapper: Box::new(DirsWrapperReal),
         };
 
-        let result = subject.go(&mut holder.streams(), args_vec.as_slice()).unwrap();
+        let _result = subject.go(&mut holder.streams(), args_vec.as_slice()).unwrap();
 
         let output = holder.stdout.get_string();
         let map = match serde_json::from_str(&output).unwrap() {

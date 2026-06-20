@@ -62,7 +62,9 @@ impl StreamHandlerPool for StreamHandlerPoolReal {
 }
 
 type StreamEstablisherResultInner =
-    Result<Box<dyn SenderWrapper<SequencedPacket> + 'static>, String>;
+ Result<Box<dyn SenderWrapper<SequencedPacket> + 'static>, String>;
+
+#[allow(dead_code)]
 type StreamEstablisherResult = Box<dyn Future<Output = StreamEstablisherResultInner>>;
 
 impl StreamHandlerPoolReal {

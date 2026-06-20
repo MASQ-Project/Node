@@ -132,6 +132,7 @@ impl StreamWriterSorted {
         }
     }
 
+    #[allow(dead_code)]
     async fn shutdown(mut self) {
         match self.stream_opt.take() {
             None => {
@@ -151,6 +152,7 @@ impl StreamWriterSorted {
         }
     }
 
+    #[allow(dead_code)]
     fn stream(&self) -> &dyn WriteHalfWrapper {
         self.stream_opt
             .as_ref()
@@ -203,6 +205,7 @@ enum ReadChannelStatus {
 
 enum WriteBufferStatus {
     StreamInError(std::io::Error),
+    #[allow(dead_code)]
     BufferNotEmpty,
     BufferEmpty,
 }

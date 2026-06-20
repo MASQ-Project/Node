@@ -592,6 +592,7 @@ impl AutomapControlFactoryReal {
     }
 }
 
+#[allow(dead_code)]
 pub struct AutomapControlFactoryNull {}
 
 impl AutomapControlFactory for AutomapControlFactoryNull {

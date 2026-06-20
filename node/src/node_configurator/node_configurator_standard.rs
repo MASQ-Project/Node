@@ -29,8 +29,6 @@ use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::utils::make_new_multi_config;
 use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
-use base64::prelude::BASE64_STANDARD_NO_PAD;
-use base64::Engine;
 use masq_lib::constants::{DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT};
 use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl};
 use itertools::Itertools;

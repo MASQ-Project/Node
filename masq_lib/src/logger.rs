@@ -9,7 +9,10 @@ use crate::data_version::DataVersion;
 use crate::messages::SerializableLogLevel;
 #[cfg(not(feature = "log_recipient_test"))]
 use crate::messages::{ToMessageBody, UiLogBroadcast};
-use crate::ui_gateway::{MessageTarget, NodeToUiMessage};
+use crate::ui_gateway::{NodeToUiMessage};
+#[cfg(not(feature = "log_recipient_test"))]
+use crate::ui_gateway::MessageTarget;
+#[cfg(not(feature = "log_recipient_test"))]
 use crate::utils::test_is_running;
 use actix::Recipient;
 use lazy_static::lazy_static;
@@ -1027,10 +1030,9 @@ mod tests {
     }
 
     fn prepare_test_environment<'a>() -> MutexGuard<'a, ()> {
-        let guard = match TEST_LOG_RECIPIENT_GUARD.lock() {
-            Ok(g) => g,
-            Err(poison_error) => poison_error.into_inner(),
-        };
+        let guard = TEST_LOG_RECIPIENT_GUARD
+            .lock()
+            .unwrap_or_else(|poison_error| poison_error.into_inner());
         let _ = LOG_RECIPIENT_OPT
             .lock()
             .expect("Unable to lock LOG_RECIPIENT_OPT")

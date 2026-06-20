@@ -7,6 +7,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 pub struct CrashTestDummy<C> {
+    #[allow(dead_code)]
     pub configuration: C,
     pub(crate) crash_point: CrashPoint,
     pub(crate) message: String,

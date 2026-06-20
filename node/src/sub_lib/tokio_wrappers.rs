@@ -118,6 +118,7 @@ impl TokioListenerWrapperReal {
             .expect("TcpListener not initialized - bind to a SocketAddr")
     }
 
+    #[allow(dead_code)]
     fn delegate_mut(&mut self) -> &mut TcpListener {
         self.delegate
             .as_mut()

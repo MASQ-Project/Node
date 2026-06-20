@@ -1367,7 +1367,7 @@ mod tests {
         CPM_RECIPIENT.with(|cell| {
             let mut opt = cell.borrow_mut();
             if opt.is_none() {
-                let mut system = System::new();
+                let system = System::new();
                 // We need to run the system to provide async context for starting actors
                 let recipient = system.block_on(async {
                     make_cpm_recipient().0

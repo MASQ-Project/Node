@@ -668,7 +668,7 @@ mod tests {
     use crate::db_config::persistent_configuration::PersistentConfigError::NotPresent;
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
     use crate::sub_lib::accountant::DEFAULT_PAYMENT_THRESHOLDS;
-    use crate::sub_lib::cryptde::{PlainData, PublicKey};
+    use crate::sub_lib::cryptde::{PlainData};
     use crate::sub_lib::neighborhood::{DEFAULT_RATE_PACK};
     use crate::sub_lib::utils::make_new_multi_config;
     use crate::sub_lib::wallet::Wallet;
