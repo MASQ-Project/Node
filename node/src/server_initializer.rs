@@ -445,7 +445,17 @@ pub mod tests {
     #[async_trait]
     impl<C: Send + 'static> SpawnableConfiguredByPrivilege for CrashTestDummy<C> {
         async fn make_server_future(&mut self) -> io::Result<()> {
-            Ok(())
+            match self.crash_point {
+                CrashPoint::None | CrashPoint::Message => Ok(()),
+                CrashPoint::Panic => {
+                    error!(self.logger, "Intercepted instruction to panic.");
+                    panic!("{}", self.message);
+                }
+                CrashPoint::Error => {
+                    error!(self.logger, "Intercepted instruction to return error.");
+                    Err(io::Error::new(io::ErrorKind::Other, "CrashTestDummy error"))
+                }
+            }
         }
     }
 
@@ -738,10 +748,10 @@ pub mod tests {
         let join_handle = subject.spawn_long_lived_services();
 
         let result = join_handle.await;
-        assert_eq!(
-            result.is_err(),
-            true,
-            "Expected an error, but received {:?}",
+        // JoinHandle returns Ok(inner_result), so we expect Ok(Err(_))
+        assert!(
+            matches!(result, Ok(Err(_))),
+            "Expected Ok(Err(_)), but received {:?}",
             result
         );
     }
@@ -763,7 +773,9 @@ pub mod tests {
             dirs_wrapper: Box::new(dirs_wrapper),
         };
 
-        let _ = subject.spawn_long_lived_services();
+        let join_handle = subject.spawn_long_lived_services();
+        // Unwrap to propagate the panic from the spawned task
+        join_handle.await.unwrap().unwrap();
     }
 
     #[tokio::test]
@@ -773,7 +785,7 @@ pub mod tests {
         let bootstrapper_init_unprivileged_params_arc = Arc::new(Mutex::new(vec![]));
         let dns_socket_server_privileged_params_arc = Arc::new(Mutex::new(vec![]));
         let dns_socket_server_unprivileged_params_arc = Arc::new(Mutex::new(vec![]));
-        let make_mock = || ConfiguredByPrivilegeMock::default()
+        let bootstrapper = ConfiguredByPrivilegeMock::default()
             .initialize_as_privileged_result(Ok(()))
             .initialize_as_unprivileged_result(Ok(()))
             .initialize_as_privileged_params(&bootstrapper_init_privileged_params_arc)
@@ -782,8 +794,15 @@ pub mod tests {
                 "dns-servers",
                 "real-user",
             ]));
-        let bootstrapper = make_mock();
-        let dns_socket_server = make_mock();
+        let dns_socket_server = ConfiguredByPrivilegeMock::default()
+            .initialize_as_privileged_result(Ok(()))
+            .initialize_as_unprivileged_result(Ok(()))
+            .initialize_as_privileged_params(&dns_socket_server_privileged_params_arc)
+            .initialize_as_unprivileged_params(&dns_socket_server_unprivileged_params_arc)
+            .define_demanded_values_from_multi_config(slice_of_strs_to_vec_of_strings(&[
+                "dns-servers",
+                "real-user",
+            ]));
         let dirs_wrapper = make_pre_populated_mocked_directory_wrapper();
         let drop_privileges_params_arc = Arc::new(Mutex::new(vec![]));
         let chown_params_arc = Arc::new(Mutex::new(vec![]));

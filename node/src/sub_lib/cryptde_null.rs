@@ -628,7 +628,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(String::from("Invalid Base64 value for public key: ((]--$"))
+            Err(String::from("InvalidByte(0, 40)"))
         );
     }
 

@@ -198,8 +198,8 @@ mod tests {
     use serde_cbor;
     use std::str::FromStr;
 
-    #[test]
-    fn dispatcher_subs_debug() {
+    #[actix::test]
+    async fn dispatcher_subs_debug() {
         let addr = Recorder::new().start();
 
         let subject = DispatcherSubs {

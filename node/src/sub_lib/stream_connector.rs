@@ -110,6 +110,8 @@ impl StreamConnector for StreamConnectorReal {
             match StdTcpStream::connect(socket_addr) {
                 Ok(stream) => {
                     debug!(logger, "Connected new stream to {}", socket_addr);
+                    // Set socket to non-blocking mode before converting to TcpStream
+                    stream.set_nonblocking(true).expect("Cannot set socket to non-blocking");
                     let tokio_stream =
                         TcpStream::from_std(stream).expect("Tokio could not create a TcpStream");
                     return Ok(self.split_stream(tokio_stream, logger).unwrap_or_else(|| {
@@ -217,8 +219,8 @@ mod tests {
         assert_eq!(connection_info.peer_addr, server.socket_addr());
     }
 
-    #[test]
-    fn stream_connector_can_try_connections_until_it_succeeds_then_use_the_successful_one() {
+    #[tokio::test]
+    async fn stream_connector_can_try_connections_until_it_succeeds_then_use_the_successful_one() {
         init_test_logging();
         let logger = Logger::new("test");
         let server = LittleTcpServer::start();
@@ -243,8 +245,8 @@ mod tests {
         assert_eq!(connection_info.local_addr.ip(), socket_addr.ip());
     }
 
-    #[test]
-    fn stream_connector_only_tries_connecting_until_successful() {
+    #[tokio::test]
+    async fn stream_connector_only_tries_connecting_until_successful() {
         init_test_logging();
         let logger = Logger::new("test");
         let server = LittleTcpServer::start();
@@ -287,8 +289,8 @@ mod tests {
         TestLogHandler::new().exists_log_matching("Could not connect to any of the IP addresses supplied for some hostname: \\[\"255\\.255\\.255\\.255:\\d+\"\\]");
     }
 
-    #[test]
-    fn closed_stream_either_splits_properly_or_doesnt_split_and_logs() {
+    #[tokio::test]
+    async fn closed_stream_either_splits_properly_or_doesnt_split_and_logs() {
         init_test_logging();
         let server = LittleTcpServer::start();
         let std_stream = StdTcpStream::connect(server.socket_addr()).unwrap();
@@ -296,6 +298,8 @@ mod tests {
         let peer_addr = std_stream.peer_addr().unwrap();
         std_stream.shutdown(Shutdown::Both).unwrap();
         thread::sleep(Duration::from_millis(100)); // Shutdown apparently needs time to propagate
+        // Set socket to non-blocking mode before converting to TcpStream
+        std_stream.set_nonblocking(true).unwrap();
         let stream = TcpStream::from_std(std_stream).unwrap();
         let logger = Logger::new("either/or");
         let subject = StreamConnectorReal {};

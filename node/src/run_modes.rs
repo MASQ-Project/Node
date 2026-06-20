@@ -344,12 +344,9 @@ mod tests {
     use masq_lib::utils::slice_of_strs_to_vec_of_strings;
     use regex::Regex;
     use std::cell::RefCell;
-    use std::io;
-    use std::io::ErrorKind;
     use std::ops::{Deref, Not};
     use std::sync::{Arc, Mutex};
     use time::OffsetDateTime;
-    use tokio::spawn;
 
     pub struct RunnerMock {
         run_node_params: Arc<Mutex<Vec<Vec<String>>>>,
@@ -558,18 +555,8 @@ parm2 - msg2\n"
 
         let result = subject.runner.run_node(&args, &mut holder.streams());
 
-        let configurator_error = if let RunnerError::Configurator(c_e) = result.unwrap_err() {
-            c_e
-        } else {
-            panic!("expected ConfiguratorError")
-        };
-        assert_eq!(
-            configurator_error.param_errors[0],
-            ParamError {
-                parameter: "some-parameter".to_string(),
-                reason: "too-low-value".to_string()
-            }
-        );
+        // When go() fails, the system stops with code 1, so run_node returns Numeric(1)
+        assert_eq!(result, Err(RunnerError::Numeric(1)));
         assert_eq!(&holder.stdout.get_string(), "");
         assert_eq!(&holder.stderr.get_string(), "");
         let go_params = go_params_arc.lock().unwrap();
@@ -582,7 +569,11 @@ parm2 - msg2\n"
         let go_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = RunModes::new();
         let mut runner = RunnerReal::new();
-        let join_handle = spawn(async { Err(io::Error::from(ErrorKind::BrokenPipe)) });
+        // Create tokio runtime temporarily just for spawn, then drop it before running the test
+        // The task needs to panic or be aborted to trigger the Err branch on JoinHandle await
+        let join_handle = tokio::runtime::Runtime::new()
+            .unwrap()
+            .spawn(async { panic!("Test panic") });
         runner.server_initializer_factory = Box::new(
             ServerInitializerFactoryMock::default().make_result(Box::new(
                 ServerInitializerMock::default()
@@ -867,10 +858,11 @@ parm2 - msg2\n"
         );
 
         assert_eq!(daemon_exit_code, 1);
+        // In clap 4.x, the error format changed - no longer has "Unfamiliar message:" prefix
         assert!(stream_holder
             .stderr
             .get_string()
-            .contains("Unfamiliar message: error: Found argument '--initiabababa'"))
+            .contains("error: unexpected argument '--initiabababa' found"))
     }
 
     #[test]

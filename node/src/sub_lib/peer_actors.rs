@@ -59,11 +59,9 @@ pub struct NewPublicIp {
 #[cfg(test)]
 mod tests {
     use crate::test_utils::recorder::peer_actors_builder;
-    use actix::System;
 
-    #[test]
-    fn peer_actors_debug() {
-        let _ = System::new();
+    #[actix::test]
+    async fn peer_actors_debug() {
         let subject = peer_actors_builder().build();
 
         let result = format!("{:?}", subject);

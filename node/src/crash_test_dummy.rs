@@ -8,9 +8,9 @@ use std::task::{Context, Poll};
 
 pub struct CrashTestDummy<C> {
     pub configuration: C,
-    crash_point: CrashPoint,
-    message: String,
-    logger: Logger,
+    pub(crate) crash_point: CrashPoint,
+    pub(crate) message: String,
+    pub(crate) logger: Logger,
 }
 
 impl<C> Future for CrashTestDummy<C>

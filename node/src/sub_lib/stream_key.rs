@@ -83,8 +83,10 @@ impl<'a> Visitor<'a> for StreamKeyVisitor {
 }
 
 impl StreamKey {
-    pub fn new(_public_key: PublicKey, peer_addr: SocketAddr) -> StreamKey {
+    pub fn new(public_key: PublicKey, peer_addr: SocketAddr) -> StreamKey {
         let mut hash = Sha1::new();
+        // Include the public key in the hash
+        hash.update(&public_key.as_slice());
         match peer_addr.ip() {
             IpAddr::V4(ipv4) => hash.update(ipv4.octets()),
             IpAddr::V6(_ipv6) => unimplemented!(),
@@ -169,7 +171,7 @@ mod tests {
 
         let result = format!("{:?}", subject);
 
-        assert_eq!(result, String::from("X4SEhZulE9WrmSolWqKFErYBVgI"));
+        assert_eq!(result, String::from("W04FRbN1aMPvV3OpztUzpUj6BTw"));
     }
 
     #[test]
@@ -180,7 +182,7 @@ mod tests {
 
         let result = format!("{}", subject);
 
-        assert_eq!(result, String::from("X4SEhZulE9WrmSolWqKFErYBVgI"));
+        assert_eq!(result, String::from("W04FRbN1aMPvV3OpztUzpUj6BTw"));
     }
 
     #[test]
